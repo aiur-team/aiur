@@ -26,39 +26,66 @@ defmodule SymphonyElixir.GitHub.ClientTest do
       request_fun = fn %{method: :get, url: url, token: token} ->
         assert token == "test-gh-token"
         assert url =~ "/repos/owner/repo/issues"
-        assert url =~ "labels="
         assert url =~ "state=open"
 
-        {:ok,
-         %{
-           status: 200,
-           body: [
-             %{
-               "number" => 42,
-               "title" => "Fix the bug",
-               "body" => "Something is broken",
-               "html_url" => "https://github.com/owner/repo/issues/42",
-               "labels" => [
-                 %{"name" => "sym:todo"},
-                 %{"name" => "priority:1"}
-               ],
-               "assignee" => %{"login" => "dev1"},
-               "created_at" => "2025-01-01T00:00:00Z",
-               "updated_at" => "2025-01-02T00:00:00Z"
-             }
-           ]
-         }}
+        # Each label is queried separately; return issue only for sym:todo
+        if url =~ "sym:todo" or url =~ "sym%3Atodo" do
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 42,
+                 "title" => "Fix the bug",
+                 "body" => "Something is broken",
+                 "html_url" => "https://github.com/owner/repo/issues/42",
+                 "labels" => [
+                   %{"name" => "sym:todo"},
+                   %{"name" => "priority:1"}
+                 ],
+                 "assignee" => %{"login" => "dev1"},
+                 "created_at" => "2025-01-01T00:00:00Z",
+                 "updated_at" => "2025-01-02T00:00:00Z"
+               }
+             ]
+           }}
+        else
+          {:ok, %{status: 200, body: []}}
+        end
       end
 
       assert {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
       assert issue.id == "42"
-      assert issue.identifier == "owner/repo#42"
+      assert issue.identifier == "42"
       assert issue.title == "Fix the bug"
       assert issue.description == "Something is broken"
       assert issue.state == "todo"
       assert issue.priority == 1
       assert issue.assignee_id == "dev1"
       assert issue.url == "https://github.com/owner/repo/issues/42"
+    end
+
+    test "deduplicates issues across labels" do
+      request_fun = fn %{method: :get} ->
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{
+               "number" => 42,
+               "title" => "Dup",
+               "body" => nil,
+               "html_url" => "https://github.com/owner/repo/issues/42",
+               "labels" => [%{"name" => "sym:todo"}],
+               "assignee" => nil,
+               "created_at" => "2025-01-01T00:00:00Z",
+               "updated_at" => "2025-01-01T00:00:00Z"
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, [_single]} = Client.fetch_candidate_issues(request_fun: request_fun)
     end
 
     test "returns error on API failure" do
@@ -104,9 +131,10 @@ defmodule SymphonyElixir.GitHub.ClientTest do
          }}
       end
 
-      assert {:ok, [issue]} = Client.fetch_issues_by_states(["todo"], request_fun: request_fun)
-      assert issue.id == "1"
-      assert issue.state == "todo"
+      assert {:ok, issues} = Client.fetch_issues_by_states(["todo"], request_fun: request_fun)
+      assert length(issues) == 1
+      assert hd(issues).id == "1"
+      assert hd(issues).state == "todo"
     end
   end
 

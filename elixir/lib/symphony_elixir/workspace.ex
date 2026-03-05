@@ -71,7 +71,7 @@ defmodule SymphonyElixir.Workspace do
   @spec remove_issue_workspaces(term()) :: :ok
   def remove_issue_workspaces(identifier) when is_binary(identifier) do
     safe_id = safe_identifier(identifier)
-    workspace = Path.join(Config.workspace_root(), safe_id)
+    workspace = workspace_path_for_issue(safe_id)
 
     remove(workspace)
     :ok
@@ -109,7 +109,14 @@ defmodule SymphonyElixir.Workspace do
   end
 
   defp workspace_path_for_issue(safe_id) when is_binary(safe_id) do
-    Path.join(Config.workspace_root(), safe_id)
+    case Config.tracker_kind() do
+      "github" ->
+        repo = Config.github_repo() || ""
+        Path.join([Config.workspace_root(), repo, safe_id])
+
+      _ ->
+        Path.join(Config.workspace_root(), safe_id)
+    end
   end
 
   defp safe_identifier(identifier) do

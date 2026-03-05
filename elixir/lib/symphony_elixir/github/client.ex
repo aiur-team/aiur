@@ -13,11 +13,12 @@ defmodule SymphonyElixir.GitHub.Client do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       prefix = Config.github_label_prefix()
-      labels = "#{prefix}:todo,#{prefix}:in-progress"
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(labels)}&state=open&per_page=100"
 
-      do_list_issues(request_fun, url, token, owner, repo, prefix)
+      fetch_issues_for_each_label(
+        ["#{prefix}:todo", "#{prefix}:in-progress"],
+        request_fun, token, owner, repo, prefix
+      )
     end
   end
 
@@ -67,15 +68,35 @@ defmodule SymphonyElixir.GitHub.Client do
 
   # -- Private helpers --------------------------------------------------------
 
+  # GitHub labels query is AND (all labels must match), so we fetch each label
+  # separately and deduplicate by issue id.
+  defp fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
+    Enum.reduce_while(labels, {:ok, %{}}, fn label, {:ok, acc} ->
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
+
+      case do_list_issues(request_fun, url, token, owner, repo, prefix) do
+        {:ok, issues} ->
+          merged = Enum.reduce(issues, acc, fn issue, map -> Map.put_new(map, issue.id, issue) end)
+          {:cont, {:ok, merged}}
+
+        {:error, _} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, map} -> {:ok, Map.values(map)}
+      error -> error
+    end
+  end
+
   defp do_fetch_issues_by_states(state_names, opts) do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       prefix = Config.github_label_prefix()
-      labels = Enum.map_join(state_names, ",", &"#{prefix}:#{normalize_state(&1)}")
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(labels)}&state=open&per_page=100"
+      labels = Enum.map(state_names, &"#{prefix}:#{normalize_state(&1)}")
 
-      do_list_issues(request_fun, url, token, owner, repo, prefix)
+      fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix)
     end
   end
 
@@ -170,14 +191,14 @@ defmodule SymphonyElixir.GitHub.Client do
     end
   end
 
-  defp normalize_issue(gh_issue, owner, repo, prefix) when is_map(gh_issue) do
+  defp normalize_issue(gh_issue, _owner, _repo, prefix) when is_map(gh_issue) do
     number = gh_issue["number"]
     labels = gh_issue["labels"] || []
     label_names = Enum.map(labels, &(&1["name"] || ""))
 
     %Issue{
       id: to_string(number),
-      identifier: "#{owner}/#{repo}##{number}",
+      identifier: to_string(number),
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
