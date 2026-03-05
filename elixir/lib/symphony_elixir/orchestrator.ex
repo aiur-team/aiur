@@ -196,6 +196,14 @@ defmodule SymphonyElixir.Orchestrator do
 
         state
 
+      {:error, :missing_github_token} ->
+        Logger.error("GitHub token missing (set GITHUB_TOKEN environment variable)")
+        state
+
+      {:error, :missing_github_repo} ->
+        Logger.error("GitHub repo missing in WORKFLOW.md (tracker.repo)")
+        state
+
       {:error, :missing_codex_command} ->
         Logger.error("Codex command missing in WORKFLOW.md")
         state

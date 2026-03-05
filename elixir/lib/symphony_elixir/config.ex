@@ -61,7 +61,9 @@ defmodule SymphonyElixir.Config do
                                  terminal_states: [
                                    type: {:list, :string},
                                    default: @default_terminal_states
-                                 ]
+                                 ],
+                                 repo: [type: {:or, [:string, nil]}, default: nil],
+                                 label_prefix: [type: {:or, [:string, nil]}, default: nil]
                                ]
                              ],
                              polling: [
@@ -82,6 +84,7 @@ defmodule SymphonyElixir.Config do
                                type: :map,
                                default: %{},
                                keys: [
+                                 kind: [type: {:or, [:string, nil]}, default: nil],
                                  max_concurrent_agents: [
                                    type: :integer,
                                    default: @default_max_concurrent_agents
@@ -217,6 +220,27 @@ defmodule SymphonyElixir.Config do
   @spec linear_terminal_states() :: [String.t()]
   def linear_terminal_states do
     get_in(validated_workflow_options(), [:tracker, :terminal_states])
+  end
+
+  @spec github_repo() :: String.t() | nil
+  def github_repo do
+    get_in(validated_workflow_options(), [:tracker, :repo])
+  end
+
+  @spec github_token() :: String.t() | nil
+  def github_token do
+    System.get_env("GITHUB_TOKEN")
+    |> normalize_secret_value()
+  end
+
+  @spec github_label_prefix() :: String.t()
+  def github_label_prefix do
+    get_in(validated_workflow_options(), [:tracker, :label_prefix]) || "symphony"
+  end
+
+  @spec agent_kind() :: String.t() | nil
+  def agent_kind do
+    get_in(validated_workflow_options(), [:agent, :kind])
   end
 
   @spec poll_interval_ms() :: pos_integer()
@@ -365,8 +389,7 @@ defmodule SymphonyElixir.Config do
   def validate! do
     with {:ok, _workflow} <- current_workflow(),
          :ok <- require_tracker_kind(),
-         :ok <- require_linear_token(),
-         :ok <- require_linear_project(),
+         :ok <- require_tracker_config(),
          :ok <- require_valid_codex_runtime_settings() do
       require_codex_command()
     end
@@ -390,35 +413,52 @@ defmodule SymphonyElixir.Config do
     case tracker_kind() do
       "linear" -> :ok
       "memory" -> :ok
+      "github" -> :ok
       nil -> {:error, :missing_tracker_kind}
       other -> {:error, {:unsupported_tracker_kind, other}}
     end
   end
 
-  defp require_linear_token do
+  defp require_tracker_config do
     case tracker_kind() do
       "linear" ->
-        if is_binary(linear_api_token()) do
-          :ok
-        else
-          {:error, :missing_linear_api_token}
+        with :ok <- require_linear_token() do
+          require_linear_project()
         end
+
+      "github" ->
+        require_github_config()
 
       _ ->
         :ok
     end
   end
 
-  defp require_linear_project do
-    case tracker_kind() do
-      "linear" ->
-        if is_binary(linear_project_slug()) do
-          :ok
-        else
-          {:error, :missing_linear_project_slug}
-        end
+  defp require_linear_token do
+    if is_binary(linear_api_token()) do
+      :ok
+    else
+      {:error, :missing_linear_api_token}
+    end
+  end
 
-      _ ->
+  defp require_linear_project do
+    if is_binary(linear_project_slug()) do
+      :ok
+    else
+      {:error, :missing_linear_project_slug}
+    end
+  end
+
+  defp require_github_config do
+    cond do
+      !is_binary(github_token()) ->
+        {:error, :missing_github_token}
+
+      !is_binary(github_repo()) ->
+        {:error, :missing_github_repo}
+
+      true ->
         :ok
     end
   end
@@ -465,6 +505,8 @@ defmodule SymphonyElixir.Config do
     |> put_if_present(:project_slug, scalar_string_value(Map.get(section, "project_slug")))
     |> put_if_present(:active_states, csv_value(Map.get(section, "active_states")))
     |> put_if_present(:terminal_states, csv_value(Map.get(section, "terminal_states")))
+    |> put_if_present(:repo, scalar_string_value(Map.get(section, "repo")))
+    |> put_if_present(:label_prefix, scalar_string_value(Map.get(section, "label_prefix")))
   end
 
   defp extract_polling_options(section) do
@@ -479,6 +521,7 @@ defmodule SymphonyElixir.Config do
 
   defp extract_agent_options(section) do
     %{}
+    |> put_if_present(:kind, scalar_string_value(Map.get(section, "kind")))
     |> put_if_present(:max_concurrent_agents, integer_value(Map.get(section, "max_concurrent_agents")))
     |> put_if_present(:max_turns, positive_integer_value(Map.get(section, "max_turns")))
     |> put_if_present(:max_retry_backoff_ms, positive_integer_value(Map.get(section, "max_retry_backoff_ms")))
