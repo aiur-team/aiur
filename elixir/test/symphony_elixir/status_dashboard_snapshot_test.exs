@@ -11,7 +11,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil
        }}
 
@@ -36,7 +36,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil
        }}
 
@@ -50,7 +50,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
          running: [
            running_entry(%{
              identifier: "MT-101",
-             codex_total_tokens: 120_450,
+             agent_total_tokens: 120_450,
              runtime_seconds: 785,
              turn_count: 11,
              last_codex_event: "turn_completed",
@@ -60,7 +60,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
              identifier: "MT-102",
              session_id: "thread-abcdef1234567890",
              codex_app_server_pid: "5252",
-             codex_total_tokens: 89_200,
+             agent_total_tokens: 89_200,
              runtime_seconds: 412,
              turn_count: 4,
              last_codex_event: "codex/event/task_started",
@@ -68,7 +68,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
            })
          ],
          retrying: [],
-         codex_totals: %{
+         agent_totals: %{
            input_tokens: 250_000,
            output_tokens: 18_500,
            total_tokens: 268_500,
@@ -93,7 +93,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
            running_entry(%{
              identifier: "MT-638",
              state: "retrying",
-             codex_total_tokens: 14_200,
+             agent_total_tokens: 14_200,
              runtime_seconds: 1_225,
              turn_count: 7,
              last_codex_event: :notification,
@@ -126,7 +126,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
              error: "fourth queued retry should also render after removing the top-three limit"
            })
          ],
-         codex_totals: %{input_tokens: 18_000, output_tokens: 2_200, total_tokens: 20_200, seconds_running: 2_700},
+         agent_totals: %{input_tokens: 18_000, output_tokens: 2_200, total_tokens: 20_200, seconds_running: 2_700},
          rate_limits: %{
            limit_id: "gpt-5",
            primary: %{remaining: 0, limit: 20_000, reset_in_seconds: 95},
@@ -151,7 +151,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
              error: "error with \\nnewline"
            })
          ],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil
        }}
 
@@ -174,7 +174,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
            running_entry(%{
              identifier: "MT-777",
              state: "running",
-             codex_total_tokens: 3_200,
+             agent_total_tokens: 3_200,
              runtime_seconds: 75,
              turn_count: 7,
              last_codex_event: "codex/event/token_count",
@@ -182,7 +182,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
            })
          ],
          retrying: [],
-         codex_totals: %{input_tokens: 90, output_tokens: 12, total_tokens: 102, seconds_running: 75},
+         agent_totals: %{input_tokens: 90, output_tokens: 12, total_tokens: 102, seconds_running: 75},
          rate_limits: %{
            limit_id: "priority-tier",
            primary: %{remaining: 100, limit: 100, reset_in_seconds: 1},
@@ -205,7 +205,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
         state: "running",
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
-        codex_total_tokens: 0,
+        agent_total_tokens: 0,
         runtime_seconds: 0,
         turn_count: 1,
         last_codex_event: :notification,

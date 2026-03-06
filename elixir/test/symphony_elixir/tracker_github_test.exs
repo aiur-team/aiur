@@ -1,11 +1,11 @@
-defmodule SymphonyElixir.GitHub.AdapterTest do
+defmodule SymphonyElixir.GitHub.TrackerTest do
   use SymphonyElixir.TestSupport
 
-  alias SymphonyElixir.GitHub.Adapter
+  alias SymphonyElixir.GitHub.Tracker, as: GitHubTracker
   alias SymphonyElixir.Workflow
 
   defmodule MockGitHubClient do
-    alias SymphonyElixir.Linear.Issue
+    alias SymphonyElixir.Issue
 
     def fetch_candidate_issues, do: {:ok, [%Issue{id: "1", identifier: "o/r#1", title: "Test"}]}
     def fetch_issues_by_states(states), do: {:ok, Enum.map(states, fn _ -> %Issue{id: "1"} end)}
@@ -35,28 +35,28 @@ defmodule SymphonyElixir.GitHub.AdapterTest do
   end
 
   test "implements Tracker behaviour" do
-    assert {:ok, _issues} = Adapter.fetch_candidate_issues()
+    assert {:ok, _issues} = GitHubTracker.fetch_candidate_issues()
   end
 
   test "fetch_issues_by_states delegates to client" do
-    assert {:ok, issues} = Adapter.fetch_issues_by_states(["todo"])
+    assert {:ok, issues} = GitHubTracker.fetch_issues_by_states(["todo"])
     assert length(issues) == 1
   end
 
   test "fetch_issue_states_by_ids delegates to client" do
-    assert {:ok, [issue]} = Adapter.fetch_issue_states_by_ids(["42"])
+    assert {:ok, [issue]} = GitHubTracker.fetch_issue_states_by_ids(["42"])
     assert issue.id == "42"
   end
 
   test "create_comment delegates to client" do
-    assert :ok = Adapter.create_comment("42", "comment body")
+    assert :ok = GitHubTracker.create_comment("42", "comment body")
   end
 
   test "update_issue_state delegates to client" do
-    assert :ok = Adapter.update_issue_state("42", "Done")
+    assert :ok = GitHubTracker.update_issue_state("42", "Done")
   end
 
   test "tracker routes to GitHub adapter when kind is github" do
-    assert Tracker.adapter() == SymphonyElixir.GitHub.Adapter
+    assert Tracker.adapter() == SymphonyElixir.GitHub.Tracker
   end
 end

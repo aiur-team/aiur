@@ -96,7 +96,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -159,7 +159,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -242,7 +242,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server",
+        command: "#{codex_binary} app-server",
         codex_approval_policy: "never"
       )
 
@@ -379,7 +379,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server",
+        command: "#{codex_binary} app-server",
         codex_approval_policy: "never"
       )
 
@@ -464,7 +464,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server",
+        command: "#{codex_binary} app-server",
         codex_approval_policy: "never"
       )
 
@@ -554,7 +554,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -654,7 +654,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -756,7 +756,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -878,7 +878,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -968,7 +968,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -1032,7 +1032,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{

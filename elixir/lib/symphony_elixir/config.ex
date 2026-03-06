@@ -8,52 +8,28 @@ defmodule SymphonyElixir.Config do
 
   @default_active_states ["Todo", "In Progress"]
   @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
-  @default_linear_endpoint "https://api.linear.app/graphql"
-  @default_prompt_template """
-  You are working on a Linear issue.
-
-  Identifier: {{ issue.identifier }}
-  Title: {{ issue.title }}
-
-  Body:
-  {% if issue.description %}
-  {{ issue.description }}
-  {% else %}
-  No description provided.
-  {% endif %}
-  """
   @default_poll_interval_ms 30_000
   @default_workspace_root Path.join(System.tmp_dir!(), "symphony_workspaces")
   @default_hook_timeout_ms 60_000
   @default_max_concurrent_agents 10
   @default_agent_max_turns 20
   @default_max_retry_backoff_ms 300_000
-  @default_codex_command "codex app-server"
-  @default_codex_turn_timeout_ms 3_600_000
-  @default_codex_read_timeout_ms 5_000
-  @default_codex_stall_timeout_ms 300_000
-  @default_codex_approval_policy %{
-    "reject" => %{
-      "sandbox_approval" => true,
-      "rules" => true,
-      "mcp_elicitations" => true
-    }
-  }
-  @default_codex_thread_sandbox "workspace-write"
+  @default_agent_turn_timeout_ms 3_600_000
+  @default_agent_read_timeout_ms 5_000
+  @default_agent_stall_timeout_ms 300_000
   @default_observability_enabled true
   @default_observability_refresh_ms 1_000
   @default_observability_render_interval_ms 16
   @default_server_host "127.0.0.1"
+
+  @tracker_sections ["linear", "github", "memory"]
+  @agent_sections ["claude", "codex"]
+
   @workflow_options_schema NimbleOptions.new!(
                              tracker: [
                                type: :map,
                                default: %{},
                                keys: [
-                                 kind: [type: {:or, [:string, nil]}, default: nil],
-                                 endpoint: [type: :string, default: @default_linear_endpoint],
-                                 api_key: [type: {:or, [:string, nil]}, default: nil],
-                                 project_slug: [type: {:or, [:string, nil]}, default: nil],
-                                 assignee: [type: {:or, [:string, nil]}, default: nil],
                                  active_states: [
                                    type: {:list, :string},
                                    default: @default_active_states
@@ -61,9 +37,7 @@ defmodule SymphonyElixir.Config do
                                  terminal_states: [
                                    type: {:list, :string},
                                    default: @default_terminal_states
-                                 ],
-                                 repo: [type: {:or, [:string, nil]}, default: nil],
-                                 label_prefix: [type: {:or, [:string, nil]}, default: nil]
+                                 ]
                                ]
                              ],
                              polling: [
@@ -84,7 +58,6 @@ defmodule SymphonyElixir.Config do
                                type: :map,
                                default: %{},
                                keys: [
-                                 kind: [type: {:or, [:string, nil]}, default: nil],
                                  max_concurrent_agents: [
                                    type: :integer,
                                    default: @default_max_concurrent_agents
@@ -100,25 +73,18 @@ defmodule SymphonyElixir.Config do
                                  max_concurrent_agents_by_state: [
                                    type: {:map, :string, :pos_integer},
                                    default: %{}
-                                 ]
-                               ]
-                             ],
-                             codex: [
-                               type: :map,
-                               default: %{},
-                               keys: [
-                                 command: [type: :string, default: @default_codex_command],
+                                 ],
                                  turn_timeout_ms: [
                                    type: :integer,
-                                   default: @default_codex_turn_timeout_ms
+                                   default: @default_agent_turn_timeout_ms
                                  ],
                                  read_timeout_ms: [
                                    type: :integer,
-                                   default: @default_codex_read_timeout_ms
+                                   default: @default_agent_read_timeout_ms
                                  ],
                                  stall_timeout_ms: [
                                    type: :integer,
-                                   default: @default_codex_stall_timeout_ms
+                                   default: @default_agent_stall_timeout_ms
                                  ]
                                ]
                              ],
@@ -162,12 +128,6 @@ defmodule SymphonyElixir.Config do
                            )
 
   @type workflow_payload :: Workflow.loaded_workflow()
-  @type tracker_kind :: String.t() | nil
-  @type codex_runtime_settings :: %{
-          approval_policy: String.t() | map(),
-          thread_sandbox: String.t(),
-          turn_sandbox_policy: map()
-        }
   @type workspace_hooks :: %{
           after_create: String.t() | nil,
           before_run: String.t() | nil,
@@ -181,66 +141,35 @@ defmodule SymphonyElixir.Config do
     Workflow.current()
   end
 
-  @spec tracker_kind() :: tracker_kind()
+  @spec section(String.t()) :: map()
+  def section(name) when is_binary(name) do
+    section_map(workflow_config(), name)
+  end
+
+  @spec tracker_kind() :: String.t()
   def tracker_kind do
-    get_in(validated_workflow_options(), [:tracker, :kind])
+    case detect_sections(@tracker_sections) do
+      [] -> "github"
+      [kind | _] -> kind
+    end
   end
 
-  @spec linear_endpoint() :: String.t()
-  def linear_endpoint do
-    get_in(validated_workflow_options(), [:tracker, :endpoint])
-  end
-
-  @spec linear_api_token() :: String.t() | nil
-  def linear_api_token do
-    validated_workflow_options()
-    |> get_in([:tracker, :api_key])
-    |> resolve_env_value(System.get_env("LINEAR_API_KEY"))
-    |> normalize_secret_value()
-  end
-
-  @spec linear_project_slug() :: String.t() | nil
-  def linear_project_slug do
-    get_in(validated_workflow_options(), [:tracker, :project_slug])
-  end
-
-  @spec linear_assignee() :: String.t() | nil
-  def linear_assignee do
-    validated_workflow_options()
-    |> get_in([:tracker, :assignee])
-    |> resolve_env_value(System.get_env("LINEAR_ASSIGNEE"))
-    |> normalize_secret_value()
-  end
-
-  @spec linear_active_states() :: [String.t()]
-  def linear_active_states do
+  @spec active_states() :: [String.t()]
+  def active_states do
     get_in(validated_workflow_options(), [:tracker, :active_states])
   end
 
-  @spec linear_terminal_states() :: [String.t()]
-  def linear_terminal_states do
+  @spec terminal_states() :: [String.t()]
+  def terminal_states do
     get_in(validated_workflow_options(), [:tracker, :terminal_states])
   end
 
-  @spec github_repo() :: String.t() | nil
-  def github_repo do
-    get_in(validated_workflow_options(), [:tracker, :repo])
-  end
-
-  @spec github_token() :: String.t() | nil
-  def github_token do
-    System.get_env("GITHUB_TOKEN")
-    |> normalize_secret_value()
-  end
-
-  @spec github_label_prefix() :: String.t()
-  def github_label_prefix do
-    get_in(validated_workflow_options(), [:tracker, :label_prefix]) || "symphony"
-  end
-
-  @spec agent_kind() :: String.t() | nil
+  @spec agent_kind() :: String.t()
   def agent_kind do
-    get_in(validated_workflow_options(), [:agent, :kind])
+    case detect_sections(@agent_sections) do
+      [] -> "claude"
+      [kind | _] -> kind
+    end
   end
 
   @spec poll_interval_ms() :: pos_integer()
@@ -297,60 +226,31 @@ defmodule SymphonyElixir.Config do
 
   def max_concurrent_agents_for_state(_state_name), do: max_concurrent_agents()
 
-  @spec codex_command() :: String.t()
-  def codex_command do
-    get_in(validated_workflow_options(), [:codex, :command])
+  @spec agent_turn_timeout_ms() :: pos_integer()
+  def agent_turn_timeout_ms do
+    get_in(validated_workflow_options(), [:agent, :turn_timeout_ms])
   end
 
-  @spec codex_turn_timeout_ms() :: pos_integer()
-  def codex_turn_timeout_ms do
-    get_in(validated_workflow_options(), [:codex, :turn_timeout_ms])
+  @spec agent_read_timeout_ms() :: pos_integer()
+  def agent_read_timeout_ms do
+    get_in(validated_workflow_options(), [:agent, :read_timeout_ms])
   end
 
-  @spec codex_approval_policy() :: String.t() | map()
-  def codex_approval_policy do
-    case resolve_codex_approval_policy() do
-      {:ok, approval_policy} -> approval_policy
-      {:error, _reason} -> @default_codex_approval_policy
-    end
-  end
-
-  @spec codex_thread_sandbox() :: String.t()
-  def codex_thread_sandbox do
-    case resolve_codex_thread_sandbox() do
-      {:ok, thread_sandbox} -> thread_sandbox
-      {:error, _reason} -> @default_codex_thread_sandbox
-    end
-  end
-
-  @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
-  def codex_turn_sandbox_policy(workspace \\ nil) do
-    case resolve_codex_turn_sandbox_policy(workspace) do
-      {:ok, turn_sandbox_policy} -> turn_sandbox_policy
-      {:error, _reason} -> default_codex_turn_sandbox_policy(workspace)
-    end
-  end
-
-  @spec codex_read_timeout_ms() :: pos_integer()
-  def codex_read_timeout_ms do
-    get_in(validated_workflow_options(), [:codex, :read_timeout_ms])
-  end
-
-  @spec codex_stall_timeout_ms() :: non_neg_integer()
-  def codex_stall_timeout_ms do
+  @spec agent_stall_timeout_ms() :: non_neg_integer()
+  def agent_stall_timeout_ms do
     validated_workflow_options()
-    |> get_in([:codex, :stall_timeout_ms])
+    |> get_in([:agent, :stall_timeout_ms])
     |> max(0)
   end
 
   @spec workflow_prompt() :: String.t()
   def workflow_prompt do
     case current_workflow() do
-      {:ok, %{prompt_template: prompt}} ->
-        if String.trim(prompt) == "", do: @default_prompt_template, else: prompt
+      {:ok, %{prompt_template: prompt}} when is_binary(prompt) ->
+        if String.trim(prompt) == "", do: SymphonyElixir.Tracker.default_prompt_template(), else: prompt
 
       _ ->
-        @default_prompt_template
+        SymphonyElixir.Tracker.default_prompt_template()
     end
   end
 
@@ -385,97 +285,38 @@ defmodule SymphonyElixir.Config do
     get_in(validated_workflow_options(), [:server, :host])
   end
 
-  @spec validate!() :: :ok | {:error, term()}
+  @spec validate!() :: :ok | {:error, String.t()}
   def validate! do
     with {:ok, _workflow} <- current_workflow(),
-         :ok <- require_tracker_kind(),
-         :ok <- require_tracker_config(),
-         :ok <- require_valid_codex_runtime_settings() do
-      require_codex_command()
+         :ok <- tracker_config_module().validate!() do
+      agent_config_module().validate!()
+    else
+      {:error, reason} when is_binary(reason) ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, "Invalid WORKFLOW.md: #{inspect(reason)}"}
     end
   end
 
-  @spec codex_runtime_settings(Path.t() | nil) :: {:ok, codex_runtime_settings()} | {:error, term()}
-  def codex_runtime_settings(workspace \\ nil) do
-    with {:ok, approval_policy} <- resolve_codex_approval_policy(),
-         {:ok, thread_sandbox} <- resolve_codex_thread_sandbox(),
-         {:ok, turn_sandbox_policy} <- resolve_codex_turn_sandbox_policy(workspace) do
-      {:ok,
-       %{
-         approval_policy: approval_policy,
-         thread_sandbox: thread_sandbox,
-         turn_sandbox_policy: turn_sandbox_policy
-       }}
-    end
-  end
-
-  defp require_tracker_kind do
+  defp tracker_config_module do
     case tracker_kind() do
-      "linear" -> :ok
-      "memory" -> :ok
-      "github" -> :ok
-      nil -> {:error, :missing_tracker_kind}
-      other -> {:error, {:unsupported_tracker_kind, other}}
+      "linear" -> SymphonyElixir.Linear.Config
+      "github" -> SymphonyElixir.GitHub.Config
+      "memory" -> SymphonyElixir.Memory.Config
     end
   end
 
-  defp require_tracker_config do
-    case tracker_kind() do
-      "linear" ->
-        with :ok <- require_linear_token() do
-          require_linear_project()
-        end
-
-      "github" ->
-        require_github_config()
-
-      _ ->
-        :ok
+  defp agent_config_module do
+    case agent_kind() do
+      "codex" -> SymphonyElixir.Codex.Config
+      "claude" -> SymphonyElixir.Claude.Config
     end
   end
 
-  defp require_linear_token do
-    if is_binary(linear_api_token()) do
-      :ok
-    else
-      {:error, :missing_linear_api_token}
-    end
-  end
-
-  defp require_linear_project do
-    if is_binary(linear_project_slug()) do
-      :ok
-    else
-      {:error, :missing_linear_project_slug}
-    end
-  end
-
-  defp require_github_config do
-    cond do
-      !is_binary(github_token()) ->
-        {:error, :missing_github_token}
-
-      !is_binary(github_repo()) ->
-        {:error, :missing_github_repo}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp require_codex_command do
-    if byte_size(String.trim(codex_command())) > 0 do
-      :ok
-    else
-      {:error, :missing_codex_command}
-    end
-  end
-
-  defp require_valid_codex_runtime_settings do
-    case codex_runtime_settings() do
-      {:ok, _settings} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+  defp detect_sections(section_names) do
+    config = workflow_config()
+    Enum.filter(section_names, &Map.has_key?(config, &1))
   end
 
   defp validated_workflow_options do
@@ -490,7 +331,6 @@ defmodule SymphonyElixir.Config do
       polling: extract_polling_options(section_map(config, "polling")),
       workspace: extract_workspace_options(section_map(config, "workspace")),
       agent: extract_agent_options(section_map(config, "agent")),
-      codex: extract_codex_options(section_map(config, "codex")),
       hooks: extract_hooks_options(section_map(config, "hooks")),
       observability: extract_observability_options(section_map(config, "observability")),
       server: extract_server_options(section_map(config, "server"))
@@ -499,14 +339,8 @@ defmodule SymphonyElixir.Config do
 
   defp extract_tracker_options(section) do
     %{}
-    |> put_if_present(:kind, normalize_tracker_kind(scalar_string_value(Map.get(section, "kind"))))
-    |> put_if_present(:endpoint, scalar_string_value(Map.get(section, "endpoint")))
-    |> put_if_present(:api_key, binary_value(Map.get(section, "api_key"), allow_empty: true))
-    |> put_if_present(:project_slug, scalar_string_value(Map.get(section, "project_slug")))
     |> put_if_present(:active_states, csv_value(Map.get(section, "active_states")))
     |> put_if_present(:terminal_states, csv_value(Map.get(section, "terminal_states")))
-    |> put_if_present(:repo, scalar_string_value(Map.get(section, "repo")))
-    |> put_if_present(:label_prefix, scalar_string_value(Map.get(section, "label_prefix")))
   end
 
   defp extract_polling_options(section) do
@@ -521,7 +355,6 @@ defmodule SymphonyElixir.Config do
 
   defp extract_agent_options(section) do
     %{}
-    |> put_if_present(:kind, scalar_string_value(Map.get(section, "kind")))
     |> put_if_present(:max_concurrent_agents, integer_value(Map.get(section, "max_concurrent_agents")))
     |> put_if_present(:max_turns, positive_integer_value(Map.get(section, "max_turns")))
     |> put_if_present(:max_retry_backoff_ms, positive_integer_value(Map.get(section, "max_retry_backoff_ms")))
@@ -529,11 +362,6 @@ defmodule SymphonyElixir.Config do
       :max_concurrent_agents_by_state,
       state_limits_value(Map.get(section, "max_concurrent_agents_by_state"))
     )
-  end
-
-  defp extract_codex_options(section) do
-    %{}
-    |> put_if_present(:command, command_value(Map.get(section, "command")))
     |> put_if_present(:turn_timeout_ms, integer_value(Map.get(section, "turn_timeout_ms")))
     |> put_if_present(:read_timeout_ms, integer_value(Map.get(section, "read_timeout_ms")))
     |> put_if_present(:stall_timeout_ms, integer_value(Map.get(section, "stall_timeout_ms")))
@@ -592,15 +420,6 @@ defmodule SymphonyElixir.Config do
   end
 
   defp binary_value(_value, _opts), do: :omit
-
-  defp command_value(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> :omit
-      trimmed -> trimmed
-    end
-  end
-
-  defp command_value(_value), do: :omit
 
   defp hook_command_value(value) when is_binary(value) do
     case String.trim(value) do
@@ -727,113 +546,11 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp fetch_value(paths, default) do
-    config = workflow_config()
-
-    case resolve_config_value(config, paths) do
-      :missing -> default
-      value -> value
-    end
-  end
-
-  defp resolve_codex_approval_policy do
-    case fetch_value([["codex", "approval_policy"]], :missing) do
-      :missing ->
-        {:ok, @default_codex_approval_policy}
-
-      nil ->
-        {:ok, @default_codex_approval_policy}
-
-      value when is_binary(value) ->
-        approval_policy = String.trim(value)
-
-        if approval_policy == "" do
-          {:error, {:invalid_codex_approval_policy, value}}
-        else
-          {:ok, approval_policy}
-        end
-
-      value when is_map(value) ->
-        {:ok, value}
-
-      value ->
-        {:error, {:invalid_codex_approval_policy, value}}
-    end
-  end
-
-  defp resolve_codex_thread_sandbox do
-    case fetch_value([["codex", "thread_sandbox"]], :missing) do
-      :missing ->
-        {:ok, @default_codex_thread_sandbox}
-
-      nil ->
-        {:ok, @default_codex_thread_sandbox}
-
-      value when is_binary(value) ->
-        thread_sandbox = String.trim(value)
-
-        if thread_sandbox == "" do
-          {:error, {:invalid_codex_thread_sandbox, value}}
-        else
-          {:ok, thread_sandbox}
-        end
-
-      value ->
-        {:error, {:invalid_codex_thread_sandbox, value}}
-    end
-  end
-
-  defp resolve_codex_turn_sandbox_policy(workspace) do
-    case fetch_value([["codex", "turn_sandbox_policy"]], :missing) do
-      :missing ->
-        {:ok, default_codex_turn_sandbox_policy(workspace)}
-
-      nil ->
-        {:ok, default_codex_turn_sandbox_policy(workspace)}
-
-      value when is_map(value) ->
-        {:ok, value}
-
-      value ->
-        {:error, {:invalid_codex_turn_sandbox_policy, {:unsupported_value, value}}}
-    end
-  end
-
-  defp default_codex_turn_sandbox_policy(workspace) do
-    writable_root =
-      if is_binary(workspace) and String.trim(workspace) != "" do
-        Path.expand(workspace)
-      else
-        Path.expand(workspace_root())
-      end
-
-    %{
-      "type" => "workspaceWrite",
-      "writableRoots" => [writable_root],
-      "readOnlyAccess" => %{"type" => "fullAccess"},
-      "networkAccess" => false,
-      "excludeTmpdirEnvVar" => false,
-      "excludeSlashTmp" => false
-    }
-  end
-
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     state_name
     |> String.trim()
     |> String.downcase()
   end
-
-  defp normalize_tracker_kind(kind) when is_binary(kind) do
-    kind
-    |> String.trim()
-    |> String.downcase()
-    |> case do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp normalize_tracker_kind(_kind), do: nil
 
   defp workflow_config do
     case current_workflow() do
@@ -844,32 +561,6 @@ defmodule SymphonyElixir.Config do
         %{}
     end
   end
-
-  defp resolve_config_value(%{} = config, paths) do
-    Enum.reduce_while(paths, :missing, fn path, _acc ->
-      case get_in_path(config, path) do
-        :missing -> {:cont, :missing}
-        value -> {:halt, value}
-      end
-    end)
-  end
-
-  defp get_in_path(config, path) when is_list(path) and is_map(config) do
-    get_in_path(config, path, 0)
-  end
-
-  defp get_in_path(_, _), do: :missing
-
-  defp get_in_path(config, [], _depth), do: config
-
-  defp get_in_path(%{} = current, [segment | rest], _depth) do
-    case Map.fetch(current, normalize_key(segment)) do
-      {:ok, value} -> get_in_path(value, rest, 0)
-      :error -> :missing
-    end
-  end
-
-  defp get_in_path(_, _, _depth), do: :missing
 
   defp normalize_keys(value) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, raw_value}, normalized ->
@@ -921,29 +612,6 @@ defmodule SymphonyElixir.Config do
     String.match?(to_string(path), ~r/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//)
   end
 
-  defp resolve_env_value(:missing, fallback), do: fallback
-  defp resolve_env_value(nil, fallback), do: fallback
-
-  defp resolve_env_value(value, fallback) when is_binary(value) do
-    trimmed = String.trim(value)
-
-    case env_reference_name(trimmed) do
-      {:ok, env_name} ->
-        env_name
-        |> System.get_env()
-        |> then(fn
-          nil -> fallback
-          "" -> nil
-          env_value -> env_value
-        end)
-
-      :error ->
-        trimmed
-    end
-  end
-
-  defp resolve_env_value(_value, fallback), do: fallback
-
   defp normalize_path_token(value) when is_binary(value) do
     trimmed = String.trim(value)
 
@@ -969,13 +637,4 @@ defmodule SymphonyElixir.Config do
       env_value -> env_value
     end
   end
-
-  defp normalize_secret_value(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp normalize_secret_value(_value), do: nil
 end

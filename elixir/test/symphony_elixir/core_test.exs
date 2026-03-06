@@ -8,13 +8,13 @@ defmodule SymphonyElixir.CoreTest do
       poll_interval_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
-      codex_command: nil
+      command: nil
     )
 
     assert Config.poll_interval_ms() == 30_000
-    assert Config.linear_active_states() == ["Todo", "In Progress"]
-    assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
-    assert Config.linear_assignee() == nil
+    assert Config.active_states() == ["Todo", "In Progress"]
+    assert Config.terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+    assert LinearConfig.assignee() == nil
     assert Config.agent_max_turns() == 20
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
@@ -30,45 +30,38 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.agent_max_turns() == 5
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
-    assert Config.linear_active_states() == ["Todo", "Review"]
+    assert Config.active_states() == ["Todo", "Review"]
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: "token",
       tracker_project_slug: nil
     )
 
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
+    assert {:error, "Linear project slug" <> _} = LinearConfig.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_project_slug: "project",
-      codex_command: ""
-    )
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_project_slug: "project")
+    assert :ok = CodexConfig.validate!()
 
-    assert :ok = Config.validate!()
-
-    write_workflow_file!(Workflow.workflow_file_path(), codex_command: "/bin/sh app-server")
-    assert :ok = Config.validate!()
+    write_workflow_file!(Workflow.workflow_file_path(), command: "/bin/sh app-server")
+    assert :ok = CodexConfig.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: "definitely-not-valid")
-    assert :ok = Config.validate!()
+    assert :ok = CodexConfig.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: "unsafe-ish")
-    assert :ok = Config.validate!()
+    assert :ok = CodexConfig.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
       codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: ["relative/path"]}
     )
 
-    assert :ok = Config.validate!()
+    assert :ok = CodexConfig.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: 123)
-    assert {:error, {:invalid_codex_approval_policy, 123}} = Config.validate!()
+    assert {:error, "Invalid codex.approval_policy" <> _} = CodexConfig.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: 123)
-    assert {:error, {:invalid_codex_thread_sandbox, 123}} = Config.validate!()
-
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: 123)
-    assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
+    assert {:error, "Invalid codex.thread_sandbox" <> _} = CodexConfig.validate!()
   end
 
   test "current WORKFLOW.md file is valid and complete" do
@@ -79,10 +72,12 @@ defmodule SymphonyElixir.CoreTest do
     assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
     assert is_map(config)
 
+    linear = Map.get(config, "linear", %{})
+    assert is_map(linear)
+    assert is_binary(Map.get(linear, "project_slug"))
+
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
-    assert Map.get(tracker, "kind") == "linear"
-    assert is_binary(Map.get(tracker, "project_slug"))
     assert is_list(Map.get(tracker, "active_states"))
     assert is_list(Map.get(tracker, "terminal_states"))
 
@@ -108,11 +103,11 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
       tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
+      command: "/bin/sh app-server"
     )
 
-    assert Config.linear_api_token() == env_api_key
-    assert Config.linear_project_slug() == "project"
+    assert LinearConfig.api_key() == env_api_key
+    assert LinearConfig.project_slug() == "project"
     assert :ok = Config.validate!()
   end
 
@@ -126,10 +121,10 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_assignee: nil,
       tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
+      command: "/bin/sh app-server"
     )
 
-    assert Config.linear_assignee() == env_assignee
+    assert LinearConfig.assignee() == env_assignee
   end
 
   test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
@@ -246,7 +241,7 @@ defmodule SymphonyElixir.CoreTest do
           }
         },
         claimed: MapSet.new([issue_id]),
-        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{}
       }
 
@@ -309,7 +304,7 @@ defmodule SymphonyElixir.CoreTest do
           }
         },
         claimed: MapSet.new([issue_id]),
-        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{}
       }
 
@@ -351,7 +346,7 @@ defmodule SymphonyElixir.CoreTest do
         }
       },
       claimed: MapSet.new([issue_id]),
-      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
       retry_attempts: %{}
     }
 
@@ -398,7 +393,7 @@ defmodule SymphonyElixir.CoreTest do
         }
       },
       claimed: MapSet.new([issue_id]),
-      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
       retry_attempts: %{}
     }
 
@@ -828,7 +823,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -913,7 +908,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -1009,7 +1004,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server",
+        command: "#{codex_binary} app-server",
         max_turns: 3
       )
 
@@ -1139,7 +1134,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server",
+        command: "#{codex_binary} app-server",
         max_turns: 2
       )
 
@@ -1237,7 +1232,7 @@ defmodule SymphonyElixir.CoreTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -1380,7 +1375,7 @@ defmodule SymphonyElixir.CoreTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} --model gpt-5.3-codex app-server"
+        command: "#{codex_binary} --model gpt-5.3-codex app-server"
       )
 
       issue = %Issue{
@@ -1466,7 +1461,7 @@ defmodule SymphonyElixir.CoreTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server",
+        command: "#{codex_binary} app-server",
         codex_approval_policy: "on-request",
         codex_thread_sandbox: "workspace-write",
         codex_turn_sandbox_policy: %{

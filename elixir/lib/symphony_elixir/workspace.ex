@@ -111,7 +111,7 @@ defmodule SymphonyElixir.Workspace do
   defp workspace_path_for_issue(safe_id) when is_binary(safe_id) do
     case Config.tracker_kind() do
       "github" ->
-        repo = Config.github_repo() || ""
+        repo = SymphonyElixir.GitHub.Config.repo() || ""
         Path.join([Config.workspace_root(), repo, safe_id])
 
       _ ->

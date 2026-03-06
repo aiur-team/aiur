@@ -4,7 +4,7 @@ defmodule SymphonyElixir.GitHub.Client do
   """
 
   require Logger
-  alias SymphonyElixir.{Config, Linear.Issue}
+  alias SymphonyElixir.{GitHub, Issue}
 
   @base_url "https://api.github.com"
 
@@ -12,12 +12,16 @@ defmodule SymphonyElixir.GitHub.Client do
   def fetch_candidate_issues(opts \\ []) do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
-      prefix = Config.github_label_prefix()
+      prefix = GitHub.Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
 
       fetch_issues_for_each_label(
         ["#{prefix}:todo", "#{prefix}:in-progress"],
-        request_fun, token, owner, repo, prefix
+        request_fun,
+        token,
+        owner,
+        repo,
+        prefix
       )
     end
   end
@@ -58,7 +62,7 @@ defmodule SymphonyElixir.GitHub.Client do
       when is_binary(issue_number) and is_binary(state_name) do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
-      prefix = Config.github_label_prefix()
+      prefix = GitHub.Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       issue_url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
@@ -73,15 +77,7 @@ defmodule SymphonyElixir.GitHub.Client do
   defp fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
     Enum.reduce_while(labels, {:ok, %{}}, fn label, {:ok, acc} ->
       url = "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
-
-      case do_list_issues(request_fun, url, token, owner, repo, prefix) do
-        {:ok, issues} ->
-          merged = Enum.reduce(issues, acc, fn issue, map -> Map.put_new(map, issue.id, issue) end)
-          {:cont, {:ok, merged}}
-
-        {:error, _} = error ->
-          {:halt, error}
-      end
+      reduce_label_issues(request_fun, url, token, owner, repo, prefix, acc)
     end)
     |> case do
       {:ok, map} -> {:ok, Map.values(map)}
@@ -89,10 +85,21 @@ defmodule SymphonyElixir.GitHub.Client do
     end
   end
 
+  defp reduce_label_issues(request_fun, url, token, owner, repo, prefix, acc) do
+    case do_list_issues(request_fun, url, token, owner, repo, prefix) do
+      {:ok, issues} ->
+        merged = Map.merge(acc, Map.new(issues, &{&1.id, &1}), fn _k, v, _new -> v end)
+        {:cont, {:ok, merged}}
+
+      {:error, _} = error ->
+        {:halt, error}
+    end
+  end
+
   defp do_fetch_issues_by_states(state_names, opts) do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
-      prefix = Config.github_label_prefix()
+      prefix = GitHub.Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       labels = Enum.map(state_names, &"#{prefix}:#{normalize_state(&1)}")
 
@@ -103,7 +110,7 @@ defmodule SymphonyElixir.GitHub.Client do
   defp do_fetch_issue_states_by_ids(issue_ids, opts) do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
-      prefix = Config.github_label_prefix()
+      prefix = GitHub.Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
 
       do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix)
@@ -258,7 +265,7 @@ defmodule SymphonyElixir.GitHub.Client do
   end
 
   defp parse_repo do
-    case Config.github_repo() do
+    case GitHub.Config.repo() do
       nil ->
         {:error, :missing_github_repo}
 
@@ -271,7 +278,7 @@ defmodule SymphonyElixir.GitHub.Client do
   end
 
   defp require_token do
-    case Config.github_token() do
+    case GitHub.Config.token() do
       nil -> {:error, :missing_github_token}
       token -> {:ok, token}
     end

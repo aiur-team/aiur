@@ -4,8 +4,8 @@ defmodule SymphonyElixir.ExtensionsTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias SymphonyElixir.Linear.Adapter
-  alias SymphonyElixir.Tracker.Memory
+  alias SymphonyElixir.Linear.Tracker, as: LinearTracker
+  alias SymphonyElixir.Memory.Tracker, as: Memory
 
   @endpoint SymphonyElixirWeb.Endpoint
 
@@ -189,6 +189,8 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert Config.tracker_kind() == "memory"
     assert SymphonyElixir.Tracker.adapter() == Memory
+    assert Memory.project_identity() == "memory"
+    assert Memory.default_prompt_template() =~ "You are working on an issue."
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_candidate_issues()
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
@@ -202,19 +204,19 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
-    assert SymphonyElixir.Tracker.adapter() == Adapter
+    assert SymphonyElixir.Tracker.adapter() == LinearTracker
   end
 
   test "linear adapter delegates reads and validates mutation responses" do
     Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
 
-    assert {:ok, [:candidate]} = Adapter.fetch_candidate_issues()
+    assert {:ok, [:candidate]} = LinearTracker.fetch_candidate_issues()
     assert_receive :fetch_candidate_issues_called
 
-    assert {:ok, ["Todo"]} = Adapter.fetch_issues_by_states(["Todo"])
+    assert {:ok, ["Todo"]} = LinearTracker.fetch_issues_by_states(["Todo"])
     assert_receive {:fetch_issues_by_states_called, ["Todo"]}
 
-    assert {:ok, ["issue-1"]} = Adapter.fetch_issue_states_by_ids(["issue-1"])
+    assert {:ok, ["issue-1"]} = LinearTracker.fetch_issue_states_by_ids(["issue-1"])
     assert_receive {:fetch_issue_states_by_ids_called, ["issue-1"]}
 
     Process.put(
@@ -222,7 +224,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       {:ok, %{"data" => %{"commentCreate" => %{"success" => true}}}}
     )
 
-    assert :ok = Adapter.create_comment("issue-1", "hello")
+    assert :ok = LinearTracker.create_comment("issue-1", "hello")
     assert_receive {:graphql_called, create_comment_query, %{body: "hello", issueId: "issue-1"}}
     assert create_comment_query =~ "commentCreate"
 
@@ -232,17 +234,17 @@ defmodule SymphonyElixir.ExtensionsTest do
     )
 
     assert {:error, :comment_create_failed} =
-             Adapter.create_comment("issue-1", "broken")
+             LinearTracker.create_comment("issue-1", "broken")
 
     Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
 
-    assert {:error, :boom} = Adapter.create_comment("issue-1", "boom")
+    assert {:error, :boom} = LinearTracker.create_comment("issue-1", "boom")
 
     Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "weird")
+    assert {:error, :comment_create_failed} = LinearTracker.create_comment("issue-1", "weird")
 
     Process.put({FakeLinearClient, :graphql_result}, :unexpected)
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "odd")
+    assert {:error, :comment_create_failed} = LinearTracker.create_comment("issue-1", "odd")
 
     Process.put(
       {FakeLinearClient, :graphql_results},
@@ -257,7 +259,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       ]
     )
 
-    assert :ok = Adapter.update_issue_state("issue-1", "Done")
+    assert :ok = LinearTracker.update_issue_state("issue-1", "Done")
     assert_receive {:graphql_called, state_lookup_query, %{issueId: "issue-1", stateName: "Done"}}
     assert state_lookup_query =~ "states"
 
@@ -279,14 +281,14 @@ defmodule SymphonyElixir.ExtensionsTest do
     )
 
     assert {:error, :issue_update_failed} =
-             Adapter.update_issue_state("issue-1", "Broken")
+             LinearTracker.update_issue_state("issue-1", "Broken")
 
     Process.put({FakeLinearClient, :graphql_results}, [{:error, :boom}])
 
-    assert {:error, :boom} = Adapter.update_issue_state("issue-1", "Boom")
+    assert {:error, :boom} = LinearTracker.update_issue_state("issue-1", "Boom")
 
     Process.put({FakeLinearClient, :graphql_results}, [{:ok, %{"data" => %{}}}])
-    assert {:error, :state_not_found} = Adapter.update_issue_state("issue-1", "Missing")
+    assert {:error, :state_not_found} = LinearTracker.update_issue_state("issue-1", "Missing")
 
     Process.put(
       {FakeLinearClient, :graphql_results},
@@ -301,7 +303,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       ]
     )
 
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Weird")
+    assert {:error, :issue_update_failed} = LinearTracker.update_issue_state("issue-1", "Weird")
 
     Process.put(
       {FakeLinearClient, :graphql_results},
@@ -316,7 +318,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       ]
     )
 
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Odd")
+    assert {:error, :issue_update_failed} = LinearTracker.update_issue_state("issue-1", "Odd")
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do
@@ -366,7 +368,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "error" => "boom"
                }
              ],
-             "codex_totals" => %{
+             "agent_totals" => %{
                "input_tokens" => 4,
                "output_tokens" => 8,
                "total_tokens" => 12,
@@ -538,7 +540,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ "Live"
     assert html =~ "Offline"
     assert html =~ "Copy ID"
-    assert html =~ "Codex update"
+    assert html =~ "Agent update"
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"
@@ -569,9 +571,9 @@ defmodule SymphonyElixir.ExtensionsTest do
             }
           },
           last_codex_timestamp: DateTime.utc_now(),
-          codex_input_tokens: 10,
-          codex_output_tokens: 12,
-          codex_total_tokens: 22,
+          agent_input_tokens: 10,
+          agent_output_tokens: 12,
+          agent_total_tokens: 22,
           started_at: DateTime.utc_now()
         }
       ])
@@ -687,9 +689,9 @@ defmodule SymphonyElixir.ExtensionsTest do
           last_codex_message: "rendered",
           last_codex_timestamp: nil,
           last_codex_event: :notification,
-          codex_input_tokens: 4,
-          codex_output_tokens: 8,
-          codex_total_tokens: 12,
+          agent_input_tokens: 4,
+          agent_output_tokens: 8,
+          agent_total_tokens: 12,
           started_at: DateTime.utc_now()
         }
       ],
@@ -702,7 +704,7 @@ defmodule SymphonyElixir.ExtensionsTest do
           error: "boom"
         }
       ],
-      codex_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
+      agent_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
       rate_limits: %{"primary" => %{"remaining" => 11}}
     }
   end

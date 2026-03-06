@@ -1,11 +1,32 @@
-defmodule SymphonyElixir.GitHub.Adapter do
+defmodule SymphonyElixir.GitHub.Tracker do
   @moduledoc """
-  GitHub-backed tracker adapter.
+  GitHub-backed tracker implementation.
   """
 
   @behaviour SymphonyElixir.Tracker
 
   alias SymphonyElixir.GitHub.Client
+  alias SymphonyElixir.GitHub.Config
+
+  @spec project_identity() :: String.t() | nil
+  def project_identity, do: Config.repo()
+
+  @spec default_prompt_template() :: String.t()
+  def default_prompt_template do
+    """
+    You are working on a GitHub issue.
+
+    Identifier: {{ issue.identifier }}
+    Title: {{ issue.title }}
+
+    Body:
+    {% if issue.description %}
+    {{ issue.description }}
+    {% else %}
+    No description provided.
+    {% endif %}
+    """
+  end
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()

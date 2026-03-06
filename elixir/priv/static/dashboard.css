@@ -185,10 +185,11 @@ pre,
 }
 
 .status-stack {
-  display: grid;
-  justify-items: end;
-  align-content: start;
-  min-width: min(100%, 9rem);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .status-badge {
@@ -233,6 +234,12 @@ pre,
 
 [data-phx-main].phx-connected .status-badge-offline {
   display: none;
+}
+
+.status-badge-info {
+  background: #f0f0ff;
+  border-color: rgba(99, 102, 241, 0.18);
+  color: #4338ca;
 }
 
 .metric-grid {

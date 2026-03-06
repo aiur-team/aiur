@@ -1,4 +1,4 @@
-defmodule SymphonyElixir.Codex.AppServer do
+defmodule SymphonyElixir.Codex.CodingAgent do
   @moduledoc """
   Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio.
   """
@@ -6,7 +6,8 @@ defmodule SymphonyElixir.Codex.AppServer do
   @behaviour SymphonyElixir.CodingAgent
 
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config}
+  alias SymphonyElixir.Codex.DynamicTool
+  alias SymphonyElixir.Config
 
   @initialize_id 1
   @thread_start_id 2
@@ -174,7 +175,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Config.codex_command())],
+            args: [~c"-lc", String.to_charlist(SymphonyElixir.Codex.Config.command())],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -219,7 +220,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp session_policies(workspace) do
-    Config.codex_runtime_settings(workspace)
+    SymphonyElixir.Codex.Config.runtime_settings(workspace)
   end
 
   defp do_start_session(port, workspace, session_policies) do
@@ -279,7 +280,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
-    receive_loop(port, on_message, Config.codex_turn_timeout_ms(), "", tool_executor, auto_approve_requests)
+    receive_loop(port, on_message, Config.agent_turn_timeout_ms(), "", tool_executor, auto_approve_requests)
   end
 
   defp receive_loop(port, on_message, timeout_ms, pending_line, tool_executor, auto_approve_requests) do
@@ -822,7 +823,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp await_response(port, request_id) do
-    with_timeout_response(port, request_id, Config.codex_read_timeout_ms(), "")
+    with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "")
   end
 
   defp with_timeout_response(port, request_id, timeout_ms, pending_line) do
@@ -900,6 +901,195 @@ defmodule SymphonyElixir.Codex.AppServer do
         end
     end
   end
+
+  @spec normalize_event(map()) :: map()
+  def normalize_event(event) when is_map(event) do
+    event
+    |> normalize_usage()
+    |> normalize_rate_limits()
+  end
+
+  defp normalize_usage(event) do
+    payloads = [
+      event[:usage],
+      Map.get(event, "usage"),
+      event[:payload],
+      Map.get(event, "payload"),
+      event
+    ]
+
+    usage =
+      Enum.find_value(payloads, &absolute_token_usage/1) ||
+        Enum.find_value(payloads, &turn_completed_usage/1) ||
+        Enum.find_value(payloads, &direct_token_map/1)
+
+    Map.put(event, :usage, canonicalize_usage(usage))
+  end
+
+  defp normalize_rate_limits(event) do
+    raw =
+      find_rate_limits(event[:rate_limits]) ||
+        find_rate_limits(Map.get(event, "rate_limits")) ||
+        find_rate_limits(event[:payload]) ||
+        find_rate_limits(Map.get(event, "payload")) ||
+        find_rate_limits(event)
+
+    Map.put(event, :rate_limits, raw)
+  end
+
+  defp absolute_token_usage(payload) when is_map(payload) do
+    paths = [
+      ["params", "msg", "payload", "info", "total_token_usage"],
+      [:params, :msg, :payload, :info, :total_token_usage],
+      ["params", "msg", "info", "total_token_usage"],
+      [:params, :msg, :info, :total_token_usage],
+      ["params", "tokenUsage", "total"],
+      [:params, :tokenUsage, :total],
+      ["tokenUsage", "total"],
+      [:tokenUsage, :total]
+    ]
+
+    Enum.find_value(paths, fn path ->
+      value = dig(payload, path)
+      if is_map(value) and has_token_field?(value), do: value
+    end)
+  end
+
+  defp absolute_token_usage(_), do: nil
+
+  defp turn_completed_usage(payload) when is_map(payload) do
+    method = Map.get(payload, "method") || Map.get(payload, :method)
+
+    if method in ["turn/completed", :turn_completed] do
+      direct =
+        Map.get(payload, "usage") || Map.get(payload, :usage) ||
+          dig(payload, ["params", "usage"]) || dig(payload, [:params, :usage])
+
+      if is_map(direct) and has_token_field?(direct), do: direct
+    end
+  end
+
+  defp turn_completed_usage(_), do: nil
+
+  defp direct_token_map(payload) when is_map(payload) do
+    if has_token_field?(payload), do: payload
+  end
+
+  defp direct_token_map(_), do: nil
+
+  defp canonicalize_usage(nil), do: nil
+
+  defp canonicalize_usage(raw) when is_map(raw) do
+    input =
+      token_value(
+        raw,
+        ~w(input_tokens prompt_tokens inputTokens promptTokens)a ++
+          ~w(input_tokens prompt_tokens inputTokens promptTokens)
+      )
+
+    output =
+      token_value(
+        raw,
+        ~w(output_tokens completion_tokens outputTokens completionTokens)a ++
+          ~w(output_tokens completion_tokens outputTokens completionTokens)
+      )
+
+    total = token_value(raw, ~w(total_tokens total totalTokens)a ++ ~w(total_tokens total totalTokens))
+
+    if input || output || total do
+      %{input_tokens: input || 0, output_tokens: output || 0, total_tokens: total || 0}
+    end
+  end
+
+  defp token_value(map, keys) do
+    Enum.find_value(keys, fn key ->
+      map |> Map.get(key) |> parse_token_value()
+    end)
+  end
+
+  defp parse_token_value(v) when is_integer(v) and v >= 0, do: v
+
+  defp parse_token_value(v) when is_binary(v) do
+    case Integer.parse(String.trim(v)) do
+      {n, _} when n >= 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_token_value(_), do: nil
+
+  defp has_token_field?(map) when is_map(map) do
+    token_keys =
+      ~w(input_tokens output_tokens total_tokens prompt_tokens completion_tokens
+                    inputTokens outputTokens totalTokens promptTokens completionTokens)a ++
+        ~w(input_tokens output_tokens total_tokens prompt_tokens completion_tokens
+                    inputTokens outputTokens totalTokens promptTokens completionTokens)
+
+    Enum.any?(token_keys, fn key ->
+      map |> Map.get(key) |> token_like_value?()
+    end)
+  end
+
+  defp has_token_field?(_), do: false
+
+  defp token_like_value?(v) when is_integer(v) and v >= 0, do: true
+
+  defp token_like_value?(v) when is_binary(v) do
+    case Integer.parse(String.trim(v)) do
+      {n, _} when n >= 0 -> true
+      _ -> false
+    end
+  end
+
+  defp token_like_value?(_), do: false
+
+  defp find_rate_limits(payload) when is_map(payload) do
+    direct = Map.get(payload, "rate_limits") || Map.get(payload, :rate_limits)
+
+    cond do
+      rate_limits_map?(direct) -> direct
+      rate_limits_map?(payload) -> payload
+      true -> search_rate_limits(payload)
+    end
+  end
+
+  defp find_rate_limits(_), do: nil
+
+  defp search_rate_limits(payload) when is_map(payload) do
+    Enum.find_value(Map.values(payload), fn
+      value when is_map(value) -> find_rate_limits(value)
+      _ -> nil
+    end)
+  end
+
+  defp rate_limits_map?(payload) when is_map(payload) do
+    has_id =
+      !is_nil(
+        Map.get(payload, "limit_id") || Map.get(payload, :limit_id) ||
+          Map.get(payload, "limit_name") || Map.get(payload, :limit_name)
+      )
+
+    has_buckets =
+      Enum.any?(
+        ["primary", :primary, "secondary", :secondary, "credits", :credits],
+        &Map.has_key?(payload, &1)
+      )
+
+    has_id and has_buckets
+  end
+
+  defp rate_limits_map?(_), do: false
+
+  defp dig(map, []), do: map
+
+  defp dig(map, [key | rest]) when is_map(map) do
+    case Map.get(map, key) do
+      nil -> nil
+      value -> dig(value, rest)
+    end
+  end
+
+  defp dig(_, _), do: nil
 
   defp emit_message(on_message, event, details, metadata) when is_function(on_message, 1) do
     message = metadata |> Map.merge(details) |> Map.put(:event, event) |> Map.put(:timestamp, DateTime.utc_now())

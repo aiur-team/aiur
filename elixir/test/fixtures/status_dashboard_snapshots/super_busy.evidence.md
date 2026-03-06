@@ -1,5 +1,6 @@
 ```text
 ╭─ SYMPHONY STATUS
+│ ITS: linear | Agent: codex
 │ Agents: 2/10
 │ Throughput: 1,842 tps
 │ Runtime: 72m 1s

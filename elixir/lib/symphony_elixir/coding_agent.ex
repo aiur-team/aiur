@@ -8,12 +8,13 @@ defmodule SymphonyElixir.CodingAgent do
   @callback start_session(Path.t()) :: {:ok, map()} | {:error, term()}
   @callback run_turn(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback stop_session(map()) :: :ok
+  @callback normalize_event(map()) :: map()
 
   @spec adapter() :: module()
   def adapter do
     case Config.agent_kind() do
-      "claude" -> SymphonyElixir.Claude.AppServer
-      _ -> SymphonyElixir.Codex.AppServer
+      "codex" -> SymphonyElixir.Codex.CodingAgent
+      _ -> SymphonyElixir.Claude.CodingAgent
     end
   end
 
@@ -25,4 +26,7 @@ defmodule SymphonyElixir.CodingAgent do
 
   @spec stop_session(map()) :: :ok
   def stop_session(session), do: adapter().stop_session(session)
+
+  @spec normalize_event(map()) :: map()
+  def normalize_event(event), do: adapter().normalize_event(event)
 end

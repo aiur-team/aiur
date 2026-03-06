@@ -1,8 +1,8 @@
-defmodule SymphonyElixir.Claude.AppServer do
+defmodule SymphonyElixir.Claude.CodingAgent do
   @moduledoc """
   Claude Code app-server backend implementing the CodingAgent behaviour.
 
-  Simplified variant of Codex.AppServer without approval request handling
+  Simplified variant of Codex.CodingAgent without approval request handling
   or DynamicTool integration. Communicates via the same JSON-RPC 2.0 stdio
   protocol used by the Codex app-server.
   """
@@ -150,7 +150,7 @@ defmodule SymphonyElixir.Claude.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Config.codex_command())],
+            args: [~c"-lc", String.to_charlist(SymphonyElixir.Claude.Config.command())],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -206,7 +206,7 @@ defmodule SymphonyElixir.Claude.AppServer do
       "method" => "thread/start",
       "id" => @thread_start_id,
       "params" => %{
-        "permissionMode" => "acceptEdits",
+        "permissionMode" => "bypassPermissions",
         "cwd" => Path.expand(workspace)
       }
     })
@@ -247,7 +247,7 @@ defmodule SymphonyElixir.Claude.AppServer do
   end
 
   defp await_turn_completion(port, on_message) do
-    receive_loop(port, on_message, Config.codex_turn_timeout_ms(), "")
+    receive_loop(port, on_message, Config.agent_turn_timeout_ms(), "")
   end
 
   defp receive_loop(port, on_message, timeout_ms, pending_line) do
@@ -332,7 +332,7 @@ defmodule SymphonyElixir.Claude.AppServer do
   end
 
   defp await_response(port, request_id) do
-    with_timeout_response(port, request_id, Config.codex_read_timeout_ms(), "")
+    with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "")
   end
 
   defp with_timeout_response(port, request_id, timeout_ms, pending_line) do
@@ -411,6 +411,64 @@ defmodule SymphonyElixir.Claude.AppServer do
     end
   end
 
+  @spec normalize_event(map()) :: map()
+  def normalize_event(event) when is_map(event) do
+    event
+    |> normalize_usage()
+    |> normalize_rate_limits()
+  end
+
+  defp normalize_usage(event) do
+    raw = event[:usage] || Map.get(event, "usage")
+
+    usage =
+      if is_map(raw) do
+        input =
+          token_value(
+            raw,
+            ~w(input_tokens prompt_tokens inputTokens promptTokens)a ++
+              ~w(input_tokens prompt_tokens inputTokens promptTokens)
+          )
+
+        output =
+          token_value(
+            raw,
+            ~w(output_tokens completion_tokens outputTokens completionTokens)a ++
+              ~w(output_tokens completion_tokens outputTokens completionTokens)
+          )
+
+        total = token_value(raw, ~w(total_tokens total totalTokens)a ++ ~w(total_tokens total totalTokens))
+
+        if input || output || total do
+          %{input_tokens: input || 0, output_tokens: output || 0, total_tokens: total || 0}
+        end
+      end
+
+    Map.put(event, :usage, usage)
+  end
+
+  defp normalize_rate_limits(event) do
+    raw = event[:rate_limits] || Map.get(event, "rate_limits")
+    Map.put(event, :rate_limits, raw)
+  end
+
+  defp token_value(map, keys) do
+    Enum.find_value(keys, fn key ->
+      map |> Map.get(key) |> parse_token_value()
+    end)
+  end
+
+  defp parse_token_value(v) when is_integer(v) and v >= 0, do: v
+
+  defp parse_token_value(v) when is_binary(v) do
+    case Integer.parse(String.trim(v)) do
+      {n, _} when n >= 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_token_value(_), do: nil
+
   defp emit_message(on_message, event, details, metadata) when is_function(on_message, 1) do
     message = metadata |> Map.merge(details) |> Map.put(:event, event) |> Map.put(:timestamp, DateTime.utc_now())
     on_message.(message)
@@ -421,21 +479,32 @@ defmodule SymphonyElixir.Claude.AppServer do
   end
 
   defp maybe_set_usage(metadata, payload) when is_map(payload) do
-    usage = Map.get(payload, "usage") || Map.get(payload, :usage)
+    params = Map.get(payload, "params") || Map.get(payload, :params) || %{}
 
-    if is_map(usage) do
-      Map.put(metadata, :usage, usage)
-    else
-      metadata
-    end
+    metadata
+    |> put_if_map(:usage, find_in(payload, params, "usage", :usage))
+    |> put_if_number(:cost_usd, find_in(payload, params, "cost_usd", :cost_usd))
   end
 
   defp maybe_set_usage(metadata, _payload), do: metadata
 
+  defp find_in(top, params, str_key, atom_key) do
+    Map.get(top, str_key) || Map.get(top, atom_key) ||
+      Map.get(params, str_key) || Map.get(params, atom_key)
+  end
+
+  defp put_if_map(metadata, key, value) when is_map(value), do: Map.put(metadata, key, value)
+  defp put_if_map(metadata, _key, _value), do: metadata
+
+  defp put_if_number(metadata, key, value) when is_number(value),
+    do: Map.put(metadata, key, value)
+
+  defp put_if_number(metadata, _key, _value), do: metadata
+
   defp default_on_message(_message), do: :ok
 
   defp send_message(port, message) do
-    line = Jason.encode!(message) <> "\n"
-    Port.command(port, line)
+    line = message |> Map.put("jsonrpc", "2.0") |> Jason.encode!()
+    Port.command(port, line <> "\n")
   end
 end
