@@ -55,10 +55,32 @@ mise install
 mise exec -- elixir --version
 ```
 
-## Run
+### Homebrew
 
 ```bash
-git clone https://github.com/openai/symphony
+brew tap sapsaldog/symphony
+brew install symphony
+```
+
+When using the Claude coding agent backend, also install `symphony-claude` — a JSON-RPC 2.0 app
+server that bridges Symphony and Claude Code:
+
+```bash
+brew install symphony-claude
+```
+
+## Run
+
+### From Homebrew
+
+```bash
+symphony /path/to/WORKFLOW.md
+```
+
+### From source
+
+```bash
+git clone https://github.com/sapsaldog/symphony
 cd symphony/elixir
 mise trust
 mise install
