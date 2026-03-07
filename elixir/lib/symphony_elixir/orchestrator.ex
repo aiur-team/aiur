@@ -47,6 +47,8 @@ defmodule SymphonyElixir.Orchestrator do
 
   @impl true
   def init(_opts) do
+    warn_on_invalid_config()
+
     now_ms = System.monotonic_time(:millisecond)
 
     state = %State{
@@ -167,6 +169,24 @@ defmodule SymphonyElixir.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp warn_on_invalid_config do
+    case Config.validate!() do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Configuration warning: #{reason}")
+
+        IO.puts(
+          :stderr,
+          IO.ANSI.yellow() <>
+            IO.ANSI.bright() <>
+            "\n⚠  Configuration warning: #{reason}\n" <>
+            IO.ANSI.reset()
+        )
+    end
   end
 
   defp maybe_dispatch(%State{} = state) do

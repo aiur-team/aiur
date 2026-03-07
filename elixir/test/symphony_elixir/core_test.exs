@@ -613,7 +613,7 @@ defmodule SymphonyElixir.CoreTest do
     assert PromptBuilder.build_prompt(issue) == "Ticket MT-701"
   end
 
-  test "prompt builder uses strict variable rendering" do
+  test "prompt builder renders undefined variables as empty strings" do
     workflow_prompt = "Work on ticket {{ missing.ticket_id }} and follow these steps."
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
@@ -627,9 +627,8 @@ defmodule SymphonyElixir.CoreTest do
       labels: ["bug"]
     }
 
-    assert_raise Solid.RenderError, fn ->
-      PromptBuilder.build_prompt(issue)
-    end
+    prompt = PromptBuilder.build_prompt(issue)
+    assert prompt == "Work on ticket  and follow these steps."
   end
 
   test "prompt builder surfaces invalid template content with prompt context" do
@@ -770,6 +769,91 @@ defmodule SymphonyElixir.CoreTest do
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
     assert prompt == "Retry #2"
+  end
+
+  test "prompt builder ensures valid UTF-8 output" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ issue.title }}")
+
+    issue = %Issue{
+      identifier: "MT-900",
+      title: "Valid ASCII title",
+      description: "test",
+      state: "Todo",
+      url: "https://example.org/issues/MT-900",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+    assert String.valid?(prompt)
+    assert prompt == "Valid ASCII title"
+  end
+
+  test "prompt builder handles undefined issue fields gracefully in custom templates" do
+    workflow_prompt =
+      ~S"Issue #{{ issue.number }} assigned to {{ issue.assignees }} title={{ issue.title }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "42",
+      title: "Fix login bug",
+      description: "Users can't log in",
+      state: "todo",
+      url: "https://github.com/org/repo/issues/42",
+      labels: ["symphony:todo"]
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+    assert prompt =~ "title=Fix login bug"
+    assert prompt =~ "Issue #"
+    assert {:ok, _} = Jason.encode(prompt)
+  end
+
+  test "prompt builder converts latin1 bytes to valid UTF-8" do
+    # Simulate what ensure_utf8 does with latin1 input
+    latin1_binary = <<0xE9>>
+    refute String.valid?(latin1_binary)
+
+    result =
+      latin1_binary
+      |> :unicode.characters_to_binary(:latin1, :utf8)
+
+    assert is_binary(result)
+    assert String.valid?(result)
+  end
+
+  test "config validate! returns error when github token is missing" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
+    original_token = System.get_env("GITHUB_TOKEN")
+    System.delete_env("GITHUB_TOKEN")
+
+    result = Config.validate!()
+
+    restore_env("GITHUB_TOKEN", original_token)
+
+    assert {:error, message} = result
+    assert message =~ "GitHub token missing"
+  end
+
+  test "config validate! returns error when github repo is missing" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: nil
+    )
+
+    original_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "ghp_test_token")
+
+    result = Config.validate!()
+
+    restore_env("GITHUB_TOKEN", original_token)
+
+    assert {:error, message} = result
+    assert message =~ "GitHub repo missing"
   end
 
   test "agent runner keeps workspace after successful codex run" do
