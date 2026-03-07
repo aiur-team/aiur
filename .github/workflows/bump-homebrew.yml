@@ -1,0 +1,38 @@
+name: Bump Homebrew Formula
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Download tarball and compute SHA256
+        id: sha
+        run: |
+          curl -sL "https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.version.outputs.tag }}.tar.gz" -o source.tar.gz
+          sha=$(sha256sum source.tar.gz | awk '{print $1}')
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+          REPO: ${{ github.repository }}
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/sapsaldog/homebrew-symphony.git" tap
+          cd tap
+          sed -i "s|url \".*\"|url \"https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz\"|" Formula/symphony.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/symphony.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/symphony.rb
+          git commit -m "Bump symphony to ${TAG}"
+          git push
