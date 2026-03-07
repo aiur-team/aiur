@@ -6,7 +6,12 @@ defmodule SymphonyElixir.CLI do
   alias SymphonyElixir.LogFile
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
-  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer]
+  @version Mix.Project.config()[:version]
+  @git_rev String.trim(case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do
+    {rev, 0} -> rev
+    _ -> ""
+  end)
+  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer, version: :boolean]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
@@ -23,6 +28,10 @@ defmodule SymphonyElixir.CLI do
       :ok ->
         wait_for_shutdown()
 
+      {:version, version} ->
+        rev_suffix = if @git_rev != "", do: " #{@git_rev}", else: ""
+        IO.puts("symphony #{version} (sapsaldog/symphony#{rev_suffix})")
+
       {:error, message} ->
         IO.puts(:stderr, message)
         System.halt(1)
@@ -32,6 +41,9 @@ defmodule SymphonyElixir.CLI do
   @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
+      {[version: true], _, _} ->
+        {:version, @version}
+
       {opts, [], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),

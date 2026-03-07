@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Codex.CodingAgent do
   Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio.
   """
 
+  @version Mix.Project.config()[:version]
+
   @behaviour SymphonyElixir.CodingAgent
 
   require Logger
@@ -206,7 +208,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
         "clientInfo" => %{
           "name" => "symphony-orchestrator",
           "title" => "Symphony Orchestrator",
-          "version" => "0.1.0"
+          "version" => @version
         }
       }
     }

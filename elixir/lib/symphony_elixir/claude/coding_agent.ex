@@ -7,6 +7,8 @@ defmodule SymphonyElixir.Claude.CodingAgent do
   protocol used by the Codex app-server.
   """
 
+  @version Mix.Project.config()[:version]
+
   @behaviour SymphonyElixir.CodingAgent
 
   require Logger
@@ -181,7 +183,7 @@ defmodule SymphonyElixir.Claude.CodingAgent do
         "clientInfo" => %{
           "name" => "symphony-orchestrator",
           "title" => "Symphony Orchestrator",
-          "version" => "0.1.0"
+          "version" => @version
         }
       }
     }
