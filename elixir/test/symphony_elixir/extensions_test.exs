@@ -524,7 +524,14 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   test "dashboard liveview renders and refreshes over pubsub" do
     orchestrator_name = Module.concat(__MODULE__, :DashboardOrchestrator)
-    snapshot = static_snapshot()
+    log_root = Path.join(System.tmp_dir!(), "symphony-dashboard-log-#{System.unique_integer([:positive])}")
+    log_dir = Path.join(log_root, "logs")
+    File.mkdir_p!(log_dir)
+    File.write!(Path.join(log_dir, "agent.md"), "## event\n\nhello from workspace log\n")
+
+    snapshot = static_snapshot(workspace_path: log_root)
+
+    on_exit(fn -> File.rm_rf(log_root) end)
 
     {:ok, orchestrator_pid} =
       StaticOrchestrator.start_link(
@@ -550,6 +557,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ "Offline"
     assert html =~ "Copy ID"
     assert html =~ "Agent update"
+    assert html =~ "phx-click=\"show-agent-log\""
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"
@@ -566,6 +574,7 @@ defmodule SymphonyElixir.ExtensionsTest do
           session_id: "thread-http",
           turn_count: 8,
           last_codex_event: :notification,
+          workspace_path: log_root,
           last_codex_message: %{
             event: :notification,
             message: %{
@@ -596,6 +605,23 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert_eventually(fn ->
       render(view) =~ "agent message content streaming: structured update"
     end)
+
+    log_html =
+      view
+      |> element("tr[phx-value-issue=\"MT-HTTP\"]")
+      |> render_click()
+
+    assert log_html =~ "Agent log"
+    assert log_html =~ "MT-HTTP"
+    assert log_html =~ "hello from workspace log"
+    assert log_html =~ Path.join(log_root, "logs/agent.md")
+
+    closed_html =
+      view
+      |> element("button", "Close")
+      |> render_click()
+
+    refute closed_html =~ "hello from workspace log"
   end
 
   test "dashboard liveview renders an unavailable state without crashing" do
@@ -685,7 +711,9 @@ defmodule SymphonyElixir.ExtensionsTest do
     start_supervised!({SymphonyElixirWeb.Endpoint, []})
   end
 
-  defp static_snapshot do
+  defp static_snapshot(opts \\ []) do
+    workspace_path = Keyword.get(opts, :workspace_path)
+
     %{
       running: [
         %{
@@ -698,6 +726,7 @@ defmodule SymphonyElixir.ExtensionsTest do
           last_codex_message: "rendered",
           last_codex_timestamp: nil,
           last_codex_event: :notification,
+          workspace_path: workspace_path,
           agent_input_tokens: 4,
           agent_output_tokens: 8,
           agent_total_tokens: 12,
