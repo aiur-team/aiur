@@ -10,6 +10,9 @@ _In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Line
 > [!WARNING]
 > Symphony is a low-key engineering preview for testing in trusted environments.
 
+This fork also supports Claude Code as a coding-agent backend and GitHub Issues as a tracker
+backend, while retaining the upstream Linear and Codex-compatible workflow.
+
 ## Running Symphony
 
 ### Requirements
