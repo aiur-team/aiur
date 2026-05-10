@@ -431,6 +431,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
       |> Enum.map(fn [_match, timestamp, event, body] -> parse_log_entry(timestamp, event, body) end)
       |> Enum.reject(&is_nil/1)
       |> compact_log_messages()
+      |> Enum.take(-80)
 
     if messages == [] do
       [log_message("system", "Log", "n/a", content)]
@@ -446,7 +447,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
          {:ok, payload} <- Jason.decode(trimmed_body) do
       parse_json_log_entry(timestamp, event, payload, trimmed_body)
     else
-      _ -> log_message("system", humanize_event(event), timestamp, trimmed_body)
+      _ -> nil
     end
   end
 
@@ -469,8 +470,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
       {"warning", %{"message" => message}} ->
         log_message("system", "Warning", timestamp, message)
 
-      {"item/started", %{"item" => %{"type" => "commandExecution", "command" => command}}} ->
-        log_message("tool", "Command", timestamp, command)
+      {"item/started", %{"item" => %{"type" => "commandExecution"}}} ->
+        nil
 
       {"item/commandExecution/outputDelta", _params} ->
         nil
