@@ -1159,6 +1159,18 @@ defmodule SymphonyElixir.CoreTest do
                      500
 
       assert session_id == "thread-live-turn-live"
+
+      workspace = Path.join(workspace_root, "MT-99")
+      ndjson_log = Path.join(workspace, "logs/agent.ndjson")
+      markdown_log = Path.join(workspace, "logs/agent.md")
+
+      assert File.exists?(ndjson_log)
+      assert File.exists?(markdown_log)
+
+      assert File.read!(ndjson_log) =~ "\"event\":\"session_started\""
+      assert File.read!(ndjson_log) =~ "\"event\":\"turn_completed\""
+      assert File.read!(markdown_log) =~ "session_started"
+      assert File.read!(markdown_log) =~ "turn_completed"
     after
       File.rm_rf(test_root)
     end

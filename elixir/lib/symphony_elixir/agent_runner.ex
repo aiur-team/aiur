@@ -45,9 +45,10 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp codex_message_handler(recipient, issue) do
+  defp codex_message_handler(recipient, issue, workspace, worker_host) do
     fn message ->
       message = CodingAgent.normalize_event(message)
+      write_agent_log(workspace, worker_host, message)
       send_codex_update(recipient, issue, message)
     end
   end
@@ -82,14 +83,24 @@ defmodule SymphonyElixir.AgentRunner do
 
     with {:ok, session} <- CodingAgent.start_session(workspace, worker_host: worker_host) do
       try do
-        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns)
+        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, worker_host, 1, max_turns)
       after
         CodingAgent.stop_session(session)
       end
     end
   end
 
-  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns) do
+  defp do_run_codex_turns(
+         app_session,
+         workspace,
+         issue,
+         codex_update_recipient,
+         opts,
+         issue_state_fetcher,
+         worker_host,
+         turn_number,
+         max_turns
+       ) do
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
     with {:ok, turn_session} <-
@@ -97,7 +108,7 @@ defmodule SymphonyElixir.AgentRunner do
              app_session,
              prompt,
              issue,
-             on_message: codex_message_handler(codex_update_recipient, issue)
+             on_message: codex_message_handler(codex_update_recipient, issue, workspace, worker_host)
            ) do
       Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
@@ -112,6 +123,7 @@ defmodule SymphonyElixir.AgentRunner do
             codex_update_recipient,
             opts,
             issue_state_fetcher,
+            worker_host,
             turn_number + 1,
             max_turns
           )
@@ -196,6 +208,78 @@ defmodule SymphonyElixir.AgentRunner do
     |> String.trim()
     |> String.downcase()
   end
+
+  defp write_agent_log(_workspace, worker_host, _message) when is_binary(worker_host), do: :ok
+
+  defp write_agent_log(workspace, nil, message) when is_binary(workspace) and is_map(message) do
+    log_dir = Path.join(workspace, "logs")
+    ndjson_path = Path.join(log_dir, "agent.ndjson")
+    markdown_path = Path.join(log_dir, "agent.md")
+
+    with :ok <- File.mkdir_p(log_dir),
+         :ok <- File.write(ndjson_path, Jason.encode!(json_safe(message)) <> "\n", [:append]),
+         :ok <- File.write(markdown_path, markdown_entry(message), [:append]) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.debug("Failed writing agent log workspace=#{workspace} reason=#{inspect(reason)}")
+        :ok
+    end
+  rescue
+    error ->
+      Logger.debug("Failed writing agent log workspace=#{workspace} error=#{Exception.message(error)}")
+      :ok
+  end
+
+  defp write_agent_log(_workspace, _worker_host, _message), do: :ok
+
+  defp markdown_entry(message) do
+    timestamp =
+      message
+      |> Map.get(:timestamp, DateTime.utc_now())
+      |> format_timestamp()
+
+    event = Map.get(message, :event) || Map.get(message, "event") || "event"
+    summary = event_summary(message)
+
+    """
+    ## #{timestamp} #{event}
+
+    #{summary}
+
+    """
+  end
+
+  defp event_summary(message) do
+    cond do
+      is_binary(message[:last_message]) -> message[:last_message]
+      is_binary(message["last_message"]) -> message["last_message"]
+      is_binary(message[:raw]) -> code_block(message[:raw])
+      is_binary(message["raw"]) -> code_block(message["raw"])
+      true -> code_block(inspect(Map.drop(message, [:timestamp])))
+    end
+  end
+
+  defp code_block(value) do
+    """
+    ```text
+    #{value}
+    ```
+    """
+  end
+
+  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp json_safe(%{} = value), do: Map.new(value, fn {key, val} -> {json_safe_key(key), json_safe(val)} end)
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
+  defp json_safe(value), do: value
+
+  defp json_safe_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp json_safe_key(key), do: to_string(key)
+
+  defp format_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
+  defp format_timestamp(timestamp) when is_binary(timestamp), do: timestamp
+  defp format_timestamp(_timestamp), do: DateTime.utc_now() |> DateTime.to_iso8601()
 
   defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
