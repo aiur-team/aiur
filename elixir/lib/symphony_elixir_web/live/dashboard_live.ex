@@ -282,7 +282,15 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
             <p class="modal-meta mono"><%= @agent_log_modal.path || "No local log path" %></p>
 
-            <pre class="log-panel"><%= @agent_log_modal.content %></pre>
+            <div class="chat-log-panel">
+              <div :for={message <- @agent_log_modal.messages} class={log_message_class(message)}>
+                <div class="log-message-header">
+                  <span><%= message.title %></span>
+                  <span class="mono"><%= message.timestamp %></span>
+                </div>
+                <pre class="log-message-body"><%= message.body %></pre>
+              </div>
+            </div>
           </section>
         </div>
       <% end %>
@@ -382,17 +390,20 @@ defmodule SymphonyElixirWeb.DashboardLive do
     %{
       issue_identifier: "n/a",
       path: nil,
-      content: "No running session found for this issue."
+      messages: [
+        log_message("system", "Session", "n/a", "No running session found for this issue.")
+      ]
     }
   end
 
   defp agent_log_modal(entry) do
     path = agent_log_path(entry)
+    content = read_agent_log(path)
 
     %{
       issue_identifier: entry.issue_identifier,
       path: path,
-      content: read_agent_log(path)
+      messages: parse_agent_log(content)
     }
   end
 
@@ -412,4 +423,116 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp read_agent_log(_path), do: "No local workspace path is available for this session."
+
+  defp parse_agent_log(content) when is_binary(content) do
+    messages =
+      ~r/^## ([^\n]+)\s+([^\n]+)\n\n```text\n(.*?)\n```/ms
+      |> Regex.scan(content)
+      |> Enum.map(fn [_match, timestamp, event, body] -> parse_log_entry(timestamp, event, body) end)
+      |> compact_log_messages()
+
+    if messages == [] do
+      [log_message("system", "Log", "n/a", content)]
+    else
+      messages
+    end
+  end
+
+  defp parse_log_entry(timestamp, event, body) do
+    trimmed_body = String.trim(body)
+
+    with "{" <> _ <- trimmed_body,
+         {:ok, payload} <- Jason.decode(trimmed_body) do
+      parse_json_log_entry(timestamp, event, payload, trimmed_body)
+    else
+      _ -> log_message("system", humanize_event(event), timestamp, trimmed_body)
+    end
+  end
+
+  defp parse_json_log_entry(timestamp, event, %{"method" => method, "params" => params}, raw_body) do
+    case {method, params} do
+      {"item/started", %{"item" => %{"type" => "userMessage", "content" => content}}} ->
+        log_message("user", "Issue prompt", timestamp, content_text(content))
+
+      {"item/agentMessage/delta", %{"itemId" => item_id, "delta" => delta}} ->
+        "assistant"
+        |> log_message("Agent", timestamp, delta)
+        |> Map.put(:merge_key, {:assistant_delta, item_id})
+
+      {"item/agentMessage/delta", %{"delta" => delta}} ->
+        log_message("assistant", "Agent", timestamp, delta)
+
+      {"item/completed", %{"item" => %{"type" => "agentMessage", "text" => text}}} ->
+        log_message("assistant", "Agent", timestamp, text)
+
+      {"warning", %{"message" => message}} ->
+        log_message("system", "Warning", timestamp, message)
+
+      _ ->
+        log_message("system", humanize_event(method || event), timestamp, summarize_payload(raw_body))
+    end
+  end
+
+  defp parse_json_log_entry(timestamp, event, _payload, raw_body) do
+    log_message("system", humanize_event(event), timestamp, summarize_payload(raw_body))
+  end
+
+  defp compact_log_messages(messages) do
+    messages
+    |> Enum.reduce([], fn message, acc ->
+      case {message[:merge_key], List.first(acc)} do
+        {nil, _previous} ->
+          [message | acc]
+
+        {key, %{merge_key: key} = previous} ->
+          [%{previous | body: previous.body <> message.body, timestamp: message.timestamp} | tl(acc)]
+
+        {_key, _previous} ->
+          [message | acc]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.map(&Map.delete(&1, :merge_key))
+  end
+
+  defp content_text(content) when is_list(content) do
+    content
+    |> Enum.map(fn
+      %{"text" => text} -> text
+      other -> inspect(other, pretty: true)
+    end)
+    |> Enum.join("\n\n")
+  end
+
+  defp content_text(content), do: inspect(content, pretty: true)
+
+  defp log_message(role, title, timestamp, body) do
+    %{
+      role: role,
+      title: title,
+      timestamp: timestamp,
+      body: blank_to_placeholder(body)
+    }
+  end
+
+  defp log_message_class(%{role: role}), do: "log-message log-message-#{role}"
+
+  defp humanize_event(event) do
+    event
+    |> to_string()
+    |> String.replace(["/", "_", "-"], " ")
+    |> String.split()
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp summarize_payload(body) do
+    if String.length(body) > 1_200 do
+      String.slice(body, 0, 1_200) <> "\n..."
+    else
+      body
+    end
+  end
+
+  defp blank_to_placeholder(body) when body in [nil, ""], do: "No content."
+  defp blank_to_placeholder(body), do: body
 end
