@@ -4,6 +4,15 @@ Status: Draft v1 (language-agnostic)
 
 Purpose: Define a service that orchestrates coding agents to get project work done.
 
+## Normative Language
+
+The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, `MAY`, and
+`OPTIONAL` in this document are to be interpreted as described in RFC 2119.
+
+`Implementation-defined` means the behavior is part of the implementation contract, but this
+specification does not prescribe one universal policy. Implementations MUST document the selected
+behavior.
+
 ## 1. Problem Statement
 
 Symphony is a long-running automation service that continuously reads work from an issue tracker
@@ -21,15 +30,15 @@ The service solves four operational problems:
 
 Implementations are expected to document their trust and safety posture explicitly. This
 specification does not require a single approval, sandbox, or operator-confirmation policy; some
-implementations may target trusted environments with a high-trust configuration, while others may
-require stricter approvals or sandboxing.
+implementations target trusted environments with a high-trust configuration, while others require
+stricter approvals or sandboxing.
 
 Important boundary:
 
 - Symphony is a scheduler/runner and tracker reader.
 - Ticket writes (state transitions, comments, PR links) are typically performed by the coding agent
   using tools available in the workflow/runtime environment.
-- A successful run may end at a workflow-defined handoff state (for example `Human Review`), not
+- A successful run can end at a workflow-defined handoff state (for example `Human Review`), not
   necessarily `Done`.
 
 ## 2. Goals and Non-Goals
@@ -43,7 +52,8 @@ Important boundary:
 - Recover from transient failures with exponential backoff.
 - Load runtime behavior from a repository-owned `WORKFLOW.md` contract.
 - Expose operator-visible observability (at minimum structured logs).
-- Support restart recovery without requiring a persistent database.
+- Support tracker/filesystem-driven restart recovery without requiring a persistent database; exact
+  in-memory scheduler state is not restored.
 
 ### 2.2 Non-Goals
 
@@ -94,7 +104,7 @@ Important boundary:
    - Launches the coding agent app-server client.
    - Streams agent updates back to the orchestrator.
 
-7. `Status Surface` (optional)
+7. `Status Surface` (OPTIONAL)
    - Presents human-readable runtime status (for example terminal output, dashboard, or other
      operator-facing view).
 
@@ -122,15 +132,15 @@ Symphony is easiest to port when kept in these layers:
 5. `Integration Layer` (Linear adapter)
    - API calls and normalization for tracker data.
 
-6. `Observability Layer` (logs + optional status surface)
+6. `Observability Layer` (logs + OPTIONAL status surface)
    - Operator visibility into orchestrator and agent behavior.
 
 ### 3.3 External Dependencies
 
 - Issue tracker API (Linear for `tracker.kind: linear` in this specification version).
 - Local filesystem for workspaces and logs.
-- Optional workspace population tooling (for example Git CLI, if used).
-- Coding-agent executable that supports JSON-RPC-like app-server mode over stdio.
+- OPTIONAL workspace population tooling (for example Git CLI, if used).
+- Coding-agent executable that supports the targeted Codex app-server mode.
 - Host environment authentication for the issue tracker and coding agent.
 
 ## 4. Core Domain Model
@@ -194,8 +204,7 @@ Filesystem workspace assigned to one issue identifier.
 
 Fields (logical):
 
-- `path` (workspace path; current runtime typically uses absolute paths, but relative roots are
-  possible if configured without path separators)
+- `path` (absolute workspace path)
 - `workspace_key` (sanitized issue identifier)
 - `created_now` (boolean, used to gate `after_create` hook)
 
@@ -211,7 +220,7 @@ Fields (logical):
 - `workspace_path`
 - `started_at`
 - `status`
-- `error` (optional)
+- `error` (OPTIONAL)
 
 #### 4.1.6 Live Session (Agent Session Metadata)
 
@@ -273,7 +282,7 @@ Fields:
   - Derive from `issue.identifier` by replacing any character not in `[A-Za-z0-9._-]` with `_`.
   - Use the sanitized value for the workspace directory name.
 - `Normalized Issue State`
-  - Compare states after `trim` + `lowercase`.
+  - Compare states after `lowercase`.
 - `Session ID`
   - Compose from coding-agent `thread_id` and `turn_id` as `<thread_id>-<turn_id>`.
 
@@ -293,11 +302,11 @@ Loader behavior:
 
 ### 5.2 File Format
 
-`WORKFLOW.md` is a Markdown file with optional YAML front matter.
+`WORKFLOW.md` is a Markdown file with OPTIONAL YAML front matter.
 
 Design note:
 
-- `WORKFLOW.md` should be self-contained enough to describe and run different workflows (prompt,
+- `WORKFLOW.md` SHOULD be self-contained enough to describe and run different workflows (prompt,
   runtime settings, hooks, and tracker selection/config) without requiring out-of-band
   service-specific configuration.
 
@@ -306,7 +315,7 @@ Parsing rules:
 - If file starts with `---`, parse lines until the next `---` as YAML front matter.
 - Remaining lines become the prompt body.
 - If front matter is absent, treat the entire file as prompt body and use an empty config map.
-- YAML front matter must decode to a map/object; non-map YAML is an error.
+- YAML front matter MUST decode to a map/object; non-map YAML is an error.
 - Prompt body is trimmed before use.
 
 Returned workflow object:
@@ -325,44 +334,42 @@ Top-level keys:
 - `agent`
 - `codex`
 
-Unknown keys should be ignored for forward compatibility.
+Unknown keys SHOULD be ignored for forward compatibility.
 
 Note:
 
-- The workflow front matter is extensible. Optional extensions may define additional top-level keys
-  (for example `server`) without changing the core schema above.
-- Extensions should document their field schema, defaults, validation rules, and whether changes
+- The workflow front matter is extensible. Extensions MAY define additional top-level keys without
+  changing the core schema above.
+- Extensions SHOULD document their field schema, defaults, validation rules, and whether changes
   apply dynamically or require restart.
-- Common extension: `server.port` (integer) enables the optional HTTP server described in Section
-  13.7.
 
 #### 5.3.1 `tracker` (object)
 
 Fields:
 
 - `kind` (string)
-  - Required for dispatch.
+  - REQUIRED for dispatch.
   - Current supported value: `linear`
 - `endpoint` (string)
   - Default for `tracker.kind == "linear"`: `https://api.linear.app/graphql`
 - `api_key` (string)
-  - May be a literal token or `$VAR_NAME`.
+  - MAY be a literal token or `$VAR_NAME`.
   - Canonical environment variable for `tracker.kind == "linear"`: `LINEAR_API_KEY`.
   - If `$VAR_NAME` resolves to an empty string, treat the key as missing.
 - `project_slug` (string)
-  - Required for dispatch when `tracker.kind == "linear"`.
-- `active_states` (list of strings or comma-separated string)
+  - REQUIRED for dispatch when `tracker.kind == "linear"`.
+- `active_states` (list of strings)
   - Default: `Todo`, `In Progress`
-- `terminal_states` (list of strings or comma-separated string)
+- `terminal_states` (list of strings)
   - Default: `Closed`, `Cancelled`, `Canceled`, `Duplicate`, `Done`
 
 #### 5.3.2 `polling` (object)
 
 Fields:
 
-- `interval_ms` (integer or string integer)
+- `interval_ms` (integer)
   - Default: `30000`
-  - Changes should be re-applied at runtime and affect future tick scheduling without restart.
+  - Changes SHOULD be re-applied at runtime and affect future tick scheduling without restart.
 
 #### 5.3.3 `workspace` (object)
 
@@ -370,47 +377,51 @@ Fields:
 
 - `root` (path string or `$VAR`)
   - Default: `<system-temp>/symphony_workspaces`
-  - `~` and strings containing path separators are expanded.
-  - Bare strings without path separators are preserved as-is (relative roots are allowed but
-    discouraged).
+  - `~` is expanded.
+  - Relative paths are resolved relative to the directory containing `WORKFLOW.md`.
+  - The effective workspace root is normalized to an absolute path before use.
 
 #### 5.3.4 `hooks` (object)
 
 Fields:
 
-- `after_create` (multiline shell script string, optional)
+- `after_create` (multiline shell script string, OPTIONAL)
   - Runs only when a workspace directory is newly created.
   - Failure aborts workspace creation.
-- `before_run` (multiline shell script string, optional)
+- `before_run` (multiline shell script string, OPTIONAL)
   - Runs before each agent attempt after workspace preparation and before launching the coding
     agent.
   - Failure aborts the current attempt.
-- `after_run` (multiline shell script string, optional)
+- `after_run` (multiline shell script string, OPTIONAL)
   - Runs after each agent attempt (success, failure, timeout, or cancellation) once the workspace
     exists.
   - Failure is logged but ignored.
-- `before_remove` (multiline shell script string, optional)
+- `before_remove` (multiline shell script string, OPTIONAL)
   - Runs before workspace deletion if the directory exists.
   - Failure is logged but ignored; cleanup still proceeds.
-- `timeout_ms` (integer, optional)
+- `timeout_ms` (integer, OPTIONAL)
   - Default: `60000`
   - Applies to all workspace hooks.
-  - Non-positive values should be treated as invalid and fall back to the default.
-  - Changes should be re-applied at runtime for future hook executions.
+  - Invalid values fail configuration validation.
+  - Changes SHOULD be re-applied at runtime for future hook executions.
 
 #### 5.3.5 `agent` (object)
 
 Fields:
 
-- `max_concurrent_agents` (integer or string integer)
+- `max_concurrent_agents` (integer)
   - Default: `10`
-  - Changes should be re-applied at runtime and affect subsequent dispatch decisions.
-- `max_retry_backoff_ms` (integer or string integer)
+  - Changes SHOULD be re-applied at runtime and affect subsequent dispatch decisions.
+- `max_turns` (positive integer)
+  - Default: `20`
+  - Limits the number of coding-agent turns within one worker session.
+  - Invalid values fail configuration validation.
+- `max_retry_backoff_ms` (integer)
   - Default: `300000` (5 minutes)
-  - Changes should be re-applied at runtime and affect future retry scheduling.
+  - Changes SHOULD be re-applied at runtime and affect future retry scheduling.
 - `max_concurrent_agents_by_state` (map `state_name -> positive integer`)
   - Default: empty map.
-  - State keys are normalized (`trim` + `lowercase`) for lookup.
+  - State keys are normalized (`lowercase`) for lookup.
   - Invalid entries (non-positive or non-numeric) are ignored.
 
 #### 5.3.6 `codex` (object)
@@ -419,16 +430,16 @@ Fields:
 
 For Codex-owned config values such as `approval_policy`, `thread_sandbox`, and
 `turn_sandbox_policy`, supported values are defined by the targeted Codex app-server version.
-Implementors should treat them as pass-through Codex config values rather than relying on a
+Implementors SHOULD treat them as pass-through Codex config values rather than relying on a
 hand-maintained enum in this spec. To inspect the installed Codex schema, run
 `codex app-server generate-json-schema --out <dir>` and inspect the relevant definitions referenced
-by `v2/ThreadStartParams.json` and `v2/TurnStartParams.json`. Implementations may validate these
+by `v2/ThreadStartParams.json` and `v2/TurnStartParams.json`. Implementations MAY validate these
 fields locally if they want stricter startup checks.
 
 - `command` (string shell command)
   - Default: `codex app-server`
   - The runtime launches this command via `bash -lc` in the workspace directory.
-  - The launched process must speak a compatible app-server protocol over stdio.
+  - The launched process MUST speak a compatible app-server protocol over stdio.
 - `approval_policy` (Codex `AskForApproval` value)
   - Default: implementation-defined.
 - `thread_sandbox` (Codex `SandboxMode` value)
@@ -450,8 +461,8 @@ The Markdown body of `WORKFLOW.md` is the per-issue prompt template.
 Rendering requirements:
 
 - Use a strict template engine (Liquid-compatible semantics are sufficient).
-- Unknown variables must fail rendering.
-- Unknown filters must fail rendering.
+- Unknown variables MUST fail rendering.
+- Unknown filters MUST fail rendering.
 
 Template input variables:
 
@@ -463,9 +474,9 @@ Template input variables:
 
 Fallback prompt behavior:
 
-- If the workflow prompt body is empty, the runtime may use a minimal default prompt
+- If the workflow prompt body is empty, the runtime MAY use a minimal default prompt
   (`You are working on an issue from Linear.`).
-- Workflow file read/parse failures are configuration/validation errors and should not silently fall
+- Workflow file read/parse failures are configuration/validation errors and SHOULD NOT silently fall
   back to a prompt.
 
 ### 5.5 Workflow Validation and Error Surface
@@ -485,14 +496,18 @@ Dispatch gating behavior:
 
 ## 6. Configuration Specification
 
-### 6.1 Source Precedence and Resolution Semantics
+### 6.1 Configuration Resolution Pipeline
 
-Configuration precedence:
+Configuration is resolved in this order:
 
-1. Workflow file path selection (runtime setting -> cwd default).
-2. YAML front matter values.
-3. Environment indirection via `$VAR_NAME` inside selected YAML values.
-4. Built-in defaults.
+1. Select the workflow file path (explicit runtime setting, otherwise cwd default).
+2. Parse YAML front matter into a raw config map.
+3. Apply built-in defaults for missing OPTIONAL fields.
+4. Resolve `$VAR_NAME` indirection only for config values that explicitly contain `$VAR_NAME`.
+5. Coerce and validate typed values.
+
+Environment variables do not globally override YAML values. They are used only when a config value
+explicitly references them.
 
 Value coercion semantics:
 
@@ -501,25 +516,27 @@ Value coercion semantics:
   - `$VAR` expansion for env-backed path values
   - Apply expansion only to values intended to be local filesystem paths; do not rewrite URIs or
     arbitrary shell command strings.
+- Relative `workspace.root` values resolve relative to the directory containing the selected
+  `WORKFLOW.md`.
 
 ### 6.2 Dynamic Reload Semantics
 
-Dynamic reload is required:
+Dynamic reload is REQUIRED:
 
-- The software should watch `WORKFLOW.md` for changes.
-- On change, it should re-read and re-apply workflow config and prompt template without restart.
-- The software should attempt to adjust live behavior to the new config (for example polling
+- The software MUST detect `WORKFLOW.md` changes.
+- On change, it MUST re-read and re-apply workflow config and prompt template without restart.
+- The software MUST attempt to adjust live behavior to the new config (for example polling
   cadence, concurrency limits, active/terminal states, codex settings, workspace paths/hooks, and
   prompt content for future runs).
 - Reloaded config applies to future dispatch, retry scheduling, reconciliation decisions, hook
   execution, and agent launches.
-- Implementations are not required to restart in-flight agent sessions automatically when config
+- Implementations are not REQUIRED to restart in-flight agent sessions automatically when config
   changes.
-- Extensions that manage their own listeners/resources (for example an HTTP server port change) may
+- Extensions that manage their own listeners/resources (for example an HTTP server port change) MAY
   require restart unless the implementation explicitly supports live rebind.
-- Implementations should also re-validate/reload defensively during runtime operations (for example
+- Implementations SHOULD also re-validate/reload defensively during runtime operations (for example
   before dispatch) in case filesystem watch events are missed.
-- Invalid reloads should not crash the service; keep operating with the last known good effective
+- Invalid reloads MUST NOT crash the service; keep operating with the last known good effective
   configuration and emit an operator-visible error.
 
 ### 6.3 Dispatch Preflight Validation
@@ -544,21 +561,23 @@ Validation checks:
 - Workflow file can be loaded and parsed.
 - `tracker.kind` is present and supported.
 - `tracker.api_key` is present after `$` resolution.
-- `tracker.project_slug` is present when required by the selected tracker kind.
+- `tracker.project_slug` is present when REQUIRED by the selected tracker kind.
 - `codex.command` is present and non-empty.
 
-### 6.4 Config Fields Summary (Cheat Sheet)
+### 6.4 Core Config Fields Summary (Cheat Sheet)
 
 This section is intentionally redundant so a coding agent can implement the config layer quickly.
+Extension fields are documented in the extension section that defines them. Core conformance does
+not require recognizing or validating extension fields unless that extension is implemented.
 
-- `tracker.kind`: string, required, currently `linear`
+- `tracker.kind`: string, REQUIRED, currently `linear`
 - `tracker.endpoint`: string, default `https://api.linear.app/graphql` when `tracker.kind=linear`
 - `tracker.api_key`: string or `$VAR`, canonical env `LINEAR_API_KEY` when `tracker.kind=linear`
-- `tracker.project_slug`: string, required when `tracker.kind=linear`
-- `tracker.active_states`: list/string, default `Todo, In Progress`
-- `tracker.terminal_states`: list/string, default `Closed, Cancelled, Canceled, Duplicate, Done`
+- `tracker.project_slug`: string, REQUIRED when `tracker.kind=linear`
+- `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
+- `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
 - `polling.interval_ms`: integer, default `30000`
-- `workspace.root`: path, default `<system-temp>/symphony_workspaces`
+- `workspace.root`: path resolved to absolute, default `<system-temp>/symphony_workspaces`
 - `hooks.after_create`: shell script or null
 - `hooks.before_run`: shell script or null
 - `hooks.after_run`: shell script or null
@@ -575,8 +594,6 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `codex.turn_timeout_ms`: integer, default `3600000`
 - `codex.read_timeout_ms`: integer, default `5000`
 - `codex.stall_timeout_ms`: integer, default `300000`
-- `server.port` (extension): integer, optional; enables the optional HTTP server, `0` may be used
-  for ephemeral local bind, and CLI `--port` overrides it
 
 ## 7. Orchestration State Machine
 
@@ -608,12 +625,12 @@ claim state.
 Important nuance:
 
 - A successful worker exit does not mean the issue is done forever.
-- The worker may continue through multiple back-to-back coding-agent turns before it exits.
+- The worker MAY continue through multiple back-to-back coding-agent turns before it exits.
 - After each normal turn completion, the worker re-checks the tracker issue state.
-- If the issue is still in an active state, the worker should start another turn on the same live
+- If the issue is still in an active state, the worker SHOULD start another turn on the same live
   coding-agent thread in the same workspace, up to `agent.max_turns`.
-- The first turn should use the full rendered task prompt.
-- Continuation turns should send only continuation guidance to the existing thread, not resend the
+- The first turn SHOULD use the full rendered task prompt.
+- Continuation turns SHOULD send only continuation guidance to the existing thread, not resend the
   original task prompt that is already present in thread history.
 - Once the worker exits normally, the orchestrator still schedules a short continuation retry
   (about 1 second) so it can re-check whether the issue remains active and needs another worker
@@ -671,9 +688,9 @@ Distinct terminal reasons are important because retry logic and logs differ.
 ### 7.4 Idempotency and Recovery Rules
 
 - The orchestrator serializes state mutations through one authority to avoid duplicate dispatch.
-- `claimed` and `running` checks are required before launching any worker.
+- `claimed` and `running` checks are REQUIRED before launching any worker.
 - Reconciliation runs before dispatch on every tick.
-- Restart recovery is tracker-driven and filesystem-driven (no durable orchestrator DB required).
+- Restart recovery is tracker-driven and filesystem-driven (without a durable orchestrator DB).
 - Startup terminal cleanup removes stale workspaces for issues already in terminal states.
 
 ## 8. Polling, Scheduling, and Reconciliation
@@ -683,7 +700,7 @@ Distinct terminal reasons are important because retry logic and logs differ.
 At startup, the service validates config, performs startup cleanup, schedules an immediate tick, and
 then repeats every `polling.interval_ms`.
 
-The effective poll interval should be updated when workflow config changes are re-applied.
+The effective poll interval SHOULD be updated when workflow config changes are re-applied.
 
 Tick sequence:
 
@@ -796,8 +813,7 @@ This prevents stale terminal workspaces from accumulating after restarts.
 
 Workspace root:
 
-- `workspace.root` (normalized path; the current config layer expands path-like values and preserves
-  bare relative names)
+- `workspace.root` (normalized absolute path)
 
 Per-issue workspace path:
 
@@ -827,19 +843,19 @@ Notes:
 - Workspace preparation beyond directory creation (for example dependency bootstrap, checkout/sync,
   code generation) is implementation-defined and is typically handled via hooks.
 
-### 9.3 Optional Workspace Population (Implementation-Defined)
+### 9.3 OPTIONAL Workspace Population (Implementation-Defined)
 
 The spec does not require any built-in VCS or repository bootstrap behavior.
 
-Implementations may populate or synchronize the workspace using implementation-defined logic and/or
+Implementations MAY populate or synchronize the workspace using implementation-defined logic and/or
 hooks (for example `after_create` and/or `before_run`).
 
 Failure handling:
 
 - Workspace population/synchronization failures return an error for the current attempt.
-- If failure happens while creating a brand-new workspace, implementations may remove the partially
+- If failure happens while creating a brand-new workspace, implementations MAY remove the partially
   prepared directory.
-- Reused workspaces should not be destructively reset on population failure unless that policy is
+- Reused workspaces SHOULD NOT be destructively reset on population failure unless that policy is
   explicitly chosen and documented.
 
 ### 9.4 Workspace Hooks
@@ -876,7 +892,7 @@ Invariant 1: Run the coding agent only in the per-issue workspace path.
 - Before launching the coding-agent subprocess, validate:
   - `cwd == workspace_path`
 
-Invariant 2: Workspace path must stay inside workspace root.
+Invariant 2: Workspace path MUST stay inside workspace root.
 
 - Normalize both paths to absolute.
 - Require `workspace_path` to have `workspace_root` as a prefix directory.
@@ -889,17 +905,19 @@ Invariant 3: Workspace key is sanitized.
 
 ## 10. Agent Runner Protocol (Coding Agent Integration)
 
-This section defines the language-neutral contract for integrating a coding agent app-server.
+This section defines Symphony's language-neutral responsibilities when integrating a Codex
+app-server. The Codex app-server protocol for the targeted Codex version is the source of truth for
+protocol schemas, message payloads, transport framing, and method names.
 
-Compatibility profile:
+Protocol source of truth:
 
-- The normative contract is message ordering, required behaviors, and the logical fields that must
-  be extracted (for example session IDs, completion state, approval handling, and usage/rate-limit
-  telemetry).
-- Exact JSON field names may vary slightly across compatible app-server versions.
-- Implementations should tolerate equivalent payload shapes when they carry the same logical
-  meaning, especially for nested IDs, approval requests, user-input-required signals, and
-  token/rate-limit metadata.
+- Implementations MUST send messages that are valid for the targeted Codex app-server version.
+- Implementations MUST consult the targeted Codex app-server documentation or generated schema
+  instead of treating this specification as a protocol schema.
+- If this specification appears to conflict with the targeted Codex app-server protocol, the Codex
+  protocol controls protocol shape and transport behavior.
+- Symphony-specific requirements in this section still control orchestration behavior, workspace
+  selection, prompt construction, continuation handling, and observability extraction.
 
 ### 10.1 Launch Contract
 
@@ -908,107 +926,84 @@ Subprocess launch parameters:
 - Command: `codex.command`
 - Invocation: `bash -lc <codex.command>`
 - Working directory: workspace path
-- Stdout/stderr: separate streams
-- Framing: line-delimited protocol messages on stdout (JSON-RPC-like JSON per line)
+- Transport/framing: the protocol transport required by the targeted Codex app-server version
 
 Notes:
 
 - The default command is `codex app-server`.
-- Approval policy, cwd, and prompt are expressed in the protocol messages in Section 10.2.
+- Approval policy, sandbox policy, cwd, prompt input, and OPTIONAL tool declarations are supplied
+  using fields supported by the targeted Codex app-server version.
 
-Recommended additional process settings:
+RECOMMENDED additional process settings:
 
 - Max line size: 10 MB (for safe buffering)
 
-### 10.2 Session Startup Handshake
+### 10.2 Session Startup Responsibilities
 
 Reference: https://developers.openai.com/codex/app-server/
 
-The client must send these protocol messages in order:
+Startup MUST follow the targeted Codex app-server contract. Symphony additionally requires the
+client to:
 
-Illustrative startup transcript (equivalent payload shapes are acceptable if they preserve the same
-semantics):
-
-```json
-{"id":1,"method":"initialize","params":{"clientInfo":{"name":"symphony","version":"1.0"},"capabilities":{}}}
-{"method":"initialized","params":{}}
-{"id":2,"method":"thread/start","params":{"approvalPolicy":"<implementation-defined>","sandbox":"<implementation-defined>","cwd":"/abs/workspace"}}
-{"id":3,"method":"turn/start","params":{"threadId":"<thread-id>","input":[{"type":"text","text":"<rendered prompt-or-continuation-guidance>"}],"cwd":"/abs/workspace","title":"ABC-123: Example","approvalPolicy":"<implementation-defined>","sandboxPolicy":{"type":"<implementation-defined>"}}}
-```
-
-1. `initialize` request
-   - Params include:
-     - `clientInfo` object (for example `{name, version}`)
-     - `capabilities` object (may be empty)
-   - If the targeted Codex app-server requires capability negotiation for dynamic tools, include the
-     necessary capability flag(s) here.
-   - Wait for response (`read_timeout_ms`)
-2. `initialized` notification
-3. `thread/start` request
-   - Params include:
-     - `approvalPolicy` = implementation-defined session approval policy value
-     - `sandbox` = implementation-defined session sandbox value
-     - `cwd` = absolute workspace path
-     - If optional client-side tools are implemented, include their advertised tool specs using the
-       protocol mechanism supported by the targeted Codex app-server version.
-4. `turn/start` request
-   - Params include:
-     - `threadId`
-     - `input` = single text item containing rendered prompt for the first turn, or continuation
-       guidance for later turns on the same thread
-     - `cwd`
-     - `title` = `<issue.identifier>: <issue.title>`
-     - `approvalPolicy` = implementation-defined turn approval policy value
-     - `sandboxPolicy` = implementation-defined object-form sandbox policy payload when required by
-       the targeted app-server version
+- Start the app-server subprocess in the per-issue workspace.
+- Initialize the app-server session using the targeted Codex app-server protocol.
+- Create or resume a coding-agent thread according to the targeted protocol.
+- Supply the absolute per-issue workspace path as the thread/turn working directory wherever the
+  targeted protocol accepts cwd.
+- Start the first turn with the rendered issue prompt.
+- Start later in-worker continuation turns on the same live thread with continuation guidance rather
+  than resending the original issue prompt.
+- Supply the implementation's documented approval and sandbox policy using fields supported by the
+  targeted protocol.
+- Include issue-identifying metadata, such as `<issue.identifier>: <issue.title>`, when the targeted
+  protocol supports turn or session titles.
+- Advertise implemented client-side tools using the targeted protocol.
 
 Session identifiers:
 
-- Read `thread_id` from `thread/start` result `result.thread.id`
-- Read `turn_id` from each `turn/start` result `result.turn.id`
+- Extract `thread_id` from the thread identity returned by the targeted Codex app-server protocol.
+- Extract `turn_id` from each turn identity returned by the targeted Codex app-server protocol.
 - Emit `session_id = "<thread_id>-<turn_id>"`
 - Reuse the same `thread_id` for all continuation turns inside one worker run
 
 ### 10.3 Streaming Turn Processing
 
-The client reads line-delimited messages until the turn terminates.
+The client processes app-server updates according to the targeted Codex app-server protocol until
+the active turn terminates.
 
 Completion conditions:
 
-- `turn/completed` -> success
-- `turn/failed` -> failure
-- `turn/cancelled` -> failure
+- Targeted-protocol turn completion signal -> success
+- Targeted-protocol turn failure signal -> failure
+- Targeted-protocol turn cancellation signal -> failure
 - turn timeout (`turn_timeout_ms`) -> failure
 - subprocess exit -> failure
 
 Continuation processing:
 
-- If the worker decides to continue after a successful turn, it should issue another `turn/start`
-  on the same live `threadId`.
-- The app-server subprocess should remain alive across those continuation turns and be stopped only
+- If the worker decides to continue after a successful turn, it SHOULD start another turn on the same
+  live thread using the targeted protocol.
+- The app-server subprocess SHOULD remain alive across those continuation turns and be stopped only
   when the worker run is ending.
 
-Line handling requirements:
+Transport handling requirements:
 
-- Read protocol messages from stdout only.
-- Buffer partial stdout lines until newline arrives.
-- Attempt JSON parse on complete stdout lines.
-- Stderr is not part of the protocol stream:
-  - ignore it or log it as diagnostics
-  - do not attempt protocol JSON parsing on stderr
+- Follow the transport and framing rules of the targeted Codex app-server version.
+- For stdio-based transports, keep protocol stream handling separate from diagnostic stderr
+  handling unless the targeted protocol specifies otherwise.
 
 ### 10.4 Emitted Runtime Events (Upstream to Orchestrator)
 
-The app-server client emits structured events to the orchestrator callback. Each event should
+The app-server client emits structured events to the orchestrator callback. Each event SHOULD
 include:
 
 - `event` (enum/string)
 - `timestamp` (UTC timestamp)
 - `codex_app_server_pid` (if available)
-- optional `usage` map (token counts)
+- OPTIONAL `usage` map (token counts)
 - payload fields as needed
 
-Important emitted events may include:
+Important emitted events include, for example:
 
 - `session_started`
 - `startup_failed`
@@ -1029,10 +1024,10 @@ Approval, sandbox, and user-input behavior is implementation-defined.
 
 Policy requirements:
 
-- Each implementation should document its chosen approval, sandbox, and operator-confirmation
+- Each implementation MUST document its chosen approval, sandbox, and operator-confirmation
   posture.
-- Approval requests and user-input-required events must not leave a run stalled indefinitely. An
-  implementation should either satisfy them, surface them to an operator, auto-resolve them, or
+- Approval requests and user-input-required events MUST NOT leave a run stalled indefinitely. An
+  implementation MAY either satisfy them, surface them to an operator, auto-resolve them, or
   fail the run according to its documented policy.
 
 Example high-trust behavior:
@@ -1043,19 +1038,20 @@ Example high-trust behavior:
 
 Unsupported dynamic tool calls:
 
-- Supported dynamic tool calls that are explicitly implemented and advertised by the runtime should
+- Supported dynamic tool calls that are explicitly implemented and advertised by the runtime SHOULD
   be handled according to their extension contract.
-- If the agent requests a dynamic tool call (`item/tool/call`) that is not supported, return a tool
-  failure response and continue the session.
+- If the agent requests a dynamic tool call that is not supported, return a tool failure response
+  using the targeted protocol and continue the session.
 - This prevents the session from stalling on unsupported tool execution paths.
 
 Optional client-side tool extension:
 
-- An implementation may expose a limited set of client-side tools to the app-server session.
-- Current optional standardized tool: `linear_graphql`.
-- If implemented, supported tools should be advertised to the app-server session during startup
+- An implementation MAY expose a limited set of client-side tools to the app-server session.
+- Current standardized optional tool: `linear_graphql`.
+- If implemented, supported tools SHOULD be advertised to the app-server session during startup
   using the protocol mechanism supported by the targeted Codex app-server version.
-- Unsupported tool names should still return a failure result and continue the session.
+- Unsupported tool names SHOULD still return a failure result using the targeted protocol and
+  continue the session.
 
 `linear_graphql` extension contract:
 
@@ -1073,10 +1069,10 @@ Optional client-side tool extension:
   }
   ```
 
-- `query` must be a non-empty string.
-- `query` must contain exactly one GraphQL operation.
-- `variables` is optional and, when present, must be a JSON object.
-- Implementations may additionally accept a raw GraphQL query string as shorthand input.
+- `query` MUST be a non-empty string.
+- `query` MUST contain exactly one GraphQL operation.
+- `variables` is OPTIONAL and, when present, MUST be a JSON object.
+- Implementations MAY additionally accept a raw GraphQL query string as shorthand input.
 - Execute one GraphQL operation per tool call.
 - If the provided document contains multiple operations, reject the tool call as invalid input.
 - `operationName` selection is intentionally out of scope for this extension.
@@ -1090,19 +1086,13 @@ Optional client-side tool extension:
 - Return the GraphQL response or error payload as structured tool output that the model can inspect
   in-session.
 
-Illustrative responses (equivalent payload shapes are acceptable if they preserve the same outcome):
+User-input-required policy:
 
-```json
-{"id":"<approval-id>","result":{"approved":true}}
-{"id":"<tool-call-id>","result":{"success":false,"error":"unsupported_tool_call"}}
-```
-
-Hard failure on user input requirement:
-
-- If the agent requests user input, fail the run attempt immediately.
-- The client detects this via:
-  - explicit method (`item/tool/requestUserInput`), or
-  - turn methods/flags indicating input is required.
+- Implementations MUST document how targeted-protocol user-input-required signals are handled.
+- A run MUST NOT stall indefinitely waiting for user input.
+- A conforming implementation MAY fail the run, surface the request to an operator, satisfy it
+  through an approved operator channel, or auto-resolve it according to its documented policy.
+- The example high-trust behavior above fails user-input-required turns immediately.
 
 ### 10.6 Timeouts and Error Mapping
 
@@ -1112,7 +1102,7 @@ Timeouts:
 - `codex.turn_timeout_ms`: total turn stream timeout
 - `codex.stall_timeout_ms`: enforced by orchestrator based on event inactivity
 
-Error mapping (recommended normalized categories):
+Error mapping (RECOMMENDED normalized categories):
 
 - `codex_not_found`
 - `invalid_workspace_cwd`
@@ -1142,9 +1132,9 @@ Note:
 
 ## 11. Issue Tracker Integration Contract (Linear-Compatible)
 
-### 11.1 Required Operations
+### 11.1 REQUIRED Operations
 
-An implementation must support these tracker adapter operations:
+An implementation MUST support these tracker adapter operations:
 
 1. `fetch_candidate_issues()`
    - Return issues in configured active states for a configured project.
@@ -1165,21 +1155,21 @@ Linear-specific requirements for `tracker.kind == "linear"`:
 - `tracker.project_slug` maps to Linear project `slugId`
 - Candidate issue query filters project using `project: { slugId: { eq: $projectSlug } }`
 - Issue-state refresh query uses GraphQL issue IDs with variable type `[ID!]`
-- Pagination required for candidate issues
+- Pagination REQUIRED for candidate issues
 - Page size default: `50`
 - Network timeout: `30000 ms`
 
 Important:
 
 - Linear GraphQL schema details can drift. Keep query construction isolated and test the exact query
-  fields/types required by this specification.
+  fields/types REQUIRED by this specification.
 
-A non-Linear implementation may change transport details, but the normalized outputs must match the
+A non-Linear implementation MAY change transport details, but the normalized outputs MUST match the
 domain model in Section 4.
 
 ### 11.3 Normalization Rules
 
-Candidate issue normalization should produce fields listed in Section 4.1.1.
+Candidate issue normalization SHOULD produce fields listed in Section 4.1.1.
 
 Additional normalization details:
 
@@ -1190,7 +1180,7 @@ Additional normalization details:
 
 ### 11.4 Error Handling Contract
 
-Recommended error categories:
+RECOMMENDED error categories:
 
 - `unsupported_tracker_kind`
 - `missing_tracker_api_key`
@@ -1216,8 +1206,8 @@ Symphony does not require first-class tracker write APIs in the orchestrator.
 - The service remains a scheduler/runner and tracker reader.
 - Workflow-specific success often means "reached the next handoff state" (for example
   `Human Review`) rather than tracker terminal state `Done`.
-- If the optional `linear_graphql` client-side tool extension is implemented, it is still part of
-  the agent toolchain rather than orchestrator business logic.
+- If the `linear_graphql` client-side tool extension is implemented, it is still part of the agent
+  toolchain rather than orchestrator business logic.
 
 ## 12. Prompt Construction and Context Assembly
 
@@ -1227,7 +1217,7 @@ Inputs to prompt rendering:
 
 - `workflow.prompt_template`
 - normalized `issue` object
-- optional `attempt` integer (retry/continuation metadata)
+- OPTIONAL `attempt` integer (retry/continuation metadata)
 
 ### 12.2 Rendering Rules
 
@@ -1238,7 +1228,7 @@ Inputs to prompt rendering:
 
 ### 12.3 Retry/Continuation Semantics
 
-`attempt` should be passed to the template because the workflow prompt may provide different
+`attempt` SHOULD be passed to the template because the workflow prompt can provide different
 instructions for:
 
 - first run (`attempt` null or absent)
@@ -1256,12 +1246,12 @@ If prompt rendering fails:
 
 ### 13.1 Logging Conventions
 
-Required context fields for issue-related logs:
+REQUIRED context fields for issue-related logs:
 
 - `issue_id`
 - `issue_identifier`
 
-Required context for coding-agent session lifecycle logs:
+REQUIRED context for coding-agent session lifecycle logs:
 
 - `session_id`
 
@@ -1274,22 +1264,22 @@ Message formatting requirements:
 
 ### 13.2 Logging Outputs and Sinks
 
-The spec does not prescribe where logs must go (stderr, file, remote sink, etc.).
+The spec does not prescribe where logs are written (stderr, file, remote sink, etc.).
 
 Requirements:
 
-- Operators must be able to see startup/validation/dispatch failures without attaching a debugger.
-- Implementations may write to one or more sinks.
-- If a configured log sink fails, the service should continue running when possible and emit an
+- Operators MUST be able to see startup/validation/dispatch failures without attaching a debugger.
+- Implementations MAY write to one or more sinks.
+- If a configured log sink fails, the service SHOULD continue running when possible and emit an
   operator-visible warning through any remaining sink.
 
-### 13.3 Runtime Snapshot / Monitoring Interface (Optional but Recommended)
+### 13.3 Runtime Snapshot / Monitoring Interface (OPTIONAL but RECOMMENDED)
 
 If the implementation exposes a synchronous runtime snapshot (for dashboards or monitoring), it
-should return:
+SHOULD return:
 
 - `running` (list of running session rows)
-- each running row should include `turn_count`
+- each running row SHOULD include `turn_count`
 - `retrying` (list of retry queue rows)
 - `codex_totals`
   - `input_tokens`
@@ -1298,24 +1288,24 @@ should return:
   - `seconds_running` (aggregate runtime seconds as of snapshot time, including active sessions)
 - `rate_limits` (latest coding-agent rate limit payload, if available)
 
-Recommended snapshot error modes:
+RECOMMENDED snapshot error modes:
 
 - `timeout`
 - `unavailable`
 
-### 13.4 Optional Human-Readable Status Surface
+### 13.4 OPTIONAL Human-Readable Status Surface
 
-A human-readable status surface (terminal output, dashboard, etc.) is optional and
+A human-readable status surface (terminal output, dashboard, etc.) is OPTIONAL and
 implementation-defined.
 
-If present, it should draw from orchestrator state/metrics only and must not be required for
+If present, it SHOULD draw from orchestrator state/metrics only and MUST NOT be REQUIRED for
 correctness.
 
 ### 13.5 Session Metrics and Token Accounting
 
 Token accounting rules:
 
-- Agent events may include token counts in multiple payload shapes.
+- Agent events can include token counts in multiple payload shapes.
 - Prefer absolute thread totals when available, such as:
   - `thread/tokenUsage/updated` payloads
   - `total_token_usage` within token-count wrapper events
@@ -1329,49 +1319,53 @@ Token accounting rules:
 
 Runtime accounting:
 
-- Runtime should be reported as a live aggregate at snapshot/render time.
-- Implementations may maintain a cumulative counter for ended sessions and add active-session
+- Runtime SHOULD be reported as a live aggregate at snapshot/render time.
+- Implementations MAY maintain a cumulative counter for ended sessions and add active-session
   elapsed time derived from `running` entries (for example `started_at`) when producing a
   snapshot/status view.
 - Add run duration seconds to the cumulative ended-session runtime when a session ends (normal exit
   or cancellation/termination).
-- Continuous background ticking of runtime totals is not required.
+- Continuous background ticking of runtime totals is not REQUIRED.
 
 Rate-limit tracking:
 
 - Track the latest rate-limit payload seen in any agent update.
 - Any human-readable presentation of rate-limit data is implementation-defined.
 
-### 13.6 Humanized Agent Event Summaries (Optional)
+### 13.6 Humanized Agent Event Summaries (OPTIONAL)
 
-Humanized summaries of raw agent protocol events are optional.
+Humanized summaries of raw agent protocol events are OPTIONAL.
 
 If implemented:
 
 - Treat them as observability-only output.
 - Do not make orchestrator logic depend on humanized strings.
 
-### 13.7 Optional HTTP Server Extension
+### 13.7 OPTIONAL HTTP Server Extension
 
-This section defines an optional HTTP interface for observability and operational control.
+This section defines an OPTIONAL HTTP interface for observability and operational control.
 
 If implemented:
 
-- The HTTP server is an extension and is not required for conformance.
-- The implementation may serve server-rendered HTML or a client-side application for the dashboard.
-- The dashboard/API must be observability/control surfaces only and must not become required for
+- The HTTP server is an extension and is not REQUIRED for conformance.
+- The implementation MAY serve server-rendered HTML or a client-side application for the dashboard.
+- The dashboard/API MUST be observability/control surfaces only and MUST NOT become REQUIRED for
   orchestrator correctness.
+
+Extension config:
+
+- `server.port` (integer, OPTIONAL)
+  - Enables the HTTP server extension.
+  - `0` requests an ephemeral port for local development and tests.
+  - CLI `--port` overrides `server.port` when both are present.
 
 Enablement (extension):
 
 - Start the HTTP server when a CLI `--port` argument is provided.
 - Start the HTTP server when `server.port` is present in `WORKFLOW.md` front matter.
-- `server.port` is extension configuration and is intentionally not part of the core front-matter
-  schema in Section 5.3.
-- Precedence: CLI `--port` overrides `server.port` when both are present.
-- `server.port` must be an integer. Positive values bind that port. `0` may be used to request an
-  ephemeral port for local development and tests.
-- Implementations should bind loopback by default (`127.0.0.1` or host equivalent) unless explicitly
+- The `server` top-level key is owned by this extension.
+- Positive `server.port` values bind that port.
+- Implementations SHOULD bind loopback by default (`127.0.0.1` or host equivalent) unless explicitly
   configured otherwise.
 - Changes to HTTP listener settings (for example `server.port`) do not need to hot-rebind;
   restart-required behavior is conformant.
@@ -1379,7 +1373,7 @@ Enablement (extension):
 #### 13.7.1 Human-Readable Dashboard (`/`)
 
 - Host a human-readable dashboard at `/`.
-- The returned document should depict the current state of the system (for example active sessions,
+- The returned document SHOULD depict the current state of the system (for example active sessions,
   retry delays, token consumption, runtime totals, recent events, and health/error indicators).
 - It is up to the implementation whether this is server-generated HTML or a client-side app that
   consumes the JSON API below.
@@ -1497,7 +1491,7 @@ Minimum endpoints:
 
 - `POST /api/v1/refresh`
   - Queues an immediate tracker poll + reconciliation cycle (best-effort trigger; implementations
-    may coalesce repeated requests).
+    MAY coalesce repeated requests).
   - Suggested request body: empty body or `{}`.
   - Suggested response (`202 Accepted`) shape:
 
@@ -1512,12 +1506,12 @@ Minimum endpoints:
 
 API design notes:
 
-- The JSON shapes above are the recommended baseline for interoperability and debugging ergonomics.
-- Implementations may add fields, but should avoid breaking existing fields within a version.
-- Endpoints should be read-only except for operational triggers like `/refresh`.
-- Unsupported methods on defined routes should return `405 Method Not Allowed`.
-- API errors should use a JSON envelope such as `{"error":{"code":"...","message":"..."}}`.
-- If the dashboard is a client-side app, it should consume this API rather than duplicating state
+- The JSON shapes above are the RECOMMENDED baseline for interoperability and debugging ergonomics.
+- Implementations MAY add fields, but SHOULD avoid breaking existing fields within a version.
+- Endpoints SHOULD be read-only except for operational triggers like `/refresh`.
+- Unsupported methods on defined routes SHOULD return `405 Method Not Allowed`.
+- API errors SHOULD use a JSON envelope such as `{"error":{"code":"...","message":"..."}}`.
+- If the dashboard is a client-side app, it SHOULD consume this API rather than duplicating state
   logic.
 
 ## 14. Failure Model and Recovery Strategy
@@ -1532,7 +1526,7 @@ API design notes:
 
 2. `Workspace Failures`
    - Workspace directory creation failure
-   - Workspace population/synchronization failure (implementation-defined; may come from hooks)
+   - Workspace population/synchronization failure (implementation-defined; can come from hooks)
    - Invalid workspace path configuration
    - Hook timeout/failure
 
@@ -1540,7 +1534,7 @@ API design notes:
    - Startup handshake failure
    - Turn failed/cancelled
    - Turn timeout
-   - User input requested (hard fail)
+   - User input requested and handled as failure by the implementation's documented policy
    - Subprocess exit
    - Stalled session (no activity)
 
@@ -1579,6 +1573,9 @@ API design notes:
 ### 14.3 Partial State Recovery (Restart)
 
 Current design is intentionally in-memory for scheduler state.
+Restart recovery means the service can resume useful operation by polling tracker state and reusing
+preserved workspaces. It does not mean retry timers, running sessions, or live worker state survive
+process restart.
 
 After restart:
 
@@ -1594,7 +1591,8 @@ After restart:
 Operators can control behavior by:
 
 - Editing `WORKFLOW.md` (prompt and most runtime settings).
-- `WORKFLOW.md` changes should be detected and re-applied automatically without restart.
+- `WORKFLOW.md` changes are detected and re-applied automatically without restart according to
+  Section 6.2.
 - Changing issue states in the tracker:
   - terminal state -> running session is stopped and workspace cleaned when reconciled
   - non-active state -> running session is stopped without cleanup
@@ -1609,9 +1607,9 @@ Each implementation defines its own trust boundary.
 
 Operational safety requirements:
 
-- Implementations should state clearly whether they are intended for trusted environments, more
+- Implementations SHOULD state clearly whether they are intended for trusted environments, more
   restrictive environments, or both.
-- Implementations should state clearly whether they rely on auto-approved actions, operator
+- Implementations SHOULD state clearly whether they rely on auto-approved actions, operator
   approvals, stricter sandboxing, or some combination of those controls.
 - Workspace isolation and path validation are important baseline controls, but they are not a
   substitute for whatever approval and sandbox policy an implementation chooses.
@@ -1620,11 +1618,11 @@ Operational safety requirements:
 
 Mandatory:
 
-- Workspace path must remain under configured workspace root.
-- Coding-agent cwd must be the per-issue workspace path for the current run.
-- Workspace directory names must use sanitized identifiers.
+- Workspace path MUST remain under configured workspace root.
+- Coding-agent cwd MUST be the per-issue workspace path for the current run.
+- Workspace directory names MUST use sanitized identifiers.
 
-Recommended additional hardening for ports:
+RECOMMENDED additional hardening for ports:
 
 - Run under a dedicated OS user.
 - Restrict workspace root permissions.
@@ -1644,20 +1642,20 @@ Implications:
 
 - Hooks are fully trusted configuration.
 - Hooks run inside the workspace directory.
-- Hook output should be truncated in logs.
-- Hook timeouts are required to avoid hanging the orchestrator.
+- Hook output SHOULD be truncated in logs.
+- Hook timeouts are REQUIRED to avoid hanging the orchestrator.
 
 ### 15.5 Harness Hardening Guidance
 
-Running Codex agents against repositories, issue trackers, and other inputs that may contain
+Running Codex agents against repositories, issue trackers, and other inputs that can contain
 sensitive data or externally-controlled content can be dangerous. A permissive deployment can lead
 to data leaks, destructive mutations, or full machine compromise if the agent is induced to execute
 harmful commands or use overly-powerful integrations.
 
-Implementations should explicitly evaluate their own risk profile and harden the execution harness
+Implementations SHOULD explicitly evaluate their own risk profile and harden the execution harness
 where appropriate. This specification intentionally does not mandate a single hardening posture, but
-ports should not assume that tracker data, repository contents, prompt inputs, or tool arguments are
-fully trustworthy just because they originate inside a normal workflow.
+implementations SHOULD NOT assume that tracker data, repository contents, prompt inputs, or tool
+arguments are fully trustworthy just because they originate inside a normal workflow.
 
 Possible hardening measures include:
 
@@ -1667,12 +1665,12 @@ Possible hardening measures include:
   separate credentials beyond the built-in Codex policy controls.
 - Filtering which Linear issues, projects, teams, labels, or other tracker sources are eligible for
   dispatch so untrusted or out-of-scope tasks do not automatically reach the agent.
-- Narrowing the optional `linear_graphql` tool so it can only read or mutate data inside the
+- Narrowing the `linear_graphql` tool so it can only read or mutate data inside the
   intended project scope, rather than exposing general workspace-wide tracker access.
 - Reducing the set of client-side tools, credentials, filesystem paths, and network destinations
   available to the agent to the minimum needed for the workflow.
 
-The correct controls are deployment-specific, but implementations should document them clearly and
+The correct controls are deployment-specific, but implementations SHOULD document them clearly and
 treat harness hardening as part of the core safety model rather than an optional afterthought.
 
 ## 16. Reference Algorithms (Language-Agnostic)
@@ -1916,15 +1914,15 @@ on_retry_timer(issue_id, state):
 
 ## 17. Test and Validation Matrix
 
-A conforming implementation should include tests that cover the behaviors defined in this
+A conforming implementation SHOULD include tests that cover the behaviors defined in this
 specification.
 
 Validation profiles:
 
-- `Core Conformance`: deterministic tests required for all conforming implementations.
-- `Extension Conformance`: required only for optional features that an implementation chooses to
+- `Core Conformance`: deterministic tests REQUIRED for all conforming implementations.
+- `Extension Conformance`: REQUIRED only for OPTIONAL features that an implementation chooses to
   ship.
-- `Real Integration Profile`: environment-dependent smoke/integration checks recommended before
+- `Real Integration Profile`: environment-dependent smoke/integration checks RECOMMENDED before
   production use.
 
 Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bullets that begin with
@@ -1941,7 +1939,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 - Missing `WORKFLOW.md` returns typed error
 - Invalid YAML front matter returns typed error
 - Front matter non-map returns typed error
-- Config defaults apply when optional values are missing
+- Config defaults apply when OPTIONAL values are missing
 - `tracker.kind` validation enforces currently supported kind (`linear`)
 - `tracker.api_key` works (including `$VAR` indirection)
 - `$VAR` resolution works for tracker API key and path values
@@ -1958,8 +1956,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 - Existing workspace directory is reused
 - Existing non-directory path at workspace location is handled safely (replace or fail per
   implementation policy)
-- Optional workspace population/synchronization errors are surfaced
-- Temporary artifacts (`tmp`, `.elixir_ls`) are removed during prep
+- OPTIONAL workspace population/synchronization errors are surfaced
 - `after_create` hook runs only on new workspace creation
 - `before_run` hook runs before each attempt and failure/timeouts abort the current attempt
 - `after_run` hook runs after each attempt and failure/timeouts are logged and ignored
@@ -2001,26 +1998,26 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 ### 17.5 Coding-Agent App-Server Client
 
 - Launch command uses workspace cwd and invokes `bash -lc <codex.command>`
-- Startup handshake sends `initialize`, `initialized`, `thread/start`, `turn/start`
-- `initialize` includes client identity/capabilities payload required by the targeted Codex
-  app-server protocol
+- Session startup follows the targeted Codex app-server protocol.
+- Client identity/capability payloads are valid when the targeted Codex app-server protocol requires
+  them.
 - Policy-related startup payloads use the implementation's documented approval/sandbox settings
-- `thread/start` and `turn/start` parse nested IDs and emit `session_started`
+- Thread and turn identities exposed by the targeted protocol are extracted and used to emit
+  `session_started`
 - Request/response read timeout is enforced
 - Turn timeout is enforced
-- Partial JSON lines are buffered until newline
-- Stdout and stderr are handled separately; protocol JSON is parsed from stdout only
-- Non-JSON stderr lines are logged but do not crash parsing
+- Transport framing required by the targeted protocol is handled correctly
+- For stdio-based transports, diagnostic stderr handling is kept separate from the protocol stream
 - Command/file-change approvals are handled according to the implementation's documented policy
 - Unsupported dynamic tool calls are rejected without stalling the session
 - User input requests are handled according to the implementation's documented policy and do not
   stall indefinitely
-- Usage and rate-limit payloads are extracted from nested payload shapes
-- Compatible payload variants for approvals, user-input-required signals, and usage/rate-limit
-  telemetry are accepted when they preserve the same logical meaning
-- If optional client-side tools are implemented, the startup handshake advertises the supported tool
-  specs required for discovery by the targeted app-server version
-- If the optional `linear_graphql` client-side tool extension is implemented:
+- Usage and rate-limit telemetry exposed by the targeted protocol is extracted
+- Approval, user-input-required, usage, and rate-limit signals are interpreted according to the
+  targeted protocol
+- If client-side tools are implemented, session startup advertises the supported tool specs
+  using the targeted app-server protocol
+- If the `linear_graphql` client-side tool extension is implemented:
   - the tool is advertised to the session
   - valid `query` / `variables` inputs execute against configured Linear auth
   - top-level GraphQL `errors` produce `success=false` while preserving the GraphQL body
@@ -2040,24 +2037,24 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 ### 17.7 CLI and Host Lifecycle
 
-- CLI accepts an optional positional workflow path argument (`path-to-WORKFLOW.md`)
+- CLI accepts a positional workflow path argument (`path-to-WORKFLOW.md`)
 - CLI uses `./WORKFLOW.md` when no workflow path argument is provided
 - CLI errors on nonexistent explicit workflow path or missing default `./WORKFLOW.md`
 - CLI surfaces startup failure cleanly
 - CLI exits with success when application starts and shuts down normally
 - CLI exits nonzero when startup fails or the host process exits abnormally
 
-### 17.8 Real Integration Profile (Recommended)
+### 17.8 Real Integration Profile (RECOMMENDED)
 
-These checks are recommended for production readiness and may be skipped in CI when credentials,
+These checks are RECOMMENDED for production readiness and MAY be skipped in CI when credentials,
 network access, or external service permissions are unavailable.
 
 - A real tracker smoke test can be run with valid credentials supplied by `LINEAR_API_KEY` or a
   documented local bootstrap mechanism (for example `~/.linear_api_key`).
-- Real integration tests should use isolated test identifiers/workspaces and clean up tracker
+- Real integration tests SHOULD use isolated test identifiers/workspaces and clean up tracker
   artifacts when practical.
-- A skipped real-integration test should be reported as skipped, not silently treated as passed.
-- If a real-integration profile is explicitly enabled in CI or release validation, failures should
+- A skipped real-integration test SHOULD be reported as skipped, not silently treated as passed.
+- If a real-integration profile is explicitly enabled in CI or release validation, failures SHOULD
   fail that job.
 
 ## 18. Implementation Checklist (Definition of Done)
@@ -2068,7 +2065,7 @@ Use the same validation profiles as Section 17:
 - Section 18.2 = `Extension Conformance`
 - Section 18.3 = `Real Integration Profile`
 
-### 18.1 Required for Conformance
+### 18.1 REQUIRED for Conformance
 
 - Workflow path selection supports explicit runtime path and cwd default
 - `WORKFLOW.md` loader with YAML front matter + prompt body split
@@ -2087,13 +2084,13 @@ Use the same validation profiles as Section 17:
 - Reconciliation that stops runs on terminal/non-active tracker states
 - Workspace cleanup for terminal issues (startup sweep + active transition)
 - Structured logs with `issue_id`, `issue_identifier`, and `session_id`
-- Operator-visible observability (structured logs; optional snapshot/status surface)
+- Operator-visible observability (structured logs; OPTIONAL snapshot/status surface)
 
-### 18.2 Recommended Extensions (Not Required for Conformance)
+### 18.2 RECOMMENDED Extensions (Not REQUIRED for Conformance)
 
-- Optional HTTP server honors CLI `--port` over `server.port`, uses a safe default bind host, and
+- HTTP server extension honors CLI `--port` over `server.port`, uses a safe default bind host, and
   exposes the baseline endpoints/error semantics in Section 13.7 if shipped.
-- Optional `linear_graphql` client-side tool extension exposes raw Linear GraphQL access through the
+- `linear_graphql` client-side tool extension exposes raw Linear GraphQL access through the
   app-server session using configured Symphony auth.
 - TODO: Persist retry queue and session metadata across process restarts.
 - TODO: Make observability settings configurable in workflow front matter without prescribing UI
@@ -2102,9 +2099,71 @@ Use the same validation profiles as Section 17:
   of only via agent tools.
 - TODO: Add pluggable issue tracker adapters beyond Linear.
 
-### 18.3 Operational Validation Before Production (Recommended)
+### 18.3 Operational Validation Before Production (RECOMMENDED)
 
 - Run the `Real Integration Profile` from Section 17.8 with valid credentials and network access.
 - Verify hook execution and workflow path resolution on the target host OS/shell environment.
-- If the optional HTTP server is shipped, verify the configured port behavior and loopback/default
+- If the OPTIONAL HTTP server is shipped, verify the configured port behavior and loopback/default
   bind expectations on the target environment.
+
+## Appendix A. SSH Worker Extension (OPTIONAL)
+
+This appendix describes a common extension profile in which Symphony keeps one central
+orchestrator but executes worker runs on one or more remote hosts over SSH.
+
+Extension config:
+
+- `worker.ssh_hosts` (list of SSH host strings, OPTIONAL)
+  - When omitted, work runs locally.
+- `worker.max_concurrent_agents_per_host` (positive integer, OPTIONAL)
+  - Shared per-host cap applied across configured SSH hosts.
+
+### A.1 Execution Model
+
+- The orchestrator remains the single source of truth for polling, claims, retries, and
+  reconciliation.
+- `worker.ssh_hosts` provides the candidate SSH destinations for remote execution.
+- Each worker run is assigned to one host at a time, and that host becomes part of the run's
+  effective execution identity along with the issue workspace.
+- `workspace.root` is interpreted on the remote host, not on the orchestrator host.
+- The coding-agent app-server is launched over SSH stdio instead of as a local subprocess, so the
+  orchestrator still owns the session lifecycle even though commands execute remotely.
+- Continuation turns inside one worker lifetime SHOULD stay on the same host and workspace.
+- A remote host SHOULD satisfy the same basic contract as a local worker environment: reachable
+  shell, writable workspace root, coding-agent executable, and any required auth or repository
+  prerequisites.
+
+### A.2 Scheduling Notes
+
+- SSH hosts MAY be treated as a pool for dispatch.
+- Implementations MAY prefer the previously used host on retries when that host is still
+  available.
+- `worker.max_concurrent_agents_per_host` is an OPTIONAL shared per-host cap across configured SSH
+  hosts.
+- When all SSH hosts are at capacity, dispatch SHOULD wait rather than silently falling back to a
+  different execution mode.
+- Implementations MAY fail over to another host when the original host is unavailable before work
+  has meaningfully started.
+- Once a run has already produced side effects, a transparent rerun on another host SHOULD be
+  treated as a new attempt, not as invisible failover.
+
+### A.3 Problems to Consider
+
+- Remote environment drift:
+  - Each host needs the expected shell environment, coding-agent executable, auth, and repository
+    prerequisites.
+- Workspace locality:
+  - Workspaces are usually host-local, so moving an issue to a different host is typically a cold
+    restart unless shared storage exists.
+- Path and command safety:
+  - Remote path resolution, shell quoting, and workspace-boundary checks matter more once execution
+    crosses a machine boundary.
+- Startup and failover semantics:
+  - Implementations SHOULD distinguish host-connectivity/startup failures from in-workspace agent
+    failures so the same ticket is not accidentally re-executed on multiple hosts.
+- Host health and saturation:
+  - A dead or overloaded host SHOULD reduce available capacity, not cause duplicate execution or an
+    accidental fallback to local work.
+- Cleanup and observability:
+  - Operators need to know which host owns a run, where its workspace lives, and whether cleanup
+    happened on the right machine.

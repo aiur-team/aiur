@@ -9,7 +9,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
 
   require Logger
   alias SymphonyElixir.Codex.DynamicTool
-  alias SymphonyElixir.Config
+  alias SymphonyElixir.{Config, PathSafety, SSH}
 
   @initialize_id 1
   @thread_start_id 2
@@ -31,7 +31,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
-    with {:ok, session} <- start_session(workspace) do
+    with {:ok, session} <- start_session(workspace, opts) do
       try do
         run_turn(session, prompt, issue, opts)
       after
@@ -40,14 +40,15 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     end
   end
 
-  @spec start_session(Path.t()) :: {:ok, session()} | {:error, term()}
-  def start_session(workspace) do
-    with :ok <- validate_workspace_cwd(workspace),
-         {:ok, port} <- start_port(workspace) do
-      metadata = port_metadata(port)
-      expanded_workspace = Path.expand(workspace)
+  @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
+  def start_session(workspace, opts \\ []) do
+    worker_host = Keyword.get(opts, :worker_host)
 
-      with {:ok, session_policies} <- session_policies(expanded_workspace),
+    with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
+         {:ok, port} <- start_port(expanded_workspace, worker_host) do
+      metadata = port_metadata(port, worker_host)
+
+      with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
         {:ok,
          %{
@@ -58,7 +59,8 @@ defmodule SymphonyElixir.Codex.CodingAgent do
            thread_sandbox: session_policies.thread_sandbox,
            turn_sandbox_policy: session_policies.turn_sandbox_policy,
            thread_id: thread_id,
-           workspace: expanded_workspace
+           workspace: expanded_workspace,
+           worker_host: worker_host
          }}
       else
         {:error, reason} ->
@@ -146,25 +148,49 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     stop_port(port)
   end
 
-  defp validate_workspace_cwd(workspace) when is_binary(workspace) do
+  defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
     workspace_path = Path.expand(workspace)
     workspace_root = Path.expand(Config.workspace_root())
 
-    root_prefix = workspace_root <> "/"
+    with {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace_path),
+         {:ok, canonical_root} <- PathSafety.canonicalize(workspace_root) do
+      canonical_root_prefix = canonical_root <> "/"
+      expanded_root_prefix = workspace_root <> "/"
 
-    cond do
-      workspace_path == workspace_root ->
-        {:error, {:invalid_workspace_cwd, :workspace_root, workspace_path}}
+      cond do
+        canonical_workspace == canonical_root ->
+          {:error, {:invalid_workspace_cwd, :workspace_root, canonical_workspace}}
 
-      not String.starts_with?(workspace_path <> "/", root_prefix) ->
-        {:error, {:invalid_workspace_cwd, :outside_workspace_root, workspace_path, workspace_root}}
+        String.starts_with?(canonical_workspace <> "/", canonical_root_prefix) ->
+          {:ok, canonical_workspace}
 
-      true ->
-        :ok
+        String.starts_with?(workspace_path <> "/", expanded_root_prefix) ->
+          {:error, {:invalid_workspace_cwd, :symlink_escape, workspace_path, canonical_root}}
+
+        true ->
+          {:error, {:invalid_workspace_cwd, :outside_workspace_root, canonical_workspace, canonical_root}}
+      end
+    else
+      {:error, {:path_canonicalize_failed, path, reason}} ->
+        {:error, {:invalid_workspace_cwd, :path_unreadable, path, reason}}
     end
   end
 
-  defp start_port(workspace) do
+  defp validate_workspace_cwd(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    cond do
+      String.trim(workspace) == "" ->
+        {:error, {:invalid_workspace_cwd, :empty_remote_workspace, worker_host}}
+
+      String.contains?(workspace, ["\n", "\r", <<0>>]) ->
+        {:error, {:invalid_workspace_cwd, :invalid_remote_workspace, worker_host, workspace}}
+
+      true ->
+        {:ok, workspace}
+    end
+  end
+
+  defp start_port(workspace, nil) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -187,13 +213,28 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     end
   end
 
-  defp port_metadata(port) when is_port(port) do
-    case :erlang.port_info(port, :os_pid) do
+  defp start_port(workspace, worker_host) when is_binary(worker_host) do
+    SSH.start_port(worker_host, remote_launch_command(workspace), line: @port_line_bytes)
+  end
+
+  defp remote_launch_command(workspace) do
+    ["cd #{shell_escape(workspace)}", "exec #{SymphonyElixir.Codex.Config.command()}"]
+    |> Enum.join(" && ")
+  end
+
+  defp port_metadata(port, worker_host \\ nil) when is_port(port) do
+    metadata =
+      case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
         %{codex_app_server_pid: to_string(os_pid)}
 
       _ ->
         %{}
+    end
+
+    case worker_host do
+      host when is_binary(host) -> Map.put(metadata, :worker_host, host)
+      _ -> metadata
     end
   end
 
@@ -221,8 +262,12 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     end
   end
 
-  defp session_policies(workspace) do
+  defp session_policies(workspace, nil) do
     SymphonyElixir.Codex.Config.runtime_settings(workspace)
+  end
+
+  defp session_policies(workspace, worker_host) when is_binary(worker_host) do
+    Config.codex_runtime_settings(workspace, remote: true)
   end
 
   defp do_start_session(port, workspace, session_policies) do
@@ -239,7 +284,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
       "params" => %{
         "approvalPolicy" => approval_policy,
         "sandbox" => thread_sandbox,
-        "cwd" => Path.expand(workspace),
+        "cwd" => workspace,
         "dynamicTools" => DynamicTool.tool_specs()
       }
     })
@@ -268,7 +313,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
             "text" => prompt
           }
         ],
-        "cwd" => Path.expand(workspace),
+        "cwd" => workspace,
         "title" => "#{issue.identifier}: #{issue.title}",
         "approvalPolicy" => approval_policy,
         "sandboxPolicy" => turn_sandbox_policy
@@ -370,18 +415,27 @@ defmodule SymphonyElixir.Codex.CodingAgent do
       {:error, _reason} ->
         log_non_json_stream_line(payload_string, "turn stream")
 
-        emit_message(
-          on_message,
-          :malformed,
-          %{
-            payload: payload_string,
-            raw: payload_string
-          },
-          metadata_from_message(port, %{raw: payload_string})
-        )
+        if protocol_message_candidate?(payload_string) do
+          emit_message(
+            on_message,
+            :malformed,
+            %{
+              payload: payload_string,
+              raw: payload_string
+            },
+            metadata_from_message(port, %{raw: payload_string})
+          )
+        end
 
         receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
     end
+  end
+
+  defp protocol_message_candidate?(payload_string) do
+    payload_string
+    |> to_string()
+    |> String.trim_leading()
+    |> String.starts_with?(["{", "["])
   end
 
   defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
@@ -504,7 +558,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     tool_name = tool_call_name(params)
     arguments = tool_call_arguments(params)
 
-    result = tool_executor.(tool_name, arguments)
+    result = normalize_tool_result(tool_executor.(tool_name, arguments))
 
     send_message(port, %{
       "id" => id,
@@ -623,6 +677,15 @@ defmodule SymphonyElixir.Codex.CodingAgent do
        ) do
     :unhandled
   end
+
+  defp normalize_tool_result(%{"output" => _output} = result), do: result
+
+  defp normalize_tool_result(%{"contentItems" => [%{"text" => output} | _]} = result)
+       when is_binary(output) do
+    Map.put(result, "output", output)
+  end
+
+  defp normalize_tool_result(result), do: result
 
   defp approve_or_require(
          port,
@@ -902,6 +965,10 @@ defmodule SymphonyElixir.Codex.CodingAgent do
             :ok
         end
     end
+  end
+
+  defp shell_escape(value) when is_binary(value) do
+    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
   @spec normalize_event(map()) :: map()
