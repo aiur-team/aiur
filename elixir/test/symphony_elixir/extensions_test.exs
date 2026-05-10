@@ -527,7 +527,29 @@ defmodule SymphonyElixir.ExtensionsTest do
     log_root = Path.join(System.tmp_dir!(), "symphony-dashboard-log-#{System.unique_integer([:positive])}")
     log_dir = Path.join(log_root, "logs")
     File.mkdir_p!(log_dir)
-    File.write!(Path.join(log_dir, "agent.md"), "## event\n\nhello from workspace log\n")
+
+    File.write!(
+      Path.join(log_dir, "agent.md"),
+      """
+      ## 2026-05-10T03:48:24Z notification
+
+      ```text
+      {"method":"item/started","params":{"item":{"type":"userMessage","content":[{"type":"text","text":"hello from workspace log"}]}}}
+      ```
+
+      ## 2026-05-10T03:48:31Z notification
+
+      ```text
+      {"method":"item/agentMessage/delta","params":{"itemId":"msg-1","delta":"working "}}
+      ```
+
+      ## 2026-05-10T03:48:32Z notification
+
+      ```text
+      {"method":"item/agentMessage/delta","params":{"itemId":"msg-1","delta":"now"}}
+      ```
+      """
+    )
 
     snapshot = static_snapshot(workspace_path: log_root)
 
@@ -613,7 +635,10 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert log_html =~ "Agent log"
     assert log_html =~ "MT-HTTP"
+    assert log_html =~ "Issue prompt"
     assert log_html =~ "hello from workspace log"
+    assert log_html =~ "working now"
+    assert log_html =~ "log-message-assistant"
     assert log_html =~ Path.join(log_root, "logs/agent.md")
 
     closed_html =

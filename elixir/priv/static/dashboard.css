@@ -431,16 +431,71 @@ pre,
   white-space: nowrap;
 }
 
-.log-panel {
+.chat-log-panel {
   min-height: 16rem;
   overflow: auto;
-  padding: 0.9rem;
+  padding: 1rem;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: #111827;
-  color: #f9fafb;
-  font-size: 0.82rem;
+  background: #f5f5f7;
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.log-message {
+  width: min(720px, 100%);
+  padding: 0.72rem 0.82rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.log-message-user {
+  justify-self: start;
+  background: #ffffff;
+}
+
+.log-message-assistant {
+  justify-self: end;
+  background: var(--accent-soft);
+  border-color: rgba(16, 163, 127, 0.2);
+}
+
+.log-message-system {
+  justify-self: center;
+  width: min(820px, 100%);
+  background: #fafafa;
+  color: var(--muted);
+}
+
+.log-message-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.42rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.log-message-body {
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.88rem;
   line-height: 1.5;
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-message-system .log-message-body {
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .state-badge-warning {
