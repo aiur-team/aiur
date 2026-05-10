@@ -463,6 +463,12 @@ pre,
   border-color: rgba(16, 163, 127, 0.2);
 }
 
+.log-message-tool {
+  justify-self: start;
+  background: #fffaf0;
+  border-color: #f1d8a6;
+}
+
 .log-message-system {
   justify-self: center;
   width: min(820px, 100%);
@@ -496,6 +502,11 @@ pre,
 .log-message-system .log-message-body {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.log-message-tool .log-message-body {
+  font-family: "Sohne Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
 }
 
 .state-badge-warning {

@@ -429,6 +429,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
       ~r/^## ([^\n]+)\s+([^\n]+)\n\n```text\n(.*?)\n```/ms
       |> Regex.scan(content)
       |> Enum.map(fn [_match, timestamp, event, body] -> parse_log_entry(timestamp, event, body) end)
+      |> Enum.reject(&is_nil/1)
       |> compact_log_messages()
 
     if messages == [] do
@@ -449,10 +450,10 @@ defmodule SymphonyElixirWeb.DashboardLive do
     end
   end
 
-  defp parse_json_log_entry(timestamp, event, %{"method" => method, "params" => params}, raw_body) do
+  defp parse_json_log_entry(timestamp, _event, %{"method" => method, "params" => params}, _raw_body) do
     case {method, params} do
       {"item/started", %{"item" => %{"type" => "userMessage", "content" => content}}} ->
-        log_message("user", "Issue prompt", timestamp, content_text(content))
+        log_message("user", "Issue prompt", timestamp, summarize_prompt(content_text(content)))
 
       {"item/agentMessage/delta", %{"itemId" => item_id, "delta" => delta}} ->
         "assistant"
@@ -468,8 +469,56 @@ defmodule SymphonyElixirWeb.DashboardLive do
       {"warning", %{"message" => message}} ->
         log_message("system", "Warning", timestamp, message)
 
+      {"item/started", %{"item" => %{"type" => "commandExecution", "command" => command}}} ->
+        log_message("tool", "Command", timestamp, command)
+
+      {"item/commandExecution/outputDelta", %{"itemId" => item_id, "delta" => delta}} ->
+        if important_command_output?(delta) do
+          "tool"
+          |> log_message("Command output", timestamp, summarize_payload(delta))
+          |> Map.put(:merge_key, {:command_delta, item_id})
+        end
+
+      {"item/completed",
+       %{
+         "item" => %{
+           "type" => "commandExecution",
+           "command" => command,
+           "exitCode" => exit_code,
+           "aggregatedOutput" => output
+         }
+       }} ->
+        if exit_code == 0 and not important_command_output?(output) do
+          nil
+        else
+          log_message(
+            "tool",
+            command_title(exit_code),
+            timestamp,
+            command_summary(command, exit_code, output)
+          )
+        end
+
+      {"item/started", %{"item" => %{"type" => type}}} when type in ["reasoning", "agentMessage"] ->
+        nil
+
+      {"item/completed", %{"item" => %{"type" => type}}} when type in ["reasoning", "userMessage"] ->
+        nil
+
+      {"thread/status/changed", _params} ->
+        nil
+
+      {"turn/started", _params} ->
+        nil
+
+      {"account/rateLimits/updated", _params} ->
+        nil
+
+      {"mcpServer/startupStatus/updated", _params} ->
+        nil
+
       _ ->
-        log_message("system", humanize_event(method || event), timestamp, summarize_payload(raw_body))
+        nil
     end
   end
 
@@ -506,6 +555,22 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   defp content_text(content), do: inspect(content, pretty: true)
 
+  defp summarize_prompt(text) do
+    issue_summary =
+      Regex.run(~r/Issue:\n\n(.*?)(?:\n\nDescription:|\z)/s, text, capture: :all_but_first)
+
+    description =
+      Regex.run(~r/Description:\n\n(.*?)(?:\n\nContinuation context:|\z)/s, text, capture: :all_but_first)
+
+    [List.first(issue_summary || []), List.first(description || [])]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n\n")
+    |> case do
+      "" -> summarize_payload(text)
+      summary -> summarize_payload(String.trim(summary))
+    end
+  end
+
   defp log_message(role, title, timestamp, body) do
     %{
       role: role,
@@ -526,11 +591,40 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp summarize_payload(body) do
-    if String.length(body) > 1_200 do
-      String.slice(body, 0, 1_200) <> "\n..."
+    trimmed = String.trim(body)
+
+    if String.length(trimmed) > 1_600 do
+      String.slice(trimmed, 0, 1_600) <> "\n..."
     else
-      body
+      trimmed
     end
+  end
+
+  defp important_command_output?(text) when is_binary(text) do
+    String.contains?(String.downcase(text), [
+      "error",
+      "failed",
+      "fatal",
+      "invalid",
+      "permission",
+      "blocked",
+      "denied"
+    ])
+  end
+
+  defp important_command_output?(_text), do: false
+
+  defp command_title(0), do: "Command output"
+  defp command_title(_exit_code), do: "Command failed"
+
+  defp command_summary(command, exit_code, output) do
+    """
+    $ #{command}
+    exit #{exit_code}
+
+    #{summarize_payload(output || "")}
+    """
+    |> String.trim()
   end
 
   defp blank_to_placeholder(body) when body in [nil, ""], do: "No content."
