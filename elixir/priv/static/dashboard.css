@@ -333,6 +333,14 @@ pre,
   font-size: 0.94rem;
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover td {
+  background: rgba(16, 163, 127, 0.05);
+}
+
 .issue-stack,
 .session-stack,
 .detail-stack,
@@ -376,6 +384,63 @@ pre,
   background: var(--accent-soft);
   border-color: rgba(16, 163, 127, 0.18);
   color: var(--accent-ink);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(32, 33, 35, 0.42);
+}
+
+.modal-panel {
+  width: min(960px, 100%);
+  max-height: min(760px, calc(100vh - 2rem));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.modal-title {
+  margin: 0.2rem 0 0;
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.modal-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-panel {
+  min-height: 16rem;
+  overflow: auto;
+  padding: 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #111827;
+  color: #f9fafb;
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .state-badge-warning {

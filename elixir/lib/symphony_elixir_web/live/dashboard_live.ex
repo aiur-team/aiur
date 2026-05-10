@@ -14,6 +14,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
       socket
       |> assign(:payload, load_payload())
       |> assign(:now, DateTime.utc_now())
+      |> assign(:agent_log_modal, nil)
 
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
@@ -35,6 +36,17 @@ defmodule SymphonyElixirWeb.DashboardLive do
      socket
      |> assign(:payload, load_payload())
      |> assign(:now, DateTime.utc_now())}
+  end
+
+  @impl true
+  def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) do
+    entry = find_running_entry(socket.assigns.payload, issue_identifier)
+    {:noreply, assign(socket, :agent_log_modal, agent_log_modal(entry))}
+  end
+
+  @impl true
+  def handle_event("close-agent-log", _params, socket) do
+    {:noreply, assign(socket, :agent_log_modal, nil)}
   end
 
   @impl true
@@ -151,11 +163,20 @@ defmodule SymphonyElixirWeb.DashboardLive do
                   </tr>
                 </thead>
                 <tbody>
-                  <tr :for={entry <- @payload.running}>
+                  <tr
+                    :for={entry <- @payload.running}
+                    class="clickable-row"
+                    phx-click="show-agent-log"
+                    phx-value-issue={entry.issue_identifier}
+                  >
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                        <a
+                          class="issue-link"
+                          href={"/api/v1/#{entry.issue_identifier}"}
+                          onclick="event.stopPropagation()"
+                        >JSON details</a>
                       </div>
                     </td>
                     <td>
@@ -171,7 +192,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                             class="subtle-button"
                             data-label="Copy ID"
                             data-copy={entry.session_id}
-                            onclick="navigator.clipboard.writeText(this.dataset.copy); this.textContent = 'Copied'; clearTimeout(this._copyTimer); this._copyTimer = setTimeout(() => { this.textContent = this.dataset.label }, 1200);"
+                            onclick="event.stopPropagation(); navigator.clipboard.writeText(this.dataset.copy); this.textContent = 'Copied'; clearTimeout(this._copyTimer); this._copyTimer = setTimeout(() => { this.textContent = this.dataset.label }, 1200);"
                           >
                             Copy ID
                           </button>
@@ -246,6 +267,24 @@ defmodule SymphonyElixirWeb.DashboardLive do
             </div>
           <% end %>
         </section>
+      <% end %>
+
+      <%= if @agent_log_modal do %>
+        <div class="modal-backdrop" phx-click="close-agent-log">
+          <section class="modal-panel" onclick="event.stopPropagation()">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Agent log</p>
+                <h2 class="modal-title"><%= @agent_log_modal.issue_identifier %></h2>
+              </div>
+              <button type="button" class="subtle-button" phx-click="close-agent-log">Close</button>
+            </div>
+
+            <p class="modal-meta mono"><%= @agent_log_modal.path || "No local log path" %></p>
+
+            <pre class="log-panel"><%= @agent_log_modal.content %></pre>
+          </section>
+        </div>
       <% end %>
     </section>
     """
@@ -332,4 +371,45 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   defp pretty_value(nil), do: "n/a"
   defp pretty_value(value), do: inspect(value, pretty: true, limit: :infinity)
+
+  defp find_running_entry(%{running: running}, issue_identifier) when is_list(running) do
+    Enum.find(running, &(to_string(&1.issue_identifier) == issue_identifier))
+  end
+
+  defp find_running_entry(_payload, _issue_identifier), do: nil
+
+  defp agent_log_modal(nil) do
+    %{
+      issue_identifier: "n/a",
+      path: nil,
+      content: "No running session found for this issue."
+    }
+  end
+
+  defp agent_log_modal(entry) do
+    path = agent_log_path(entry)
+
+    %{
+      issue_identifier: entry.issue_identifier,
+      path: path,
+      content: read_agent_log(path)
+    }
+  end
+
+  defp agent_log_path(%{workspace_path: workspace_path}) when is_binary(workspace_path) do
+    Path.join(workspace_path, "logs/agent.md")
+  end
+
+  defp agent_log_path(_entry), do: nil
+
+  defp read_agent_log(path) when is_binary(path) do
+    case File.read(path) do
+      {:ok, ""} -> "Agent log is empty."
+      {:ok, content} -> content
+      {:error, :enoent} -> "Agent log has not been written yet."
+      {:error, reason} -> "Unable to read agent log: #{inspect(reason)}"
+    end
+  end
+
+  defp read_agent_log(_path), do: "No local workspace path is available for this session."
 end
