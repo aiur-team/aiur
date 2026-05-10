@@ -27,8 +27,8 @@ defmodule SymphonyElixir.Claude.CodingAgent do
           workspace: Path.t()
         }
 
-  @spec start_session(Path.t()) :: {:ok, session()} | {:error, term()}
-  def start_session(workspace) do
+  @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
+  def start_session(workspace, _opts \\ []) do
     with :ok <- validate_workspace_cwd(workspace),
          {:ok, port} <- start_port(workspace) do
       metadata = port_metadata(port)

@@ -108,6 +108,8 @@ defmodule SymphonyElixir.TestSupport do
           agent_kind: "codex",
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
+          worker_ssh_hosts: [],
+          worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
@@ -140,6 +142,8 @@ defmodule SymphonyElixir.TestSupport do
     agent_kind = Keyword.get(config, :agent_kind)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
     workspace_root = Keyword.get(config, :workspace_root)
+    worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
+    worker_max_concurrent_agents_per_host = Keyword.get(config, :worker_max_concurrent_agents_per_host)
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
@@ -159,18 +163,34 @@ defmodule SymphonyElixir.TestSupport do
     server_host = Keyword.get(config, :server_host)
     prompt = Keyword.get(config, :prompt)
 
+    config =
+      if Keyword.has_key?(config, :codex_command) and not Keyword.has_key?(overrides, :command) do
+        Keyword.put(config, :command, Keyword.get(config, :codex_command))
+      else
+        config
+      end
+
+    config =
+      config
+      |> maybe_copy_override(overrides, :codex_turn_timeout_ms, :agent_turn_timeout_ms)
+      |> maybe_copy_override(overrides, :codex_read_timeout_ms, :agent_read_timeout_ms)
+      |> maybe_copy_override(overrides, :codex_stall_timeout_ms, :agent_stall_timeout_ms)
+
     sections =
       [
         "---",
         tracker_backend_yaml(tracker_kind, config),
         "tracker:",
+        "  kind: #{yaml_value(tracker_kind)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "polling:",
         "  interval_ms: #{yaml_value(poll_interval_ms)}",
         "workspace:",
         "  root: #{yaml_value(workspace_root)}",
+        worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         "agent:",
+        "  kind: #{yaml_value(agent_kind)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
@@ -228,13 +248,19 @@ defmodule SymphonyElixir.TestSupport do
     approval_policy = Keyword.get(config, :codex_approval_policy)
     thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
     turn_sandbox_policy = Keyword.get(config, :codex_turn_sandbox_policy)
+    turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
+    read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
+    stall_timeout_ms = Keyword.get(config, :agent_stall_timeout_ms)
 
     [
       "codex:",
       "  command: #{yaml_value(command)}",
       "  approval_policy: #{yaml_value(approval_policy)}",
       "  thread_sandbox: #{yaml_value(thread_sandbox)}",
-      "  turn_sandbox_policy: #{yaml_value(turn_sandbox_policy)}"
+      "  turn_sandbox_policy: #{yaml_value(turn_sandbox_policy)}",
+      "  turn_timeout_ms: #{yaml_value(turn_timeout_ms)}",
+      "  read_timeout_ms: #{yaml_value(read_timeout_ms)}",
+      "  stall_timeout_ms: #{yaml_value(stall_timeout_ms)}"
     ]
     |> Enum.join("\n")
   end
@@ -274,6 +300,14 @@ defmodule SymphonyElixir.TestSupport do
 
   defp yaml_value(value), do: yaml_value(to_string(value))
 
+  defp maybe_copy_override(config, overrides, from_key, to_key) do
+    if Keyword.has_key?(overrides, from_key) and not Keyword.has_key?(overrides, to_key) do
+      Keyword.put(config, to_key, Keyword.get(overrides, from_key))
+    else
+      config
+    end
+  end
+
   defp hooks_yaml(nil, nil, nil, nil, timeout_ms), do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
 
   defp hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, timeout_ms) do
@@ -286,6 +320,21 @@ defmodule SymphonyElixir.TestSupport do
       hook_entry("before_remove", hook_before_remove)
     ]
     |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp worker_yaml(ssh_hosts, max_concurrent_agents_per_host)
+       when ssh_hosts in [nil, []] and is_nil(max_concurrent_agents_per_host),
+       do: nil
+
+  defp worker_yaml(ssh_hosts, max_concurrent_agents_per_host) do
+    [
+      "worker:",
+      ssh_hosts not in [nil, []] && "  ssh_hosts: #{yaml_value(ssh_hosts)}",
+      !is_nil(max_concurrent_agents_per_host) &&
+        "  max_concurrent_agents_per_host: #{yaml_value(max_concurrent_agents_per_host)}"
+    ]
+    |> Enum.reject(&(&1 in [nil, false]))
     |> Enum.join("\n")
   end
 

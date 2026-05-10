@@ -5,7 +5,7 @@ defmodule SymphonyElixir.CodingAgent do
 
   alias SymphonyElixir.Config
 
-  @callback start_session(Path.t()) :: {:ok, map()} | {:error, term()}
+  @callback start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback run_turn(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback stop_session(map()) :: :ok
   @callback normalize_event(map()) :: map()
@@ -19,7 +19,7 @@ defmodule SymphonyElixir.CodingAgent do
   end
 
   @spec start_session(Path.t()) :: {:ok, map()} | {:error, term()}
-  def start_session(workspace), do: adapter().start_session(workspace)
+  def start_session(workspace, opts \\ []), do: adapter().start_session(workspace, opts)
 
   @spec run_turn(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_turn(session, prompt, issue, opts \\ []), do: adapter().run_turn(session, prompt, issue, opts)

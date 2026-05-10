@@ -5,7 +5,7 @@ defmodule SymphonyElixir.PromptBuilder do
 
   alias SymphonyElixir.{Config, Workflow}
 
-  @render_opts [strict_filters: true]
+  @render_opts [strict_filters: true, strict_variables: true]
 
   @spec build_prompt(SymphonyElixir.Issue.t(), keyword()) :: String.t()
   def build_prompt(issue, opts \\ []) do
