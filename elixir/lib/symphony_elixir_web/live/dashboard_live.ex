@@ -288,7 +288,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                   <span><%= message.title %></span>
                   <span class="mono"><%= message.timestamp %></span>
                 </div>
-                <pre class="log-message-body"><%= message.body %></pre>
+                <div class="log-message-body"><%= message.body %></div>
               </div>
             </div>
           </section>
@@ -434,7 +434,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
       |> Enum.take(-80)
 
     if messages == [] do
-      [log_message("system", "Log", "n/a", content)]
+      [log_message("system", "Log", "n/a", "No displayable chat events yet.")]
     else
       messages
     end
