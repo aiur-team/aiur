@@ -6,6 +6,10 @@ defmodule SymphonyElixirWeb.Router do
   use Phoenix.Router
   import Phoenix.LiveView.Router
 
+  pipeline :dashboard_auth do
+    plug(:dashboard_basic_auth)
+  end
+
   pipeline :browser do
     plug(:fetch_session)
     plug(:fetch_live_flash)
@@ -15,6 +19,8 @@ defmodule SymphonyElixirWeb.Router do
   end
 
   scope "/", SymphonyElixirWeb do
+    pipe_through(:dashboard_auth)
+
     get("/dashboard.css", StaticAssetController, :dashboard_css)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
@@ -22,12 +28,14 @@ defmodule SymphonyElixirWeb.Router do
   end
 
   scope "/", SymphonyElixirWeb do
-    pipe_through(:browser)
+    pipe_through([:dashboard_auth, :browser])
 
     live("/", DashboardLive, :index)
   end
 
   scope "/", SymphonyElixirWeb do
+    pipe_through(:dashboard_auth)
+
     get("/api/v1/state", ObservabilityApiController, :state)
 
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
@@ -38,4 +46,17 @@ defmodule SymphonyElixirWeb.Router do
     match(:*, "/api/v1/:issue_identifier", ObservabilityApiController, :method_not_allowed)
     match(:*, "/*path", ObservabilityApiController, :not_found)
   end
+
+  defp dashboard_basic_auth(conn, _opts) do
+    username = System.get_env("SYMPHONY_DASHBOARD_USERNAME")
+    password = System.get_env("SYMPHONY_DASHBOARD_PASSWORD")
+
+    if present?(username) and present?(password) do
+      Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Symphony")
+    else
+      conn
+    end
+  end
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 end
