@@ -472,12 +472,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
       {"item/started", %{"item" => %{"type" => "commandExecution", "command" => command}}} ->
         log_message("tool", "Command", timestamp, command)
 
-      {"item/commandExecution/outputDelta", %{"itemId" => item_id, "delta" => delta}} ->
-        if important_command_output?(delta) do
-          "tool"
-          |> log_message("Command output", timestamp, summarize_payload(delta))
-          |> Map.put(:merge_key, {:command_delta, item_id})
-        end
+      {"item/commandExecution/outputDelta", _params} ->
+        nil
 
       {"item/completed",
        %{
@@ -488,7 +484,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
            "aggregatedOutput" => output
          }
        }} ->
-        if exit_code == 0 and not important_command_output?(output) do
+        if exit_code == 0 and not auth_failure_output?(output) do
           nil
         else
           log_message(
@@ -600,19 +596,15 @@ defmodule SymphonyElixirWeb.DashboardLive do
     end
   end
 
-  defp important_command_output?(text) when is_binary(text) do
+  defp auth_failure_output?(text) when is_binary(text) do
     String.contains?(String.downcase(text), [
-      "error",
-      "failed",
-      "fatal",
-      "invalid",
-      "permission",
-      "blocked",
-      "denied"
+      "failed to log in",
+      "token is invalid",
+      "auth status"
     ])
   end
 
-  defp important_command_output?(_text), do: false
+  defp auth_failure_output?(_text), do: false
 
   defp command_title(0), do: "Command output"
   defp command_title(_exit_code), do: "Command failed"
