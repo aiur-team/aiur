@@ -1,0 +1,71 @@
+---
+tracker:
+  kind: github
+  active_states:
+    - todo
+    - in-progress
+    - human-review
+    - rework
+    - merging
+  terminal_states:
+    - done
+    - cancelled
+    - canceled
+github:
+  repo: your-org/your-repo
+  label_prefix: agent
+polling:
+  interval_ms: 30000
+server:
+  host: 127.0.0.1
+  port: 4000
+workspace:
+  root: ~/code/symphony-workspaces
+hooks:
+  after_create: |
+    git clone "$SYMPHONY_REPOSITORY_URL" .
+    issue_id="$(basename "$PWD")"
+    git checkout -b "symphony/${issue_id}" origin/main
+  before_remove: |
+    git status --short
+agent:
+  kind: codex
+  max_concurrent_agents: 2
+  max_turns: 3
+codex:
+  command: codex app-server
+---
+
+You are working on GitHub issue `{{ issue.identifier }}`.
+
+Issue:
+
+- Number: `{{ issue.identifier }}`
+- Title: {{ issue.title }}
+- State label: {{ issue.state }}
+- Labels: {{ issue.labels }}
+- URL: {{ issue.url }}
+
+Description:
+
+{% if issue.description %}
+{{ issue.description }}
+{% else %}
+No description provided.
+{% endif %}
+
+{% if attempt %}
+Continuation context:
+
+- Retry attempt #{{ attempt }}.
+- Resume from existing workspace state before repeating completed work.
+{% endif %}
+
+## Workflow
+
+1. Read the issue and current labels.
+2. If the issue is ready for agent work, move it to the configured in-progress state.
+3. Keep progress, validation, PR URL, blockers, and final notes in one persistent workpad comment.
+4. Implement the issue in small chunks.
+5. Validate the change, push to the configured remote, and open a pull request.
+6. Move the issue to human review when the pull request is ready.
