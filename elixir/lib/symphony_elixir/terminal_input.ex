@@ -53,29 +53,28 @@ defmodule SymphonyElixir.TerminalInput do
 
   @impl true
   def handle_info({:EXIT, pid, reason}, %{reader_pid: pid} = state) do
-    {:stop, reason, state}
+    if reason != :normal do
+      Logger.warning("Interactive terminal input reader exited: #{inspect(reason)}; continuing without input")
+    end
+
+    {:stop, :normal, state}
   end
 
+  def handle_info(_message, state), do: {:noreply, state}
+
   defp read_tty_loop(parent, dashboard, nil) do
-    case :file.open(~c"/dev/tty", [:read, :raw, :binary]) do
+    case File.open("/dev/tty", [:read, :binary]) do
       {:ok, tty} ->
-        read_loop(parent, dashboard, fn -> read_one_byte(tty) end)
+        read_loop(parent, dashboard, fn -> IO.binread(tty, 1) end)
 
       {:error, reason} ->
-        send(parent, {:EXIT, self(), {:tty_open_failed, reason}})
+        Logger.warning("Could not open /dev/tty for reading: #{inspect(reason)}")
+        send(parent, {:EXIT, self(), :normal})
     end
   end
 
   defp read_tty_loop(parent, dashboard, input_fun) when is_function(input_fun, 0) do
     read_loop(parent, dashboard, input_fun)
-  end
-
-  defp read_one_byte(tty) do
-    case :file.read(tty, 1) do
-      {:ok, byte} -> byte
-      :eof -> :eof
-      {:error, _reason} -> :eof
-    end
   end
 
   defp read_loop(parent, dashboard, input_fun) do
