@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="/home/applekid/github/its-applekid/symphony"
+elixir_dir="$repo_root/elixir"
+env_file="/home/applekid/.config/symphony-dashboard.env"
+mise_bin="/home/applekid/.local/bin/mise"
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user stop symphony >/dev/null 2>&1 || true
+fi
+
+cd "$elixir_dir"
+
+if [ -r "$env_file" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+fi
+
+exec "$mise_bin" exec -- ./bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  ./WORKFLOW.md
