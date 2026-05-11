@@ -56,17 +56,19 @@ TermUI appears promising: direct-mode, Elm-style, BEAM-focused, with widgets suc
 
 ## Recommendation
 
-For the first current-project-only feature, do not rewrite the CLI around a TUI library yet.
+Use a full TUI foundation now, with ExRatatui as the preferred library.
 
-Build a native interactive layer around the existing dashboard:
+The first interactive slice is simple, but the expected direction includes selecting agents, live log panes, pausing agents, messaging agents, split panes, richer controls, and possibly remote terminal access. Those features need a real event loop, focus model, layout engine, scrollable regions, and testable terminal rendering. Building those primitives ourselves would create a private TUI framework inside Symphony.
 
-1. Preserve `StatusDashboard`'s current overview output as the fallback/passive render path.
-2. Add a small provider-agnostic UI state struct with `view`, `selected_index`, `scroll_offset`, and `terminal_columns`.
-3. Add key normalization for arrows, `h/j/k/l`, enter, escape, and `q`.
-4. Reuse the web dashboard's existing log path convention, but move log reading/parsing into a shared module before the CLI consumes it.
-5. Add pure tests for key transitions and renderer output.
+The implementation should still preserve the current status dashboard behavior as a fallback/passive mode, but the foreground `agents` experience should move toward a supervised ExRatatui app:
 
-This delivers the requested navigation quickly while keeping the future path open. If the native layer starts needing tabs, split panes, search, filtering, or remote TUI sessions, switch to ExRatatui in a second phase.
+1. Add ExRatatui and prove it works in the repo with a small current-project dashboard shell.
+2. Extract the existing dashboard data formatting into provider-agnostic presenter functions that both the web UI and TUI can consume.
+3. Build the first TUI screen with an agents list, selected row state, and overview metrics.
+4. Add a focused log view for one agent using shared log loading/parsing logic.
+5. Keep the first slice current-project only; defer profile/project switching to the existing ticket.
+
+This makes the first PR larger than a native key reader, but it avoids throwing away the first implementation as soon as the CLI needs split panes and richer interactions.
 
 ## Deferred Ticket
 
