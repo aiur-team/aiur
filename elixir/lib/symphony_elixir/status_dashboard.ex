@@ -53,7 +53,8 @@ defmodule SymphonyElixir.StatusDashboard do
     :last_rendered_at_ms,
     :pending_content,
     :flush_timer_ref,
-    :last_snapshot_fingerprint
+    :last_snapshot_fingerprint,
+    :selected_index
   ]
 
   @type t :: %__MODULE__{
@@ -71,7 +72,8 @@ defmodule SymphonyElixir.StatusDashboard do
           last_rendered_at_ms: integer() | nil,
           pending_content: String.t() | nil,
           flush_timer_ref: reference() | nil,
-          last_snapshot_fingerprint: term() | nil
+          last_snapshot_fingerprint: term() | nil,
+          selected_index: non_neg_integer() | nil
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -94,7 +96,7 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  @spec init(keyword()) :: {:ok, t()}
+  @impl true
   def init(opts) do
     refresh_ms_override = keyword_override(opts, :refresh_ms)
     enabled_override = keyword_override(opts, :enabled)
@@ -121,9 +123,16 @@ defmodule SymphonyElixir.StatusDashboard do
        last_rendered_at_ms: nil,
        pending_content: nil,
        flush_timer_ref: nil,
-       last_snapshot_fingerprint: nil
+       last_snapshot_fingerprint: nil,
+       selected_index: Keyword.get(opts, :selected_index)
      }}
   end
+
+  @spec select_next(GenServer.name()) :: :ok
+  def select_next(server \\ __MODULE__), do: GenServer.cast(server, {:select_agent, 1})
+
+  @spec select_previous(GenServer.name()) :: :ok
+  def select_previous(server \\ __MODULE__), do: GenServer.cast(server, {:select_agent, -1})
 
   @spec render_offline_status() :: :ok
   def render_offline_status do
@@ -143,7 +152,7 @@ defmodule SymphonyElixir.StatusDashboard do
       :ok
   end
 
-  @spec handle_info(term(), t()) :: {:noreply, t()}
+  @impl true
   def handle_info(:tick, %{enabled: true} = state) do
     state = refresh_runtime_config(state)
     state = maybe_render(state)
@@ -174,6 +183,21 @@ defmodule SymphonyElixir.StatusDashboard do
 
   def handle_info({:flush_render, _timer_ref}, state), do: {:noreply, state}
   def handle_info(:tick, state), do: {:noreply, state}
+
+  @impl true
+  def handle_cast({:select_agent, direction}, %{enabled: true} = state) when direction in [-1, 1] do
+    snapshot_data = snapshot_data()
+
+    state =
+      state
+      |> Map.put(:selected_index, move_selected_index(state.selected_index, snapshot_data, direction))
+      |> Map.put(:last_snapshot_fingerprint, nil)
+      |> maybe_render()
+
+    {:noreply, state}
+  end
+
+  def handle_cast({:select_agent, _direction}, state), do: {:noreply, state}
 
   defp refresh_runtime_config(%__MODULE__{} = state) do
     %{
@@ -208,15 +232,19 @@ defmodule SymphonyElixir.StatusDashboard do
       |> Map.put(:last_tps_second, tps_second)
       |> Map.put(:last_tps_value, tps)
 
-    if snapshot_data != state.last_snapshot_fingerprint or periodic_rerender_due?(state, now_ms) do
+    snapshot_fingerprint = {snapshot_data, state.selected_index}
+
+    if snapshot_fingerprint != state.last_snapshot_fingerprint or periodic_rerender_due?(state, now_ms) do
       content =
         format_snapshot_content(
           snapshot_data,
-          tps
+          tps,
+          nil,
+          state.selected_index
         )
 
       state
-      |> maybe_update_snapshot_fingerprint(snapshot_data)
+      |> maybe_update_snapshot_fingerprint(snapshot_fingerprint)
       |> maybe_enqueue_render(content, now_ms)
     else
       state
@@ -303,21 +331,11 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp snapshot_with_samples(token_samples, now_ms) do
-    case snapshot_payload() do
-      {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
+    case snapshot_data() do
+      {:ok, %{agent_totals: agent_totals} = snapshot} ->
         total_tokens = Map.get(agent_totals, :total_tokens, 0)
 
-        {
-          {:ok,
-           %{
-             running: running,
-             retrying: retrying,
-             agent_totals: agent_totals,
-             rate_limits: Map.get(snapshot, :rate_limits),
-             polling: Map.get(snapshot, :polling)
-           }},
-          update_token_samples(token_samples, now_ms, total_tokens)
-        }
+        {{:ok, snapshot}, update_token_samples(token_samples, now_ms, total_tokens)}
 
       :error ->
         {
@@ -327,7 +345,24 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp format_snapshot_content(snapshot_data, tps, terminal_columns_override \\ nil) do
+  defp snapshot_data do
+    case snapshot_payload() do
+      {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
+        {:ok,
+         %{
+           running: running,
+           retrying: retrying,
+           agent_totals: agent_totals,
+           rate_limits: Map.get(snapshot, :rate_limits),
+           polling: Map.get(snapshot, :polling)
+         }}
+
+      :error ->
+        :error
+    end
+  end
+
+  defp format_snapshot_content(snapshot_data, tps, terminal_columns_override, selected_index) do
     case snapshot_data do
       {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
@@ -340,7 +375,7 @@ defmodule SymphonyElixir.StatusDashboard do
         agent_count = length(running)
         max_agents = Config.max_concurrent_agents()
         running_event_width = running_event_width(terminal_columns_override)
-        running_rows = format_running_rows(running, running_event_width)
+        running_rows = format_running_rows(running, running_event_width, selected_index)
         running_to_backoff_spacer = if(running == [], do: [], else: ["│"])
         backoff_rows = format_retry_rows(retrying)
 
@@ -539,13 +574,9 @@ defmodule SymphonyElixir.StatusDashboard do
   def format_timestamp_for_test(%DateTime{} = datetime), do: format_timestamp(datetime)
 
   @doc false
-  @spec format_snapshot_content_for_test(term(), number()) :: String.t()
-  def format_snapshot_content_for_test(snapshot_data, tps), do: format_snapshot_content(snapshot_data, tps)
-
-  @doc false
-  @spec format_snapshot_content_for_test(term(), number(), integer() | nil) :: String.t()
-  def format_snapshot_content_for_test(snapshot_data, tps, terminal_columns),
-    do: format_snapshot_content(snapshot_data, tps, terminal_columns)
+  @spec format_snapshot_content_for_test(term(), number(), integer() | nil, non_neg_integer() | nil) :: String.t()
+  def format_snapshot_content_for_test(snapshot_data, tps, terminal_columns \\ nil, selected_index \\ nil),
+    do: format_snapshot_content(snapshot_data, tps, terminal_columns, selected_index)
 
   @doc false
   @spec dashboard_url_for_test(String.t(), non_neg_integer() | nil, non_neg_integer() | nil) ::
@@ -579,7 +610,7 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp format_running_rows(running, running_event_width) do
+  defp format_running_rows(running, running_event_width, selected_index) do
     if running == [] do
       [
         "│  " <> colorize("No active agents", @ansi_gray),
@@ -588,12 +619,15 @@ defmodule SymphonyElixir.StatusDashboard do
     else
       running
       |> Enum.sort_by(& &1.identifier)
-      |> Enum.map(&format_running_summary(&1, running_event_width))
+      |> Enum.with_index()
+      |> Enum.map(fn {entry, index} ->
+        format_running_summary(entry, running_event_width, selected_index == index)
+      end)
     end
   end
 
   # credo:disable-for-next-line
-  defp format_running_summary(running_entry, running_event_width) do
+  defp format_running_summary(running_entry, running_event_width, selected? \\ false) do
     issue = format_cell(running_entry.identifier || "unknown", @running_id_width)
     state = running_entry.state || "unknown"
     state_display = format_cell(to_string(state), @running_stage_width)
@@ -619,7 +653,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
     [
       "│ ",
-      status_dot(status_color),
+      selection_marker(status_color, selected?),
       " ",
       colorize(issue, @ansi_cyan),
       " ",
@@ -1050,6 +1084,20 @@ defmodule SymphonyElixir.StatusDashboard do
   defp status_dot(color_code) do
     colorize("●", color_code)
   end
+
+  defp selection_marker(color_code, true), do: colorize("▶", color_code)
+  defp selection_marker(color_code, false), do: status_dot(color_code)
+
+  defp move_selected_index(selected_index, {:ok, %{running: running}}, direction) when running != [] do
+    count = length(running)
+    current_index = selected_index || 0
+
+    current_index
+    |> Kernel.+(direction)
+    |> Integer.mod(count)
+  end
+
+  defp move_selected_index(_selected_index, _snapshot_data, _direction), do: nil
 
   defp snapshot_total_tokens({:ok, %{agent_totals: agent_totals}}) when is_map(agent_totals) do
     Map.get(agent_totals, :total_tokens, 0)
