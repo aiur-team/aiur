@@ -38,8 +38,10 @@ defmodule SymphonyElixir.Tracker do
 
   @spec project_identity() :: String.t() | nil
   def project_identity do
-    if function_exported?(adapter(), :project_identity, 0) do
-      adapter().project_identity()
+    adapter = adapter()
+
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :project_identity, 0) do
+      adapter.project_identity()
     end
   end
 

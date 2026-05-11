@@ -5,8 +5,8 @@ defmodule SymphonyElixir.Linear.Tracker do
 
   @behaviour SymphonyElixir.Tracker
 
+  alias SymphonyElixir.Config
   alias SymphonyElixir.Linear.Client
-  alias SymphonyElixir.Linear.Config
 
   @create_comment_mutation """
   mutation SymphonyCreateComment($issueId: String!, $body: String!) {
@@ -39,7 +39,7 @@ defmodule SymphonyElixir.Linear.Tracker do
   """
 
   @spec project_identity() :: String.t() | nil
-  def project_identity, do: Config.project_slug()
+  def project_identity, do: Config.settings!().tracker.project_slug
 
   @spec default_prompt_template() :: String.t()
   def default_prompt_template do

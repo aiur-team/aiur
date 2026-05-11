@@ -4,6 +4,7 @@ defmodule SymphonyElixir.CLI do
   """
 
   alias SymphonyElixir.LogFile
+  alias SymphonyElixir.TUI
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @version Mix.Project.config()[:version]
@@ -112,7 +113,7 @@ defmodule SymphonyElixir.CLI do
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
       set_passive_status_dashboard_enabled: &set_passive_status_dashboard_enabled/1,
-      start_tui: fn -> SymphonyElixir.TUI.App.start_link([]) end,
+      start_tui: fn -> TUI.App.start_link([]) end,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
   end
