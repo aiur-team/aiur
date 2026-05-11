@@ -85,8 +85,14 @@ defmodule SymphonyElixir.TerminalInput do
         :ok
 
       "[" ->
-        read_csi(dashboard, input_fun, "")
-        read_loop(parent, dashboard, input_fun)
+        case read_csi(dashboard, input_fun, "") do
+          :paste_start ->
+            consume_until_paste_end(input_fun)
+            read_loop(parent, dashboard, input_fun)
+
+          _ ->
+            read_loop(parent, dashboard, input_fun)
+        end
 
       other ->
         # Bare ESC: close the log pane and process whatever followed as a normal key.
@@ -139,17 +145,40 @@ defmodule SymphonyElixir.TerminalInput do
   defp dispatch_csi(dashboard, "", "D"), do: StatusDashboard.close_log(dashboard)
   defp dispatch_csi(dashboard, "5", "~"), do: StatusDashboard.scroll_log_up(dashboard)
   defp dispatch_csi(dashboard, "6", "~"), do: StatusDashboard.scroll_log_down(dashboard)
+  defp dispatch_csi(_dashboard, "200", "~"), do: :paste_start
+  defp dispatch_csi(_dashboard, "201", "~"), do: :ok
   defp dispatch_csi(_dashboard, _params, _final), do: :ok
+
+  defp consume_until_paste_end(input_fun, last_six \\ "") do
+    case input_fun.() do
+      :eof ->
+        :ok
+
+      byte ->
+        joined = last_six <> byte
+        window = if String.length(joined) > 6, do: String.slice(joined, -6, 6), else: joined
+
+        if window == "\e[201~" do
+          :ok
+        else
+          consume_until_paste_end(input_fun, window)
+        end
+    end
+  end
 
   defp enter_raw_mode(true), do: :ok
 
   defp enter_raw_mode(false) do
-    with {:ok, device} <- tty_device() do
-      run_stty(device, ["-icanon", "-echo", "-isig", "-ixon", "min", "1", "time", "0"])
+    with {:ok, device} <- tty_device(),
+         :ok <- run_stty(device, ["-icanon", "-echo", "-isig", "-ixon", "min", "1", "time", "0"]) do
+      enable_bracketed_paste()
+      :ok
     end
   end
 
   defp restore_terminal do
+    disable_bracketed_paste()
+
     case tty_device() do
       {:ok, device} -> run_stty(device, ["sane"])
       _ -> :ok
@@ -157,6 +186,9 @@ defmodule SymphonyElixir.TerminalInput do
 
     :ok
   end
+
+  defp enable_bracketed_paste, do: IO.write("\e[?2004h")
+  defp disable_bracketed_paste, do: IO.write("\e[?2004l")
 
   defp tty_device do
     case File.read_link("/proc/self/fd/0") do
