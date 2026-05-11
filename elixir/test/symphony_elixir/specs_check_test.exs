@@ -78,7 +78,7 @@ defmodule SymphonyElixir.SpecsCheckTest do
   end
 
   defp create_tmp_dir do
-    unique = :erlang.unique_integer([:positive, :monotonic])
+    unique = "#{System.os_time(:nanosecond)}-#{:erlang.unique_integer([:positive])}"
     dir = Path.join(System.tmp_dir!(), "specs-check-test-#{unique}")
     File.rm_rf!(dir)
     File.mkdir_p!(dir)

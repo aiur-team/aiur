@@ -49,7 +49,7 @@ codex:
     networkAccess: true
 ---
 
-You are working on GitHub issue `{{ issue.identifier }}` in `its-everdred/symphony`.
+You are working on tracker issue `{{ issue.identifier }}` for the Symphony repository.
 
 Issue:
 
@@ -69,7 +69,7 @@ No description provided.
 
 ## Required Setup
 
-- Use the local `gh` auth already configured for `its-applekid`.
+- Use the local tracker and repository auth already configured for this environment.
 - Work in the current workspace checkout.
 - For real implementation tickets, branch from `origin/main`, keep changes small, add tests, run compile and lint, push to `origin`, and open a PR.
 - For test tickets that explicitly say not to change code, do not create commits or PRs.
@@ -89,7 +89,7 @@ GitHub issue state is label-based:
 
 1. Read the issue and current labels.
 2. If state is `todo`, move it to `in-progress`.
-3. Find or create one persistent issue comment titled `## Codex Workpad`.
+3. Find or create one persistent issue comment titled `## Agent Workpad`.
 4. Keep all progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
 5. Follow the issue instructions exactly.
 6. Move the issue to `Human Review` when implementation work is ready for review.
@@ -100,7 +100,7 @@ GitHub issue state is label-based:
 Use and update this single issue comment:
 
 ````md
-## Codex Workpad
+## Agent Workpad
 
 ```text
 <hostname>:<abs-workdir>@<short-sha>

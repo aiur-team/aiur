@@ -5,29 +5,29 @@ work instead of supervising coding agents.
 
 [![Symphony demo video preview](.github/media/symphony-demo-poster.jpg)](.github/media/symphony-demo.mp4)
 
-_In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Linear board for work and spawns agents to handle the tasks. The agents complete the tasks and provide proof of work: CI status, PR review feedback, complexity analysis, and walkthrough videos. When accepted, the agents land the PR safely. Engineers do not need to supervise Codex; they can manage the work at a higher level._
+_In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a tracker board for work and spawns agents to handle the tasks. The agents complete the tasks and provide proof of work: CI status, PR review feedback, complexity analysis, and walkthrough videos. When accepted, the agents land the PR safely. Engineers do not need to supervise individual coding sessions; they can manage the work at a higher level._
 
 > [!WARNING]
 > Symphony is a low-key engineering preview for testing in trusted environments.
 
-## Fork additions
+## Additional Capabilities
 
-This fork keeps the upstream Linear and Codex-compatible workflow, and adds the pieces needed to
-run Symphony against GitHub Issues with either Codex or Claude Code.
+This fork keeps Symphony provider-agnostic while broadening the adapters and operational tooling
+available to a deployment.
 
-- **Claude Code backend:** configure `agent.kind: claude` and a `claude.command` such as
-  `symphony-claude` to run Claude Code through Symphony's app-server protocol.
-- **GitHub Issues tracker:** configure `tracker.kind: github`, `github.repo`, and a label prefix to
-  let Symphony claim issues, move them through label-based states, push branches, and open PRs.
+- **Tracker adapters:** configure tracker backends for board- or issue-based queues, including
+  label-based state machines where the tracker supports them.
+- **Agent adapters:** configure coding agents through Symphony's app-server protocol so deployments
+  can choose the agent backend that fits their environment.
 - **Live agent logs:** each workspace writes `logs/agent.md` and `logs/agent.ndjson`; the dashboard
   can open those logs in a live-updating modal while a run is active.
 - **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
   configured host/port for private operational access.
-- **Fork workflow helpers:** repo-local `commit`, `pull`, `push`, `land`, and `linear` skills keep
-  issue work, PR creation, and landing behavior consistent across runs.
+- **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing
+  behavior consistent across runs without making those workflows part of Symphony's core model.
 
 See [elixir/README.md](elixir/README.md#configuration) for the supported `WORKFLOW.md` options and
-examples for Linear/Codex and GitHub Issues/Claude setups.
+adapter examples.
 
 ## Running Symphony
 
