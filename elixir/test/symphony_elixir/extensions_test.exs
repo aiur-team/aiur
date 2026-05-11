@@ -509,6 +509,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
+    assert dashboard_css =~ ".live-button[data-live=\"false\"]"
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -520,6 +521,8 @@ defmodule SymphonyElixir.ExtensionsTest do
       response(get(build_conn(), "/vendor/phoenix_live_view/phoenix_live_view.js"), 200)
 
     assert live_view_js =~ "var LiveView = (() => {"
+    assert html =~ "AgentLogPanel"
+    assert html =~ "hooks: Hooks"
   end
 
   test "dashboard liveview renders and refreshes over pubsub" do
@@ -547,6 +550,12 @@ defmodule SymphonyElixir.ExtensionsTest do
 
       ```text
       {"method":"item/agentMessage/delta","params":{"itemId":"msg-1","delta":"now"}}
+      ```
+
+      ## 2026-05-10T03:48:33Z notification
+
+      ```text
+      {"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg-1","text":"working now"}}}
       ```
       """
     )
@@ -635,11 +644,36 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert log_html =~ "Agent log"
     assert log_html =~ "MT-HTTP"
+    assert log_html =~ "data-agent-log-live"
+    assert log_html =~ "Live"
+    assert log_html =~ "phx-hook=\"AgentLogPanel\""
+    assert log_html =~ "phx-click-away=\"close-agent-log\""
+    refute log_html =~ "modal-panel\" onclick=\"event.stopPropagation()\""
     assert log_html =~ "Issue prompt"
     assert log_html =~ "hello from workspace log"
     assert log_html =~ "working now"
+    assert length(Regex.scan(~r/working now/, log_html)) == 1
     assert log_html =~ "log-message-assistant"
     assert log_html =~ Path.join(log_root, "logs/agent.md")
+
+    File.write!(
+      Path.join(log_dir, "agent.md"),
+      """
+
+      ## 2026-05-10T03:48:35Z notification
+
+      ```text
+      {"method":"item/completed","params":{"item":{"type":"agentMessage","text":"fresh modal update"}}}
+      ```
+      """,
+      [:append]
+    )
+
+    StatusDashboard.notify_update()
+
+    assert_eventually(fn ->
+      render(view) =~ "fresh modal update"
+    end)
 
     closed_html =
       view

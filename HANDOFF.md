@@ -6,7 +6,8 @@ Do not commit secrets. The machine-local secrets live outside this repo.
 
 ## Repository State
 
-- Main repo: `/home/orangekid/github/symphony`
+- Current repo: `/home/applekid/github/its-applekid/symphony`
+- Previous `orangekid` repo: `/home/orangekid/github/symphony`
 - Remote fork: `git@github.com:its-everdred/symphony.git`
 - Upstream: `https://github.com/openai/symphony.git`
 - Current durable branch with this document: `handoff`
@@ -76,30 +77,30 @@ Requirements already used on this machine:
 Build Symphony:
 
 ```bash
-cd /home/orangekid/github/symphony/elixir
-mise install
+cd /home/applekid/github/its-applekid/symphony/elixir
+/home/applekid/.local/bin/mise install
 pnpm install
-mise exec -- mix deps.get
-mise exec -- mix escript.build
+/home/applekid/.local/bin/mise exec -- mix deps.get
+/home/applekid/.local/bin/mise exec -- mix escript.build
 ```
 
 Focused validation used during this work:
 
 ```bash
-cd /home/orangekid/github/symphony/elixir
-mise exec -- mix test test/symphony_elixir/extensions_test.exs
-mise exec -- mix format --check-formatted lib/symphony_elixir_web/live/dashboard_live.ex priv/static/dashboard.css test/symphony_elixir/extensions_test.exs
-mise exec -- mix escript.build
+cd /home/applekid/github/its-applekid/symphony/elixir
+/home/applekid/.local/bin/mise exec -- mix test test/symphony_elixir/extensions_test.exs
+/home/applekid/.local/bin/mise exec -- mix format --check-formatted lib/symphony_elixir_web/live/dashboard_live.ex priv/static/dashboard.css test/symphony_elixir/extensions_test.exs
+/home/applekid/.local/bin/mise exec -- mix escript.build
 ```
 
 Note: full format checking previously found pre-existing unrelated formatting drift in other files. Do not conflate that with the dashboard work unless you choose to clean it deliberately.
 
 ## Local Service
 
-The active user service for `orangekid` is:
+The active user service for `applekid` is:
 
 ```text
-/home/orangekid/.config/systemd/user/symphony.service
+/home/applekid/.config/systemd/user/symphony.service
 ```
 
 Current shape:
@@ -109,9 +110,9 @@ Current shape:
 Description=Symphony
 
 [Service]
-WorkingDirectory=/home/orangekid/github/symphony/elixir
-EnvironmentFile=/home/orangekid/.config/symphony-dashboard.env
-ExecStart=/home/orangekid/.local/bin/mise exec -- ./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails /home/orangekid/github/symphony/elixir/WORKFLOW.md
+WorkingDirectory=/home/applekid/github/its-applekid/symphony/elixir
+EnvironmentFile=/home/applekid/.config/symphony-dashboard.env
+ExecStart=/home/applekid/.local/bin/mise exec -- ./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails /home/applekid/github/its-applekid/symphony/elixir/WORKFLOW.md
 Restart=always
 RestartSec=5
 
@@ -132,12 +133,12 @@ journalctl --user -u symphony -n 100 --no-pager
 After code changes, rebuild then restart:
 
 ```bash
-cd /home/orangekid/github/symphony/elixir
-mise exec -- mix escript.build
+cd /home/applekid/github/its-applekid/symphony/elixir
+/home/applekid/.local/bin/mise exec -- mix escript.build
 systemctl --user restart symphony
 ```
 
-At handoff time the service was intentionally stopped at the user's request.
+At handoff time the service is inactive and disabled. It was started for testing and then stopped after issue `#2` exposed stale workspace / Git bootstrap problems.
 
 ## Dashboard
 
@@ -165,7 +166,7 @@ Security model:
 
 - Tailscale reachability required.
 - Basic Auth required.
-- Basic Auth values live in `/home/orangekid/.config/symphony-dashboard.env`.
+- Basic Auth values live in `/home/applekid/.config/symphony-dashboard.env`.
 - Do not print or commit the username/password or token.
 
 If using curl for debugging, use environment variable names only and avoid showing expanded values in logs or chat.
@@ -175,7 +176,7 @@ If using curl for debugging, use environment variable names only and avoid showi
 Env file:
 
 ```text
-/home/orangekid/.config/symphony-dashboard.env
+/home/applekid/.config/symphony-dashboard.env
 ```
 
 Expected variables include:
@@ -193,7 +194,7 @@ The GitHub token must be valid for the GitHub Issues workflow below.
 Active workflow file:
 
 ```text
-/home/orangekid/github/symphony/elixir/WORKFLOW.md
+/home/applekid/github/its-applekid/symphony/elixir/WORKFLOW.md
 ```
 
 It is configured for:
@@ -214,8 +215,8 @@ The issue runner works in:
 It should:
 
 - read issues from `its-applekid/actions`
-- clone `git@github.com:its-applekid/actions.git`
-- add upstream `git@github.com:ethereum-optimism/actions.git`
+- clone `https://github.com/its-applekid/actions.git`
+- add upstream `https://github.com/ethereum-optimism/actions.git`
 - create branches named `symphony/<issue-number>`
 - push only to the fork
 - open PRs into `ethereum-optimism/actions:main`
@@ -233,15 +234,20 @@ Labels:
 Current useful issue context:
 
 - Issue `its-applekid/actions#2` was used for testing.
-- It was blocked by invalid GitHub auth.
-- The user said they will fix the GitHub auth token.
+- It was blocked first by invalid GitHub auth, then by SSH Git auth for `git@github.com`.
+- The service env `GITHUB_TOKEN` was refreshed from the working `gh` keyring without printing the token.
+- `gh auth setup-git -h github.com` was run for `applekid`.
+- `elixir/WORKFLOW.md` was changed to use HTTPS remotes for the `its-applekid/actions` fork and `ethereum-optimism/actions` upstream.
+- The HTTPS bootstrap was manually verified in `/tmp`: clone, add upstream, fetch `upstream/main`, create a `symphony/...` branch from `origin/main`, and merge `upstream/main`.
+- Issue `#2` later progressed past the Git bootstrap and `.git/FETCH_HEAD` read-only problem by using the prepared `.git-writable` metadata copy.
+- Current operator instruction: if issue `#2` is still making progress, do not restart Symphony or clear its workspace until the ticket finishes.
 
 ## GitHub Auth
 
 There are two auth paths:
 
-1. `GITHUB_TOKEN` in `/home/orangekid/.config/symphony-dashboard.env`
-2. `gh` auth state in `/home/orangekid/.config/gh/hosts.yml`
+1. `GITHUB_TOKEN` in `/home/applekid/.config/symphony-dashboard.env`
+2. `gh` auth state in `/home/applekid/.config/gh/hosts.yml`
 
 The workflow prompt expects local `gh` auth for `its-applekid`.
 
@@ -277,38 +283,56 @@ Minimum intended permissions:
 
 If the agent must create PRs against `ethereum-optimism/actions`, verify the token/account can open cross-repo PRs from `its-applekid/actions`.
 
+Current `applekid` auth status:
+
+- the user's interactive shell reports `gh auth status` logged in as `its-applekid` using keyring auth
+- `gh api repos/its-applekid/actions --jq '.full_name'` succeeds and returns `its-applekid/actions`
+- `GITHUB_TOKEN` is present in `/home/applekid/.config/symphony-dashboard.env`; Symphony's GitHub tracker requires it for polling GitHub issues
+- the service env token was refreshed from `gh auth token` and verified with `gh auth status` using the env file; do not print the token
+- `gh auth setup-git -h github.com` has been run so HTTPS Git operations can use `gh` credentials
+- sandboxed `gh auth status` without the service env may still report the old `/home/applekid/.config/gh/hosts.yml` token as invalid; prefer a real user shell or the service env for final auth checks
+- do not print or commit token values
+
 ## Workspaces And Logs
 
 Workspace root:
 
 ```text
-/home/orangekid/code/symphony-workspaces
+/home/applekid/code/symphony-workspaces
 ```
 
 Per-issue workspace:
 
 ```text
-/home/orangekid/code/symphony-workspaces/<issue-number>
+/home/applekid/code/symphony-workspaces/<issue-number>
 ```
 
 Agent log files:
 
 ```text
-/home/orangekid/code/symphony-workspaces/<issue-number>/logs/agent.md
-/home/orangekid/code/symphony-workspaces/<issue-number>/logs/agent.ndjson
+/home/applekid/code/symphony-workspaces/<issue-number>/logs/agent.md
+/home/applekid/code/symphony-workspaces/<issue-number>/logs/agent.ndjson
 ```
+
+Current issue `#2` workspace:
+
+```text
+/home/applekid/code/symphony-workspaces/2
+```
+
+If issue `#2` is still active, inspect the workpad and agent logs before taking action. Do not clear or restart the workspace while the agent is making progress.
 
 If a run is thrashing on stale state:
 
 ```bash
 systemctl --user stop symphony
-rm -rf /home/orangekid/code/symphony-workspaces/<issue-number>
+rm -rf /home/applekid/code/symphony-workspaces/<issue-number>
 systemctl --user start symphony
 ```
 
 Only remove the specific issue workspace. Do not wipe the whole workspace root unless explicitly asked.
 
-## CLI View
+## Historical CLI View
 
 There is a local alias in `/home/orangekid/.bashrc`:
 
@@ -316,50 +340,77 @@ There is a local alias in `/home/orangekid/.bashrc`:
 agents
 ```
 
-It stops the systemd service and runs Symphony in the foreground using the same env file and workflow.
+It stops the `orangekid` systemd service and runs Symphony in the foreground using that user's env file and workflow.
 
 Use this when the user wants to watch the terminal UI directly. Restart the systemd service afterward if they want it hosted again.
 
-## Second Linux User: `applekid`
+## Current Applekid Setup Details
 
-The user asked about using a second Linux account named `applekid`.
+Current `applekid` setup status:
 
-Do not share `/home/orangekid/.config/gh`, `/home/orangekid/.config/symphony-dashboard.env`, or other secrets directly. Set up that Linux user independently:
+- Working repo: `/home/applekid/github/its-applekid/symphony`
+- Branch: `handoff`
+- `ripgrep` `15.1.0` is installed at `/home/applekid/.cargo/bin/rg`
+- `mise` installed at `/home/applekid/.local/bin/mise`
+- `elixir/mise.toml` trusted for this user
+- Erlang/OTP `28` and Elixir `1.19.5-otp-28` installed via `mise`
+- `mise exec -- mix setup` completed
+- `mise exec -- mix build` completed and generated `elixir/bin/symphony`
+- `mix deps` reports all Elixir dependencies as `ok`
+- No `sudo apt` package was required for the Symphony build; optional Erlang Java/wx/OpenGL warnings can be ignored for this service
+
+Compound Engineering setup is complete for this repo:
+
+- `.compound-engineering/config.local.yaml` was created for machine-local CE settings
+- `.compound-engineering/config.local.example.yaml` was created from the CE setup template
+- `.gitignore` now ignores `.compound-engineering/*.local.yaml` instead of the whole `.compound-engineering/` directory so the example config can be committed
+- `agent-browser` `0.27.0` is installed with Chrome `148.0.7778.97`
+- `vhs` `0.11.0` is installed at `/home/applekid/go/bin/vhs` with a symlink at `/home/applekid/.local/bin/vhs`
+- `silicon` `0.5.2` is installed
+- `ast-grep` `0.42.1` is installed
+- the `ast-grep` skill is installed at `/home/applekid/.agents/skills/ast-grep`
+- the `agent-browser` skill is installed at `/home/applekid/.agents/skills/agent-browser`
+- `ce-setup` health check passes: `7/7` tools and `1/1` skill
+
+Current `applekid` service status:
+
+- `/home/applekid/.config/systemd/user/symphony.service` is installed
+- The service has been started for issue `#2` testing.
+- Current operator instruction: do not restart Symphony while issue `#2` is making progress.
+- Dashboard and workflow source changes in this branch will require rebuild/restart before they affect the running service, but defer that restart until the active ticket is finished.
+
+Current `applekid` workflow notes:
+
+- `elixir/WORKFLOW.md` is configured for the GitHub tracker and `its-applekid/actions`.
+- GitHub tracker states must use label slugs (`todo`, `in-progress`, `human-review`, `rework`, `merging`, `done`). The tracker emits `agent:in-progress` as `in-progress`; using display names like `In Progress` makes Symphony treat the issue as non-active and stop the worker.
+- The Codex turn sandbox now explicitly includes `networkAccess: true`, because GitHub CLI and Git commands need network access inside Codex command executions.
+- The workflow contains both an `after_create` bootstrap and a guarded `before_run` bootstrap. The `before_run` hook clears the issue workspace if it is not a valid Git worktree, then reclones with HTTPS.
+- SSH remotes failed under the service with `git@github.com: Permission denied (publickey)`. Keep HTTPS remotes unless SSH auth is deliberately configured for the `applekid` service environment.
+- The workflow now tells agents resuming an already-active issue to first read the `## Codex Workpad`, `logs/agent.md`, `logs/agent.ndjson` when needed, and current Git state before changing code. This is meant to preserve progress across restarts and avoid repeating completed work.
+- After editing workflow config only, restart the service. After changing Elixir source, rebuild `elixir/bin/symphony` with `/home/applekid/.local/bin/mise exec -- mix escript.build` before restarting.
+
+## Historical First User: `orangekid`
+
+The earlier local setup was under Linux account `orangekid`. Keep this only as historical context or a fallback reference.
+
+Do not share `/home/orangekid/.config/gh`, `/home/orangekid/.config/symphony-dashboard.env`, or other secrets directly. If returning to that user, validate its setup independently:
 
 ```bash
-sudo -iu applekid
-mkdir -p ~/github ~/code ~/.config
-cd ~/github
-git clone git@github.com:its-everdred/symphony.git
-cd symphony/elixir
-mise install
-pnpm install
-mise exec -- mix deps.get
+sudo -iu orangekid
+cd /home/orangekid/github/symphony/elixir
 mise exec -- mix escript.build
+systemctl --user status symphony
 ```
 
-Create that user's env:
+Known `orangekid` paths from the previous handoff:
 
-```bash
-nano ~/.config/symphony-dashboard.env
-```
+- repo: `/home/orangekid/github/symphony`
+- service: `/home/orangekid/.config/systemd/user/symphony.service`
+- env: `/home/orangekid/.config/symphony-dashboard.env`
+- workspace root: `/home/orangekid/code/symphony-workspaces`
+- sibling Claude app server: `/home/orangekid/github/symphony-claude`
 
-Set the same variable names with that user's own secrets:
-
-```bash
-SYMPHONY_BASIC_AUTH_USERNAME=...
-SYMPHONY_BASIC_AUTH_PASSWORD=...
-GITHUB_TOKEN=...
-```
-
-Authenticate GitHub for that user:
-
-```bash
-gh auth login -h github.com
-gh auth status
-```
-
-Install a user service for `applekid` using `/home/applekid/...` paths. Only one service can bind `100.81.109.51:4000` at a time. If both Linux users need concurrent instances, use a different port/hostname for one of them.
+Only one service can bind `100.81.109.51:4000` at a time. If both Linux users need concurrent instances, use a different port/hostname for one of them.
 
 ## Local Ignored Notes
 
@@ -367,28 +418,34 @@ This repo ignores:
 
 ```text
 AGENTS.local.md
+.compound-engineering/*.local.yaml
 ```
 
-On this machine that file contains local runbook notes with paths and operational reminders. It is intentionally not tracked.
+On this machine `AGENTS.local.md` contains local runbook notes with paths and operational reminders. It is intentionally not tracked. `.compound-engineering/config.local.yaml` contains machine-local Compound Engineering settings and is intentionally not tracked.
 
 ## Suggested Next Actions
 
-1. Fix GitHub token/auth for the intended account.
-2. Run `gh auth status`.
-3. Rebuild Symphony if code changed:
+1. While issue `#2` is making progress, monitor without restarting:
 
    ```bash
-   cd /home/orangekid/github/symphony/elixir
-   mise exec -- mix escript.build
+   git -C /home/applekid/code/symphony-workspaces/2 status --short --branch
+   tail -n 120 /home/applekid/code/symphony-workspaces/2/logs/agent.md
    ```
 
-4. Start service:
+   A healthy run should show a real Git checkout on a `symphony/...` branch and recent agent log events.
+
+2. After issue `#2` finishes, rebuild Symphony so dashboard and workflow source changes are picked up:
 
    ```bash
-   systemctl --user start symphony
+   cd /home/applekid/github/its-applekid/symphony/elixir
+   /home/applekid/.local/bin/mise exec -- mix escript.build
    ```
 
-5. Open `http://agents.amicooked.chat:4000`.
-6. Label a GitHub issue with `agent:todo`.
-7. Watch dashboard rows and click a running row to inspect the log modal.
-8. If the issue thrashes, inspect `/home/orangekid/code/symphony-workspaces/<issue>/logs/agent.md` and system logs.
+3. Restart the user service only after the active ticket is done:
+
+   ```bash
+   systemctl --user restart symphony
+   ```
+
+4. Open `http://agents.amicooked.chat:4000`.
+5. If an issue thrashes, inspect `/home/applekid/code/symphony-workspaces/<issue>/logs/agent.md` if it exists, inspect the `## Codex Workpad`, and inspect `journalctl --user -u symphony -n 200 --no-pager`.

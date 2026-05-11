@@ -1,2 +1,3 @@
-.compound-engineering/
+.compound-engineering/*.local.yaml
+.git-writable/
 AGENTS.local.md
