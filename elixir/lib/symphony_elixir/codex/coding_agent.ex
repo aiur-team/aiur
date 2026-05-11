@@ -225,12 +225,12 @@ defmodule SymphonyElixir.Codex.CodingAgent do
   defp port_metadata(port, worker_host \\ nil) when is_port(port) do
     metadata =
       case :erlang.port_info(port, :os_pid) do
-      {:os_pid, os_pid} ->
-        %{codex_app_server_pid: to_string(os_pid)}
+        {:os_pid, os_pid} ->
+          %{codex_app_server_pid: to_string(os_pid)}
 
-      _ ->
-        %{}
-    end
+        _ ->
+          %{}
+      end
 
     case worker_host do
       host when is_binary(host) -> Map.put(metadata, :worker_host, host)

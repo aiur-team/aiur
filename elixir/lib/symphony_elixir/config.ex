@@ -184,7 +184,10 @@ defmodule SymphonyElixir.Config do
 
   @spec server_host() :: String.t()
   def server_host do
-    settings!().server.host
+    case Application.get_env(:symphony_elixir, :server_host_override) do
+      host when is_binary(host) and host != "" -> host
+      _ -> settings!().server.host
+    end
   end
 
   @spec observability_enabled?() :: boolean()
@@ -225,6 +228,7 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp validate_semantics(settings) do
     cond do
       is_nil(settings.tracker.kind) ->
