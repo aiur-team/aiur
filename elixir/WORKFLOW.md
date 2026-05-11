@@ -2,15 +2,15 @@
 tracker:
   kind: github
   active_states:
-    - Todo
-    - In Progress
-    - Human Review
-    - Rework
-    - Merging
+    - todo
+    - in-progress
+    - human-review
+    - rework
+    - merging
   terminal_states:
-    - Done
-    - Cancelled
-    - Canceled
+    - done
+    - cancelled
+    - canceled
 github:
   repo: its-applekid/actions
   label_prefix: agent
@@ -23,12 +23,28 @@ workspace:
   root: ~/code/symphony-workspaces
 hooks:
   after_create: |
-    git clone git@github.com:its-applekid/actions.git .
-    git remote add upstream git@github.com:ethereum-optimism/actions.git
+    git clone https://github.com/its-applekid/actions.git .
+    git remote add upstream https://github.com/ethereum-optimism/actions.git
     git fetch upstream main
     issue_id="$(basename "$PWD")"
     git checkout -b "symphony/${issue_id}" origin/main
     git merge upstream/main
+    cp -a .git .git-writable
+    printf '\n.git-writable/\n' >> .git/info/exclude
+  before_run: |
+    if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      git clone https://github.com/its-applekid/actions.git .
+      git remote add upstream https://github.com/ethereum-optimism/actions.git
+      git fetch upstream main
+      issue_id="$(basename "$PWD")"
+      git checkout -b "symphony/${issue_id}" origin/main
+      git merge upstream/main
+    fi
+    if [ ! -d .git-writable ]; then
+      cp -a .git .git-writable
+      printf '\n.git-writable/\n' >> .git/info/exclude
+    fi
   before_remove: |
     git status --short
 agent:
@@ -40,6 +56,9 @@ codex:
   thread_sandbox: workspace-write
   turn_sandbox_policy:
     type: workspaceWrite
+    writableRoots:
+      - /home/applekid/code/symphony-workspaces
+    networkAccess: true
 ---
 
 You are working on GitHub issue `{{ issue.identifier }}` in `its-applekid/actions`.
@@ -71,7 +90,8 @@ Continuation context:
 
 - Retry attempt #{{ attempt }}.
 - Resume from existing workspace state.
-- Do not repeat completed investigation unless needed.
+- Before taking new action, read the existing workpad, local agent logs, and git state.
+- Do not repeat completed investigation, implementation, validation, pushes, or PR creation unless needed.
 {% endif %}
 
 ## Required Setup
@@ -80,6 +100,13 @@ Continuation context:
 - If `gh auth status` fails, stop and record the blocker in the workpad.
 - Never push to `ethereum-optimism/actions` directly.
 - Always push branches to `origin` (`its-applekid/actions`).
+- Codex may mount `.git` read-only. If mutating Git commands fail on `.git/FETCH_HEAD`, use the prepared writable metadata copy:
+
+  ```bash
+  GIT_DIR=.git-writable GIT_WORK_TREE=. git fetch upstream main
+  GIT_DIR=.git-writable GIT_WORK_TREE=. git merge upstream/main
+  GIT_DIR=.git-writable GIT_WORK_TREE=. git status --short --branch
+  ```
 
 GitHub issue state is label-based:
 
@@ -90,30 +117,48 @@ GitHub issue state is label-based:
 - `agent:merging`
 - `agent:done`
 
+## Continuation Checklist
+
+If the issue is already `in-progress`, `rework`, or `merging`, or if this workspace already contains previous work, recover context before changing code:
+
+1. Read the existing `## Codex Workpad` issue comment.
+2. Read `logs/agent.md` if present. Start with the latest entries, then search earlier entries for blockers, validation results, branch names, PR URLs, and decisions.
+3. Read `logs/agent.ndjson` if `logs/agent.md` is missing or unclear.
+4. Inspect the current repository state before syncing or editing:
+
+   ```bash
+   GIT_DIR=.git-writable GIT_WORK_TREE=. git status --short --branch
+   ```
+
+   If `.git-writable` does not exist, use `git status --short --branch`.
+
+5. Continue from the observed state. Do not repeat completed investigation, installs, validation, pushes, or PR creation unless the logs show the previous result is stale or invalid.
+
 ## Workflow
 
 1. Read the issue and current labels.
-2. If state is `Todo`, move it to `In Progress`.
-3. Find or create one persistent issue comment titled `## Codex Workpad`.
-4. Keep all progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
-5. Sync with upstream before editing:
+2. Run the continuation checklist before taking new action when the issue is already active or the workspace has previous logs/work.
+3. If state is `todo`, move it to `in-progress`.
+4. Find or create one persistent issue comment titled `## Codex Workpad`.
+5. Keep all progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
+6. Sync with upstream before editing:
 
    ```bash
    git fetch upstream main
    git merge upstream/main
    ```
 
-6. Create or reuse a branch named `symphony/<issue-number>-short-title`.
-7. Implement the smallest correct change for the issue.
-8. Run validation appropriate to the changed files. If the issue specifies tests, run those exactly.
-9. Commit with a short, concrete message.
-10. Push to the fork:
+7. Create or reuse a branch named `symphony/<issue-number>-short-title`.
+8. Implement the smallest correct change for the issue.
+9. Run validation appropriate to the changed files. If the issue specifies tests, run those exactly.
+10. Commit with a short, concrete message.
+11. Push to the fork:
 
     ```bash
     git push -u origin HEAD
     ```
 
-11. Open or update a PR:
+12. Open or update a PR:
 
     ```bash
     gh pr create \
@@ -124,9 +169,9 @@ GitHub issue state is label-based:
       --body-file /tmp/pr-body.md
     ```
 
-12. Put the PR URL in the workpad.
-13. Wait for PR checks/review when useful, but do not merge.
-14. Move the issue to `Human Review` only when:
+13. Put the PR URL in the workpad.
+14. Wait for PR checks/review when useful, but do not merge.
+15. Move the issue to `Human Review` only when:
     - code is pushed,
     - PR is open,
     - validation is recorded,

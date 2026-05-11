@@ -417,6 +417,14 @@ pre,
   align-items: flex-start;
 }
 
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .modal-title {
   margin: 0.2rem 0 0;
   font-size: 1.25rem;
@@ -443,6 +451,31 @@ pre,
   display: grid;
   gap: 0.75rem;
   align-content: start;
+}
+
+.live-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.live-button-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(16, 163, 127, 0.12);
+}
+
+.live-button[data-live="false"] {
+  color: var(--muted);
+  background: #f5f5f7;
+  border-color: var(--line-strong);
+}
+
+.live-button[data-live="false"] .live-button-dot {
+  background: #a8a8b3;
+  box-shadow: none;
 }
 
 .log-message {

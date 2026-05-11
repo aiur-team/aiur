@@ -32,10 +32,13 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   @impl true
   def handle_info(:observability_updated, socket) do
+    payload = load_payload()
+
     {:noreply,
      socket
-     |> assign(:payload, load_payload())
-     |> assign(:now, DateTime.utc_now())}
+     |> assign(:payload, payload)
+     |> assign(:now, DateTime.utc_now())
+     |> assign(:agent_log_modal, refresh_agent_log_modal(socket.assigns.agent_log_modal, payload))}
   end
 
   @impl true
@@ -270,19 +273,35 @@ defmodule SymphonyElixirWeb.DashboardLive do
       <% end %>
 
       <%= if @agent_log_modal do %>
-        <div class="modal-backdrop" phx-click="close-agent-log">
-          <section class="modal-panel" onclick="event.stopPropagation()">
+        <div class="modal-backdrop">
+          <section class="modal-panel" phx-click-away="close-agent-log">
             <div class="modal-header">
               <div>
                 <p class="eyebrow">Agent log</p>
                 <h2 class="modal-title"><%= @agent_log_modal.issue_identifier %></h2>
               </div>
-              <button type="button" class="subtle-button" phx-click="close-agent-log">Close</button>
+              <div class="modal-actions">
+                <button
+                  type="button"
+                  class="subtle-button live-button"
+                  data-agent-log-live
+                  data-live="true"
+                  aria-pressed="true"
+                >
+                  <span class="live-button-dot"></span>
+                  Live
+                </button>
+                <button type="button" class="subtle-button" phx-click="close-agent-log">Close</button>
+              </div>
             </div>
 
             <p class="modal-meta mono"><%= @agent_log_modal.path || "No local log path" %></p>
 
-            <div class="chat-log-panel">
+            <div
+              id={"agent-log-panel-#{@agent_log_modal.issue_identifier}"}
+              class="chat-log-panel"
+              phx-hook="AgentLogPanel"
+            >
               <div :for={message <- @agent_log_modal.messages} class={log_message_class(message)}>
                 <div class="log-message-header">
                   <span><%= message.title %></span>
@@ -407,6 +426,23 @@ defmodule SymphonyElixirWeb.DashboardLive do
     }
   end
 
+  defp refresh_agent_log_modal(nil, _payload), do: nil
+
+  defp refresh_agent_log_modal(%{issue_identifier: issue_identifier} = modal, payload) do
+    case find_running_entry(payload, to_string(issue_identifier)) do
+      nil -> refresh_agent_log_modal_from_path(modal)
+      entry -> agent_log_modal(entry)
+    end
+  end
+
+  defp refresh_agent_log_modal(modal, _payload), do: modal
+
+  defp refresh_agent_log_modal_from_path(%{path: path} = modal) when is_binary(path) do
+    %{modal | messages: path |> read_agent_log() |> parse_agent_log()}
+  end
+
+  defp refresh_agent_log_modal_from_path(modal), do: modal
+
   defp agent_log_path(%{workspace_path: workspace_path}) when is_binary(workspace_path) do
     Path.join(workspace_path, "logs/agent.md")
   end
@@ -463,6 +499,12 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
       {"item/agentMessage/delta", %{"delta" => delta}} ->
         log_message("assistant", "Agent", timestamp, delta)
+
+      {"item/completed", %{"item" => %{"type" => "agentMessage", "id" => item_id, "text" => text}}} ->
+        "assistant"
+        |> log_message("Agent", timestamp, text)
+        |> Map.put(:merge_key, {:assistant_delta, item_id})
+        |> Map.put(:replace_merge?, true)
 
       {"item/completed", %{"item" => %{"type" => "agentMessage", "text" => text}}} ->
         log_message("assistant", "Agent", timestamp, text)
@@ -531,7 +573,11 @@ defmodule SymphonyElixirWeb.DashboardLive do
           [message | acc]
 
         {key, %{merge_key: key} = previous} ->
-          [%{previous | body: previous.body <> message.body, timestamp: message.timestamp} | tl(acc)]
+          if Map.get(message, :replace_merge?) do
+            [message | tl(acc)]
+          else
+            [%{previous | body: previous.body <> message.body, timestamp: message.timestamp} | tl(acc)]
+          end
 
         {_key, _previous} ->
           [message | acc]
@@ -539,6 +585,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
     end)
     |> Enum.reverse()
     |> Enum.map(&Map.delete(&1, :merge_key))
+    |> Enum.map(&Map.delete(&1, :replace_merge?))
   end
 
   defp content_text(content) when is_list(content) do

@@ -28,7 +28,57 @@ defmodule SymphonyElixirWeb.Layouts do
 
             if (!window.Phoenix || !window.LiveView) return;
 
+            var Hooks = {};
+
+            Hooks.AgentLogPanel = {
+              mounted: function () {
+                this.threshold = 24;
+                this.liveButton = this.el
+                  .closest(".modal-panel")
+                  ?.querySelector("[data-agent-log-live]");
+
+                this.onScroll = this.updateLiveButton.bind(this);
+                this.onLiveClick = () => {
+                  this.scrollToBottom();
+                  this.updateLiveButton();
+                };
+
+                this.el.addEventListener("scroll", this.onScroll);
+                this.liveButton?.addEventListener("click", this.onLiveClick);
+
+                requestAnimationFrame(() => {
+                  this.scrollToBottom();
+                  this.updateLiveButton();
+                });
+              },
+              beforeUpdate: function () {
+                this.wasAtBottom = this.isAtBottom();
+              },
+              updated: function () {
+                if (this.wasAtBottom) this.scrollToBottom();
+                this.updateLiveButton();
+              },
+              destroyed: function () {
+                this.el.removeEventListener("scroll", this.onScroll);
+                this.liveButton?.removeEventListener("click", this.onLiveClick);
+              },
+              isAtBottom: function () {
+                return this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight <= this.threshold;
+              },
+              scrollToBottom: function () {
+                this.el.scrollTop = this.el.scrollHeight;
+              },
+              updateLiveButton: function () {
+                var live = this.isAtBottom();
+                if (!this.liveButton) return;
+
+                this.liveButton.dataset.live = live ? "true" : "false";
+                this.liveButton.setAttribute("aria-pressed", live ? "true" : "false");
+              }
+            };
+
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
+              hooks: Hooks,
               params: {_csrf_token: csrfToken}
             });
 
