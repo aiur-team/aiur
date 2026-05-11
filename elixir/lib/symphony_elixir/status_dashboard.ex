@@ -454,8 +454,7 @@ defmodule SymphonyElixir.StatusDashboard do
     case snapshot_data do
       {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
-        project_link_lines = format_project_link_lines()
-        project_refresh_line = format_project_refresh_line(Map.get(snapshot, :polling))
+        polling = Map.get(snapshot, :polling)
         agent_input_tokens = Map.get(agent_totals, :input_tokens, 0)
         agent_output_tokens = Map.get(agent_totals, :output_tokens, 0)
         agent_total_tokens = Map.get(agent_totals, :total_tokens, 0)
@@ -465,35 +464,27 @@ defmodule SymphonyElixir.StatusDashboard do
         running_event_width = running_event_width(terminal_columns_override)
         running_rows = format_running_rows(running, running_event_width, selected_index)
 
+        two_pane_rows =
+          format_two_pane_header(
+            agent_count,
+            max_agents,
+            tps,
+            agent_seconds_running,
+            agent_input_tokens,
+            agent_output_tokens,
+            agent_total_tokens,
+            rate_limits,
+            polling
+          )
+
         header_lines =
-          [
-            colorize("╭─ SYMPHONY STATUS", @ansi_bold),
-            colorize("│ ITS: ", @ansi_bold) <>
-              colorize(Config.tracker_kind(), @ansi_cyan) <>
-              colorize(" | ", @ansi_gray) <>
-              colorize("Agent: ", @ansi_bold) <>
-              colorize(Config.agent_kind(), @ansi_cyan),
-            colorize("│ Agents: ", @ansi_bold) <>
-              colorize("#{agent_count}", @ansi_green) <>
-              colorize("/", @ansi_gray) <>
-              colorize("#{max_agents}", @ansi_gray),
-            colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
-            colorize("│ Runtime: ", @ansi_bold) <>
-              colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
-            colorize("│ Tokens: ", @ansi_bold) <>
-              colorize("in #{format_count(agent_input_tokens)}", @ansi_yellow) <>
-              colorize(" | ", @ansi_gray) <>
-              colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
-              colorize(" | ", @ansi_gray) <>
-              colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow),
-            colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
-            project_link_lines,
-            project_refresh_line,
-            colorize("├─ Running", @ansi_bold),
-            "│",
-            running_table_header_row(running_event_width),
-            running_table_separator_row(running_event_width)
-          ] ++ running_rows
+          two_pane_rows ++
+            [
+              colorize("├─ Running", @ansi_bold),
+              "│",
+              running_table_header_row(running_event_width),
+              running_table_separator_row(running_event_width)
+            ] ++ running_rows
 
         {tail_lines, log_total_lines} =
           format_view_tail(view, header_lines, running, retrying, resolved_columns, resolved_rows)
@@ -562,11 +553,11 @@ defmodule SymphonyElixir.StatusDashboard do
       pane_title = format_pane_title(log_view, running)
 
       tail =
-        metadata_lines ++
-          [
-            colorize("├─ #{pane_title}", @ansi_bold),
-            "│"
-          ] ++
+        [
+          colorize("├─ #{pane_title}", @ansi_bold),
+          "│"
+        ] ++
+          metadata_lines ++
           pane_lines ++
           [closing_border_or_separator()] ++
           placeholder_lines ++
@@ -607,7 +598,7 @@ defmodule SymphonyElixir.StatusDashboard do
         colorize("Issue: ", @ansi_bold) <>
         colorize(title || "—", @ansi_cyan)
 
-    ["│", metadata_line, issue_line, "│"]
+    [metadata_line, issue_line, "│"]
   end
 
   defp closing_border_or_separator, do: "│"
@@ -713,6 +704,98 @@ defmodule SymphonyElixir.StatusDashboard do
     ["│ " <> colorize(padded, @ansi_gray)]
   end
 
+  @left_pane_visible_width 56
+
+  # credo:disable-for-next-line
+  defp format_two_pane_header(
+         agent_count,
+         max_agents,
+         tps,
+         agent_seconds_running,
+         agent_input_tokens,
+         agent_output_tokens,
+         agent_total_tokens,
+         rate_limits,
+         polling
+       ) do
+    left_lines = [
+      colorize("│ ITS: ", @ansi_bold) <>
+        colorize(Config.tracker_kind(), @ansi_cyan) <>
+        colorize(" | ", @ansi_gray) <>
+        colorize("Agent: ", @ansi_bold) <>
+        colorize(Config.agent_kind(), @ansi_cyan),
+      colorize("│ Agents: ", @ansi_bold) <>
+        colorize("#{agent_count}", @ansi_green) <>
+        colorize("/", @ansi_gray) <>
+        colorize("#{max_agents}", @ansi_gray),
+      colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
+      colorize("│ Runtime: ", @ansi_bold) <>
+        colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
+      colorize("│ Tokens: ", @ansi_bold) <>
+        colorize("in #{format_count(agent_input_tokens)}", @ansi_yellow) <>
+        colorize(" | ", @ansi_gray) <>
+        colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
+        colorize(" | ", @ansi_gray) <>
+        colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow)
+    ]
+
+    right_lines =
+      [colorize("Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits)] ++
+        right_project_lines() ++
+        [right_refresh_line(polling)]
+
+    rows = pair_pane_lines(left_lines, right_lines)
+    [colorize("╭─ SYMPHONY STATUS", @ansi_bold) | rows]
+  end
+
+  defp pair_pane_lines(left_lines, right_lines) do
+    count = max(length(left_lines), length(right_lines))
+
+    Enum.map(0..(count - 1), fn i ->
+      left = Enum.at(left_lines, i) || "│"
+      right = Enum.at(right_lines, i) || ""
+
+      "#{pad_visible(left, @left_pane_visible_width)} #{colorize("│", @ansi_gray)} #{right}"
+    end)
+  end
+
+  defp pad_visible(string, width) when is_binary(string) do
+    pad = max(0, width - visible_length(string))
+    string <> String.duplicate(" ", pad)
+  end
+
+  defp visible_length(string) when is_binary(string) do
+    string
+    |> String.replace(~r/\e\[[0-9;]*m/, "")
+    |> String.length()
+  end
+
+  defp right_project_lines do
+    project_line = colorize("Project: ", @ansi_bold) <> project_display_url()
+
+    case dashboard_url() do
+      url when is_binary(url) ->
+        [project_line, colorize("Dashboard: ", @ansi_bold) <> colorize(url, @ansi_cyan)]
+
+      _ ->
+        [project_line]
+    end
+  end
+
+  defp right_refresh_line(%{checking?: true}) do
+    colorize("Next refresh: ", @ansi_bold) <> colorize("checking now…", @ansi_cyan)
+  end
+
+  defp right_refresh_line(%{next_poll_in_ms: due_in_ms}) when is_integer(due_in_ms) do
+    due_in_ms = max(due_in_ms, 0)
+    seconds = div(due_in_ms + 999, 1000)
+    colorize("Next refresh: ", @ansi_bold) <> colorize("#{seconds}s", @ansi_cyan)
+  end
+
+  defp right_refresh_line(_) do
+    colorize("Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
+  end
+
   defp format_project_link_lines do
     project_part = project_display_url()
 
@@ -739,16 +822,6 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp project_label("github", repo), do: repo
   defp project_label(_tracker_kind, slug), do: slug
-
-  defp format_project_refresh_line(%{checking?: true}) do
-    colorize("│ Next refresh: ", @ansi_bold) <> colorize("checking now…", @ansi_cyan)
-  end
-
-  defp format_project_refresh_line(%{next_poll_in_ms: due_in_ms}) when is_integer(due_in_ms) do
-    due_in_ms = max(due_in_ms, 0)
-    seconds = div(due_in_ms + 999, 1000)
-    colorize("│ Next refresh: ", @ansi_bold) <> colorize("#{seconds}s", @ansi_cyan)
-  end
 
   defp format_project_refresh_line(_) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)

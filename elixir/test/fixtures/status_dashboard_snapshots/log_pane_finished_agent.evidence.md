@@ -1,25 +1,22 @@
 ```text
 ╭─ SYMPHONY STATUS
-│ ITS: linear | Agent: codex
-│ Agents: 0/10
-│ Throughput: 0 tps
-│ Runtime: 0m 0s
-│ Tokens: in 0 | out 0 | total 0
-│ Rate Limits: unavailable
-│ Project: n/a
-│ Next refresh: n/a
+│ ITS: linear | Agent: codex                             │ Rate Limits: unavailable
+│ Agents: 0/10                                           │ Project: n/a
+│ Throughput: 0 tps                                      │ Next refresh: n/a
+│ Runtime: 0m 0s                                         │ 
+│ Tokens: in 0 | out 0 | total 0                         │ 
 ├─ Running
 │
 │   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
 │   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 │  No active agents
 │
+├─ Agent log: MT-001 (finished)
 │
 │   PID: (finished) | Tokens: (finished)
 │   Issue: Fix the login flow
 │
-├─ Agent log: MT-001 (finished)
-│
+│   [22:46:39] user: Issue prompt
 │       Fix the login flow
 │       
 │       Users cannot log in

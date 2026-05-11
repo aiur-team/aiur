@@ -987,7 +987,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
+    assert rendered =~ "Project:"
     assert rendered =~ "project"
     refute rendered =~ "https://linear.app/project/project/issues"
     refute rendered =~ "Dashboard:"
@@ -1011,7 +1011,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
+    assert rendered =~ "Project:"
     assert rendered =~ "its-applekid/actions"
     refute rendered =~ "https://github.com/its-applekid/actions/issues"
   end
@@ -1040,9 +1040,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
+    assert rendered =~ "Project:"
     assert rendered =~ "project"
-    assert rendered =~ "│ Dashboard:"
+    assert rendered =~ "Dashboard:"
     assert rendered =~ "http://127.0.0.1:4000/"
   end
 
