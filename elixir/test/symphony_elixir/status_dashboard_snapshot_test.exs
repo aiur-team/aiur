@@ -105,7 +105,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
 
     rows = String.split(rendered, "\n")
 
-    assert Enum.any?(rows, &String.contains?(&1, "● MT-101"))
+    assert Enum.any?(rows, &String.contains?(&1, "  MT-101"))
     assert Enum.any?(rows, &String.contains?(&1, "▶ MT-102"))
   end
 

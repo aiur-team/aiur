@@ -1081,12 +1081,8 @@ defmodule SymphonyElixir.StatusDashboard do
   defp integer_like?(value) when is_integer(value), do: true
   defp integer_like?(_value), do: false
 
-  defp status_dot(color_code) do
-    colorize("●", color_code)
-  end
-
   defp selection_marker(color_code, true), do: colorize("▶", color_code)
-  defp selection_marker(color_code, false), do: status_dot(color_code)
+  defp selection_marker(_color_code, false), do: " "
 
   defp move_selected_index(selected_index, {:ok, %{running: running}}, direction) when running != [] do
     count = length(running)
