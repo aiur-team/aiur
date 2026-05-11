@@ -29,10 +29,16 @@ defmodule SymphonyElixir.TestSupport do
         only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
 
       setup do
-        workflow_root =
+        workflow_base =
           Path.join(
             System.tmp_dir!(),
-            "symphony-elixir-workflow-#{System.unique_integer([:positive])}"
+            "symphony-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"
+          )
+
+        workflow_root =
+          Path.join(
+            workflow_base,
+            "workflow-#{System.unique_integer([:positive])}"
           )
 
         File.mkdir_p!(workflow_root)

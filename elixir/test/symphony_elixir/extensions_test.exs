@@ -759,6 +759,27 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:error, _reason} = HttpServer.start_link(host: "bad host", port: 0)
   end
 
+  test "http server honors host override when workflow host is unavailable" do
+    previous_host_override = Application.get_env(:symphony_elixir, :server_host_override)
+
+    Application.put_env(:symphony_elixir, :server_host_override, "127.0.0.1")
+
+    on_exit(fn ->
+      case previous_host_override do
+        nil -> Application.delete_env(:symphony_elixir, :server_host_override)
+        host -> Application.put_env(:symphony_elixir, :server_host_override, host)
+      end
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      server_host: "192.0.2.123",
+      server_port: 0
+    )
+
+    start_supervised!({HttpServer, port: 0})
+    assert is_integer(wait_for_bound_port())
+  end
+
   defp start_test_endpoint(overrides) do
     endpoint_config =
       :symphony_elixir
