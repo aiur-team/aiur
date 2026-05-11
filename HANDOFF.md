@@ -10,8 +10,147 @@ Do not commit secrets. The machine-local secrets live outside this repo.
 - Previous `orangekid` repo: `/home/orangekid/github/symphony`
 - Remote fork: `git@github.com:its-everdred/symphony.git`
 - Upstream: `https://github.com/openai/symphony.git`
-- Current durable branch with this document: `handoff`
+- Current active branch for CLI interaction work: `symphony/original-cli-selection`
+- ExRatatui spike branch pushed to origin: `symphony/interactive-cli-brainstorm`
+- Older durable branch with this document: `handoff`
 - `main` has already been fast-forwarded and pushed with the dashboard/log work.
+
+## Current CLI Interaction Work
+
+The current work is moving interactive CLI behavior back onto the original terminal renderer because the ExRatatui spike rendered incorrectly in the user's Termius SSH session.
+
+User requirement:
+
+- old/stable CLI renderer stays available and is the base for `agents`
+- `agents` should become interactive without changing the dashboard-style output
+- first interaction slice: select agents with `j/k` and arrow up/down
+- later slices: right/enter opens the selected agent's logs, left/esc returns, then pause/message/split-pane controls
+
+Current branch:
+
+```text
+symphony/original-cli-selection
+```
+
+Committed on this branch:
+
+```text
+4dc6787 Add original CLI selection
+```
+
+That commit:
+
+- adds `--interactive` to the Elixir CLI
+- makes `scripts/agents` pass `--interactive` for foreground runs
+- adds `SymphonyElixir.TerminalInput`
+- starts terminal input only when `:interactive_cli` is enabled
+- keeps the existing `StatusDashboard` renderer
+- adds a selected-agent marker (`▶`) while preserving regular status dots (`●`)
+- supports `j`, `k`, up arrow, down arrow, `q`, and Ctrl-C
+- changes test workflow temp directories to `/tmp/symphony-elixir-tests-<user>/workflow-*` so tests do not collide with stale `/tmp/symphony-elixir-workflow-*` directories owned by `nobody`
+
+Validation after `4dc6787`:
+
+```bash
+cd /home/applekid/github/its-applekid/symphony/elixir
+/home/applekid/.local/bin/mise exec -- mix compile
+/home/applekid/.local/bin/mise exec -- mix lint
+/home/applekid/.local/bin/mise exec -- mix test
+/home/applekid/.local/bin/mise exec -- mix build
+```
+
+Result at that point:
+
+- `mix compile`: pass
+- `mix lint`: pass
+- `mix test`: 267 tests, 0 failures, 2 skipped
+- `mix build`: generated `elixir/bin/symphony`
+- direct TTY smoke with `--interactive --port 0` rendered with the original CLI path and did not stair-step
+
+User then tested in Termius and reported:
+
+```text
+arrows just type [[A chars that get deleted on the next instant re-render. no selection emoji changes
+```
+
+Interpretation:
+
+- rendering is okay on the original CLI path
+- keyboard input is not being captured from the controlling terminal
+- escape bytes are echoing into the terminal instead of reaching the input loop
+- selection marker not changing confirms dashboard casts are not being delivered
+
+First attempt (`stty raw -echo < /dev/tty` via `System.cmd`) failed in Termius. The disk log captured:
+
+```text
+warning: Interactive terminal input disabled: stty: 'standard input': Inappropriate ioctl for device
+```
+
+Root cause: `System.cmd` opens the child with `:use_stdio`, so the child's fd 0 is a pipe back to BEAM. The shell does run `< /dev/tty`, but in this port context stty's redirected fd was not seen as a real tty, so `enter_raw_mode` returned `:error` and `TerminalInput` returned `:ignore`. With no reader running, arrow bytes were echoed by the user's cooked terminal driver and the dashboard repainted over them.
+
+Working fix shipped:
+
+- `elixir/lib/symphony_elixir/terminal_input.ex`
+- `elixir/test/symphony_elixir/terminal_input_test.exs`
+
+The fix:
+
+- runs `stty raw -echo` and `stty sane` via `Port.open({:spawn, cmd}, [:exit_status, :nouse_stdio])` so the child inherits BEAM's real fds 0/1/2 instead of pipes — stty operates on the actual controlling terminal
+- opens `/dev/tty` with `:file.open(~c"/dev/tty", [:read, :raw, :binary])` and reads with `:file.read/2` so the reader bypasses Erlang's IO server and gets byte-by-byte input
+- stores `restore_terminal?` in state so the terminate callback only runs `stty sane` when init actually entered raw mode (keeps the test suite quiet)
+- keeps the injectable `input_fun` and `skip_raw_mode` options used by the focused test
+- keeps the test proving arrow escape sequences dispatch `{:select_agent, 1}` and `{:select_agent, -1}` casts
+
+Confirmed in a real PTY (`script -e -c`) before commit:
+
+- `Port.open({:spawn, "stty raw -echo"}, [:exit_status, :nouse_stdio])` → `{:exit_status, 0}`
+- `Port.open({:spawn, "stty sane"}, [:exit_status, :nouse_stdio])` → `{:exit_status, 0}`
+- `:file.open(~c"/dev/tty", [:read, :raw, :binary])` → `{:ok, fd}`
+
+Validation after the fix:
+
+```bash
+cd /home/applekid/github/its-applekid/symphony/elixir
+/home/applekid/.local/bin/mise exec -- mix compile
+/home/applekid/.local/bin/mise exec -- mix lint
+/home/applekid/.local/bin/mise exec -- mix test
+/home/applekid/.local/bin/mise exec -- mix build
+```
+
+Result:
+
+- `mix compile`: pass, no warnings (modulo the latin1 locale notice from the host)
+- `mix lint`: pass
+- `mix test`: 268 tests, 0 failures, 2 skipped
+- `mix build`: regenerated `elixir/bin/symphony`
+
+Next agent should:
+
+1. In a real Termius shell, run:
+
+   ```bash
+   agents
+   ```
+
+   Then confirm:
+
+   - pressing up/down does not echo `[[A`, `[[B`, `[A`, or `[B`
+   - `j/k` changes the selected row marker
+   - arrow up/down changes the selected row marker
+   - `q` exits and restores terminal echo
+   - Ctrl-C exits and restores terminal echo
+
+2. If the Termius shell is left in raw/no-echo mode, recover with:
+
+   ```bash
+   stty sane
+   ```
+
+3. If Termius confirms it works, move on to the next interaction slice from the user requirement (right/enter opens the selected agent's logs, left/esc returns, then pause/message/split-pane controls).
+
+4. If Termius still fails, check `elixir/log/symphony.log.1` for the warning text. If stty exits non-zero under `:nouse_stdio` too, the next step is to ship a small port-driver / NIF that calls `tcsetattr` on `/dev/tty` directly, instead of shelling out to `stty`.
+
+Do not merge the ExRatatui spike branch unless explicitly asked. It is preserved for reference only.
 
 Important local branch history now merged into `main`:
 

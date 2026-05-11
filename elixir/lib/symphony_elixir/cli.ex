@@ -13,7 +13,13 @@ defmodule SymphonyElixir.CLI do
                _ -> ""
              end
            )
-  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer, version: :boolean]
+  @switches [
+    {@acknowledgement_switch, :boolean},
+    logs_root: :string,
+    port: :integer,
+    version: :boolean,
+    interactive: :boolean
+  ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
@@ -49,14 +55,16 @@ defmodule SymphonyElixir.CLI do
       {opts, [], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
+             :ok <- maybe_set_server_port(opts, deps),
+             :ok <- maybe_set_interactive(opts) do
           run(Path.expand("WORKFLOW.md"), deps)
         end
 
       {opts, [workflow_path], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
+             :ok <- maybe_set_server_port(opts, deps),
+             :ok <- maybe_set_interactive(opts) do
           run(workflow_path, deps)
         end
 
@@ -86,7 +94,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--interactive] [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
   end
 
   @spec runtime_deps() :: deps()
@@ -180,6 +188,14 @@ defmodule SymphonyElixir.CLI do
 
   defp set_server_port_override(port) when is_integer(port) and port >= 0 do
     Application.put_env(:symphony_elixir, :server_port_override, port)
+    :ok
+  end
+
+  defp maybe_set_interactive(opts) do
+    if Keyword.get(opts, :interactive, false) do
+      Application.put_env(:symphony_elixir, :interactive_cli, true)
+    end
+
     :ok
   end
 

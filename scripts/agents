@@ -261,7 +261,7 @@ run_foreground() {
     args+=(--port "$port")
   fi
 
-  args+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
+  args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
 
   exec "$mise_bin" "${args[@]}"
 }
