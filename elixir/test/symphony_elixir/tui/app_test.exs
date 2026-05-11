@@ -24,6 +24,12 @@ defmodule SymphonyElixir.TUI.AppTest do
     assert {:stop, ^state} = App.handle_event(key("q"), state)
   end
 
+  test "ctrl-c stops the TUI" do
+    state = state(["MT-101"])
+
+    assert {:stop, ^state} = App.handle_event(%Key{code: "c", kind: "press", modifiers: ["ctrl"]}, state)
+  end
+
   test "ignored keys do not render" do
     state = state(["MT-101"])
 

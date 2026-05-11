@@ -29,8 +29,8 @@ defmodule SymphonyElixir.TUI.App do
   def render(%State{} = state, frame), do: StatusScreen.render(state, frame)
 
   @impl true
-  def handle_event(%Key{code: code, kind: kind}, state) when kind in [nil, "press", "repeat"] do
-    case key_action(code) do
+  def handle_event(%Key{code: code, kind: kind, modifiers: modifiers}, state) when kind in [nil, "press", "repeat"] do
+    case key_action(code, modifiers) do
       :select_next -> {:noreply, State.select_next(state)}
       :select_previous -> {:noreply, State.select_previous(state)}
       :quit -> {:stop, state}
@@ -48,10 +48,11 @@ defmodule SymphonyElixir.TUI.App do
 
   def handle_info(_message, state), do: {:noreply, state, render?: false}
 
-  defp key_action(code) when code in ["j", "down"], do: :select_next
-  defp key_action(code) when code in ["k", "up"], do: :select_previous
-  defp key_action("q"), do: :quit
-  defp key_action(_code), do: :ignore
+  defp key_action(code, _modifiers) when code in ["j", "down"], do: :select_next
+  defp key_action(code, _modifiers) when code in ["k", "up"], do: :select_previous
+  defp key_action("q", _modifiers), do: :quit
+  defp key_action("c", ["ctrl"]), do: :quit
+  defp key_action(_code, _modifiers), do: :ignore
 
   defp schedule_refresh(refresh_ms) when is_integer(refresh_ms) and refresh_ms > 0 do
     Process.send_after(self(), @refresh, refresh_ms)
