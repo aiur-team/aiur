@@ -62,8 +62,12 @@ defmodule SymphonyElixir.TerminalInput do
 
   defp read_loop(parent, dashboard, input_fun) do
     case input_fun.() do
-      :eof -> :ok
-      byte -> dispatch_byte(byte, parent, dashboard, input_fun)
+      :eof ->
+        :ok
+
+      byte ->
+        Logger.debug("TerminalInput received byte: #{inspect(byte)}")
+        dispatch_byte(byte, parent, dashboard, input_fun)
     end
   end
 

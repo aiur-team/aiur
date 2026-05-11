@@ -233,9 +233,12 @@ defmodule SymphonyElixir.StatusDashboard do
 
     case running_entry_at(snapshot_data, state.selected_index) do
       nil ->
+        Logger.debug("open_log: no running entry at selected_index=#{inspect(state.selected_index)}")
         {:noreply, state}
 
       entry ->
+        Logger.debug("open_log: opening pane for #{inspect(entry.identifier)}")
+
         state =
           state
           |> Map.put(:view, build_log_view(entry))
@@ -246,7 +249,10 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  def handle_cast(:open_log, state), do: {:noreply, state}
+  def handle_cast(:open_log, state) do
+    Logger.debug("open_log: no-op fallthrough (enabled=#{inspect(state.enabled)}, view=#{inspect(state.view)})")
+    {:noreply, state}
+  end
 
   def handle_cast(:close_log, %{enabled: true, view: {:log, _}} = state) do
     state =
@@ -518,14 +524,18 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp format_view_tail(:list, _header_lines, running, retrying, _columns, _rows) do
-    running_to_backoff_spacer = if(running == [], do: [], else: ["│"])
-    backoff_rows = format_retry_rows(retrying)
-
     tail =
-      running_to_backoff_spacer ++
-        [colorize("├─ Backoff queue", @ansi_bold), "│"] ++
-        backoff_rows ++
+      if retrying == [] do
         [closing_border()]
+      else
+        running_to_backoff_spacer = if(running == [], do: [], else: ["│"])
+        backoff_rows = format_retry_rows(retrying)
+
+        running_to_backoff_spacer ++
+          [colorize("├─ Backoff queue", @ansi_bold), "│"] ++
+          backoff_rows ++
+          [closing_border()]
+      end
 
     {tail, nil}
   end
