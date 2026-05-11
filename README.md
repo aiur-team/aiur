@@ -16,7 +16,7 @@ the work at a higher level._
 
 ## Additional Capabilities
 
-Symphony keeps orchestration provider-agnostic while letting each deployment choose the tracker,
+This fork keeps orchestration provider-agnostic while letting each deployment choose the tracker,
 implementation backend, and operational tooling that fit its environment.
 
 - **Tracker adapters:** configure tracker backends for board- or issue-based queues, including
