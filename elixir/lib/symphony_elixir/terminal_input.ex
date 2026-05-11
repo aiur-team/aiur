@@ -117,23 +117,17 @@ defmodule SymphonyElixir.TerminalInput do
   end
 
   defp enter_raw_mode(true), do: :ok
-  defp enter_raw_mode(false), do: run_stty("stty raw -echo")
+  defp enter_raw_mode(false), do: run_stty(["-icanon", "-echo", "-isig", "-ixon", "min", "1", "time", "0"])
 
   defp restore_terminal do
-    _ = run_stty("stty sane")
+    _ = run_stty(["sane"])
     :ok
   end
 
-  defp run_stty(command) do
-    port = Port.open({:spawn, command}, [:exit_status, :nouse_stdio])
-
-    receive do
-      {^port, {:exit_status, 0}} -> :ok
-      {^port, {:exit_status, status}} -> {:error, "#{command} exited with status #{status}"}
-    after
-      2_000 ->
-        Port.close(port)
-        {:error, "#{command} timed out"}
+  defp run_stty(args) do
+    case System.cmd("stty", ["-F", "/dev/tty"] ++ args, stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> {:error, "stty #{Enum.join(args, " ")} exited with status #{status}: #{String.trim(output)}"}
     end
   rescue
     error in ErlangError -> {:error, Exception.message(error)}
