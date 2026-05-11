@@ -85,6 +85,30 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Snapshot.assert_dashboard_snapshot!("super_busy", render_snapshot(snapshot_data, 1_842.7))
   end
 
+  test "selected running agent uses a navigation marker" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [
+           running_entry(%{identifier: "MT-101"}),
+           running_entry(%{identifier: "MT-102"})
+         ],
+         retrying: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    rendered =
+      snapshot_data
+      |> StatusDashboard.format_snapshot_content_for_test(0.0, @terminal_columns, 1)
+      |> Snapshot.strip_ansi()
+
+    rows = String.split(rendered, "\n")
+
+    assert Enum.any?(rows, &String.contains?(&1, "  MT-101"))
+    assert Enum.any?(rows, &String.contains?(&1, "▶ MT-102"))
+  end
+
   test "snapshot fixture: backoff queue pressure" do
     snapshot_data =
       {:ok,

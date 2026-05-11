@@ -23,14 +23,26 @@ defmodule SymphonyElixir.Application do
   def start(_type, _args) do
     :ok = SymphonyElixir.LogFile.configure()
 
-    children = [
-      {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
-      SymphonyElixir.WorkflowStore,
-      SymphonyElixir.Orchestrator,
-      SymphonyElixir.HttpServer,
-      SymphonyElixir.StatusDashboard
-    ]
+    interactive_cli? = Application.get_env(:symphony_elixir, :interactive_cli, false)
+
+    dashboard_spec =
+      if interactive_cli? do
+        {SymphonyElixir.StatusDashboard, selected_index: 0}
+      else
+        SymphonyElixir.StatusDashboard
+      end
+
+    interactive_children = if interactive_cli?, do: [SymphonyElixir.TerminalInput], else: []
+
+    children =
+      [
+        {Phoenix.PubSub, name: SymphonyElixir.PubSub},
+        {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
+        SymphonyElixir.WorkflowStore,
+        SymphonyElixir.Orchestrator,
+        SymphonyElixir.HttpServer,
+        dashboard_spec
+      ] ++ interactive_children
 
     Supervisor.start_link(
       children,
