@@ -3,6 +3,9 @@
 This branch exists to hand the local Symphony setup to the next agent/operator.
 
 Do not commit secrets. The machine-local secrets live outside this repo.
+This is an operational handoff, not a portable setup guide. Portable workflow examples live under
+`elixir/examples/workflows/`; checked-in local operational templates live under
+`elixir/local-workflows/`.
 
 ## Repository State
 
@@ -154,7 +157,7 @@ Do not merge the ExRatatui spike branch unless explicitly asked. It is preserved
 
 Important local branch history now merged into `main`:
 
-- GitHub Issues tracker config in `elixir/WORKFLOW.md`
+- GitHub Issues tracker config now preserved in `elixir/local-workflows/WORKFLOW.actions.local.md`
 - GitHub workflow documentation in `README.md`
 - per-workspace agent logs under `logs/agent.md` and `logs/agent.ndjson`
 - dashboard modal for viewing per-agent logs
@@ -200,7 +203,9 @@ pnpm run start:no-tls
 node dist/index.js start --port 3284
 ```
 
-The Symphony repo currently runs Codex in `elixir/WORKFLOW.md`. To use Claude instead, wire Symphony's agent command to the `symphony-claude` app server once the Claude adapter path is selected and tested.
+The local service currently runs Codex using `elixir/local-workflows/WORKFLOW.actions.local.md`. To
+use Claude instead, wire Symphony's agent command to the `symphony-claude` app server once the
+Claude adapter path is selected and tested.
 
 ## Local Symphony Build
 
@@ -251,7 +256,7 @@ Description=Symphony
 [Service]
 WorkingDirectory=/home/applekid/github/its-applekid/symphony/elixir
 EnvironmentFile=/home/applekid/.config/symphony-dashboard.env
-ExecStart=/home/applekid/.local/bin/mise exec -- ./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails /home/applekid/github/its-applekid/symphony/elixir/WORKFLOW.md
+ExecStart=/home/applekid/.local/bin/mise exec -- ./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails /home/applekid/github/its-applekid/symphony/elixir/local-workflows/WORKFLOW.actions.local.md
 Restart=always
 RestartSec=5
 
@@ -281,7 +286,7 @@ At handoff time the service is inactive and disabled. It was started for testing
 
 ## Dashboard
 
-Configured in `elixir/WORKFLOW.md`:
+Configured in `elixir/local-workflows/WORKFLOW.actions.local.md`:
 
 ```yaml
 server:
@@ -333,7 +338,7 @@ The GitHub token must be valid for the GitHub Issues workflow below.
 Active workflow file:
 
 ```text
-/home/applekid/github/its-applekid/symphony/elixir/WORKFLOW.md
+/home/applekid/github/its-applekid/symphony/elixir/local-workflows/WORKFLOW.actions.local.md
 ```
 
 It is configured for:
@@ -376,7 +381,8 @@ Current useful issue context:
 - It was blocked first by invalid GitHub auth, then by SSH Git auth for `git@github.com`.
 - The service env `GITHUB_TOKEN` was refreshed from the working `gh` keyring without printing the token.
 - `gh auth setup-git -h github.com` was run for `applekid`.
-- `elixir/WORKFLOW.md` was changed to use HTTPS remotes for the `its-applekid/actions` fork and `ethereum-optimism/actions` upstream.
+- `elixir/local-workflows/WORKFLOW.actions.local.md` was changed to use HTTPS remotes for the
+  `its-applekid/actions` fork and `ethereum-optimism/actions` upstream.
 - The HTTPS bootstrap was manually verified in `/tmp`: clone, add upstream, fetch `upstream/main`, create a `symphony/...` branch from `origin/main`, and merge `upstream/main`.
 - Issue `#2` later progressed past the Git bootstrap and `.git/FETCH_HEAD` read-only problem by using the prepared `.git-writable` metadata copy.
 - Current operator instruction: if issue `#2` is still making progress, do not restart Symphony or clear its workspace until the ticket finishes.
@@ -520,7 +526,8 @@ Current `applekid` service status:
 
 Current `applekid` workflow notes:
 
-- `elixir/WORKFLOW.md` is configured for the GitHub tracker and `its-applekid/actions`.
+- `elixir/local-workflows/WORKFLOW.actions.local.md` is configured for the GitHub tracker and
+  `its-applekid/actions`.
 - GitHub tracker states must use label slugs (`todo`, `in-progress`, `human-review`, `rework`, `merging`, `done`). The tracker emits `agent:in-progress` as `in-progress`; using display names like `In Progress` makes Symphony treat the issue as non-active and stop the worker.
 - The Codex turn sandbox now explicitly includes `networkAccess: true`, because GitHub CLI and Git commands need network access inside Codex command executions.
 - The workflow contains both an `after_create` bootstrap and a guarded `before_run` bootstrap. The `before_run` hook clears the issue workspace if it is not a valid Git worktree, then reclones with HTTPS.
