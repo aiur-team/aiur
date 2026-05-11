@@ -10,13 +10,16 @@
 │ Next refresh: n/a
 ├─ Running
 │
-│   ID       STAGE          PID      AGE / TURN   TOKENS     SESSION        EVENT                                  
+│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
 │   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 │  No active agents
 │
+│
+│   PID: (finished) | Tokens: (finished)
+│   Issue: Fix the login flow
+│
 ├─ Agent log: MT-001 (finished)
 │
-│   [22:46:39] user: Issue prompt
 │       Fix the login flow
 │       
 │       Users cannot log in

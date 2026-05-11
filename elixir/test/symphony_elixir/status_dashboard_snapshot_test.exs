@@ -292,6 +292,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
      %{
        issue_identifier: identifier,
        workspace_path: workspace_path,
+       title: "Fix the login flow",
        scroll: scroll,
        last_total_lines: 0
      }}
@@ -345,6 +346,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Map.merge(
       %{
         identifier: "MT-000",
+        title: "Sample issue title",
         state: "running",
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",

@@ -9,13 +9,16 @@
 \e[1m│ Next refresh: \e[0m\e[90mn/a\e[0m
 \e[1m├─ Running\e[0m
 │
-│   \e[90mID       STAGE          PID      AGE / TURN   TOKENS     SESSION        EVENT                                  \e[0m
+│   \e[90mID     STAGE          ISSUE                      AGE / TURN   EVENT                                            \e[0m
 │   \e[90m───────────────────────────────────────────────────────────────────────────────────────────────────────────────\e[0m
 │  \e[90mNo active agents\e[0m
 │
+│
+\e[90m│   \e[0m\e[1mPID: \e[0m\e[90m(finished)\e[0m\e[90m | \e[0m\e[1mTokens: \e[0m\e[90m(finished)\e[0m
+\e[90m│   \e[0m\e[1mIssue: \e[0m\e[36mFix the login flow\e[0m
+│
 \e[1m├─ Agent log: MT-001 (finished)\e[0m
 │
-│   \e[90m[22:46:39] \e[0m\e[36muser\e[0m\e[90m: \e[0m\e[1mIssue prompt\e[0m
 │       \e[90mFix the login flow\e[0m
 │       \e[90m\e[0m
 │       \e[90mUsers cannot log in\e[0m

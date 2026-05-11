@@ -10,8 +10,8 @@
 │ Next refresh: n/a
 ├─ Running
 │
-│   ID       STAGE          PID      AGE / TURN   TOKENS     SESSION        EVENT                                  
+│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
 │   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-│   MT-001   in-progress    4242     0m 0s / 1             0 thre...567890  turn started (turn-1)                  
+│   MT-001 in-progress    Sample issue title         0m 0s / 1    turn started (turn-1)                            
 ╰─
 ```

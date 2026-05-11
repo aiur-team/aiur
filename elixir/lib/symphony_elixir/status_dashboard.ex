@@ -15,15 +15,13 @@ defmodule SymphonyElixir.StatusDashboard do
   @throughput_graph_window_ms 10 * 60 * 1000
   @throughput_graph_columns 24
   @sparkline_blocks ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
-  @running_id_width 8
+  @running_id_width 6
   @running_stage_width 14
-  @running_pid_width 8
+  @running_issue_width 26
   @running_age_width 12
-  @running_tokens_width 10
-  @running_session_width 14
   @running_event_default_width 44
   @running_event_min_width 12
-  @running_row_chrome_width 10
+  @running_row_chrome_width 8
   @default_terminal_columns 115
   @default_terminal_rows 40
   @min_log_pane_lines 3
@@ -64,6 +62,7 @@ defmodule SymphonyElixir.StatusDashboard do
   @type log_view :: %{
           issue_identifier: String.t(),
           workspace_path: String.t() | nil,
+          title: String.t() | nil,
           scroll: non_neg_integer(),
           last_total_lines: non_neg_integer()
         }
@@ -544,10 +543,11 @@ defmodule SymphonyElixir.StatusDashboard do
     messages = read_log_messages(log_view)
     {log_lines, total_lines} = log_message_lines(messages, columns)
 
+    metadata_lines = format_log_metadata(log_view, running, columns)
     header_height = length(List.flatten(header_lines))
     placeholder_lines = format_input_placeholder(columns)
-    chrome_lines = 2 + length(placeholder_lines) + 1
-    # chrome: pane header + spacer + placeholder + closing border
+    chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + 1
+    # chrome: pane header + spacer + metadata + placeholder + closing border
 
     pane_budget = rows - header_height - chrome_lines
 
@@ -562,10 +562,11 @@ defmodule SymphonyElixir.StatusDashboard do
       pane_title = format_pane_title(log_view, running)
 
       tail =
-        [
-          colorize("├─ #{pane_title}", @ansi_bold),
-          "│"
-        ] ++
+        metadata_lines ++
+          [
+            colorize("├─ #{pane_title}", @ansi_bold),
+            "│"
+          ] ++
           pane_lines ++
           [closing_border_or_separator()] ++
           placeholder_lines ++
@@ -573,6 +574,40 @@ defmodule SymphonyElixir.StatusDashboard do
 
       {tail, total_lines}
     end
+  end
+
+  defp format_log_metadata(log_view, running, _columns) do
+    entry = running_entry_for_identifier(running, log_view.issue_identifier)
+    title = log_view.title || (entry && Map.get(entry, :title)) || "—"
+
+    metadata_line =
+      case entry do
+        nil ->
+          colorize("│   ", @ansi_gray) <>
+            colorize("PID: ", @ansi_bold) <>
+            colorize("(finished)", @ansi_gray) <>
+            colorize(" | ", @ansi_gray) <>
+            colorize("Tokens: ", @ansi_bold) <>
+            colorize("(finished)", @ansi_gray)
+
+        _ ->
+          tokens = Map.get(entry, :agent_total_tokens, 0)
+          pid = Map.get(entry, :codex_app_server_pid) || "n/a"
+
+          colorize("│   ", @ansi_gray) <>
+            colorize("PID: ", @ansi_bold) <>
+            colorize(to_string(pid), @ansi_yellow) <>
+            colorize(" | ", @ansi_gray) <>
+            colorize("Tokens: ", @ansi_bold) <>
+            colorize(format_count(tokens), @ansi_yellow)
+      end
+
+    issue_line =
+      colorize("│   ", @ansi_gray) <>
+        colorize("Issue: ", @ansi_bold) <>
+        colorize(title || "—", @ansi_cyan)
+
+    ["│", metadata_line, issue_line, "│"]
   end
 
   defp closing_border_or_separator, do: "│"
@@ -888,16 +923,17 @@ defmodule SymphonyElixir.StatusDashboard do
     issue = format_cell(running_entry.identifier || "unknown", @running_id_width)
     state = running_entry.state || "unknown"
     state_display = format_cell(to_string(state), @running_stage_width)
-    session = running_entry.session_id |> compact_session_id() |> format_cell(@running_session_width)
-    pid = format_cell(running_entry.codex_app_server_pid || "n/a", @running_pid_width)
-    total_tokens = running_entry.agent_total_tokens || 0
+    title = format_cell(Map.get(running_entry, :title) || "", @running_issue_width)
     runtime_seconds = running_entry.runtime_seconds || 0
     turn_count = Map.get(running_entry, :turn_count, 0)
     age = format_cell(format_runtime_and_turns(runtime_seconds, turn_count), @running_age_width)
     event = running_entry.last_codex_event || "none"
-    event_label = format_cell(summarize_message(running_entry.last_codex_message), running_event_width)
 
-    tokens = format_count(total_tokens) |> format_cell(@running_tokens_width, :right)
+    event_label =
+      running_entry.last_codex_message
+      |> summarize_message()
+      |> strip_event_trailing_id()
+      |> format_cell(running_event_width)
 
     status_color =
       case event do
@@ -916,13 +952,9 @@ defmodule SymphonyElixir.StatusDashboard do
       " ",
       colorize(state_display, status_color),
       " ",
-      colorize(pid, @ansi_yellow),
+      colorize(title, @ansi_cyan),
       " ",
       colorize(age, @ansi_magenta),
-      " ",
-      colorize(tokens, @ansi_yellow),
-      " ",
-      colorize(session, @ansi_cyan),
       " ",
       colorize(event_label, status_color)
     ]
@@ -1038,10 +1070,8 @@ defmodule SymphonyElixir.StatusDashboard do
       [
         format_cell("ID", @running_id_width),
         format_cell("STAGE", @running_stage_width),
-        format_cell("PID", @running_pid_width),
+        format_cell("ISSUE", @running_issue_width),
         format_cell("AGE / TURN", @running_age_width),
-        format_cell("TOKENS", @running_tokens_width),
-        format_cell("SESSION", @running_session_width),
         format_cell("EVENT", running_event_width)
       ]
       |> Enum.join(" ")
@@ -1053,11 +1083,9 @@ defmodule SymphonyElixir.StatusDashboard do
     separator_width =
       @running_id_width +
         @running_stage_width +
-        @running_pid_width +
+        @running_issue_width +
         @running_age_width +
-        @running_tokens_width +
-        @running_session_width +
-        running_event_width + 6
+        running_event_width + 4
 
     "│   " <> colorize(String.duplicate("─", separator_width), @ansi_gray)
   end
@@ -1074,11 +1102,15 @@ defmodule SymphonyElixir.StatusDashboard do
   defp fixed_running_width do
     @running_id_width +
       @running_stage_width +
-      @running_pid_width +
-      @running_age_width +
-      @running_tokens_width +
-      @running_session_width
+      @running_issue_width +
+      @running_age_width
   end
+
+  defp strip_event_trailing_id(text) when is_binary(text) do
+    String.replace(text, ~r/\s*\([^()]*_[^()]*\)\s*$/, "")
+  end
+
+  defp strip_event_trailing_id(other), do: to_string(other)
 
   defp terminal_columns do
     case :io.columns() do
@@ -1146,17 +1178,6 @@ defmodule SymphonyElixir.StatusDashboard do
       value
     else
       String.slice(value, 0, width - 3) <> "..."
-    end
-  end
-
-  defp compact_session_id(nil), do: "n/a"
-  defp compact_session_id(session_id) when not is_binary(session_id), do: "n/a"
-
-  defp compact_session_id(session_id) do
-    if String.length(session_id) > 10 do
-      String.slice(session_id, 0, 4) <> "..." <> String.slice(session_id, -6, 6)
-    else
-      session_id
     end
   end
 
@@ -1387,6 +1408,7 @@ defmodule SymphonyElixir.StatusDashboard do
      %{
        issue_identifier: to_string(entry.identifier),
        workspace_path: Map.get(entry, :workspace_path),
+       title: Map.get(entry, :title),
        scroll: 0,
        last_total_lines: 0
      }}
