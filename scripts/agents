@@ -8,17 +8,32 @@ mise_bin="/home/applekid/.local/bin/mise"
 
 usage() {
   cat <<'USAGE'
-Usage: agents [--bg]
+Usage: agents [--bg|stop]
 
 Without flags, stop the background service and run Symphony in the foreground.
 With --bg, restart the standard background systemd user service.
+With stop, stop the background service and any foreground Symphony process for this repo.
 USAGE
+}
+
+stop_agents() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user stop symphony >/dev/null 2>&1 || true
+  fi
+
+  pkill -f "$elixir_dir/WORKFLOW.md" 2>/dev/null || true
+  pkill -f "$elixir_dir/./WORKFLOW.md" 2>/dev/null || true
+  pkill -f "$elixir_dir.*bin/symphony" 2>/dev/null || true
 }
 
 case "${1:-}" in
   --bg)
     systemctl --user restart symphony
     systemctl --user status symphony --no-pager
+    exit 0
+    ;;
+  stop)
+    stop_agents
     exit 0
     ;;
   -h | --help)
@@ -33,9 +48,7 @@ case "${1:-}" in
     ;;
 esac
 
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl --user stop symphony >/dev/null 2>&1 || true
-fi
+stop_agents
 
 cd "$elixir_dir"
 
