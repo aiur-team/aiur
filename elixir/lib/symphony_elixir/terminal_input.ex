@@ -20,21 +20,21 @@ defmodule SymphonyElixir.TerminalInput do
     %{
       id: Keyword.get(opts, :name, __MODULE__),
       start: {__MODULE__, :start_link, [opts]},
-      restart: :transient
+      restart: :temporary
     }
   end
 
   @impl true
   def init(opts) do
     dashboard = Keyword.get(opts, :dashboard, StatusDashboard)
-    input_fun = Keyword.get(opts, :input_fun)
+    input_fun = Keyword.get(opts, :input_fun, fn -> IO.binread(:stdio, 1) end)
     skip_raw_mode? = Keyword.get(opts, :skip_raw_mode, false)
     Process.flag(:trap_exit, true)
 
     case enter_raw_mode(skip_raw_mode?) do
       :ok ->
         parent = self()
-        reader_pid = spawn_link(fn -> read_tty_loop(parent, dashboard, input_fun) end)
+        reader_pid = spawn_link(fn -> read_loop(parent, dashboard, input_fun) end)
         {:ok, %{reader_pid: reader_pid, dashboard: dashboard, restore_terminal?: not skip_raw_mode?}}
 
       {:error, reason} ->
@@ -60,24 +60,12 @@ defmodule SymphonyElixir.TerminalInput do
     {:stop, :normal, state}
   end
 
-  def handle_info(_message, state), do: {:noreply, state}
-
-  defp read_tty_loop(parent, dashboard, nil) do
-    read_loop(parent, dashboard, fn -> IO.binread(:stdio, 1) end)
-  end
-
-  defp read_tty_loop(parent, dashboard, input_fun) when is_function(input_fun, 0) do
-    read_loop(parent, dashboard, input_fun)
-  end
-
   defp read_loop(parent, dashboard, input_fun) do
     case input_fun.() do
       <<3>> ->
-        restore_terminal()
         System.stop(0)
 
       "q" ->
-        restore_terminal()
         System.stop(0)
 
       "j" ->
@@ -93,7 +81,7 @@ defmodule SymphonyElixir.TerminalInput do
         read_loop(parent, dashboard, input_fun)
 
       :eof ->
-        send(parent, {:EXIT, self(), :normal})
+        :ok
 
       _other ->
         read_loop(parent, dashboard, input_fun)
@@ -117,9 +105,9 @@ defmodule SymphonyElixir.TerminalInput do
   end
 
   defp restore_terminal do
-    with {:ok, device} <- tty_device() do
-      _ = run_stty(device, ["sane"])
-      :ok
+    case tty_device() do
+      {:ok, device} -> run_stty(device, ["sane"])
+      _ -> :ok
     end
 
     :ok

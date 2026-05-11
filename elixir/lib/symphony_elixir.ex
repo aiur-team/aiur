@@ -25,12 +25,14 @@ defmodule SymphonyElixir.Application do
 
     interactive_cli? = Application.get_env(:symphony_elixir, :interactive_cli, false)
 
-    status_dashboard =
+    dashboard_spec =
       if interactive_cli? do
         {SymphonyElixir.StatusDashboard, selected_index: 0}
       else
         SymphonyElixir.StatusDashboard
       end
+
+    interactive_children = if interactive_cli?, do: [SymphonyElixir.TerminalInput], else: []
 
     children =
       [
@@ -39,9 +41,8 @@ defmodule SymphonyElixir.Application do
         SymphonyElixir.WorkflowStore,
         SymphonyElixir.Orchestrator,
         SymphonyElixir.HttpServer,
-        status_dashboard
-      ]
-      |> maybe_add_terminal_input(interactive_cli?)
+        dashboard_spec
+      ] ++ interactive_children
 
     Supervisor.start_link(
       children,
@@ -55,10 +56,4 @@ defmodule SymphonyElixir.Application do
     SymphonyElixir.StatusDashboard.render_offline_status()
     :ok
   end
-
-  defp maybe_add_terminal_input(children, true) do
-    children ++ [SymphonyElixir.TerminalInput]
-  end
-
-  defp maybe_add_terminal_input(children, false), do: children
 end
