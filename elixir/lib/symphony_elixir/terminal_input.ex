@@ -63,14 +63,7 @@ defmodule SymphonyElixir.TerminalInput do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp read_tty_loop(parent, dashboard, nil) do
-    case File.open("/dev/tty", [:read, :binary]) do
-      {:ok, tty} ->
-        read_loop(parent, dashboard, fn -> IO.binread(tty, 1) end)
-
-      {:error, reason} ->
-        Logger.warning("Could not open /dev/tty for reading: #{inspect(reason)}")
-        send(parent, {:EXIT, self(), :normal})
-    end
+    read_loop(parent, dashboard, fn -> IO.binread(:stdio, 1) end)
   end
 
   defp read_tty_loop(parent, dashboard, input_fun) when is_function(input_fun, 0) do
