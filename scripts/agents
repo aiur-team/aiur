@@ -18,10 +18,11 @@ declare -A profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: agents [list|stop [profile|all]|--bg [profile|all]|run [profile]|profile|<workflow-path>]
+Usage: agents [list|stop [profile|all]|--bg [profile|all]|run [profile]|tui [profile]|profile|<workflow-path>]
 
 Without args, restart the other configured services and run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
+With tui, stop a profile's background service and run that profile in the interactive TUI.
 With a profile name, run that profile's workflow in the foreground.
 With --bg, restart background services only and return. Defaults to the default profile.
 With all, restart the other configured services and run the default profile in the foreground.
@@ -228,6 +229,7 @@ restart_background_except_profile() {
 
 run_foreground() {
   local profile="$1"
+  local mode="${2:-passive}"
   local elixir_dir
   local workflow
   local port
@@ -252,6 +254,10 @@ run_foreground() {
   fi
 
   args=(exec -- ./bin/symphony)
+
+  if [ "$mode" = "tui" ]; then
+    args+=(--tui)
+  fi
 
   if [ -n "$logs_root" ]; then
     args+=(--logs-root "$logs_root")
@@ -308,6 +314,9 @@ case "${1:-}" in
     ;;
   run)
     run_foreground "${2:-default}"
+    ;;
+  tui)
+    run_foreground "${2:-default}" "tui"
     ;;
   stop)
     target="${2:-all}"

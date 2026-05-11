@@ -13,7 +13,13 @@ defmodule SymphonyElixir.CLI do
                _ -> ""
              end
            )
-  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer, version: :boolean]
+  @switches [
+    {@acknowledgement_switch, :boolean},
+    logs_root: :string,
+    port: :integer,
+    tui: :boolean,
+    version: :boolean
+  ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
@@ -21,6 +27,8 @@ defmodule SymphonyElixir.CLI do
           set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
           set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
+          set_passive_status_dashboard_enabled: (boolean() -> :ok | {:error, term()}),
+          start_tui: (-> GenServer.on_start()),
           ensure_all_started: (-> ensure_started_result())
         }
 
@@ -29,6 +37,9 @@ defmodule SymphonyElixir.CLI do
     case evaluate(args) do
       :ok ->
         wait_for_shutdown()
+
+      {:tui, pid} ->
+        wait_for_process(pid)
 
       {:version, version} ->
         rev_suffix = if @git_rev != "", do: " #{@git_rev}", else: ""
@@ -40,7 +51,7 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
+  @spec evaluate([String.t()], deps()) :: :ok | {:tui, pid()} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {[version: true], _, _} ->
@@ -50,14 +61,14 @@ defmodule SymphonyElixir.CLI do
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps) do
-          run(Path.expand("WORKFLOW.md"), deps)
+          run(Path.expand("WORKFLOW.md"), opts, deps)
         end
 
       {opts, [workflow_path], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps) do
-          run(workflow_path, deps)
+          run(workflow_path, opts, deps)
         end
 
       _ ->
@@ -65,16 +76,20 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  @spec run(String.t(), deps()) :: :ok | {:error, String.t()}
-  def run(workflow_path, deps) do
+  @spec run(String.t(), deps()) :: :ok | {:tui, pid()} | {:error, String.t()}
+  def run(workflow_path, deps), do: run(workflow_path, [], deps)
+
+  @spec run(String.t(), keyword(), deps()) :: :ok | {:tui, pid()} | {:error, String.t()}
+  def run(workflow_path, opts, deps) do
     expanded_path = Path.expand(workflow_path)
 
     if deps.file_regular?.(expanded_path) do
       :ok = deps.set_workflow_file_path.(expanded_path)
+      :ok = maybe_disable_passive_dashboard(opts, deps)
 
       case deps.ensure_all_started.() do
         {:ok, _started_apps} ->
-          :ok
+          maybe_start_tui(opts, deps)
 
         {:error, reason} ->
           {:error, "Failed to start Symphony with workflow #{expanded_path}: #{inspect(reason)}"}
@@ -86,7 +101,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--tui] [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
   end
 
   @spec runtime_deps() :: deps()
@@ -96,6 +111,8 @@ defmodule SymphonyElixir.CLI do
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
+      set_passive_status_dashboard_enabled: &set_passive_status_dashboard_enabled/1,
+      start_tui: fn -> SymphonyElixir.TUI.App.start_link([]) end,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
   end
@@ -183,6 +200,30 @@ defmodule SymphonyElixir.CLI do
     :ok
   end
 
+  defp maybe_disable_passive_dashboard(opts, deps) do
+    if Keyword.get(opts, :tui, false) do
+      deps.set_passive_status_dashboard_enabled.(false)
+    else
+      :ok
+    end
+  end
+
+  defp maybe_start_tui(opts, deps) do
+    if Keyword.get(opts, :tui, false) do
+      case deps.start_tui.() do
+        {:ok, pid} when is_pid(pid) -> {:tui, pid}
+        {:error, reason} -> {:error, "Failed to start Symphony TUI: #{inspect(reason)}"}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp set_passive_status_dashboard_enabled(enabled) when is_boolean(enabled) do
+    Application.put_env(:symphony_elixir, :passive_status_dashboard_enabled, enabled)
+    :ok
+  end
+
   @spec wait_for_shutdown() :: no_return()
   defp wait_for_shutdown do
     case Process.whereis(SymphonyElixir.Supervisor) do
@@ -191,14 +232,20 @@ defmodule SymphonyElixir.CLI do
         System.halt(1)
 
       pid ->
-        ref = Process.monitor(pid)
+        wait_for_process(pid)
+    end
+  end
 
-        receive do
-          {:DOWN, ^ref, :process, ^pid, reason} ->
-            case reason do
-              :normal -> System.halt(0)
-              _ -> System.halt(1)
-            end
+  @spec wait_for_process(pid()) :: no_return()
+  defp wait_for_process(pid) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, reason} ->
+        case reason do
+          :normal -> System.halt(0)
+          :shutdown -> System.halt(0)
+          _ -> System.halt(1)
         end
     end
   end

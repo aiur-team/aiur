@@ -8,28 +8,29 @@ defmodule SymphonyElixir.CLITest do
   test "returns the guardrails acknowledgement banner when the flag is missing" do
     parent = self()
 
-    deps = %{
-      file_regular?: fn _path ->
-        send(parent, :file_checked)
-        true
-      end,
-      set_workflow_file_path: fn _path ->
-        send(parent, :workflow_set)
-        :ok
-      end,
-      set_logs_root: fn _path ->
-        send(parent, :logs_root_set)
-        :ok
-      end,
-      set_server_port_override: fn _port ->
-        send(parent, :port_set)
-        :ok
-      end,
-      ensure_all_started: fn ->
-        send(parent, :started)
-        {:ok, [:symphony_elixir]}
-      end
-    }
+    deps =
+      deps(%{
+        file_regular?: fn _path ->
+          send(parent, :file_checked)
+          true
+        end,
+        set_workflow_file_path: fn _path ->
+          send(parent, :workflow_set)
+          :ok
+        end,
+        set_logs_root: fn _path ->
+          send(parent, :logs_root_set)
+          :ok
+        end,
+        set_server_port_override: fn _port ->
+          send(parent, :port_set)
+          :ok
+        end,
+        ensure_all_started: fn ->
+          send(parent, :started)
+          {:ok, [:symphony_elixir]}
+        end
+      })
 
     assert {:error, banner} = CLI.evaluate(["WORKFLOW.md"], deps)
     assert banner =~ "This Symphony implementation is a low key engineering preview."
@@ -44,13 +45,14 @@ defmodule SymphonyElixir.CLITest do
   end
 
   test "defaults to WORKFLOW.md when workflow path is missing" do
-    deps = %{
-      file_regular?: fn path -> Path.basename(path) == "WORKFLOW.md" end,
-      set_workflow_file_path: fn _path -> :ok end,
-      set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
-    }
+    deps =
+      deps(%{
+        file_regular?: fn path -> Path.basename(path) == "WORKFLOW.md" end,
+        set_workflow_file_path: fn _path -> :ok end,
+        set_logs_root: fn _path -> :ok end,
+        set_server_port_override: fn _port -> :ok end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      })
 
     assert :ok = CLI.evaluate([@ack_flag], deps)
   end
@@ -60,19 +62,20 @@ defmodule SymphonyElixir.CLITest do
     workflow_path = "tmp/custom/WORKFLOW.md"
     expanded_path = Path.expand(workflow_path)
 
-    deps = %{
-      file_regular?: fn path ->
-        send(parent, {:workflow_checked, path})
-        path == expanded_path
-      end,
-      set_workflow_file_path: fn path ->
-        send(parent, {:workflow_set, path})
-        :ok
-      end,
-      set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
-    }
+    deps =
+      deps(%{
+        file_regular?: fn path ->
+          send(parent, {:workflow_checked, path})
+          path == expanded_path
+        end,
+        set_workflow_file_path: fn path ->
+          send(parent, {:workflow_set, path})
+          :ok
+        end,
+        set_logs_root: fn _path -> :ok end,
+        set_server_port_override: fn _port -> :ok end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      })
 
     assert :ok = CLI.evaluate([@ack_flag, workflow_path], deps)
     assert_received {:workflow_checked, ^expanded_path}
@@ -82,16 +85,17 @@ defmodule SymphonyElixir.CLITest do
   test "accepts --logs-root and passes an expanded root to runtime deps" do
     parent = self()
 
-    deps = %{
-      file_regular?: fn _path -> true end,
-      set_workflow_file_path: fn _path -> :ok end,
-      set_logs_root: fn path ->
-        send(parent, {:logs_root, path})
-        :ok
-      end,
-      set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
-    }
+    deps =
+      deps(%{
+        file_regular?: fn _path -> true end,
+        set_workflow_file_path: fn _path -> :ok end,
+        set_logs_root: fn path ->
+          send(parent, {:logs_root, path})
+          :ok
+        end,
+        set_server_port_override: fn _port -> :ok end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      })
 
     assert :ok = CLI.evaluate([@ack_flag, "--logs-root", "tmp/custom-logs", "WORKFLOW.md"], deps)
     assert_received {:logs_root, expanded_path}
@@ -99,26 +103,28 @@ defmodule SymphonyElixir.CLITest do
   end
 
   test "returns not found when workflow file does not exist" do
-    deps = %{
-      file_regular?: fn _path -> false end,
-      set_workflow_file_path: fn _path -> :ok end,
-      set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
-    }
+    deps =
+      deps(%{
+        file_regular?: fn _path -> false end,
+        set_workflow_file_path: fn _path -> :ok end,
+        set_logs_root: fn _path -> :ok end,
+        set_server_port_override: fn _port -> :ok end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      })
 
     assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
     assert message =~ "Workflow file not found:"
   end
 
   test "returns startup error when app cannot start" do
-    deps = %{
-      file_regular?: fn _path -> true end,
-      set_workflow_file_path: fn _path -> :ok end,
-      set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:error, :boom} end
-    }
+    deps =
+      deps(%{
+        file_regular?: fn _path -> true end,
+        set_workflow_file_path: fn _path -> :ok end,
+        set_logs_root: fn _path -> :ok end,
+        set_server_port_override: fn _port -> :ok end,
+        ensure_all_started: fn -> {:error, :boom} end
+      })
 
     assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
     assert message =~ "Failed to start Symphony with workflow"
@@ -126,14 +132,72 @@ defmodule SymphonyElixir.CLITest do
   end
 
   test "returns ok when workflow exists and app starts" do
-    deps = %{
-      file_regular?: fn _path -> true end,
-      set_workflow_file_path: fn _path -> :ok end,
-      set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
-    }
+    deps =
+      deps(%{
+        file_regular?: fn _path -> true end,
+        set_workflow_file_path: fn _path -> :ok end,
+        set_logs_root: fn _path -> :ok end,
+        set_server_port_override: fn _port -> :ok end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      })
 
     assert :ok = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+  end
+
+  test "starts TUI mode after disabling passive dashboard rendering" do
+    parent = self()
+
+    deps =
+      deps(%{
+        file_regular?: fn _path -> true end,
+        set_workflow_file_path: fn _path -> :ok end,
+        set_passive_status_dashboard_enabled: fn enabled ->
+          send(parent, {:passive_dashboard_enabled, enabled})
+          :ok
+        end,
+        ensure_all_started: fn ->
+          send(parent, :started)
+          {:ok, [:symphony_elixir]}
+        end,
+        start_tui: fn ->
+          send(parent, :tui_started)
+          {:ok, self()}
+        end
+      })
+
+    assert {:tui, pid} = CLI.evaluate([@ack_flag, "--tui", "WORKFLOW.md"], deps)
+    assert pid == self()
+    assert_received {:passive_dashboard_enabled, false}
+    assert_received :started
+    assert_received :tui_started
+  end
+
+  test "returns startup error when TUI cannot start" do
+    deps =
+      deps(%{
+        file_regular?: fn _path -> true end,
+        set_workflow_file_path: fn _path -> :ok end,
+        start_tui: fn -> {:error, :no_tty} end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      })
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--tui", "WORKFLOW.md"], deps)
+    assert message =~ "Failed to start Symphony TUI"
+    assert message =~ ":no_tty"
+  end
+
+  defp deps(overrides) do
+    Map.merge(
+      %{
+        file_regular?: fn _path -> true end,
+        set_workflow_file_path: fn _path -> :ok end,
+        set_logs_root: fn _path -> :ok end,
+        set_server_port_override: fn _port -> :ok end,
+        set_passive_status_dashboard_enabled: fn _enabled -> :ok end,
+        start_tui: fn -> {:ok, self()} end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      },
+      overrides
+    )
   end
 end

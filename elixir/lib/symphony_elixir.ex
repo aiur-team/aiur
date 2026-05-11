@@ -29,7 +29,7 @@ defmodule SymphonyElixir.Application do
       SymphonyElixir.WorkflowStore,
       SymphonyElixir.Orchestrator,
       SymphonyElixir.HttpServer,
-      SymphonyElixir.StatusDashboard
+      {SymphonyElixir.StatusDashboard, enabled: passive_status_dashboard_enabled?()}
     ]
 
     Supervisor.start_link(
@@ -41,7 +41,14 @@ defmodule SymphonyElixir.Application do
 
   @impl true
   def stop(_state) do
-    SymphonyElixir.StatusDashboard.render_offline_status()
+    if passive_status_dashboard_enabled?() do
+      SymphonyElixir.StatusDashboard.render_offline_status()
+    end
+
     :ok
+  end
+
+  defp passive_status_dashboard_enabled? do
+    Application.get_env(:symphony_elixir, :passive_status_dashboard_enabled, true)
   end
 end
