@@ -987,7 +987,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
+    assert rendered =~ "Project:"
     assert rendered =~ "project"
     refute rendered =~ "https://linear.app/project/project/issues"
     refute rendered =~ "Dashboard:"
@@ -1011,7 +1011,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
+    assert rendered =~ "Project:"
     assert rendered =~ "its-applekid/actions"
     refute rendered =~ "https://github.com/its-applekid/actions/issues"
   end
@@ -1040,9 +1040,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
+    assert rendered =~ "Project:"
     assert rendered =~ "project"
-    assert rendered =~ "│ Dashboard:"
+    assert rendered =~ "Dashboard:"
     assert rendered =~ "http://127.0.0.1:4000/"
   end
 
@@ -1083,7 +1083,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert checking_rendered =~ "checking now…"
   end
 
-  test "status dashboard adds a spacer line before backoff queue when no agents are active" do
+  test "status dashboard hides backoff queue section when there are no retries" do
     snapshot_data =
       {:ok,
        %{
@@ -1096,10 +1096,10 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
     plain = Regex.replace(~r/\e\[[0-9;]*m/, rendered, "")
 
-    assert plain =~ ~r/No active agents\r?\n│\s*\r?\n├─ Backoff queue/
+    refute plain =~ "Backoff queue"
   end
 
-  test "status dashboard adds a spacer line before backoff queue when agents are active" do
+  test "status dashboard shows backoff queue section when retries are present" do
     snapshot_data =
       {:ok,
        %{
@@ -1122,7 +1122,15 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              }
            }
          ],
-         retrying: [],
+         retrying: [
+           %{
+             issue_id: "retry-1",
+             identifier: "MT-RETRY",
+             attempt: 2,
+             due_in_ms: 60_000,
+             error: "transient failure"
+           }
+         ],
          agent_totals: %{
            input_tokens: 90,
            output_tokens: 12,
