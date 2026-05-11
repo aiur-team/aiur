@@ -14,35 +14,31 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 ## How it works
 
 1. Polls the configured tracker for candidate work
-2. Creates a workspace per issue
-3. Launches the configured coding-agent app server inside the workspace
-4. Sends a workflow prompt to the agent
-5. Keeps the agent working on the issue until the work is done
+2. Creates an isolated workspace for each selected work item
+3. Launches the configured implementation backend inside the workspace
+4. Sends the workflow prompt to that backend
+5. Keeps the run active until the work item reaches a terminal state
 
-During app-server sessions, Symphony also serves a client-side `linear_graphql` tool so that repo
-skills can make raw Linear GraphQL calls.
+During app-server sessions, Symphony can expose adapter-specific tools to repo workflows. For
+example, Linear-backed deployments can use the client-side `linear_graphql` tool for raw Linear
+GraphQL calls.
 
-If a claimed issue moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
-Symphony stops the active agent for that issue and cleans up matching workspaces.
+If a claimed work item moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
+Symphony stops the active run for that item and cleans up matching workspaces.
 
 ## How to use it
 
-1. Make sure your codebase is set up to work well with agents: see
-   [Harness engineering](https://openai.com/index/harness-engineering/).
-2. Configure a tracker:
-   - For Linear, get a personal token via Settings → Security & access → Personal API keys, and
-     set it as the `LINEAR_API_KEY` environment variable.
-   - For GitHub Issues, set `GITHUB_TOKEN` and configure `github.repo` in `WORKFLOW.md`.
+1. Make sure your codebase has clear setup instructions, automated validation, and workflow
+   conventions that autonomous implementation runs can follow.
+2. Configure a tracker adapter. For example:
+   - Linear reads a personal API token from `LINEAR_API_KEY` unless `linear.api_key` is set.
+   - GitHub Issues reads auth from `GITHUB_TOKEN` and requires `github.repo` in `WORKFLOW.md`.
 3. Copy this directory's `WORKFLOW.md` to your repo.
-4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
-   - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
-     operations such as comment editing or upload flows.
+4. Optionally copy repo-local workflow skills such as `commit`, `push`, `pull`, and `land`.
+   - Linear workflows can also use the `linear` skill, which expects Symphony's `linear_graphql`
+     app-server tool for raw Linear GraphQL operations such as comment editing or upload flows.
 5. Customize the copied `WORKFLOW.md` file for your project.
-   - To get your project's slug, right-click the project and copy its URL. The slug is part of the
-     URL.
-   - When creating a workflow based on this repo, note that it depends on non-standard Linear
-     issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
-     Team Settings → Workflow in Linear.
+   - Configure tracker states, labels, prompts, hooks, and backend commands for your project.
 6. Follow the instructions below to install the required runtime dependencies and start the service.
 
 ## Prerequisites
@@ -57,7 +53,7 @@ mise exec -- elixir --version
 ## Run
 
 ```bash
-git clone https://github.com/openai/symphony
+git clone https://github.com/its-everdred/symphony
 cd symphony/elixir
 mise trust
 mise install
@@ -82,10 +78,10 @@ Optional flags:
 - `--port` also starts the Phoenix observability service (default: disabled)
 
 The `WORKFLOW.md` file uses YAML front matter for configuration, plus a Markdown body used as the
-agent session prompt. The current implementation supports these backends:
+run prompt. The current implementation supports these adapters:
 
 - Trackers: `linear`, `github`, `memory`
-- Coding agents: `codex`, `claude`
+- Implementation backends: `codex`, `claude`
 
 Minimal Linear plus Codex-compatible example:
 
@@ -153,7 +149,7 @@ Notes:
 - When `codex.turn_sandbox_policy` is set explicitly, Symphony passes the map through to Codex
   unchanged. Compatibility then depends on the targeted Codex app-server version rather than local
   Symphony validation.
-- `agent.max_turns` caps how many back-to-back Codex turns Symphony will run in a single agent
+- `agent.max_turns` caps how many back-to-back backend turns Symphony will run in a single
   invocation when a turn completes normally but the issue is still in an active state. Default: `20`.
 - If the Markdown body is blank, Symphony uses a default prompt template that includes the issue
   identifier, title, and body.
@@ -163,8 +159,9 @@ Notes:
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.kind` selects the tracker adapter. Linear reads `linear.api_key` from `LINEAR_API_KEY`
   when unset or when value is `$LINEAR_API_KEY`. GitHub reads auth from `GITHUB_TOKEN`.
-- `agent.kind` selects the app-server backend. Use `codex` for the upstream-compatible backend and
-  `claude` for a Claude Code app-server command such as `symphony-claude`.
+- `agent.kind` selects the app-server backend. Supported examples include `codex` for a
+  Codex-compatible backend and `claude` for a Claude Code app-server command such as
+  `symphony-claude`.
 - For path values, `~` is expanded to the home directory.
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,
   while `codex.command` stays a shell command string and any `$VAR` expansion there happens in the
@@ -202,7 +199,7 @@ The observability UI now runs on a minimal Phoenix stack:
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
 - `WORKFLOW.md`: in-repo workflow contract used by local runs
-- `../.codex/`: repository-local Codex skills and setup helpers
+- `../.codex/`: repository-local workflow skills and setup helpers
 
 ## Testing
 
@@ -237,8 +234,9 @@ the transport representative without depending on long-lived external machines.
 Set `SYMPHONY_LIVE_SSH_WORKER_HOSTS` if you want `make e2e` to target real SSH hosts instead.
 
 The live test creates a temporary Linear project and issue, writes a temporary `WORKFLOW.md`, runs
-a real agent turn, verifies the workspace side effect, requires Codex to comment on and close the
-Linear issue, then marks the project completed so the run remains visible in Linear.
+a real implementation turn, verifies the workspace side effect, requires the Codex backend to
+comment on and close the Linear issue, then marks the project completed so the run remains visible
+in Linear.
 
 ## FAQ
 
@@ -246,12 +244,12 @@ Linear issue, then marks the project completed so the run remains visible in Lin
 
 Elixir is built on Erlang/BEAM/OTP, which is great for supervising long-running processes. It has an
 active ecosystem of tools and libraries. It also supports hot code reloading without stopping
-actively running subagents, which is very useful during development.
+active implementation runs, which is very useful during development.
 
 ### What's the easiest way to set this up for my own codebase?
 
-Launch `codex` in your repo, give it the URL to the Symphony repo, and ask it to set things up for
-you.
+Launch your configured implementation agent in your repo, give it the path or URL to the Symphony
+repo, and ask it to set things up for you.
 
 ## License
 
