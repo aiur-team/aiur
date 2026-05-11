@@ -25,6 +25,7 @@ defmodule SymphonyElixir.StatusDashboard do
   @running_event_min_width 12
   @running_row_chrome_width 10
   @default_terminal_columns 115
+  @default_terminal_rows 40
 
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
@@ -311,8 +312,8 @@ defmodule SymphonyElixir.StatusDashboard do
         format_snapshot_content(
           snapshot_data,
           tps,
-          nil,
-          state.selected_index
+          selected_index: state.selected_index,
+          view: state.view
         )
 
       state
@@ -434,7 +435,13 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp format_snapshot_content(snapshot_data, tps, terminal_columns_override, selected_index) do
+  defp format_snapshot_content(snapshot_data, tps, opts) do
+    terminal_columns_override = Keyword.get(opts, :terminal_columns)
+    selected_index = Keyword.get(opts, :selected_index)
+    view = Keyword.get(opts, :view, :list)
+    _resolved_rows = Keyword.get(opts, :terminal_rows) || terminal_rows()
+    _view = view
+
     case snapshot_data do
       {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
@@ -647,8 +654,14 @@ defmodule SymphonyElixir.StatusDashboard do
 
   @doc false
   @spec format_snapshot_content_for_test(term(), number(), integer() | nil, non_neg_integer() | nil) :: String.t()
-  def format_snapshot_content_for_test(snapshot_data, tps, terminal_columns \\ nil, selected_index \\ nil),
-    do: format_snapshot_content(snapshot_data, tps, terminal_columns, selected_index)
+  def format_snapshot_content_for_test(snapshot_data, tps, terminal_columns \\ nil, selected_index \\ nil, opts \\ []) do
+    base = [
+      terminal_columns: terminal_columns,
+      selected_index: selected_index
+    ]
+
+    format_snapshot_content(snapshot_data, tps, Keyword.merge(base, opts))
+  end
 
   @doc false
   @spec dashboard_url_for_test(String.t(), non_neg_integer() | nil, non_neg_integer() | nil) ::
@@ -914,6 +927,29 @@ defmodule SymphonyElixir.StatusDashboard do
         case Integer.parse(String.trim(value)) do
           {columns, ""} when columns > 0 -> columns
           _ -> @default_terminal_columns
+        end
+    end
+  end
+
+  defp terminal_rows do
+    case :io.rows() do
+      {:ok, rows} when is_integer(rows) and rows > 0 ->
+        rows
+
+      _ ->
+        terminal_rows_from_env()
+    end
+  end
+
+  defp terminal_rows_from_env do
+    case System.get_env("ROWS") do
+      nil ->
+        @default_terminal_rows
+
+      value ->
+        case Integer.parse(String.trim(value)) do
+          {rows, ""} when rows > 0 -> rows
+          _ -> @default_terminal_rows
         end
     end
   end
