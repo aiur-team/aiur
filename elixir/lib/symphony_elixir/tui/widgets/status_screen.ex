@@ -2,6 +2,7 @@ defmodule SymphonyElixir.TUI.Widgets.StatusScreen do
   @moduledoc false
 
   alias ExRatatui.Layout.Rect
+  alias ExRatatui.Text.{Line, Span}
   alias ExRatatui.Widgets.Paragraph
   alias SymphonyElixir.{Config, HttpServer, StatusDashboard, Tracker}
   alias SymphonyElixir.TUI.State
@@ -10,13 +11,26 @@ defmodule SymphonyElixir.TUI.Widgets.StatusScreen do
 
   @spec render(State.t(), ExRatatui.Frame.t()) :: [{Paragraph.t(), Rect.t()}]
   def render(%State{} = state, frame) do
-    widget = %Paragraph{text: render_text(state), wrap: false}
+    widget = %Paragraph{text: render_lines(state), wrap: false}
     rect = %Rect{x: 0, y: 0, width: frame.width, height: frame.height}
     [{widget, rect}]
   end
 
+  @spec render_lines(State.t()) :: [Line.t()]
+  def render_lines(%State{} = state) do
+    state
+    |> render_rows()
+    |> Enum.map(&Line.new([Span.new(&1)]))
+  end
+
   @spec render_text(State.t()) :: String.t()
-  def render_text(%State{snapshot: {:ok, snapshot}} = state) do
+  def render_text(%State{} = state) do
+    state
+    |> render_rows()
+    |> Enum.join("\n")
+  end
+
+  defp render_rows(%State{snapshot: {:ok, snapshot}} = state) do
     running = Map.get(snapshot, :running, [])
     retrying = Map.get(snapshot, :retrying, [])
     agent_totals = Map.get(snapshot, :agent_totals, %{})
@@ -45,10 +59,9 @@ defmodule SymphonyElixir.TUI.Widgets.StatusScreen do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
   end
 
-  def render_text(%State{}) do
+  defp render_rows(%State{}) do
     [
       "╭─ SYMPHONY STATUS",
       "│ Orchestrator snapshot unavailable",
@@ -59,7 +72,6 @@ defmodule SymphonyElixir.TUI.Widgets.StatusScreen do
       "╰─"
     ]
     |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
   end
 
   defp running_rows([], _selected_index), do: ["│  No active agents", "│"]

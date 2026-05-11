@@ -42,7 +42,16 @@ defmodule SymphonyElixir.TUI.StatusScreenTest do
     [{%ExRatatui.Widgets.Paragraph{text: text}, %ExRatatui.Layout.Rect{} = rect}] =
       StatusScreen.render(state(snapshot(["MT-101"]), 0), frame)
 
-    assert text =~ "SYMPHONY STATUS"
+    assert Enum.any?(text, fn line ->
+             [%ExRatatui.Text.Span{content: content}] = line.spans
+             content =~ "SYMPHONY STATUS"
+           end)
+
+    refute Enum.any?(text, fn line ->
+             [%ExRatatui.Text.Span{content: content}] = line.spans
+             String.contains?(content, "\n")
+           end)
+
     assert rect.width == 100
     assert rect.height == 30
   end
