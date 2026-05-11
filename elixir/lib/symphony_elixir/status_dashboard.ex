@@ -411,15 +411,15 @@ defmodule SymphonyElixir.StatusDashboard do
   defp project_display_url do
     case Tracker.project_identity() do
       identity when is_binary(identity) and identity != "" ->
-        colorize(project_url(Config.tracker_kind(), identity), @ansi_cyan)
+        colorize(project_label(Config.tracker_kind(), identity), @ansi_cyan)
 
       _ ->
         colorize("n/a", @ansi_gray)
     end
   end
 
-  defp project_url("github", repo), do: "https://github.com/#{repo}/issues"
-  defp project_url(_, slug), do: "https://linear.app/project/#{slug}/issues"
+  defp project_label("github", repo), do: repo
+  defp project_label(_tracker_kind, slug), do: slug
 
   defp format_project_refresh_line(%{checking?: true}) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("checking now…", @ansi_cyan)
