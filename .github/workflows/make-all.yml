@@ -29,7 +29,6 @@ jobs:
         with:
           path: |
             elixir/deps
-            elixir/_build
           key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-mix-
