@@ -62,39 +62,73 @@ defmodule SymphonyElixir.TerminalInput do
 
   defp read_loop(parent, dashboard, input_fun) do
     case input_fun.() do
-      <<3>> ->
-        System.stop(0)
+      :eof -> :ok
+      byte -> dispatch_byte(byte, parent, dashboard, input_fun)
+    end
+  end
 
-      "q" ->
-        System.stop(0)
+  defp dispatch_byte("\e", parent, dashboard, input_fun) do
+    case input_fun.() do
+      :eof ->
+        StatusDashboard.close_log(dashboard)
+        :ok
 
-      "j" ->
-        StatusDashboard.select_next(dashboard)
+      "[" ->
+        read_csi(dashboard, input_fun, "")
         read_loop(parent, dashboard, input_fun)
 
-      "k" ->
-        StatusDashboard.select_previous(dashboard)
-        read_loop(parent, dashboard, input_fun)
+      other ->
+        # Bare ESC: close the log pane and process whatever followed as a normal key.
+        StatusDashboard.close_log(dashboard)
+        dispatch_byte(other, parent, dashboard, input_fun)
+    end
+  end
 
-      "\e" ->
-        read_escape_sequence(dashboard, input_fun)
-        read_loop(parent, dashboard, input_fun)
+  defp dispatch_byte(<<3>>, _parent, _dashboard, _input_fun), do: System.stop(0)
+  defp dispatch_byte("q", _parent, _dashboard, _input_fun), do: System.stop(0)
 
+  defp dispatch_byte(byte, parent, dashboard, input_fun) when byte in [" ", "\r", "\n"] do
+    StatusDashboard.open_log(dashboard)
+    read_loop(parent, dashboard, input_fun)
+  end
+
+  defp dispatch_byte("j", parent, dashboard, input_fun) do
+    StatusDashboard.select_next(dashboard)
+    read_loop(parent, dashboard, input_fun)
+  end
+
+  defp dispatch_byte("k", parent, dashboard, input_fun) do
+    StatusDashboard.select_previous(dashboard)
+    read_loop(parent, dashboard, input_fun)
+  end
+
+  defp dispatch_byte(_other, parent, dashboard, input_fun) do
+    read_loop(parent, dashboard, input_fun)
+  end
+
+  defp read_csi(dashboard, input_fun, params) do
+    case input_fun.() do
       :eof ->
         :ok
 
-      _other ->
-        read_loop(parent, dashboard, input_fun)
+      byte ->
+        if csi_final?(byte) do
+          dispatch_csi(dashboard, params, byte)
+        else
+          read_csi(dashboard, input_fun, params <> byte)
+        end
     end
   end
 
-  defp read_escape_sequence(dashboard, input_fun) do
-    case {input_fun.(), input_fun.()} do
-      {"[", "A"} -> StatusDashboard.select_previous(dashboard)
-      {"[", "B"} -> StatusDashboard.select_next(dashboard)
-      _ -> :ok
-    end
-  end
+  defp csi_final?(<<c>>) when c in ?A..?Z or c in ?a..?z or c == ?~, do: true
+  defp csi_final?(_), do: false
+
+  defp dispatch_csi(dashboard, "", "A"), do: StatusDashboard.select_previous(dashboard)
+  defp dispatch_csi(dashboard, "", "B"), do: StatusDashboard.select_next(dashboard)
+  defp dispatch_csi(dashboard, "", "D"), do: StatusDashboard.close_log(dashboard)
+  defp dispatch_csi(dashboard, "5", "~"), do: StatusDashboard.scroll_log_up(dashboard)
+  defp dispatch_csi(dashboard, "6", "~"), do: StatusDashboard.scroll_log_down(dashboard)
+  defp dispatch_csi(_dashboard, _params, _final), do: :ok
 
   defp enter_raw_mode(true), do: :ok
 
