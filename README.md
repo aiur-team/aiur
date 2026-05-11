@@ -10,8 +10,24 @@ _In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Line
 > [!WARNING]
 > Symphony is a low-key engineering preview for testing in trusted environments.
 
-This fork also supports Claude Code as a coding-agent backend and GitHub Issues as a tracker
-backend, while retaining the upstream Linear and Codex-compatible workflow.
+## Fork additions
+
+This fork keeps the upstream Linear and Codex-compatible workflow, and adds the pieces needed to
+run Symphony against GitHub Issues with either Codex or Claude Code.
+
+- **Claude Code backend:** configure `agent.kind: claude` and a `claude.command` such as
+  `symphony-claude` to run Claude Code through Symphony's app-server protocol.
+- **GitHub Issues tracker:** configure `tracker.kind: github`, `github.repo`, and a label prefix to
+  let Symphony claim issues, move them through label-based states, push branches, and open PRs.
+- **Live agent logs:** each workspace writes `logs/agent.md` and `logs/agent.ndjson`; the dashboard
+  can open those logs in a live-updating modal while a run is active.
+- **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
+  configured host/port for private operational access.
+- **Fork workflow helpers:** repo-local `commit`, `pull`, `push`, `land`, and `linear` skills keep
+  issue work, PR creation, and landing behavior consistent across runs.
+
+See [elixir/README.md](elixir/README.md#configuration) for the supported `WORKFLOW.md` options and
+examples for Linear/Codex and GitHub Issues/Claude setups.
 
 ## Running Symphony
 
