@@ -20,11 +20,11 @@ usage() {
   cat <<'USAGE'
 Usage: agents [list|stop [profile|all]|--bg [profile|all]|run [profile]|profile|<workflow-path>]
 
-Without args, restart every configured profile's systemd user service.
+Without args, restart the other configured services and run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
 With a profile name, run that profile's workflow in the foreground.
-With --bg, restart a profile's systemd user service. Defaults to the default profile.
-With all, restart every configured profile's systemd user service.
+With --bg, restart background services only and return. Defaults to the default profile.
+With all, restart the other configured services and run the default profile in the foreground.
 With stop, stop a profile, every profile, or ad hoc foreground Symphony processes.
 
 Profiles are loaded from ~/.config/symphony/agents.profiles when present.
@@ -209,6 +209,23 @@ restart_all_background() {
   done
 }
 
+restart_background_except_profile() {
+  local foreground_profile="$1"
+  local foreground_service="${profile_services[$foreground_profile]}"
+  local seen_services=" "
+  local service
+
+  for profile in "${profile_names[@]}"; do
+    service="${profile_services[$profile]}"
+
+    if [ -n "$service" ] && [ "$service" != "$foreground_service" ] && [[ "$seen_services" != *" $service "* ]]; then
+      seen_services="${seen_services}${service} "
+      "$systemctl_bin" --user restart "$service"
+      "$systemctl_bin" --user status "$service" --no-pager
+    fi
+  done
+}
+
 run_foreground() {
   local profile="$1"
   local elixir_dir
@@ -256,6 +273,14 @@ run_ad_hoc_workflow() {
   run_foreground "__adhoc__"
 }
 
+run_all_with_foreground() {
+  local foreground_profile="${1:-default}"
+
+  require_profile "$foreground_profile"
+  restart_background_except_profile "$foreground_profile"
+  run_foreground "$foreground_profile"
+}
+
 load_profiles
 
 case "${1:-}" in
@@ -279,8 +304,7 @@ case "${1:-}" in
     exit 0
     ;;
   all)
-    restart_all_background
-    exit 0
+    run_all_with_foreground
     ;;
   run)
     run_foreground "${2:-default}"
@@ -297,8 +321,7 @@ case "${1:-}" in
     exit 0
     ;;
   "")
-    restart_all_background
-    exit 0
+    run_all_with_foreground
     ;;
   default)
     run_foreground "default"

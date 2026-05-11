@@ -46,7 +46,7 @@ defmodule ScriptsAgentsTest do
     assert count_occurrences(output, "restart symphony-actions") == 1
   end
 
-  test "defaults to restarting every configured background profile" do
+  test "defaults to restarting other profiles and running default foreground" do
     ctx = test_context()
 
     write_profiles!(ctx, """
@@ -54,8 +54,23 @@ defmodule ScriptsAgentsTest do
     """)
 
     assert {output, 0} = run_agents(ctx, [])
-    assert output =~ "SYSTEMCTL:--user restart symphony\n"
     assert output =~ "SYSTEMCTL:--user restart symphony-actions\n"
+    refute output =~ "SYSTEMCTL:--user restart symphony\n"
+    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.md"
+  end
+
+  test "all restarts other profiles and runs default foreground" do
+    ctx = test_context()
+
+    write_profiles!(ctx, """
+    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|symphony-actions
+    """)
+
+    assert {output, 0} = run_agents(ctx, ["all"])
+    assert output =~ "SYSTEMCTL:--user restart symphony-actions\n"
+    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.md"
   end
 
   test "run starts the default profile in the foreground" do
