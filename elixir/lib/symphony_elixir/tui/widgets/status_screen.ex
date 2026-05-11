@@ -69,7 +69,7 @@ defmodule SymphonyElixir.TUI.Widgets.StatusScreen do
     |> Enum.with_index()
     |> Enum.map(fn {entry, index} ->
       selected? = index == selected_index
-      marker = if selected?, do: "▶", else: " "
+      marker = if selected?, do: "●", else: " "
 
       "│ #{marker} " <>
         pad(truncate(to_string(Map.get(entry, :identifier, "n/a")), 8), 8) <>

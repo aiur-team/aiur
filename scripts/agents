@@ -8,6 +8,7 @@ env_file="${AGENTS_ENV_FILE:-$HOME/.config/symphony-dashboard.env}"
 mise_bin="${AGENTS_MISE_BIN:-$HOME/.local/bin/mise}"
 systemctl_bin="${AGENTS_SYSTEMCTL_BIN:-systemctl}"
 pkill_bin="${AGENTS_PKILL_BIN:-pkill}"
+default_foreground_mode="${AGENTS_FOREGROUND_MODE:-tui}"
 
 declare -a profile_names=()
 declare -A profile_symphony_roots=()
@@ -20,12 +21,12 @@ usage() {
   cat <<'USAGE'
 Usage: agents [list|stop [profile|all]|--bg [profile|all]|run [profile]|tui [profile]|profile|<workflow-path>]
 
-Without args, restart the other configured services and run the default profile in the foreground.
-With run, stop a profile's background service and run that profile in the foreground.
+Without args, restart the other configured services and run the default profile in the interactive TUI.
+With run, stop a profile's background service and run that profile in the passive foreground CLI.
 With tui, stop a profile's background service and run that profile in the interactive TUI.
-With a profile name, run that profile's workflow in the foreground.
+With a profile name, run that profile's workflow in the interactive TUI.
 With --bg, restart background services only and return. Defaults to the default profile.
-With all, restart the other configured services and run the default profile in the foreground.
+With all, restart the other configured services and run the default profile in the interactive TUI.
 With stop, stop a profile, every profile, or ad hoc foreground Symphony processes.
 
 Profiles are loaded from ~/.config/symphony/agents.profiles when present.
@@ -276,15 +277,16 @@ run_ad_hoc_workflow() {
   local workflow="$1"
 
   add_profile "__adhoc__" "$repo_root" "$workflow" "" "" ""
-  run_foreground "__adhoc__"
+  run_foreground "__adhoc__" "$default_foreground_mode"
 }
 
 run_all_with_foreground() {
   local foreground_profile="${1:-default}"
+  local mode="${2:-$default_foreground_mode}"
 
   require_profile "$foreground_profile"
   restart_background_except_profile "$foreground_profile"
-  run_foreground "$foreground_profile"
+  run_foreground "$foreground_profile" "$mode"
 }
 
 load_profiles
@@ -310,7 +312,7 @@ case "${1:-}" in
     exit 0
     ;;
   all)
-    run_all_with_foreground
+    run_all_with_foreground "default" "$default_foreground_mode"
     ;;
   run)
     run_foreground "${2:-default}"
@@ -330,15 +332,15 @@ case "${1:-}" in
     exit 0
     ;;
   "")
-    run_all_with_foreground
+    run_all_with_foreground "default" "$default_foreground_mode"
     ;;
   default)
-    run_foreground "default"
+    run_foreground "default" "$default_foreground_mode"
     ;;
   *.md | /*)
     run_ad_hoc_workflow "$1"
     ;;
   *)
-    run_foreground "$1"
+    run_foreground "$1" "$default_foreground_mode"
     ;;
 esac

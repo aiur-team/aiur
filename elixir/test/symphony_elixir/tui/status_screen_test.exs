@@ -20,7 +20,7 @@ defmodule SymphonyElixir.TUI.StatusScreenTest do
     rendered = StatusScreen.render_text(state(snapshot(["MT-101", "MT-102"]), 1))
 
     assert rendered =~ "│   MT-101"
-    assert rendered =~ "│ ▶ MT-102"
+    assert rendered =~ "│ ● MT-102"
   end
 
   test "renders empty running and retry states" do
