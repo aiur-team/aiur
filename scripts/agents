@@ -18,9 +18,10 @@ declare -A profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: agents [list|stop [profile|all]|--bg [profile|all]|all|profile|<workflow-path>]
+Usage: agents [list|stop [profile|all]|--bg [profile|all]|run [profile]|profile|<workflow-path>]
 
-Without args, stop the default background service and run the default workflow in the foreground.
+Without args, restart every configured profile's systemd user service.
+With run, stop a profile's background service and run that profile in the foreground.
 With a profile name, run that profile's workflow in the foreground.
 With --bg, restart a profile's systemd user service. Defaults to the default profile.
 With all, restart every configured profile's systemd user service.
@@ -281,6 +282,9 @@ case "${1:-}" in
     restart_all_background
     exit 0
     ;;
+  run)
+    run_foreground "${2:-default}"
+    ;;
   stop)
     target="${2:-all}"
 
@@ -293,6 +297,10 @@ case "${1:-}" in
     exit 0
     ;;
   "")
+    restart_all_background
+    exit 0
+    ;;
+  default)
     run_foreground "default"
     ;;
   *.md | /*)
