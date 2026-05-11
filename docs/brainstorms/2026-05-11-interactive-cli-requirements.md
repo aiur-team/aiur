@@ -4,6 +4,8 @@
 
 Symphony's current foreground CLI is a status dashboard that renders one complete ANSI frame at a time from orchestrator snapshots. It works well as a passive monitor, but it cannot currently keep selection state, react to keypresses, or show a focused log view for one agent.
 
+The new interactive CLI should be additive. The web dashboard and current CLI implementation should remain available throughout the transition. The TUI should live in a separate folder/module boundary so it can mature without destabilizing the existing status dashboard.
+
 The next product slice is current-project only. Multi-profile navigation is explicitly deferred.
 
 ## User Goals
@@ -19,6 +21,7 @@ The next product slice is current-project only. Multi-profile navigation is expl
 
 - Do not build multi-project/profile switching in the first slice.
 - Do not replace the web UI.
+- Do not remove or rewrite the current passive CLI implementation.
 - Do not require a new daemon just to use keyboard navigation.
 - Do not make the terminal UI depend on provider-specific concepts like Codex, Claude, GitHub, or Linear.
 
@@ -60,13 +63,14 @@ Use a full TUI foundation now, with ExRatatui as the preferred library.
 
 The first interactive slice is simple, but the expected direction includes selecting agents, live log panes, pausing agents, messaging agents, split panes, richer controls, and possibly remote terminal access. Those features need a real event loop, focus model, layout engine, scrollable regions, and testable terminal rendering. Building those primitives ourselves would create a private TUI framework inside Symphony.
 
-The implementation should still preserve the current status dashboard behavior as a fallback/passive mode, but the foreground `agents` experience should move toward a supervised ExRatatui app:
+The implementation should preserve the current status dashboard behavior and add the new foreground TUI alongside it:
 
 1. Add ExRatatui and prove it works in the repo with a small current-project dashboard shell.
-2. Extract the existing dashboard data formatting into provider-agnostic presenter functions that both the web UI and TUI can consume.
+2. Create a separate TUI module/folder boundary rather than modifying the existing renderer in place.
 3. Build the first TUI screen with an agents list, selected row state, and overview metrics.
 4. Add a focused log view for one agent using shared log loading/parsing logic.
-5. Keep the first slice current-project only; defer profile/project switching to the existing ticket.
+5. Extract shared provider-agnostic presenter/log functions only where duplication becomes real.
+6. Keep the first slice current-project only; defer profile/project switching to the existing ticket.
 
 This makes the first PR larger than a native key reader, but it avoids throwing away the first implementation as soon as the CLI needs split panes and richer interactions.
 
@@ -85,7 +89,8 @@ Profile switching is tracked separately:
 - Right arrow or enter opens a single-agent log view.
 - Left arrow or escape returns to the overview.
 - Empty-agent state remains clean and does not crash on navigation keys.
-- Passive rendering still works in non-interactive or disabled-dashboard contexts.
+- The existing passive CLI rendering still works and keeps its current tests.
+- The web dashboard remains unchanged except for any narrowly shared presenter/log helpers.
 
 ## Sources
 
