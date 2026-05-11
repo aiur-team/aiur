@@ -254,10 +254,10 @@ run_foreground() {
     set +a
   fi
 
-  args=(exec -- ./bin/symphony)
-
   if [ "$mode" = "tui" ]; then
-    args+=(--tui)
+    args=(exec -- mix run -e 'SymphonyElixir.CLI.main(System.argv())' -- --tui)
+  else
+    args=(exec -- ./bin/symphony)
   fi
 
   if [ -n "$logs_root" ]; then
