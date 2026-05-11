@@ -40,6 +40,7 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.EventHumanizerHelpers,
           SymphonyElixir.HttpServer,
           SymphonyElixir.StatusDashboard,
+          SymphonyElixir.TerminalInput,
           SymphonyElixir.LogFile,
           SymphonyElixir.Workspace,
           SymphonyElixirWeb.DashboardLive,

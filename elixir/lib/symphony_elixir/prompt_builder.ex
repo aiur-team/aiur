@@ -60,12 +60,7 @@ defmodule SymphonyElixir.PromptBuilder do
       binary
     else
       # Replace invalid bytes so Jason.encode! won't crash
-      binary
-      |> :unicode.characters_to_binary(:latin1, :utf8)
-      |> case do
-        result when is_binary(result) -> result
-        _ -> String.replace(binary, ~r/[^\x00-\x7F]/, "\uFFFD")
-      end
+      :unicode.characters_to_binary(binary, :latin1, :utf8)
     end
   end
 
