@@ -975,7 +975,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "Timestamp:"
   end
 
-  test "status dashboard renders linear project link in header" do
+  test "status dashboard renders tracker project identity in header" do
     snapshot_data =
       {:ok,
        %{
@@ -987,8 +987,33 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "https://linear.app/project/project/issues"
+    assert rendered =~ "Project:"
+    assert rendered =~ "project"
+    refute rendered =~ "https://linear.app/project/project/issues"
     refute rendered =~ "Dashboard:"
+  end
+
+  test "status dashboard renders full GitHub repo identity in header" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "its-applekid/actions",
+      tracker_label_prefix: "agent"
+    )
+
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
+
+    assert rendered =~ "Project:"
+    assert rendered =~ "its-applekid/actions"
+    refute rendered =~ "https://github.com/its-applekid/actions/issues"
   end
 
   test "status dashboard renders dashboard url on its own line when server port is configured" do
@@ -1015,9 +1040,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
-    assert rendered =~ "https://linear.app/project/project/issues"
-    assert rendered =~ "│ Dashboard:"
+    assert rendered =~ "Project:"
+    assert rendered =~ "project"
+    assert rendered =~ "Dashboard:"
     assert rendered =~ "http://127.0.0.1:4000/"
   end
 
@@ -1058,7 +1083,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert checking_rendered =~ "checking now…"
   end
 
-  test "status dashboard adds a spacer line before backoff queue when no agents are active" do
+  test "status dashboard hides backoff queue section when there are no retries" do
     snapshot_data =
       {:ok,
        %{
@@ -1071,10 +1096,10 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
     plain = Regex.replace(~r/\e\[[0-9;]*m/, rendered, "")
 
-    assert plain =~ ~r/No active agents\r?\n│\s*\r?\n├─ Backoff queue/
+    refute plain =~ "Backoff queue"
   end
 
-  test "status dashboard adds a spacer line before backoff queue when agents are active" do
+  test "status dashboard shows backoff queue section when retries are present" do
     snapshot_data =
       {:ok,
        %{
@@ -1097,7 +1122,15 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              }
            }
          ],
-         retrying: [],
+         retrying: [
+           %{
+             issue_id: "retry-1",
+             identifier: "MT-RETRY",
+             attempt: 2,
+             due_in_ms: 60_000,
+             error: "transient failure"
+           }
+         ],
          agent_totals: %{
            input_tokens: 90,
            output_tokens: 12,

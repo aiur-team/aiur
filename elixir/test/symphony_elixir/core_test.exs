@@ -837,6 +837,24 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "updated=2026-02-26T18:07:03Z"
   end
 
+  test "prompt builder normalizes invalid rendered bytes to utf8" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.title }}")
+
+    issue = %Issue{
+      identifier: "MT-698",
+      title: <<255>>,
+      description: "Prompt should not return invalid bytes",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+
+    assert String.valid?(prompt)
+    refute prompt == <<"Ticket ", 255>>
+  end
+
   test "prompt builder normalizes nested date-like values, maps, and structs in issue fields" do
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
 

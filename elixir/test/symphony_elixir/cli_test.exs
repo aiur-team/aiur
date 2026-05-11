@@ -136,4 +136,27 @@ defmodule SymphonyElixir.CLITest do
 
     assert :ok = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
   end
+
+  test "enables interactive CLI mode when requested" do
+    previous_value = Application.get_env(:symphony_elixir, :interactive_cli)
+
+    on_exit(fn ->
+      if is_nil(previous_value) do
+        Application.delete_env(:symphony_elixir, :interactive_cli)
+      else
+        Application.put_env(:symphony_elixir, :interactive_cli, previous_value)
+      end
+    end)
+
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+    }
+
+    assert :ok = CLI.evaluate([@ack_flag, "--interactive", "WORKFLOW.md"], deps)
+    assert Application.get_env(:symphony_elixir, :interactive_cli) == true
+  end
 end
