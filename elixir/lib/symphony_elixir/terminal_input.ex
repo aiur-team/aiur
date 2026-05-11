@@ -117,17 +117,37 @@ defmodule SymphonyElixir.TerminalInput do
   end
 
   defp enter_raw_mode(true), do: :ok
-  defp enter_raw_mode(false), do: run_stty(["-icanon", "-echo", "-isig", "-ixon", "min", "1", "time", "0"])
+
+  defp enter_raw_mode(false) do
+    with {:ok, device} <- tty_device() do
+      run_stty(device, ["-icanon", "-echo", "-isig", "-ixon", "min", "1", "time", "0"])
+    end
+  end
 
   defp restore_terminal do
-    _ = run_stty(["sane"])
+    with {:ok, device} <- tty_device() do
+      _ = run_stty(device, ["sane"])
+      :ok
+    end
+
     :ok
   end
 
-  defp run_stty(args) do
-    case System.cmd("stty", ["-F", "/dev/tty"] ++ args, stderr_to_stdout: true) do
-      {_output, 0} -> :ok
-      {output, status} -> {:error, "stty #{Enum.join(args, " ")} exited with status #{status}: #{String.trim(output)}"}
+  defp tty_device do
+    case File.read_link("/proc/self/fd/0") do
+      {:ok, "/dev/" <> _ = path} -> {:ok, path}
+      {:ok, path} -> {:error, "stdin is not a tty (#{path})"}
+      {:error, reason} -> {:error, "could not resolve controlling tty: #{inspect(reason)}"}
+    end
+  end
+
+  defp run_stty(device, args) do
+    case System.cmd("stty", ["-F", device] ++ args, stderr_to_stdout: true) do
+      {_output, 0} ->
+        :ok
+
+      {output, status} ->
+        {:error, "stty #{Enum.join(args, " ")} on #{device} exited with status #{status}: #{String.trim(output)}"}
     end
   rescue
     error in ErlangError -> {:error, Exception.message(error)}
