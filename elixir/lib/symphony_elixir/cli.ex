@@ -7,10 +7,12 @@ defmodule SymphonyElixir.CLI do
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @version Mix.Project.config()[:version]
-  @git_rev String.trim(case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do
-    {rev, 0} -> rev
-    _ -> ""
-  end)
+  @git_rev String.trim(
+             case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do
+               {rev, 0} -> rev
+               _ -> ""
+             end
+           )
   @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer, version: :boolean]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}

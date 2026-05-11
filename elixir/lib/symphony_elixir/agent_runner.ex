@@ -83,13 +83,24 @@ defmodule SymphonyElixir.AgentRunner do
 
     with {:ok, session} <- CodingAgent.start_session(workspace, worker_host: worker_host) do
       try do
-        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, worker_host, 1, max_turns)
+        do_run_codex_turns(
+          session,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          issue_state_fetcher,
+          worker_host,
+          1,
+          max_turns
+        )
       after
         CodingAgent.stop_session(session)
       end
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   defp do_run_codex_turns(
          app_session,
          workspace,
