@@ -148,6 +148,37 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     stop_port(port)
   end
 
+  @spec send_operator_message(session(), SymphonyElixir.CodingAgent.operator_payload()) ::
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(
+        %{port: port, thread_id: thread_id, workspace: workspace} = session,
+        %{kind: :text, body: text}
+      )
+      when is_port(port) and is_binary(thread_id) and is_binary(text) do
+    request_id = :erlang.unique_integer([:positive])
+
+    frame = %{
+      "method" => "turn/start",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => thread_id,
+        "input" => [%{"type" => "text", "text" => text}],
+        "cwd" => workspace,
+        "approvalPolicy" => Map.get(session, :approval_policy),
+        "sandboxPolicy" => Map.get(session, :turn_sandbox_policy)
+      }
+    }
+
+    case send_message(port, frame) do
+      true -> {:ok, request_id}
+      _ -> {:error, :port_closed}
+    end
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
+  def send_operator_message(_session, _payload), do: {:error, :invalid_session}
+
   defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
     workspace_path = Path.expand(workspace)
     workspace_root = Path.expand(Config.workspace_root())
