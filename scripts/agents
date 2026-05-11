@@ -61,9 +61,10 @@ add_profile() {
 
 profile_exists() {
   local name="$1"
+  local candidate
 
-  for profile in "${profile_names[@]}"; do
-    if [ "$profile" = "$name" ]; then
+  for candidate in "${profile_names[@]}"; do
+    if [ "$candidate" = "$name" ]; then
       return 0
     fi
   done
