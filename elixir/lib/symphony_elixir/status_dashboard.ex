@@ -6,7 +6,7 @@ defmodule SymphonyElixir.StatusDashboard do
   use GenServer
   require Logger
 
-  alias SymphonyElixir.{Config, HttpServer, Tracker}
+  alias SymphonyElixir.{AgentLog, Config, HttpServer, Tracker}
   alias SymphonyElixir.Orchestrator
   alias SymphonyElixirWeb.ObservabilityPubSub
 
@@ -26,6 +26,8 @@ defmodule SymphonyElixir.StatusDashboard do
   @running_row_chrome_width 10
   @default_terminal_columns 115
   @default_terminal_rows 40
+  @min_log_pane_lines 3
+  @log_pane_chrome_width 8
 
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
@@ -308,7 +310,7 @@ defmodule SymphonyElixir.StatusDashboard do
     snapshot_fingerprint = {snapshot_data, state.selected_index, state.view}
 
     if snapshot_fingerprint != state.last_snapshot_fingerprint or periodic_rerender_due?(state, now_ms) do
-      content =
+      {content, log_total_lines} =
         format_snapshot_content(
           snapshot_data,
           tps,
@@ -317,6 +319,7 @@ defmodule SymphonyElixir.StatusDashboard do
         )
 
       state
+      |> update_log_view_total_lines(log_total_lines)
       |> maybe_update_snapshot_fingerprint(snapshot_fingerprint)
       |> maybe_enqueue_render(content, now_ms)
     else
@@ -437,10 +440,11 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_snapshot_content(snapshot_data, tps, opts) do
     terminal_columns_override = Keyword.get(opts, :terminal_columns)
+    terminal_rows_override = Keyword.get(opts, :terminal_rows)
     selected_index = Keyword.get(opts, :selected_index)
     view = Keyword.get(opts, :view, :list)
-    _resolved_rows = Keyword.get(opts, :terminal_rows) || terminal_rows()
-    _view = view
+    resolved_columns = terminal_columns_override || terminal_columns()
+    resolved_rows = terminal_rows_override || terminal_rows()
 
     case snapshot_data do
       {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
@@ -455,57 +459,213 @@ defmodule SymphonyElixir.StatusDashboard do
         max_agents = Config.max_concurrent_agents()
         running_event_width = running_event_width(terminal_columns_override)
         running_rows = format_running_rows(running, running_event_width, selected_index)
-        running_to_backoff_spacer = if(running == [], do: [], else: ["│"])
-        backoff_rows = format_retry_rows(retrying)
 
-        ([
-           colorize("╭─ SYMPHONY STATUS", @ansi_bold),
-           colorize("│ ITS: ", @ansi_bold) <>
-             colorize(Config.tracker_kind(), @ansi_cyan) <>
-             colorize(" | ", @ansi_gray) <>
-             colorize("Agent: ", @ansi_bold) <>
-             colorize(Config.agent_kind(), @ansi_cyan),
-           colorize("│ Agents: ", @ansi_bold) <>
-             colorize("#{agent_count}", @ansi_green) <>
-             colorize("/", @ansi_gray) <>
-             colorize("#{max_agents}", @ansi_gray),
-           colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
-           colorize("│ Runtime: ", @ansi_bold) <>
-             colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
-           colorize("│ Tokens: ", @ansi_bold) <>
-             colorize("in #{format_count(agent_input_tokens)}", @ansi_yellow) <>
-             colorize(" | ", @ansi_gray) <>
-             colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
-             colorize(" | ", @ansi_gray) <>
-             colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow),
-           colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
-           project_link_lines,
-           project_refresh_line,
-           colorize("├─ Running", @ansi_bold),
-           "│",
-           running_table_header_row(running_event_width),
-           running_table_separator_row(running_event_width)
-         ] ++
-           running_rows ++
-           running_to_backoff_spacer ++
-           [colorize("├─ Backoff queue", @ansi_bold), "│"] ++
-           backoff_rows ++
-           [closing_border()])
-        |> List.flatten()
-        |> Enum.join("\n")
+        header_lines =
+          [
+            colorize("╭─ SYMPHONY STATUS", @ansi_bold),
+            colorize("│ ITS: ", @ansi_bold) <>
+              colorize(Config.tracker_kind(), @ansi_cyan) <>
+              colorize(" | ", @ansi_gray) <>
+              colorize("Agent: ", @ansi_bold) <>
+              colorize(Config.agent_kind(), @ansi_cyan),
+            colorize("│ Agents: ", @ansi_bold) <>
+              colorize("#{agent_count}", @ansi_green) <>
+              colorize("/", @ansi_gray) <>
+              colorize("#{max_agents}", @ansi_gray),
+            colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
+            colorize("│ Runtime: ", @ansi_bold) <>
+              colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
+            colorize("│ Tokens: ", @ansi_bold) <>
+              colorize("in #{format_count(agent_input_tokens)}", @ansi_yellow) <>
+              colorize(" | ", @ansi_gray) <>
+              colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
+              colorize(" | ", @ansi_gray) <>
+              colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow),
+            colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
+            project_link_lines,
+            project_refresh_line,
+            colorize("├─ Running", @ansi_bold),
+            "│",
+            running_table_header_row(running_event_width),
+            running_table_separator_row(running_event_width)
+          ] ++ running_rows
+
+        {tail_lines, log_total_lines} =
+          format_view_tail(view, header_lines, running, retrying, resolved_columns, resolved_rows)
+
+        content =
+          (header_lines ++ tail_lines)
+          |> List.flatten()
+          |> Enum.join("\n")
+
+        {content, log_total_lines}
 
       :error ->
-        [
-          colorize("╭─ SYMPHONY STATUS", @ansi_bold),
-          colorize("│ Orchestrator snapshot unavailable", @ansi_red),
-          colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
-          format_project_link_lines(),
-          format_project_refresh_line(nil),
-          closing_border()
-        ]
-        |> List.flatten()
-        |> Enum.join("\n")
+        content =
+          [
+            colorize("╭─ SYMPHONY STATUS", @ansi_bold),
+            colorize("│ Orchestrator snapshot unavailable", @ansi_red),
+            colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
+            format_project_link_lines(),
+            format_project_refresh_line(nil),
+            closing_border()
+          ]
+          |> List.flatten()
+          |> Enum.join("\n")
+
+        {content, nil}
     end
+  end
+
+  defp format_view_tail(:list, _header_lines, running, retrying, _columns, _rows) do
+    running_to_backoff_spacer = if(running == [], do: [], else: ["│"])
+    backoff_rows = format_retry_rows(retrying)
+
+    tail =
+      running_to_backoff_spacer ++
+        [colorize("├─ Backoff queue", @ansi_bold), "│"] ++
+        backoff_rows ++
+        [closing_border()]
+
+    {tail, nil}
+  end
+
+  defp format_view_tail({:log, log_view}, header_lines, running, retrying, columns, rows) do
+    messages = read_log_messages(log_view)
+    {log_lines, total_lines} = log_message_lines(messages, columns)
+
+    header_height = length(List.flatten(header_lines))
+    placeholder_lines = format_input_placeholder(columns)
+    chrome_lines = 2 + length(placeholder_lines) + 1
+    # chrome: pane header + spacer + placeholder + closing border
+
+    pane_budget = rows - header_height - chrome_lines
+
+    if pane_budget < @min_log_pane_lines do
+      # Graceful degrade — too small to render a useful pane; fall back to list tail.
+      format_view_tail(:list, header_lines, running, retrying, columns, rows)
+      |> case do
+        {tail, _} -> {tail, total_lines}
+      end
+    else
+      pane_lines = slice_log_lines(log_lines, pane_budget, log_view.scroll)
+      pane_title = format_pane_title(log_view, running)
+
+      tail =
+        [
+          colorize("├─ #{pane_title}", @ansi_bold),
+          "│"
+        ] ++
+          pane_lines ++
+          [closing_border_or_separator()] ++
+          placeholder_lines ++
+          [closing_border()]
+
+      {tail, total_lines}
+    end
+  end
+
+  defp closing_border_or_separator, do: "│"
+
+  defp read_log_messages(%{workspace_path: workspace_path}) do
+    workspace_path
+    |> AgentLog.workspace_log_path()
+    |> AgentLog.read()
+    |> AgentLog.parse()
+  end
+
+  defp log_message_lines(messages, columns) do
+    inner_width = max(20, columns - @log_pane_chrome_width)
+
+    lines =
+      Enum.flat_map(messages, fn message ->
+        header = format_log_message_header(message)
+        body_lines = wrap_log_body(message.body, inner_width)
+        [header | Enum.map(body_lines, &("│       " <> colorize(&1, @ansi_gray)))]
+      end)
+
+    {lines, length(lines)}
+  end
+
+  defp format_log_message_header(%{role: role, title: title, timestamp: timestamp}) do
+    color =
+      case role do
+        "user" -> @ansi_cyan
+        "assistant" -> @ansi_green
+        "tool" -> @ansi_yellow
+        _ -> @ansi_magenta
+      end
+
+    "│   " <>
+      colorize("[#{shorten_timestamp(timestamp)}] ", @ansi_gray) <>
+      colorize(role, color) <>
+      colorize(": ", @ansi_gray) <>
+      colorize(title, @ansi_bold)
+  end
+
+  defp shorten_timestamp(ts) when is_binary(ts) do
+    case Regex.run(~r/T(\d{2}:\d{2}:\d{2})/, ts) do
+      [_, time] -> time
+      _ -> ts
+    end
+  end
+
+  defp shorten_timestamp(other), do: to_string(other)
+
+  defp wrap_log_body(body, width) when is_binary(body) and width > 0 do
+    body
+    |> String.split("\n", trim: false)
+    |> Enum.flat_map(&wrap_line(&1, width))
+  end
+
+  defp wrap_log_body(body, _width), do: [to_string(body)]
+
+  defp wrap_line("", _width), do: [""]
+
+  defp wrap_line(line, width) do
+    line
+    |> String.graphemes()
+    |> Enum.chunk_every(width)
+    |> Enum.map(&Enum.join/1)
+  end
+
+  defp slice_log_lines(lines, budget, scroll) when budget > 0 do
+    total = length(lines)
+
+    if total <= budget do
+      lines
+    else
+      max_scroll = total - budget
+      bounded_scroll = scroll |> min(max_scroll) |> max(0)
+      start_index = total - budget - bounded_scroll
+      Enum.slice(lines, start_index, budget)
+    end
+  end
+
+  defp slice_log_lines(_lines, _budget, _scroll), do: []
+
+  defp format_pane_title(%{issue_identifier: id} = log_view, running) do
+    state_part =
+      case running_entry_for_identifier(running, id) do
+        nil -> " (finished)"
+        entry -> " (#{entry.state})"
+      end
+
+    case log_view.workspace_path do
+      nil -> "Agent log: #{id}#{state_part} — no local workspace"
+      _ -> "Agent log: #{id}#{state_part}"
+    end
+  end
+
+  defp running_entry_for_identifier(running, id) do
+    Enum.find(running, &(to_string(&1.identifier) == to_string(id)))
+  end
+
+  defp format_input_placeholder(columns) do
+    inner_width = max(20, columns - 4)
+    hint = "> [send disabled — coming soon]"
+    padded = String.pad_trailing(hint, inner_width)
+    ["│ " <> colorize(padded, @ansi_gray)]
   end
 
   defp format_project_link_lines do
@@ -653,14 +813,16 @@ defmodule SymphonyElixir.StatusDashboard do
   def format_timestamp_for_test(%DateTime{} = datetime), do: format_timestamp(datetime)
 
   @doc false
-  @spec format_snapshot_content_for_test(term(), number(), integer() | nil, non_neg_integer() | nil) :: String.t()
+  @spec format_snapshot_content_for_test(term(), number(), integer() | nil, non_neg_integer() | nil, keyword()) ::
+          String.t()
   def format_snapshot_content_for_test(snapshot_data, tps, terminal_columns \\ nil, selected_index \\ nil, opts \\ []) do
     base = [
       terminal_columns: terminal_columns,
       selected_index: selected_index
     ]
 
-    format_snapshot_content(snapshot_data, tps, Keyword.merge(base, opts))
+    {content, _log_total_lines} = format_snapshot_content(snapshot_data, tps, Keyword.merge(base, opts))
+    content
   end
 
   @doc false
@@ -1241,6 +1403,13 @@ defmodule SymphonyElixir.StatusDashboard do
     # Down = move toward newer entries (decrease offset toward 0)
     max(scroll - 1, 0)
   end
+
+  defp update_log_view_total_lines(%{view: {:log, log_view}} = state, total_lines)
+       when is_integer(total_lines) do
+    Map.put(state, :view, {:log, %{log_view | last_total_lines: total_lines}})
+  end
+
+  defp update_log_view_total_lines(state, _total_lines), do: state
 
   defp snapshot_total_tokens({:ok, %{agent_totals: agent_totals}}) when is_map(agent_totals) do
     Map.get(agent_totals, :total_tokens, 0)

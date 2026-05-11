@@ -1,0 +1,23 @@
+```text
+╭─ SYMPHONY STATUS
+│ ITS: linear | Agent: codex
+│ Agents: 1/10
+│ Throughput: 0 tps
+│ Runtime: 0m 30s
+│ Tokens: in 0 | out 0 | total 0
+│ Rate Limits: unavailable
+│ Project: n/a
+│ Next refresh: n/a
+├─ Running
+│
+│   ID       STAGE          PID      AGE / TURN   TOKENS     SESSION        EVENT                                  
+│   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+│   MT-001   in-progress    4242     0m 0s / 1             0 thre...567890  turn started (turn-1)                  
+├─ Agent log: MT-001 (in-progress)
+│
+│   [n/a] system: Log
+│       No displayable chat events yet.
+│
+│ > [send disabled — coming soon]                                                                                
+╰─
+```
