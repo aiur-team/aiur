@@ -487,6 +487,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp parse_json_log_entry(timestamp, _event, %{"method" => method, "params" => params}, _raw_body) do
     case {method, params} do
       {"item/started", %{"item" => %{"type" => "userMessage", "content" => content}}} ->
@@ -567,34 +568,33 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   defp compact_log_messages(messages) do
     messages
-    |> Enum.reduce([], fn message, acc ->
-      case {message[:merge_key], List.first(acc)} do
-        {nil, _previous} ->
-          [message | acc]
-
-        {key, %{merge_key: key} = previous} ->
-          if Map.get(message, :replace_merge?) do
-            [message | tl(acc)]
-          else
-            [%{previous | body: previous.body <> message.body, timestamp: message.timestamp} | tl(acc)]
-          end
-
-        {_key, _previous} ->
-          [message | acc]
-      end
-    end)
+    |> Enum.reduce([], &compact_log_message/2)
     |> Enum.reverse()
     |> Enum.map(&Map.delete(&1, :merge_key))
     |> Enum.map(&Map.delete(&1, :replace_merge?))
   end
 
+  defp compact_log_message(message, acc) do
+    case {message[:merge_key], List.first(acc)} do
+      {nil, _previous} -> [message | acc]
+      {key, %{merge_key: key} = previous} -> merge_log_message(message, previous, acc)
+      {_key, _previous} -> [message | acc]
+    end
+  end
+
+  defp merge_log_message(message, previous, acc) do
+    if Map.get(message, :replace_merge?) do
+      [message | tl(acc)]
+    else
+      [%{previous | body: previous.body <> message.body, timestamp: message.timestamp} | tl(acc)]
+    end
+  end
+
   defp content_text(content) when is_list(content) do
-    content
-    |> Enum.map(fn
+    Enum.map_join(content, "\n\n", fn
       %{"text" => text} -> text
       other -> inspect(other, pretty: true)
     end)
-    |> Enum.join("\n\n")
   end
 
   defp content_text(content), do: inspect(content, pretty: true)

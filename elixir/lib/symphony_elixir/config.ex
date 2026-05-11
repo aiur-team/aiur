@@ -225,6 +225,7 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp validate_semantics(settings) do
     cond do
       is_nil(settings.tracker.kind) ->
