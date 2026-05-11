@@ -6,6 +6,33 @@ elixir_dir="$repo_root/elixir"
 env_file="/home/applekid/.config/symphony-dashboard.env"
 mise_bin="/home/applekid/.local/bin/mise"
 
+usage() {
+  cat <<'USAGE'
+Usage: agents [--bg]
+
+Without flags, stop the background service and run Symphony in the foreground.
+With --bg, restart the standard background systemd user service.
+USAGE
+}
+
+case "${1:-}" in
+  --bg)
+    systemctl --user restart symphony
+    systemctl --user status symphony --no-pager
+    exit 0
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    usage >&2
+    exit 64
+    ;;
+esac
+
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user stop symphony >/dev/null 2>&1 || true
 fi
