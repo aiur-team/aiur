@@ -54,8 +54,18 @@ defmodule SymphonyElixir.StatusDashboard do
     :pending_content,
     :flush_timer_ref,
     :last_snapshot_fingerprint,
-    :selected_index
+    :selected_index,
+    :view
   ]
+
+  @type log_view :: %{
+          issue_identifier: String.t(),
+          workspace_path: String.t() | nil,
+          scroll: non_neg_integer(),
+          last_total_lines: non_neg_integer()
+        }
+
+  @type view :: :list | {:log, log_view()}
 
   @type t :: %__MODULE__{
           refresh_ms: pos_integer(),
@@ -73,7 +83,8 @@ defmodule SymphonyElixir.StatusDashboard do
           pending_content: String.t() | nil,
           flush_timer_ref: reference() | nil,
           last_snapshot_fingerprint: term() | nil,
-          selected_index: non_neg_integer() | nil
+          selected_index: non_neg_integer() | nil,
+          view: view()
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -124,7 +135,8 @@ defmodule SymphonyElixir.StatusDashboard do
        pending_content: nil,
        flush_timer_ref: nil,
        last_snapshot_fingerprint: nil,
-       selected_index: Keyword.get(opts, :selected_index)
+       selected_index: Keyword.get(opts, :selected_index),
+       view: :list
      }}
   end
 
@@ -133,6 +145,18 @@ defmodule SymphonyElixir.StatusDashboard do
 
   @spec select_previous(GenServer.name()) :: :ok
   def select_previous(server \\ __MODULE__), do: GenServer.cast(server, {:select_agent, -1})
+
+  @spec open_log(GenServer.name()) :: :ok
+  def open_log(server \\ __MODULE__), do: GenServer.cast(server, :open_log)
+
+  @spec close_log(GenServer.name()) :: :ok
+  def close_log(server \\ __MODULE__), do: GenServer.cast(server, :close_log)
+
+  @spec scroll_log_up(GenServer.name()) :: :ok
+  def scroll_log_up(server \\ __MODULE__), do: GenServer.cast(server, {:scroll_log, :up})
+
+  @spec scroll_log_down(GenServer.name()) :: :ok
+  def scroll_log_down(server \\ __MODULE__), do: GenServer.cast(server, {:scroll_log, :down})
 
   @spec render_offline_status() :: :ok
   def render_offline_status do
@@ -187,10 +211,12 @@ defmodule SymphonyElixir.StatusDashboard do
   @impl true
   def handle_cast({:select_agent, direction}, %{enabled: true} = state) when direction in [-1, 1] do
     snapshot_data = snapshot_data()
+    new_index = move_selected_index(state.selected_index, snapshot_data, direction)
 
     state =
       state
-      |> Map.put(:selected_index, move_selected_index(state.selected_index, snapshot_data, direction))
+      |> Map.put(:selected_index, new_index)
+      |> retarget_log_view(snapshot_data, new_index)
       |> Map.put(:last_snapshot_fingerprint, nil)
       |> maybe_render()
 
@@ -198,6 +224,52 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   def handle_cast({:select_agent, _direction}, state), do: {:noreply, state}
+
+  def handle_cast(:open_log, %{enabled: true, view: :list} = state) do
+    snapshot_data = snapshot_data()
+
+    case running_entry_at(snapshot_data, state.selected_index) do
+      nil ->
+        {:noreply, state}
+
+      entry ->
+        state =
+          state
+          |> Map.put(:view, build_log_view(entry))
+          |> Map.put(:last_snapshot_fingerprint, nil)
+          |> maybe_render()
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_cast(:open_log, state), do: {:noreply, state}
+
+  def handle_cast(:close_log, %{enabled: true, view: {:log, _}} = state) do
+    state =
+      state
+      |> Map.put(:view, :list)
+      |> Map.put(:last_snapshot_fingerprint, nil)
+      |> maybe_render()
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:close_log, state), do: {:noreply, state}
+
+  def handle_cast({:scroll_log, direction}, %{enabled: true, view: {:log, log_view}} = state)
+      when direction in [:up, :down] do
+    new_scroll = clamped_scroll(log_view, direction)
+    state =
+      state
+      |> Map.put(:view, {:log, %{log_view | scroll: new_scroll}})
+      |> Map.put(:last_snapshot_fingerprint, nil)
+      |> maybe_render()
+
+    {:noreply, state}
+  end
+
+  def handle_cast({:scroll_log, _direction}, state), do: {:noreply, state}
 
   defp refresh_runtime_config(%__MODULE__{} = state) do
     %{
@@ -232,7 +304,7 @@ defmodule SymphonyElixir.StatusDashboard do
       |> Map.put(:last_tps_second, tps_second)
       |> Map.put(:last_tps_value, tps)
 
-    snapshot_fingerprint = {snapshot_data, state.selected_index}
+    snapshot_fingerprint = {snapshot_data, state.selected_index, state.view}
 
     if snapshot_fingerprint != state.last_snapshot_fingerprint or periodic_rerender_due?(state, now_ms) do
       content =
@@ -1094,6 +1166,45 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp move_selected_index(_selected_index, _snapshot_data, _direction), do: nil
+
+  defp running_entry_at({:ok, %{running: running}}, index) when is_integer(index) and running != [] do
+    sorted = Enum.sort_by(running, & &1.identifier)
+    Enum.at(sorted, index)
+  end
+
+  defp running_entry_at(_snapshot_data, _index), do: nil
+
+  defp build_log_view(entry) do
+    {:log,
+     %{
+       issue_identifier: to_string(entry.identifier),
+       workspace_path: Map.get(entry, :workspace_path),
+       scroll: 0,
+       last_total_lines: 0
+     }}
+  end
+
+  defp retarget_log_view(%{view: {:log, _log_view}} = state, snapshot_data, index) do
+    case running_entry_at(snapshot_data, index) do
+      nil ->
+        state
+
+      entry ->
+        Map.put(state, :view, build_log_view(entry))
+    end
+  end
+
+  defp retarget_log_view(state, _snapshot_data, _index), do: state
+
+  defp clamped_scroll(%{scroll: scroll, last_total_lines: total}, :up) do
+    # Up = move toward older entries (increase offset from bottom)
+    min(scroll + 1, max(0, total))
+  end
+
+  defp clamped_scroll(%{scroll: scroll}, :down) do
+    # Down = move toward newer entries (decrease offset toward 0)
+    max(scroll - 1, 0)
+  end
 
   defp snapshot_total_tokens({:ok, %{agent_totals: agent_totals}}) when is_map(agent_totals) do
     Map.get(agent_totals, :total_tokens, 0)
