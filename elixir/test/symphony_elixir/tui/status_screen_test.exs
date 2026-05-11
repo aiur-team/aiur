@@ -39,21 +39,14 @@ defmodule SymphonyElixir.TUI.StatusScreenTest do
   test "returns a full-screen paragraph widget for ExRatatui" do
     frame = %ExRatatui.Frame{width: 100, height: 30}
 
-    [{%ExRatatui.Widgets.Paragraph{text: text}, %ExRatatui.Layout.Rect{} = rect}] =
-      StatusScreen.render(state(snapshot(["MT-101"]), 0), frame)
+    rows = StatusScreen.render(state(snapshot(["MT-101"]), 0), frame)
 
-    assert Enum.any?(text, fn line ->
-             [%ExRatatui.Text.Span{content: content}] = line.spans
-             content =~ "SYMPHONY STATUS"
+    assert {%ExRatatui.Widgets.Paragraph{text: "╭─ SYMPHONY STATUS"}, %ExRatatui.Layout.Rect{x: 0, y: 0, width: 100, height: 1}} =
+             List.first(rows)
+
+    assert Enum.all?(rows, fn {%ExRatatui.Widgets.Paragraph{text: text}, %ExRatatui.Layout.Rect{x: x, height: height}} ->
+             x == 0 and height == 1 and not String.contains?(text, "\n")
            end)
-
-    refute Enum.any?(text, fn line ->
-             [%ExRatatui.Text.Span{content: content}] = line.spans
-             String.contains?(content, "\n")
-           end)
-
-    assert rect.width == 100
-    assert rect.height == 30
   end
 
   defp state(snapshot, selected_index) do

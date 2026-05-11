@@ -2,7 +2,6 @@ defmodule SymphonyElixir.TUI.Widgets.StatusScreen do
   @moduledoc false
 
   alias ExRatatui.Layout.Rect
-  alias ExRatatui.Text.{Line, Span}
   alias ExRatatui.Widgets.Paragraph
   alias SymphonyElixir.{Config, HttpServer, StatusDashboard, Tracker}
   alias SymphonyElixir.TUI.State
@@ -11,16 +10,13 @@ defmodule SymphonyElixir.TUI.Widgets.StatusScreen do
 
   @spec render(State.t(), ExRatatui.Frame.t()) :: [{Paragraph.t(), Rect.t()}]
   def render(%State{} = state, frame) do
-    widget = %Paragraph{text: render_lines(state), wrap: false}
-    rect = %Rect{x: 0, y: 0, width: frame.width, height: frame.height}
-    [{widget, rect}]
-  end
-
-  @spec render_lines(State.t()) :: [Line.t()]
-  def render_lines(%State{} = state) do
     state
     |> render_rows()
-    |> Enum.map(&Line.new([Span.new(&1)]))
+    |> Enum.take(frame.height)
+    |> Enum.with_index()
+    |> Enum.map(fn {row, y} ->
+      {%Paragraph{text: row, wrap: false}, %Rect{x: 0, y: y, width: frame.width, height: 1}}
+    end)
   end
 
   @spec render_text(State.t()) :: String.t()
