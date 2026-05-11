@@ -227,15 +227,136 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Snapshot.assert_dashboard_snapshot!("credits_unlimited", render_snapshot(snapshot_data, 42.0))
   end
 
-  defp render_snapshot(snapshot_data, tps) do
+  describe "log pane snapshots" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "agent_log_snapshot_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(tmp, "logs"))
+
+      on_exit(fn -> File.rm_rf!(tmp) end)
+
+      {:ok, workspace: tmp}
+    end
+
+    test "log pane at bottom of populated log", %{workspace: workspace} do
+      File.write!(Path.join(workspace, "logs/agent.md"), sample_agent_log())
+
+      snapshot_data = log_snapshot_data(workspace)
+      view = log_view("MT-001", workspace, 0)
+
+      content = render_snapshot(snapshot_data, 0.0, view: view, terminal_rows: 30)
+      Snapshot.assert_dashboard_snapshot!("log_pane_at_bottom", content)
+    end
+
+    test "log pane shows placeholder when log file is missing", %{workspace: workspace} do
+      snapshot_data = log_snapshot_data(workspace)
+      view = log_view("MT-001", workspace, 0)
+
+      content = render_snapshot(snapshot_data, 0.0, view: view, terminal_rows: 30)
+      Snapshot.assert_dashboard_snapshot!("log_pane_empty_log", content)
+    end
+
+    test "log pane keeps showing finished agent", %{workspace: workspace} do
+      File.write!(Path.join(workspace, "logs/agent.md"), sample_agent_log())
+
+      snapshot_data =
+        {:ok,
+         %{
+           running: [],
+           retrying: [],
+           agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+           rate_limits: nil
+         }}
+
+      view = log_view("MT-001", workspace, 0)
+
+      content = render_snapshot(snapshot_data, 0.0, view: view, terminal_rows: 30)
+      Snapshot.assert_dashboard_snapshot!("log_pane_finished_agent", content)
+    end
+
+    test "tiny terminal falls back to list view", %{workspace: workspace} do
+      File.write!(Path.join(workspace, "logs/agent.md"), sample_agent_log())
+
+      snapshot_data = log_snapshot_data(workspace)
+      view = log_view("MT-001", workspace, 0)
+
+      content = render_snapshot(snapshot_data, 0.0, view: view, terminal_rows: 8)
+      Snapshot.assert_dashboard_snapshot!("log_pane_tiny_terminal", content)
+    end
+  end
+
+  defp log_snapshot_data(workspace) do
+    {:ok,
+     %{
+       running: [
+         running_entry(%{identifier: "MT-001", state: "in-progress", workspace_path: workspace})
+       ],
+       retrying: [],
+       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 30},
+       rate_limits: nil
+     }}
+  end
+
+  defp log_view(identifier, workspace_path, scroll) do
+    {:log,
+     %{
+       issue_identifier: identifier,
+       workspace_path: workspace_path,
+       title: "Fix the login flow",
+       scroll: scroll,
+       last_total_lines: 0
+     }}
+  end
+
+  defp sample_agent_log do
+    """
+    ## 2026-05-10T22:46:39Z notification
+
+    ```text
+    #{Jason.encode!(%{
+      "method" => "item/started",
+      "params" => %{
+        "item" => %{
+          "type" => "userMessage",
+          "content" => [%{"text" => "Issue:\n\nFix the login flow\n\nDescription:\n\nUsers cannot log in"}]
+        }
+      }
+    })}
+    ```
+
+
+    ## 2026-05-10T22:46:42Z notification
+
+    ```text
+    #{Jason.encode!(%{
+      "method" => "item/agentMessage/delta",
+      "params" => %{"delta" => "Looking into the login flow now."}
+    })}
+    ```
+
+
+    ## 2026-05-10T22:46:45Z notification
+
+    ```text
+    #{Jason.encode!(%{
+      "method" => "warning",
+      "params" => %{"message" => "Rate limit warning"}
+    })}
+    ```
+
+
+    """
+  end
+
+  defp render_snapshot(snapshot_data, tps, opts \\ []) do
     :ok = SymphonyElixir.WorkflowStore.force_reload()
-    StatusDashboard.format_snapshot_content_for_test(snapshot_data, tps, @terminal_columns)
+    StatusDashboard.format_snapshot_content_for_test(snapshot_data, tps, @terminal_columns, nil, opts)
   end
 
   defp running_entry(overrides) do
     Map.merge(
       %{
         identifier: "MT-000",
+        title: "Sample issue title",
         state: "running",
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
