@@ -60,6 +60,13 @@ defmodule SymphonyElixir.TerminalInput do
     {:stop, :normal, state}
   end
 
+  def handle_info({:EXIT, _other_pid_or_port, _reason}, state) do
+    # System.cmd's Port (and any other linked-then-exited resource) sends an
+    # EXIT signal that trap_exit turns into a message. Anything that isn't the
+    # reader is not our problem.
+    {:noreply, state}
+  end
+
   defp read_loop(parent, dashboard, input_fun) do
     case input_fun.() do
       :eof ->
