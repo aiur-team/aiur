@@ -5,6 +5,15 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
 
   @terminal_columns 115
 
+  setup do
+    unless Process.whereis(SymphonyElixir.WorkflowStore) do
+      start_supervised!(SymphonyElixir.WorkflowStore)
+    end
+
+    :ok = SymphonyElixir.WorkflowStore.force_reload()
+    :ok
+  end
+
   test "snapshot fixture: idle dashboard" do
     snapshot_data =
       {:ok,
@@ -195,6 +204,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
   end
 
   defp render_snapshot(snapshot_data, tps) do
+    :ok = SymphonyElixir.WorkflowStore.force_reload()
     StatusDashboard.format_snapshot_content_for_test(snapshot_data, tps, @terminal_columns)
   end
 
