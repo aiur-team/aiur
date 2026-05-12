@@ -38,6 +38,10 @@ defmodule SymphonyElixir.StatusDashboard do
   @ansi_yellow IO.ANSI.yellow()
   @ansi_magenta IO.ANSI.magenta()
   @ansi_gray IO.ANSI.light_black()
+  @ansi_white IO.ANSI.light_white()
+  @ansi_light_cyan IO.ANSI.light_cyan()
+  @ansi_light_green IO.ANSI.light_green()
+  @ansi_light_magenta IO.ANSI.light_magenta()
 
   defstruct [
     :refresh_ms,
@@ -718,28 +722,62 @@ defmodule SymphonyElixir.StatusDashboard do
 
     lines =
       Enum.flat_map(messages, fn message ->
-        header = format_log_message_header(message)
+        style = log_message_style(message)
+        header = format_log_message_header(message, style)
         body_lines = wrap_log_body(message.body, inner_width)
-        [header | Enum.map(body_lines, &("│       " <> colorize(&1, @ansi_gray)))]
+        [header | Enum.map(body_lines, &("│       " <> colorize(&1, style.body)))]
       end)
 
     {lines, length(lines)}
   end
 
-  defp format_log_message_header(%{role: role, title: title, timestamp: timestamp}) do
-    color =
-      case role do
-        "user" -> @ansi_cyan
-        "assistant" -> @ansi_green
-        "tool" -> @ansi_yellow
-        _ -> @ansi_magenta
-      end
+  # Three primary message styles:
+  #
+  #   * operator — manual messages typed by the human operator. Bright white
+  #     so they stand out from the surrounding gray-and-coloured chrome.
+  #   * prompt   — Symphony-generated input to the agent (initial prompt and
+  #     continuation guidance from `PromptBuilder`).
+  #   * agent    — the agent's own reasoning / output.
+  #
+  # System notices and tool calls keep dedicated styles so they remain
+  # visually distinct from the three primary categories.
+  defp log_message_style(%{role: role, title: title}) do
+    case {role, title} do
+      {"operator", _} -> operator_style()
+      {"user", "Operator message"} -> operator_style()
+      {"user", _} -> prompt_style()
+      {"assistant", _} -> agent_style()
+      {"tool", _} -> tool_style()
+      _ -> system_style()
+    end
+  end
 
+  defp operator_style do
+    %{label: "you", label_color: @ansi_white <> @ansi_bold, timestamp: @ansi_light_magenta, body: @ansi_white}
+  end
+
+  defp prompt_style do
+    %{label: "symphony", label_color: @ansi_light_cyan <> @ansi_bold, timestamp: @ansi_cyan, body: @ansi_cyan}
+  end
+
+  defp agent_style do
+    %{label: "agent", label_color: @ansi_light_green <> @ansi_bold, timestamp: @ansi_green, body: @ansi_light_green}
+  end
+
+  defp tool_style do
+    %{label: "tool", label_color: @ansi_yellow <> @ansi_bold, timestamp: @ansi_orange, body: @ansi_orange}
+  end
+
+  defp system_style do
+    %{label: "system", label_color: @ansi_magenta <> @ansi_bold, timestamp: @ansi_gray, body: @ansi_gray}
+  end
+
+  defp format_log_message_header(%{title: title, timestamp: timestamp}, style) do
     "│   " <>
-      colorize("[#{shorten_timestamp(timestamp)}] ", @ansi_gray) <>
-      colorize(role, color) <>
-      colorize(": ", @ansi_gray) <>
-      colorize(title, @ansi_bold)
+      colorize("[#{shorten_timestamp(timestamp)}] ", style.timestamp) <>
+      colorize(style.label, style.label_color) <>
+      colorize(" · ", @ansi_gray) <>
+      colorize(title, style.body <> @ansi_bold)
   end
 
   defp shorten_timestamp(ts) when is_binary(ts) do
@@ -816,10 +854,11 @@ defmodule SymphonyElixir.StatusDashboard do
           {"sent; waiting for agent turn", @ansi_yellow}
 
         true ->
-          {"Enter sends · Alt-Enter newline · Esc/Ctrl-C returns to agents", @ansi_gray}
+          {"Enter sends · Alt-Enter newline · Esc returns to agents · Ctrl-C quits log, again to quit Symphony",
+           @ansi_gray}
       end
 
-    Enum.map(prompt_lines, &("│ " <> colorize(&1, @ansi_gray))) ++
+    Enum.map(prompt_lines, &("│ " <> colorize(&1, @ansi_white))) ++
       ["│ " <> colorize(elem(status, 0), elem(status, 1))]
   end
 

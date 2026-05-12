@@ -15,10 +15,10 @@
 │   PID: 4242 | Tokens: 0
 │   Issue: Fix the login flow
 │
-│   [n/a] system: Log
+│   [n/a] system · Log
 │       No displayable chat events yet.
 │
 │ >
-│ Enter sends · Alt-Enter newline · Esc/Ctrl-C returns to agents
+│ Enter sends · Alt-Enter newline · Esc returns to agents · Ctrl-C quits log, again to quit Symphony
 ╰─
 ```
