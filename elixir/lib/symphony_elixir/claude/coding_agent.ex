@@ -140,10 +140,8 @@ defmodule SymphonyElixir.Claude.CodingAgent do
       }
     }
 
-    case send_message(port, frame) do
-      true -> {:ok, request_id}
-      _ -> {:error, :port_closed}
-    end
+    send_message(port, frame)
+    {:ok, request_id}
   rescue
     ArgumentError -> {:error, :port_closed}
   end

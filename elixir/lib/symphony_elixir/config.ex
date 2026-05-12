@@ -127,6 +127,11 @@ defmodule SymphonyElixir.Config do
     settings!().agent.max_concurrent_agents
   end
 
+  @spec max_retry_attempts() :: pos_integer()
+  def max_retry_attempts do
+    settings!().agent.max_retry_attempts
+  end
+
   @spec max_retry_backoff_ms() :: pos_integer()
   def max_retry_backoff_ms do
     settings!().agent.max_retry_backoff_ms

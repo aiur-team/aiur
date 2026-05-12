@@ -59,8 +59,106 @@ mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
+cp examples/workflows/linear-codex.md WORKFLOW.md
+# Edit WORKFLOW.md for your tracker, repository, credentials, and workspace.
 mise exec -- ./bin/symphony ./WORKFLOW.md
 ```
+
+## Operating Symphony with `agents`
+
+`scripts/agents` is a thin wrapper around `./bin/symphony` that adds named
+profiles, foreground / background modes, and a `stop` verb. It works on Linux
+(systemd `--user`) and macOS (`nohup` + PID file), autodetected from `uname`.
+
+Put `scripts/` on your `PATH` so the command is reachable from anywhere:
+
+```bash
+cd symphony
+export PATH="$PWD/scripts:$PATH"   # add to ~/.zshrc or ~/.bashrc to persist
+agents list
+```
+
+The script reads its own location, so no environment variables are required for
+a fresh clone — `AGENTS_REPO_ROOT` and `AGENTS_MISE_BIN` remain available as
+overrides if your layout differs.
+
+Command surface:
+
+```text
+agents                       # default profile, foreground, local-only bind
+agents run [profile]         # named profile, foreground
+agents --bg [profile|all]    # background mode (systemd on Linux, nohup on macOS)
+agents stop [profile|all]    # stop foreground processes and any background service
+agents list                  # show configured profiles
+agents build                 # rebuild bin/symphony explicitly
+agents --host [...]          # bind to the host configured in WORKFLOW.md (e.g. Tailscale IP)
+agents <path-to-WORKFLOW.md> # ad-hoc workflow in the foreground
+```
+
+`agents` rebuilds `bin/symphony` automatically when it is missing or older
+than any source file under `elixir/lib/`, `mix.exs`, or `mix.lock`, so a
+`git pull` is all you need before invoking `agents` again.
+
+By default `agents` injects `--host 127.0.0.1` so the Phoenix dashboard is
+reachable only on the local machine, even when `WORKFLOW.md` configures a
+non-loopback `server.host`. Pass `--host` anywhere in the argument list to
+opt out of that injection and let the workflow's `server.host` value take
+effect — useful when exposing the dashboard over Tailscale or a LAN.
+
+### Environment variables
+
+When `agents` launches a profile (foreground or background), it sources three
+optional files in order — later files override earlier ones, and all of them
+are skipped if not present:
+
+1. `~/.config/symphony-dashboard.env` (set `AGENTS_ENV_FILE` to override path)
+2. `<repo>/.env`
+3. `<repo>/.env.local`
+
+`.env`, `.env.local`, and `.env.*.local` are gitignored at the repo root, so
+local secrets stay out of version control.
+
+### Profiles
+
+Define profiles in `~/.config/symphony/agents.profiles`. Each non-comment line
+is six pipe-separated fields:
+
+```text
+name|symphony_root|workflow|port|logs_root|service
+```
+
+Example:
+
+```text
+ops|/Users/you/code/ops|WORKFLOW.ops.md|4102|/Users/you/logs/ops|symphony-ops
+```
+
+The built-in profiles always loaded are:
+
+- `default` and `symphony` — `local-workflows/WORKFLOW.symphony.local.md`, service `symphony`. Running `agents` with no args dispatches this profile.
+- `actions` — `local-workflows/WORKFLOW.actions.local.md`, service `symphony-actions`. Use `agents actions` to foreground this one.
+
+The profile file extends or overrides them. `local-workflows/` is the
+machine-local workflow directory (see `elixir/local-workflows/README.md`).
+
+Running `agents` (no args) foregrounds only the `default` profile. Background
+services are an explicit opt-in via `agents --bg [profile|all]`; bare `agents`
+no longer touches other services. `service` names still dedupe background
+work — two profiles sharing a `service` share one background process.
+
+### Platform notes
+
+| | Linux | macOS |
+|---|---|---|
+| Background driver | `systemctl --user` against a `<service>.service` user unit you maintain | `nohup` + PID file at `~/.local/state/symphony/<service>.pid` |
+| Auto-restart on crash | Yes (via systemd unit) | No |
+| Auto-start on login | Yes (if the user unit is enabled) | No |
+| Stop command | `agents stop` → `systemctl --user stop` + `pkill` cleanup | `agents stop` → `SIGTERM` the PID from the PID file + `pkill` cleanup |
+
+The macOS path is intentionally process-level only — no `launchd` plist
+generation, no auto-restart. If you need a service-manager-grade deployment on
+macOS, write your own `launchd` plist and use `agents` in the foreground or via
+the plist's `ProgramArguments`.
 
 ## Configuration
 
@@ -89,13 +187,16 @@ Minimal Linear plus Codex-compatible example:
 ---
 tracker:
   kind: linear
-  project_slug: "..."
+linear:
+  api_key: $LINEAR_API_KEY
+  project_slug: your-project-slug
 workspace:
   root: ~/code/workspaces
 hooks:
   after_create: |
-    git clone git@github.com:your-org/your-repo.git .
+    git clone "$SYMPHONY_REPOSITORY_URL" .
 agent:
+  kind: codex
   max_concurrent_agents: 10
   max_turns: 20
 codex:
@@ -113,8 +214,8 @@ Minimal GitHub Issues plus Claude example:
 ---
 tracker:
   kind: github
-  active_states: ["Todo", "In Progress"]
-  terminal_states: ["Done", "Closed"]
+  active_states: ["todo", "in-progress"]
+  terminal_states: ["done", "closed"]
 github:
   repo: your-org/your-repo
   label_prefix: symphony
@@ -122,7 +223,7 @@ workspace:
   root: ~/code/workspaces
 hooks:
   after_create: |
-    git clone git@github.com:your-org/your-repo.git .
+    git clone "$SYMPHONY_REPOSITORY_URL" .
 agent:
   kind: claude
   max_concurrent_agents: 5
@@ -155,6 +256,9 @@ Notes:
   identifier, title, and body.
 - Use `hooks.after_create` to bootstrap a fresh workspace. For a Git-backed repo, you can run
   `git clone ... .` there, along with any other setup commands you need.
+- Keep portable examples free of machine-local hostnames, IPs, usernames, absolute home paths, and
+  private repository defaults. Put those deployment-specific values in a copied `WORKFLOW.md` or in
+  a clearly labeled file under `local-workflows/`.
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.kind` selects the tracker adapter. Linear reads `linear.api_key` from `LINEAR_API_KEY`

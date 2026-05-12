@@ -17,6 +17,7 @@ defmodule SymphonyElixir.CLI do
     {@acknowledgement_switch, :boolean},
     logs_root: :string,
     port: :integer,
+    host: :string,
     version: :boolean,
     interactive: :boolean
   ]
@@ -27,6 +28,7 @@ defmodule SymphonyElixir.CLI do
           set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
           set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
+          set_server_host_override: (String.t() | nil -> :ok | {:error, term()}),
           ensure_all_started: (-> ensure_started_result())
         }
 
@@ -37,8 +39,7 @@ defmodule SymphonyElixir.CLI do
         wait_for_shutdown()
 
       {:version, version} ->
-        rev_suffix = if @git_rev != "", do: " #{@git_rev}", else: ""
-        IO.puts("symphony #{version} (sapsaldog/symphony#{rev_suffix})")
+        IO.puts("symphony #{version} (sapsaldog/symphony #{@git_rev})")
 
       {:error, message} ->
         IO.puts(:stderr, message)
@@ -46,7 +47,7 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
+  @spec evaluate([String.t()], deps()) :: :ok | {:version, String.t()} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {[version: true], _, _} ->
@@ -56,6 +57,7 @@ defmodule SymphonyElixir.CLI do
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps),
+             :ok <- maybe_set_server_host(opts, deps),
              :ok <- maybe_set_interactive(opts) do
           run(Path.expand("WORKFLOW.md"), deps)
         end
@@ -64,6 +66,7 @@ defmodule SymphonyElixir.CLI do
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps),
+             :ok <- maybe_set_server_host(opts, deps),
              :ok <- maybe_set_interactive(opts) do
           run(workflow_path, deps)
         end
@@ -94,7 +97,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--interactive] [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-WORKFLOW.md]"
   end
 
   @spec runtime_deps() :: deps()
@@ -104,6 +107,7 @@ defmodule SymphonyElixir.CLI do
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
+      set_server_host_override: &set_server_host_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
   end
@@ -188,6 +192,27 @@ defmodule SymphonyElixir.CLI do
 
   defp set_server_port_override(port) when is_integer(port) and port >= 0 do
     Application.put_env(:symphony_elixir, :server_port_override, port)
+    :ok
+  end
+
+  defp maybe_set_server_host(opts, deps) do
+    case Keyword.get_values(opts, :host) do
+      [] ->
+        :ok
+
+      values ->
+        host = values |> List.last() |> String.trim()
+
+        if host == "" do
+          {:error, usage_message()}
+        else
+          :ok = deps.set_server_host_override.(host)
+        end
+    end
+  end
+
+  defp set_server_host_override(host) when is_binary(host) and host != "" do
+    Application.put_env(:symphony_elixir, :server_host_override, host)
     :ok
   end
 

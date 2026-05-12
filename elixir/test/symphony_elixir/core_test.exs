@@ -1,6 +1,8 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.Config.Schema
+
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
@@ -114,6 +116,28 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "{{ issue.title }}"
     assert is_binary(Config.workflow_prompt())
     assert Config.workflow_prompt() == prompt
+  end
+
+  test "checked-in workflow examples parse and portable examples stay generic" do
+    workflow_paths =
+      ["WORKFLOW.md"] ++
+        Path.wildcard("examples/workflows/*.md") ++
+        Path.wildcard("local-workflows/WORKFLOW.*.local.md")
+
+    assert Enum.any?(workflow_paths)
+
+    for path <- workflow_paths do
+      assert {:ok, %{config: config, prompt: prompt}} = Workflow.load(path)
+      assert {:ok, _settings} = Schema.parse(config)
+      assert String.trim(prompt) != ""
+    end
+
+    portable_paths = ["WORKFLOW.md" | Path.wildcard("examples/workflows/*.md")]
+    machine_local_pattern = ~r/(\/home\/|100\.\d+\.\d+\.\d+|applekid|orangekid|its-applekid|ethereum-optimism)/
+
+    for path <- portable_paths do
+      refute File.read!(path) =~ machine_local_pattern
+    end
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
@@ -593,6 +617,46 @@ defmodule SymphonyElixir.CoreTest do
              state.retry_attempts[issue_id]
 
     assert_due_in_range(due_at_ms, 39_500, 40_500)
+  end
+
+  test "abnormal worker exit beyond max_retry_attempts gives up and clears retry state" do
+    issue_id = "issue-exhausted"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :ExhaustedRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-EX",
+      # Coming back from attempt 3 means the next failure would be attempt 4,
+      # which is > the default max_retry_attempts (3).
+      retry_attempt: 3,
+      issue: %Issue{id: issue_id, identifier: "MT-EX", state: "In Progress"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :boom})
+    Process.sleep(50)
+    state = :sys.get_state(pid)
+
+    refute Map.has_key?(state.retry_attempts, issue_id),
+           "expected the orchestrator to give up after exceeding max_retry_attempts"
   end
 
   test "first abnormal worker exit waits before retrying" do

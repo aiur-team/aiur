@@ -29,14 +29,19 @@ defmodule SymphonyElixir.Codex.CodingAgent do
           workspace: Path.t()
         }
 
+  @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
-    with {:ok, session} <- start_session(workspace, opts) do
-      try do
-        run_turn(session, prompt, issue, opts)
-      after
-        stop_session(session)
-      end
+    case start_session(workspace, opts) do
+      {:ok, session} ->
+        try do
+          run_turn(session, prompt, issue, opts)
+        after
+          stop_session(session)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -169,10 +174,8 @@ defmodule SymphonyElixir.Codex.CodingAgent do
       }
     }
 
-    case send_message(port, frame) do
-      true -> {:ok, request_id}
-      _ -> {:error, :port_closed}
-    end
+    send_message(port, frame)
+    {:ok, request_id}
   rescue
     ArgumentError -> {:error, :port_closed}
   end

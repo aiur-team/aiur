@@ -35,28 +35,11 @@ adapter examples.
 
 ## Running Symphony
 
-### Requirements
-
 Symphony works best in codebases with clear setup instructions, automated validation, and workflow
-conventions that autonomous implementation runs can follow. Symphony is the next step: moving from
-managing individual agent sessions to managing the work that needs to get done.
+conventions that autonomous implementation runs can follow.
 
-### Option 1. Make your own
-
-Use an implementation agent or your own engineering process to build Symphony in a programming
-language of your choice:
-
-> Implement Symphony according to the following spec:
-> ./SPEC.md
-
-### Option 2. Use our experimental reference implementation
-
-Check out [elixir/README.md](elixir/README.md) for instructions on how to set up your environment
-and run the Elixir-based Symphony implementation. You can also ask an implementation agent to help
-with the setup:
-
-> Set up Symphony for my repository based on
-> ./elixir/README.md
+See [elixir/README.md](elixir/README.md) for setup, configuration, and the `agents` command
+reference (foreground, background, and `stop` modes on Linux and macOS).
 
 ---
 

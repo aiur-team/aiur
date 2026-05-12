@@ -475,7 +475,8 @@ defmodule SymphonyElixir.StatusDashboard do
             agent_output_tokens,
             agent_total_tokens,
             rate_limits,
-            polling
+            polling,
+            resolved_columns
           )
 
         header_lines =
@@ -500,7 +501,7 @@ defmodule SymphonyElixir.StatusDashboard do
       :error ->
         content =
           [
-            colorize("╭─ SYMPHONY STATUS", @ansi_bold),
+            format_title_row(resolved_columns),
             colorize("│ Orchestrator snapshot unavailable", @ansi_red),
             colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
             format_project_link_lines(),
@@ -717,7 +718,8 @@ defmodule SymphonyElixir.StatusDashboard do
          agent_output_tokens,
          agent_total_tokens,
          rate_limits,
-         polling
+         polling,
+         columns
        ) do
     left_lines = [
       colorize("│ ITS: ", @ansi_bold) <>
@@ -746,7 +748,24 @@ defmodule SymphonyElixir.StatusDashboard do
         [right_refresh_line(polling)]
 
     rows = pair_pane_lines(left_lines, right_lines)
-    [colorize("╭─ SYMPHONY STATUS", @ansi_bold) | rows]
+    [format_title_row(columns) | rows]
+  end
+
+  defp format_title_row(columns) do
+    title = colorize("╭─ SYMPHONY STATUS", @ansi_bold)
+
+    case dashboard_url() do
+      url when is_binary(url) ->
+        link = colorize(url, @ansi_cyan)
+        title_visible = visible_length(title)
+        link_visible = visible_length(link)
+        # Reserve at least one space between title and link.
+        gap = max(1, columns - title_visible - link_visible)
+        title <> String.duplicate(" ", gap) <> link
+
+      _ ->
+        title
+    end
   end
 
   defp pair_pane_lines(left_lines, right_lines) do
@@ -772,15 +791,7 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp right_project_lines do
-    project_line = colorize("Project: ", @ansi_bold) <> project_display_url()
-
-    case dashboard_url() do
-      url when is_binary(url) ->
-        [project_line, colorize("Dashboard: ", @ansi_bold) <> colorize(url, @ansi_cyan)]
-
-      _ ->
-        [project_line]
-    end
+    [colorize("Project: ", @ansi_bold) <> project_display_url()]
   end
 
   defp right_refresh_line(%{checking?: true}) do
@@ -1184,8 +1195,6 @@ defmodule SymphonyElixir.StatusDashboard do
     String.replace(text, ~r/\s*\([^()]*_[^()]*\)\s*$/, "")
   end
 
-  defp strip_event_trailing_id(other), do: to_string(other)
-
   defp terminal_columns do
     case :io.columns() do
       {:ok, columns} when is_integer(columns) and columns > 0 ->
@@ -1232,7 +1241,7 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp format_cell(value, width, align \\ :left) do
+  defp format_cell(value, width) do
     value =
       value
       |> to_string()
@@ -1241,10 +1250,7 @@ defmodule SymphonyElixir.StatusDashboard do
       |> String.trim()
       |> truncate_plain(width)
 
-    case align do
-      :right -> String.pad_leading(value, width)
-      _ -> String.pad_trailing(value, width)
-    end
+    String.pad_trailing(value, width)
   end
 
   defp truncate_plain(value, width) do
