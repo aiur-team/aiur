@@ -1,7 +1,7 @@
 ```text
 ╭─ SYMPHONY STATUS
 │ ITS: linear | Agent: codex                             │ Rate Limits: unavailable
-│ Agents: 1/10                                           │ Project: project
+│ Agents: 1/10                                           │ Project: n/a
 │ Throughput: 0 tps                                      │ Next refresh: n/a
 │ Runtime: 0m 30s                                        │ 
 │ Tokens: in 0 | out 0 | total 0                         │ 
