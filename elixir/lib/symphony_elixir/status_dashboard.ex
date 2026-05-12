@@ -268,6 +268,7 @@ defmodule SymphonyElixir.StatusDashboard do
   def handle_cast({:scroll_log, direction}, %{enabled: true, view: {:log, log_view}} = state)
       when direction in [:up, :down] do
     new_scroll = clamped_scroll(log_view, direction)
+
     state =
       state
       |> Map.put(:view, {:log, %{log_view | scroll: new_scroll}})
