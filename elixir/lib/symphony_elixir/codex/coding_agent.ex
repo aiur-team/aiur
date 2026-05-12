@@ -31,6 +31,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
           workspace: Path.t()
         }
 
+  @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
     case start_session(workspace, opts) do
@@ -153,6 +154,35 @@ defmodule SymphonyElixir.Codex.CodingAgent do
   def stop_session(%{port: port}) when is_port(port) do
     stop_port(port)
   end
+
+  @spec send_operator_message(session(), SymphonyElixir.CodingAgent.operator_payload()) ::
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(
+        %{port: port, thread_id: thread_id, workspace: workspace} = session,
+        %{kind: :text, body: text}
+      )
+      when is_port(port) and is_binary(thread_id) and is_binary(text) do
+    request_id = :erlang.unique_integer([:positive])
+
+    frame = %{
+      "method" => "turn/start",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => thread_id,
+        "input" => [%{"type" => "text", "text" => text}],
+        "cwd" => workspace,
+        "approvalPolicy" => Map.get(session, :approval_policy),
+        "sandboxPolicy" => Map.get(session, :turn_sandbox_policy)
+      }
+    }
+
+    send_message(port, frame)
+    {:ok, request_id}
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
+  def send_operator_message(_session, _payload), do: {:error, :invalid_session}
 
   defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
     workspace_path = Path.expand(workspace)
