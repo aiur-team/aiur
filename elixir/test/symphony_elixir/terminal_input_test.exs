@@ -73,6 +73,25 @@ defmodule SymphonyElixir.TerminalInputTest do
     assert_receive {:dashboard_cast, {:select_agent, 1}}
   end
 
+  test "bracketed paste framing is consumed without dispatching individual bytes" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    # \e[200~ ... \e[201~ frames a paste. Pasted bytes (including a `j` that
+    # would normally select_next) must NOT dispatch individual semantic casts.
+    paste_start = ["\e", "[", "2", "0", "0", "~"]
+    paste_body = ["h", "i", "\n", "j", "k"]
+    paste_end = ["\e", "[", "2", "0", "1", "~"]
+    # After the paste, send a real "j" to confirm normal dispatch resumes.
+    bytes = paste_start ++ paste_body ++ paste_end ++ ["j", :eof]
+
+    start_input(dashboard, bytes)
+
+    # Only ONE select_agent cast (from the trailing real `j`), not three
+    # (which is what would happen if the pasted j/k bytes leaked through).
+    assert_receive {:dashboard_cast, {:select_agent, 1}}
+    refute_received {:dashboard_cast, _}
+  end
+
   defp start_input(dashboard, byte_queue) do
     {:ok, input} = Agent.start_link(fn -> byte_queue end)
 
