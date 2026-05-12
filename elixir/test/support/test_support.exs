@@ -26,7 +26,13 @@ defmodule SymphonyElixir.TestSupport do
       alias SymphonyElixir.Linear.Config, as: LinearConfig
 
       import SymphonyElixir.TestSupport,
-        only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
+        only: [
+          ensure_test_application_started: 0,
+          write_workflow_file!: 1,
+          write_workflow_file!: 2,
+          restore_env: 2,
+          stop_default_http_server: 0
+        ]
 
       setup do
         workflow_base =
@@ -45,6 +51,7 @@ defmodule SymphonyElixir.TestSupport do
         workflow_file = Path.join(workflow_root, "WORKFLOW.md")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
+        ensure_test_application_started()
         if Process.whereis(SymphonyElixir.WorkflowStore), do: SymphonyElixir.WorkflowStore.force_reload()
         stop_default_http_server()
 
@@ -78,6 +85,14 @@ defmodule SymphonyElixir.TestSupport do
 
   def restore_env(key, nil), do: System.delete_env(key)
   def restore_env(key, value), do: System.put_env(key, value)
+
+  def ensure_test_application_started do
+    if is_nil(Process.whereis(SymphonyElixir.Supervisor)) do
+      {:ok, _started_apps} = Application.ensure_all_started(:symphony_elixir)
+    end
+
+    :ok
+  end
 
   def stop_default_http_server do
     case Enum.find(Supervisor.which_children(SymphonyElixir.Supervisor), fn
