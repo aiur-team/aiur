@@ -114,13 +114,11 @@ defmodule SymphonyElixir.AgentRunner do
        ) do
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
+    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host)
+
     with {:ok, turn_session} <-
-           CodingAgent.run_turn(
-             app_session,
-             prompt,
-             issue,
-             on_message: codex_message_handler(codex_update_recipient, issue, workspace, worker_host)
-           ) do
+           CodingAgent.run_turn(app_session, prompt, issue, on_message: message_handler),
+         :ok <- drain_operator_messages(app_session, issue, message_handler) do
       Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
       case continue_with_issue?(issue, issue_state_fetcher) do
@@ -150,6 +148,41 @@ defmodule SymphonyElixir.AgentRunner do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp drain_operator_messages(app_session, issue, message_handler) do
+    receive do
+      {:operator_message, %{kind: :text, body: text}, request_id}
+      when is_binary(text) and is_integer(request_id) ->
+        Logger.info("Delivering operator message to #{issue_context(issue)} request_id=#{request_id}")
+        run_operator_turn(app_session, issue, text, message_handler)
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Pausing agent at next turn boundary for #{issue_context(issue)} request_id=#{request_id}")
+        wait_for_operator_message(app_session, issue, message_handler)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp wait_for_operator_message(app_session, issue, message_handler) do
+    receive do
+      {:operator_message, %{kind: :text, body: text}, request_id}
+      when is_binary(text) and is_integer(request_id) ->
+        Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{request_id}")
+        run_operator_turn(app_session, issue, text, message_handler)
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
+        wait_for_operator_message(app_session, issue, message_handler)
+    end
+  end
+
+  defp run_operator_turn(app_session, issue, text, message_handler) do
+    with {:ok, _turn_session} <-
+           CodingAgent.run_turn(app_session, text, issue, on_message: message_handler) do
+      drain_operator_messages(app_session, issue, message_handler)
     end
   end
 

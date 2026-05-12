@@ -901,6 +901,56 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert next_poll_in_ms <= 50
   end
 
+  test "orchestrator sends operator messages and pause requests to running agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    parent = self()
+
+    worker_pid =
+      spawn(fn ->
+        operator_message_probe(parent)
+      end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-chat" => %{
+              pid: worker_pid,
+              ref: make_ref(),
+              identifier: "MT-CHAT",
+              issue: %Issue{id: "issue-chat", identifier: "MT-CHAT", state: "In Progress"},
+              session_id: "thread-chat-turn-chat",
+              agent_input_tokens: 0,
+              agent_output_tokens: 0,
+              agent_total_tokens: 0,
+              started_at: DateTime.utc_now()
+            }
+          }
+      }
+    end)
+
+    assert {:ok, request_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "hello"})
+
+    assert is_integer(request_id)
+    assert_receive {:operator_message, %{kind: :text, body: "hello"}, ^request_id}
+
+    assert {:ok, pause_request_id} = Orchestrator.pause_agent(orchestrator_name, "MT-CHAT")
+    assert_receive {:pause_agent, ^pause_request_id}
+
+    assert {:error, :empty_message} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "   "})
+
+    assert {:error, :no_running_agent} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+  end
+
   test "orchestrator restarts stalled workers with retry backoff" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
@@ -1640,5 +1690,13 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       {next_tokens, [{timestamp, next_tokens} | acc]}
     end)
     |> elem(1)
+  end
+
+  defp operator_message_probe(parent) do
+    receive do
+      message ->
+        send(parent, message)
+        operator_message_probe(parent)
+    end
   end
 end

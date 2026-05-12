@@ -6,7 +6,7 @@ defmodule SymphonyElixir.StatusDashboard do
   use GenServer
   require Logger
 
-  alias SymphonyElixir.{AgentLog, Config, HttpServer, Tracker}
+  alias SymphonyElixir.{AgentChat, AgentLog, Config, HttpServer, Tracker}
   alias SymphonyElixir.Orchestrator
   alias SymphonyElixirWeb.ObservabilityPubSub
 
@@ -64,7 +64,9 @@ defmodule SymphonyElixir.StatusDashboard do
           workspace_path: String.t() | nil,
           title: String.t() | nil,
           scroll: non_neg_integer(),
-          last_total_lines: non_neg_integer()
+          last_total_lines: non_neg_integer(),
+          mode: :browsing | :typing,
+          composer: map()
         }
 
   @type view :: :list | {:log, log_view()}
@@ -159,6 +161,24 @@ defmodule SymphonyElixir.StatusDashboard do
 
   @spec scroll_log_down(GenServer.name()) :: :ok
   def scroll_log_down(server \\ __MODULE__), do: GenServer.cast(server, {:scroll_log, :down})
+
+  @spec enter_typing(GenServer.name()) :: :ok
+  def enter_typing(server \\ __MODULE__), do: GenServer.cast(server, :enter_typing)
+
+  @spec exit_typing(GenServer.name()) :: :ok
+  def exit_typing(server \\ __MODULE__), do: GenServer.cast(server, :exit_typing)
+
+  @spec append_text(GenServer.name(), String.t()) :: :ok
+  def append_text(server \\ __MODULE__, text), do: GenServer.cast(server, {:append_text, text})
+
+  @spec backspace(GenServer.name()) :: :ok
+  def backspace(server \\ __MODULE__), do: GenServer.cast(server, :backspace)
+
+  @spec submit_message(GenServer.name()) :: :ok
+  def submit_message(server \\ __MODULE__), do: GenServer.cast(server, :submit_message)
+
+  @spec pause_agent(GenServer.name()) :: :ok
+  def pause_agent(server \\ __MODULE__), do: GenServer.cast(server, :pause_agent)
 
   @spec render_offline_status() :: :ok
   def render_offline_status do
@@ -279,6 +299,87 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   def handle_cast({:scroll_log, _direction}, state), do: {:noreply, state}
+
+  def handle_cast(:enter_typing, %{enabled: true, view: {:log, log_view}} = state) do
+    {:noreply, update_log_view(state, %{log_view | mode: :typing})}
+  end
+
+  def handle_cast(:enter_typing, state), do: {:noreply, state}
+
+  def handle_cast(:exit_typing, %{enabled: true, view: {:log, _log_view}} = state) do
+    state =
+      state
+      |> Map.put(:view, :list)
+      |> Map.put(:last_snapshot_fingerprint, nil)
+      |> maybe_render()
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:exit_typing, state), do: {:noreply, state}
+
+  def handle_cast({:append_text, text}, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state)
+      when is_binary(text) do
+    composer = Map.update!(log_view.composer, :buffer, &(&1 <> text))
+
+    state =
+      state
+      |> update_log_view(%{log_view | composer: %{composer | last_error: nil}})
+      |> maybe_render()
+
+    {:noreply, state}
+  end
+
+  def handle_cast({:append_text, _text}, state), do: {:noreply, state}
+
+  def handle_cast(:backspace, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
+    composer = Map.update!(log_view.composer, :buffer, &drop_last_grapheme/1)
+
+    state =
+      state
+      |> update_log_view(%{log_view | composer: %{composer | last_error: nil}})
+      |> maybe_render()
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:backspace, state), do: {:noreply, state}
+
+  def handle_cast(:submit_message, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
+    text = String.trim(log_view.composer.buffer)
+
+    state =
+      if text == "" do
+        state
+      else
+        composer =
+          case AgentChat.send(log_view.issue_identifier, text) do
+            {:ok, request_id} ->
+              %{fresh_composer() | pending_request_id: request_id}
+
+            {:error, reason} ->
+              %{log_view.composer | last_error: format_operator_error(reason)}
+          end
+
+        update_log_view(state, %{log_view | composer: composer})
+      end
+
+    {:noreply, maybe_render(%{state | last_snapshot_fingerprint: nil})}
+  end
+
+  def handle_cast(:submit_message, state), do: {:noreply, state}
+
+  def handle_cast(:pause_agent, %{enabled: true, view: {:log, log_view}} = state) do
+    composer =
+      case AgentChat.pause(log_view.issue_identifier) do
+        {:ok, request_id} -> %{log_view.composer | pending_request_id: request_id, last_error: nil}
+        {:error, reason} -> %{log_view.composer | last_error: format_operator_error(reason)}
+      end
+
+    {:noreply, state |> update_log_view(%{log_view | composer: composer}) |> maybe_render()}
+  end
+
+  def handle_cast(:pause_agent, state), do: {:noreply, state}
 
   defp refresh_runtime_config(%__MODULE__{} = state) do
     %{
@@ -538,7 +639,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
     metadata_lines = format_log_metadata(log_view, running, columns)
     header_height = length(List.flatten(header_lines))
-    placeholder_lines = format_input_placeholder(columns)
+    placeholder_lines = format_input_placeholder(log_view, columns)
     chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + 1
     # chrome: pane header + spacer + metadata + placeholder + closing border
 
@@ -699,11 +800,27 @@ defmodule SymphonyElixir.StatusDashboard do
     Enum.find(running, &(to_string(&1.identifier) == to_string(id)))
   end
 
-  defp format_input_placeholder(columns) do
+  defp format_input_placeholder(log_view, columns) do
     inner_width = max(20, columns - 4)
-    hint = "> [send disabled — coming soon]"
-    padded = String.pad_trailing(hint, inner_width)
-    ["│ " <> colorize(padded, @ansi_gray)]
+    composer = Map.get(log_view, :composer, fresh_composer())
+    buffer = if composer.buffer == "", do: "", else: composer.buffer
+    prompt = if buffer == "", do: ">", else: "> " <> buffer
+    prompt_lines = prompt |> String.split("\n", trim: false) |> Enum.flat_map(&wrap_line(&1, inner_width))
+
+    status =
+      cond do
+        is_binary(composer.last_error) ->
+          {"error: #{composer.last_error}", @ansi_red}
+
+        is_integer(composer.pending_request_id) ->
+          {"sent; waiting for agent turn", @ansi_yellow}
+
+        true ->
+          {"Enter sends · Alt-Enter newline · Esc/Ctrl-C returns to agents", @ansi_gray}
+      end
+
+    Enum.map(prompt_lines, &("│ " <> colorize(&1, @ansi_gray))) ++
+      ["│ " <> colorize(elem(status, 0), elem(status, 1))]
   end
 
   @left_pane_visible_width 56
@@ -1490,9 +1607,37 @@ defmodule SymphonyElixir.StatusDashboard do
        workspace_path: Map.get(entry, :workspace_path),
        title: Map.get(entry, :title),
        scroll: 0,
-       last_total_lines: 0
+       last_total_lines: 0,
+       mode: :typing,
+       composer: fresh_composer()
      }}
   end
+
+  defp update_log_view(state, log_view) do
+    state
+    |> Map.put(:view, {:log, log_view})
+    |> Map.put(:last_snapshot_fingerprint, nil)
+  end
+
+  defp fresh_composer do
+    %{buffer: "", pending_request_id: nil, last_error: nil}
+  end
+
+  defp drop_last_grapheme(""), do: ""
+
+  defp drop_last_grapheme(buffer) do
+    buffer
+    |> String.graphemes()
+    |> Enum.drop(-1)
+    |> Enum.join()
+  end
+
+  defp format_operator_error(:no_running_agent), do: "agent is no longer running"
+  defp format_operator_error(:empty_message), do: "message is empty"
+  defp format_operator_error(:message_too_long), do: "message is too long"
+  defp format_operator_error(:timeout), do: "send timed out"
+  defp format_operator_error(:unavailable), do: "orchestrator unavailable"
+  defp format_operator_error(reason), do: inspect(reason)
 
   defp retarget_log_view(%{view: {:log, _log_view}} = state, snapshot_data, index) do
     case running_entry_at(snapshot_data, index) do

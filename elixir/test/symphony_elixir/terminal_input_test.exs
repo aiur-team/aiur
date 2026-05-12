@@ -27,13 +27,18 @@ defmodule SymphonyElixir.TerminalInputTest do
     assert_receive {:dashboard_cast, {:select_agent, -1}}
   end
 
-  test "space and enter open the log pane" do
+  test "space and enter open the log pane in typing mode" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, [" ", "\r", "\n", :eof])
+    start_input(dashboard, [" ", "h", "\e", "j", "\r", "i", <<3>>, "\n", :eof])
 
     assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, {:append_text, "h"}}
+    assert_receive {:dashboard_cast, :exit_typing}
+    assert_receive {:dashboard_cast, {:select_agent, 1}}
     assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, {:append_text, "i"}}
+    assert_receive {:dashboard_cast, :exit_typing}
     assert_receive {:dashboard_cast, :open_log}
   end
 
@@ -54,14 +59,59 @@ defmodule SymphonyElixir.TerminalInputTest do
     assert_receive {:dashboard_cast, {:scroll_log, :down}}
   end
 
-  test "bare esc closes the log pane and dispatches the next byte" do
+  test "bare esc exits typing mode and dispatches the next byte" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    # esc then j: close pane + advance selection in one step.
-    start_input(dashboard, ["\e", "j", :eof])
+    start_input(dashboard, ["i", "\e", "j", :eof])
 
-    assert_receive {:dashboard_cast, :close_log}
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :exit_typing}
     assert_receive {:dashboard_cast, {:select_agent, 1}}
+  end
+
+  test "ctrl-c exits typing mode" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    start_input(dashboard, ["i", <<3>>, "j", :eof])
+
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :exit_typing}
+    assert_receive {:dashboard_cast, {:select_agent, 1}}
+  end
+
+  test "esc exits typing mode and dispatches the next byte in navigation mode" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    start_input(dashboard, ["i", "\e", "j", :eof])
+
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :exit_typing}
+    assert_receive {:dashboard_cast, {:select_agent, 1}}
+  end
+
+  test "bare esc timeout exits typing mode" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    start_input(dashboard, ["i", "\e", "", "j", :eof])
+
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :exit_typing}
+    assert_receive {:dashboard_cast, {:select_agent, 1}}
+  end
+
+  test "typing mode appends text, backspaces, submits, and supports alt-enter newline" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    start_input(dashboard, ["i", "h", "i", <<127>>, "!", "\e", "\r", "t", "\n", :eof])
+
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, {:append_text, "h"}}
+    assert_receive {:dashboard_cast, {:append_text, "i"}}
+    assert_receive {:dashboard_cast, :backspace}
+    assert_receive {:dashboard_cast, {:append_text, "!"}}
+    assert_receive {:dashboard_cast, {:append_text, "\n"}}
+    assert_receive {:dashboard_cast, {:append_text, "t"}}
+    assert_receive {:dashboard_cast, :submit_message}
   end
 
   test "unknown CSI sequences are ignored" do
@@ -90,6 +140,19 @@ defmodule SymphonyElixir.TerminalInputTest do
     # (which is what would happen if the pasted j/k bytes leaked through).
     assert_receive {:dashboard_cast, {:select_agent, 1}}
     refute_received {:dashboard_cast, _}
+  end
+
+  test "bracketed paste appends one text block in typing mode" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    paste_start = ["\e", "[", "2", "0", "0", "~"]
+    paste_body = ["h", "i", "\n", "there"]
+    paste_end = ["\e", "[", "2", "0", "1", "~"]
+
+    start_input(dashboard, ["i"] ++ paste_start ++ paste_body ++ paste_end ++ [:eof])
+
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, {:append_text, "hi\nthere"}}
   end
 
   defp start_input(dashboard, byte_queue) do
