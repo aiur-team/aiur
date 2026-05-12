@@ -93,6 +93,7 @@ defmodule SymphonyElixir.TerminalInput do
 
   defp dispatch_byte(<<3>>, parent, dashboard, input_fun, :text) do
     StatusDashboard.exit_typing(dashboard)
+    StatusDashboard.close_log(dashboard)
     read_loop(parent, dashboard, input_fun, :nav)
   end
 
@@ -141,11 +142,13 @@ defmodule SymphonyElixir.TerminalInput do
 
   defp handle_escape_timeout(_parent, dashboard, _input_fun, :text, :stop_reader) do
     StatusDashboard.exit_typing(dashboard)
+    StatusDashboard.close_log(dashboard)
     :ok
   end
 
   defp handle_escape_timeout(parent, dashboard, input_fun, :text, :continue) do
     StatusDashboard.exit_typing(dashboard)
+    StatusDashboard.close_log(dashboard)
     read_loop(parent, dashboard, input_fun, :nav)
   end
 

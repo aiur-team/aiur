@@ -16,16 +16,16 @@
 │   PID: (finished) | Tokens: (finished)
 │   Issue: Fix the login flow
 │
-│   [22:46:39] user: Issue prompt
+│   [22:46:39] symphony · Issue prompt
 │       Fix the login flow
 │       
 │       Users cannot log in
-│   [22:46:42] assistant: Agent
+│   [22:46:42] agent · Agent
 │       Looking into the login flow now.
-│   [22:46:45] system: Warning
+│   [22:46:45] system · Warning
 │       Rate limit warning
 │
 │ >
-│ Enter sends · Alt-Enter newline · Esc/Ctrl-C returns to agents
+│ Enter sends · Alt-Enter newline · Esc returns to agents · Ctrl-C quits log, again to quit Symphony
 ╰─
 ```
