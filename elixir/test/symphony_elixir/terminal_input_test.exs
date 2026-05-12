@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.TerminalInputTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias SymphonyElixir.TerminalInput
 

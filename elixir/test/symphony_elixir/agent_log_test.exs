@@ -47,6 +47,17 @@ defmodule SymphonyElixir.AgentLogTest do
         File.rm!(path)
       end
     end
+
+    test "returns error details when file cannot be read" do
+      path = Path.join(System.tmp_dir!(), "agent_log_test_dir_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(path)
+
+      try do
+        assert AgentLog.read(path) =~ "Unable to read agent log:"
+      after
+        File.rmdir!(path)
+      end
+    end
   end
 
   describe "parse/1" do
@@ -167,6 +178,16 @@ defmodule SymphonyElixir.AgentLogTest do
       assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
 
+    test "skips item/started commandExecution events" do
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{"item" => %{"type" => "commandExecution"}}
+        })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
+    end
+
     test "renders failed commandExecution as tool message" do
       content =
         entry("notification", %{
@@ -214,6 +235,63 @@ defmodule SymphonyElixir.AgentLogTest do
             "method" => "item/started",
             "params" => %{"item" => %{"type" => "agentMessage"}}
           })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
+    end
+
+    test "skips completed reasoning and userMessage events" do
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{"item" => %{"type" => "reasoning"}}
+        }) <>
+          entry("notification", %{
+            "method" => "item/completed",
+            "params" => %{"item" => %{"type" => "userMessage"}}
+          })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
+    end
+
+    test "renders non-text prompt content with inspect" do
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"image" => "diagram.png"}]}
+          }
+        })
+
+      assert [%{role: "user", body: body}] = AgentLog.parse(content)
+      assert body =~ ~s("image" => "diagram.png")
+    end
+
+    test "renders non-list prompt content with inspect" do
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => %{"text" => "Hello"}}
+          }
+        })
+
+      assert [%{role: "user", body: body}] = AgentLog.parse(content)
+      assert body =~ ~s("text" => "Hello")
+    end
+
+    test "skips successful commandExecution with non-binary output" do
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{
+            "item" => %{
+              "type" => "commandExecution",
+              "command" => "true",
+              "exitCode" => 0,
+              "aggregatedOutput" => nil
+            }
+          }
+        })
 
       assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
