@@ -78,9 +78,17 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   setup do
+    dashboard_username = System.get_env("SYMPHONY_DASHBOARD_USERNAME")
+    dashboard_password = System.get_env("SYMPHONY_DASHBOARD_PASSWORD")
     linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
 
+    System.delete_env("SYMPHONY_DASHBOARD_USERNAME")
+    System.delete_env("SYMPHONY_DASHBOARD_PASSWORD")
+
     on_exit(fn ->
+      restore_env("SYMPHONY_DASHBOARD_USERNAME", dashboard_username)
+      restore_env("SYMPHONY_DASHBOARD_PASSWORD", dashboard_password)
+
       if is_nil(linear_client_module) do
         Application.delete_env(:symphony_elixir, :linear_client_module)
       else

@@ -26,6 +26,17 @@ defmodule SymphonyElixir.AgentLogTest do
       assert AgentLog.read("/nonexistent/path/agent.md") == "Agent log has not been written yet."
     end
 
+    test "returns the read error for unreadable paths" do
+      path = Path.join(System.tmp_dir!(), "agent_log_test_dir_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(path)
+
+      try do
+        assert AgentLog.read(path) == "Unable to read agent log: :eisdir"
+      after
+        File.rm_rf!(path)
+      end
+    end
+
     test "returns placeholder for empty file" do
       path = Path.join(System.tmp_dir!(), "agent_log_test_empty_#{System.unique_integer([:positive])}.md")
       File.write!(path, "")
@@ -60,12 +71,13 @@ defmodule SymphonyElixir.AgentLogTest do
     end
 
     test "parses an item/started userMessage as user role" do
-      content = entry("notification", %{
-        "method" => "item/started",
-        "params" => %{
-          "item" => %{"type" => "userMessage", "content" => [%{"text" => "Hello"}]}
-        }
-      })
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => "Hello"}]}
+          }
+        })
 
       assert [message] = AgentLog.parse(content)
       assert message.role == "user"
@@ -77,12 +89,13 @@ defmodule SymphonyElixir.AgentLogTest do
       prompt =
         "Issue:\n\nFix login bug\n\nDescription:\n\nLogin fails on invalid email\n\nContinuation context:\n\nblah"
 
-      content = entry("notification", %{
-        "method" => "item/started",
-        "params" => %{
-          "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
-        }
-      })
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+          }
+        })
 
       assert [%{role: "user", body: body}] = AgentLog.parse(content)
       assert body =~ "Fix login bug"
@@ -90,11 +103,39 @@ defmodule SymphonyElixir.AgentLogTest do
       refute body =~ "Continuation context"
     end
 
+    test "renders non-text user prompt chunks with inspect" do
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => "Hello"}, %{"image" => "diagram"}]}
+          }
+        })
+
+      assert [%{role: "user", body: body}] = AgentLog.parse(content)
+      assert body =~ "Hello"
+      assert body =~ ~s("image" => "diagram")
+    end
+
+    test "renders non-list user prompt content with inspect" do
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => %{"text" => "Hello"}}
+          }
+        })
+
+      assert [%{role: "user", body: body}] = AgentLog.parse(content)
+      assert body =~ ~s("text" => "Hello")
+    end
+
     test "parses an item/agentMessage/delta without itemId as assistant" do
-      content = entry("notification", %{
-        "method" => "item/agentMessage/delta",
-        "params" => %{"delta" => "thinking..."}
-      })
+      content =
+        entry("notification", %{
+          "method" => "item/agentMessage/delta",
+          "params" => %{"delta" => "thinking..."}
+        })
 
       assert [%{role: "assistant", title: "Agent", body: "thinking..."}] = AgentLog.parse(content)
     end
@@ -128,51 +169,82 @@ defmodule SymphonyElixir.AgentLogTest do
     end
 
     test "parses an item/completed agentMessage without id" do
-      content = entry("notification", %{
-        "method" => "item/completed",
-        "params" => %{"item" => %{"type" => "agentMessage", "text" => "done"}}
-      })
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{"item" => %{"type" => "agentMessage", "text" => "done"}}
+        })
 
       assert [%{role: "assistant", body: "done"}] = AgentLog.parse(content)
     end
 
     test "parses a warning method" do
-      content = entry("notification", %{
-        "method" => "warning",
-        "params" => %{"message" => "rate limit hit"}
-      })
+      content =
+        entry("notification", %{
+          "method" => "warning",
+          "params" => %{"message" => "rate limit hit"}
+        })
 
       assert [%{role: "system", title: "Warning", body: "rate limit hit"}] = AgentLog.parse(content)
     end
 
     test "skips successful commandExecution completions" do
-      content = entry("notification", %{
-        "method" => "item/completed",
-        "params" => %{
-          "item" => %{
-            "type" => "commandExecution",
-            "command" => "ls",
-            "exitCode" => 0,
-            "aggregatedOutput" => "file1\nfile2"
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{
+            "item" => %{
+              "type" => "commandExecution",
+              "command" => "ls",
+              "exitCode" => 0,
+              "aggregatedOutput" => "file1\nfile2"
+            }
           }
-        }
-      })
+        })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
+    end
+
+    test "skips successful commandExecution completions without output" do
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{
+            "item" => %{
+              "type" => "commandExecution",
+              "command" => "true",
+              "exitCode" => 0,
+              "aggregatedOutput" => nil
+            }
+          }
+        })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
+    end
+
+    test "skips commandExecution start events" do
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{"item" => %{"type" => "commandExecution"}}
+        })
 
       assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
 
     test "renders failed commandExecution as tool message" do
-      content = entry("notification", %{
-        "method" => "item/completed",
-        "params" => %{
-          "item" => %{
-            "type" => "commandExecution",
-            "command" => "ls /nope",
-            "exitCode" => 2,
-            "aggregatedOutput" => "ls: /nope: No such file"
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{
+            "item" => %{
+              "type" => "commandExecution",
+              "command" => "ls /nope",
+              "exitCode" => 2,
+              "aggregatedOutput" => "ls: /nope: No such file"
+            }
           }
-        }
-      })
+        })
 
       assert [%{role: "tool", title: "Command failed", body: body}] = AgentLog.parse(content)
       assert body =~ "$ ls /nope"
@@ -181,17 +253,18 @@ defmodule SymphonyElixir.AgentLogTest do
     end
 
     test "renders successful commandExecution as tool when output looks like auth failure" do
-      content = entry("notification", %{
-        "method" => "item/completed",
-        "params" => %{
-          "item" => %{
-            "type" => "commandExecution",
-            "command" => "gh auth status",
-            "exitCode" => 0,
-            "aggregatedOutput" => "token is invalid"
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{
+            "item" => %{
+              "type" => "commandExecution",
+              "command" => "gh auth status",
+              "exitCode" => 0,
+              "aggregatedOutput" => "token is invalid"
+            }
           }
-        }
-      })
+        })
 
       assert [%{role: "tool", title: "Command output"}] = AgentLog.parse(content)
     end
@@ -210,11 +283,26 @@ defmodule SymphonyElixir.AgentLogTest do
       assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
 
+    test "skips item/completed reasoning and userMessage events" do
+      content =
+        entry("notification", %{
+          "method" => "item/completed",
+          "params" => %{"item" => %{"type" => "reasoning"}}
+        }) <>
+          entry("notification", %{
+            "method" => "item/completed",
+            "params" => %{"item" => %{"type" => "userMessage"}}
+          })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
+    end
+
     test "skips item/commandExecution/outputDelta events" do
-      content = entry("notification", %{
-        "method" => "item/commandExecution/outputDelta",
-        "params" => %{"delta" => "..."}
-      })
+      content =
+        entry("notification", %{
+          "method" => "item/commandExecution/outputDelta",
+          "params" => %{"delta" => "..."}
+        })
 
       assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
@@ -230,10 +318,11 @@ defmodule SymphonyElixir.AgentLogTest do
     end
 
     test "unknown method falls through to nil" do
-      content = entry("notification", %{
-        "method" => "totally/unknown",
-        "params" => %{"foo" => "bar"}
-      })
+      content =
+        entry("notification", %{
+          "method" => "totally/unknown",
+          "params" => %{"foo" => "bar"}
+        })
 
       assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
@@ -276,10 +365,11 @@ defmodule SymphonyElixir.AgentLogTest do
     end
 
     test "blank body becomes placeholder" do
-      content = entry("notification", %{
-        "method" => "item/agentMessage/delta",
-        "params" => %{"delta" => ""}
-      })
+      content =
+        entry("notification", %{
+          "method" => "item/agentMessage/delta",
+          "params" => %{"delta" => ""}
+        })
 
       assert [%{body: "No content."}] = AgentLog.parse(content)
     end

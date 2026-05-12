@@ -29,6 +29,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
           workspace: Path.t()
         }
 
+  @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
     with {:ok, session} <- start_session(workspace, opts) do
@@ -148,6 +149,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     stop_port(port)
   end
 
+  @spec validate_workspace_cwd(Path.t(), String.t() | nil) :: {:ok, Path.t()} | {:error, term()}
   defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
     workspace_path = Path.expand(workspace)
     workspace_root = Path.expand(Config.workspace_root())
@@ -190,6 +192,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     end
   end
 
+  @spec start_port(Path.t(), String.t() | nil) :: {:ok, port()} | {:error, term()}
   defp start_port(workspace, nil) do
     executable = System.find_executable("bash")
 
@@ -262,6 +265,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     end
   end
 
+  @spec session_policies(Path.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
   defp session_policies(workspace, nil) do
     SymphonyElixir.Codex.Config.runtime_settings(workspace)
   end
@@ -270,6 +274,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     Config.codex_runtime_settings(workspace, remote: true)
   end
 
+  @spec do_start_session(port(), Path.t(), map()) :: {:ok, String.t()} | {:error, term()}
   defp do_start_session(port, workspace, session_policies) do
     case send_initialize(port) do
       :ok -> start_thread(port, workspace, session_policies)
