@@ -25,6 +25,10 @@ defmodule SymphonyElixir.CLITest do
         send(parent, :port_set)
         :ok
       end,
+      set_server_host_override: fn _host ->
+        send(parent, :host_set)
+        :ok
+      end,
       ensure_all_started: fn ->
         send(parent, :started)
         {:ok, [:symphony_elixir]}
@@ -40,6 +44,7 @@ defmodule SymphonyElixir.CLITest do
     refute_received :workflow_set
     refute_received :logs_root_set
     refute_received :port_set
+    refute_received :host_set
     refute_received :started
   end
 
@@ -49,6 +54,7 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -71,6 +77,7 @@ defmodule SymphonyElixir.CLITest do
       end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -90,6 +97,7 @@ defmodule SymphonyElixir.CLITest do
         :ok
       end,
       set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -98,12 +106,46 @@ defmodule SymphonyElixir.CLITest do
     assert expanded_path == Path.expand("tmp/custom-logs")
   end
 
+  test "accepts --host and passes the bind host to runtime deps" do
+    parent = self()
+
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn host ->
+        send(parent, {:host, host})
+        :ok
+      end,
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+    }
+
+    assert :ok = CLI.evaluate([@ack_flag, "--host", "127.0.0.1", "WORKFLOW.md"], deps)
+    assert_received {:host, "127.0.0.1"}
+  end
+
+  test "rejects --host with an empty value" do
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--host", "   ", "WORKFLOW.md"], deps)
+    assert message =~ "Usage: symphony"
+  end
+
   test "returns not found when workflow file does not exist" do
     deps = %{
       file_regular?: fn _path -> false end,
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -117,6 +159,7 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
       ensure_all_started: fn -> {:error, :boom} end
     }
 
@@ -131,6 +174,7 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -153,6 +197,7 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 

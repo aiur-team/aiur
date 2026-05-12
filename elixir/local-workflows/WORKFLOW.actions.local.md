@@ -12,34 +12,28 @@ tracker:
     - cancelled
     - canceled
 github:
-  repo: its-applekid/actions
+  repo: ethereum-optimism/actions
   label_prefix: agent
 polling:
   interval_ms: 5000
 server:
-  host: 100.81.109.51
-  port: 4000
+  host: 100.101.178.116
+  port: 4001
 workspace:
   root: ~/code/symphony-workspaces
 hooks:
   after_create: |
-    git clone https://github.com/its-applekid/actions.git .
-    git remote add upstream https://github.com/ethereum-optimism/actions.git
-    git fetch upstream main
+    git clone https://github.com/ethereum-optimism/actions.git .
     issue_id="$(basename "$PWD")"
     git checkout -b "symphony/${issue_id}" origin/main
-    git merge upstream/main
     cp -a .git .git-writable
     printf '\n.git-writable/\n' >> .git/info/exclude
   before_run: |
     if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-      git clone https://github.com/its-applekid/actions.git .
-      git remote add upstream https://github.com/ethereum-optimism/actions.git
-      git fetch upstream main
+      git clone https://github.com/ethereum-optimism/actions.git .
       issue_id="$(basename "$PWD")"
       git checkout -b "symphony/${issue_id}" origin/main
-      git merge upstream/main
     fi
     if [ ! -d .git-writable ]; then
       cp -a .git .git-writable
@@ -57,17 +51,11 @@ codex:
   turn_sandbox_policy:
     type: workspaceWrite
     writableRoots:
-      - /home/applekid/code/symphony-workspaces
+      - ~/code/symphony-workspaces
     networkAccess: true
 ---
 
-You are working on GitHub issue `{{ issue.identifier }}` in `its-applekid/actions`.
-
-The working repository is a fork:
-
-- Fork/origin: `its-applekid/actions`
-- Upstream/base: `ethereum-optimism/actions`
-- Open PRs from `its-applekid/actions` branches into `ethereum-optimism/actions:main`
+You are working on GitHub issue `{{ issue.identifier }}` in `ethereum-optimism/actions`.
 
 Issue:
 
@@ -96,15 +84,14 @@ Continuation context:
 
 ## Required Setup
 
-- Use the local `gh` auth already configured for `its-applekid`.
+- Use the local `gh` auth already configured for pushing to `ethereum-optimism/actions`.
 - If `gh auth status` fails, stop and record the blocker in the workpad.
-- Never push to `ethereum-optimism/actions` directly.
-- Always push branches to `origin` (`its-applekid/actions`).
+- Push branches directly to `origin` (`ethereum-optimism/actions`); never force-push to `main`.
 - Codex may mount `.git` read-only. If mutating Git commands fail on `.git/FETCH_HEAD`, use the prepared writable metadata copy:
 
   ```bash
-  GIT_DIR=.git-writable GIT_WORK_TREE=. git fetch upstream main
-  GIT_DIR=.git-writable GIT_WORK_TREE=. git merge upstream/main
+  GIT_DIR=.git-writable GIT_WORK_TREE=. git fetch origin main
+  GIT_DIR=.git-writable GIT_WORK_TREE=. git merge origin/main
   GIT_DIR=.git-writable GIT_WORK_TREE=. git status --short --branch
   ```
 
@@ -141,18 +128,18 @@ If the issue is already `in-progress`, `rework`, or `merging`, or if this worksp
 3. If state is `todo`, move it to `in-progress`.
 4. Find or create one persistent issue comment titled `## Codex Workpad`.
 5. Keep all progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
-6. Sync with upstream before editing:
+6. Sync with `main` before editing:
 
    ```bash
-   git fetch upstream main
-   git merge upstream/main
+   git fetch origin main
+   git merge origin/main
    ```
 
 7. Create or reuse a branch named `symphony/<issue-number>-short-title`.
 8. Implement the smallest correct change for the issue.
 9. Run validation appropriate to the changed files. If the issue specifies tests, run those exactly.
 10. Commit with a short, concrete message.
-11. Push to the fork:
+11. Push the branch to origin:
 
     ```bash
     git push -u origin HEAD
@@ -163,7 +150,6 @@ If the issue is already `in-progress`, `rework`, or `merging`, or if this worksp
     ```bash
     gh pr create \
       --repo ethereum-optimism/actions \
-      --head its-applekid:<branch> \
       --base main \
       --title "<issue-number>: <short title>" \
       --body-file /tmp/pr-body.md
@@ -192,7 +178,7 @@ Use this shape:
 
 ## Issue
 
-Closes/Fixes/Refs its-applekid/actions#{{ issue.identifier }}
+Closes/Fixes/Refs ethereum-optimism/actions#{{ issue.identifier }}
 ```
 
 ## Workpad Template
@@ -230,7 +216,6 @@ Use and update this single issue comment:
 ## Guardrails
 
 - Do not touch repositories outside the workspace.
-- Do not push to upstream.
 - Do not merge PRs.
 - Do not create extra progress comments.
 - Do not mark `Human Review` until a PR exists.
