@@ -16,9 +16,8 @@ the work at a higher level._
 
 ## Additional Capabilities
 
-This fork keeps orchestration provider-agnostic while letting each deployment choose the tracker,
-implementation backend, and operational tooling that fit its environment.
-
+- **Claude support:** Agents can run on claude as well as codex.
+- **Github issues:** In addition to Linear, agents can watch and move Github issues.
 - **Tracker adapters:** configure tracker backends for board- or issue-based queues, including
   label-based state machines where the tracker supports them.
 - **Implementation adapters:** configure implementation backends through Symphony's app-server
