@@ -1,13 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-default_repo_root="/home/applekid/github/its-applekid/symphony"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+default_repo_root="$(cd "$script_dir/.." && pwd)"
 repo_root="${AGENTS_REPO_ROOT:-$default_repo_root}"
 config_file="${AGENTS_CONFIG_FILE:-$HOME/.config/symphony/agents.profiles}"
 env_file="${AGENTS_ENV_FILE:-$HOME/.config/symphony-dashboard.env}"
-mise_bin="${AGENTS_MISE_BIN:-$HOME/.local/bin/mise}"
+mise_bin="${AGENTS_MISE_BIN:-$(command -v mise 2>/dev/null || true)}"
 systemctl_bin="${AGENTS_SYSTEMCTL_BIN:-systemctl}"
 pkill_bin="${AGENTS_PKILL_BIN:-pkill}"
+nohup_bin="${AGENTS_NOHUP_BIN:-nohup}"
+kill_bin="${AGENTS_KILL_BIN:-kill}"
+bg_state_dir="${AGENTS_BG_STATE_DIR:-$HOME/.local/state/symphony}"
+
+agents_os="${AGENTS_OS_OVERRIDE:-$(uname -s)}"
+
+# --host: when present, let the workflow's configured host stand (typical for
+# Tailscale or LAN exposure). When absent, the wrapper injects
+# `--host 127.0.0.1` so a default `agents` run binds locally only.
+expose_host=0
+filtered_args=()
+for arg in "$@"; do
+  if [ "$arg" = "--host" ]; then
+    expose_host=1
+  else
+    filtered_args+=("$arg")
+  fi
+done
+set -- "${filtered_args[@]}"
 
 declare -a profile_names=()
 declare -A profile_symphony_roots=()
@@ -73,8 +93,9 @@ profile_exists() {
 }
 
 load_profiles() {
-  add_profile "default" "$repo_root" "WORKFLOW.md" "" "" "symphony"
-  add_profile "symphony" "$repo_root" "WORKFLOW.symphony.md" "" "" "symphony"
+  add_profile "default" "$repo_root" "local-workflows/WORKFLOW.symphony.local.md" "" "" "symphony"
+  add_profile "symphony" "$repo_root" "local-workflows/WORKFLOW.symphony.local.md" "" "" "symphony"
+  add_profile "actions" "$repo_root" "local-workflows/WORKFLOW.actions.local.md" "" "" "symphony-actions"
 
   if [ -r "$config_file" ]; then
     while IFS='|' read -r name root workflow port logs_root service extra; do
@@ -148,6 +169,99 @@ list_profiles() {
   done
 }
 
+load_env_file() {
+  local path="$1"
+
+  if [ -r "$path" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$path"
+    set +a
+  fi
+}
+
+require_mise() {
+  if [ -z "$mise_bin" ] || [ ! -x "$mise_bin" ]; then
+    echo "agents: mise not found on PATH. Install mise (https://mise.jdx.dev) or set AGENTS_MISE_BIN." >&2
+    exit 64
+  fi
+}
+
+ensure_built() {
+  local elixir_dir="$1"
+  local symphony_bin="$elixir_dir/bin/symphony"
+
+  # AGENTS_SKIP_BUILD lets the test fixture short-circuit this without faking
+  # `mix escript.build` invocations on top of every other stubbed binary.
+  if [ "${AGENTS_SKIP_BUILD:-0}" = "1" ]; then
+    return 0
+  fi
+
+  if [ ! -x "$symphony_bin" ]; then
+    build_symphony "$elixir_dir"
+    return
+  fi
+
+  # If any source file is newer than the escript, rebuild. `-quit` stops after
+  # the first hit; output is discarded — we only care about the exit signal.
+  if [ -n "$(find "$elixir_dir/lib" "$elixir_dir/mix.exs" "$elixir_dir/mix.lock" \
+              -newer "$symphony_bin" -print -quit 2>/dev/null)" ]; then
+    build_symphony "$elixir_dir"
+  fi
+}
+
+build_symphony() {
+  local elixir_dir="$1"
+
+  require_mise
+  echo "agents: rebuilding bin/symphony…" >&2
+  (cd "$elixir_dir" && "$mise_bin" exec -- mix escript.build) >&2
+}
+
+source_env_files() {
+  # Order: home-dir env first, then repo-local .env (overrides), then
+  # .env.local (machine-specific override). All optional.
+  load_env_file "$env_file"
+  load_env_file "$repo_root/.env"
+  load_env_file "$repo_root/.env.local"
+}
+
+ensure_bg_state_dir() {
+  mkdir -p "$bg_state_dir"
+}
+
+bg_pid_file() {
+  printf '%s/%s.pid' "$bg_state_dir" "$1"
+}
+
+bg_log_file() {
+  printf '%s/%s.log' "$bg_state_dir" "$1"
+}
+
+stop_bg_pidfile() {
+  local service="$1"
+  local pid_file
+  local pid
+
+  if [ -z "$service" ]; then
+    return 0
+  fi
+
+  pid_file="$(bg_pid_file "$service")"
+
+  if [ ! -f "$pid_file" ]; then
+    return 0
+  fi
+
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+
+  if [ -n "$pid" ]; then
+    "$kill_bin" -TERM "$pid" 2>/dev/null || true
+  fi
+
+  rm -f "$pid_file"
+}
+
 stop_profile() {
   local profile="$1"
   local elixir_dir
@@ -160,9 +274,16 @@ stop_profile() {
   workflow="$(profile_workflow_arg "$profile")"
   service="${profile_services[$profile]}"
 
-  if [ -n "$service" ] && command -v "$systemctl_bin" >/dev/null 2>&1; then
-    "$systemctl_bin" --user stop "$service" >/dev/null 2>&1 || true
-  fi
+  case "$agents_os" in
+    Darwin*)
+      stop_bg_pidfile "$service"
+      ;;
+    *)
+      if [ -n "$service" ] && command -v "$systemctl_bin" >/dev/null 2>&1; then
+        "$systemctl_bin" --user stop "$service" >/dev/null 2>&1 || true
+      fi
+      ;;
+  esac
 
   if [[ "$workflow" = /* ]]; then
     "$pkill_bin" -f "$workflow" 2>/dev/null || true
@@ -179,6 +300,75 @@ stop_all() {
   done
 }
 
+start_bg_nohup() {
+  local profile="$1"
+  local elixir_dir
+  local workflow
+  local port
+  local logs_root
+  local service
+  local pid_file
+  local log_file
+  local args=()
+
+  elixir_dir="$(profile_elixir_dir "$profile")"
+  workflow="$(profile_workflow_arg "$profile")"
+  port="${profile_ports[$profile]}"
+  logs_root="${profile_logs_roots[$profile]}"
+  service="${profile_services[$profile]}"
+
+  ensure_built "$elixir_dir"
+
+  ensure_bg_state_dir
+  pid_file="$(bg_pid_file "$service")"
+  log_file="$(bg_log_file "$service")"
+
+  stop_bg_pidfile "$service"
+
+  (
+    cd "$elixir_dir"
+
+    source_env_files
+
+    args=(exec -- ./bin/symphony)
+
+    if [ -n "$logs_root" ]; then
+      args+=(--logs-root "$logs_root")
+    fi
+
+    if [ -n "$port" ]; then
+      args+=(--port "$port")
+    fi
+
+    if [ "$expose_host" -eq 0 ]; then
+      args+=(--host 127.0.0.1)
+    fi
+
+    args+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
+
+    "$nohup_bin" "$mise_bin" "${args[@]}" >"$log_file" 2>&1 &
+    echo $! >"$pid_file"
+    disown
+  )
+
+  printf '%s started in background (pid file: %s, log: %s)\n' "$service" "$pid_file" "$log_file"
+}
+
+restart_one_background_service() {
+  local profile="$1"
+  local service="${profile_services[$profile]}"
+
+  case "$agents_os" in
+    Darwin*)
+      start_bg_nohup "$profile"
+      ;;
+    *)
+      "$systemctl_bin" --user restart "$service"
+      "$systemctl_bin" --user status "$service" --no-pager
+      ;;
+  esac
+}
+
 restart_profile_background() {
   local profile="$1"
   local service
@@ -187,12 +377,11 @@ restart_profile_background() {
   service="${profile_services[$profile]}"
 
   if [ -z "$service" ]; then
-    echo "Profile '$profile' has no systemd service configured" >&2
+    echo "Profile '$profile' has no background service configured" >&2
     exit 64
   fi
 
-  "$systemctl_bin" --user restart "$service"
-  "$systemctl_bin" --user status "$service" --no-pager
+  restart_one_background_service "$profile"
 }
 
 restart_all_background() {
@@ -204,8 +393,7 @@ restart_all_background() {
 
     if [ -n "$service" ] && [[ "$seen_services" != *" $service "* ]]; then
       seen_services="${seen_services}${service} "
-      "$systemctl_bin" --user restart "$service"
-      "$systemctl_bin" --user status "$service" --no-pager
+      restart_one_background_service "$profile"
     fi
   done
 }
@@ -221,8 +409,7 @@ restart_background_except_profile() {
 
     if [ -n "$service" ] && [ "$service" != "$foreground_service" ] && [[ "$seen_services" != *" $service "* ]]; then
       seen_services="${seen_services}${service} "
-      "$systemctl_bin" --user restart "$service"
-      "$systemctl_bin" --user status "$service" --no-pager
+      restart_one_background_service "$profile"
     fi
   done
 }
@@ -243,14 +430,11 @@ run_foreground() {
   port="${profile_ports[$profile]}"
   logs_root="${profile_logs_roots[$profile]}"
 
+  ensure_built "$elixir_dir"
+
   cd "$elixir_dir"
 
-  if [ -r "$env_file" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "$env_file"
-    set +a
-  fi
+  source_env_files
 
   args=(exec -- ./bin/symphony)
 
@@ -260,6 +444,10 @@ run_foreground() {
 
   if [ -n "$port" ]; then
     args+=(--port "$port")
+  fi
+
+  if [ "$expose_host" -eq 0 ]; then
+    args+=(--host 127.0.0.1)
   fi
 
   args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
@@ -274,14 +462,6 @@ run_ad_hoc_workflow() {
   run_foreground "__adhoc__"
 }
 
-run_all_with_foreground() {
-  local foreground_profile="${1:-default}"
-
-  require_profile "$foreground_profile"
-  restart_background_except_profile "$foreground_profile"
-  run_foreground "$foreground_profile"
-}
-
 load_profiles
 
 case "${1:-}" in
@@ -291,6 +471,10 @@ case "${1:-}" in
     ;;
   list)
     list_profiles
+    exit 0
+    ;;
+  build)
+    build_symphony "$repo_root/elixir"
     exit 0
     ;;
   --bg)
@@ -303,9 +487,6 @@ case "${1:-}" in
     fi
 
     exit 0
-    ;;
-  all)
-    run_all_with_foreground
     ;;
   run)
     run_foreground "${2:-default}"
@@ -321,10 +502,7 @@ case "${1:-}" in
 
     exit 0
     ;;
-  "")
-    run_all_with_foreground
-    ;;
-  default)
+  "" | default)
     run_foreground "default"
     ;;
   *.md | /*)

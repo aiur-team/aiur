@@ -1016,7 +1016,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "https://github.com/its-applekid/actions/issues"
   end
 
-  test "status dashboard renders dashboard url on its own line when server port is configured" do
+  test "status dashboard renders the dashboard url in the title row when server port is configured" do
     previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
 
     on_exit(fn ->
@@ -1042,8 +1042,11 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert rendered =~ "Project:"
     assert rendered =~ "project"
-    assert rendered =~ "Dashboard:"
     assert rendered =~ "http://127.0.0.1:4000/"
+
+    [title_line | _] = String.split(rendered, "\n")
+    assert title_line =~ "SYMPHONY STATUS"
+    assert title_line =~ "http://127.0.0.1:4000/"
   end
 
   test "status dashboard prefers the bound server port and normalizes wildcard hosts" do

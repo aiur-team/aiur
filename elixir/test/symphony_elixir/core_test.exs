@@ -619,6 +619,46 @@ defmodule SymphonyElixir.CoreTest do
     assert_due_in_range(due_at_ms, 39_500, 40_500)
   end
 
+  test "abnormal worker exit beyond max_retry_attempts gives up and clears retry state" do
+    issue_id = "issue-exhausted"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :ExhaustedRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-EX",
+      # Coming back from attempt 3 means the next failure would be attempt 4,
+      # which is > the default max_retry_attempts (3).
+      retry_attempt: 3,
+      issue: %Issue{id: issue_id, identifier: "MT-EX", state: "In Progress"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :boom})
+    Process.sleep(50)
+    state = :sys.get_state(pid)
+
+    refute Map.has_key?(state.retry_attempts, issue_id),
+           "expected the orchestrator to give up after exceeding max_retry_attempts"
+  end
+
   test "first abnormal worker exit waits before retrying" do
     issue_id = "issue-crash-initial"
     ref = make_ref()
