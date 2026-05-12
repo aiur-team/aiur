@@ -118,6 +118,30 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.workflow_prompt() == prompt
   end
 
+  test "agent error issues are not dispatch-eligible" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["todo", "in-progress", "human-review", "rework", "merging"],
+      tracker_terminal_states: ["done", "cancelled", "canceled"]
+    )
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issue = %Issue{
+      id: "issue-error",
+      identifier: "GH-14",
+      title: "Needs human triage",
+      state: "Error"
+    }
+
+    refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+  end
+
   test "checked-in workflow examples parse and portable examples stay generic" do
     workflow_paths =
       ["WORKFLOW.md"] ++
