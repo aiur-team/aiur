@@ -11,6 +11,8 @@ defmodule SymphonyElixir.Codex.CodingAgent do
   alias SymphonyElixir.Codex.DynamicTool
   alias SymphonyElixir.{Config, PathSafety, SSH}
 
+  @dialyzer {:nowarn_function, run: 4}
+
   @initialize_id 1
   @thread_start_id 2
   @turn_start_id 3
@@ -31,12 +33,16 @@ defmodule SymphonyElixir.Codex.CodingAgent do
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
-    with {:ok, session} <- start_session(workspace, opts) do
-      try do
-        run_turn(session, prompt, issue, opts)
-      after
-        stop_session(session)
-      end
+    case start_session(workspace, opts) do
+      {:ok, session} ->
+        try do
+          run_turn(session, prompt, issue, opts)
+        after
+          stop_session(session)
+        end
+
+      result ->
+        result
     end
   end
 

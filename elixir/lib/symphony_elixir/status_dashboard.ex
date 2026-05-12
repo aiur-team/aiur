@@ -1195,8 +1195,6 @@ defmodule SymphonyElixir.StatusDashboard do
     String.replace(text, ~r/\s*\([^()]*_[^()]*\)\s*$/, "")
   end
 
-  defp strip_event_trailing_id(other), do: to_string(other)
-
   defp terminal_columns do
     case :io.columns() do
       {:ok, columns} when is_integer(columns) and columns > 0 ->
@@ -1243,7 +1241,7 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp format_cell(value, width, align \\ :left) do
+  defp format_cell(value, width) do
     value =
       value
       |> to_string()
@@ -1252,10 +1250,7 @@ defmodule SymphonyElixir.StatusDashboard do
       |> String.trim()
       |> truncate_plain(width)
 
-    case align do
-      :right -> String.pad_leading(value, width)
-      _ -> String.pad_trailing(value, width)
-    end
+    String.pad_trailing(value, width)
   end
 
   defp truncate_plain(value, width) do
