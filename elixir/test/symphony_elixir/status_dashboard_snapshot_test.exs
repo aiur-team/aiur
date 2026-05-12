@@ -312,35 +312,21 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     ## 2026-05-10T22:46:39Z notification
 
     ```text
-    #{Jason.encode!(%{
-      "method" => "item/started",
-      "params" => %{
-        "item" => %{
-          "type" => "userMessage",
-          "content" => [%{"text" => "Issue:\n\nFix the login flow\n\nDescription:\n\nUsers cannot log in"}]
-        }
-      }
-    })}
+    #{Jason.encode!(%{"method" => "item/started", "params" => %{"item" => %{"type" => "userMessage", "content" => [%{"text" => "Issue:\n\nFix the login flow\n\nDescription:\n\nUsers cannot log in"}]}}})}
     ```
 
 
     ## 2026-05-10T22:46:42Z notification
 
     ```text
-    #{Jason.encode!(%{
-      "method" => "item/agentMessage/delta",
-      "params" => %{"delta" => "Looking into the login flow now."}
-    })}
+    #{Jason.encode!(%{"method" => "item/agentMessage/delta", "params" => %{"delta" => "Looking into the login flow now."}})}
     ```
 
 
     ## 2026-05-10T22:46:45Z notification
 
     ```text
-    #{Jason.encode!(%{
-      "method" => "warning",
-      "params" => %{"message" => "Rate limit warning"}
-    })}
+    #{Jason.encode!(%{"method" => "warning", "params" => %{"message" => "Rate limit warning"}})}
     ```
 
 

@@ -802,9 +802,7 @@ defmodule SymphonyElixir.Orchestrator do
 
       error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 
-      Logger.warning(
-        "Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}"
-      )
+      Logger.warning("Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}")
 
       %{
         state
