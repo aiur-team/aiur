@@ -39,8 +39,7 @@ defmodule SymphonyElixir.CLI do
         wait_for_shutdown()
 
       {:version, version} ->
-        rev_suffix = if @git_rev != "", do: " #{@git_rev}", else: ""
-        IO.puts("symphony #{version} (sapsaldog/symphony#{rev_suffix})")
+        IO.puts("symphony #{version} (sapsaldog/symphony #{@git_rev})")
 
       {:error, message} ->
         IO.puts(:stderr, message)
@@ -48,7 +47,7 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
+  @spec evaluate([String.t()], deps()) :: :ok | {:version, String.t()} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {[version: true], _, _} ->

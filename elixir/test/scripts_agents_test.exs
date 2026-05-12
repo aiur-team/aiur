@@ -416,8 +416,12 @@ defmodule ScriptsAgentsTest do
       end
 
     cond do
-      String.contains?(contents, substring) -> contents
-      System.monotonic_time(:millisecond) >= deadline -> contents
+      String.contains?(contents, substring) ->
+        contents
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        contents
+
       true ->
         Process.sleep(20)
         do_await_command_log(ctx, substring, deadline)
@@ -439,8 +443,12 @@ defmodule ScriptsAgentsTest do
       end
 
     cond do
-      count_occurrences(contents, substring) >= expected_count -> contents
-      System.monotonic_time(:millisecond) >= deadline -> contents
+      count_occurrences(contents, substring) >= expected_count ->
+        contents
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        contents
+
       true ->
         Process.sleep(20)
         do_await_command_log_count(ctx, substring, expected_count, deadline)
