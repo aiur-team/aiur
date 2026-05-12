@@ -401,7 +401,7 @@ pre,
   max-height: min(760px, calc(100vh - 2rem));
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0.75rem;
   padding: 1rem;
   border-radius: 18px;
@@ -545,6 +545,52 @@ pre,
 .log-message-tool .log-message-body {
   font-family: "Sohne Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
   font-size: 0.8rem;
+}
+
+.agent-chat-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.agent-chat-textarea {
+  width: 100%;
+  min-width: 0;
+  max-height: 8rem;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 0.72rem 0.82rem;
+  color: var(--ink);
+  background: white;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.agent-chat-textarea:focus {
+  outline: 2px solid rgba(16, 163, 127, 0.2);
+  border-color: var(--accent);
+}
+
+.agent-chat-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.agent-chat-send,
+.agent-chat-pause {
+  min-height: 2.75rem;
+  border-radius: 10px;
+}
+
+.agent-chat-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
 .state-badge-warning {

@@ -19,6 +19,7 @@ defmodule SymphonyElixir.Orchestrator do
     total_tokens: 0,
     seconds_running: 0
   }
+  @max_operator_message_chars 8_000
 
   defmodule State do
     @moduledoc """
@@ -1096,6 +1097,40 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  @spec send_operator_message(String.t(), %{required(:kind) => :text, required(:body) => String.t()}) ::
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(issue_identifier, payload) do
+    send_operator_message(__MODULE__, issue_identifier, payload)
+  end
+
+  @spec send_operator_message(GenServer.server(), String.t(), %{required(:kind) => :text, required(:body) => String.t()}) ::
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(server, issue_identifier, payload) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:send_operator_message, issue_identifier, payload}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec pause_agent(String.t()) :: {:ok, integer()} | {:error, term()}
+  def pause_agent(issue_identifier), do: pause_agent(__MODULE__, issue_identifier)
+
+  @spec pause_agent(GenServer.server(), String.t()) :: {:ok, integer()} | {:error, term()}
+  def pause_agent(server, issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:pause_agent, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
@@ -1184,6 +1219,78 @@ defmodule SymphonyElixir.Orchestrator do
        requested_at: DateTime.utc_now(),
        operations: ["poll", "reconcile"]
      }, state}
+  end
+
+  def handle_call({:send_operator_message, issue_identifier, %{kind: :text, body: body}}, _from, state)
+      when is_binary(issue_identifier) and is_binary(body) do
+    case validate_operator_message(body) do
+      {:ok, text} ->
+        reply =
+          send_running_control_message(state, issue_identifier, fn request_id ->
+            {:operator_message, %{kind: :text, body: text}, request_id}
+          end)
+
+        {:reply, reply, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:send_operator_message, _issue_identifier, _payload}, _from, state) do
+    {:reply, {:error, :invalid_message}, state}
+  end
+
+  def handle_call({:pause_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    reply =
+      send_running_control_message(state, issue_identifier, fn request_id ->
+        {:pause_agent, request_id}
+      end)
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:pause_agent, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  defp validate_operator_message(body) do
+    text = String.trim(body)
+
+    cond do
+      text == "" -> {:error, :empty_message}
+      String.length(text) > @max_operator_message_chars -> {:error, :message_too_long}
+      true -> {:ok, text}
+    end
+  end
+
+  defp send_running_control_message(state, issue_identifier, build_message) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      nil ->
+        {:error, :no_running_agent}
+
+      %{pid: pid} when is_pid(pid) ->
+        if Process.alive?(pid) do
+          request_id = :erlang.unique_integer([:positive])
+          send(pid, build_message.(request_id))
+          {:ok, request_id}
+        else
+          {:error, :agent_finished}
+        end
+
+      _ ->
+        {:error, :agent_finished}
+    end
+  end
+
+  defp find_running_by_identifier(running, issue_identifier) do
+    Enum.find_value(running, fn
+      {_issue_id, %{identifier: identifier} = entry} ->
+        if to_string(identifier) == issue_identifier, do: entry, else: nil
+
+      _ ->
+        nil
+    end)
   end
 
   defp integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do

@@ -47,6 +47,14 @@ With --bg, restart background services only and return. Defaults to the default 
 With all, restart the other configured services and run the default profile in the foreground.
 With stop, stop a profile, every profile, or ad hoc foreground Symphony processes.
 
+Foreground dashboard controls:
+  j/k or arrows        move between running agents
+  space, enter, or i   open the selected agent conversation
+  enter                send the typed message
+  alt-enter            insert a newline while typing
+  esc or ctrl-c        return from conversation to agent selection
+  q                    quit from navigation mode
+
 Profiles are loaded from ~/.config/symphony/agents.profiles when present.
 Each non-comment line uses:
   name|symphony_root|workflow|port|logs_root|service
@@ -267,12 +275,16 @@ stop_profile() {
   local elixir_dir
   local workflow
   local service
+  local logs_root
+  local port
 
   require_profile "$profile"
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
   service="${profile_services[$profile]}"
+  logs_root="${profile_logs_roots[$profile]}"
+  port="${profile_ports[$profile]}"
 
   case "$agents_os" in
     Darwin*)
@@ -287,10 +299,22 @@ stop_profile() {
 
   if [[ "$workflow" = /* ]]; then
     "$pkill_bin" -f "$workflow" 2>/dev/null || true
+    "$pkill_bin" -f "bin/symphony .*--interactive.*$workflow" 2>/dev/null || true
   else
     "$pkill_bin" -f "$elixir_dir/${workflow#./}" 2>/dev/null || true
     "$pkill_bin" -f "$elixir_dir/$workflow" 2>/dev/null || true
+    "$pkill_bin" -f "bin/symphony .*--interactive.*${workflow#./}" 2>/dev/null || true
+    "$pkill_bin" -f "bin/symphony .*--interactive.*$workflow" 2>/dev/null || true
   fi
+
+  if [ -n "$logs_root" ]; then
+    "$pkill_bin" -f "bin/symphony .*--interactive.*--logs-root $logs_root" 2>/dev/null || true
+  fi
+
+  if [ -n "$port" ]; then
+    "$pkill_bin" -f "bin/symphony .*--interactive.*--port $port" 2>/dev/null || true
+  fi
+
   "$pkill_bin" -f "$elixir_dir.*bin/symphony" 2>/dev/null || true
 }
 

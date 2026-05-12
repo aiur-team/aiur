@@ -157,7 +157,11 @@ defmodule ScriptsAgentsTest do
     assert command_log =~ "SYSTEMCTL:--user stop symphony\n"
     assert command_log =~ "SYSTEMCTL:--user stop symphony-actions\n"
     assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "elixir")}/local-workflows/WORKFLOW.symphony.local.md"
+    assert output =~ "PKILL:-f bin/symphony .*--interactive.*local-workflows/WORKFLOW.symphony.local.md"
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f bin/symphony .*--interactive.*WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f bin/symphony .*--interactive.*--logs-root #{ctx.logs_root}/actions"
+    assert output =~ "PKILL:-f bin/symphony .*--interactive.*--port 4101"
     refute output =~ "MISE:"
   end
 
@@ -173,6 +177,9 @@ defmodule ScriptsAgentsTest do
 
     assert command_log =~ "SYSTEMCTL:--user stop symphony-actions\n"
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f bin/symphony .*--interactive.*WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f bin/symphony .*--interactive.*--logs-root #{ctx.logs_root}/actions"
+    assert output =~ "PKILL:-f bin/symphony .*--interactive.*--port 4101"
     refute command_log =~ "SYSTEMCTL:--user stop symphony\n"
     refute output =~ "MISE:"
   end

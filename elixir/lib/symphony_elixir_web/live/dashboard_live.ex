@@ -5,6 +5,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
+  alias SymphonyElixir.AgentChat
   alias SymphonyElixirWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
 
@@ -15,6 +16,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
       |> assign(:payload, load_payload())
       |> assign(:now, DateTime.utc_now())
       |> assign(:agent_log_modal, nil)
+      |> assign(:drafts, %{})
+      |> assign(:chat_errors, %{})
 
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
@@ -51,6 +54,58 @@ defmodule SymphonyElixirWeb.DashboardLive do
   def handle_event("close-agent-log", _params, socket) do
     {:noreply, assign(socket, :agent_log_modal, nil)}
   end
+
+  @impl true
+  def handle_event("composer-change", %{"message" => message}, %{assigns: %{agent_log_modal: modal}} = socket)
+      when is_map(modal) do
+    identifier = modal.issue_identifier
+
+    {:noreply,
+     socket
+     |> assign(:drafts, Map.put(socket.assigns.drafts, identifier, message))
+     |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+  end
+
+  def handle_event("composer-change", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("send-operator-message", %{"message" => message}, %{assigns: %{agent_log_modal: modal}} = socket)
+      when is_map(modal) do
+    identifier = modal.issue_identifier
+    text = String.trim(message)
+
+    if text == "" do
+      {:noreply, socket}
+    else
+      case AgentChat.send(identifier, text) do
+        {:ok, _request_id} ->
+          {:noreply,
+           socket
+           |> assign(:drafts, Map.delete(socket.assigns.drafts, identifier))
+           |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+
+        {:error, reason} ->
+          {:noreply, assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, format_chat_error(reason)))}
+      end
+    end
+  end
+
+  def handle_event("send-operator-message", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("pause-agent", _params, %{assigns: %{agent_log_modal: modal}} = socket) when is_map(modal) do
+    identifier = modal.issue_identifier
+
+    case AgentChat.pause(identifier) do
+      {:ok, _request_id} ->
+        {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, format_chat_error(reason)))}
+    end
+  end
+
+  def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
 
   @impl true
   def render(assigns) do
@@ -310,6 +365,24 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 <div class="log-message-body"><%= message.body %></div>
               </div>
             </div>
+
+            <form class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
+              <%= if error = @chat_errors[@agent_log_modal.issue_identifier] do %>
+                <p class="agent-chat-error"><%= error %></p>
+              <% end %>
+              <textarea
+                class="agent-chat-textarea"
+                name="message"
+                rows="2"
+                placeholder="Message agent..."
+                aria-label="Message agent"
+                enterkeyhint="send"
+              ><%= @drafts[@agent_log_modal.issue_identifier] || "" %></textarea>
+              <div class="agent-chat-actions">
+                <button class="agent-chat-pause" type="button" phx-click="pause-agent">Pause</button>
+                <button class="agent-chat-send" type="submit">Send</button>
+              </div>
+            </form>
           </section>
         </div>
       <% end %>
@@ -455,4 +528,11 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp agent_log_path(_entry), do: nil
 
   defp log_message_class(%{role: role}), do: "log-message log-message-#{role}"
+
+  defp format_chat_error(:no_running_agent), do: "Agent is no longer running."
+  defp format_chat_error(:empty_message), do: "Message is empty."
+  defp format_chat_error(:message_too_long), do: "Message is too long."
+  defp format_chat_error(:timeout), do: "Send timed out."
+  defp format_chat_error(:unavailable), do: "Orchestrator unavailable."
+  defp format_chat_error(reason), do: inspect(reason)
 end
