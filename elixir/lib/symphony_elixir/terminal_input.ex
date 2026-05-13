@@ -34,7 +34,7 @@ defmodule SymphonyElixir.TerminalInput do
     case enter_raw_mode(skip_raw_mode?) do
       :ok ->
         parent = self()
-        reader_pid = spawn_link(fn -> read_loop(parent, dashboard, input_fun, :nav) end)
+        reader_pid = spawn_link(fn -> read_loop(parent, dashboard, input_fun, :list) end)
         {:ok, %{reader_pid: reader_pid, dashboard: dashboard, restore_terminal?: not skip_raw_mode?}}
 
       {:error, reason} ->
@@ -81,78 +81,133 @@ defmodule SymphonyElixir.TerminalInput do
     end
   end
 
+  defp dispatch_byte("\e", parent, dashboard, input_fun, {:text, _} = mode) do
+    case input_fun.() do
+      :eof -> handle_escape_timeout(parent, dashboard, input_fun, mode, :stop_reader)
+      "" -> handle_escape_timeout(parent, dashboard, input_fun, mode, :continue)
+      "[" -> handle_csi_escape(parent, dashboard, input_fun, mode)
+      byte when byte in ["\r", "\n"] -> handle_alt_enter(parent, dashboard, input_fun)
+      other -> handle_escape_other(other, parent, dashboard, input_fun, mode)
+    end
+  end
+
   defp dispatch_byte("\e", parent, dashboard, input_fun, mode) do
     case input_fun.() do
       :eof -> handle_escape_timeout(parent, dashboard, input_fun, mode, :stop_reader)
       "" -> handle_escape_timeout(parent, dashboard, input_fun, mode, :continue)
       "[" -> handle_csi_escape(parent, dashboard, input_fun, mode)
-      byte when mode == :text and byte in ["\r", "\n"] -> handle_alt_enter(parent, dashboard, input_fun)
       other -> handle_escape_other(other, parent, dashboard, input_fun, mode)
     end
   end
 
-  defp dispatch_byte(<<3>>, parent, dashboard, input_fun, :text) do
-    StatusDashboard.exit_typing(dashboard)
+  defp dispatch_byte(<<3>>, parent, dashboard, input_fun, {:text, :armed}) do
     StatusDashboard.close_log(dashboard)
-    read_loop(parent, dashboard, input_fun, :nav)
+    read_loop(parent, dashboard, input_fun, :list)
   end
 
-  defp dispatch_byte(<<3>>, _parent, _dashboard, _input_fun, :nav), do: System.stop(0)
+  defp dispatch_byte(<<3>>, parent, dashboard, input_fun, {:text, :clear}) do
+    StatusDashboard.pause_agent(dashboard)
+    read_loop(parent, dashboard, input_fun, {:text, :armed})
+  end
 
-  defp dispatch_byte("q", _parent, _dashboard, _input_fun, :nav), do: System.stop(0)
+  defp dispatch_byte(<<3>>, parent, dashboard, input_fun, :log_nav) do
+    StatusDashboard.close_log(dashboard)
+    read_loop(parent, dashboard, input_fun, :list)
+  end
 
-  defp dispatch_byte("i", parent, dashboard, input_fun, :nav) do
+  defp dispatch_byte(<<3>>, _parent, _dashboard, _input_fun, :list), do: System.stop(0)
+
+  defp dispatch_byte("q", _parent, _dashboard, _input_fun, :list), do: System.stop(0)
+
+  defp dispatch_byte("i", parent, dashboard, input_fun, :list) do
     StatusDashboard.open_log(dashboard)
-    read_loop(parent, dashboard, input_fun, :text)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
   end
 
-  defp dispatch_byte(byte, parent, dashboard, input_fun, :nav) when byte in [" ", "\r", "\n"] do
+  defp dispatch_byte(byte, parent, dashboard, input_fun, :list) when byte in [" ", "\r", "\n"] do
     StatusDashboard.open_log(dashboard)
-    read_loop(parent, dashboard, input_fun, :text)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
   end
 
-  defp dispatch_byte("j", parent, dashboard, input_fun, :nav) do
+  defp dispatch_byte("\t", parent, dashboard, input_fun, {:text, _pause_state}) do
+    StatusDashboard.exit_typing(dashboard)
+    read_loop(parent, dashboard, input_fun, :log_nav)
+  end
+
+  defp dispatch_byte("\t", parent, dashboard, input_fun, :log_nav) do
+    StatusDashboard.enter_typing(dashboard)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
+  end
+
+  defp dispatch_byte("j", parent, dashboard, input_fun, mode) when mode in [:list, :log_nav] do
     StatusDashboard.select_next(dashboard)
-    read_loop(parent, dashboard, input_fun, :nav)
+    read_loop(parent, dashboard, input_fun, mode)
   end
 
-  defp dispatch_byte("k", parent, dashboard, input_fun, :nav) do
+  defp dispatch_byte("k", parent, dashboard, input_fun, mode) when mode in [:list, :log_nav] do
     StatusDashboard.select_previous(dashboard)
-    read_loop(parent, dashboard, input_fun, :nav)
+    read_loop(parent, dashboard, input_fun, mode)
   end
 
-  defp dispatch_byte(byte, parent, dashboard, input_fun, :text) when byte in ["\r", "\n"] do
+  defp dispatch_byte(" ", parent, dashboard, input_fun, :log_nav) do
+    StatusDashboard.open_log(dashboard)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
+  end
+
+  defp dispatch_byte("\e", parent, dashboard, input_fun, :log_nav) do
+    StatusDashboard.close_log(dashboard)
+    read_loop(parent, dashboard, input_fun, :list)
+  end
+
+  defp dispatch_byte(byte, parent, dashboard, input_fun, {:text, _pause_state}) when byte in ["\r", "\n"] do
     StatusDashboard.submit_message(dashboard)
-    read_loop(parent, dashboard, input_fun, :text)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
   end
 
-  defp dispatch_byte(byte, parent, dashboard, input_fun, :text) when byte in [<<8>>, <<127>>] do
+  defp dispatch_byte(byte, parent, dashboard, input_fun, {:text, _pause_state}) when byte in [<<8>>, <<127>>] do
     StatusDashboard.backspace(dashboard)
-    read_loop(parent, dashboard, input_fun, :text)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
   end
 
-  defp dispatch_byte(byte, parent, dashboard, input_fun, :text) do
+  defp dispatch_byte(byte, parent, dashboard, input_fun, {:text, _pause_state}) do
     if printable?(byte), do: StatusDashboard.append_text(dashboard, byte)
-    read_loop(parent, dashboard, input_fun, :text)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
   end
 
   defp dispatch_byte(_other, parent, dashboard, input_fun, mode) do
     read_loop(parent, dashboard, input_fun, mode)
   end
 
-  defp handle_escape_timeout(_parent, dashboard, _input_fun, :text, :stop_reader) do
-    StatusDashboard.exit_typing(dashboard)
+  defp handle_escape_timeout(_parent, dashboard, _input_fun, {:text, :armed}, :stop_reader) do
     StatusDashboard.close_log(dashboard)
     :ok
   end
 
-  defp handle_escape_timeout(parent, dashboard, input_fun, :text, :continue) do
-    StatusDashboard.exit_typing(dashboard)
+  defp handle_escape_timeout(parent, dashboard, input_fun, {:text, :armed}, :continue) do
     StatusDashboard.close_log(dashboard)
-    read_loop(parent, dashboard, input_fun, :nav)
+    read_loop(parent, dashboard, input_fun, :list)
   end
 
-  defp handle_escape_timeout(_parent, _dashboard, _input_fun, :nav, _action), do: System.stop(0)
+  defp handle_escape_timeout(_parent, dashboard, _input_fun, {:text, :clear}, :stop_reader) do
+    StatusDashboard.pause_agent(dashboard)
+    :ok
+  end
+
+  defp handle_escape_timeout(parent, dashboard, input_fun, {:text, :clear}, :continue) do
+    StatusDashboard.pause_agent(dashboard)
+    read_loop(parent, dashboard, input_fun, {:text, :armed})
+  end
+
+  defp handle_escape_timeout(parent, dashboard, input_fun, :log_nav, :continue) do
+    StatusDashboard.close_log(dashboard)
+    read_loop(parent, dashboard, input_fun, :list)
+  end
+
+  defp handle_escape_timeout(_parent, dashboard, _input_fun, :log_nav, :stop_reader) do
+    StatusDashboard.close_log(dashboard)
+    :ok
+  end
+  defp handle_escape_timeout(_parent, _dashboard, _input_fun, :list, _action), do: System.stop(0)
 
   defp handle_csi_escape(parent, dashboard, input_fun, mode) do
     case read_csi(dashboard, input_fun, "", mode) do
@@ -168,19 +223,24 @@ defmodule SymphonyElixir.TerminalInput do
 
   defp handle_alt_enter(parent, dashboard, input_fun) do
     StatusDashboard.append_text(dashboard, "\n")
-    read_loop(parent, dashboard, input_fun, :text)
+    read_loop(parent, dashboard, input_fun, {:text, :clear})
   end
 
-  defp handle_escape_other(other, parent, dashboard, input_fun, :text) do
-    StatusDashboard.exit_typing(dashboard)
-    dispatch_byte(other, parent, dashboard, input_fun, :nav)
+  defp handle_escape_other(other, parent, dashboard, input_fun, {:text, :armed}) do
+    StatusDashboard.close_log(dashboard)
+    dispatch_byte(other, parent, dashboard, input_fun, :list)
+  end
+
+  defp handle_escape_other(other, parent, dashboard, input_fun, {:text, :clear}) do
+    StatusDashboard.pause_agent(dashboard)
+    dispatch_byte(other, parent, dashboard, input_fun, {:text, :armed})
   end
 
   defp handle_escape_other(other, parent, dashboard, input_fun, mode) do
     dispatch_byte(other, parent, dashboard, input_fun, mode)
   end
 
-  defp append_paste(dashboard, pasted, :text), do: StatusDashboard.append_text(dashboard, pasted)
+  defp append_paste(dashboard, pasted, {:text, _pause_state}), do: StatusDashboard.append_text(dashboard, pasted)
   defp append_paste(_dashboard, _pasted, _mode), do: :ok
 
   defp read_csi(dashboard, input_fun, params, mode) do
@@ -200,11 +260,15 @@ defmodule SymphonyElixir.TerminalInput do
   defp csi_final?(<<c>>) when c in ?A..?Z or c in ?a..?z or c == ?~, do: true
   defp csi_final?(_), do: false
 
-  defp dispatch_csi(dashboard, "", "A", :nav), do: tap(:nav, fn _ -> StatusDashboard.select_previous(dashboard) end)
-  defp dispatch_csi(dashboard, "", "B", :nav), do: tap(:nav, fn _ -> StatusDashboard.select_next(dashboard) end)
-  defp dispatch_csi(dashboard, "", "D", :nav), do: tap(:nav, fn _ -> StatusDashboard.close_log(dashboard) end)
-  defp dispatch_csi(dashboard, "5", "~", :nav), do: tap(:nav, fn _ -> StatusDashboard.scroll_log_up(dashboard) end)
-  defp dispatch_csi(dashboard, "6", "~", :nav), do: tap(:nav, fn _ -> StatusDashboard.scroll_log_down(dashboard) end)
+  defp dispatch_csi(dashboard, "", "A", mode) when mode in [:list, :log_nav],
+    do: tap(mode, fn _ -> StatusDashboard.select_previous(dashboard) end)
+
+  defp dispatch_csi(dashboard, "", "B", mode) when mode in [:list, :log_nav],
+    do: tap(mode, fn _ -> StatusDashboard.select_next(dashboard) end)
+
+  defp dispatch_csi(dashboard, "", "D", :log_nav), do: tap(:list, fn _ -> StatusDashboard.close_log(dashboard) end)
+  defp dispatch_csi(dashboard, "5", "~", :log_nav), do: tap(:log_nav, fn _ -> StatusDashboard.scroll_log_up(dashboard) end)
+  defp dispatch_csi(dashboard, "6", "~", :log_nav), do: tap(:log_nav, fn _ -> StatusDashboard.scroll_log_down(dashboard) end)
   defp dispatch_csi(_dashboard, "200", "~", _mode), do: :paste_start
   defp dispatch_csi(_dashboard, "201", "~", mode), do: mode
   defp dispatch_csi(_dashboard, _params, _final, mode), do: mode

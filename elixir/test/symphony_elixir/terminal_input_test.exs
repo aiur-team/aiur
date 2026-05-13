@@ -30,73 +30,74 @@ defmodule SymphonyElixir.TerminalInputTest do
   test "space and enter open the log pane in typing mode" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, [" ", "h", "\e", "j", "\r", "i", <<3>>, "\n", :eof])
+    start_input(dashboard, [" ", "h", "\r", "\n", :eof])
 
     assert_receive {:dashboard_cast, :open_log}
     assert_receive {:dashboard_cast, {:append_text, "h"}}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, {:append_text, "i"}}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :submit_message}
+    assert_receive {:dashboard_cast, :submit_message}
   end
 
-  test "left arrow closes the log pane" do
+  test "left arrow closes the log pane from list focus" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["\e", "[", "D", :eof])
+    start_input(dashboard, ["i", "\t", "\e", "[", "D", :eof])
 
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :exit_typing}
     assert_receive {:dashboard_cast, :close_log}
   end
 
   test "PgUp and PgDn scroll the log pane" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["\e", "[", "5", "~", "\e", "[", "6", "~", :eof])
+    start_input(dashboard, ["i", "\t", "\e", "[", "5", "~", "\e", "[", "6", "~", :eof])
 
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :exit_typing}
     assert_receive {:dashboard_cast, {:scroll_log, :up}}
     assert_receive {:dashboard_cast, {:scroll_log, :down}}
   end
 
-  test "bare esc exits typing mode and dispatches the next byte" do
+  test "tab switches from chat focus to agent-list focus and space reopens selected log" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["i", "\e", "j", :eof])
+    start_input(dashboard, ["i", "\t", "j", " ", :eof])
 
     assert_receive {:dashboard_cast, :open_log}
     assert_receive {:dashboard_cast, :exit_typing}
     assert_receive {:dashboard_cast, {:select_agent, 1}}
+    assert_receive {:dashboard_cast, :open_log}
   end
 
-  test "ctrl-c exits typing mode" do
+  test "ctrl-c pauses first and closes log on second press" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["i", <<3>>, "j", :eof])
+    start_input(dashboard, ["i", <<3>>, <<3>>, :eof])
 
     assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
+    assert_receive {:dashboard_cast, :pause_agent}
+    assert_receive {:dashboard_cast, :close_log}
   end
 
-  test "esc exits typing mode and dispatches the next byte in navigation mode" do
+  test "q remains literal input in typing mode" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["i", "\e", "j", :eof])
+    start_input(dashboard, ["i", "q", :eof])
 
     assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
+    assert_receive {:dashboard_cast, {:append_text, "q"}}
+    refute_received {:dashboard_cast, :exit_typing}
   end
 
-  test "bare esc timeout exits typing mode" do
+  test "bare esc timeout pauses first and closes log on second press" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["i", "\e", "", "j", :eof])
+    start_input(dashboard, ["i", "\e", "", "\e", "", :eof])
 
     assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
+    assert_receive {:dashboard_cast, :pause_agent}
+    assert_receive {:dashboard_cast, :close_log}
   end
 
   test "typing mode appends text, backspaces, submits, and supports alt-enter newline" do
@@ -157,9 +158,11 @@ defmodule SymphonyElixir.TerminalInputTest do
 
   defp start_input(dashboard, byte_queue) do
     {:ok, input} = Agent.start_link(fn -> byte_queue end)
+    name = Module.concat(__MODULE__, "Reader#{System.unique_integer([:positive])}")
 
     {:ok, pid} =
       TerminalInput.start_link(
+        name: name,
         dashboard: dashboard,
         input_fun: fn -> Agent.get_and_update(input, fn [next | rest] -> {next, rest} end) end,
         skip_raw_mode: true
