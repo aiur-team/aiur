@@ -866,12 +866,10 @@ defmodule SymphonyElixir.StatusDashboard do
           {"sent; waiting for agent turn", @ansi_yellow}
 
         Map.get(log_view, :mode, :typing) == :browsing ->
-          {"Tab returns to chat · J/K move agents · Space opens selected log · Esc/Ctrl-C closes log",
-           @ansi_gray}
+          {"Tab returns to chat · J/K move agents · Space opens selected log · Esc/Ctrl-C closes log", @ansi_gray}
 
         true ->
-          {"Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection",
-           @ansi_gray}
+          {"Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection", @ansi_gray}
       end
 
     Enum.map(prompt_lines, &("│ " <> colorize(&1, @ansi_white))) ++

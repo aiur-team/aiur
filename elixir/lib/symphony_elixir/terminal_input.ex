@@ -207,6 +207,7 @@ defmodule SymphonyElixir.TerminalInput do
     StatusDashboard.close_log(dashboard)
     :ok
   end
+
   defp handle_escape_timeout(_parent, _dashboard, _input_fun, :list, _action), do: System.stop(0)
 
   defp handle_csi_escape(parent, dashboard, input_fun, mode) do
