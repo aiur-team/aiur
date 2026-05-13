@@ -30,7 +30,9 @@ defmodule SymphonyElixir.Config do
   def settings do
     case Workflow.current() do
       {:ok, %{config: config}} when is_map(config) ->
-        Schema.parse(config)
+        config
+        |> prepare_config()
+        |> Schema.parse()
 
       {:error, reason} ->
         {:error, reason}
@@ -60,6 +62,100 @@ defmodule SymphonyElixir.Config do
   end
 
   def max_concurrent_agents_for_state(_state_name), do: settings!().agent.max_concurrent_agents
+
+  @spec section(String.t()) :: map()
+  def section(name) when is_binary(name) do
+    case Workflow.current() do
+      {:ok, %{config: config}} when is_map(config) ->
+        Map.get(config, name) || Map.get(config, String.to_atom(name)) || %{}
+
+      _ ->
+        %{}
+    end
+  end
+
+  @spec tracker_kind() :: String.t() | nil
+  def tracker_kind do
+    settings!().tracker.kind
+  end
+
+  @spec agent_kind() :: String.t()
+  def agent_kind do
+    settings!().agent.kind || "codex"
+  end
+
+  @spec active_states() :: [String.t()]
+  def active_states do
+    settings!().tracker.active_states
+  end
+
+  @spec terminal_states() :: [String.t()]
+  def terminal_states do
+    settings!().tracker.terminal_states
+  end
+
+  @spec poll_interval_ms() :: pos_integer()
+  def poll_interval_ms do
+    settings!().polling.interval_ms
+  end
+
+  @spec workspace_root() :: Path.t()
+  def workspace_root do
+    settings!().workspace.root
+  end
+
+  @spec workspace_hooks() :: map()
+  def workspace_hooks do
+    hooks = settings!().hooks
+
+    %{
+      after_create: hooks.after_create,
+      before_run: hooks.before_run,
+      after_run: hooks.after_run,
+      before_remove: hooks.before_remove,
+      timeout_ms: hooks.timeout_ms
+    }
+  end
+
+  @spec hook_timeout_ms() :: pos_integer()
+  def hook_timeout_ms do
+    settings!().hooks.timeout_ms
+  end
+
+  @spec max_concurrent_agents() :: pos_integer()
+  def max_concurrent_agents do
+    settings!().agent.max_concurrent_agents
+  end
+
+  @spec max_retry_attempts() :: pos_integer()
+  def max_retry_attempts do
+    settings!().agent.max_retry_attempts
+  end
+
+  @spec max_retry_backoff_ms() :: pos_integer()
+  def max_retry_backoff_ms do
+    settings!().agent.max_retry_backoff_ms
+  end
+
+  @spec agent_max_turns() :: pos_integer()
+  def agent_max_turns do
+    settings!().agent.max_turns
+  end
+
+  @spec agent_turn_timeout_ms() :: pos_integer()
+  def agent_turn_timeout_ms do
+    settings!().codex.turn_timeout_ms
+  end
+
+  @spec agent_read_timeout_ms() :: pos_integer()
+  def agent_read_timeout_ms do
+    settings!().codex.read_timeout_ms
+  end
+
+  @spec agent_stall_timeout_ms() :: non_neg_integer()
+  def agent_stall_timeout_ms do
+    settings!().codex.stall_timeout_ms
+  end
 
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
@@ -91,6 +187,29 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec server_host() :: String.t()
+  def server_host do
+    case Application.get_env(:symphony_elixir, :server_host_override) do
+      host when is_binary(host) and host != "" -> host
+      _ -> settings!().server.host
+    end
+  end
+
+  @spec observability_enabled?() :: boolean()
+  def observability_enabled? do
+    settings!().observability.dashboard_enabled
+  end
+
+  @spec observability_refresh_ms() :: pos_integer()
+  def observability_refresh_ms do
+    settings!().observability.refresh_ms
+  end
+
+  @spec observability_render_interval_ms() :: pos_integer()
+  def observability_render_interval_ms do
+    settings!().observability.render_interval_ms
+  end
+
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
     with {:ok, settings} <- settings() do
@@ -114,13 +233,17 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp validate_semantics(settings) do
     cond do
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "memory"] ->
+      settings.tracker.kind not in ["linear", "github", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
+
+      settings.agent.kind not in ["codex", "claude"] ->
+        {:error, {:unsupported_agent_kind, settings.agent.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
         {:error, :missing_linear_api_token}
@@ -128,8 +251,69 @@ defmodule SymphonyElixir.Config do
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
 
+      settings.tracker.kind == "github" ->
+        SymphonyElixir.GitHub.Config.validate!()
+
+      settings.agent.kind == "claude" ->
+        SymphonyElixir.Claude.Config.validate!()
+
       true ->
         :ok
+    end
+  end
+
+  defp prepare_config(config) do
+    tracker = map_section(config, "tracker")
+    agent = map_section(config, "agent")
+    linear = map_section(config, "linear")
+
+    config
+    |> Map.put("tracker", prepare_tracker_config(config, tracker, linear))
+    |> Map.put("agent", prepare_agent_config(config, agent))
+  end
+
+  defp prepare_tracker_config(config, tracker, linear) do
+    tracker
+    |> Map.merge(linear, fn _key, tracker_value, _linear_value -> tracker_value end)
+    |> put_default_kind(inferred_tracker_kind(config))
+  end
+
+  defp prepare_agent_config(config, agent) do
+    put_default_kind(agent, inferred_agent_kind(config))
+  end
+
+  defp put_default_kind(section, kind) do
+    case Map.get(section, "kind") || Map.get(section, :kind) do
+      nil -> Map.put(section, "kind", kind)
+      _ -> section
+    end
+  end
+
+  defp inferred_tracker_kind(config) do
+    cond do
+      has_section?(config, "github") -> "github"
+      has_section?(config, "linear") -> "linear"
+      has_section?(config, "memory") -> "memory"
+      true -> nil
+    end
+  end
+
+  defp inferred_agent_kind(config) do
+    cond do
+      has_section?(config, "claude") -> "claude"
+      has_section?(config, "codex") -> "codex"
+      true -> "claude"
+    end
+  end
+
+  defp has_section?(config, name) do
+    Map.has_key?(config, name) or Map.has_key?(config, String.to_atom(name))
+  end
+
+  defp map_section(config, name) do
+    case Map.get(config, name) || Map.get(config, String.to_atom(name)) do
+      section when is_map(section) -> section
+      _ -> %{}
     end
   end
 

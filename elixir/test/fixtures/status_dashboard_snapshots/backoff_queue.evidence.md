@@ -1,17 +1,15 @@
 ```text
 ╭─ SYMPHONY STATUS
-│ Agents: 1/10
-│ Throughput: 15 tps
-│ Runtime: 45m 0s
-│ Tokens: in 18,000 | out 2,200 | total 20,200
-│ Rate Limits: gpt-5 | primary 0/20,000 reset 95s | secondary 0/60 reset 45s | credits none
-│ Project: https://linear.app/project/project/issues
-│ Next refresh: n/a
+│ ITS: linear | Agent: codex                             │ Rate Limits: gpt-5 | primary 0/20,000 reset 95s | secondary 0/60 reset 45s | credits none
+│ Agents: 1/10                                           │ Project: n/a
+│ Throughput: 15 tps                                     │ Next refresh: n/a
+│ Runtime: 45m 0s                                        │ 
+│ Tokens: in 18,000 | out 2,200 | total 20,200           │ 
 ├─ Running
 │
-│   ID       STAGE          PID      AGE / TURN   TOKENS     SESSION        EVENT                                  
+│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
 │   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-│ ● MT-638   retrying       4242     20m 25s / 7      14,200 thre...567890  agent message streaming: waiting on ...
+│   MT-638 retrying       Sample issue title         20m 25s / 7  agent message streaming: waiting on rate-limit...
 │
 ├─ Backoff queue
 │

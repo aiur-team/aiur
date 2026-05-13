@@ -1,11 +1,31 @@
-defmodule SymphonyElixir.Tracker.Memory do
+defmodule SymphonyElixir.Memory.Tracker do
   @moduledoc """
   In-memory tracker adapter used for tests and local development.
   """
 
   @behaviour SymphonyElixir.Tracker
 
-  alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.Issue
+
+  @spec project_identity() :: String.t() | nil
+  def project_identity, do: "memory"
+
+  @spec default_prompt_template() :: String.t()
+  def default_prompt_template do
+    """
+    You are working on an issue.
+
+    Identifier: {{ issue.identifier }}
+    Title: {{ issue.title }}
+
+    Body:
+    {% if issue.description %}
+    {{ issue.description }}
+    {% else %}
+    No description provided.
+    {% endif %}
+    """
+  end
 
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do

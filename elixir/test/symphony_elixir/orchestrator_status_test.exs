@@ -1,6 +1,10 @@
 defmodule SymphonyElixir.OrchestratorStatusTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.Codex.CodingAgent, as: CodexCodingAgent
+
+  defp normalize(event), do: CodexCodingAgent.normalize_event(event)
+
   test "snapshot returns :timeout when snapshot server is unresponsive" do
     server_name = Module.concat(__MODULE__, :UnresponsiveSnapshotServer)
     parent = self()
@@ -70,21 +74,21 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :session_started,
          session_id: "thread-live-turn-live",
          timestamp: now
-       }}
+       })}
     )
 
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :notification,
          payload: %{method: "some-event"},
          timestamp: now
-       }}
+       })}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
@@ -136,9 +140,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_timestamp: nil,
       last_codex_event: nil,
-      codex_input_tokens: 0,
-      codex_output_tokens: 0,
-      codex_total_tokens: 0,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
       codex_last_reported_input_tokens: 0,
       codex_last_reported_output_tokens: 0,
       codex_last_reported_total_tokens: 0,
@@ -156,17 +160,17 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :session_started,
          session_id: "thread-usage-turn-usage",
          timestamp: now
-       }}
+       })}
     )
 
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :notification,
          payload: %{
            "method" => "thread/tokenUsage/updated",
@@ -178,25 +182,25 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
          },
          timestamp: now,
          codex_app_server_pid: "4242"
-       }}
+       })}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
     assert snapshot_entry.codex_app_server_pid == "4242"
-    assert snapshot_entry.codex_input_tokens == 12
-    assert snapshot_entry.codex_output_tokens == 4
-    assert snapshot_entry.codex_total_tokens == 16
+    assert snapshot_entry.agent_input_tokens == 12
+    assert snapshot_entry.agent_output_tokens == 4
+    assert snapshot_entry.agent_total_tokens == 16
     assert snapshot_entry.turn_count == 1
     assert is_integer(snapshot_entry.runtime_seconds)
 
     send(pid, {:DOWN, process_ref, :process, self(), :normal})
     completed_state = :sys.get_state(pid)
 
-    assert completed_state.codex_totals.input_tokens == 12
-    assert completed_state.codex_totals.output_tokens == 4
-    assert completed_state.codex_totals.total_tokens == 16
-    assert is_integer(completed_state.codex_totals.seconds_running)
+    assert completed_state.agent_totals.input_tokens == 12
+    assert completed_state.agent_totals.output_tokens == 4
+    assert completed_state.agent_totals.total_tokens == 16
+    assert is_integer(completed_state.agent_totals.seconds_running)
   end
 
   test "orchestrator snapshot tracks turn completed usage when present" do
@@ -233,9 +237,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_timestamp: nil,
       last_codex_event: nil,
-      codex_input_tokens: 0,
-      codex_output_tokens: 0,
-      codex_total_tokens: 0,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
       codex_last_reported_input_tokens: 0,
       codex_last_reported_output_tokens: 0,
       codex_last_reported_total_tokens: 0,
@@ -251,27 +255,27 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :turn_completed,
          payload: %{
            method: "turn/completed",
            usage: %{"input_tokens" => "12", "output_tokens" => 4, "total_tokens" => 16}
          },
          timestamp: DateTime.utc_now()
-       }}
+       })}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
-    assert snapshot_entry.codex_input_tokens == 12
-    assert snapshot_entry.codex_output_tokens == 4
-    assert snapshot_entry.codex_total_tokens == 16
+    assert snapshot_entry.agent_input_tokens == 12
+    assert snapshot_entry.agent_output_tokens == 4
+    assert snapshot_entry.agent_total_tokens == 16
 
     send(pid, {:DOWN, process_ref, :process, self(), :normal})
     completed_state = :sys.get_state(pid)
-    assert completed_state.codex_totals.input_tokens == 12
-    assert completed_state.codex_totals.output_tokens == 4
-    assert completed_state.codex_totals.total_tokens == 16
+    assert completed_state.agent_totals.input_tokens == 12
+    assert completed_state.agent_totals.output_tokens == 4
+    assert completed_state.agent_totals.total_tokens == 16
   end
 
   test "orchestrator snapshot tracks codex token-count cumulative usage payloads" do
@@ -308,9 +312,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_timestamp: nil,
       last_codex_event: nil,
-      codex_input_tokens: 0,
-      codex_output_tokens: 0,
-      codex_total_tokens: 0,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
       codex_last_reported_input_tokens: 0,
       codex_last_reported_output_tokens: 0,
       codex_last_reported_total_tokens: 0,
@@ -328,7 +332,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :notification,
          payload: %{
            "method" => "codex/event/token_count",
@@ -346,13 +350,13 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            }
          },
          timestamp: now
-       }}
+       })}
     )
 
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :notification,
          payload: %{
            "method" => "codex/event/token_count",
@@ -370,21 +374,21 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            }
          },
          timestamp: DateTime.utc_now()
-       }}
+       })}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
-    assert snapshot_entry.codex_input_tokens == 10
-    assert snapshot_entry.codex_output_tokens == 5
-    assert snapshot_entry.codex_total_tokens == 15
+    assert snapshot_entry.agent_input_tokens == 10
+    assert snapshot_entry.agent_output_tokens == 5
+    assert snapshot_entry.agent_total_tokens == 15
 
     send(pid, {:DOWN, process_ref, :process, self(), :normal})
     completed_state = :sys.get_state(pid)
 
-    assert completed_state.codex_totals.input_tokens == 10
-    assert completed_state.codex_totals.output_tokens == 5
-    assert completed_state.codex_totals.total_tokens == 15
+    assert completed_state.agent_totals.input_tokens == 10
+    assert completed_state.agent_totals.output_tokens == 5
+    assert completed_state.agent_totals.total_tokens == 15
   end
 
   test "orchestrator snapshot tracks codex rate-limit payloads" do
@@ -421,9 +425,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_timestamp: nil,
       last_codex_event: nil,
-      codex_input_tokens: 0,
-      codex_output_tokens: 0,
-      codex_total_tokens: 0,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
       codex_last_reported_input_tokens: 0,
       codex_last_reported_output_tokens: 0,
       codex_last_reported_total_tokens: 0,
@@ -446,7 +450,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :notification,
          payload: %{
            "method" => "codex/event/token_count",
@@ -461,7 +465,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            }
          },
          timestamp: DateTime.utc_now()
-       }}
+       })}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
@@ -502,9 +506,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_timestamp: nil,
       last_codex_event: nil,
-      codex_input_tokens: 0,
-      codex_output_tokens: 0,
-      codex_total_tokens: 0,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
       codex_last_reported_input_tokens: 0,
       codex_last_reported_output_tokens: 0,
       codex_last_reported_total_tokens: 0,
@@ -520,7 +524,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :notification,
          payload: %{
            "method" => "codex/event/token_count",
@@ -546,14 +550,14 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            }
          },
          timestamp: DateTime.utc_now()
-       }}
+       })}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
-    assert snapshot_entry.codex_input_tokens == 200
-    assert snapshot_entry.codex_output_tokens == 100
-    assert snapshot_entry.codex_total_tokens == 300
+    assert snapshot_entry.agent_input_tokens == 200
+    assert snapshot_entry.agent_output_tokens == 100
+    assert snapshot_entry.agent_total_tokens == 300
   end
 
   test "orchestrator token accounting accumulates monotonic thread token usage totals" do
@@ -590,9 +594,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_timestamp: nil,
       last_codex_event: nil,
-      codex_input_tokens: 0,
-      codex_output_tokens: 0,
-      codex_total_tokens: 0,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
       codex_last_reported_input_tokens: 0,
       codex_last_reported_output_tokens: 0,
       codex_last_reported_total_tokens: 0,
@@ -612,22 +616,22 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       send(
         pid,
         {:codex_worker_update, issue_id,
-         %{
+         normalize(%{
            event: :notification,
            payload: %{
              "method" => "thread/tokenUsage/updated",
              "params" => %{"tokenUsage" => %{"total" => usage}}
            },
            timestamp: DateTime.utc_now()
-         }}
+         })}
       )
     end
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
-    assert snapshot_entry.codex_input_tokens == 10
-    assert snapshot_entry.codex_output_tokens == 4
-    assert snapshot_entry.codex_total_tokens == 14
+    assert snapshot_entry.agent_input_tokens == 10
+    assert snapshot_entry.agent_output_tokens == 4
+    assert snapshot_entry.agent_total_tokens == 14
   end
 
   test "orchestrator token accounting ignores last_token_usage without cumulative totals" do
@@ -664,9 +668,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_timestamp: nil,
       last_codex_event: nil,
-      codex_input_tokens: 0,
-      codex_output_tokens: 0,
-      codex_total_tokens: 0,
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
       codex_last_reported_input_tokens: 0,
       codex_last_reported_output_tokens: 0,
       codex_last_reported_total_tokens: 0,
@@ -682,7 +686,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(
       pid,
       {:codex_worker_update, issue_id,
-       %{
+       normalize(%{
          event: :notification,
          payload: %{
            "method" => "codex/event/token_count",
@@ -703,14 +707,14 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            }
          },
          timestamp: DateTime.utc_now()
-       }}
+       })}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
-    assert snapshot_entry.codex_input_tokens == 0
-    assert snapshot_entry.codex_output_tokens == 0
-    assert snapshot_entry.codex_total_tokens == 0
+    assert snapshot_entry.agent_input_tokens == 0
+    assert snapshot_entry.agent_output_tokens == 0
+    assert snapshot_entry.agent_total_tokens == 0
   end
 
   test "orchestrator snapshot includes retry backoff entries" do
@@ -897,10 +901,60 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert next_poll_in_ms <= 50
   end
 
+  test "orchestrator sends operator messages and pause requests to running agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    parent = self()
+
+    worker_pid =
+      spawn(fn ->
+        operator_message_probe(parent)
+      end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-chat" => %{
+              pid: worker_pid,
+              ref: make_ref(),
+              identifier: "MT-CHAT",
+              issue: %Issue{id: "issue-chat", identifier: "MT-CHAT", state: "In Progress"},
+              session_id: "thread-chat-turn-chat",
+              agent_input_tokens: 0,
+              agent_output_tokens: 0,
+              agent_total_tokens: 0,
+              started_at: DateTime.utc_now()
+            }
+          }
+      }
+    end)
+
+    assert {:ok, request_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "hello"})
+
+    assert is_integer(request_id)
+    assert_receive {:operator_message, %{kind: :text, body: "hello"}, ^request_id}
+
+    assert {:ok, pause_request_id} = Orchestrator.pause_agent(orchestrator_name, "MT-CHAT")
+    assert_receive {:pause_agent, ^pause_request_id}
+
+    assert {:error, :empty_message} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "   "})
+
+    assert {:error, :no_running_agent} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+  end
+
   test "orchestrator restarts stalled workers with retry backoff" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      codex_stall_timeout_ms: 1_000
+      agent_stall_timeout_ms: 1_000
     )
 
     issue_id = "issue-stall"
@@ -971,23 +1025,48 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "Timestamp:"
   end
 
-  test "status dashboard renders linear project link in header" do
+  test "status dashboard renders tracker project identity in header" do
     snapshot_data =
       {:ok,
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil
        }}
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "https://linear.app/project/project/issues"
+    assert rendered =~ "Project:"
+    assert rendered =~ "project"
+    refute rendered =~ "https://linear.app/project/project/issues"
     refute rendered =~ "Dashboard:"
   end
 
-  test "status dashboard renders dashboard url on its own line when server port is configured" do
+  test "status dashboard renders full GitHub repo identity in header" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "its-applekid/actions",
+      tracker_label_prefix: "agent"
+    )
+
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
+
+    assert rendered =~ "Project:"
+    assert rendered =~ "its-applekid/actions"
+    refute rendered =~ "https://github.com/its-applekid/actions/issues"
+  end
+
+  test "status dashboard renders the dashboard url in the title row when server port is configured" do
     previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
 
     on_exit(fn ->
@@ -1005,16 +1084,19 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil
        }}
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
-    assert rendered =~ "https://linear.app/project/project/issues"
-    assert rendered =~ "│ Dashboard:"
+    assert rendered =~ "Project:"
+    assert rendered =~ "project"
     assert rendered =~ "http://127.0.0.1:4000/"
+
+    [title_line | _] = String.split(rendered, "\n")
+    assert title_line =~ "SYMPHONY STATUS"
+    assert title_line =~ "http://127.0.0.1:4000/"
   end
 
   test "status dashboard prefers the bound server port and normalizes wildcard hosts" do
@@ -1031,7 +1113,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil,
          polling: %{checking?: false, next_poll_in_ms: 2_000, poll_interval_ms: 30_000}
        }}
@@ -1045,7 +1127,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil,
          polling: %{checking?: true, next_poll_in_ms: nil, poll_interval_ms: 30_000}
        }}
@@ -1054,23 +1136,23 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert checking_rendered =~ "checking now…"
   end
 
-  test "status dashboard adds a spacer line before backoff queue when no agents are active" do
+  test "status dashboard hides backoff queue section when there are no retries" do
     snapshot_data =
       {:ok,
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil
        }}
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
     plain = Regex.replace(~r/\e\[[0-9;]*m/, rendered, "")
 
-    assert plain =~ ~r/No active agents\r?\n│\s*\r?\n├─ Backoff queue/
+    refute plain =~ "Backoff queue"
   end
 
-  test "status dashboard adds a spacer line before backoff queue when agents are active" do
+  test "status dashboard shows backoff queue section when retries are present" do
     snapshot_data =
       {:ok,
        %{
@@ -1080,7 +1162,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              state: "running",
              session_id: "thread-1234567890",
              codex_app_server_pid: "4242",
-             codex_total_tokens: 3_200,
+             agent_total_tokens: 3_200,
              runtime_seconds: 75,
              turn_count: 7,
              last_codex_event: "turn_completed",
@@ -1093,8 +1175,16 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              }
            }
          ],
-         retrying: [],
-         codex_totals: %{
+         retrying: [
+           %{
+             issue_id: "retry-1",
+             identifier: "MT-RETRY",
+             attempt: 2,
+             due_in_ms: 60_000,
+             error: "transient failure"
+           }
+         ],
+         agent_totals: %{
            input_tokens: 90,
            output_tokens: 12,
            total_tokens: 102,
@@ -1115,7 +1205,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        %{
          running: [],
          retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
          rate_limits: nil
        }}
 
@@ -1279,7 +1369,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         state: "running",
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
-        codex_total_tokens: 12,
+        agent_total_tokens: 12,
         runtime_seconds: 15,
         last_codex_event: :notification,
         last_codex_message: %{
@@ -1314,7 +1404,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         state: "running",
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
-        codex_total_tokens: 12,
+        agent_total_tokens: 12,
         runtime_seconds: 15,
         last_codex_event: :notification,
         last_codex_message: payload
@@ -1337,7 +1427,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
           state: "running",
           session_id: "thread-1234567890",
           codex_app_server_pid: "4242",
-          codex_total_tokens: 123,
+          agent_total_tokens: 123,
           runtime_seconds: 15,
           last_codex_event: :notification,
           last_codex_message: %{
@@ -1600,5 +1690,13 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       {next_tokens, [{timestamp, next_tokens} | acc]}
     end)
     |> elem(1)
+  end
+
+  defp operator_message_probe(parent) do
+    receive do
+      message ->
+        send(parent, message)
+        operator_message_probe(parent)
+    end
   end
 end

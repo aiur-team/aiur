@@ -5,6 +5,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
+  alias SymphonyElixir.AgentChat
   alias SymphonyElixirWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
 
@@ -14,6 +15,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
       socket
       |> assign(:payload, load_payload())
       |> assign(:now, DateTime.utc_now())
+      |> assign(:agent_log_modal, nil)
+      |> assign(:drafts, %{})
+      |> assign(:chat_errors, %{})
 
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
@@ -31,11 +35,77 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   @impl true
   def handle_info(:observability_updated, socket) do
+    payload = load_payload()
+
     {:noreply,
      socket
-     |> assign(:payload, load_payload())
-     |> assign(:now, DateTime.utc_now())}
+     |> assign(:payload, payload)
+     |> assign(:now, DateTime.utc_now())
+     |> assign(:agent_log_modal, refresh_agent_log_modal(socket.assigns.agent_log_modal, payload))}
   end
+
+  @impl true
+  def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) do
+    entry = find_running_entry(socket.assigns.payload, issue_identifier)
+    {:noreply, assign(socket, :agent_log_modal, agent_log_modal(entry))}
+  end
+
+  @impl true
+  def handle_event("close-agent-log", _params, socket) do
+    {:noreply, assign(socket, :agent_log_modal, nil)}
+  end
+
+  @impl true
+  def handle_event("composer-change", %{"message" => message}, %{assigns: %{agent_log_modal: modal}} = socket)
+      when is_map(modal) do
+    identifier = modal.issue_identifier
+
+    {:noreply,
+     socket
+     |> assign(:drafts, Map.put(socket.assigns.drafts, identifier, message))
+     |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+  end
+
+  def handle_event("composer-change", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("send-operator-message", %{"message" => message}, %{assigns: %{agent_log_modal: modal}} = socket)
+      when is_map(modal) do
+    identifier = modal.issue_identifier
+    text = String.trim(message)
+
+    if text == "" do
+      {:noreply, socket}
+    else
+      case AgentChat.send(identifier, text) do
+        {:ok, _request_id} ->
+          {:noreply,
+           socket
+           |> assign(:drafts, Map.delete(socket.assigns.drafts, identifier))
+           |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+
+        {:error, reason} ->
+          {:noreply, assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, format_chat_error(reason)))}
+      end
+    end
+  end
+
+  def handle_event("send-operator-message", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("pause-agent", _params, %{assigns: %{agent_log_modal: modal}} = socket) when is_map(modal) do
+    identifier = modal.issue_identifier
+
+    case AgentChat.pause(identifier) do
+      {:ok, _request_id} ->
+        {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, format_chat_error(reason)))}
+    end
+  end
+
+  def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
 
   @impl true
   def render(assigns) do
@@ -56,6 +126,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
           </div>
 
           <div class="status-stack">
+            <span class="status-badge status-badge-info">ITS: <%= tracker_kind() %></span>
+            <span class="status-badge status-badge-info">Agent: <%= agent_kind() %></span>
             <span class="status-badge status-badge-live">
               <span class="status-badge-dot"></span>
               Live
@@ -93,16 +165,16 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
           <article class="metric-card">
             <p class="metric-label">Total tokens</p>
-            <p class="metric-value numeric"><%= format_int(@payload.codex_totals.total_tokens) %></p>
+            <p class="metric-value numeric"><%= format_int(@payload.agent_totals.total_tokens) %></p>
             <p class="metric-detail numeric">
-              In <%= format_int(@payload.codex_totals.input_tokens) %> / Out <%= format_int(@payload.codex_totals.output_tokens) %>
+              In <%= format_int(@payload.agent_totals.input_tokens) %> / Out <%= format_int(@payload.agent_totals.output_tokens) %>
             </p>
           </article>
 
           <article class="metric-card">
             <p class="metric-label">Runtime</p>
             <p class="metric-value numeric"><%= format_runtime_seconds(total_runtime_seconds(@payload, @now)) %></p>
-            <p class="metric-detail">Total Codex runtime across completed and active sessions.</p>
+            <p class="metric-detail">Total agent runtime across completed and active sessions.</p>
           </article>
         </section>
 
@@ -144,16 +216,25 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     <th>State</th>
                     <th>Session</th>
                     <th>Runtime / turns</th>
-                    <th>Codex update</th>
+                    <th>Agent update</th>
                     <th>Tokens</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr :for={entry <- @payload.running}>
+                  <tr
+                    :for={entry <- @payload.running}
+                    class="clickable-row"
+                    phx-click="show-agent-log"
+                    phx-value-issue={entry.issue_identifier}
+                  >
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                        <a
+                          class="issue-link"
+                          href={"/api/v1/#{entry.issue_identifier}"}
+                          onclick="event.stopPropagation()"
+                        >JSON details</a>
                       </div>
                     </td>
                     <td>
@@ -169,7 +250,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                             class="subtle-button"
                             data-label="Copy ID"
                             data-copy={entry.session_id}
-                            onclick="navigator.clipboard.writeText(this.dataset.copy); this.textContent = 'Copied'; clearTimeout(this._copyTimer); this._copyTimer = setTimeout(() => { this.textContent = this.dataset.label }, 1200);"
+                            onclick="event.stopPropagation(); navigator.clipboard.writeText(this.dataset.copy); this.textContent = 'Copied'; clearTimeout(this._copyTimer); this._copyTimer = setTimeout(() => { this.textContent = this.dataset.label }, 1200);"
                           >
                             Copy ID
                           </button>
@@ -245,6 +326,66 @@ defmodule SymphonyElixirWeb.DashboardLive do
           <% end %>
         </section>
       <% end %>
+
+      <%= if @agent_log_modal do %>
+        <div class="modal-backdrop">
+          <section class="modal-panel" phx-click-away="close-agent-log">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Agent log</p>
+                <h2 class="modal-title"><%= @agent_log_modal.issue_identifier %></h2>
+              </div>
+              <div class="modal-actions">
+                <button
+                  type="button"
+                  class="subtle-button live-button"
+                  data-agent-log-live
+                  data-live="true"
+                  aria-pressed="true"
+                >
+                  <span class="live-button-dot"></span>
+                  Live
+                </button>
+                <button type="button" class="subtle-button" phx-click="close-agent-log">Close</button>
+              </div>
+            </div>
+
+            <p class="modal-meta mono"><%= @agent_log_modal.path || "No local log path" %></p>
+
+            <div
+              id={"agent-log-panel-#{@agent_log_modal.issue_identifier}"}
+              class="chat-log-panel"
+              phx-hook="AgentLogPanel"
+            >
+              <div :for={message <- @agent_log_modal.messages} class={log_message_class(message)}>
+                <div class="log-message-header">
+                  <span><%= message.title %></span>
+                  <span class="mono"><%= message.timestamp %></span>
+                </div>
+                <div class="log-message-body"><%= message.body %></div>
+              </div>
+            </div>
+
+            <form class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
+              <%= if error = @chat_errors[@agent_log_modal.issue_identifier] do %>
+                <p class="agent-chat-error"><%= error %></p>
+              <% end %>
+              <textarea
+                class="agent-chat-textarea"
+                name="message"
+                rows="2"
+                placeholder="Message agent..."
+                aria-label="Message agent"
+                enterkeyhint="send"
+              ><%= @drafts[@agent_log_modal.issue_identifier] || "" %></textarea>
+              <div class="agent-chat-actions">
+                <button class="agent-chat-pause" type="button" phx-click="pause-agent">Pause</button>
+                <button class="agent-chat-send" type="submit">Send</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      <% end %>
     </section>
     """
   end
@@ -262,7 +403,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp completed_runtime_seconds(payload) do
-    payload.codex_totals.seconds_running || 0
+    payload.agent_totals.seconds_running || 0
   end
 
   defp total_runtime_seconds(payload, now) do
@@ -325,6 +466,73 @@ defmodule SymphonyElixirWeb.DashboardLive do
     Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
   end
 
+  defp tracker_kind, do: SymphonyElixir.Config.tracker_kind()
+  defp agent_kind, do: SymphonyElixir.Config.agent_kind()
+
   defp pretty_value(nil), do: "n/a"
   defp pretty_value(value), do: inspect(value, pretty: true, limit: :infinity)
+
+  defp find_running_entry(%{running: running}, issue_identifier) when is_list(running) do
+    Enum.find(running, &(to_string(&1.issue_identifier) == issue_identifier))
+  end
+
+  defp find_running_entry(_payload, _issue_identifier), do: nil
+
+  defp agent_log_modal(nil) do
+    %{
+      issue_identifier: "n/a",
+      path: nil,
+      messages: [
+        %{
+          role: "system",
+          title: "Session",
+          timestamp: "n/a",
+          body: "No running session found for this issue."
+        }
+      ]
+    }
+  end
+
+  defp agent_log_modal(entry) do
+    path = agent_log_path(entry)
+    content = SymphonyElixir.AgentLog.read(path)
+
+    %{
+      issue_identifier: entry.issue_identifier,
+      path: path,
+      messages: SymphonyElixir.AgentLog.parse(content)
+    }
+  end
+
+  defp refresh_agent_log_modal(nil, _payload), do: nil
+
+  defp refresh_agent_log_modal(%{issue_identifier: issue_identifier} = modal, payload) do
+    case find_running_entry(payload, to_string(issue_identifier)) do
+      nil -> refresh_agent_log_modal_from_path(modal)
+      entry -> agent_log_modal(entry)
+    end
+  end
+
+  defp refresh_agent_log_modal(modal, _payload), do: modal
+
+  defp refresh_agent_log_modal_from_path(%{path: path} = modal) when is_binary(path) do
+    %{modal | messages: path |> SymphonyElixir.AgentLog.read() |> SymphonyElixir.AgentLog.parse()}
+  end
+
+  defp refresh_agent_log_modal_from_path(modal), do: modal
+
+  defp agent_log_path(%{workspace_path: workspace_path}) do
+    SymphonyElixir.AgentLog.workspace_log_path(workspace_path)
+  end
+
+  defp agent_log_path(_entry), do: nil
+
+  defp log_message_class(%{role: role}), do: "log-message log-message-#{role}"
+
+  defp format_chat_error(:no_running_agent), do: "Agent is no longer running."
+  defp format_chat_error(:empty_message), do: "Message is empty."
+  defp format_chat_error(:message_too_long), do: "Message is too long."
+  defp format_chat_error(:timeout), do: "Send timed out."
+  defp format_chat_error(:unavailable), do: "Orchestrator unavailable."
+  defp format_chat_error(reason), do: inspect(reason)
 end

@@ -1,10 +1,15 @@
-defmodule SymphonyElixir.Codex.AppServer do
+defmodule SymphonyElixir.Codex.CodingAgent do
   @moduledoc """
   Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio.
   """
 
+  @version Mix.Project.config()[:version]
+
+  @behaviour SymphonyElixir.CodingAgent
+
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH}
+  alias SymphonyElixir.Codex.DynamicTool
+  alias SymphonyElixir.{Config, PathSafety, SSH}
 
   @initialize_id 1
   @thread_start_id 2
@@ -21,18 +26,22 @@ defmodule SymphonyElixir.Codex.AppServer do
           thread_sandbox: String.t(),
           turn_sandbox_policy: map(),
           thread_id: String.t(),
-          workspace: Path.t(),
-          worker_host: String.t() | nil
+          workspace: Path.t()
         }
 
+  @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
-    with {:ok, session} <- start_session(workspace, opts) do
-      try do
-        run_turn(session, prompt, issue, opts)
-      after
-        stop_session(session)
-      end
+    case start_session(workspace, opts) do
+      {:ok, session} ->
+        try do
+          run_turn(session, prompt, issue, opts)
+        after
+          stop_session(session)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -144,14 +153,43 @@ defmodule SymphonyElixir.Codex.AppServer do
     stop_port(port)
   end
 
-  defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
-    expanded_workspace = Path.expand(workspace)
-    expanded_root = Path.expand(Config.settings!().workspace.root)
-    expanded_root_prefix = expanded_root <> "/"
+  @spec send_operator_message(session(), SymphonyElixir.CodingAgent.operator_payload()) ::
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(
+        %{port: port, thread_id: thread_id, workspace: workspace} = session,
+        %{kind: :text, body: text}
+      )
+      when is_port(port) and is_binary(thread_id) and is_binary(text) do
+    request_id = :erlang.unique_integer([:positive])
 
-    with {:ok, canonical_workspace} <- PathSafety.canonicalize(expanded_workspace),
-         {:ok, canonical_root} <- PathSafety.canonicalize(expanded_root) do
+    frame = %{
+      "method" => "turn/start",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => thread_id,
+        "input" => [%{"type" => "text", "text" => text}],
+        "cwd" => workspace,
+        "approvalPolicy" => Map.get(session, :approval_policy),
+        "sandboxPolicy" => Map.get(session, :turn_sandbox_policy)
+      }
+    }
+
+    send_message(port, frame)
+    {:ok, request_id}
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
+  def send_operator_message(_session, _payload), do: {:error, :invalid_session}
+
+  defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
+    workspace_path = Path.expand(workspace)
+    workspace_root = Path.expand(Config.workspace_root())
+
+    with {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace_path),
+         {:ok, canonical_root} <- PathSafety.canonicalize(workspace_root) do
       canonical_root_prefix = canonical_root <> "/"
+      expanded_root_prefix = workspace_root <> "/"
 
       cond do
         canonical_workspace == canonical_root ->
@@ -160,8 +198,8 @@ defmodule SymphonyElixir.Codex.AppServer do
         String.starts_with?(canonical_workspace <> "/", canonical_root_prefix) ->
           {:ok, canonical_workspace}
 
-        String.starts_with?(expanded_workspace <> "/", expanded_root_prefix) ->
-          {:error, {:invalid_workspace_cwd, :symlink_escape, expanded_workspace, canonical_root}}
+        String.starts_with?(workspace_path <> "/", expanded_root_prefix) ->
+          {:error, {:invalid_workspace_cwd, :symlink_escape, workspace_path, canonical_root}}
 
         true ->
           {:error, {:invalid_workspace_cwd, :outside_workspace_root, canonical_workspace, canonical_root}}
@@ -199,7 +237,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Config.settings!().codex.command)],
+            args: [~c"-lc", String.to_charlist(SymphonyElixir.Codex.Config.command())],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -210,20 +248,16 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp start_port(workspace, worker_host) when is_binary(worker_host) do
-    remote_command = remote_launch_command(workspace)
-    SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
+    SSH.start_port(worker_host, remote_launch_command(workspace), line: @port_line_bytes)
   end
 
-  defp remote_launch_command(workspace) when is_binary(workspace) do
-    [
-      "cd #{shell_escape(workspace)}",
-      "exec #{Config.settings!().codex.command}"
-    ]
+  defp remote_launch_command(workspace) do
+    ["cd #{shell_escape(workspace)}", "exec #{SymphonyElixir.Codex.Config.command()}"]
     |> Enum.join(" && ")
   end
 
-  defp port_metadata(port, worker_host) when is_port(port) do
-    base_metadata =
+  defp port_metadata(port, worker_host \\ nil) when is_port(port) do
+    metadata =
       case :erlang.port_info(port, :os_pid) do
         {:os_pid, os_pid} ->
           %{codex_app_server_pid: to_string(os_pid)}
@@ -233,8 +267,8 @@ defmodule SymphonyElixir.Codex.AppServer do
       end
 
     case worker_host do
-      host when is_binary(host) -> Map.put(base_metadata, :worker_host, host)
-      _ -> base_metadata
+      host when is_binary(host) -> Map.put(metadata, :worker_host, host)
+      _ -> metadata
     end
   end
 
@@ -249,7 +283,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         "clientInfo" => %{
           "name" => "symphony-orchestrator",
           "title" => "Symphony Orchestrator",
-          "version" => "0.1.0"
+          "version" => @version
         }
       }
     }
@@ -263,7 +297,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp session_policies(workspace, nil) do
-    Config.codex_runtime_settings(workspace)
+    SymphonyElixir.Codex.Config.runtime_settings(workspace)
   end
 
   defp session_policies(workspace, worker_host) when is_binary(worker_host) do
@@ -327,14 +361,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
-    receive_loop(
-      port,
-      on_message,
-      Config.settings!().codex.turn_timeout_ms,
-      "",
-      tool_executor,
-      auto_approve_requests
-    )
+    receive_loop(port, on_message, Config.agent_turn_timeout_ms(), "", tool_executor, auto_approve_requests)
   end
 
   defp receive_loop(port, on_message, timeout_ms, pending_line, tool_executor, auto_approve_requests) do
@@ -436,6 +463,13 @@ defmodule SymphonyElixir.Codex.AppServer do
 
         receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
     end
+  end
+
+  defp protocol_message_candidate?(payload_string) do
+    payload_string
+    |> to_string()
+    |> String.trim_leading()
+    |> String.starts_with?(["{", "["])
   end
 
   defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
@@ -558,10 +592,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     tool_name = tool_call_name(params)
     arguments = tool_call_arguments(params)
 
-    result =
-      tool_name
-      |> tool_executor.(arguments)
-      |> normalize_dynamic_tool_result()
+    result = normalize_tool_result(tool_executor.(tool_name, arguments))
 
     send_message(port, %{
       "id" => id,
@@ -681,43 +712,14 @@ defmodule SymphonyElixir.Codex.AppServer do
     :unhandled
   end
 
-  defp normalize_dynamic_tool_result(%{"success" => success} = result) when is_boolean(success) do
-    output =
-      case Map.get(result, "output") do
-        existing_output when is_binary(existing_output) -> existing_output
-        _ -> dynamic_tool_output(result)
-      end
+  defp normalize_tool_result(%{"output" => _output} = result), do: result
 
-    content_items =
-      case Map.get(result, "contentItems") do
-        existing_items when is_list(existing_items) -> existing_items
-        _ -> dynamic_tool_content_items(output)
-      end
-
-    result
-    |> Map.put("output", output)
-    |> Map.put("contentItems", content_items)
+  defp normalize_tool_result(%{"contentItems" => [%{"text" => output} | _]} = result)
+       when is_binary(output) do
+    Map.put(result, "output", output)
   end
 
-  defp normalize_dynamic_tool_result(result) do
-    %{
-      "success" => false,
-      "output" => inspect(result),
-      "contentItems" => dynamic_tool_content_items(inspect(result))
-    }
-  end
-
-  defp dynamic_tool_output(%{"contentItems" => [%{"text" => text} | _]}) when is_binary(text), do: text
-  defp dynamic_tool_output(result), do: Jason.encode!(result, pretty: true)
-
-  defp dynamic_tool_content_items(output) when is_binary(output) do
-    [
-      %{
-        "type" => "inputText",
-        "text" => output
-      }
-    ]
-  end
+  defp normalize_tool_result(result), do: result
 
   defp approve_or_require(
          port,
@@ -920,7 +922,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp await_response(port, request_id) do
-    with_timeout_response(port, request_id, Config.settings!().codex.read_timeout_ms, "")
+    with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "")
   end
 
   defp with_timeout_response(port, request_id, timeout_ms, pending_line) do
@@ -979,13 +981,6 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp protocol_message_candidate?(data) do
-    data
-    |> to_string()
-    |> String.trim_leading()
-    |> String.starts_with?("{")
-  end
-
   defp issue_context(%{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
   end
@@ -1006,13 +1001,206 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
+  defp shell_escape(value) when is_binary(value) do
+    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+  end
+
+  @spec normalize_event(map()) :: map()
+  def normalize_event(event) when is_map(event) do
+    event
+    |> normalize_usage()
+    |> normalize_rate_limits()
+  end
+
+  defp normalize_usage(event) do
+    payloads = [
+      event[:usage],
+      Map.get(event, "usage"),
+      event[:payload],
+      Map.get(event, "payload"),
+      event
+    ]
+
+    usage =
+      Enum.find_value(payloads, &absolute_token_usage/1) ||
+        Enum.find_value(payloads, &turn_completed_usage/1) ||
+        Enum.find_value(payloads, &direct_token_map/1)
+
+    Map.put(event, :usage, canonicalize_usage(usage))
+  end
+
+  defp normalize_rate_limits(event) do
+    raw =
+      find_rate_limits(event[:rate_limits]) ||
+        find_rate_limits(Map.get(event, "rate_limits")) ||
+        find_rate_limits(event[:payload]) ||
+        find_rate_limits(Map.get(event, "payload")) ||
+        find_rate_limits(event)
+
+    Map.put(event, :rate_limits, raw)
+  end
+
+  defp absolute_token_usage(payload) when is_map(payload) do
+    paths = [
+      ["params", "msg", "payload", "info", "total_token_usage"],
+      [:params, :msg, :payload, :info, :total_token_usage],
+      ["params", "msg", "info", "total_token_usage"],
+      [:params, :msg, :info, :total_token_usage],
+      ["params", "tokenUsage", "total"],
+      [:params, :tokenUsage, :total],
+      ["tokenUsage", "total"],
+      [:tokenUsage, :total]
+    ]
+
+    Enum.find_value(paths, fn path ->
+      value = dig(payload, path)
+      if is_map(value) and has_token_field?(value), do: value
+    end)
+  end
+
+  defp absolute_token_usage(_), do: nil
+
+  defp turn_completed_usage(payload) when is_map(payload) do
+    method = Map.get(payload, "method") || Map.get(payload, :method)
+
+    if method in ["turn/completed", :turn_completed] do
+      direct =
+        Map.get(payload, "usage") || Map.get(payload, :usage) ||
+          dig(payload, ["params", "usage"]) || dig(payload, [:params, :usage])
+
+      if is_map(direct) and has_token_field?(direct), do: direct
+    end
+  end
+
+  defp turn_completed_usage(_), do: nil
+
+  defp direct_token_map(payload) when is_map(payload) do
+    if has_token_field?(payload), do: payload
+  end
+
+  defp direct_token_map(_), do: nil
+
+  defp canonicalize_usage(nil), do: nil
+
+  defp canonicalize_usage(raw) when is_map(raw) do
+    input =
+      token_value(
+        raw,
+        ~w(input_tokens prompt_tokens inputTokens promptTokens)a ++
+          ~w(input_tokens prompt_tokens inputTokens promptTokens)
+      )
+
+    output =
+      token_value(
+        raw,
+        ~w(output_tokens completion_tokens outputTokens completionTokens)a ++
+          ~w(output_tokens completion_tokens outputTokens completionTokens)
+      )
+
+    total = token_value(raw, ~w(total_tokens total totalTokens)a ++ ~w(total_tokens total totalTokens))
+
+    if input || output || total do
+      %{input_tokens: input || 0, output_tokens: output || 0, total_tokens: total || 0}
+    end
+  end
+
+  defp token_value(map, keys) do
+    Enum.find_value(keys, fn key ->
+      map |> Map.get(key) |> parse_token_value()
+    end)
+  end
+
+  defp parse_token_value(v) when is_integer(v) and v >= 0, do: v
+
+  defp parse_token_value(v) when is_binary(v) do
+    case Integer.parse(String.trim(v)) do
+      {n, _} when n >= 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_token_value(_), do: nil
+
+  defp has_token_field?(map) when is_map(map) do
+    token_keys =
+      ~w(input_tokens output_tokens total_tokens prompt_tokens completion_tokens
+                    inputTokens outputTokens totalTokens promptTokens completionTokens)a ++
+        ~w(input_tokens output_tokens total_tokens prompt_tokens completion_tokens
+                    inputTokens outputTokens totalTokens promptTokens completionTokens)
+
+    Enum.any?(token_keys, fn key ->
+      map |> Map.get(key) |> token_like_value?()
+    end)
+  end
+
+  defp has_token_field?(_), do: false
+
+  defp token_like_value?(v) when is_integer(v) and v >= 0, do: true
+
+  defp token_like_value?(v) when is_binary(v) do
+    case Integer.parse(String.trim(v)) do
+      {n, _} when n >= 0 -> true
+      _ -> false
+    end
+  end
+
+  defp token_like_value?(_), do: false
+
+  defp find_rate_limits(payload) when is_map(payload) do
+    direct = Map.get(payload, "rate_limits") || Map.get(payload, :rate_limits)
+
+    cond do
+      rate_limits_map?(direct) -> direct
+      rate_limits_map?(payload) -> payload
+      true -> search_rate_limits(payload)
+    end
+  end
+
+  defp find_rate_limits(_), do: nil
+
+  defp search_rate_limits(payload) when is_map(payload) do
+    Enum.find_value(Map.values(payload), fn
+      value when is_map(value) -> find_rate_limits(value)
+      _ -> nil
+    end)
+  end
+
+  defp rate_limits_map?(payload) when is_map(payload) do
+    has_id =
+      !is_nil(
+        Map.get(payload, "limit_id") || Map.get(payload, :limit_id) ||
+          Map.get(payload, "limit_name") || Map.get(payload, :limit_name)
+      )
+
+    has_buckets =
+      Enum.any?(
+        ["primary", :primary, "secondary", :secondary, "credits", :credits],
+        &Map.has_key?(payload, &1)
+      )
+
+    has_id and has_buckets
+  end
+
+  defp rate_limits_map?(_), do: false
+
+  defp dig(map, []), do: map
+
+  defp dig(map, [key | rest]) when is_map(map) do
+    case Map.get(map, key) do
+      nil -> nil
+      value -> dig(value, rest)
+    end
+  end
+
+  defp dig(_, _), do: nil
+
   defp emit_message(on_message, event, details, metadata) when is_function(on_message, 1) do
     message = metadata |> Map.merge(details) |> Map.put(:event, event) |> Map.put(:timestamp, DateTime.utc_now())
     on_message.(message)
   end
 
   defp metadata_from_message(port, payload) do
-    port |> port_metadata(nil) |> maybe_set_usage(payload)
+    port |> port_metadata() |> maybe_set_usage(payload)
   end
 
   defp maybe_set_usage(metadata, payload) when is_map(payload) do
@@ -1026,10 +1214,6 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp maybe_set_usage(metadata, _payload), do: metadata
-
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
-  end
 
   defp default_on_message(_message), do: :ok
 
