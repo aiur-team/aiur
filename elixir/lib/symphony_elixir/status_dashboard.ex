@@ -272,6 +272,24 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
+  def handle_cast(:open_log, %{enabled: true, view: {:log, _log_view}} = state) do
+    snapshot_data = snapshot_data()
+
+    case running_entry_at(snapshot_data, state.selected_index) do
+      nil ->
+        {:noreply, state}
+
+      entry ->
+        state =
+          state
+          |> Map.put(:view, build_log_view(entry))
+          |> Map.put(:last_snapshot_fingerprint, nil)
+          |> maybe_render()
+
+        {:noreply, state}
+    end
+  end
+
   def handle_cast(:open_log, state) do
     Logger.debug("open_log: no-op fallthrough (enabled=#{inspect(state.enabled)}, view=#{inspect(state.view)})")
     {:noreply, state}
@@ -305,19 +323,13 @@ defmodule SymphonyElixir.StatusDashboard do
   def handle_cast({:scroll_log, _direction}, state), do: {:noreply, state}
 
   def handle_cast(:enter_typing, %{enabled: true, view: {:log, log_view}} = state) do
-    {:noreply, update_log_view(state, %{log_view | mode: :typing})}
+    {:noreply, state |> update_log_view(%{log_view | mode: :typing}) |> maybe_render()}
   end
 
   def handle_cast(:enter_typing, state), do: {:noreply, state}
 
-  def handle_cast(:exit_typing, %{enabled: true, view: {:log, _log_view}} = state) do
-    state =
-      state
-      |> Map.put(:view, :list)
-      |> Map.put(:last_snapshot_fingerprint, nil)
-      |> maybe_render()
-
-    {:noreply, state}
+  def handle_cast(:exit_typing, %{enabled: true, view: {:log, log_view}} = state) do
+    {:noreply, state |> update_log_view(%{log_view | mode: :browsing}) |> maybe_render()}
   end
 
   def handle_cast(:exit_typing, state), do: {:noreply, state}
@@ -853,8 +865,12 @@ defmodule SymphonyElixir.StatusDashboard do
         is_integer(composer.pending_request_id) ->
           {"sent; waiting for agent turn", @ansi_yellow}
 
+        Map.get(log_view, :mode, :typing) == :browsing ->
+          {"Tab returns to chat · J/K move agents · Space opens selected log · Esc/Ctrl-C closes log",
+           @ansi_gray}
+
         true ->
-          {"Enter sends · Alt-Enter newline · Esc returns to agents · Ctrl-C quits log, again to quit Symphony",
+          {"Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection",
            @ansi_gray}
       end
 
@@ -1678,15 +1694,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_operator_error(:unavailable), do: "orchestrator unavailable"
   defp format_operator_error(reason), do: inspect(reason)
 
-  defp retarget_log_view(%{view: {:log, _log_view}} = state, snapshot_data, index) do
-    case running_entry_at(snapshot_data, index) do
-      nil ->
-        state
-
-      entry ->
-        Map.put(state, :view, build_log_view(entry))
-    end
-  end
+  defp retarget_log_view(%{view: {:log, _log_view}} = state, _snapshot_data, _index), do: state
 
   defp retarget_log_view(state, _snapshot_data, _index), do: state
 
