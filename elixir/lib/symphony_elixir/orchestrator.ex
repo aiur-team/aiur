@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, Issue, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{AgentQueue, AgentQueueStore, AgentRunner, Config, Issue, StatusDashboard, Tracker, Workspace}
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -33,6 +33,7 @@ defmodule SymphonyElixir.Orchestrator do
       :poll_check_in_progress,
       :tick_timer_ref,
       :tick_token,
+      queue_store: AgentQueueStore.new(),
       running: %{},
       completed: MapSet.new(),
       claimed: MapSet.new(),
@@ -694,7 +695,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
     case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+           AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host, orchestrator: recipient)
          end) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
@@ -1131,6 +1132,30 @@ defmodule SymphonyElixir.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @doc false
+  @spec claim_next_queue_item_for_test(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_next_queue_item_for_test(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.call(server, {:claim_next_queue_item, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @doc false
+  @spec mark_queue_item_consumed_for_test(GenServer.server(), integer()) :: :ok | {:error, term()}
+  def mark_queue_item_consumed_for_test(server, item_id) when is_integer(item_id) do
+    GenServer.call(server, {:mark_queue_item_consumed, item_id}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @doc false
+  @spec mark_queue_item_failed_for_test(GenServer.server(), integer(), term()) :: :ok | {:error, term()}
+  def mark_queue_item_failed_for_test(server, item_id, reason) when is_integer(item_id) do
+    GenServer.call(server, {:mark_queue_item_failed, item_id, reason}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
@@ -1225,12 +1250,19 @@ defmodule SymphonyElixir.Orchestrator do
       when is_binary(issue_identifier) and is_binary(body) do
     case validate_operator_message(body) do
       {:ok, text} ->
-        reply =
-          send_running_control_message(state, issue_identifier, fn request_id ->
-            {:operator_message, %{kind: :text, body: text}, request_id}
-          end)
+        case find_running_by_identifier(state.running, issue_identifier) do
+          nil ->
+            {:reply, {:error, :no_running_agent}, state}
 
-        {:reply, reply, state}
+          running_entry ->
+            {queue_store, item} =
+              AgentQueue.operator_message(issue_identifier, text)
+              |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+            state = %{state | queue_store: queue_store}
+            notify_running_queue_update(running_entry, item)
+            {:reply, {:ok, item.id}, state}
+        end
 
       {:error, _reason} = error ->
         {:reply, error, state}
@@ -1252,6 +1284,29 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_call({:pause_agent, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    {queue_store, item} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
+    state = %{state | queue_store: queue_store}
+
+    reply =
+      case item do
+        nil -> :empty
+        _ -> {:ok, item}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:mark_queue_item_consumed, item_id}, _from, state) when is_integer(item_id) do
+    {queue_store, _item} = AgentQueueStore.mark_consumed(state.queue_store, item_id)
+    {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
+  def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state) when is_integer(item_id) do
+    {queue_store, _item} = AgentQueueStore.mark_failed(state.queue_store, item_id, reason)
+    {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
   defp validate_operator_message(body) do
@@ -1282,6 +1337,16 @@ defmodule SymphonyElixir.Orchestrator do
         {:error, :agent_finished}
     end
   end
+
+  defp notify_running_queue_update(%{pid: pid}, item) when is_pid(pid) do
+    if Process.alive?(pid) do
+      send(pid, {:agent_queue_updated, item.target_issue_identifier, item.id})
+    end
+
+    :ok
+  end
+
+  defp notify_running_queue_update(_running_entry, _item), do: :ok
 
   defp find_running_by_identifier(running, issue_identifier) do
     Enum.find_value(running, fn

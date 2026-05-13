@@ -80,6 +80,7 @@ defmodule SymphonyElixir.AgentRunner do
   defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+    orchestrator = Keyword.get(opts, :orchestrator, SymphonyElixir.Orchestrator)
 
     with {:ok, session} <- CodingAgent.start_session(workspace, worker_host: worker_host) do
       try do
@@ -90,6 +91,7 @@ defmodule SymphonyElixir.AgentRunner do
           codex_update_recipient,
           opts,
           issue_state_fetcher,
+          orchestrator,
           worker_host,
           1,
           max_turns
@@ -108,6 +110,7 @@ defmodule SymphonyElixir.AgentRunner do
          codex_update_recipient,
          opts,
          issue_state_fetcher,
+         orchestrator,
          worker_host,
          turn_number,
          max_turns
@@ -118,7 +121,7 @@ defmodule SymphonyElixir.AgentRunner do
 
     with {:ok, turn_session} <-
            CodingAgent.run_turn(app_session, prompt, issue, on_message: message_handler),
-         :ok <- drain_operator_messages(app_session, issue, message_handler) do
+         :ok <- drain_operator_messages(app_session, issue, message_handler, orchestrator) do
       Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
       case continue_with_issue?(issue, issue_state_fetcher) do
@@ -132,6 +135,7 @@ defmodule SymphonyElixir.AgentRunner do
             codex_update_recipient,
             opts,
             issue_state_fetcher,
+            orchestrator,
             worker_host,
             turn_number + 1,
             max_turns
@@ -151,38 +155,65 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp drain_operator_messages(app_session, issue, message_handler) do
+  defp drain_operator_messages(app_session, issue, message_handler, orchestrator) do
     receive do
-      {:operator_message, %{kind: :text, body: text}, request_id}
-      when is_binary(text) and is_integer(request_id) ->
-        Logger.info("Delivering operator message to #{issue_context(issue)} request_id=#{request_id}")
-        run_operator_turn(app_session, issue, text, message_handler)
-
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Pausing agent at next turn boundary for #{issue_context(issue)} request_id=#{request_id}")
-        wait_for_operator_message(app_session, issue, message_handler)
+        wait_for_operator_message(app_session, issue, message_handler, orchestrator)
     after
-      0 -> :ok
+      0 -> drain_queued_operator_messages(app_session, issue, message_handler, orchestrator)
     end
   end
 
-  defp wait_for_operator_message(app_session, issue, message_handler) do
-    receive do
-      {:operator_message, %{kind: :text, body: text}, request_id}
-      when is_binary(text) and is_integer(request_id) ->
-        Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{request_id}")
-        run_operator_turn(app_session, issue, text, message_handler)
+  defp wait_for_operator_message(app_session, issue, message_handler, orchestrator) do
+    case claim_next_operator_item(orchestrator, issue.identifier) do
+      {:ok, item} ->
+        Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{item.id}")
+        run_operator_turn(app_session, issue, item, message_handler, orchestrator)
 
-      {:pause_agent, request_id} when is_integer(request_id) ->
-        Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
-        wait_for_operator_message(app_session, issue, message_handler)
+      :empty ->
+        receive do
+          {:agent_queue_updated, issue_identifier, _item_id} when issue_identifier == issue.identifier ->
+            wait_for_operator_message(app_session, issue, message_handler, orchestrator)
+
+          {:pause_agent, request_id} when is_integer(request_id) ->
+            Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
+            wait_for_operator_message(app_session, issue, message_handler, orchestrator)
+        end
     end
   end
 
-  defp run_operator_turn(app_session, issue, text, message_handler) do
-    with {:ok, _turn_session} <-
-           CodingAgent.run_turn(app_session, text, issue, on_message: message_handler) do
-      drain_operator_messages(app_session, issue, message_handler)
+  defp drain_queued_operator_messages(app_session, issue, message_handler, orchestrator) do
+    case claim_next_operator_item(orchestrator, issue.identifier) do
+      {:ok, item} ->
+        Logger.info("Delivering operator message to #{issue_context(issue)} request_id=#{item.id}")
+        run_operator_turn(app_session, issue, item, message_handler, orchestrator)
+
+      :empty ->
+        :ok
+    end
+  end
+
+  defp claim_next_operator_item(orchestrator, issue_identifier) when is_binary(issue_identifier) do
+    case SymphonyElixir.Orchestrator.claim_next_queue_item_for_test(orchestrator, issue_identifier) do
+      {:ok, %{category: :operator_message} = item} -> {:ok, item}
+      {:ok, _item} -> :empty
+      :empty -> :empty
+      {:error, _reason} -> :empty
+    end
+  end
+
+  defp run_operator_turn(app_session, issue, item, message_handler, orchestrator) do
+    text = item.body.text
+
+    case CodingAgent.run_turn(app_session, text, issue, on_message: message_handler) do
+      {:ok, _turn_session} ->
+        :ok = SymphonyElixir.Orchestrator.mark_queue_item_consumed_for_test(orchestrator, item.id)
+        drain_operator_messages(app_session, issue, message_handler, orchestrator)
+
+      {:error, reason} = error ->
+        :ok = SymphonyElixir.Orchestrator.mark_queue_item_failed_for_test(orchestrator, item.id, reason)
+        error
     end
   end
 

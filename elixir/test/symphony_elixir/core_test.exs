@@ -1459,6 +1459,126 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner drains queued operator messages at the turn boundary" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-queued-operator-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-queue"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-1"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+          *)
+            if printf '%s' "$line" | grep -q '"method":"turn/start"'; then
+              printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-2"}}}'
+              printf '%s\\n' '{"method":"turn/completed"}'
+            fi
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 2
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :QueuedOperatorOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+      end)
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        {queue_store, _item} =
+          SymphonyElixir.AgentQueue.operator_message("MT-249", "focus on auth first")
+          |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+        %{state | queue_store: queue_store}
+      end)
+
+      issue = %Issue{
+        id: "issue-queue",
+        identifier: "MT-249",
+        title: "Drain queued operator message",
+        description: "Deliver follow-up after the first turn",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-249",
+        labels: []
+      }
+
+      assert :ok =
+               AgentRunner.run(
+                 issue,
+                 nil,
+                 orchestrator: orchestrator_name,
+                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+               )
+
+      turn_texts =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 2
+      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 1) == "focus on auth first"
+      assert :empty == Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-249")
+    after
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner stops continuing once agent.max_turns is reached" do
     test_root =
       Path.join(
