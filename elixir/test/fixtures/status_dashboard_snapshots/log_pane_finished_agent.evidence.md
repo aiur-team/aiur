@@ -1,7 +1,7 @@
 ```text
 ╭─ SYMPHONY STATUS
 │ ITS: linear | Agent: codex                             │ Rate Limits: unavailable
-│ Agents: 0/10                                           │ Project: n/a
+│ Agents: 0/10                                           │ Project: project
 │ Throughput: 0 tps                                      │ Next refresh: n/a
 │ Runtime: 0m 0s                                         │ 
 │ Tokens: in 0 | out 0 | total 0                         │ 
@@ -16,7 +16,7 @@
 │   PID: (finished) | Tokens: (finished)
 │   Issue: Fix the login flow
 │
-│   [22:46:39] you · Operator message
+│   [22:46:39] symphony · Issue prompt
 │       Fix the login flow
 │       
 │       Users cannot log in

@@ -15,7 +15,7 @@ defmodule SymphonyElixir.Os do
 
   @spec stty([String.t()]) :: :ok | {:error, String.t()}
   def stty(args) do
-    case :os.find_executable(~c"stty") do
+    case executable_path() do
       false -> {:error, "stty executable not found on PATH"}
       path -> execute(path, args)
     end
@@ -37,12 +37,24 @@ defmodule SymphonyElixir.Os do
       {^port, {:exit_status, status}} ->
         {:error, "stty #{Enum.join(args, " ")} exited with status #{status}"}
     after
-      @timeout_ms ->
+      timeout_ms() ->
         Port.close(port)
-        {:error, "stty #{Enum.join(args, " ")} timed out after #{@timeout_ms}ms"}
+        {:error, "stty #{Enum.join(args, " ")} timed out after #{timeout_ms()}ms"}
     end
   rescue
     error in [ErlangError, ArgumentError] ->
       {:error, "stty invocation failed: #{Exception.message(error)}"}
+  end
+
+  defp executable_path do
+    Application.get_env(:symphony_elixir, :stty_executable_override, :default)
+    |> case do
+      :default -> :os.find_executable(~c"stty")
+      path -> path
+    end
+  end
+
+  defp timeout_ms do
+    Application.get_env(:symphony_elixir, :stty_timeout_ms_override, @timeout_ms)
   end
 end
