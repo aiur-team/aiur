@@ -16,7 +16,7 @@
 │   PID: (finished) | Tokens: (finished)
 │   Issue: Fix the login flow
 │
-│   [22:46:39] symphony · Issue prompt
+│   [22:46:39] you · Operator message
 │       Fix the login flow
 │       
 │       Users cannot log in
@@ -26,6 +26,6 @@
 │       Rate limit warning
 │
 │ >
-│ Enter sends · Alt-Enter newline · Esc returns to agents · Ctrl-C quits log, again to quit Symphony
+│ Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection
 ╰─
 ```

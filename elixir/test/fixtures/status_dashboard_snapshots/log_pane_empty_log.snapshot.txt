@@ -18,5 +18,5 @@
 │       \e[90mNo displayable chat events yet.\e[0m
 │
 │ \e[97m>\e[0m
-│ \e[90mEnter sends · Alt-Enter newline · Esc returns to agents · Ctrl-C quits log, again to quit Symphony\e[0m
+│ \e[90mEnter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection\e[0m
 ╰─

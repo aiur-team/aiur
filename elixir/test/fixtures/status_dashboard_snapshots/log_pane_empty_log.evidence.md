@@ -19,6 +19,6 @@
 │       No displayable chat events yet.
 │
 │ >
-│ Enter sends · Alt-Enter newline · Esc returns to agents · Ctrl-C quits log, again to quit Symphony
+│ Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection
 ╰─
 ```
