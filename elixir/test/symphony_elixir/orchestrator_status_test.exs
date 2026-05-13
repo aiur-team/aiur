@@ -901,7 +901,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert next_poll_in_ms <= 50
   end
 
-  test "orchestrator sends operator messages and pause requests to running agent task" do
+  test "orchestrator enqueues operator messages and pause requests for the running agent task" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -939,7 +939,10 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "hello"})
 
     assert is_integer(request_id)
-    assert_receive {:operator_message, %{kind: :text, body: "hello"}, ^request_id}
+    assert_receive {:agent_queue_updated, "MT-CHAT", ^request_id}
+
+    assert {:ok, %{id: ^request_id, category: :operator_message, body: %{text: "hello"}}} =
+             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-CHAT")
 
     assert {:ok, pause_request_id} = Orchestrator.pause_agent(orchestrator_name, "MT-CHAT")
     assert_receive {:pause_agent, ^pause_request_id}
