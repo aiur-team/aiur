@@ -27,14 +27,19 @@ for arg in "$@"; do
     filtered_args+=("$arg")
   fi
 done
-set -- "${filtered_args[@]}"
+
+if [ "${#filtered_args[@]}" -gt 0 ]; then
+  set -- "${filtered_args[@]}"
+else
+  set --
+fi
 
 declare -a profile_names=()
-declare -A profile_symphony_roots=()
-declare -A profile_workflows=()
-declare -A profile_ports=()
-declare -A profile_logs_roots=()
-declare -A profile_services=()
+declare -a profile_symphony_roots=()
+declare -a profile_workflows=()
+declare -a profile_ports=()
+declare -a profile_logs_roots=()
+declare -a profile_services=()
 
 usage() {
   cat <<'USAGE'
@@ -78,26 +83,56 @@ add_profile() {
 
   if ! profile_exists "$name"; then
     profile_names+=("$name")
+    profile_symphony_roots+=("$root")
+    profile_workflows+=("$workflow")
+    profile_ports+=("$port")
+    profile_logs_roots+=("$logs_root")
+    profile_services+=("$service")
+    return
   fi
 
-  profile_symphony_roots["$name"]="$root"
-  profile_workflows["$name"]="$workflow"
-  profile_ports["$name"]="$port"
-  profile_logs_roots["$name"]="$logs_root"
-  profile_services["$name"]="$service"
+  local index
+  index="$(profile_index "$name")"
+  profile_symphony_roots[$index]="$root"
+  profile_workflows[$index]="$workflow"
+  profile_ports[$index]="$port"
+  profile_logs_roots[$index]="$logs_root"
+  profile_services[$index]="$service"
 }
 
-profile_exists() {
+profile_index() {
   local name="$1"
-  local candidate
+  local i
 
-  for candidate in "${profile_names[@]}"; do
-    if [ "$candidate" = "$name" ]; then
+  for ((i = 0; i < ${#profile_names[@]}; i++)); do
+    if [ "${profile_names[$i]}" = "$name" ]; then
+      printf '%s' "$i"
       return 0
     fi
   done
 
   return 1
+}
+
+profile_exists() {
+  profile_index "$1" >/dev/null
+}
+
+profile_value() {
+  local array_name="$1"
+  local profile="$2"
+  local index
+
+  index="$(profile_index "$profile")" || return 1
+
+  case "$array_name" in
+    symphony_root) printf '%s' "${profile_symphony_roots[$index]}" ;;
+    workflow) printf '%s' "${profile_workflows[$index]}" ;;
+    port) printf '%s' "${profile_ports[$index]}" ;;
+    logs_root) printf '%s' "${profile_logs_roots[$index]}" ;;
+    service) printf '%s' "${profile_services[$index]}" ;;
+    *) return 1 ;;
+  esac
 }
 
 load_profiles() {
@@ -138,12 +173,13 @@ trim() {
 
 profile_elixir_dir() {
   local profile="$1"
-  printf '%s/elixir' "${profile_symphony_roots[$profile]}"
+  printf '%s/elixir' "$(profile_value symphony_root "$profile")"
 }
 
 profile_workflow_arg() {
   local profile="$1"
-  local workflow="${profile_workflows[$profile]}"
+  local workflow
+  workflow="$(profile_value workflow "$profile")"
 
   if [[ "$workflow" = /* ]]; then
     printf '%s' "$workflow"
@@ -166,14 +202,16 @@ require_profile() {
 list_profiles() {
   printf '%-16s %-36s %-24s %-8s %-24s %s\n' "PROFILE" "SYMPHONY" "WORKFLOW" "PORT" "LOGS" "SERVICE"
 
-  for profile in "${profile_names[@]}"; do
+  local i
+
+  for ((i = 0; i < ${#profile_names[@]}; i++)); do
     printf '%-16s %-36s %-24s %-8s %-24s %s\n' \
-      "$profile" \
-      "${profile_symphony_roots[$profile]}" \
-      "${profile_workflows[$profile]}" \
-      "${profile_ports[$profile]:--}" \
-      "${profile_logs_roots[$profile]:--}" \
-      "${profile_services[$profile]:--}"
+      "${profile_names[$i]}" \
+      "${profile_symphony_roots[$i]}" \
+      "${profile_workflows[$i]}" \
+      "${profile_ports[$i]:--}" \
+      "${profile_logs_roots[$i]:--}" \
+      "${profile_services[$i]:--}"
   done
 }
 
@@ -282,9 +320,9 @@ stop_profile() {
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
-  service="${profile_services[$profile]}"
-  logs_root="${profile_logs_roots[$profile]}"
-  port="${profile_ports[$profile]}"
+  service="$(profile_value service "$profile")"
+  logs_root="$(profile_value logs_root "$profile")"
+  port="$(profile_value port "$profile")"
 
   case "$agents_os" in
     Darwin*)
@@ -337,9 +375,9 @@ start_bg_nohup() {
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
-  port="${profile_ports[$profile]}"
-  logs_root="${profile_logs_roots[$profile]}"
-  service="${profile_services[$profile]}"
+  port="$(profile_value port "$profile")"
+  logs_root="$(profile_value logs_root "$profile")"
+  service="$(profile_value service "$profile")"
 
   ensure_built "$elixir_dir"
 
@@ -380,7 +418,8 @@ start_bg_nohup() {
 
 restart_one_background_service() {
   local profile="$1"
-  local service="${profile_services[$profile]}"
+  local service
+  service="$(profile_value service "$profile")"
 
   case "$agents_os" in
     Darwin*)
@@ -398,7 +437,7 @@ restart_profile_background() {
   local service
 
   require_profile "$profile"
-  service="${profile_services[$profile]}"
+  service="$(profile_value service "$profile")"
 
   if [ -z "$service" ]; then
     echo "Profile '$profile' has no background service configured" >&2
@@ -413,7 +452,7 @@ restart_all_background() {
   local service
 
   for profile in "${profile_names[@]}"; do
-    service="${profile_services[$profile]}"
+    service="$(profile_value service "$profile")"
 
     if [ -n "$service" ] && [[ "$seen_services" != *" $service "* ]]; then
       seen_services="${seen_services}${service} "
@@ -424,12 +463,13 @@ restart_all_background() {
 
 restart_background_except_profile() {
   local foreground_profile="$1"
-  local foreground_service="${profile_services[$foreground_profile]}"
+  local foreground_service
+  foreground_service="$(profile_value service "$foreground_profile")"
   local seen_services=" "
   local service
 
   for profile in "${profile_names[@]}"; do
-    service="${profile_services[$profile]}"
+    service="$(profile_value service "$profile")"
 
     if [ -n "$service" ] && [ "$service" != "$foreground_service" ] && [[ "$seen_services" != *" $service "* ]]; then
       seen_services="${seen_services}${service} "
@@ -451,8 +491,8 @@ run_foreground() {
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
-  port="${profile_ports[$profile]}"
-  logs_root="${profile_logs_roots[$profile]}"
+  port="$(profile_value port "$profile")"
+  logs_root="$(profile_value logs_root "$profile")"
 
   ensure_built "$elixir_dir"
 
