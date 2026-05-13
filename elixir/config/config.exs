@@ -14,3 +14,8 @@ config :symphony_elixir, SymphonyElixirWeb.Endpoint,
   secret_key_base: String.duplicate("s", 64),
   check_origin: false,
   server: false
+
+if config_env() == :test do
+  config :symphony_elixir, :server_host_override, "127.0.0.1"
+  config :symphony_elixir, :server_port_override, 0
+end

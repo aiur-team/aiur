@@ -1,11 +1,12 @@
-defmodule SymphonyElixir.Linear.Adapter do
+defmodule SymphonyElixir.Linear.Tracker do
   @moduledoc """
-  Linear-backed tracker adapter.
+  Linear-backed tracker implementation.
   """
 
   @behaviour SymphonyElixir.Tracker
 
   alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.Linear.Config
 
   @create_comment_mutation """
   mutation SymphonyCreateComment($issueId: String!, $body: String!) {
@@ -36,6 +37,26 @@ defmodule SymphonyElixir.Linear.Adapter do
     }
   }
   """
+
+  @spec project_identity() :: String.t() | nil
+  def project_identity, do: Config.project_slug()
+
+  @spec default_prompt_template() :: String.t()
+  def default_prompt_template do
+    """
+    You are working on a Linear issue.
+
+    Identifier: {{ issue.identifier }}
+    Title: {{ issue.title }}
+
+    Body:
+    {% if issue.description %}
+    {{ issue.description }}
+    {% else %}
+    No description provided.
+    {% endif %}
+    """
+  end
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()

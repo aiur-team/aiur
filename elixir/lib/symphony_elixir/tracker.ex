@@ -36,11 +36,19 @@ defmodule SymphonyElixir.Tracker do
     adapter().update_issue_state(issue_id, state_name)
   end
 
+  @spec project_identity() :: String.t() | nil
+  def project_identity do
+    if function_exported?(adapter(), :project_identity, 0) do
+      adapter().project_identity()
+    end
+  end
+
   @spec adapter() :: module()
   def adapter do
     case Config.settings!().tracker.kind do
-      "memory" -> SymphonyElixir.Tracker.Memory
-      _ -> SymphonyElixir.Linear.Adapter
+      "github" -> SymphonyElixir.GitHub.Tracker
+      "memory" -> SymphonyElixir.Memory.Tracker
+      _ -> SymphonyElixir.Linear.Tracker
     end
   end
 end

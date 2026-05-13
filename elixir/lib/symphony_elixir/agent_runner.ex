@@ -1,11 +1,10 @@
 defmodule SymphonyElixir.AgentRunner do
   @moduledoc """
-  Executes a single Linear issue in its workspace with Codex.
+  Executes a single issue in its workspace with the configured coding agent.
   """
 
   require Logger
-  alias SymphonyElixir.Codex.AppServer
-  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
+  alias SymphonyElixir.{CodingAgent, Config, Issue, PromptBuilder, Tracker, Workspace}
 
   @type worker_host :: String.t() | nil
 
@@ -46,8 +45,10 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp codex_message_handler(recipient, issue) do
+  defp codex_message_handler(recipient, issue, workspace, worker_host) do
     fn message ->
+      message = CodingAgent.normalize_event(message)
+      write_agent_log(workspace, worker_host, message)
       send_codex_update(recipient, issue, message)
     end
   end
@@ -80,25 +81,44 @@ defmodule SymphonyElixir.AgentRunner do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    with {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+    with {:ok, session} <- CodingAgent.start_session(workspace, worker_host: worker_host) do
       try do
-        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns)
+        do_run_codex_turns(
+          session,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          issue_state_fetcher,
+          worker_host,
+          1,
+          max_turns
+        )
       after
-        AppServer.stop_session(session)
+        CodingAgent.stop_session(session)
       end
     end
   end
 
-  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns) do
+  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
+  defp do_run_codex_turns(
+         app_session,
+         workspace,
+         issue,
+         codex_update_recipient,
+         opts,
+         issue_state_fetcher,
+         worker_host,
+         turn_number,
+         max_turns
+       ) do
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
+    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host)
+
     with {:ok, turn_session} <-
-           AppServer.run_turn(
-             app_session,
-             prompt,
-             issue,
-             on_message: codex_message_handler(codex_update_recipient, issue)
-           ) do
+           CodingAgent.run_turn(app_session, prompt, issue, on_message: message_handler),
+         :ok <- drain_operator_messages(app_session, issue, message_handler) do
       Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
       case continue_with_issue?(issue, issue_state_fetcher) do
@@ -112,6 +132,7 @@ defmodule SymphonyElixir.AgentRunner do
             codex_update_recipient,
             opts,
             issue_state_fetcher,
+            worker_host,
             turn_number + 1,
             max_turns
           )
@@ -130,13 +151,48 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
+  defp drain_operator_messages(app_session, issue, message_handler) do
+    receive do
+      {:operator_message, %{kind: :text, body: text}, request_id}
+      when is_binary(text) and is_integer(request_id) ->
+        Logger.info("Delivering operator message to #{issue_context(issue)} request_id=#{request_id}")
+        run_operator_turn(app_session, issue, text, message_handler)
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Pausing agent at next turn boundary for #{issue_context(issue)} request_id=#{request_id}")
+        wait_for_operator_message(app_session, issue, message_handler)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp wait_for_operator_message(app_session, issue, message_handler) do
+    receive do
+      {:operator_message, %{kind: :text, body: text}, request_id}
+      when is_binary(text) and is_integer(request_id) ->
+        Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{request_id}")
+        run_operator_turn(app_session, issue, text, message_handler)
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
+        wait_for_operator_message(app_session, issue, message_handler)
+    end
+  end
+
+  defp run_operator_turn(app_session, issue, text, message_handler) do
+    with {:ok, _turn_session} <-
+           CodingAgent.run_turn(app_session, text, issue, on_message: message_handler) do
+      drain_operator_messages(app_session, issue, message_handler)
+    end
+  end
+
   defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)
 
   defp build_turn_prompt(_issue, _opts, turn_number, max_turns) do
     """
     Continuation guidance:
 
-    - The previous Codex turn completed normally, but the Linear issue is still in an active state.
+    - The previous turn completed normally, but the issue is still in an active state.
     - This is continuation turn ##{turn_number} of #{max_turns} for the current agent run.
     - Resume from the current workspace and workpad state instead of restarting from scratch.
     - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
@@ -196,6 +252,78 @@ defmodule SymphonyElixir.AgentRunner do
     |> String.trim()
     |> String.downcase()
   end
+
+  defp write_agent_log(_workspace, worker_host, _message) when is_binary(worker_host), do: :ok
+
+  defp write_agent_log(workspace, nil, message) when is_binary(workspace) and is_map(message) do
+    log_dir = Path.join(workspace, "logs")
+    ndjson_path = Path.join(log_dir, "agent.ndjson")
+    markdown_path = Path.join(log_dir, "agent.md")
+
+    with :ok <- File.mkdir_p(log_dir),
+         :ok <- File.write(ndjson_path, Jason.encode!(json_safe(message)) <> "\n", [:append]),
+         :ok <- File.write(markdown_path, markdown_entry(message), [:append]) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.debug("Failed writing agent log workspace=#{workspace} reason=#{inspect(reason)}")
+        :ok
+    end
+  rescue
+    error ->
+      Logger.debug("Failed writing agent log workspace=#{workspace} error=#{Exception.message(error)}")
+      :ok
+  end
+
+  defp write_agent_log(_workspace, _worker_host, _message), do: :ok
+
+  defp markdown_entry(message) do
+    timestamp =
+      message
+      |> Map.get(:timestamp, DateTime.utc_now())
+      |> format_timestamp()
+
+    event = Map.get(message, :event) || Map.get(message, "event") || "event"
+    summary = event_summary(message)
+
+    """
+    ## #{timestamp} #{event}
+
+    #{summary}
+
+    """
+  end
+
+  defp event_summary(message) do
+    cond do
+      is_binary(message[:last_message]) -> message[:last_message]
+      is_binary(message["last_message"]) -> message["last_message"]
+      is_binary(message[:raw]) -> code_block(message[:raw])
+      is_binary(message["raw"]) -> code_block(message["raw"])
+      true -> code_block(inspect(Map.drop(message, [:timestamp])))
+    end
+  end
+
+  defp code_block(value) do
+    """
+    ```text
+    #{value}
+    ```
+    """
+  end
+
+  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp json_safe(%{} = value), do: Map.new(value, fn {key, val} -> {json_safe_key(key), json_safe(val)} end)
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
+  defp json_safe(value), do: value
+
+  defp json_safe_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp json_safe_key(key), do: to_string(key)
+
+  defp format_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
+  defp format_timestamp(timestamp) when is_binary(timestamp), do: timestamp
+  defp format_timestamp(_timestamp), do: DateTime.utc_now() |> DateTime.to_iso8601()
 
   defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"

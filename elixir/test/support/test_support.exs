@@ -8,11 +8,11 @@ defmodule SymphonyElixir.TestSupport do
 
       alias SymphonyElixir.AgentRunner
       alias SymphonyElixir.CLI
-      alias SymphonyElixir.Codex.AppServer
+      alias SymphonyElixir.Codex.CodingAgent, as: AppServer
       alias SymphonyElixir.Config
       alias SymphonyElixir.HttpServer
+      alias SymphonyElixir.Issue
       alias SymphonyElixir.Linear.Client
-      alias SymphonyElixir.Linear.Issue
       alias SymphonyElixir.Orchestrator
       alias SymphonyElixir.PromptBuilder
       alias SymphonyElixir.StatusDashboard
@@ -21,14 +21,24 @@ defmodule SymphonyElixir.TestSupport do
       alias SymphonyElixir.WorkflowStore
       alias SymphonyElixir.Workspace
 
+      # Backend config aliases for tests
+      alias SymphonyElixir.Codex.Config, as: CodexConfig
+      alias SymphonyElixir.Linear.Config, as: LinearConfig
+
       import SymphonyElixir.TestSupport,
         only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
 
       setup do
-        workflow_root =
+        workflow_base =
           Path.join(
             System.tmp_dir!(),
-            "symphony-elixir-workflow-#{System.unique_integer([:positive])}"
+            "symphony-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"
+          )
+
+        workflow_root =
+          Path.join(
+            workflow_base,
+            "workflow-#{System.unique_integer([:positive])}"
           )
 
         File.mkdir_p!(workflow_root)
@@ -99,6 +109,9 @@ defmodule SymphonyElixir.TestSupport do
           tracker_assignee: nil,
           tracker_active_states: ["Todo", "In Progress"],
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+          tracker_repo: nil,
+          tracker_label_prefix: nil,
+          agent_kind: "codex",
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
           worker_ssh_hosts: [],
@@ -107,13 +120,13 @@ defmodule SymphonyElixir.TestSupport do
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
-          codex_command: "codex app-server",
+          command: "codex app-server",
           codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           codex_thread_sandbox: "workspace-write",
           codex_turn_sandbox_policy: nil,
-          codex_turn_timeout_ms: 3_600_000,
-          codex_read_timeout_ms: 5_000,
-          codex_stall_timeout_ms: 300_000,
+          agent_turn_timeout_ms: 3_600_000,
+          agent_read_timeout_ms: 5_000,
+          agent_stall_timeout_ms: 300_000,
           hook_after_create: nil,
           hook_before_run: nil,
           hook_after_run: nil,
@@ -130,12 +143,9 @@ defmodule SymphonyElixir.TestSupport do
       )
 
     tracker_kind = Keyword.get(config, :tracker_kind)
-    tracker_endpoint = Keyword.get(config, :tracker_endpoint)
-    tracker_api_token = Keyword.get(config, :tracker_api_token)
-    tracker_project_slug = Keyword.get(config, :tracker_project_slug)
-    tracker_assignee = Keyword.get(config, :tracker_assignee)
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
+    agent_kind = Keyword.get(config, :agent_kind)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
     workspace_root = Keyword.get(config, :workspace_root)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
@@ -144,13 +154,9 @@ defmodule SymphonyElixir.TestSupport do
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
-    codex_command = Keyword.get(config, :codex_command)
-    codex_approval_policy = Keyword.get(config, :codex_approval_policy)
-    codex_thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
-    codex_turn_sandbox_policy = Keyword.get(config, :codex_turn_sandbox_policy)
-    codex_turn_timeout_ms = Keyword.get(config, :codex_turn_timeout_ms)
-    codex_read_timeout_ms = Keyword.get(config, :codex_read_timeout_ms)
-    codex_stall_timeout_ms = Keyword.get(config, :codex_stall_timeout_ms)
+    agent_turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
+    agent_read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
+    agent_stall_timeout_ms = Keyword.get(config, :agent_stall_timeout_ms)
     hook_after_create = Keyword.get(config, :hook_after_create)
     hook_before_run = Keyword.get(config, :hook_before_run)
     hook_after_run = Keyword.get(config, :hook_after_run)
@@ -163,15 +169,25 @@ defmodule SymphonyElixir.TestSupport do
     server_host = Keyword.get(config, :server_host)
     prompt = Keyword.get(config, :prompt)
 
+    config =
+      if Keyword.has_key?(config, :codex_command) and not Keyword.has_key?(overrides, :command) do
+        Keyword.put(config, :command, Keyword.get(config, :codex_command))
+      else
+        config
+      end
+
+    config =
+      config
+      |> maybe_copy_override(overrides, :codex_turn_timeout_ms, :agent_turn_timeout_ms)
+      |> maybe_copy_override(overrides, :codex_read_timeout_ms, :agent_read_timeout_ms)
+      |> maybe_copy_override(overrides, :codex_stall_timeout_ms, :agent_stall_timeout_ms)
+
     sections =
       [
         "---",
+        tracker_backend_yaml(tracker_kind, config),
         "tracker:",
         "  kind: #{yaml_value(tracker_kind)}",
-        "  endpoint: #{yaml_value(tracker_endpoint)}",
-        "  api_key: #{yaml_value(tracker_api_token)}",
-        "  project_slug: #{yaml_value(tracker_project_slug)}",
-        "  assignee: #{yaml_value(tracker_assignee)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "polling:",
@@ -180,18 +196,15 @@ defmodule SymphonyElixir.TestSupport do
         "  root: #{yaml_value(workspace_root)}",
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         "agent:",
+        "  kind: #{yaml_value(agent_kind)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
-        "codex:",
-        "  command: #{yaml_value(codex_command)}",
-        "  approval_policy: #{yaml_value(codex_approval_policy)}",
-        "  thread_sandbox: #{yaml_value(codex_thread_sandbox)}",
-        "  turn_sandbox_policy: #{yaml_value(codex_turn_sandbox_policy)}",
-        "  turn_timeout_ms: #{yaml_value(codex_turn_timeout_ms)}",
-        "  read_timeout_ms: #{yaml_value(codex_read_timeout_ms)}",
-        "  stall_timeout_ms: #{yaml_value(codex_stall_timeout_ms)}",
+        "  turn_timeout_ms: #{yaml_value(agent_turn_timeout_ms)}",
+        "  read_timeout_ms: #{yaml_value(agent_read_timeout_ms)}",
+        "  stall_timeout_ms: #{yaml_value(agent_stall_timeout_ms)}",
+        agent_backend_yaml(agent_kind, config),
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
@@ -202,6 +215,74 @@ defmodule SymphonyElixir.TestSupport do
 
     Enum.join(sections, "\n") <> "\n"
   end
+
+  defp tracker_backend_yaml("linear", config) do
+    endpoint = Keyword.get(config, :tracker_endpoint)
+    api_token = Keyword.get(config, :tracker_api_token)
+    project_slug = Keyword.get(config, :tracker_project_slug)
+    assignee = Keyword.get(config, :tracker_assignee)
+
+    [
+      "linear:",
+      "  endpoint: #{yaml_value(endpoint)}",
+      "  api_key: #{yaml_value(api_token)}",
+      "  project_slug: #{yaml_value(project_slug)}",
+      "  assignee: #{yaml_value(assignee)}"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp tracker_backend_yaml("github", config) do
+    repo = Keyword.get(config, :tracker_repo)
+    label_prefix = Keyword.get(config, :tracker_label_prefix)
+
+    [
+      "github:",
+      repo && "  repo: #{yaml_value(repo)}",
+      label_prefix && "  label_prefix: #{yaml_value(label_prefix)}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp tracker_backend_yaml("memory", _config), do: "memory: {}"
+  defp tracker_backend_yaml(nil, _config), do: nil
+  defp tracker_backend_yaml(_kind, _config), do: nil
+
+  defp agent_backend_yaml("codex", config) do
+    command = Keyword.get(config, :command)
+    approval_policy = Keyword.get(config, :codex_approval_policy)
+    thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
+    turn_sandbox_policy = Keyword.get(config, :codex_turn_sandbox_policy)
+    turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
+    read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
+    stall_timeout_ms = Keyword.get(config, :agent_stall_timeout_ms)
+
+    [
+      "codex:",
+      "  command: #{yaml_value(command)}",
+      "  approval_policy: #{yaml_value(approval_policy)}",
+      "  thread_sandbox: #{yaml_value(thread_sandbox)}",
+      "  turn_sandbox_policy: #{yaml_value(turn_sandbox_policy)}",
+      "  turn_timeout_ms: #{yaml_value(turn_timeout_ms)}",
+      "  read_timeout_ms: #{yaml_value(read_timeout_ms)}",
+      "  stall_timeout_ms: #{yaml_value(stall_timeout_ms)}"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp agent_backend_yaml("claude", config) do
+    command = Keyword.get(config, :command)
+
+    [
+      "claude:",
+      "  command: #{yaml_value(command)}"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp agent_backend_yaml(nil, _config), do: nil
+  defp agent_backend_yaml(_kind, _config), do: nil
 
   defp yaml_value(value) when is_binary(value) do
     "\"" <> String.replace(value, "\"", "\\\"") <> "\""
@@ -224,6 +305,14 @@ defmodule SymphonyElixir.TestSupport do
   end
 
   defp yaml_value(value), do: yaml_value(to_string(value))
+
+  defp maybe_copy_override(config, overrides, from_key, to_key) do
+    if Keyword.has_key?(overrides, from_key) and not Keyword.has_key?(overrides, to_key) do
+      Keyword.put(config, to_key, Keyword.get(overrides, from_key))
+    else
+      config
+    end
+  end
 
   defp hooks_yaml(nil, nil, nil, nil, timeout_ms), do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
 
