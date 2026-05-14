@@ -7,8 +7,8 @@
 │ Tokens: in 90 | out 12 | total 102                     │ 
 ├─ Running
 │
-│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
-│   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-│   MT-777 running        Sample issue title         1m 15s / 7   thread token usage updated (in 90, out 12, tot...
+│   ID     STATE      ISSUE                      AGE / TURN  
+│   ────────────────────────────────────────────────────────
+│   MT-777 working    Sample issue title         1m 15s / 7  
 ╰─
 ```

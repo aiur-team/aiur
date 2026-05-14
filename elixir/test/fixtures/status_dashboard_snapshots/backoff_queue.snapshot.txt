@@ -6,9 +6,9 @@
 \e[1m│ Tokens: \e[0m\e[33min 18,000\e[0m\e[90m | \e[0m\e[33mout 2,200\e[0m\e[90m | \e[0m\e[33mtotal 20,200\e[0m           \e[90m│\e[0m 
 \e[1m├─ Running\e[0m
 │
-│   \e[90mID     STAGE          ISSUE                      AGE / TURN   EVENT                                            \e[0m
-│   \e[90m───────────────────────────────────────────────────────────────────────────────────────────────────────────────\e[0m
-│   \e[36mMT-638\e[0m \e[34mretrying      \e[0m \e[36mSample issue title        \e[0m \e[35m20m 25s / 7 \e[0m \e[34magent message streaming: waiting on rate-limit...\e[0m
+│   \e[90mID     STATE      ISSUE                      AGE / TURN  \e[0m
+│   \e[90m────────────────────────────────────────────────────────\e[0m
+│   \e[36mMT-638\e[0m \e[32mworking   \e[0m \e[36mSample issue title        \e[0m \e[35m20m 25s / 7 \e[0m
 │
 \e[1m├─ Backoff queue\e[0m
 │

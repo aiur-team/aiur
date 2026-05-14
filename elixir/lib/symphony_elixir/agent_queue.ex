@@ -3,9 +3,12 @@ defmodule SymphonyElixir.AgentQueue do
   Queue-item builders for agent-facing conversation and coordination flows.
   """
 
-  @spec operator_message(String.t(), String.t()) :: map()
-  def operator_message(issue_identifier, text)
+  @spec operator_message(String.t(), String.t(), keyword()) :: map()
+  def operator_message(issue_identifier, text, opts \\ [])
       when is_binary(issue_identifier) and is_binary(text) do
+    delivery_policy = Keyword.get(opts, :delivery_policy, :checkpoint)
+    interrupt_requested = delivery_policy == :interrupt
+
     %{
       target_issue_identifier: issue_identifier,
       source: :operator,
@@ -13,11 +16,13 @@ defmodule SymphonyElixir.AgentQueue do
       event_type: :text,
       body: %{text: text},
       delivery: %{
-        priority: :next,
+        priority: if(interrupt_requested, do: :now, else: :next),
         durability: :durable,
         consume_at: :safe_checkpoint,
-        interrupt_requested: false
-      }
+        interrupt_requested: interrupt_requested,
+        fallback: Keyword.get(opts, :fallback)
+      },
+      causal_refs: Keyword.get(opts, :causal_refs, [])
     }
   end
 

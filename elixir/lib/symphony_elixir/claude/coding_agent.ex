@@ -51,19 +51,20 @@ defmodule SymphonyElixir.Claude.CodingAgent do
     end
   end
 
-  @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
   def run_turn(
         %{
           port: port,
           metadata: metadata,
           thread_id: thread_id,
           workspace: workspace
-        },
+        } = session,
         prompt,
         issue,
         opts \\ []
       ) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
+    on_safe_checkpoint = Keyword.get(opts, :on_safe_checkpoint, fn _checkpoint -> :noop end)
 
     case start_turn(port, thread_id, prompt, issue, workspace) do
       {:ok, turn_id} ->
@@ -81,7 +82,7 @@ defmodule SymphonyElixir.Claude.CodingAgent do
           metadata
         )
 
-        case await_turn_completion(port, on_message) do
+        case await_turn_completion(session, on_message, on_safe_checkpoint, turn_id) do
           {:ok, result} ->
             Logger.info("Claude session completed for #{issue_context(issue)} session_id=#{session_id}")
 
@@ -92,6 +93,10 @@ defmodule SymphonyElixir.Claude.CodingAgent do
                thread_id: thread_id,
                turn_id: turn_id
              }}
+
+          {:paused, payload} ->
+            Logger.info("Claude session paused for #{issue_context(issue)} session_id=#{session_id}")
+            {:paused, Map.put(payload, :session_id, session_id)}
 
           {:error, reason} ->
             Logger.warning("Claude session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
@@ -275,89 +280,363 @@ defmodule SymphonyElixir.Claude.CodingAgent do
     end
   end
 
-  defp await_turn_completion(port, on_message) do
-    receive_loop(port, on_message, Config.agent_turn_timeout_ms(), "")
+  defp await_turn_completion(session, on_message, on_safe_checkpoint, turn_id) do
+    receive_loop(session, %{
+      on_message: on_message,
+      on_safe_checkpoint: on_safe_checkpoint,
+      timeout_ms: Config.agent_turn_timeout_ms(),
+      pending_line: "",
+      outstanding_turns: 1,
+      pending_operator_requests: %{},
+      current_turn_id: turn_id,
+      pause_request_id: nil,
+      pending_interrupt_request_id: nil
+    })
   end
 
-  defp receive_loop(port, on_message, timeout_ms, pending_line) do
+  defp receive_loop(%{port: port} = session, state) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
-        complete_line = pending_line <> to_string(chunk)
-        handle_incoming(port, on_message, complete_line, timeout_ms)
+        complete_line = state.pending_line <> to_string(chunk)
+
+        case handle_incoming(session, %{state | pending_line: ""}, complete_line) do
+          {:continue, next_state} -> receive_loop(session, next_state)
+          result -> result
+        end
 
       {^port, {:data, {:noeol, chunk}}} ->
-        receive_loop(
-          port,
-          on_message,
-          timeout_ms,
-          pending_line <> to_string(chunk)
-        )
+        receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
 
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        case handle_pause_request(session, state, request_id) do
+          {:continue, next_state} -> receive_loop(session, next_state)
+          result -> result
+        end
     after
-      timeout_ms ->
+      state.timeout_ms ->
         {:error, :turn_timeout}
     end
   end
 
-  defp handle_incoming(port, on_message, data, timeout_ms) do
+  defp handle_incoming(%{port: port} = session, state, data) do
+    on_message = state.on_message
     payload_string = to_string(data)
 
     case Jason.decode(payload_string) do
-      {:ok, %{"method" => "turn/completed"} = payload} ->
-        emit_message(
-          on_message,
-          :turn_completed,
-          %{payload: payload, raw: payload_string},
-          metadata_from_message(port, payload)
-        )
-
-        {:ok, :turn_completed}
-
-      {:ok, %{"method" => "turn/failed", "params" => _} = payload} ->
-        emit_message(
-          on_message,
-          :turn_failed,
-          %{payload: payload, raw: payload_string, details: Map.get(payload, "params")},
-          metadata_from_message(port, payload)
-        )
-
-        {:error, {:turn_failed, Map.get(payload, "params")}}
-
-      {:ok, %{"method" => method} = payload} when is_binary(method) ->
-        emit_message(
-          on_message,
-          :notification,
-          %{payload: payload, raw: payload_string},
-          metadata_from_message(port, payload)
-        )
-
-        Logger.debug("Claude notification: #{inspect(method)}")
-        receive_loop(port, on_message, timeout_ms, "")
-
       {:ok, payload} ->
+        handle_decoded_incoming(session, state, payload, payload_string, port, on_message)
+
+      {:error, _reason} ->
+        handle_malformed_incoming(state, payload_string, port, on_message)
+    end
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _}, _payload_string, _port, _on_message)
+       when request_id == state.pending_interrupt_request_id do
+    {:continue, %{state | pending_interrupt_request_id: nil}}
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)
+       when request_id == state.pending_interrupt_request_id do
+    {:error, {:turn_interrupt_failed, error}}
+  end
+
+  defp handle_decoded_incoming(session, state, %{"id" => request_id, "result" => _} = payload, payload_string, _port, _on_message)
+       when is_integer(request_id) do
+    handle_pending_operator_response(session, state, payload, payload_string, request_id)
+  end
+
+  defp handle_decoded_incoming(session, state, %{"id" => request_id, "error" => _} = payload, payload_string, _port, _on_message)
+       when is_integer(request_id) do
+    handle_pending_operator_response(session, state, payload, payload_string, request_id)
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"method" => "turn/completed"} = payload, payload_string, port, on_message) do
+    emit_message(
+      on_message,
+      :turn_completed,
+      %{payload: payload, raw: payload_string},
+      metadata_from_message(port, payload)
+    )
+
+    case turn_completion_status(payload) do
+      "interrupted" -> continue_after_turn_interrupted(state, payload)
+      _ -> continue_after_turn_completion(state)
+    end
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"method" => "turn/failed", "params" => params} = payload, payload_string, port, on_message) do
+    emit_message(
+      on_message,
+      :turn_failed,
+      %{payload: payload, raw: payload_string, details: params},
+      metadata_from_message(port, payload)
+    )
+
+    fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
+    {:error, {:turn_failed, params}}
+  end
+
+  defp handle_decoded_incoming(session, state, %{"method" => method} = payload, payload_string, port, on_message)
+       when is_binary(method) do
+    emit_message(
+      on_message,
+      :notification,
+      %{payload: payload, raw: payload_string},
+      metadata_from_message(port, payload)
+    )
+
+    Logger.debug("Claude notification: #{inspect(method)}")
+    {:continue, maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
+  end
+
+  defp handle_decoded_incoming(_session, state, payload, payload_string, port, on_message) do
+    emit_message(
+      on_message,
+      :other_message,
+      %{payload: payload, raw: payload_string},
+      metadata_from_message(port, payload)
+    )
+
+    {:continue, state}
+  end
+
+  defp handle_malformed_incoming(state, payload_string, port, on_message) do
+    log_non_json_stream_line(payload_string, "turn stream")
+
+    emit_message(
+      on_message,
+      :malformed,
+      %{payload: payload_string, raw: payload_string},
+      metadata_from_message(port, %{raw: payload_string})
+    )
+
+    {:continue, state}
+  end
+
+  defp handle_pending_operator_response(session, state, payload, payload_string, request_id) do
+    on_message = state.on_message
+
+    case Map.pop(state.pending_operator_requests, request_id) do
+      {nil, _pending_operator_requests} ->
         emit_message(
           on_message,
           :other_message,
-          %{payload: payload, raw: payload_string},
-          metadata_from_message(port, payload)
+          %{
+            payload: payload,
+            raw: payload_string
+          },
+          metadata_from_message(session.port, payload)
         )
 
-        receive_loop(port, on_message, timeout_ms, "")
+        {:continue, state}
 
-      {:error, _reason} ->
-        log_non_json_stream_line(payload_string, "turn stream")
-
-        emit_message(
-          on_message,
-          :malformed,
-          %{payload: payload_string, raw: payload_string},
-          metadata_from_message(port, %{raw: payload_string})
+      {%{on_success: on_success, on_failure: on_failure}, pending_operator_requests} ->
+        handle_claimed_operator_response(
+          session,
+          state,
+          payload,
+          payload_string,
+          request_id,
+          on_success,
+          on_failure,
+          pending_operator_requests
         )
-
-        receive_loop(port, on_message, timeout_ms, "")
     end
+  end
+
+  defp maybe_process_safe_checkpoint(session, state, checkpoint) do
+    case state.on_safe_checkpoint.(checkpoint) do
+      :noop ->
+        state
+
+      {:deliver_text, text, on_success, on_failure}
+      when is_binary(text) and is_function(on_success, 1) and is_function(on_failure, 1) ->
+        case send_operator_message(session, %{kind: :text, body: text}) do
+          {:ok, request_id} ->
+            pending_operator_requests =
+              Map.put(state.pending_operator_requests, request_id, %{
+                on_success: on_success,
+                on_failure: on_failure,
+                text: text
+              })
+
+            %{state | pending_operator_requests: pending_operator_requests}
+
+          {:error, reason} ->
+            safe_invoke_failure_callback(on_failure, reason)
+            state
+        end
+    end
+  end
+
+  defp fail_pending_operator_requests(pending_operator_requests, reason) do
+    Enum.each(pending_operator_requests, fn {_request_id, pending_request} ->
+      safe_invoke_failure_callback(pending_request.on_failure, reason)
+    end)
+  end
+
+  defp continue_after_turn_completion(state) do
+    next_state = %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
+
+    if next_state.outstanding_turns == 0 and map_size(next_state.pending_operator_requests) == 0 do
+      {:ok, :turn_completed}
+    else
+      {:continue, next_state}
+    end
+  end
+
+  defp continue_after_turn_interrupted(state, payload) do
+    next_state = %{
+      state
+      | outstanding_turns: max(state.outstanding_turns - 1, 0),
+        pending_interrupt_request_id: nil
+    }
+
+    if is_integer(state.pause_request_id) do
+      fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
+
+      {:paused,
+       %{
+         request_id: state.pause_request_id,
+         turn_id: state.current_turn_id,
+         details: payload
+       }}
+    else
+      {:error, {:turn_interrupted, payload}}
+    end
+  end
+
+  defp handle_claimed_operator_response(
+         session,
+         state,
+         %{"result" => %{"turn" => %{"id" => turn_id}}} = payload,
+         payload_string,
+         request_id,
+         on_success,
+         _on_failure,
+         pending_operator_requests
+       ) do
+    safe_invoke_success_callback(on_success, %{
+      request_id: request_id,
+      turn_id: turn_id,
+      payload: payload
+    })
+
+    emit_message(
+      state.on_message,
+      :operator_turn_started,
+      %{payload: payload, raw: payload_string},
+      metadata_from_message(session.port, payload)
+    )
+
+    {:continue,
+     %{
+       state
+       | pending_operator_requests: pending_operator_requests,
+         outstanding_turns: state.outstanding_turns + 1
+     }}
+  end
+
+  defp handle_claimed_operator_response(
+         _session,
+         state,
+         %{"error" => error},
+         _payload_string,
+         _request_id,
+         _on_success,
+         on_failure,
+         pending_operator_requests
+       ) do
+    safe_invoke_failure_callback(on_failure, {:response_error, error})
+    maybe_finish_after_pending_response(%{state | pending_operator_requests: pending_operator_requests})
+  end
+
+  defp handle_claimed_operator_response(
+         _session,
+         state,
+         _payload,
+         _payload_string,
+         _request_id,
+         _on_success,
+         _on_failure,
+         pending_operator_requests
+       ) do
+    {:continue, %{state | pending_operator_requests: pending_operator_requests}}
+  end
+
+  defp maybe_finish_after_pending_response(state) do
+    if state.outstanding_turns == 0 and map_size(state.pending_operator_requests) == 0 do
+      {:ok, :turn_completed}
+    else
+      {:continue, state}
+    end
+  end
+
+  defp handle_pause_request(_session, %{pause_request_id: request_id} = state, request_id)
+       when is_integer(request_id) do
+    {:continue, state}
+  end
+
+  defp handle_pause_request(_session, %{pause_request_id: existing_request_id} = state, _request_id)
+       when is_integer(existing_request_id) do
+    {:continue, state}
+  end
+
+  defp handle_pause_request(session, state, request_id) do
+    case interrupt_turn(session, state.current_turn_id) do
+      {:ok, interrupt_request_id} ->
+        {:continue,
+         %{
+           state
+           | pause_request_id: request_id,
+             pending_interrupt_request_id: interrupt_request_id
+         }}
+
+      {:error, reason} ->
+        {:error, {:turn_interrupt_failed, reason}}
+    end
+  end
+
+  defp interrupt_turn(%{port: port, thread_id: thread_id}, turn_id)
+       when is_port(port) and is_binary(thread_id) and is_binary(turn_id) do
+    request_id = :erlang.unique_integer([:positive])
+
+    send_message(port, %{
+      "method" => "turn/interrupt",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => thread_id,
+        "turnId" => turn_id
+      }
+    })
+
+    {:ok, request_id}
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
+  defp interrupt_turn(_session, _turn_id), do: {:error, :invalid_session}
+
+  defp turn_completion_status(%{"params" => %{"turn" => %{"status" => status}}}) when is_binary(status),
+    do: status
+
+  defp turn_completion_status(%{"turn" => %{"status" => status}}) when is_binary(status), do: status
+  defp turn_completion_status(_payload), do: "completed"
+
+  defp safe_invoke_success_callback(callback, payload) when is_function(callback, 1) do
+    callback.(payload)
+  rescue
+    _error -> :ok
+  end
+
+  defp safe_invoke_failure_callback(callback, reason) when is_function(callback, 1) do
+    callback.(reason)
+  rescue
+    _error -> :ok
   end
 
   defp await_response(port, request_id) do

@@ -7,9 +7,9 @@
 │ Tokens: in 250,000 | out 18,500 | total 268,500        │ 
 ├─ Running
 │
-│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
-│   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-│   MT-101 running        Sample issue title         13m 5s / 11  turn completed (completed)                       
-│   MT-102 running        Sample issue title         6m 52s / 4   mix test --cover                                 
+│   ID     STATE      ISSUE                      AGE / TURN  
+│   ────────────────────────────────────────────────────────
+│   MT-101 working    Sample issue title         13m 5s / 11 
+│   MT-102 working    Sample issue title         6m 52s / 4  
 ╰─
 ```

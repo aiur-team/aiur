@@ -7,8 +7,8 @@
 │ Tokens: in 0 | out 0 | total 0                         │ 
 ├─ Running
 │
-│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
-│   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+│   ID     STATE      ISSUE                      AGE / TURN  
+│   ────────────────────────────────────────────────────────
 │  No active agents
 │
 ├─ Agent log: MT-001 (finished)
@@ -26,6 +26,6 @@
 │       Rate limit warning
 │
 │ >
-│ Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection
+│ Enter sends · Esc closes log · Ctrl-C pauses · Alt-Enter newline
 ╰─
 ```
