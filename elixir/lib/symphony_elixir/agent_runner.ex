@@ -142,6 +142,8 @@ defmodule SymphonyElixir.AgentRunner do
            on_safe_checkpoint: safe_checkpoint_handler
          ) do
       {:ok, turn_session} ->
+        :ok = SymphonyElixir.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
+
         with :ok <-
                drain_operator_messages(
                  app_session,
@@ -156,11 +158,13 @@ defmodule SymphonyElixir.AgentRunner do
       {:paused, pause_payload} ->
         Logger.info("Paused agent run for #{issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
+        :ok = SymphonyElixir.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
         write_pause_log(workspace, worker_host)
         send_control_state(codex_update_recipient, issue, :paused)
         wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} ->
+        :ok = SymphonyElixir.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
         {:error, reason}
     end
   end
@@ -320,16 +324,17 @@ defmodule SymphonyElixir.AgentRunner do
            on_safe_checkpoint: safe_checkpoint_handler
          ) do
       {:ok, _turn_session} ->
-        :ok = SymphonyElixir.Orchestrator.mark_queue_item_consumed(orchestrator, item.id)
+        :ok = SymphonyElixir.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
         drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:paused, _payload} ->
+        :ok = SymphonyElixir.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
         write_pause_log(session_workspace(app_session), session_worker_host(app_session))
         send_control_state(codex_update_recipient, issue, :paused)
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:error, reason} = error ->
-        :ok = SymphonyElixir.Orchestrator.mark_queue_item_failed(orchestrator, item.id, reason)
+        :ok = SymphonyElixir.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
         error
     end
   end
@@ -372,13 +377,22 @@ defmodule SymphonyElixir.AgentRunner do
   defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint) do
     Logger.info("Queueing operator message into active turn for #{issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
-    {:deliver_text, queue_item_text(item),
-     fn _payload ->
-       SymphonyElixir.Orchestrator.mark_queue_item_consumed(orchestrator, item.id)
-     end,
+    {:deliver_text, queue_item_text(item), fn _payload -> :ok end,
      fn reason ->
-       SymphonyElixir.Orchestrator.mark_queue_item_failed(orchestrator, item.id, reason)
+       handle_checkpoint_delivery_failure(orchestrator, item.id, reason)
      end}
+  end
+
+  defp handle_checkpoint_delivery_failure(orchestrator, item_id, {:turn_interrupted, _payload}) do
+    SymphonyElixir.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
+  end
+
+  defp handle_checkpoint_delivery_failure(orchestrator, item_id, {:turn_cancelled, _payload}) do
+    SymphonyElixir.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
+  end
+
+  defp handle_checkpoint_delivery_failure(orchestrator, item_id, reason) do
+    SymphonyElixir.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
   end
 
   defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)

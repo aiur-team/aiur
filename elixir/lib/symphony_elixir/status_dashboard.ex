@@ -577,9 +577,6 @@ defmodule SymphonyElixir.StatusDashboard do
       {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
         polling = Map.get(snapshot, :polling)
-        agent_input_tokens = Map.get(agent_totals, :input_tokens, 0)
-        agent_output_tokens = Map.get(agent_totals, :output_tokens, 0)
-        agent_total_tokens = Map.get(agent_totals, :total_tokens, 0)
         agent_seconds_running = Map.get(agent_totals, :seconds_running, 0)
         agent_count = length(running)
         max_agents = Config.max_concurrent_agents()
@@ -589,11 +586,7 @@ defmodule SymphonyElixir.StatusDashboard do
           format_two_pane_header(
             agent_count,
             max_agents,
-            tps,
             agent_seconds_running,
-            agent_input_tokens,
-            agent_output_tokens,
-            agent_total_tokens,
             rate_limits,
             polling,
             resolved_columns
@@ -657,10 +650,12 @@ defmodule SymphonyElixir.StatusDashboard do
     {log_lines, total_lines} = log_message_lines(messages, columns)
 
     metadata_lines = format_log_metadata(log_view, running, columns)
+    queued_lines = format_queued_message_lines(log_view, running, columns)
     header_height = length(List.flatten(header_lines))
     placeholder_lines = format_input_placeholder(log_view, columns)
-    chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + 1
-    # chrome: pane header + spacer + metadata + placeholder + closing border
+    queued_chrome_lines = if(queued_lines == [], do: 0, else: length(queued_lines) + 1)
+    chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + queued_chrome_lines + 1
+    # chrome: pane header + spacer + metadata + queued section + placeholder + closing border
 
     pane_budget = rows - header_height - chrome_lines
 
@@ -681,6 +676,7 @@ defmodule SymphonyElixir.StatusDashboard do
         ] ++
           metadata_lines ++
           pane_lines ++
+          queued_section_lines(queued_lines) ++
           [closing_border_or_separator()] ++
           placeholder_lines ++
           [closing_border()]
@@ -724,6 +720,9 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp closing_border_or_separator, do: "│"
+
+  defp queued_section_lines([]), do: []
+  defp queued_section_lines(queued_lines), do: ["│"] ++ queued_lines
 
   defp read_log_messages(%{workspace_path: workspace_path}) do
     workspace_path
@@ -879,17 +878,40 @@ defmodule SymphonyElixir.StatusDashboard do
       ["│ " <> colorize(elem(status, 0), elem(status, 1))]
   end
 
-  @left_pane_visible_width 56
+  defp format_queued_message_lines(log_view, running, columns) do
+    entry = running_entry_for_identifier(running, log_view.issue_identifier)
+    queued_messages = Map.get(entry || %{}, :pending_operator_messages, [])
+    inner_width = max(20, columns - 8)
+
+    case queued_messages do
+      [] ->
+        []
+
+      _ ->
+        title_line = "│ " <> colorize("Queued input", @ansi_gray <> @ansi_bold)
+
+        body_lines =
+          queued_messages
+          |> Enum.flat_map(fn queued_message ->
+            queued_message
+            |> queued_message_preview()
+            |> wrap_line(inner_width)
+            |> Enum.map(&("│   " <> colorize(&1, @ansi_gray)))
+          end)
+
+        [title_line | body_lines]
+    end
+  end
+
+  defp queued_message_preview(%{text: text, status: :delivered}), do: "sending: #{text}"
+  defp queued_message_preview(%{text: text}), do: "queued: #{text}"
+  defp queued_message_preview(_queued_message), do: "queued"
 
   # credo:disable-for-next-line
   defp format_two_pane_header(
          agent_count,
          max_agents,
-         tps,
          agent_seconds_running,
-         agent_input_tokens,
-         agent_output_tokens,
-         agent_total_tokens,
          rate_limits,
          polling,
          columns
@@ -904,15 +926,8 @@ defmodule SymphonyElixir.StatusDashboard do
         colorize("#{agent_count}", @ansi_green) <>
         colorize("/", @ansi_gray) <>
         colorize("#{max_agents}", @ansi_gray),
-      colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
       colorize("│ Runtime: ", @ansi_bold) <>
-        colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
-      colorize("│ Tokens: ", @ansi_bold) <>
-        colorize("in #{format_count(agent_input_tokens)}", @ansi_yellow) <>
-        colorize(" | ", @ansi_gray) <>
-        colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
-        colorize(" | ", @ansi_gray) <>
-        colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow)
+        colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta)
     ]
 
     right_lines =
@@ -920,7 +935,7 @@ defmodule SymphonyElixir.StatusDashboard do
         right_project_lines() ++
         [right_refresh_line(polling)]
 
-    rows = pair_pane_lines(left_lines, right_lines)
+    rows = pair_pane_lines(left_lines, right_lines, columns)
     [format_title_row(columns) | rows]
   end
 
@@ -941,14 +956,15 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp pair_pane_lines(left_lines, right_lines) do
+  defp pair_pane_lines(left_lines, right_lines, columns) do
     count = max(length(left_lines), length(right_lines))
+    left_width = max(24, div(max(columns - 3, 0), 2))
 
     Enum.map(0..(count - 1), fn i ->
       left = Enum.at(left_lines, i) || "│"
       right = Enum.at(right_lines, i) || ""
 
-      "#{pad_visible(left, @left_pane_visible_width)} #{colorize("│", @ansi_gray)} #{right}"
+      "#{pad_visible(left, left_width)} #{colorize("│", @ansi_gray)} #{right}"
     end)
   end
 

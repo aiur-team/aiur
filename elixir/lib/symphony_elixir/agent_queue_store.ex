@@ -111,6 +111,33 @@ defmodule SymphonyElixir.AgentQueueStore do
     end)
   end
 
+  @spec restore_pending(t(), integer()) :: {t(), AgentQueueItem.t() | nil}
+  def restore_pending(%__MODULE__{} = store, item_id) when is_integer(item_id) do
+    case Map.get(store.items, item_id) do
+      %AgentQueueItem{target_issue_identifier: target, status: :delivered} = item ->
+        updated = %{
+          item
+          | status: :pending,
+            delivered_at: nil,
+            failed_at: nil,
+            failure_reason: nil
+        }
+
+        store =
+          store
+          |> put_item(updated)
+          |> append_pending_id(target, item_id)
+
+        {store, updated}
+
+      %AgentQueueItem{} = item ->
+        {store, item}
+
+      nil ->
+        {store, nil}
+    end
+  end
+
   @spec mark_failed(t(), integer(), term()) :: {t(), AgentQueueItem.t() | nil}
   def mark_failed(%__MODULE__{} = store, item_id, reason) when is_integer(item_id) do
     update_item(store, item_id, fn item ->
@@ -151,6 +178,53 @@ defmodule SymphonyElixir.AgentQueueStore do
     |> Enum.map(&Map.get(store.items, &1))
     |> Enum.reject(&is_nil/1)
     |> sort_items()
+  end
+
+  @spec list_visible_operator_messages(t(), String.t()) :: [AgentQueueItem.t()]
+  def list_visible_operator_messages(%__MODULE__{} = store, target_issue_identifier)
+      when is_binary(target_issue_identifier) do
+    store.items
+    |> Map.values()
+    |> Enum.filter(fn
+      %AgentQueueItem{
+        target_issue_identifier: ^target_issue_identifier,
+        category: :operator_message,
+        status: status
+      }
+      when status in [:pending, :delivered] ->
+        true
+
+      _ ->
+        false
+    end)
+    |> sort_items()
+  end
+
+  @spec consume_delivered(t(), String.t()) :: {t(), [AgentQueueItem.t()]}
+  def consume_delivered(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
+    update_delivered_items(store, target_issue_identifier, fn item ->
+      %{item | status: :consumed, consumed_at: DateTime.utc_now(), failure_reason: nil}
+    end)
+  end
+
+  @spec restore_delivered(t(), String.t()) :: {t(), [AgentQueueItem.t()]}
+  def restore_delivered(%__MODULE__{} = store, target_issue_identifier) when is_binary(target_issue_identifier) do
+    update_delivered_items(store, target_issue_identifier, fn item ->
+      %{
+        item
+        | status: :pending,
+          delivered_at: nil,
+          failed_at: nil,
+          failure_reason: nil
+      }
+    end)
+  end
+
+  @spec fail_delivered(t(), String.t(), term()) :: {t(), [AgentQueueItem.t()]}
+  def fail_delivered(%__MODULE__{} = store, target_issue_identifier, reason) when is_binary(target_issue_identifier) do
+    update_delivered_items(store, target_issue_identifier, fn item ->
+      %{item | status: :failed, failed_at: DateTime.utc_now(), failure_reason: reason}
+    end)
   end
 
   defp maybe_supersede_deduped(store, %AgentQueueItem{dedupe_key: nil}, _now), do: store
@@ -219,7 +293,15 @@ defmodule SymphonyElixir.AgentQueueStore do
 
   defp append_pending_id(%__MODULE__{} = store, target_issue_identifier, item_id) do
     pending_ids = Map.get(store.pending_ids_by_target, target_issue_identifier, [])
-    pending_ids_by_target = Map.put(store.pending_ids_by_target, target_issue_identifier, pending_ids ++ [item_id])
+
+    updated_pending_ids =
+      if item_id in pending_ids do
+        pending_ids
+      else
+        pending_ids ++ [item_id]
+      end
+
+    pending_ids_by_target = Map.put(store.pending_ids_by_target, target_issue_identifier, updated_pending_ids)
     %{store | pending_ids_by_target: pending_ids_by_target}
   end
 
@@ -253,4 +335,28 @@ defmodule SymphonyElixir.AgentQueueStore do
         {store, nil}
     end
   end
+
+  defp update_delivered_items(%__MODULE__{} = store, target_issue_identifier, updater) do
+    store.items
+    |> Map.values()
+    |> Enum.filter(&match?(%AgentQueueItem{target_issue_identifier: ^target_issue_identifier, status: :delivered}, &1))
+    |> Enum.sort_by(& &1.sequence)
+    |> Enum.reduce({store, []}, fn item, {store_acc, updated_items} ->
+      updated = updater.(item)
+
+      next_store =
+        store_acc
+        |> put_item(updated)
+        |> maybe_append_pending_after_restore(updated)
+
+      {next_store, [updated | updated_items]}
+    end)
+    |> then(fn {updated_store, updated_items} -> {updated_store, Enum.reverse(updated_items)} end)
+  end
+
+  defp maybe_append_pending_after_restore(store, %AgentQueueItem{status: :pending, target_issue_identifier: target, id: id}) do
+    append_pending_id(store, target, id)
+  end
+
+  defp maybe_append_pending_after_restore(store, _item), do: store
 end

@@ -2,9 +2,7 @@
 ╭─ SYMPHONY STATUS
 │ ITS: linear | Agent: codex                             │ Rate Limits: unavailable
 │ Agents: 0/10                                           │ Project: project
-│ Throughput: 0 tps                                      │ Next refresh: n/a
-│ Runtime: 0m 0s                                         │ 
-│ Tokens: in 0 | out 0 | total 0                         │ 
+│ Runtime: 0m 0s                                         │ Next refresh: n/a
 ├─ Running
 │
 │   ID     STATE      ISSUE                      AGE / TURN  
