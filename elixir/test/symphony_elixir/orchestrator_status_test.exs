@@ -901,7 +901,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert next_poll_in_ms <= 50
   end
 
-  test "orchestrator sends operator messages and pause requests to running agent task" do
+  test "orchestrator enqueues operator messages and pause requests for the running agent task" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -925,6 +925,11 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
               ref: make_ref(),
               identifier: "MT-CHAT",
               issue: %Issue{id: "issue-chat", identifier: "MT-CHAT", state: "In Progress"},
+              control: %{
+                can_interrupt: true,
+                safe_checkpoints: [:notification, :tool_result],
+                status: :working
+              },
               session_id: "thread-chat-turn-chat",
               agent_input_tokens: 0,
               agent_output_tokens: 0,
@@ -939,16 +944,71 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "hello"})
 
     assert is_integer(request_id)
-    assert_receive {:operator_message, %{kind: :text, body: "hello"}, ^request_id}
+    assert_receive {:agent_queue_updated, "MT-CHAT", ^request_id}
+
+    assert {:ok, %{id: ^request_id, category: :operator_message, body: %{text: "hello"}}} =
+             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-CHAT")
+
+    assert {:ok,
+            %{
+              accepts_operator_messages: true,
+              can_interrupt: true,
+              accepted_delivery_policies: [:checkpoint, :interrupt],
+              queue_depth: 0
+            }} = Orchestrator.control_capabilities(orchestrator_name, "MT-CHAT")
 
     assert {:ok, pause_request_id} = Orchestrator.pause_agent(orchestrator_name, "MT-CHAT")
     assert_receive {:pause_agent, ^pause_request_id}
+
+    assert {:ok, interrupt_request_id} =
+             Orchestrator.send_operator_message(
+               orchestrator_name,
+               "MT-CHAT",
+               %{kind: :text, body: "stop now", delivery_policy: :interrupt}
+             )
+
+    assert is_integer(interrupt_request_id)
+
+    assert {:ok,
+            %{
+              id: ^interrupt_request_id,
+              category: :operator_message,
+              delivery: %{interrupt_requested: true, priority: :now}
+            }} =
+             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-CHAT")
 
     assert {:error, :empty_message} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "   "})
 
     assert {:error, :no_running_agent} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+  end
+
+  test "orchestrator can claim only operator queue items without consuming coordination events" do
+    orchestrator_name = Module.concat(__MODULE__, :OperatorOnlyClaimOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      {queue_store, _event_item} =
+        SymphonyElixir.AgentQueue.coordination_event("MT-QUEUE", :blocker_update, %{summary: "still blocked"})
+        |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+      {queue_store, _operator_item} =
+        SymphonyElixir.AgentQueue.operator_message("MT-QUEUE", "resume now")
+        |> then(&SymphonyElixir.AgentQueueStore.enqueue(queue_store, &1))
+
+      %{state | queue_store: queue_store}
+    end)
+
+    assert {:ok, %{category: :operator_message, body: %{text: "resume now"}}} =
+             Orchestrator.claim_next_operator_queue_item(orchestrator_name, "MT-QUEUE")
+
+    assert {:ok, %{category: :coordination_event, body: %{summary: "still blocked"}}} =
+             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-QUEUE")
   end
 
   test "orchestrator restarts stalled workers with retry backoff" do
@@ -1013,6 +1073,62 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
     assert remaining_ms >= 9_500
     assert remaining_ms <= 10_500
+  end
+
+  test "orchestrator emits blocker coordination events from poll transitions" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_active_states: ["Todo", "In Progress"],
+      tracker_terminal_states: ["Done", "Cancelled"]
+    )
+
+    blocker = fn state ->
+      %Issue{id: "blocker-1", identifier: "MT-1", title: "Blocker", state: state, blocked_by: []}
+    end
+
+    blocked_issue = fn blocker_state ->
+      %Issue{
+        id: "blocked-1",
+        identifier: "MT-2",
+        title: "Blocked issue",
+        state: "Todo",
+        blocked_by: [%{id: "blocker-1", identifier: "MT-1", state: blocker_state}]
+      }
+    end
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      blocker.("In Progress"),
+      blocked_issue.("In Progress")
+    ])
+
+    orchestrator_name = Module.concat(__MODULE__, :DependencyEventOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      Application.delete_env(:symphony_elixir, :memory_tracker_issues)
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    send(pid, :run_poll_cycle)
+    Process.sleep(25)
+
+    assert :empty == Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      blocker.("Done"),
+      blocked_issue.("Done")
+    ])
+
+    send(pid, :run_poll_cycle)
+    Process.sleep(25)
+
+    assert {:ok,
+            %{
+              category: :coordination_event,
+              event_type: :blocker_became_terminal,
+              body: %{blocker_issue_identifier: "MT-1", blocked_issue_identifier: "MT-2"}
+            }} = Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
   end
 
   test "status dashboard renders offline marker to terminal" do
@@ -1362,62 +1478,45 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert disk_config.max_no_files > 0
   end
 
-  test "status dashboard renders last codex message in EVENT column" do
+  test "status dashboard renders working state in STATE column" do
     row =
       StatusDashboard.format_running_summary_for_test(%{
         identifier: "MT-233",
         state: "running",
+        work_state: :working,
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
         agent_total_tokens: 12,
         runtime_seconds: 15,
-        last_codex_event: :notification,
-        last_codex_message: %{
-          event: :notification,
-          message: %{
-            "method" => "turn/completed",
-            "params" => %{"turn" => %{"status" => "completed"}}
-          }
-        }
+        last_codex_event: :notification
       })
 
     plain = Regex.replace(~r/\e\[[\\d;]*m/, row, "")
 
-    assert plain =~ "turn completed (completed)"
-    assert (String.split(plain, "turn completed (completed)") |> length()) - 1 == 1
-    refute plain =~ " notification "
+    assert plain =~ "MT-233"
+    assert plain =~ "working"
+    refute plain =~ "turn completed"
   end
 
-  test "status dashboard strips ANSI and control bytes from last codex message" do
-    payload =
-      "cmd: " <>
-        <<27>> <>
-        "[31mRED" <>
-        <<27>> <>
-        "[0m" <>
-        <<0>> <>
-        " after\nline"
-
+  test "status dashboard renders paused state in STATE column" do
     row =
       StatusDashboard.format_running_summary_for_test(%{
         identifier: "MT-898",
         state: "running",
+        work_state: :paused,
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
         agent_total_tokens: 12,
-        runtime_seconds: 15,
-        last_codex_event: :notification,
-        last_codex_message: payload
+        runtime_seconds: 15
       })
 
     plain = Regex.replace(~r/\e\[[0-9;]*m/, row, "")
 
-    assert plain =~ "cmd: RED after line"
-    refute plain =~ <<27>>
-    refute plain =~ <<0>>
+    assert plain =~ "MT-898"
+    assert plain =~ "paused"
   end
 
-  test "status dashboard expands running row to requested terminal width" do
+  test "status dashboard formats running rows without an event column" do
     terminal_columns = 140
 
     row =
@@ -1425,26 +1524,20 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         %{
           identifier: "MT-598",
           state: "running",
+          work_state: :working,
           session_id: "thread-1234567890",
           codex_app_server_pid: "4242",
           agent_total_tokens: 123,
-          runtime_seconds: 15,
-          last_codex_event: :notification,
-          last_codex_message: %{
-            event: :notification,
-            message: %{
-              "method" => "turn/completed",
-              "params" => %{"turn" => %{"status" => "completed"}}
-            }
-          }
+          runtime_seconds: 15
         },
         terminal_columns
       )
 
     plain = Regex.replace(~r/\e\[[\d;]*m/, row, "")
 
-    assert String.length(plain) == terminal_columns
-    assert plain =~ "turn completed (completed)"
+    assert plain =~ "MT-598"
+    assert plain =~ "working"
+    refute plain =~ "turn completed"
   end
 
   test "status dashboard humanizes full codex app-server event set" do

@@ -68,7 +68,7 @@ defmodule SymphonyElixir.AgentLog do
   defp parse_json_log_entry(timestamp, _event, %{"method" => method, "params" => params}, _raw_body) do
     case {method, params} do
       {"item/started", %{"item" => %{"type" => "userMessage", "content" => content}}} ->
-        log_message("user", "Issue prompt", timestamp, summarize_prompt(content_text(content)))
+        user_message_log_entry(timestamp, content_text(content))
 
       {"item/agentMessage/delta", %{"itemId" => item_id, "delta" => delta}} ->
         "assistant"
@@ -139,8 +139,14 @@ defmodule SymphonyElixir.AgentLog do
     end
   end
 
-  defp parse_json_log_entry(timestamp, event, _payload, raw_body) do
-    log_message("system", humanize_event(event), timestamp, summarize_payload(raw_body))
+  defp parse_json_log_entry(timestamp, event, payload, raw_body) do
+    body =
+      case Map.get(payload, "last_message") || Map.get(payload, :last_message) do
+        message when is_binary(message) -> message
+        _ -> summarize_payload(raw_body)
+      end
+
+    log_message("system", humanize_event(event), timestamp, body)
   end
 
   defp compact_log_messages(messages) do
@@ -244,4 +250,26 @@ defmodule SymphonyElixir.AgentLog do
 
   defp blank_to_placeholder(body) when body in [nil, ""], do: "No content."
   defp blank_to_placeholder(body), do: body
+
+  defp user_message_log_entry(timestamp, text) do
+    cond do
+      String.starts_with?(text, "Coordination event:") ->
+        log_message("system", "Coordination event", timestamp, summarize_payload(text))
+
+      issue_prompt_text?(text) ->
+        log_message("user", "Issue prompt", timestamp, summarize_prompt(text))
+
+      true ->
+        log_message("user", "Operator message", timestamp, summarize_payload(text))
+    end
+  end
+
+  defp issue_prompt_text?(text) do
+    String.contains?(text, [
+      "You are an agent for this repository.",
+      "Issue:\n\n",
+      "Description:\n\n",
+      "Continuation guidance:"
+    ])
+  end
 end

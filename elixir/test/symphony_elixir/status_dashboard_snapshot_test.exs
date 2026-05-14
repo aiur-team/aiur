@@ -282,6 +282,34 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
       content = render_snapshot(snapshot_data, 0.0, view: view, terminal_rows: 8)
       Snapshot.assert_dashboard_snapshot!("log_pane_tiny_terminal", content)
     end
+
+    test "log pane shows queued operator input between the log and prompt", %{workspace: workspace} do
+      File.write!(Path.join(workspace, "logs/agent.md"), sample_agent_log())
+
+      snapshot_data =
+        {:ok,
+         %{
+           running: [
+             running_entry(%{
+               identifier: "MT-001",
+               state: "in-progress",
+               workspace_path: workspace,
+               pending_operator_messages: [
+                 %{id: 1, text: "abc", status: :pending},
+                 %{id: 2, text: "def", status: :delivered}
+               ]
+             })
+           ],
+           retrying: [],
+           agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 30},
+           rate_limits: nil
+         }}
+
+      view = log_view("MT-001", workspace, 0)
+
+      content = render_snapshot(snapshot_data, 0.0, view: view, terminal_rows: 30)
+      Snapshot.assert_dashboard_snapshot!("log_pane_with_queued_input", content)
+    end
   end
 
   defp log_snapshot_data(workspace) do
@@ -344,6 +372,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
         identifier: "MT-000",
         title: "Sample issue title",
         state: "running",
+        work_state: :working,
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
         agent_total_tokens: 0,

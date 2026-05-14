@@ -1459,6 +1459,566 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner drains queued operator messages at the turn boundary" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-queued-operator-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-queue"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-1"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+          *)
+            if printf '%s' "$line" | grep -q '"method":"turn/start"'; then
+              printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-2"}}}'
+              printf '%s\\n' '{"method":"turn/completed"}'
+            fi
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 2
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :QueuedOperatorOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+      end)
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        {queue_store, _item} =
+          SymphonyElixir.AgentQueue.operator_message("MT-249", "focus on auth first")
+          |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+        %{state | queue_store: queue_store}
+      end)
+
+      issue = %Issue{
+        id: "issue-queue",
+        identifier: "MT-249",
+        title: "Drain queued operator message",
+        description: "Deliver follow-up after the first turn",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-249",
+        labels: []
+      }
+
+      assert :ok =
+               AgentRunner.run(
+                 issue,
+                 nil,
+                 orchestrator: orchestrator_name,
+                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+               )
+
+      turn_texts =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 2
+      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 1) == "focus on auth first"
+      assert :empty == Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-249")
+    after
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner delivers queued operator messages from a sub-turn checkpoint" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-checkpoint-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+      count=0
+      first_turn_started=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-checkpoint"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            if [ "$first_turn_started" -eq 0 ]; then
+              first_turn_started=1
+              printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-checkpoint-main"}}}'
+              printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"keep going"}]}}'
+            else
+              request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+              printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-followup"}}}\\n' "$request_id"
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              exit 0
+            fi
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 2
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :CheckpointOperatorOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+      end)
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        {queue_store, _item} =
+          SymphonyElixir.AgentQueue.operator_message("MT-250", "focus on auth first")
+          |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+        %{state | queue_store: queue_store}
+      end)
+
+      issue = %Issue{
+        id: "issue-checkpoint-queue",
+        identifier: "MT-250",
+        title: "Deliver queued operator message from checkpoint",
+        description: "Deliver follow-up before the original turn returns",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-250",
+        labels: []
+      }
+
+      assert :ok =
+               AgentRunner.run(
+                 issue,
+                 nil,
+                 orchestrator: orchestrator_name,
+                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+               )
+
+      turn_texts =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 2
+      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 1) == "focus on auth first"
+      assert :empty == Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-250")
+    after
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner interrupts an active turn and waits for the next operator message before resuming" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-pause-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+      first_turn_started=0
+
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-pause"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            if [ "$first_turn_started" -eq 0 ]; then
+              first_turn_started=1
+              printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-main"}}}'
+            else
+              request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+              printf '{"id":%s,"result":{"turn":{"id":"turn-resume"}}}\\n' "$request_id"
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              exit 0
+            fi
+            ;;
+          *'"method":"turn/interrupt"'*)
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+            printf '{"id":%s,"result":{}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"interrupted"}}}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 2
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :PauseResumeOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+      end)
+
+      issue = %Issue{
+        id: "issue-pause-resume",
+        identifier: "MT-251",
+        title: "Pause and resume",
+        description: "interrupt active work and wait for operator input",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-251",
+        labels: []
+      }
+
+      test_pid = self()
+
+      task =
+        Task.async(fn ->
+          AgentRunner.run(
+            issue,
+            test_pid,
+            orchestrator: orchestrator_name,
+            issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+          )
+        end)
+
+      assert_receive {:codex_worker_update, "issue-pause-resume", %{event: :session_started}}, 1_000
+
+      send(task.pid, {:pause_agent, 91})
+      assert Task.yield(task, 100) == nil
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        {queue_store, item} =
+          SymphonyElixir.AgentQueue.operator_message("MT-251", "resume with the auth fix")
+          |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+        send(test_pid, {:queued_request_id, item.id})
+        %{state | queue_store: queue_store}
+      end)
+
+      assert_receive {:queued_request_id, request_id}
+
+      send(task.pid, {:agent_queue_updated, "MT-251", request_id})
+
+      assert {:ok, :ok} = Task.yield(task, 1_000)
+
+      trace =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+
+      assert Enum.any?(trace, &String.contains?(&1, ~s("method":"turn/interrupt")))
+
+      turn_texts =
+        trace
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 2
+      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 1) == "resume with the auth fix"
+
+      workspace_log =
+        Path.join([workspace_root, "MT-251", "logs", "agent.md"])
+        |> File.read!()
+
+      assert workspace_log =~ "worker_paused"
+      assert workspace_log =~ "Agent paused by operator."
+    after
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner requeues checkpoint-delivered operator input when pause interrupts before it reaches the log" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-requeue-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+      turn_start_count=0
+
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-requeue"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            turn_start_count=$((turn_start_count + 1))
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+
+            case "$turn_start_count" in
+              1)
+                printf '{"id":%s,"result":{"turn":{"id":"turn-main"}}}\\n' "$request_id"
+                printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"checkpoint"}]}}'
+                ;;
+              2)
+                printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-abc"}}}\\n' "$request_id"
+                ;;
+              3)
+                printf '{"id":%s,"result":{"turn":{"id":"turn-resume-abc"}}}\\n' "$request_id"
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+                ;;
+              4)
+                printf '{"id":%s,"result":{"turn":{"id":"turn-def"}}}\\n' "$request_id"
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+                exit 0
+                ;;
+            esac
+            ;;
+          *'"method":"turn/interrupt"'*)
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+            printf '{"id":%s,"result":{}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"interrupted"}}}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :CheckpointRequeueOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+      end)
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        {queue_store, _item} =
+          SymphonyElixir.AgentQueue.operator_message("MT-252", "abc")
+          |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+        %{state | queue_store: queue_store}
+      end)
+
+      issue = %Issue{
+        id: "issue-checkpoint-requeue",
+        identifier: "MT-252",
+        title: "Preserve queued input across pause",
+        description: "requeue checkpoint-delivered input when pause interrupts the active turn",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-252",
+        labels: []
+      }
+
+      test_pid = self()
+
+      task =
+        Task.async(fn ->
+          AgentRunner.run(
+            issue,
+            test_pid,
+            orchestrator: orchestrator_name,
+            issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+          )
+        end)
+
+      assert_receive {:codex_worker_update, "issue-checkpoint-requeue", %{event: :session_started}}, 1_000
+      Process.sleep(50)
+
+      send(task.pid, {:pause_agent, 92})
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        {queue_store, item} =
+          SymphonyElixir.AgentQueue.operator_message("MT-252", "def")
+          |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+        send(test_pid, {:queued_request_id, item.id})
+        %{state | queue_store: queue_store}
+      end)
+
+      assert_receive {:queued_request_id, request_id}
+      send(task.pid, {:agent_queue_updated, "MT-252", request_id})
+
+      assert {:ok, :ok} = Task.yield(task, 1_000)
+
+      turn_texts =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 4
+      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 1) == "abc"
+      assert Enum.at(turn_texts, 2) == "abc"
+      assert Enum.at(turn_texts, 3) == "def"
+    after
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner stops continuing once agent.max_turns is reached" do
     test_root =
       Path.join(

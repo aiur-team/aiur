@@ -75,6 +75,10 @@ defmodule SymphonyElixirWeb.Presenter do
       },
       running: running && running_issue_payload(running),
       retry: retry && retry_issue_payload(retry),
+      capabilities: running && Map.get(running, :control),
+      queue: %{
+        depth: (running && Map.get(running, :queue_depth)) || 0
+      },
       logs: %{
         codex_session_logs: []
       },
@@ -106,6 +110,8 @@ defmodule SymphonyElixirWeb.Presenter do
       turn_count: Map.get(entry, :turn_count, 0),
       last_event: entry.last_codex_event,
       last_message: summarize_message(entry.last_codex_message),
+      queue_depth: Map.get(entry, :queue_depth, 0),
+      capabilities: Map.get(entry, :control),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_codex_timestamp),
       tokens: %{
@@ -135,6 +141,8 @@ defmodule SymphonyElixirWeb.Presenter do
       session_id: running.session_id,
       turn_count: Map.get(running, :turn_count, 0),
       state: running.state,
+      queue_depth: Map.get(running, :queue_depth, 0),
+      capabilities: Map.get(running, :control),
       started_at: iso8601(running.started_at),
       last_event: running.last_codex_event,
       last_message: summarize_message(running.last_codex_message),
