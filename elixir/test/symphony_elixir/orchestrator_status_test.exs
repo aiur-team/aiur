@@ -925,6 +925,11 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
               ref: make_ref(),
               identifier: "MT-CHAT",
               issue: %Issue{id: "issue-chat", identifier: "MT-CHAT", state: "In Progress"},
+              control: %{
+                can_interrupt: true,
+                safe_checkpoints: [:notification, :tool_result],
+                status: :working
+              },
               session_id: "thread-chat-turn-chat",
               agent_input_tokens: 0,
               agent_output_tokens: 0,
@@ -947,26 +952,63 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert {:ok,
             %{
               accepts_operator_messages: true,
-              can_interrupt: false,
-              accepted_delivery_policies: [:checkpoint],
+              can_interrupt: true,
+              accepted_delivery_policies: [:checkpoint, :interrupt],
               queue_depth: 0
             }} = Orchestrator.control_capabilities(orchestrator_name, "MT-CHAT")
 
     assert {:ok, pause_request_id} = Orchestrator.pause_agent(orchestrator_name, "MT-CHAT")
     assert_receive {:pause_agent, ^pause_request_id}
 
-    assert {:error, :interrupt_not_supported} =
+    assert {:ok, interrupt_request_id} =
              Orchestrator.send_operator_message(
                orchestrator_name,
                "MT-CHAT",
                %{kind: :text, body: "stop now", delivery_policy: :interrupt}
              )
 
+    assert is_integer(interrupt_request_id)
+
+    assert {:ok,
+            %{
+              id: ^interrupt_request_id,
+              category: :operator_message,
+              delivery: %{interrupt_requested: true, priority: :now}
+            }} =
+             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-CHAT")
+
     assert {:error, :empty_message} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "   "})
 
     assert {:error, :no_running_agent} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+  end
+
+  test "orchestrator can claim only operator queue items without consuming coordination events" do
+    orchestrator_name = Module.concat(__MODULE__, :OperatorOnlyClaimOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      {queue_store, _event_item} =
+        SymphonyElixir.AgentQueue.coordination_event("MT-QUEUE", :blocker_update, %{summary: "still blocked"})
+        |> then(&SymphonyElixir.AgentQueueStore.enqueue(state.queue_store, &1))
+
+      {queue_store, _operator_item} =
+        SymphonyElixir.AgentQueue.operator_message("MT-QUEUE", "resume now")
+        |> then(&SymphonyElixir.AgentQueueStore.enqueue(queue_store, &1))
+
+      %{state | queue_store: queue_store}
+    end)
+
+    assert {:ok, %{category: :operator_message, body: %{text: "resume now"}}} =
+             Orchestrator.claim_next_operator_queue_item(orchestrator_name, "MT-QUEUE")
+
+    assert {:ok, %{category: :coordination_event, body: %{summary: "still blocked"}}} =
+             Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-QUEUE")
   end
 
   test "orchestrator restarts stalled workers with retry backoff" do
