@@ -344,6 +344,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
         identifier: "MT-000",
         title: "Sample issue title",
         state: "running",
+        work_state: :working,
         session_id: "thread-1234567890",
         codex_app_server_pid: "4242",
         agent_total_tokens: 0,

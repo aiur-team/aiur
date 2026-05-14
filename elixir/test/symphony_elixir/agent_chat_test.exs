@@ -12,4 +12,10 @@ defmodule SymphonyElixir.AgentChatTest do
     assert {:error, reason} = AgentChat.pause("MT-CHAT")
     assert reason in [:unavailable, :no_running_agent]
   end
+
+  test "capabilities delegates to orchestrator control path" do
+    assert {:ok, capabilities} = AgentChat.capabilities("MT-CHAT")
+    assert capabilities.accepted_delivery_policies == [:checkpoint]
+    assert capabilities.accepts_operator_messages == false
+  end
 end

@@ -75,6 +75,17 @@ defmodule SymphonyElixir.ExtensionsTest do
     def handle_call(:request_refresh, _from, state) do
       {:reply, Keyword.get(state, :refresh, :unavailable), state}
     end
+
+    def handle_call({:send_operator_message, issue_identifier, _payload}, _from, state) do
+      reply =
+        Keyword.get(state, :send_operator_message, {:ok, 1})
+        |> case do
+          fun when is_function(fun, 1) -> fun.(issue_identifier)
+          other -> other
+        end
+
+      {:reply, reply, state}
+    end
   end
 
   setup do
@@ -356,6 +367,14 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "turn_count" => 7,
                  "last_event" => "notification",
                  "last_message" => "rendered",
+                 "queue_depth" => 1,
+                 "capabilities" => %{
+                   "accepts_operator_messages" => true,
+                   "can_interrupt" => false,
+                   "accepted_delivery_policies" => ["checkpoint"],
+                   "safe_checkpoints" => ["notification", "tool_result"],
+                   "queue_depth" => 1
+                 },
                  "started_at" => state_payload["running"] |> List.first() |> Map.fetch!("started_at"),
                  "last_event_at" => nil,
                  "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
@@ -399,6 +418,14 @@ defmodule SymphonyElixir.ExtensionsTest do
                "session_id" => "thread-http",
                "turn_count" => 7,
                "state" => "In Progress",
+               "queue_depth" => 1,
+               "capabilities" => %{
+                 "accepts_operator_messages" => true,
+                 "can_interrupt" => false,
+                 "accepted_delivery_policies" => ["checkpoint"],
+                 "safe_checkpoints" => ["notification", "tool_result"],
+                 "queue_depth" => 1
+               },
                "started_at" => issue_payload["running"]["started_at"],
                "last_event" => "notification",
                "last_message" => "rendered",
@@ -406,6 +433,14 @@ defmodule SymphonyElixir.ExtensionsTest do
                "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
              },
              "retry" => nil,
+             "capabilities" => %{
+               "accepts_operator_messages" => true,
+               "can_interrupt" => false,
+               "accepted_delivery_policies" => ["checkpoint"],
+               "safe_checkpoints" => ["notification", "tool_result"],
+               "queue_depth" => 1
+             },
+             "queue" => %{"depth" => 1},
              "logs" => %{"codex_session_logs" => []},
              "recent_events" => [],
              "last_error" => nil,
@@ -427,6 +462,10 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert %{"queued" => true, "coalesced" => false, "operations" => ["poll", "reconcile"]} =
              json_response(conn, 202)
+
+    conn = post(build_conn(), "/api/v1/MT-HTTP/messages", %{"text" => "hello"})
+
+    assert json_response(conn, 202) == %{"issue_identifier" => "MT-HTTP", "request_id" => 1}
   end
 
   test "phoenix observability api preserves 405, 404, and unavailable behavior" do
@@ -463,6 +502,9 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "message" => "Orchestrator is unavailable"
                }
              }
+
+    assert json_response(get(build_conn(), "/api/v1/MT-1/messages"), 405) ==
+             %{"error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}}
   end
 
   test "phoenix observability api preserves snapshot timeout behavior" do
@@ -649,7 +691,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert log_html =~ "phx-hook=\"AgentLogPanel\""
     assert log_html =~ "phx-click-away=\"close-agent-log\""
     refute log_html =~ "modal-panel\" onclick=\"event.stopPropagation()\""
-    assert log_html =~ "Issue prompt"
+    assert log_html =~ "Operator message"
     assert log_html =~ "hello from workspace log"
     assert log_html =~ "working now"
     assert length(Regex.scan(~r/working now/, log_html)) == 1
@@ -807,6 +849,14 @@ defmodule SymphonyElixir.ExtensionsTest do
           last_codex_timestamp: nil,
           last_codex_event: :notification,
           workspace_path: workspace_path,
+          queue_depth: 1,
+          control: %{
+            accepts_operator_messages: true,
+            can_interrupt: false,
+            accepted_delivery_policies: [:checkpoint],
+            safe_checkpoints: [:notification, :tool_result],
+            queue_depth: 1
+          },
           agent_input_tokens: 4,
           agent_output_tokens: 8,
           agent_total_tokens: 12,

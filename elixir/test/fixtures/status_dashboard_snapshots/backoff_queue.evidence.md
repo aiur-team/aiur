@@ -7,9 +7,9 @@
 │ Tokens: in 18,000 | out 2,200 | total 20,200           │ 
 ├─ Running
 │
-│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
-│   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-│   MT-638 retrying       Sample issue title         20m 25s / 7  agent message streaming: waiting on rate-limit...
+│   ID     STATE      ISSUE                      AGE / TURN  
+│   ────────────────────────────────────────────────────────
+│   MT-638 working    Sample issue title         20m 25s / 7 
 │
 ├─ Backoff queue
 │

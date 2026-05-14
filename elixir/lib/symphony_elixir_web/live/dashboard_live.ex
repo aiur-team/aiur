@@ -532,6 +532,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp format_chat_error(:no_running_agent), do: "Agent is no longer running."
   defp format_chat_error(:empty_message), do: "Message is empty."
   defp format_chat_error(:message_too_long), do: "Message is too long."
+  defp format_chat_error(:interrupt_not_supported), do: "Interrupt is not available right now."
   defp format_chat_error(:timeout), do: "Send timed out."
   defp format_chat_error(:unavailable), do: "Orchestrator unavailable."
   defp format_chat_error(reason), do: inspect(reason)

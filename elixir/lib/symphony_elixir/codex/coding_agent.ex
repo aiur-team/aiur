@@ -85,12 +85,13 @@ defmodule SymphonyElixir.Codex.CodingAgent do
           turn_sandbox_policy: turn_sandbox_policy,
           thread_id: thread_id,
           workspace: workspace
-        },
+        } = session,
         prompt,
         issue,
         opts \\ []
       ) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
+    on_safe_checkpoint = Keyword.get(opts, :on_safe_checkpoint, fn _checkpoint -> :noop end)
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
@@ -113,7 +114,14 @@ defmodule SymphonyElixir.Codex.CodingAgent do
           metadata
         )
 
-        case await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
+        case await_turn_completion(
+               session,
+               on_message,
+               tool_executor,
+               auto_approve_requests,
+               on_safe_checkpoint,
+               turn_id
+             ) do
           {:ok, result} ->
             Logger.info("Codex session completed for #{issue_context(issue)} session_id=#{session_id}")
 
@@ -124,6 +132,10 @@ defmodule SymphonyElixir.Codex.CodingAgent do
                thread_id: thread_id,
                turn_id: turn_id
              }}
+
+          {:paused, payload} ->
+            Logger.info("Codex session paused for #{issue_context(issue)} session_id=#{session_id}")
+            {:paused, Map.put(payload, :session_id, session_id)}
 
           {:error, reason} ->
             Logger.warning("Codex session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
@@ -360,109 +372,155 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     end
   end
 
-  defp await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
-    receive_loop(port, on_message, Config.agent_turn_timeout_ms(), "", tool_executor, auto_approve_requests)
+  defp await_turn_completion(
+         session,
+         on_message,
+         tool_executor,
+         auto_approve_requests,
+         on_safe_checkpoint,
+         turn_id
+       ) do
+    receive_loop(session, %{
+      on_message: on_message,
+      on_safe_checkpoint: on_safe_checkpoint,
+      timeout_ms: Config.agent_turn_timeout_ms(),
+      pending_line: "",
+      tool_executor: tool_executor,
+      auto_approve_requests: auto_approve_requests,
+      outstanding_turns: 1,
+      pending_operator_requests: %{},
+      current_turn_id: turn_id,
+      pause_request_id: nil,
+      pending_interrupt_request_id: nil
+    })
   end
 
-  defp receive_loop(port, on_message, timeout_ms, pending_line, tool_executor, auto_approve_requests) do
+  defp receive_loop(%{port: port} = session, state) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
-        complete_line = pending_line <> to_string(chunk)
-        handle_incoming(port, on_message, complete_line, timeout_ms, tool_executor, auto_approve_requests)
+        complete_line = state.pending_line <> to_string(chunk)
+
+        case handle_incoming(session, %{state | pending_line: ""}, complete_line) do
+          {:continue, next_state} -> receive_loop(session, next_state)
+          result -> result
+        end
 
       {^port, {:data, {:noeol, chunk}}} ->
-        receive_loop(
-          port,
-          on_message,
-          timeout_ms,
-          pending_line <> to_string(chunk),
-          tool_executor,
-          auto_approve_requests
-        )
+        receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
 
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        case handle_pause_request(session, state, request_id) do
+          {:continue, next_state} -> receive_loop(session, next_state)
+          result -> result
+        end
     after
-      timeout_ms ->
+      state.timeout_ms ->
         {:error, :turn_timeout}
     end
   end
 
-  defp handle_incoming(port, on_message, data, timeout_ms, tool_executor, auto_approve_requests) do
+  defp handle_incoming(%{port: port} = session, state, data) do
+    on_message = state.on_message
     payload_string = to_string(data)
 
     case Jason.decode(payload_string) do
-      {:ok, %{"method" => "turn/completed"} = payload} ->
-        emit_turn_event(on_message, :turn_completed, payload, payload_string, port, payload)
-        {:ok, :turn_completed}
-
-      {:ok, %{"method" => "turn/failed", "params" => _} = payload} ->
-        emit_turn_event(
-          on_message,
-          :turn_failed,
-          payload,
-          payload_string,
-          port,
-          Map.get(payload, "params")
-        )
-
-        {:error, {:turn_failed, Map.get(payload, "params")}}
-
-      {:ok, %{"method" => "turn/cancelled", "params" => _} = payload} ->
-        emit_turn_event(
-          on_message,
-          :turn_cancelled,
-          payload,
-          payload_string,
-          port,
-          Map.get(payload, "params")
-        )
-
-        {:error, {:turn_cancelled, Map.get(payload, "params")}}
-
-      {:ok, %{"method" => method} = payload}
-      when is_binary(method) ->
-        handle_turn_method(
-          port,
-          on_message,
-          payload,
-          payload_string,
-          method,
-          timeout_ms,
-          tool_executor,
-          auto_approve_requests
-        )
-
       {:ok, payload} ->
-        emit_message(
-          on_message,
-          :other_message,
-          %{
-            payload: payload,
-            raw: payload_string
-          },
-          metadata_from_message(port, payload)
-        )
-
-        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+        handle_decoded_incoming(session, state, payload, payload_string, port, on_message)
 
       {:error, _reason} ->
-        log_non_json_stream_line(payload_string, "turn stream")
-
-        if protocol_message_candidate?(payload_string) do
-          emit_message(
-            on_message,
-            :malformed,
-            %{
-              payload: payload_string,
-              raw: payload_string
-            },
-            metadata_from_message(port, %{raw: payload_string})
-          )
-        end
-
-        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+        handle_malformed_incoming(state, payload_string, port, on_message)
     end
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _}, _payload_string, _port, _on_message)
+       when request_id == state.pending_interrupt_request_id do
+    {:continue, %{state | pending_interrupt_request_id: nil}}
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)
+       when request_id == state.pending_interrupt_request_id do
+    {:error, {:turn_interrupt_failed, error}}
+  end
+
+  defp handle_decoded_incoming(session, state, %{"id" => request_id, "result" => _} = payload, payload_string, _port, _on_message)
+       when is_integer(request_id) do
+    handle_pending_operator_response(session, state, payload, payload_string, request_id)
+  end
+
+  defp handle_decoded_incoming(session, state, %{"id" => request_id, "error" => _} = payload, payload_string, _port, _on_message)
+       when is_integer(request_id) do
+    handle_pending_operator_response(session, state, payload, payload_string, request_id)
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"method" => "turn/completed"} = payload, payload_string, port, on_message) do
+    emit_turn_event(on_message, :turn_completed, payload, payload_string, port, payload)
+
+    case turn_completion_status(payload) do
+      "interrupted" -> continue_after_turn_interrupted(state, payload)
+      _ -> continue_after_turn_completion(state)
+    end
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"method" => "turn/failed", "params" => params} = payload, payload_string, port, on_message) do
+    emit_turn_event(on_message, :turn_failed, payload, payload_string, port, params)
+    fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
+    {:error, {:turn_failed, params}}
+  end
+
+  defp handle_decoded_incoming(_session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, port, on_message) do
+    emit_turn_event(on_message, :turn_cancelled, payload, payload_string, port, params)
+    fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
+
+    if is_integer(state.pause_request_id) do
+      {:paused,
+       %{
+         request_id: state.pause_request_id,
+         turn_id: state.current_turn_id,
+         details: params
+       }}
+    else
+      {:error, {:turn_cancelled, params}}
+    end
+  end
+
+  defp handle_decoded_incoming(session, state, %{"method" => method} = payload, payload_string, _port, _on_message)
+       when is_binary(method) do
+    handle_turn_method(session, state, payload, payload_string, method)
+  end
+
+  defp handle_decoded_incoming(_session, state, payload, payload_string, port, on_message) do
+    emit_message(
+      on_message,
+      :other_message,
+      %{
+        payload: payload,
+        raw: payload_string
+      },
+      metadata_from_message(port, payload)
+    )
+
+    {:continue, state}
+  end
+
+  defp handle_malformed_incoming(state, payload_string, port, on_message) do
+    log_non_json_stream_line(payload_string, "turn stream")
+
+    if protocol_message_candidate?(payload_string) do
+      emit_message(
+        on_message,
+        :malformed,
+        %{
+          payload: payload_string,
+          raw: payload_string
+        },
+        metadata_from_message(port, %{raw: payload_string})
+      )
+    end
+
+    {:continue, state}
   end
 
   defp protocol_message_candidate?(payload_string) do
@@ -485,16 +543,8 @@ defmodule SymphonyElixir.Codex.CodingAgent do
     )
   end
 
-  defp handle_turn_method(
-         port,
-         on_message,
-         payload,
-         payload_string,
-         method,
-         timeout_ms,
-         tool_executor,
-         auto_approve_requests
-       ) do
+  defp handle_turn_method(%{port: port} = session, state, payload, payload_string, method) do
+    on_message = state.on_message
     metadata = metadata_from_message(port, payload)
 
     case maybe_handle_approval_request(
@@ -504,8 +554,8 @@ defmodule SymphonyElixir.Codex.CodingAgent do
            payload_string,
            on_message,
            metadata,
-           tool_executor,
-           auto_approve_requests
+           state.tool_executor,
+           state.auto_approve_requests
          ) do
       :input_required ->
         emit_message(
@@ -518,7 +568,7 @@ defmodule SymphonyElixir.Codex.CodingAgent do
         {:error, {:turn_input_required, payload}}
 
       :approved ->
-        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+        {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
 
       :approval_required ->
         emit_message(
@@ -552,9 +602,234 @@ defmodule SymphonyElixir.Codex.CodingAgent do
           )
 
           Logger.debug("Codex notification: #{inspect(method)}")
-          receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+          {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
         end
     end
+  end
+
+  defp handle_pending_operator_response(session, state, payload, payload_string, request_id) do
+    on_message = state.on_message
+
+    case Map.pop(state.pending_operator_requests, request_id) do
+      {nil, _pending_operator_requests} ->
+        emit_message(
+          on_message,
+          :other_message,
+          %{
+            payload: payload,
+            raw: payload_string
+          },
+          metadata_from_message(session.port, payload)
+        )
+
+        {:continue, state}
+
+      {%{on_success: on_success, on_failure: on_failure}, pending_operator_requests} ->
+        handle_claimed_operator_response(
+          session,
+          state,
+          payload,
+          payload_string,
+          request_id,
+          on_success,
+          on_failure,
+          pending_operator_requests
+        )
+    end
+  end
+
+  defp checkpoint_for_method("item/tool/call"), do: %{kind: :tool_result, method: "item/tool/call"}
+  defp checkpoint_for_method(method), do: %{kind: :notification, method: method}
+
+  defp maybe_process_safe_checkpoint(session, state, checkpoint) do
+    case state.on_safe_checkpoint.(checkpoint) do
+      :noop ->
+        state
+
+      {:deliver_text, text, on_success, on_failure}
+      when is_binary(text) and is_function(on_success, 1) and is_function(on_failure, 1) ->
+        case send_operator_message(session, %{kind: :text, body: text}) do
+          {:ok, request_id} ->
+            pending_operator_requests =
+              Map.put(state.pending_operator_requests, request_id, %{
+                on_success: on_success,
+                on_failure: on_failure,
+                text: text
+              })
+
+            %{state | pending_operator_requests: pending_operator_requests}
+
+          {:error, reason} ->
+            safe_invoke_failure_callback(on_failure, reason)
+            state
+        end
+    end
+  end
+
+  defp fail_pending_operator_requests(pending_operator_requests, reason) do
+    Enum.each(pending_operator_requests, fn {_request_id, pending_request} ->
+      safe_invoke_failure_callback(pending_request.on_failure, reason)
+    end)
+  end
+
+  defp continue_after_turn_completion(state) do
+    next_state = %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
+
+    if next_state.outstanding_turns == 0 and map_size(next_state.pending_operator_requests) == 0 do
+      {:ok, :turn_completed}
+    else
+      {:continue, next_state}
+    end
+  end
+
+  defp continue_after_turn_interrupted(state, payload) do
+    next_state = %{
+      state
+      | outstanding_turns: max(state.outstanding_turns - 1, 0),
+        pending_interrupt_request_id: nil
+    }
+
+    if is_integer(state.pause_request_id) do
+      fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
+
+      {:paused,
+       %{
+         request_id: state.pause_request_id,
+         turn_id: state.current_turn_id,
+         details: payload
+       }}
+    else
+      {:error, {:turn_interrupted, payload}}
+    end
+  end
+
+  defp handle_claimed_operator_response(
+         session,
+         state,
+         %{"result" => %{"turn" => %{"id" => turn_id}}} = payload,
+         payload_string,
+         request_id,
+         on_success,
+         _on_failure,
+         pending_operator_requests
+       ) do
+    safe_invoke_success_callback(on_success, %{
+      request_id: request_id,
+      turn_id: turn_id,
+      payload: payload
+    })
+
+    emit_message(
+      state.on_message,
+      :operator_turn_started,
+      %{payload: payload, raw: payload_string},
+      metadata_from_message(session.port, payload)
+    )
+
+    {:continue,
+     %{
+       state
+       | pending_operator_requests: pending_operator_requests,
+         outstanding_turns: state.outstanding_turns + 1
+     }}
+  end
+
+  defp handle_claimed_operator_response(
+         _session,
+         state,
+         %{"error" => error},
+         _payload_string,
+         _request_id,
+         _on_success,
+         on_failure,
+         pending_operator_requests
+       ) do
+    safe_invoke_failure_callback(on_failure, {:response_error, error})
+    maybe_finish_after_pending_response(%{state | pending_operator_requests: pending_operator_requests})
+  end
+
+  defp handle_claimed_operator_response(
+         _session,
+         state,
+         _payload,
+         _payload_string,
+         _request_id,
+         _on_success,
+         _on_failure,
+         pending_operator_requests
+       ) do
+    {:continue, %{state | pending_operator_requests: pending_operator_requests}}
+  end
+
+  defp maybe_finish_after_pending_response(state) do
+    if state.outstanding_turns == 0 and map_size(state.pending_operator_requests) == 0 do
+      {:ok, :turn_completed}
+    else
+      {:continue, state}
+    end
+  end
+
+  defp handle_pause_request(_session, %{pause_request_id: request_id} = state, request_id)
+       when is_integer(request_id) do
+    {:continue, state}
+  end
+
+  defp handle_pause_request(_session, %{pause_request_id: existing_request_id} = state, _request_id)
+       when is_integer(existing_request_id) do
+    {:continue, state}
+  end
+
+  defp handle_pause_request(session, state, request_id) do
+    case interrupt_turn(session, state.current_turn_id) do
+      {:ok, interrupt_request_id} ->
+        {:continue,
+         %{
+           state
+           | pause_request_id: request_id,
+             pending_interrupt_request_id: interrupt_request_id
+         }}
+
+      {:error, reason} ->
+        {:error, {:turn_interrupt_failed, reason}}
+    end
+  end
+
+  defp interrupt_turn(%{port: port, thread_id: thread_id}, turn_id)
+       when is_port(port) and is_binary(thread_id) and is_binary(turn_id) do
+    request_id = :erlang.unique_integer([:positive])
+
+    send_message(port, %{
+      "method" => "turn/interrupt",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => thread_id,
+        "turnId" => turn_id
+      }
+    })
+
+    {:ok, request_id}
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
+  defp interrupt_turn(_session, _turn_id), do: {:error, :invalid_session}
+
+  defp turn_completion_status(%{"params" => %{"turn" => %{"status" => status}}}) when is_binary(status),
+    do: status
+
+  defp turn_completion_status(%{"turn" => %{"status" => status}}) when is_binary(status), do: status
+  defp turn_completion_status(_payload), do: "completed"
+
+  defp safe_invoke_success_callback(callback, payload) when is_function(callback, 1) do
+    callback.(payload)
+  rescue
+    _error -> :ok
+  end
+
+  defp safe_invoke_failure_callback(callback, reason) when is_function(callback, 1) do
+    callback.(reason)
+  rescue
+    _error -> :ok
   end
 
   defp maybe_handle_approval_request(

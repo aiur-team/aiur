@@ -34,6 +34,7 @@ defmodule SymphonyElixir.Orchestrator do
       :tick_timer_ref,
       :tick_token,
       queue_store: AgentQueueStore.new(),
+      last_polled_issues: %{},
       running: %{},
       completed: MapSet.new(),
       claimed: MapSet.new(),
@@ -206,6 +207,20 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_info({:codex_worker_update, _issue_id, _update}, state), do: {:noreply, state}
 
+  def handle_info({:worker_control_state, issue_id, status}, %{running: running} = state)
+      when is_binary(issue_id) and status in [:paused, :working] do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        updated_running_entry =
+          put_in(running_entry, [:control, :status], status)
+
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+    end
+  end
+
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
     result =
       case pop_retry_attempt_state(state, issue_id, retry_token) do
@@ -228,9 +243,14 @@ defmodule SymphonyElixir.Orchestrator do
     state = reconcile_running_issues(state)
 
     with :ok <- Config.validate!(),
-         {:ok, issues} <- Tracker.fetch_candidate_issues(),
-         true <- available_slots(state) > 0 do
-      choose_issues(issues, state)
+         {:ok, issues} <- Tracker.fetch_candidate_issues() do
+      state = sync_polled_issue_state(state, issues)
+
+      if available_slots(state) > 0 do
+        choose_issues(state, issues)
+      else
+        state
+      end
     else
       {:error, :missing_linear_api_token} ->
         Logger.error("Linear API token missing in WORKFLOW.md")
@@ -268,9 +288,6 @@ defmodule SymphonyElixir.Orchestrator do
 
       {:error, reason} ->
         Logger.error("Failed to fetch from Linear: #{inspect(reason)}")
-        state
-
-      false ->
         state
     end
   end
@@ -519,7 +536,164 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp terminate_task(_pid), do: :ok
 
-  defp choose_issues(issues, state) do
+  defp sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
+    previous_issues = state.last_polled_issues
+
+    state =
+      Enum.reduce(issues, state, fn issue, state_acc ->
+        previous_issue = Map.get(previous_issues, issue.id)
+        emit_dependency_transition_events(state_acc, previous_issue, issue)
+      end)
+
+    %{state | last_polled_issues: issues_by_id(issues)}
+  end
+
+  defp sync_polled_issue_state(%State{} = state, _issues), do: state
+
+  defp issues_by_id(issues) do
+    Enum.reduce(issues, %{}, fn
+      %Issue{id: issue_id} = issue, acc when is_binary(issue_id) -> Map.put(acc, issue_id, issue)
+      _issue, acc -> acc
+    end)
+  end
+
+  defp emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
+    if is_nil(previous_issue) do
+      state
+    else
+      previous_blockers = blocker_map(previous_issue)
+      current_blockers = blocker_map(issue)
+
+      added_blocker_ids = Map.keys(current_blockers) -- Map.keys(previous_blockers)
+      removed_blocker_ids = Map.keys(previous_blockers) -- Map.keys(current_blockers)
+      shared_blocker_ids = Map.keys(current_blockers) -- added_blocker_ids
+
+      state =
+        Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
+          enqueue_dependency_event(state_acc, issue, current_blockers[blocker_id], :dependency_added)
+        end)
+
+      state =
+        Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
+          enqueue_dependency_event(state_acc, issue, previous_blockers[blocker_id], :dependency_removed)
+        end)
+
+      Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
+        maybe_enqueue_blocker_terminality_event(
+          state_acc,
+          issue,
+          previous_blockers[blocker_id],
+          current_blockers[blocker_id]
+        )
+      end)
+    end
+  end
+
+  defp emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
+
+  defp blocker_map(%Issue{blocked_by: blockers}) when is_list(blockers) do
+    Enum.reduce(blockers, %{}, fn
+      %{id: blocker_id} = blocker, acc when is_binary(blocker_id) -> Map.put(acc, blocker_id, blocker)
+      _blocker, acc -> acc
+    end)
+  end
+
+  defp blocker_map(_issue), do: %{}
+
+  defp blocker_terminal?(%{state: state_name}) when is_binary(state_name) do
+    terminal_issue_state?(state_name, terminal_state_set())
+  end
+
+  defp blocker_terminal?(_blocker), do: false
+
+  defp maybe_enqueue_blocker_terminality_event(state, issue, previous_blocker, current_blocker) do
+    cond do
+      blocker_terminal?(previous_blocker) and !blocker_terminal?(current_blocker) ->
+        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_non_terminal)
+
+      !blocker_terminal?(previous_blocker) and blocker_terminal?(current_blocker) ->
+        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_terminal)
+
+      true ->
+        state
+    end
+  end
+
+  defp enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind) when is_map(blocker) do
+    body = blocker_event_body(issue, blocker, update_kind)
+
+    {queue_store, item} =
+      AgentQueue.coordination_event(issue.identifier, update_kind, body,
+        source: :tracker,
+        dedupe_key: dependency_event_dedupe_key(issue, blocker, update_kind),
+        causal_refs: dependency_causal_refs(issue, blocker),
+        subscription: dependency_subscription(issue, blocker)
+      )
+      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+    next_state = %{state | queue_store: queue_store}
+
+    case find_running_by_identifier(state.running, issue.identifier) do
+      nil ->
+        next_state
+
+      running_entry ->
+        notify_running_queue_update(running_entry, item)
+        next_state
+    end
+  end
+
+  defp enqueue_dependency_event(%State{} = state, _issue, _blocker, _update_kind), do: state
+
+  defp blocker_event_body(issue, blocker, update_kind) do
+    %{
+      blocked_issue_id: issue.id,
+      blocked_issue_identifier: issue.identifier,
+      blocker_issue_id: blocker[:id],
+      blocker_issue_identifier: blocker[:identifier],
+      blocker_state: blocker[:state],
+      update_kind: update_kind,
+      summary: blocker_event_summary(issue, blocker, update_kind)
+    }
+  end
+
+  defp blocker_event_summary(_issue, blocker, :dependency_added),
+    do: "Issue is now blocked by #{blocker[:identifier] || blocker[:id]}"
+
+  defp blocker_event_summary(_issue, blocker, :dependency_removed),
+    do: "Dependency on #{blocker[:identifier] || blocker[:id]} was removed"
+
+  defp blocker_event_summary(_issue, blocker, :blocker_became_terminal),
+    do: "Blocker #{blocker[:identifier] || blocker[:id]} reached terminal state #{blocker[:state]}"
+
+  defp blocker_event_summary(_issue, blocker, :blocker_became_non_terminal),
+    do: "Blocker #{blocker[:identifier] || blocker[:id]} returned to non-terminal state #{blocker[:state]}"
+
+  defp dependency_event_dedupe_key(issue, blocker, update_kind) do
+    [
+      Atom.to_string(update_kind),
+      issue.id || issue.identifier,
+      blocker[:id] || blocker[:identifier],
+      blocker[:state]
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(":")
+  end
+
+  defp dependency_causal_refs(issue, blocker) do
+    [issue.id, blocker[:id]]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp dependency_subscription(issue, blocker) do
+    %{
+      subscription_type: :blocked_by,
+      source_issue_id: blocker[:id],
+      target_issue_id: issue.id
+    }
+  end
+
+  defp choose_issues(state, issues) do
     active_states = active_state_set()
     terminal_states = terminal_state_set()
 
@@ -722,6 +896,7 @@ defmodule SymphonyElixir.Orchestrator do
             agent_last_reported_output_tokens: 0,
             agent_last_reported_total_tokens: 0,
             turn_count: 0,
+            control: default_running_control(),
             retry_attempt: normalize_retry_attempt(attempt),
             started_at: DateTime.utc_now()
           })
@@ -1098,13 +1273,13 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  @spec send_operator_message(String.t(), %{required(:kind) => :text, required(:body) => String.t()}) ::
+  @spec send_operator_message(String.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(issue_identifier, payload) do
     send_operator_message(__MODULE__, issue_identifier, payload)
   end
 
-  @spec send_operator_message(GenServer.server(), String.t(), %{required(:kind) => :text, required(:body) => String.t()}) ::
+  @spec send_operator_message(GenServer.server(), String.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(server, issue_identifier, payload) do
     if GenServer.whereis(server) do
@@ -1132,10 +1307,37 @@ defmodule SymphonyElixir.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
+  def control_capabilities(issue_identifier), do: control_capabilities(__MODULE__, issue_identifier)
+
+  @spec control_capabilities(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
+  def control_capabilities(server, issue_identifier) when is_binary(issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:control_capabilities, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec claim_next_queue_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_next_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.call(server, {:claim_next_queue_item, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @doc false
   @spec claim_next_queue_item_for_test(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item_for_test(server, issue_identifier) when is_binary(issue_identifier) do
-    GenServer.call(server, {:claim_next_queue_item, issue_identifier}, 5_000)
+    claim_next_queue_item(server, issue_identifier)
+  end
+
+  @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
+  def mark_queue_item_consumed(server, item_id) when is_integer(item_id) do
+    GenServer.call(server, {:mark_queue_item_consumed, item_id}, 5_000)
   catch
     :exit, _ -> {:error, :unavailable}
   end
@@ -1143,7 +1345,12 @@ defmodule SymphonyElixir.Orchestrator do
   @doc false
   @spec mark_queue_item_consumed_for_test(GenServer.server(), integer()) :: :ok | {:error, term()}
   def mark_queue_item_consumed_for_test(server, item_id) when is_integer(item_id) do
-    GenServer.call(server, {:mark_queue_item_consumed, item_id}, 5_000)
+    mark_queue_item_consumed(server, item_id)
+  end
+
+  @spec mark_queue_item_failed(GenServer.server(), integer(), term()) :: :ok | {:error, term()}
+  def mark_queue_item_failed(server, item_id, reason) when is_integer(item_id) do
+    GenServer.call(server, {:mark_queue_item_failed, item_id, reason}, 5_000)
   catch
     :exit, _ -> {:error, :unavailable}
   end
@@ -1151,9 +1358,7 @@ defmodule SymphonyElixir.Orchestrator do
   @doc false
   @spec mark_queue_item_failed_for_test(GenServer.server(), integer(), term()) :: :ok | {:error, term()}
   def mark_queue_item_failed_for_test(server, item_id, reason) when is_integer(item_id) do
-    GenServer.call(server, {:mark_queue_item_failed, item_id, reason}, 5_000)
-  catch
-    :exit, _ -> {:error, :unavailable}
+    mark_queue_item_failed(server, item_id, reason)
   end
 
   @spec snapshot() :: map() | :timeout | :unavailable
@@ -1182,6 +1387,8 @@ defmodule SymphonyElixir.Orchestrator do
     running =
       state.running
       |> Enum.map(fn {issue_id, metadata} ->
+        capabilities = issue_control_capabilities(state, metadata.identifier)
+
         %{
           issue_id: issue_id,
           identifier: metadata.identifier,
@@ -1199,6 +1406,9 @@ defmodule SymphonyElixir.Orchestrator do
           last_codex_timestamp: metadata.last_codex_timestamp,
           last_codex_message: metadata.last_codex_message,
           last_codex_event: metadata.last_codex_event,
+          work_state: get_in(metadata, [:control, :status]) || :working,
+          queue_depth: capabilities.queue_depth,
+          control: capabilities,
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
       end)
@@ -1246,31 +1456,23 @@ defmodule SymphonyElixir.Orchestrator do
      }, state}
   end
 
-  def handle_call({:send_operator_message, issue_identifier, %{kind: :text, body: body}}, _from, state)
+  def handle_call(
+        {:send_operator_message, issue_identifier, %{kind: :text, body: body} = payload},
+        _from,
+        state
+      )
       when is_binary(issue_identifier) and is_binary(body) do
-    case validate_operator_message(body) do
-      {:ok, text} ->
-        case find_running_by_identifier(state.running, issue_identifier) do
-          nil ->
-            {:reply, {:error, :no_running_agent}, state}
-
-          running_entry ->
-            {queue_store, item} =
-              AgentQueue.operator_message(issue_identifier, text)
-              |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
-
-            state = %{state | queue_store: queue_store}
-            notify_running_queue_update(running_entry, item)
-            {:reply, {:ok, item.id}, state}
-        end
-
-      {:error, _reason} = error ->
-        {:reply, error, state}
-    end
+    {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
+    {:reply, reply, next_state}
   end
 
   def handle_call({:send_operator_message, _issue_identifier, _payload}, _from, state) do
     {:reply, {:error, :invalid_message}, state}
+  end
+
+  def handle_call({:control_capabilities, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    {:reply, {:ok, issue_control_capabilities(state, issue_identifier)}, state}
   end
 
   def handle_call({:pause_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
@@ -1307,6 +1509,81 @@ defmodule SymphonyElixir.Orchestrator do
   def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state) when is_integer(item_id) do
     {queue_store, _item} = AgentQueueStore.mark_failed(state.queue_store, item_id, reason)
     {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
+  defp enqueue_operator_message(state, issue_identifier, body, payload) do
+    delivery_policy = Map.get(payload, :delivery_policy, :checkpoint)
+    fallback = Map.get(payload, :fallback)
+
+    case validate_operator_message(body) do
+      {:ok, text} ->
+        enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback)
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
+  end
+
+  defp enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      nil ->
+        {{:error, :no_running_agent}, state}
+
+      running_entry ->
+        do_enqueue_running_operator_message(
+          state,
+          running_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback
+        )
+    end
+  end
+
+  defp do_enqueue_running_operator_message(
+         state,
+         running_entry,
+         issue_identifier,
+         text,
+         delivery_policy,
+         fallback
+       ) do
+    capabilities = issue_control_capabilities(state, issue_identifier)
+
+    case normalize_delivery_request(delivery_policy, fallback, capabilities) do
+      {:ok, queue_opts} ->
+        {queue_store, item} =
+          AgentQueue.operator_message(issue_identifier, text, queue_opts)
+          |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+        next_state = %{state | queue_store: queue_store}
+        notify_running_queue_update(running_entry, item)
+        {{:ok, item.id}, next_state}
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
+  end
+
+  defp normalize_delivery_request(:checkpoint, _fallback, _capabilities) do
+    {:ok, [delivery_policy: :checkpoint]}
+  end
+
+  defp normalize_delivery_request(:interrupt, fallback, %{can_interrupt: true}) do
+    {:ok, [delivery_policy: :interrupt, fallback: fallback]}
+  end
+
+  defp normalize_delivery_request(:interrupt, :queue_next, _capabilities) do
+    {:ok, [delivery_policy: :checkpoint, fallback: :queue_next]}
+  end
+
+  defp normalize_delivery_request(:interrupt, _fallback, _capabilities) do
+    {:error, :interrupt_not_supported}
+  end
+
+  defp normalize_delivery_request(_other, _fallback, _capabilities) do
+    {:error, :invalid_message}
   end
 
   defp validate_operator_message(body) do
@@ -1347,6 +1624,46 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp notify_running_queue_update(_running_entry, _item), do: :ok
+
+  defp queue_depth_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    state.queue_store
+    |> AgentQueueStore.list_pending(issue_identifier)
+    |> length()
+  end
+
+  defp issue_control_capabilities(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    running_entry = find_running_by_identifier(state.running, issue_identifier)
+    can_interrupt = get_in(running_entry || %{}, [:control, :can_interrupt]) == true
+    safe_checkpoints = get_in(running_entry || %{}, [:control, :safe_checkpoints]) || []
+    accepts_operator_messages = not is_nil(running_entry)
+
+    %{
+      accepts_operator_messages: accepts_operator_messages,
+      can_interrupt: can_interrupt,
+      accepted_delivery_policies: accepted_delivery_policies(can_interrupt),
+      safe_checkpoints: safe_checkpoints,
+      status: get_in(running_entry || %{}, [:control, :status]) || :working,
+      queue_depth: queue_depth_for_issue(state, issue_identifier)
+    }
+  end
+
+  defp accepted_delivery_policies(true), do: [:checkpoint, :interrupt]
+  defp accepted_delivery_policies(false), do: [:checkpoint]
+
+  defp default_running_control do
+    %{
+      can_interrupt: false,
+      safe_checkpoints: default_safe_checkpoints(),
+      status: :working
+    }
+  end
+
+  defp default_safe_checkpoints do
+    case Config.agent_kind() do
+      "codex" -> [:notification, :tool_result]
+      _ -> [:notification]
+    end
+  end
 
   defp find_running_by_identifier(running, issue_identifier) do
     Enum.find_value(running, fn

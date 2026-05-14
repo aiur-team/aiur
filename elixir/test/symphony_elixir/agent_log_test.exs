@@ -81,7 +81,7 @@ defmodule SymphonyElixir.AgentLogTest do
 
       assert [message] = AgentLog.parse(content)
       assert message.role == "user"
-      assert message.title == "Issue prompt"
+      assert message.title == "Operator message"
       assert message.body == "Hello"
     end
 
@@ -122,10 +122,41 @@ defmodule SymphonyElixir.AgentLogTest do
           }
         })
 
-      assert [%{role: "user", body: body}] = AgentLog.parse(content)
+      assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
       assert body =~ "Fix login bug"
       assert body =~ "Login fails on invalid email"
       refute body =~ "Continuation context"
+    end
+
+    test "falls back to raw summary for continuation prompts without issue sections" do
+      prompt = "Continuation guidance:\n\nResume from the current workspace state."
+
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+          }
+        })
+
+      assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
+      assert body == prompt
+    end
+
+    test "renders coordination-event user messages as system notices" do
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{
+              "type" => "userMessage",
+              "content" => [%{"text" => "Coordination event: blocker_became_terminal\n\nBlocker MT-1 reached done"}]
+            }
+          }
+        })
+
+      assert [%{role: "system", title: "Coordination event", body: body}] = AgentLog.parse(content)
+      assert body =~ "blocker_became_terminal"
     end
 
     test "parses an item/agentMessage/delta without itemId as assistant" do
@@ -330,6 +361,13 @@ defmodule SymphonyElixir.AgentLogTest do
 
       assert [%{role: "system", title: "Session Started", body: body}] = AgentLog.parse(content)
       assert body =~ "abc-123"
+    end
+
+    test "JSON without method prefers last_message when present" do
+      content = entry("worker_paused", %{"last_message" => "Agent paused by operator."})
+
+      assert [%{role: "system", title: "Worker Paused", body: "Agent paused by operator."}] =
+               AgentLog.parse(content)
     end
 
     test "non-JSON body is skipped" do
