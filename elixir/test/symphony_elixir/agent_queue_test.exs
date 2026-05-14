@@ -167,6 +167,50 @@ defmodule SymphonyElixir.AgentQueueTest do
     assert superseded.status == :superseded
   end
 
+  test "restore pending returns delivered item to visible queue" do
+    store = AgentQueueStore.new()
+    {store, item} = AgentQueue.operator_message("MT-880", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
+    {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-880")
+
+    {store, restored} = AgentQueueStore.restore_pending(store, item.id)
+
+    assert restored.status == :pending
+    assert [visible_item] = AgentQueueStore.list_visible_operator_messages(store, "MT-880")
+    assert visible_item.id == item.id
+    assert [pending_item] = AgentQueueStore.list_pending(store, "MT-880")
+    assert pending_item.id == item.id
+  end
+
+  test "visible operator messages include pending and delivered items" do
+    store = AgentQueueStore.new()
+    {store, first} = AgentQueue.operator_message("MT-881", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
+    {store, second} = AgentQueue.operator_message("MT-881", "def") |> then(&AgentQueueStore.enqueue(store, &1))
+    {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-881")
+
+    assert [%{id: first_id}, %{id: second_id}] = AgentQueueStore.list_visible_operator_messages(store, "MT-881")
+    assert first_id == first.id
+    assert second_id == second.id
+  end
+
+  test "consume and restore delivered update all in-flight items for a target" do
+    store = AgentQueueStore.new()
+    {store, item1} = AgentQueue.operator_message("MT-882", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
+    {store, item2} = AgentQueue.operator_message("MT-882", "def") |> then(&AgentQueueStore.enqueue(store, &1))
+    {store, _claimed1} = AgentQueueStore.claim_next_deliverable(store, "MT-882")
+    {store, _claimed2} = AgentQueueStore.claim_next_deliverable(store, "MT-882")
+
+    {store, restored} = AgentQueueStore.restore_delivered(store, "MT-882")
+    assert Enum.map(restored, & &1.id) == [item1.id, item2.id]
+    assert Enum.all?(restored, &(&1.status == :pending))
+
+    {store, _reclaimed1} = AgentQueueStore.claim_next_deliverable(store, "MT-882")
+    {store, _reclaimed2} = AgentQueueStore.claim_next_deliverable(store, "MT-882")
+    {_store, consumed} = AgentQueueStore.consume_delivered(store, "MT-882")
+
+    assert Enum.map(consumed, & &1.id) == [item1.id, item2.id]
+    assert Enum.all?(consumed, &(&1.status == :consumed))
+  end
+
   test "falls back for unknown priority values and keeps unrelated dedupe keys pending" do
     store = AgentQueueStore.new()
 

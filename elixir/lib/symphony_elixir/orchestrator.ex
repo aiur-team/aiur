@@ -1350,6 +1350,13 @@ defmodule SymphonyElixir.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec restore_queue_item_pending(GenServer.server(), integer()) :: :ok | {:error, term()}
+  def restore_queue_item_pending(server, item_id) when is_integer(item_id) do
+    GenServer.call(server, {:restore_queue_item_pending, item_id}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @doc false
   @spec mark_queue_item_consumed_for_test(GenServer.server(), integer()) :: :ok | {:error, term()}
   def mark_queue_item_consumed_for_test(server, item_id) when is_integer(item_id) do
@@ -1359,6 +1366,27 @@ defmodule SymphonyElixir.Orchestrator do
   @spec mark_queue_item_failed(GenServer.server(), integer(), term()) :: :ok | {:error, term()}
   def mark_queue_item_failed(server, item_id, reason) when is_integer(item_id) do
     GenServer.call(server, {:mark_queue_item_failed, item_id, reason}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec consume_delivered_queue_items(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def consume_delivered_queue_items(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.call(server, {:consume_delivered_queue_items, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec restore_delivered_queue_items(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def restore_delivered_queue_items(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.call(server, {:restore_delivered_queue_items, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec fail_delivered_queue_items(GenServer.server(), String.t(), term()) :: :ok | {:error, term()}
+  def fail_delivered_queue_items(server, issue_identifier, reason) when is_binary(issue_identifier) do
+    GenServer.call(server, {:fail_delivered_queue_items, issue_identifier, reason}, 5_000)
   catch
     :exit, _ -> {:error, :unavailable}
   end
@@ -1416,6 +1444,7 @@ defmodule SymphonyElixir.Orchestrator do
           last_codex_event: metadata.last_codex_event,
           work_state: get_in(metadata, [:control, :status]) || :working,
           queue_depth: capabilities.queue_depth,
+          pending_operator_messages: pending_operator_messages_for_issue(state, metadata.identifier),
           control: capabilities,
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
@@ -1534,8 +1563,31 @@ defmodule SymphonyElixir.Orchestrator do
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
+  def handle_call({:restore_queue_item_pending, item_id}, _from, state) when is_integer(item_id) do
+    {queue_store, _item} = AgentQueueStore.restore_pending(state.queue_store, item_id)
+    {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
   def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state) when is_integer(item_id) do
     {queue_store, _item} = AgentQueueStore.mark_failed(state.queue_store, item_id, reason)
+    {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
+  def handle_call({:consume_delivered_queue_items, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    {queue_store, _items} = AgentQueueStore.consume_delivered(state.queue_store, issue_identifier)
+    {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
+  def handle_call({:restore_delivered_queue_items, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    {queue_store, _items} = AgentQueueStore.restore_delivered(state.queue_store, issue_identifier)
+    {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
+  def handle_call({:fail_delivered_queue_items, issue_identifier, reason}, _from, state)
+      when is_binary(issue_identifier) do
+    {queue_store, _items} = AgentQueueStore.fail_delivered(state.queue_store, issue_identifier, reason)
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
@@ -1657,6 +1709,18 @@ defmodule SymphonyElixir.Orchestrator do
     state.queue_store
     |> AgentQueueStore.list_pending(issue_identifier)
     |> length()
+  end
+
+  defp pending_operator_messages_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    state.queue_store
+    |> AgentQueueStore.list_visible_operator_messages(issue_identifier)
+    |> Enum.map(fn item ->
+      %{
+        id: item.id,
+        text: get_in(item, [:body, :text]) || "",
+        status: item.status
+      }
+    end)
   end
 
   defp issue_control_capabilities(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
