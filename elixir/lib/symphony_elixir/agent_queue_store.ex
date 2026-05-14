@@ -82,6 +82,28 @@ defmodule SymphonyElixir.AgentQueueStore do
     end
   end
 
+  @spec claim_next_deliverable_matching(t(), String.t(), (AgentQueueItem.t() -> as_boolean(term()))) ::
+          {t(), AgentQueueItem.t() | nil}
+  def claim_next_deliverable_matching(%__MODULE__{} = store, target_issue_identifier, matcher)
+      when is_binary(target_issue_identifier) and is_function(matcher, 1) do
+    pending_ids = Map.get(store.pending_ids_by_target, target_issue_identifier, [])
+
+    case next_pending_item_matching(store, pending_ids, matcher) do
+      nil ->
+        {store, nil}
+
+      %AgentQueueItem{} = item ->
+        claimed_item = %{item | status: :delivered, delivered_at: DateTime.utc_now()}
+
+        store =
+          store
+          |> put_item(claimed_item)
+          |> remove_pending_id(target_issue_identifier, claimed_item.id)
+
+        {store, claimed_item}
+    end
+  end
+
   @spec mark_consumed(t(), integer()) :: {t(), AgentQueueItem.t() | nil}
   def mark_consumed(%__MODULE__{} = store, item_id) when is_integer(item_id) do
     update_item(store, item_id, fn item ->
@@ -160,6 +182,14 @@ defmodule SymphonyElixir.AgentQueueStore do
     |> Enum.map(&Map.get(store.items, &1))
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(&(&1.status == :pending))
+    |> sort_items()
+    |> List.first()
+  end
+
+  defp next_pending_item_matching(store, pending_ids, matcher) do
+    pending_ids
+    |> Enum.map(&Map.get(store.items, &1))
+    |> Enum.filter(&(match?(%AgentQueueItem{status: :pending}, &1) and matcher.(&1)))
     |> sort_items()
     |> List.first()
   end

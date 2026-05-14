@@ -295,9 +295,8 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp claim_next_operator_item(orchestrator, issue_identifier) when is_binary(issue_identifier) do
-    case SymphonyElixir.Orchestrator.claim_next_queue_item(orchestrator, issue_identifier) do
-      {:ok, %{category: :operator_message} = item} -> {:ok, item}
-      {:ok, _item} -> :empty
+    case SymphonyElixir.Orchestrator.claim_next_operator_queue_item(orchestrator, issue_identifier) do
+      {:ok, item} -> {:ok, item}
       :empty -> :empty
       {:error, _reason} -> :empty
     end

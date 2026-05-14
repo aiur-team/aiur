@@ -96,11 +96,43 @@ defmodule SymphonyElixir.AgentQueueTest do
     store = AgentQueueStore.new()
 
     assert {^store, nil} = AgentQueueStore.claim_next_deliverable(store, "MT-404")
+
+    assert {^store, nil} =
+             AgentQueueStore.claim_next_deliverable_matching(
+               store,
+               "MT-404",
+               &match?(%{category: :operator_message}, &1)
+             )
+
     assert AgentQueueStore.list_pending(store, "MT-404") == []
     assert AgentQueueStore.get(store, 999_999) == nil
     assert {^store, nil} = AgentQueueStore.mark_consumed(store, 999_999)
     assert {^store, nil} = AgentQueueStore.mark_failed(store, 999_999, :missing)
     assert {^store, nil} = AgentQueueStore.mark_superseded(store, 999_999)
+  end
+
+  test "claim next deliverable matching leaves non-matching items pending" do
+    store = AgentQueueStore.new()
+
+    {store, event_item} =
+      AgentQueue.coordination_event("MT-779", :blocker_update, %{summary: "still blocked"})
+      |> then(&AgentQueueStore.enqueue(store, &1))
+
+    {store, operator_item} =
+      AgentQueue.operator_message("MT-779", "resume with context")
+      |> then(&AgentQueueStore.enqueue(store, &1))
+
+    {store, claimed} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        store,
+        "MT-779",
+        &match?(%{category: :operator_message}, &1)
+      )
+
+    assert claimed.id == operator_item.id
+    assert AgentQueueStore.get(store, event_item.id).status == :pending
+    assert [pending_item] = AgentQueueStore.list_pending(store, "MT-779")
+    assert pending_item.id == event_item.id
   end
 
   test "supports non-pending supersede and explicit delivery metadata overrides" do

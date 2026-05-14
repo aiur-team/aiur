@@ -1329,6 +1329,14 @@ defmodule SymphonyElixir.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec claim_next_operator_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_operator_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.call(server, {:claim_next_operator_queue_item, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @doc false
   @spec claim_next_queue_item_for_test(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item_for_test(server, issue_identifier) when is_binary(issue_identifier) do
@@ -1501,6 +1509,26 @@ defmodule SymphonyElixir.Orchestrator do
     {:reply, reply, state}
   end
 
+  def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        state.queue_store,
+        issue_identifier,
+        &match?(%{category: :operator_message}, &1)
+      )
+
+    state = %{state | queue_store: queue_store}
+
+    reply =
+      case item do
+        nil -> :empty
+        _ -> {:ok, item}
+      end
+
+    {:reply, reply, state}
+  end
+
   def handle_call({:mark_queue_item_consumed, item_id}, _from, state) when is_integer(item_id) do
     {queue_store, _item} = AgentQueueStore.mark_consumed(state.queue_store, item_id)
     {:reply, :ok, %{state | queue_store: queue_store}}
@@ -1652,10 +1680,18 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp default_running_control do
     %{
-      can_interrupt: false,
+      can_interrupt: default_can_interrupt?(),
       safe_checkpoints: default_safe_checkpoints(),
       status: :working
     }
+  end
+
+  defp default_can_interrupt? do
+    case Config.agent_kind() do
+      "codex" -> true
+      "claude" -> true
+      _ -> false
+    end
   end
 
   defp default_safe_checkpoints do
