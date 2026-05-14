@@ -2,14 +2,12 @@
 ╭─ SYMPHONY STATUS
 │ ITS: linear | Agent: codex                             │ Rate Limits: gpt-5 | primary 0/20,000 reset 95s | secondary 0/60 reset 45s | credits none
 │ Agents: 1/10                                           │ Project: project
-│ Throughput: 15 tps                                     │ Next refresh: n/a
-│ Runtime: 45m 0s                                        │ 
-│ Tokens: in 18,000 | out 2,200 | total 20,200           │ 
+│ Runtime: 45m 0s                                        │ Next refresh: n/a
 ├─ Running
 │
-│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
-│   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-│   MT-638 retrying       Sample issue title         20m 25s / 7  agent message streaming: waiting on rate-limit...
+│   ID     STATE      ISSUE                      AGE / TURN  
+│   ────────────────────────────────────────────────────────
+│   MT-638 working    Sample issue title         20m 25s / 7 
 │
 ├─ Backoff queue
 │

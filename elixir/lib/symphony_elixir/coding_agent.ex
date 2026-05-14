@@ -6,9 +6,15 @@ defmodule SymphonyElixir.CodingAgent do
   alias SymphonyElixir.Config
 
   @type operator_payload :: %{required(:kind) => :text, required(:body) => String.t()}
+  @type safe_checkpoint :: %{required(:kind) => atom(), optional(:method) => String.t()}
+
+  @type checkpoint_callback_result ::
+          :noop
+          | {:deliver_text, String.t(), (map() -> any()), (term() -> any())}
 
   @callback start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  @callback run_turn(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback run_turn(map(), String.t(), map(), keyword()) ::
+              {:ok, map()} | {:paused, map()} | {:error, term()}
   @callback stop_session(map()) :: :ok
   @callback normalize_event(map()) :: map()
   @callback send_operator_message(map(), operator_payload()) ::
@@ -26,8 +32,8 @@ defmodule SymphonyElixir.CodingAgent do
   @spec start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def start_session(workspace, opts \\ []), do: adapter().start_session(workspace, opts)
 
-  @spec run_turn(map(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  @spec run_turn(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec run_turn(map(), String.t(), map()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
+  @spec run_turn(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
   def run_turn(session, prompt, issue, opts \\ []), do: adapter().run_turn(session, prompt, issue, opts)
 
   @spec stop_session(map()) :: :ok

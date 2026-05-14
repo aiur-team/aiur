@@ -80,6 +80,17 @@ defmodule SymphonyElixir.TerminalInputTest do
     assert_receive {:dashboard_cast, :close_log}
   end
 
+  test "ctrl-c pause escalation survives tabbing to agent-list focus" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    start_input(dashboard, ["i", <<3>>, "\t", <<3>>, :eof])
+
+    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :pause_agent}
+    assert_receive {:dashboard_cast, :exit_typing}
+    assert_receive {:dashboard_cast, :close_log}
+  end
+
   test "q remains literal input in typing mode" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
@@ -90,13 +101,12 @@ defmodule SymphonyElixir.TerminalInputTest do
     refute_received {:dashboard_cast, :exit_typing}
   end
 
-  test "bare esc timeout pauses first and closes log on second press" do
+  test "bare esc timeout closes log immediately" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["i", "\e", "", "\e", "", :eof])
+    start_input(dashboard, ["i", "\e", "", :eof])
 
     assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :pause_agent}
     assert_receive {:dashboard_cast, :close_log}
   end
 

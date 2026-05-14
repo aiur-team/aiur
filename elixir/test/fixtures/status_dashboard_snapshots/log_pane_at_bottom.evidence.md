@@ -2,14 +2,12 @@
 ╭─ SYMPHONY STATUS
 │ ITS: linear | Agent: codex                             │ Rate Limits: unavailable
 │ Agents: 1/10                                           │ Project: project
-│ Throughput: 0 tps                                      │ Next refresh: n/a
-│ Runtime: 0m 30s                                        │ 
-│ Tokens: in 0 | out 0 | total 0                         │ 
+│ Runtime: 0m 30s                                        │ Next refresh: n/a
 ├─ Running
 │
-│   ID     STAGE          ISSUE                      AGE / TURN   EVENT                                            
-│   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-│   MT-001 in-progress    Sample issue title         0m 0s / 1    turn started (turn-1)                            
+│   ID     STATE      ISSUE                      AGE / TURN  
+│   ────────────────────────────────────────────────────────
+│   MT-001 working    Sample issue title         0m 0s / 1   
 ├─ Agent log: MT-001 (in-progress)
 │
 │   PID: 4242 | Tokens: 0
@@ -25,6 +23,6 @@
 │       Rate limit warning
 │
 │ >
-│ Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection
+│ Enter sends · Esc closes log · Ctrl-C pauses · Alt-Enter newline
 ╰─
 ```

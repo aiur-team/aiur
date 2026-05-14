@@ -16,12 +16,9 @@ defmodule SymphonyElixir.StatusDashboard do
   @throughput_graph_columns 24
   @sparkline_blocks ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
   @running_id_width 6
-  @running_stage_width 14
+  @running_state_width 10
   @running_issue_width 26
   @running_age_width 12
-  @running_event_default_width 44
-  @running_event_min_width 12
-  @running_row_chrome_width 8
   @default_terminal_columns 115
   @default_terminal_rows 40
   @min_log_pane_lines 3
@@ -29,7 +26,6 @@ defmodule SymphonyElixir.StatusDashboard do
 
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
-  @ansi_blue IO.ANSI.blue()
   @ansi_cyan IO.ANSI.cyan()
   @ansi_dim IO.ANSI.faint()
   @ansi_green IO.ANSI.green()
@@ -368,14 +364,7 @@ defmodule SymphonyElixir.StatusDashboard do
       if text == "" do
         state
       else
-        composer =
-          case AgentChat.send(log_view.issue_identifier, text) do
-            {:ok, request_id} ->
-              %{fresh_composer() | pending_request_id: request_id}
-
-            {:error, reason} ->
-              %{log_view.composer | last_error: format_operator_error(reason)}
-          end
+        composer = submit_composer_text(log_view.issue_identifier, text, log_view.composer)
 
         update_log_view(state, %{log_view | composer: composer})
       end
@@ -397,6 +386,17 @@ defmodule SymphonyElixir.StatusDashboard do
 
   def handle_cast(:pause_agent, state), do: {:noreply, state}
 
+  defp submit_composer_text(issue_identifier, text, composer) do
+    send_composer_message(fn -> AgentChat.send(issue_identifier, text) end, composer)
+  end
+
+  defp send_composer_message(send_fun, composer) when is_function(send_fun, 0) do
+    case send_fun.() do
+      {:ok, request_id} -> %{fresh_composer() | pending_request_id: request_id}
+      {:error, reason} -> %{composer | last_error: format_operator_error(reason)}
+    end
+  end
+
   defp refresh_runtime_config(%__MODULE__{} = state) do
     %{
       state
@@ -412,7 +412,11 @@ defmodule SymphonyElixir.StatusDashboard do
   defp maybe_render(state) do
     now_ms = System.monotonic_time(:millisecond)
     {snapshot_data, token_samples} = snapshot_with_samples(state.token_samples, now_ms)
-    state = Map.put(state, :token_samples, token_samples)
+
+    state =
+      state
+      |> Map.put(:token_samples, token_samples)
+      |> reconcile_log_view_with_snapshot(snapshot_data)
 
     current_tokens = snapshot_total_tokens(snapshot_data)
 
@@ -573,24 +577,16 @@ defmodule SymphonyElixir.StatusDashboard do
       {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
         polling = Map.get(snapshot, :polling)
-        agent_input_tokens = Map.get(agent_totals, :input_tokens, 0)
-        agent_output_tokens = Map.get(agent_totals, :output_tokens, 0)
-        agent_total_tokens = Map.get(agent_totals, :total_tokens, 0)
         agent_seconds_running = Map.get(agent_totals, :seconds_running, 0)
         agent_count = length(running)
         max_agents = Config.max_concurrent_agents()
-        running_event_width = running_event_width(terminal_columns_override)
-        running_rows = format_running_rows(running, running_event_width, selected_index)
+        running_rows = format_running_rows(running, selected_index)
 
         two_pane_rows =
           format_two_pane_header(
             agent_count,
             max_agents,
-            tps,
             agent_seconds_running,
-            agent_input_tokens,
-            agent_output_tokens,
-            agent_total_tokens,
             rate_limits,
             polling,
             resolved_columns
@@ -601,8 +597,8 @@ defmodule SymphonyElixir.StatusDashboard do
             [
               colorize("├─ Running", @ansi_bold),
               "│",
-              running_table_header_row(running_event_width),
-              running_table_separator_row(running_event_width)
+              running_table_header_row(),
+              running_table_separator_row()
             ] ++ running_rows
 
         {tail_lines, log_total_lines} =
@@ -654,10 +650,12 @@ defmodule SymphonyElixir.StatusDashboard do
     {log_lines, total_lines} = log_message_lines(messages, columns)
 
     metadata_lines = format_log_metadata(log_view, running, columns)
+    queued_lines = format_queued_message_lines(log_view, running, columns)
     header_height = length(List.flatten(header_lines))
     placeholder_lines = format_input_placeholder(log_view, columns)
-    chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + 1
-    # chrome: pane header + spacer + metadata + placeholder + closing border
+    queued_chrome_lines = if(queued_lines == [], do: 0, else: length(queued_lines) + 1)
+    chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + queued_chrome_lines + 1
+    # chrome: pane header + spacer + metadata + queued section + placeholder + closing border
 
     pane_budget = rows - header_height - chrome_lines
 
@@ -678,6 +676,7 @@ defmodule SymphonyElixir.StatusDashboard do
         ] ++
           metadata_lines ++
           pane_lines ++
+          queued_section_lines(queued_lines) ++
           [closing_border_or_separator()] ++
           placeholder_lines ++
           [closing_border()]
@@ -721,6 +720,9 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp closing_border_or_separator, do: "│"
+
+  defp queued_section_lines([]), do: []
+  defp queued_section_lines(queued_lines), do: ["│"] ++ queued_lines
 
   defp read_log_messages(%{workspace_path: workspace_path}) do
     workspace_path
@@ -866,27 +868,50 @@ defmodule SymphonyElixir.StatusDashboard do
           {"sent; waiting for agent turn", @ansi_yellow}
 
         Map.get(log_view, :mode, :typing) == :browsing ->
-          {"Tab returns to chat · J/K move agents · Space opens selected log · Esc/Ctrl-C closes log", @ansi_gray}
+          {"Tab returns to chat · J/K move agents · Space opens selected log · Esc closes log · Ctrl-C pauses", @ansi_gray}
 
         true ->
-          {"Enter sends · Alt-Enter newline · Tab agent list · Esc/Ctrl-C pauses, again closes · Q quits from selection", @ansi_gray}
+          {"Enter sends · Esc closes log · Ctrl-C pauses · Alt-Enter newline", @ansi_gray}
       end
 
     Enum.map(prompt_lines, &("│ " <> colorize(&1, @ansi_white))) ++
       ["│ " <> colorize(elem(status, 0), elem(status, 1))]
   end
 
-  @left_pane_visible_width 56
+  defp format_queued_message_lines(log_view, running, columns) do
+    entry = running_entry_for_identifier(running, log_view.issue_identifier)
+    queued_messages = Map.get(entry || %{}, :pending_operator_messages, [])
+    inner_width = max(20, columns - 8)
+
+    case queued_messages do
+      [] ->
+        []
+
+      _ ->
+        title_line = "│ " <> colorize("Queued input", @ansi_gray <> @ansi_bold)
+
+        body_lines =
+          queued_messages
+          |> Enum.flat_map(fn queued_message ->
+            queued_message
+            |> queued_message_preview()
+            |> wrap_line(inner_width)
+            |> Enum.map(&("│   " <> colorize(&1, @ansi_gray)))
+          end)
+
+        [title_line | body_lines]
+    end
+  end
+
+  defp queued_message_preview(%{text: text, status: :delivered}), do: "sending: #{text}"
+  defp queued_message_preview(%{text: text}), do: "queued: #{text}"
+  defp queued_message_preview(_queued_message), do: "queued"
 
   # credo:disable-for-next-line
   defp format_two_pane_header(
          agent_count,
          max_agents,
-         tps,
          agent_seconds_running,
-         agent_input_tokens,
-         agent_output_tokens,
-         agent_total_tokens,
          rate_limits,
          polling,
          columns
@@ -901,15 +926,8 @@ defmodule SymphonyElixir.StatusDashboard do
         colorize("#{agent_count}", @ansi_green) <>
         colorize("/", @ansi_gray) <>
         colorize("#{max_agents}", @ansi_gray),
-      colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
       colorize("│ Runtime: ", @ansi_bold) <>
-        colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
-      colorize("│ Tokens: ", @ansi_bold) <>
-        colorize("in #{format_count(agent_input_tokens)}", @ansi_yellow) <>
-        colorize(" | ", @ansi_gray) <>
-        colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
-        colorize(" | ", @ansi_gray) <>
-        colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow)
+        colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta)
     ]
 
     right_lines =
@@ -917,7 +935,7 @@ defmodule SymphonyElixir.StatusDashboard do
         right_project_lines() ++
         [right_refresh_line(polling)]
 
-    rows = pair_pane_lines(left_lines, right_lines)
+    rows = pair_pane_lines(left_lines, right_lines, columns)
     [format_title_row(columns) | rows]
   end
 
@@ -938,14 +956,15 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp pair_pane_lines(left_lines, right_lines) do
+  defp pair_pane_lines(left_lines, right_lines, columns) do
     count = max(length(left_lines), length(right_lines))
+    left_width = max(24, div(max(columns - 3, 0), 2))
 
     Enum.map(0..(count - 1), fn i ->
       left = Enum.at(left_lines, i) || "│"
       right = Enum.at(right_lines, i) || ""
 
-      "#{pad_visible(left, @left_pane_visible_width)} #{colorize("│", @ansi_gray)} #{right}"
+      "#{pad_visible(left, left_width)} #{colorize("│", @ansi_gray)} #{right}"
     end)
   end
 
@@ -1157,7 +1176,7 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp format_running_rows(running, running_event_width, selected_index) do
+  defp format_running_rows(running, selected_index) do
     if running == [] do
       [
         "│  " <> colorize("No active agents", @ansi_gray),
@@ -1168,35 +1187,26 @@ defmodule SymphonyElixir.StatusDashboard do
       |> Enum.sort_by(& &1.identifier)
       |> Enum.with_index()
       |> Enum.map(fn {entry, index} ->
-        format_running_summary(entry, running_event_width, selected_index == index)
+        format_running_summary(entry, selected_index == index)
       end)
     end
   end
 
   # credo:disable-for-next-line
-  defp format_running_summary(running_entry, running_event_width, selected? \\ false) do
+  defp format_running_summary(running_entry, selected? \\ false) do
     issue = format_cell(running_entry.identifier || "unknown", @running_id_width)
-    state = running_entry.state || "unknown"
-    state_display = format_cell(to_string(state), @running_stage_width)
+    state = Map.get(running_entry, :work_state) || get_in(running_entry, [:control, :status]) || :working
+    state_display = format_cell(work_state_label(state), @running_state_width)
     title = format_cell(Map.get(running_entry, :title) || "", @running_issue_width)
     runtime_seconds = running_entry.runtime_seconds || 0
     turn_count = Map.get(running_entry, :turn_count, 0)
     age = format_cell(format_runtime_and_turns(runtime_seconds, turn_count), @running_age_width)
-    event = running_entry.last_codex_event || "none"
-
-    event_label =
-      running_entry.last_codex_message
-      |> summarize_message()
-      |> strip_event_trailing_id()
-      |> format_cell(running_event_width)
 
     status_color =
-      case event do
-        :none -> @ansi_red
-        "codex/event/token_count" -> @ansi_yellow
-        "codex/event/task_started" -> @ansi_green
-        "turn_completed" -> @ansi_magenta
-        _ -> @ansi_blue
+      case state do
+        :paused -> @ansi_yellow
+        "paused" -> @ansi_yellow
+        _ -> @ansi_green
       end
 
     [
@@ -1209,17 +1219,20 @@ defmodule SymphonyElixir.StatusDashboard do
       " ",
       colorize(title, @ansi_cyan),
       " ",
-      colorize(age, @ansi_magenta),
-      " ",
-      colorize(event_label, status_color)
+      colorize(age, @ansi_magenta)
     ]
     |> Enum.join("")
   end
 
   @doc false
   @spec format_running_summary_for_test(map(), integer() | nil) :: String.t()
-  def format_running_summary_for_test(running_entry, terminal_columns \\ nil),
-    do: format_running_summary(running_entry, running_event_width(terminal_columns))
+  def format_running_summary_for_test(running_entry, _terminal_columns \\ nil),
+    do: format_running_summary(running_entry)
+
+  @doc false
+  @spec reconcile_log_view_with_snapshot_for_test(t(), term()) :: t()
+  def reconcile_log_view_with_snapshot_for_test(state, snapshot_data),
+    do: reconcile_log_view_with_snapshot(state, snapshot_data)
 
   @doc false
   @spec format_tps_for_test(number()) :: String.t()
@@ -1320,50 +1333,32 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_count(value), do: to_string(value)
 
-  defp running_table_header_row(running_event_width) do
+  defp running_table_header_row do
     header =
       [
         format_cell("ID", @running_id_width),
-        format_cell("STAGE", @running_stage_width),
+        format_cell("STATE", @running_state_width),
         format_cell("ISSUE", @running_issue_width),
-        format_cell("AGE / TURN", @running_age_width),
-        format_cell("EVENT", running_event_width)
+        format_cell("AGE / TURN", @running_age_width)
       ]
       |> Enum.join(" ")
 
     "│   " <> colorize(header, @ansi_gray)
   end
 
-  defp running_table_separator_row(running_event_width) do
+  defp running_table_separator_row do
     separator_width =
       @running_id_width +
-        @running_stage_width +
+        @running_state_width +
         @running_issue_width +
-        @running_age_width +
-        running_event_width + 4
+        @running_age_width + 2
 
     "│   " <> colorize(String.duplicate("─", separator_width), @ansi_gray)
   end
 
-  defp running_event_width(terminal_columns) do
-    terminal_columns = terminal_columns || terminal_columns()
-
-    max(
-      @running_event_min_width,
-      terminal_columns - fixed_running_width() - @running_row_chrome_width
-    )
-  end
-
-  defp fixed_running_width do
-    @running_id_width +
-      @running_stage_width +
-      @running_issue_width +
-      @running_age_width
-  end
-
-  defp strip_event_trailing_id(text) when is_binary(text) do
-    String.replace(text, ~r/\s*\([^()]*_[^()]*\)\s*$/, "")
-  end
+  defp work_state_label(:paused), do: "paused"
+  defp work_state_label("paused"), do: "paused"
+  defp work_state_label(_state), do: "working"
 
   defp terminal_columns do
     case :io.columns() do
@@ -1378,7 +1373,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp terminal_columns_from_env do
     case System.get_env("COLUMNS") do
       nil ->
-        fixed_running_width() + @running_row_chrome_width + @running_event_default_width
+        @default_terminal_columns
 
       value ->
         case Integer.parse(String.trim(value)) do
@@ -1672,9 +1667,42 @@ defmodule SymphonyElixir.StatusDashboard do
     |> Map.put(:last_snapshot_fingerprint, nil)
   end
 
+  defp reconcile_log_view_with_snapshot(%{view: {:log, log_view}} = state, {:ok, %{running: running}})
+       when is_list(running) do
+    case Enum.find(running, &(to_string(&1.identifier) == log_view.issue_identifier)) do
+      nil ->
+        state
+
+      running_entry ->
+        reconciled_log_view = %{
+          log_view
+          | workspace_path: Map.get(running_entry, :workspace_path, log_view.workspace_path),
+            title: Map.get(running_entry, :title, log_view.title),
+            composer: reconcile_composer_with_running_entry(log_view.composer, running_entry)
+        }
+
+        Map.put(state, :view, {:log, reconciled_log_view})
+    end
+  end
+
+  defp reconcile_log_view_with_snapshot(state, _snapshot_data), do: state
+
   defp fresh_composer do
     %{buffer: "", pending_request_id: nil, last_error: nil}
   end
+
+  defp reconcile_composer_with_running_entry(%{pending_request_id: request_id} = composer, running_entry)
+       when is_integer(request_id) do
+    state = Map.get(running_entry, :work_state) || get_in(running_entry, [:control, :status]) || :working
+
+    if state in [:paused, "paused"] do
+      %{composer | pending_request_id: nil}
+    else
+      composer
+    end
+  end
+
+  defp reconcile_composer_with_running_entry(composer, _running_entry), do: composer
 
   defp drop_last_grapheme(""), do: ""
 
@@ -1688,6 +1716,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_operator_error(:no_running_agent), do: "agent is no longer running"
   defp format_operator_error(:empty_message), do: "message is empty"
   defp format_operator_error(:message_too_long), do: "message is too long"
+  defp format_operator_error(:interrupt_not_supported), do: "interrupt is not available right now"
   defp format_operator_error(:timeout), do: "send timed out"
   defp format_operator_error(:unavailable), do: "orchestrator unavailable"
   defp format_operator_error(reason), do: inspect(reason)
@@ -1759,8 +1788,6 @@ defmodule SymphonyElixir.StatusDashboard do
     |> humanize_codex_payload()
     |> truncate(140)
   end
-
-  defp summarize_message(message), do: humanize_codex_message(message)
 
   defp humanize_codex_event(:session_started, _message, payload) do
     session_id = map_value(payload, ["session_id", :session_id])
