@@ -185,13 +185,21 @@ defmodule SymphonyElixir.Alerts do
   defp maybe_play_sound(nil, _opts), do: :ok
 
   defp maybe_play_sound(sound, opts) do
-    player = Keyword.get(opts, :player, &default_player/1)
-    player.(sound)
-    :ok
+    if test_env_without_player_override?(opts) do
+      :ok
+    else
+      player = Keyword.get(opts, :player, &default_player/1)
+      player.(sound)
+      :ok
+    end
   rescue
     error ->
       Logger.debug("Alert playback failed for #{inspect(sound)}: #{Exception.message(error)}")
       :ok
+  end
+
+  defp test_env_without_player_override?(opts) when is_list(opts) do
+    Mix.env() == :test and not Keyword.has_key?(opts, :player)
   end
 
   defp default_player("http://" <> _url), do: :ok
