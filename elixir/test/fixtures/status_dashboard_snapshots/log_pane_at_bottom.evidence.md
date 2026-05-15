@@ -7,6 +7,7 @@
 │   ID     TAG      STATE      ISSUE                  AGE / TURN  
 │   ─────────────────────────────────────────────────────────────
 │   MT-001 todo     working    Sample issue title     0m 0s / 1   
+│
 ├─ Agent log: MT-001 - Fix the login flow (in-progress)
 │   URL: https://github.com/its-everdred/symphony/issues/0
 │

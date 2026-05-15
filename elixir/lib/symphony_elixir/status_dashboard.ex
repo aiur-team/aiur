@@ -450,14 +450,17 @@ defmodule SymphonyElixir.StatusDashboard do
   defp maybe_render(state) do
     now_ms = System.monotonic_time(:millisecond)
     {snapshot_data, token_samples} = snapshot_with_samples(state.token_samples, now_ms)
+    previous_snapshot_data = state.last_snapshot_data
+
+    render_snapshot_data =
+      renderable_snapshot_data(snapshot_data, previous_snapshot_data, state.view)
 
     state =
       state
       |> Map.put(:token_samples, token_samples)
       |> reconcile_log_view_with_snapshot(snapshot_data)
-      |> maybe_cache_snapshot_data(snapshot_data)
+      |> maybe_cache_snapshot_data(render_snapshot_data)
 
-    render_snapshot_data = renderable_snapshot_data(snapshot_data, state.last_snapshot_data)
     current_tokens = snapshot_total_tokens(render_snapshot_data)
 
     {tps_second, tps} =
@@ -606,8 +609,22 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp maybe_cache_snapshot_data(state, _snapshot_data), do: state
 
-  defp renderable_snapshot_data(:error, {:ok, _snapshot} = last_snapshot_data), do: last_snapshot_data
-  defp renderable_snapshot_data(snapshot_data, _last_snapshot_data), do: snapshot_data
+  defp renderable_snapshot_data(:error, {:ok, _snapshot} = last_snapshot_data, _view), do: last_snapshot_data
+
+  defp renderable_snapshot_data(
+         {:ok, %{running: running}} = snapshot_data,
+         {:ok, %{running: previous_running}} = last_snapshot_data,
+         {:log, log_view}
+       )
+       when is_list(running) and is_list(previous_running) do
+    if preserve_previous_running_snapshot?(running, previous_running, log_view) do
+      last_snapshot_data
+    else
+      snapshot_data
+    end
+  end
+
+  defp renderable_snapshot_data(snapshot_data, _last_snapshot_data, _view), do: snapshot_data
 
   defp snapshot_with_samples(token_samples, now_ms) do
     case snapshot_data() do
@@ -747,7 +764,8 @@ defmodule SymphonyElixir.StatusDashboard do
       pane_title = format_pane_title(display_log_view, running)
 
       tail =
-        [
+        running_to_log_spacer(running) ++
+          [
           colorize("├─ #{pane_title}", @ansi_bold)
         ] ++
           metadata_lines ++
@@ -987,18 +1005,18 @@ defmodule SymphonyElixir.StatusDashboard do
         value
         |> String.split(";", trim: true)
         |> List.last()
-        |> case do
-          bg when is_binary(bg) ->
-            case Integer.parse(bg) do
-              {number, ""} -> number < 8
-              _ -> true
-            end
-
-          _ ->
-            true
-        end
+        |> dark_background_code?()
     end
   end
+
+  defp dark_background_code?(bg) when is_binary(bg) do
+    case Integer.parse(bg) do
+      {number, ""} -> number < 8
+      _ -> true
+    end
+  end
+
+  defp dark_background_code?(_bg), do: true
 
   defp format_queued_message_lines(log_view, running, columns, messages) do
     entry = running_entry_for_identifier(running, log_view.issue_identifier)
@@ -1355,6 +1373,11 @@ defmodule SymphonyElixir.StatusDashboard do
 
     content
   end
+
+  @doc false
+  @spec renderable_snapshot_data_for_test(term(), term(), view()) :: term()
+  def renderable_snapshot_data_for_test(snapshot_data, last_snapshot_data, view),
+    do: renderable_snapshot_data(snapshot_data, last_snapshot_data, view)
 
   @doc false
   @spec dashboard_url_for_test(String.t(), non_neg_integer() | nil, non_neg_integer() | nil) ::
@@ -1750,6 +1773,9 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp running_entry_at(_snapshot_data, _index), do: nil
 
+  defp running_to_log_spacer([]), do: []
+  defp running_to_log_spacer(_running), do: ["│"]
+
   defp build_log_view(entry) do
     {:log,
      %{
@@ -1818,6 +1844,33 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp reconcile_composer_with_running_entry(composer, _running_entry), do: composer
+
+  defp preserve_previous_running_snapshot?(running, previous_running, log_view)
+       when is_list(running) and is_list(previous_running) and is_map(log_view) do
+    previous_running != [] and
+      missing_running_entry?(running, Map.get(log_view, :issue_identifier)) and
+      has_running_entry?(previous_running, Map.get(log_view, :issue_identifier)) and
+      composer_has_pending_submission?(Map.get(log_view, :composer))
+  end
+
+  defp missing_running_entry?(running, issue_identifier) when is_list(running) and is_binary(issue_identifier) do
+    not has_running_entry?(running, issue_identifier)
+  end
+
+  defp missing_running_entry?(_running, _issue_identifier), do: false
+
+  defp has_running_entry?(running, issue_identifier) when is_list(running) and is_binary(issue_identifier) do
+    Enum.any?(running, &(to_string(Map.get(&1, :identifier)) == issue_identifier))
+  end
+
+  defp has_running_entry?(_running, _issue_identifier), do: false
+
+  defp composer_has_pending_submission?(%{pending_request_id: request_id}) when is_integer(request_id), do: true
+
+  defp composer_has_pending_submission?(%{local_pending_messages: messages}) when is_list(messages),
+    do: messages != []
+
+  defp composer_has_pending_submission?(_composer), do: false
 
   defp insert_text_at_cursor(composer, text) when is_binary(text) do
     {before_text, after_text} = split_buffer_at_cursor(composer.buffer, Map.get(composer, :cursor_offset, 0))
