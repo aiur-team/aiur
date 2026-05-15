@@ -5,6 +5,20 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   alias SymphonyElixir.Linear.Client
 
+  @emit_alert_tool "emit_alert"
+  @emit_alert_description """
+  Emit a custom Symphony alert with a scoped name and concise message.
+  Reserved system scopes (`task.*`, `agent.*`, `chat.*`) are not allowed.
+  """
+  @emit_alert_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["name", "message"],
+    "properties" => %{
+      "name" => %{"type" => "string", "description" => "Scoped alert name such as `phase.work.start`."},
+      "message" => %{"type" => "string", "description" => "Concise log-facing alert message."}
+    }
+  }
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Symphony's configured auth.
@@ -32,6 +46,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
       @linear_graphql_tool ->
         execute_linear_graphql(arguments, opts)
 
+      @emit_alert_tool ->
+        execute_emit_alert(arguments, opts)
+
       other ->
         failure_response(%{
           "error" => %{
@@ -49,8 +66,32 @@ defmodule SymphonyElixir.Codex.DynamicTool do
         "name" => @linear_graphql_tool,
         "description" => @linear_graphql_description,
         "inputSchema" => @linear_graphql_input_schema
+      },
+      %{
+        "name" => @emit_alert_tool,
+        "description" => @emit_alert_description,
+        "inputSchema" => @emit_alert_input_schema
       }
     ]
+  end
+
+  defp execute_emit_alert(arguments, opts) do
+    alert_emitter = Keyword.get(opts, :alert_emitter)
+
+    with {:ok, name, message} <- normalize_emit_alert_arguments(arguments),
+         true <- is_function(alert_emitter, 2) || {:error, :alert_emitter_unavailable},
+         :ok <- alert_emitter.(name, message) do
+      dynamic_tool_response(
+        true,
+        Jason.encode!(%{"ok" => true, "name" => name, "message" => message}, pretty: true)
+      )
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+
+      false ->
+        failure_response(tool_error_payload(:alert_emitter_unavailable))
+    end
   end
 
   defp execute_linear_graphql(arguments, opts) do
@@ -89,6 +130,34 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   end
 
   defp normalize_linear_graphql_arguments(_arguments), do: {:error, :invalid_arguments}
+
+  defp normalize_emit_alert_arguments(arguments) when is_map(arguments) do
+    with {:ok, name} <- normalize_emit_alert_string(arguments, "name", :missing_alert_name),
+         {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_alert_message) do
+      {:ok, name, message}
+    end
+  end
+
+  defp normalize_emit_alert_arguments(_arguments), do: {:error, :invalid_alert_arguments}
+
+  defp normalize_emit_alert_string(arguments, key, error_reason) do
+    value =
+      case key do
+        "name" -> Map.get(arguments, "name") || Map.get(arguments, :name)
+        "message" -> Map.get(arguments, "message") || Map.get(arguments, :message)
+      end
+
+    case value do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, error_reason}
+          trimmed -> {:ok, trimmed}
+        end
+
+      _ ->
+        {:error, error_reason}
+    end
+  end
 
   defp normalize_query(arguments) do
     case Map.get(arguments, "query") || Map.get(arguments, :query) do
@@ -156,6 +225,33 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     %{
       "error" => %{
         "message" => "`linear_graphql` expects either a GraphQL query string or an object with `query` and optional `variables`."
+      }
+    }
+  end
+
+  defp tool_error_payload(:invalid_alert_arguments) do
+    %{
+      "error" => %{
+        "message" => "`emit_alert` expects an object with non-empty `name` and `message` strings."
+      }
+    }
+  end
+
+  defp tool_error_payload(:missing_alert_name), do: %{"error" => %{"message" => "`emit_alert.name` is required."}}
+  defp tool_error_payload(:missing_alert_message), do: %{"error" => %{"message" => "`emit_alert.message` is required."}}
+
+  defp tool_error_payload(:system_scope_reserved) do
+    %{
+      "error" => %{
+        "message" => "`emit_alert` may not emit system-owned alerts under `task.*`, `agent.*`, or `chat.*`."
+      }
+    }
+  end
+
+  defp tool_error_payload(:alert_emitter_unavailable) do
+    %{
+      "error" => %{
+        "message" => "`emit_alert` is unavailable in the current runtime context."
       }
     }
   end

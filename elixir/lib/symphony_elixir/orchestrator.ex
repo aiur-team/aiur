@@ -7,7 +7,17 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentQueue, AgentQueueStore, AgentRunner, Config, Issue, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{
+    AgentQueue,
+    AgentQueueStore,
+    AgentRunner,
+    Alerts,
+    Config,
+    Issue,
+    StatusDashboard,
+    Tracker,
+    Workspace
+  }
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -26,6 +36,27 @@ defmodule SymphonyElixir.Orchestrator do
     Runtime state for the orchestrator polling loop.
     """
 
+    @type t :: %__MODULE__{
+            poll_interval_ms: integer() | nil,
+            max_concurrent_agents: integer() | nil,
+            next_poll_due_at_ms: integer() | nil,
+            poll_check_in_progress: boolean() | nil,
+            tick_timer_ref: reference() | nil,
+            tick_token: reference() | nil,
+            initial_dispatch_cycle: boolean() | nil,
+            queue_store: term(),
+            last_polled_issues: map(),
+            todo_over_capacity_alert_active: boolean(),
+            running: map(),
+            completed: MapSet.t(),
+            claimed: MapSet.t(),
+            retry_attempts: map(),
+            agent_totals: map() | nil,
+            agent_rate_limits: map() | nil,
+            codex_totals: map() | nil,
+            codex_rate_limits: map() | nil
+          }
+
     defstruct [
       :poll_interval_ms,
       :max_concurrent_agents,
@@ -33,8 +64,10 @@ defmodule SymphonyElixir.Orchestrator do
       :poll_check_in_progress,
       :tick_timer_ref,
       :tick_token,
+      :initial_dispatch_cycle,
       queue_store: AgentQueueStore.new(),
       last_polled_issues: %{},
+      todo_over_capacity_alert_active: false,
       running: %{},
       completed: MapSet.new(),
       claimed: MapSet.new(),
@@ -64,6 +97,7 @@ defmodule SymphonyElixir.Orchestrator do
       poll_check_in_progress: false,
       tick_timer_ref: nil,
       tick_token: nil,
+      initial_dispatch_cycle: true,
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil
     }
@@ -207,6 +241,18 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_info({:codex_worker_update, _issue_id, _update}, state), do: {:noreply, state}
 
+  def handle_info({:emit_system_alert, alert_name, %Issue{} = issue, worker_host}, state)
+      when is_binary(alert_name) do
+    Alerts.emit_system(alert_name, issue: issue, worker_host: worker_host)
+    {:noreply, state}
+  end
+
+  def handle_info({:emit_system_alert, alert_name, issue_identifier, worker_host}, state)
+      when is_binary(alert_name) and is_binary(issue_identifier) do
+    Alerts.emit_system(alert_name, issue: issue_identifier, worker_host: worker_host)
+    {:noreply, state}
+  end
+
   def handle_info({:worker_control_state, issue_id, status}, %{running: running} = state)
       when is_binary(issue_id) and status in [:paused, :working] do
     case Map.get(running, issue_id) do
@@ -214,8 +260,12 @@ defmodule SymphonyElixir.Orchestrator do
         {:noreply, state}
 
       running_entry ->
+        previous_status = get_in(running_entry, [:control, :status]) || :working
+
         updated_running_entry =
           put_in(running_entry, [:control, :status], status)
+
+        maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
 
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
@@ -244,13 +294,19 @@ defmodule SymphonyElixir.Orchestrator do
 
     with :ok <- Config.validate!(),
          {:ok, issues} <- Tracker.fetch_candidate_issues() do
-      state = sync_polled_issue_state(state, issues)
-
-      if available_slots(state) > 0 do
-        choose_issues(state, issues)
-      else
+      state =
         state
-      end
+        |> sync_polled_issue_state(issues)
+        |> sync_todo_capacity_alert(issues)
+
+      state =
+        if available_slots(state) > 0 do
+          choose_issues(state, issues)
+        else
+          state
+        end
+
+      %{state | initial_dispatch_cycle: false}
     else
       {:error, :missing_linear_api_token} ->
         Logger.error("Linear API token missing in WORKFLOW.md")
@@ -325,6 +381,18 @@ defmodule SymphonyElixir.Orchestrator do
 
   def reconcile_issue_states_for_test(issues, state) when is_list(issues) do
     reconcile_running_issue_states(issues, state, active_state_set(), terminal_state_set())
+  end
+
+  @doc false
+  @spec sync_polled_issue_state_for_test(State.t(), [Issue.t()]) :: State.t()
+  def sync_polled_issue_state_for_test(%State{} = state, issues) when is_list(issues) do
+    sync_polled_issue_state(state, issues)
+  end
+
+  @doc false
+  @spec sync_todo_capacity_alert_for_test(State.t(), [Issue.t()]) :: State.t()
+  def sync_todo_capacity_alert_for_test(%State{} = state, issues) when is_list(issues) do
+    sync_todo_capacity_alert(state, issues)
   end
 
   @doc false
@@ -542,7 +610,9 @@ defmodule SymphonyElixir.Orchestrator do
     state =
       Enum.reduce(issues, state, fn issue, state_acc ->
         previous_issue = Map.get(previous_issues, issue.id)
-        emit_dependency_transition_events(state_acc, previous_issue, issue)
+        state_acc
+        |> emit_task_state_transition_alert(previous_issue, issue)
+        |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
     %{state | last_polled_issues: issues_by_id(issues)}
@@ -590,6 +660,24 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
+
+  defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{}), do: state
+
+  defp emit_task_state_transition_alert(%State{} = state, %Issue{} = previous_issue, %Issue{} = issue) do
+    previous_state = state_slug(previous_issue.state)
+    current_state = state_slug(issue.state)
+
+    if previous_state != current_state and current_state != nil do
+      Alerts.emit_system("task.#{current_state}",
+        issue: issue,
+        worker_host: running_worker_host(state, issue.id)
+      )
+    end
+
+    state
+  end
+
+  defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
 
   defp blocker_map(%Issue{blocked_by: blockers}) when is_list(blockers) do
     Enum.reduce(blockers, %{}, fn
@@ -696,17 +784,48 @@ defmodule SymphonyElixir.Orchestrator do
   defp choose_issues(state, issues) do
     active_states = active_state_set()
     terminal_states = terminal_state_set()
+    initial_dispatch_cycle? = state.initial_dispatch_cycle == true
 
-    issues
-    |> sort_issues_for_dispatch()
-    |> Enum.reduce(state, fn issue, state_acc ->
-      if should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
-        dispatch_issue(state_acc, issue)
-      else
-        state_acc
-      end
-    end)
+    {state, _startup_todo_index} =
+      issues
+      |> sort_issues_for_dispatch()
+      |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
+        if should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
+          next_state = dispatch_issue(state_acc, issue)
+
+          startup_todo_index =
+            maybe_schedule_startup_todo_alert(
+              state_acc,
+              next_state,
+              issue,
+              startup_todo_index,
+              initial_dispatch_cycle?
+            )
+
+          {next_state, startup_todo_index}
+        else
+          {state_acc, startup_todo_index}
+        end
+      end)
+
+    state
   end
+
+  defp maybe_schedule_startup_todo_alert(previous_state, next_state, %Issue{} = issue, index, true) do
+    if normalize_issue_state(issue.state) == "todo" and
+         not MapSet.member?(previous_state.claimed, issue.id) and
+         MapSet.member?(next_state.claimed, issue.id) do
+      delay_ms = index * 1_000
+      worker_host = running_worker_host(next_state, issue.id)
+      Process.send_after(self(), {:emit_system_alert, "task.todo", issue, worker_host}, delay_ms)
+      index + 1
+    else
+      index
+    end
+  end
+
+  defp maybe_schedule_startup_todo_alert(_previous_state, _next_state, _issue, index, _initial_dispatch_cycle?),
+    do: index
 
   defp sort_issues_for_dispatch(issues) when is_list(issues) do
     Enum.sort_by(issues, fn
@@ -819,6 +938,18 @@ defmodule SymphonyElixir.Orchestrator do
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     String.downcase(String.trim(state_name))
   end
+
+  defp state_slug(state_name) when is_binary(state_name) do
+    state_name
+    |> normalize_issue_state()
+    |> String.replace(~r/[\s_]+/, "-")
+    |> case do
+      "" -> nil
+      slug -> slug
+    end
+  end
+
+  defp state_slug(_state_name), do: nil
 
   defp terminal_state_set do
     Config.settings!().tracker.terminal_states
@@ -1664,6 +1795,12 @@ defmodule SymphonyElixir.Orchestrator do
           AgentQueue.operator_message(issue_identifier, text, queue_opts)
           |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
+        Alerts.emit_system("chat.send",
+          issue: issue_identifier,
+          workspace: Map.get(running_entry, :workspace_path),
+          worker_host: Map.get(running_entry, :worker_host)
+        )
+
         next_state = %{state | queue_store: queue_store}
         notify_running_queue_update(running_entry, item)
         {{:ok, item.id}, next_state}
@@ -1692,6 +1829,24 @@ defmodule SymphonyElixir.Orchestrator do
   defp normalize_delivery_request(_other, _fallback, _capabilities) do
     {:error, :invalid_message}
   end
+
+  defp maybe_emit_agent_control_alert(:working, :paused, running_entry) when is_map(running_entry) do
+    Alerts.emit_system("agent.paused",
+      issue: Map.get(running_entry, :identifier),
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host)
+    )
+  end
+
+  defp maybe_emit_agent_control_alert(:paused, :working, running_entry) when is_map(running_entry) do
+    Alerts.emit_system("agent.unpaused",
+      issue: Map.get(running_entry, :identifier),
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host)
+    )
+  end
+
+  defp maybe_emit_agent_control_alert(_previous_status, _status, _running_entry), do: :ok
 
   defp validate_operator_message(body) do
     text = String.trim(body)
@@ -1938,6 +2093,62 @@ defmodule SymphonyElixir.Orchestrator do
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
   end
+
+  defp sync_todo_capacity_alert(%State{} = state, issues) when is_list(issues) do
+    todo_issues = routable_todo_issues(issues)
+
+    over_capacity? = length(todo_issues) > Config.max_concurrent_agents()
+
+    cond do
+      over_capacity? and not state.todo_over_capacity_alert_active ->
+        emit_todo_capacity_alert(state, todo_issues)
+        %{state | todo_over_capacity_alert_active: true}
+
+      not over_capacity? and state.todo_over_capacity_alert_active ->
+        %{state | todo_over_capacity_alert_active: false}
+
+      true ->
+        state
+    end
+  end
+
+  defp sync_todo_capacity_alert(%State{} = state, _issues), do: state
+
+  defp routable_todo_issues(issues) when is_list(issues) do
+    issues
+    |> Enum.filter(fn
+      %Issue{} = issue ->
+        normalize_issue_state(issue.state) == "todo" and
+          issue_routable_to_worker?(issue) and
+          !todo_issue_blocked_by_non_terminal?(issue, terminal_state_set())
+
+      _ ->
+        false
+    end)
+    |> sort_issues_for_dispatch()
+  end
+
+  defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
+    case List.first(todo_issues) do
+      %Issue{} = issue ->
+        Alerts.emit_system("task.todo.more_agents",
+          issue: issue,
+          worker_host: running_worker_host(state, issue.id)
+        )
+
+      _ ->
+        Alerts.emit_system("task.todo.more_agents")
+    end
+  end
+
+  defp running_worker_host(%State{} = state, issue_id) when is_binary(issue_id) do
+    case Map.get(state.running, issue_id) do
+      %{worker_host: worker_host} -> worker_host
+      _ -> nil
+    end
+  end
+
+  defp running_worker_host(_state, _issue_id), do: nil
 
   defp retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and

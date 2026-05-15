@@ -175,6 +175,12 @@ Optional flags:
 - `--logs-root` tells Symphony to write logs under a different directory (default: `./log`)
 - `--port` also starts the Phoenix observability service (default: disabled)
 
+Optional local alert sounds config:
+
+- Edit `../alerts.yaml`.
+- Add URLs or absolute local file paths for the predefined alert names you want to enable.
+- Keep the actual audio files outside the repo if you do not want to check them in.
+
 The `WORKFLOW.md` file uses YAML front matter for configuration, plus a Markdown body used as the
 run prompt. The current implementation supports these adapters:
 

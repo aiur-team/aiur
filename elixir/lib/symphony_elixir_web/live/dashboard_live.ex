@@ -5,7 +5,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
-  alias SymphonyElixir.AgentChat
+  alias SymphonyElixir.{AgentChat, Alerts}
   alias SymphonyElixirWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
 
@@ -47,11 +47,13 @@ defmodule SymphonyElixirWeb.DashboardLive do
   @impl true
   def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) do
     entry = find_running_entry(socket.assigns.payload, issue_identifier)
+    maybe_emit_chat_open(entry)
     {:noreply, assign(socket, :agent_log_modal, agent_log_modal(entry))}
   end
 
   @impl true
   def handle_event("close-agent-log", _params, socket) do
+    maybe_emit_chat_close(socket.assigns.agent_log_modal)
     {:noreply, assign(socket, :agent_log_modal, nil)}
   end
 
@@ -536,4 +538,22 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp format_chat_error(:timeout), do: "Send timed out."
   defp format_chat_error(:unavailable), do: "Orchestrator unavailable."
   defp format_chat_error(reason), do: inspect(reason)
+
+  defp maybe_emit_chat_open(%{identifier: identifier, workspace_path: workspace_path}) do
+    Alerts.emit_system("chat.open", issue: identifier, workspace: workspace_path)
+  end
+
+  defp maybe_emit_chat_open(_entry), do: :ok
+
+  defp maybe_emit_chat_close(%{issue_identifier: identifier, path: path}) do
+    workspace =
+      case path do
+        nil -> nil
+        log_path -> log_path |> Path.dirname() |> Path.dirname()
+      end
+
+    Alerts.emit_system("chat.close", issue: identifier, workspace: workspace)
+  end
+
+  defp maybe_emit_chat_close(_modal), do: :ok
 end

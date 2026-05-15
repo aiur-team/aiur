@@ -6,7 +6,7 @@ defmodule SymphonyElixir.StatusDashboard do
   use GenServer
   require Logger
 
-  alias SymphonyElixir.{AgentChat, AgentLog, Config, HttpServer, Tracker}
+  alias SymphonyElixir.{AgentChat, AgentLog, Alerts, Config, HttpServer, Tracker}
   alias SymphonyElixir.Orchestrator
   alias SymphonyElixirWeb.ObservabilityPubSub
 
@@ -37,6 +37,7 @@ defmodule SymphonyElixir.StatusDashboard do
   @ansi_white IO.ANSI.light_white()
   @ansi_light_cyan IO.ANSI.light_cyan()
   @ansi_light_green IO.ANSI.light_green()
+  @ansi_light_red IO.ANSI.light_red()
   @ansi_light_magenta IO.ANSI.light_magenta()
 
   defstruct [
@@ -260,6 +261,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
       entry ->
         Logger.debug("open_log: opening pane for #{inspect(entry.identifier)}")
+        Alerts.emit_system("chat.open", issue: entry.identifier, workspace: Map.get(entry, :workspace_path))
 
         state =
           state
@@ -279,6 +281,8 @@ defmodule SymphonyElixir.StatusDashboard do
         {:noreply, state}
 
       entry ->
+        Alerts.emit_system("chat.open", issue: entry.identifier, workspace: Map.get(entry, :workspace_path))
+
         state =
           state
           |> Map.put(:view, build_log_view(entry))
@@ -295,6 +299,8 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   def handle_cast(:close_log, %{enabled: true, view: {:log, _}} = state) do
+    emit_close_alert(state.view)
+
     state =
       state
       |> Map.put(:view, :list)
@@ -805,6 +811,7 @@ defmodule SymphonyElixir.StatusDashboard do
       {"user", "Operator message"} -> operator_style()
       {"user", _} -> prompt_style()
       {"assistant", _} -> agent_style()
+      {"alert", _} -> alert_style()
       {"tool", _} -> tool_style()
       _ -> system_style()
     end
@@ -826,9 +833,19 @@ defmodule SymphonyElixir.StatusDashboard do
     %{label: "tool", label_color: @ansi_yellow <> @ansi_bold, timestamp: @ansi_orange, body: @ansi_orange}
   end
 
+  defp alert_style do
+    %{label: "alert", label_color: @ansi_red <> @ansi_bold, timestamp: @ansi_red, body: @ansi_light_red}
+  end
+
   defp system_style do
     %{label: "system", label_color: @ansi_magenta <> @ansi_bold, timestamp: @ansi_gray, body: @ansi_gray}
   end
+
+  defp emit_close_alert({:log, %{issue_identifier: issue_identifier, workspace_path: workspace_path}}) do
+    Alerts.emit_system("chat.close", issue: issue_identifier, workspace: workspace_path)
+  end
+
+  defp emit_close_alert(_view), do: :ok
 
   defp format_log_message_header(%{title: title, timestamp: timestamp}, style) do
     "│   " <>
@@ -909,7 +926,7 @@ defmodule SymphonyElixir.StatusDashboard do
           {"error: #{composer.last_error}", @ansi_red}
 
         is_integer(composer.pending_request_id) ->
-          {"sent; waiting for agent turn", @ansi_yellow}
+          {"Enter sends · Esc closes log · Ctrl-C pauses · Alt-Enter newline", @ansi_gray}
 
         Map.get(log_view, :mode, :typing) == :browsing ->
           {"Tab returns to chat · J/K move agents · Space opens selected log · Esc closes log · Ctrl-C pauses", @ansi_gray}

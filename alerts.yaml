@@ -1,0 +1,96 @@
+alerts:
+  task.todo:
+    message: Task entered todo
+    sound:
+      - "~/alerts/yes-executor.wav"
+      - "~/alerts/your-will.wav"
+      - "~/alerts/i-hear-you.wav"
+      - "~/alerts/of-course.wav"
+      - "~/alerts/for-adun.wav"
+      - "~/alerts/terra-khala.wav"
+  task.todo.more_agents:
+    message: Todo queue exceeds capacity
+    sound:
+      - "~/alerts/not-enough-minerals.wav"
+      - "~/alerts/additional-pylons.wav"
+  task.in-progress:
+    message: Task picked up
+  task.human-review:
+    message: Ready for human review
+    sound:
+      - "~/alerts/under-attack.wav"
+      - "~/alerts/warriors-engaged-enemy.wav"
+  task.rework:
+    message: Sent back for changes
+  task.merging:
+    message: Merge in progress
+    sound:
+      - "~/alerts/upgrade-complete.wav"
+  task.done:
+    message: Task completed
+    sound:
+      - "~/alerts/upgrade-complete.wav"
+  task.cancelled:
+    message: Task was cancelled
+    sound:
+      - "~/alerts/nuclear-launch-detected.wav"
+  task.canceled:
+    message: Task was canceled
+    sound:
+      - "~/alerts/nuclear-launch-detected.wav"
+
+  agent.more_tokens:
+    message: Agent ran out of tokens
+    sound:
+      - "~/alerts/not-enough-minerals.wav"
+      - "~/alerts/require-more-vesphene-gas.wav"
+  agent.paused:
+    message: Agent paused
+    sound:
+      - "~/alerts/yes-executor.wav"
+  agent.unpaused:
+    message: Agent unpaused
+    sound:
+      - "~/alerts/your-will.wav"
+      - "~/alerts/i-hear-you.wav"
+      - "~/alerts/of-course.wav"
+      - "~/alerts/for-adun.wav"
+      - "~/alerts/terra-khala.wav"
+
+  chat.open:
+    message: Chat opened
+    sound:
+      - "~/alerts/yes-executor.wav"
+  chat.send:
+    message: Message sent
+  chat.close:
+    message: Chat closed
+    sound:
+      - "~/alerts/your-will.wav"
+      - "~/alerts/i-hear-you.wav"
+      - "~/alerts/of-course.wav"
+      - "~/alerts/for-adun.wav"
+      - "~/alerts/terra-khala.wav"
+
+  phase.brainstorm.start:
+    message: Entered brainstorm
+  phase.brainstorm.end:
+    message: Exited brainstorm
+    sound:
+      - "~/alerts/research-complete.wav"
+  phase.plan.start:
+    message: Entered planning
+  phase.plan.end:
+    message: Exited planning
+    sound:
+      - "~/alerts/research-complete.wav"
+  phase.work.start:
+    message: Entered implementation
+  phase.work.end:
+    message: Exited implementation
+  phase.review.start:
+    message: Entered review
+  phase.review.end:
+    message: Exited review
+    sound:
+      - "~/alerts/research-complete.wav"
