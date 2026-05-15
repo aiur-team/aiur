@@ -12,8 +12,9 @@
 │
 │   [n/a] system · Log
 │       No displayable chat events yet.
-│
-│ >
-│ Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline
 ╰─
+                                                                                                                   
+  >                                                                                                                
+                                                                                                                   
+Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                 
 ```

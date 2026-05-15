@@ -39,6 +39,12 @@ defmodule SymphonyElixir.StatusDashboard do
   @ansi_light_cyan IO.ANSI.light_cyan()
   @ansi_light_green IO.ANSI.light_green()
   @ansi_light_magenta IO.ANSI.light_magenta()
+  @ansi_input_dark_bg "\e[48;5;236m"
+  @ansi_input_light_bg "\e[48;5;252m"
+  @ansi_input_dark_fg "\e[38;5;255m"
+  @ansi_input_light_fg "\e[38;5;235m"
+  @ansi_input_help_dark "\e[38;5;248m"
+  @ansi_input_help_light "\e[38;5;245m"
 
   defstruct [
     :refresh_ms,
@@ -697,10 +703,10 @@ defmodule SymphonyElixir.StatusDashboard do
     metadata_lines = format_log_metadata(display_log_view, running, columns)
     queued_lines = format_queued_message_lines(display_log_view, running, columns, messages)
     header_height = length(List.flatten(header_lines))
-    placeholder_lines = format_input_placeholder(display_log_view, columns)
+    input_section_lines = format_input_section(display_log_view, columns)
     queued_chrome_lines = if(queued_lines == [], do: 0, else: length(queued_lines) + 1)
-    chrome_lines = 1 + length(metadata_lines) + length(placeholder_lines) + queued_chrome_lines + 1
-    # chrome: pane header + metadata + queued section + placeholder + closing border
+    chrome_lines = 1 + length(metadata_lines) + queued_chrome_lines + 1 + length(input_section_lines)
+    # chrome: pane header + metadata + queued section + closing border + input section
 
     pane_budget = rows - header_height - chrome_lines - 1
 
@@ -721,9 +727,8 @@ defmodule SymphonyElixir.StatusDashboard do
           metadata_lines ++
           pane_lines ++
           queued_section_lines(queued_lines) ++
-          [closing_border_or_separator()] ++
-          placeholder_lines ++
-          [closing_border()]
+          [closing_border()] ++
+          input_section_lines
 
       {tail, total_lines}
     end
@@ -744,8 +749,6 @@ defmodule SymphonyElixir.StatusDashboard do
       colorize("#{label}: ", @ansi_bold) <>
       colorize(value, value_color)
   end
-
-  defp closing_border_or_separator, do: "│"
 
   defp queued_section_lines([]), do: []
   defp queued_section_lines(queued_lines), do: ["│"] ++ queued_lines
@@ -881,30 +884,87 @@ defmodule SymphonyElixir.StatusDashboard do
     Enum.find(running, &(to_string(&1.identifier) == to_string(id)))
   end
 
-  defp format_input_placeholder(log_view, columns) do
+  defp format_input_section(log_view, columns) do
     inner_width = max(20, columns - 4)
     composer = Map.get(log_view, :composer, fresh_composer())
     buffer = if composer.buffer == "", do: "", else: composer.buffer
     prompt = if buffer == "", do: ">", else: "> " <> buffer
-    prompt_lines = prompt |> String.split("\n", trim: false) |> Enum.flat_map(&wrap_line(&1, inner_width))
+    prompt_lines = prompt |> String.split("\n", trim: false) |> Enum.flat_map(&wrap_line(&1, inner_width - 2))
 
     status =
       cond do
         is_binary(composer.last_error) ->
-          {"error: #{composer.last_error}", @ansi_red}
+          {"error: #{composer.last_error}", :error}
 
         is_integer(composer.pending_request_id) ->
-          {"sent; waiting for agent turn", @ansi_yellow}
+          {"sent; waiting for agent turn", :pending}
 
         Map.get(log_view, :mode, :typing) == :browsing ->
-          {"Tab returns to chat · J/K move agents · Space opens selected log · Esc closes log · Ctrl-C pauses", @ansi_gray}
+          {"Tab returns to chat · J/K move agents · Space opens selected log · Esc closes log · Ctrl-C pauses", :help}
 
         true ->
-          {"Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline", @ansi_gray}
+          {"Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline", :help}
       end
 
-    Enum.map(prompt_lines, &("│ " <> colorize(&1, @ansi_white))) ++
-      ["│ " <> colorize(elem(status, 0), elem(status, 1))]
+    [
+      input_panel_blank_line(columns),
+      Enum.map(prompt_lines, &input_panel_content_line("  " <> &1, columns)),
+      input_panel_blank_line(columns),
+      input_help_line(elem(status, 0), elem(status, 1), columns)
+    ]
+    |> List.flatten()
+  end
+
+  defp input_panel_blank_line(columns), do: input_panel_content_line("", columns)
+
+  defp input_panel_content_line(content, columns) do
+    {bg, fg, _help} = input_panel_palette()
+    visible_width = max(0, columns)
+    padded = String.pad_trailing(content, visible_width)
+    bg <> fg <> padded <> @ansi_reset
+  end
+
+  defp input_help_line(content, variant, columns) do
+    {_bg, _fg, help_color} = input_panel_palette()
+
+    color =
+      case variant do
+        :error -> @ansi_red
+        :pending -> @ansi_yellow
+        _ -> help_color
+      end
+
+    colorize(String.pad_trailing(content, max(0, columns)), color)
+  end
+
+  defp input_panel_palette do
+    if terminal_dark_mode?() do
+      {@ansi_input_dark_bg, @ansi_input_dark_fg, @ansi_input_help_dark}
+    else
+      {@ansi_input_light_bg, @ansi_input_light_fg, @ansi_input_help_light}
+    end
+  end
+
+  defp terminal_dark_mode? do
+    case System.get_env("COLORFGBG") do
+      nil ->
+        true
+
+      value ->
+        value
+        |> String.split(";", trim: true)
+        |> List.last()
+        |> case do
+          bg when is_binary(bg) ->
+            case Integer.parse(bg) do
+              {number, ""} -> number < 8
+              _ -> true
+            end
+
+          _ ->
+            true
+        end
+    end
   end
 
   defp format_queued_message_lines(log_view, running, columns, messages) do
