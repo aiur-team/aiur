@@ -3,23 +3,29 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
   alias SymphonyElixir.Codex.DynamicTool
 
-  test "tool_specs advertises the linear_graphql input contract" do
-    assert [
+  test "tool_specs advertises the linear_graphql and emit_alert contracts" do
+    specs = DynamicTool.tool_specs()
+
+    assert Enum.any?(specs, fn
              %{
                "description" => description,
                "inputSchema" => %{
-                 "properties" => %{
-                   "query" => _,
-                   "variables" => _
-                 },
+                 "properties" => %{"query" => _, "variables" => _},
                  "required" => ["query"],
                  "type" => "object"
                },
                "name" => "linear_graphql"
-             }
-           ] = DynamicTool.tool_specs()
+             } -> description =~ "Linear"
+             _ -> false
+           end)
 
-    assert description =~ "Linear"
+    assert Enum.any?(specs, fn
+             %{
+               "inputSchema" => %{"required" => ["name", "message"]},
+               "name" => "emit_alert"
+             } -> true
+             _ -> false
+           end)
   end
 
   test "unsupported tools return a failure payload with the supported tool list" do
@@ -30,7 +36,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql"]
+               "supportedTools" => ["linear_graphql", "emit_alert"]
              }
            }
 
@@ -63,6 +69,46 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert response["success"] == true
     assert Jason.decode!(response["output"]) == %{"data" => %{"viewer" => %{"id" => "usr_123"}}}
     assert response["contentItems"] == [%{"type" => "inputText", "text" => response["output"]}]
+  end
+
+  test "emit_alert invokes the provided emitter for custom scopes" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "emit_alert",
+        %{
+          "name" => "phase.work.start",
+          "message" => "Entered implementation"
+        },
+        alert_emitter: fn name, message ->
+          send(test_pid, {:alert_emitted, name, message})
+          :ok
+        end
+      )
+
+    assert_received {:alert_emitted, "phase.work.start", "Entered implementation"}
+    assert response["success"] == true
+  end
+
+  test "emit_alert rejects reserved system scopes" do
+    response =
+      DynamicTool.execute(
+        "emit_alert",
+        %{
+          "name" => "task.done",
+          "message" => "Completed"
+        },
+        alert_emitter: fn _name, _message -> {:error, :system_scope_reserved} end
+      )
+
+    assert response["success"] == false
+
+    assert Jason.decode!(response["output"]) == %{
+             "error" => %{
+               "message" => "`emit_alert` may not emit system-owned alerts under `task.*`, `agent.*`, or `chat.*`."
+             }
+           }
   end
 
   test "linear_graphql accepts a raw GraphQL query string" do

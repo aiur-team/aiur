@@ -1,0 +1,120 @@
+alerts:
+  task.todo:
+    message: Task entered todo
+    sound:
+      - "~/alerts/advisor-yes-executor.wav"
+      - "~/alerts/advisor-your-will.wav"
+      - "~/alerts/advisor-i-hear-you.wav"
+      - "~/alerts/advisor-of-course.wav"
+      - "~/alerts/advisor-for-adun.wav"
+      - "~/alerts/advisor-terra-khala.wav"
+      - "~/alerts/templar-yes-executor.wav"
+      - "~/alerts/templar-consider-it-done.wav"
+      - "~/alerts/templar-indeed.wav"
+      - "~/alerts/templar-i-concur.wav"
+      - "~/alerts/templar-state-your-will.wav"
+      - "~/alerts/templar-i-am-ready.wav"
+      - "~/alerts/archon-power-overwhelming.wav"
+  task.todo.more_agents:
+    message: Todo queue exceeds capacity
+    sound:
+      - "~/alerts/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor-additional-pylons.wav"
+  task.in-progress:
+    message: Task picked up
+  task.human-review:
+    message: Ready for human review
+    sound:
+      - "~/alerts/advisor-under-attack.wav"
+      - "~/alerts/advisor-warriors-engaged-enemy.wav"
+  task.rework:
+    message: Sent back for changes
+  task.merging:
+    message: Merge in progress
+    sound:
+      - "~/alerts/archon-merging-complete.wav"
+  task.done:
+    message: Task completed
+    sound:
+      - "~/alerts/advisor-upgrade-complete.wav"
+  task.cancelled:
+    message: Task was cancelled
+    sound:
+      - "~/alerts/advisor-nuclear-launch-detected.wav"
+  task.canceled:
+    message: Task was canceled
+    sound:
+      - "~/alerts/advisor-nuclear-launch-detected.wav"
+
+  agent.more_tokens:
+    message: Agent ran out of tokens
+    sound:
+      - "~/alerts/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor-require-more-vesphene-gas.wav"
+  agent.paused:
+    message: Agent paused
+    sound:
+      - "~/alerts/advisor-yes-executor.wav"
+      - "~/alerts/templar-yes-executor.wav"
+  agent.unpaused:
+    message: Agent unpaused
+    sound:
+      - "~/alerts/advisor-your-will.wav"
+      - "~/alerts/advisor-i-hear-you.wav"
+      - "~/alerts/advisor-of-course.wav"
+      - "~/alerts/advisor-for-adun.wav"
+      - "~/alerts/advisor-terra-khala.wav"
+      - "~/alerts/templar-yes-executor.wav"
+      - "~/alerts/templar-consider-it-done.wav"
+      - "~/alerts/templar-indeed.wav"
+      - "~/alerts/templar-i-concur.wav"
+      - "~/alerts/templar-state-your-will.wav"
+      - "~/alerts/templar-i-am-ready.wav"
+      - "~/alerts/archon-power-overwhelming.wav"
+
+  chat.open:
+    message: Chat opened
+    sound:
+      - "~/alerts/advisor-yes-executor.wav"
+      - "~/alerts/templar-yes-executor.wav"
+  chat.send:
+    message: Message sent
+  chat.close:
+    message: Chat closed
+    sound:
+      - "~/alerts/advisor-your-will.wav"
+      - "~/alerts/advisor-i-hear-you.wav"
+      - "~/alerts/advisor-of-course.wav"
+      - "~/alerts/advisor-for-adun.wav"
+      - "~/alerts/advisor-terra-khala.wav"
+      - "~/alerts/templar-yes-executor.wav"
+      - "~/alerts/templar-consider-it-done.wav"
+      - "~/alerts/templar-indeed.wav"
+      - "~/alerts/templar-i-concur.wav"
+      - "~/alerts/templar-state-your-will.wav"
+      - "~/alerts/templar-i-am-ready.wav"
+      - "~/alerts/archon-power-overwhelming.wav"
+
+
+  phase.brainstorm.start:
+    message: Entered brainstorm
+  phase.brainstorm.end:
+    message: Exited brainstorm
+    sound:
+      - "~/alerts/advisor-research-complete.wav"
+  phase.plan.start:
+    message: Entered planning
+  phase.plan.end:
+    message: Exited planning
+    sound:
+      - "~/alerts/advisor-research-complete.wav"
+  phase.work.start:
+    message: Entered implementation
+  phase.work.end:
+    message: Exited implementation
+  phase.review.start:
+    message: Entered review
+  phase.review.end:
+    message: Exited review
+    sound:
+      - "~/alerts/advisor-research-complete.wav"

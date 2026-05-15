@@ -505,6 +505,14 @@ pre,
   border-color: #f1d8a6;
 }
 
+.log-message-alert {
+  justify-self: center;
+  width: min(820px, 100%);
+  background: #fff5f5;
+  border-color: #f3b0b0;
+  color: #8f2222;
+}
+
 .log-message-system {
   justify-self: center;
   width: min(820px, 100%);
@@ -545,6 +553,11 @@ pre,
 .log-message-tool .log-message-body {
   font-family: "Sohne Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
   font-size: 0.8rem;
+}
+
+.log-message-alert .log-message-body {
+  color: #8f2222;
+  font-size: 0.82rem;
 }
 
 .agent-chat-composer {

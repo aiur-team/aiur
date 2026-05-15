@@ -13,6 +13,8 @@ defmodule SymphonyElixir.AgentLog do
           body: String.t()
         }
 
+  @alert_events ~w(alert alert_emitted)
+
   @log_relative_path "logs/agent.md"
   @body_summary_limit 1_600
   @message_window 80
@@ -145,13 +147,32 @@ defmodule SymphonyElixir.AgentLog do
   end
 
   defp parse_json_log_entry(timestamp, event, payload, raw_body) do
-    body =
-      case Map.get(payload, "last_message") || Map.get(payload, :last_message) do
-        message when is_binary(message) -> message
-        _ -> summarize_payload(raw_body)
-      end
+    if alert_payload?(event, payload) do
+      alert_log_entry(timestamp, payload, raw_body)
+    else
+      body =
+        case Map.get(payload, "last_message") || Map.get(payload, :last_message) do
+          message when is_binary(message) -> message
+          _ -> summarize_payload(raw_body)
+        end
 
-    log_message("system", humanize_event(event), timestamp, body)
+      log_message("system", humanize_event(event), timestamp, body)
+    end
+  end
+
+  defp alert_payload?(event, payload) do
+    to_string(event) in @alert_events and
+      is_binary(Map.get(payload, "name") || Map.get(payload, :name)) and
+      is_binary(Map.get(payload, "message") || Map.get(payload, :message))
+  end
+
+  defp alert_log_entry(timestamp, payload, raw_body) do
+    title = Map.get(payload, "name") || Map.get(payload, :name) || "Alert"
+    body = Map.get(payload, "message") || Map.get(payload, :message) || summarize_payload(raw_body)
+
+    "alert"
+    |> log_message(title, timestamp, body)
+    |> Map.put(:alert_name, Map.get(payload, "name") || Map.get(payload, :name))
   end
 
   defp compact_log_messages(messages) do

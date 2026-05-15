@@ -898,6 +898,26 @@ defmodule SymphonyElixir.CoreTest do
     refute prompt == <<"Ticket ", 255>>
   end
 
+  test "prompt builder prepends shared agent instructions" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
+
+    issue = %Issue{
+      identifier: "MT-699",
+      title: "Use shared prompt instructions",
+      description: "Prompt should include repo-wide guidance",
+      state: "Todo",
+      url: "https://example.org/issues/MT-699",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+
+    assert prompt =~ "## Shared Agent Instructions"
+    assert prompt =~ "emit_alert"
+    assert prompt =~ "phase.brainstorm"
+    assert prompt =~ "Ticket MT-699"
+  end
+
   test "prompt builder normalizes nested date-like values, maps, and structs in issue fields" do
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
 

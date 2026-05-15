@@ -92,8 +92,24 @@ GitHub issue state is label-based:
 3. Find or create one persistent issue comment titled `## Agent Workpad`.
 4. Keep all progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
 5. Follow the issue instructions exactly.
-6. Move the issue to `Human Review` when implementation work is ready for review.
-7. Move the issue to `Done` only when the issue explicitly says the agent should close it out without human review.
+6. Use judgment based on feature size.
+7. Large feature asks should usually follow the full loop `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-review`.
+8. Smaller asks may skip brainstorm, plan, or review when the extra step would be overhead, but err on the side of using these skills when in doubt.
+9. Move the issue to `Human Review` when implementation work is ready for review.
+10. Move the issue to `Done` only when the issue explicitly says the agent should close it out without human review.
+
+## Alert Milestones
+
+When the work naturally enters one of the standard delivery phases, emit these custom alerts through
+the shared `emit_alert` function:
+
+- `phase.brainstorm.start` and `phase.brainstorm.end` when using `ce-brainstorm`
+- `phase.plan.start` and `phase.plan.end` when using `ce-plan`
+- `phase.work.start` and `phase.work.end` when using `ce-work`
+- `phase.review.start` and `phase.review.end` when using `ce-review`
+
+Use concrete messages. Do not emit system-owned alerts under `task.*`, `agent.*`,
+or `chat.*`.
 
 ## Workpad Template
 
