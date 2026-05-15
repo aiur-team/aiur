@@ -166,6 +166,42 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
     refute rendered =~ "sent; waiting for agent turn"
   end
 
+  test "rendered log view keeps a blank separator between the running table and log pane" do
+    workspace = Path.join(System.tmp_dir!(), "status_dashboard_separator_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(workspace, "logs"))
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    rendered =
+      snapshot_with_workspace(workspace)
+      |> StatusDashboard.format_snapshot_content_for_test(0.0, 100, 0,
+        view: {:log, %{paused_log_view() | workspace_path: workspace}},
+        terminal_rows: 40
+      )
+
+    assert rendered =~ "\n│\n\e[1m├─ Agent log:"
+  end
+
+  test "interactive log view keeps the last running snapshot while a submitted message is still pending" do
+    previous_snapshot = snapshot_with_workspace("/tmp/mt-251")
+
+    current_snapshot =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    assert ^previous_snapshot =
+             StatusDashboard.renderable_snapshot_data_for_test(
+               current_snapshot,
+               previous_snapshot,
+               {:log, paused_log_view()}
+             )
+  end
+
   defp state(dashboard) do
     :sys.get_state(dashboard)
   end

@@ -8,6 +8,7 @@
 │   ID     STATE      ISSUE                      AGE / TURN  
 │   ────────────────────────────────────────────────────────
 │   MT-001 working    Sample issue title         0m 0s / 1   
+│
 ├─ Agent log: MT-001 (in-progress)
 │
 │   PID: 4242 | Tokens: 0
