@@ -20,7 +20,7 @@ defmodule SymphonyElixir.AlertsTest do
                player: fn sound -> send(self(), {:played_sound, sound}) end
              )
 
-    assert_receive {:played_sound, "/Users/kevin/alerts/upgrade-complete.wav"}
+    assert_receive {:played_sound, "/Users/kevin/alerts/advisor-upgrade-complete.wav"}
 
     log_path = Path.join(workspace, "logs/agent.md")
     ndjson_path = Path.join(workspace, "logs/agent.ndjson")
