@@ -702,7 +702,7 @@ defmodule SymphonyElixir.StatusDashboard do
     chrome_lines = 1 + length(metadata_lines) + length(placeholder_lines) + queued_chrome_lines + 1
     # chrome: pane header + metadata + queued section + placeholder + closing border
 
-    pane_budget = rows - header_height - chrome_lines
+    pane_budget = rows - header_height - chrome_lines - 1
 
     if pane_budget < @min_log_pane_lines do
       # Graceful degrade — too small to render a useful pane; fall back to list tail.
