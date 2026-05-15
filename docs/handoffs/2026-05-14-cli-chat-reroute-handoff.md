@@ -33,16 +33,14 @@ These are not just edge-case bugs. They point to a model mismatch:
 - Delivery is still conceptually queue/checkpoint driven, even where we tried to make it feel faster.
 - Canonical log confirmation is not well-defined enough for pending-state removal.
 
-## Current Code State
+## Useful Learnings From The Abandoned Iteration
 
-There are local, uncommitted code changes in the working tree under:
+The last implementation pass explored several ideas against the older checkpoint-first model. The next agent should not copy that code blindly, but these learnings are worth preserving:
 
-- `elixir/lib/symphony_elixir/status_dashboard.ex`
-- `elixir/lib/symphony_elixir/agent_runner.ex`
-- `elixir/lib/symphony_elixir/agent_log.ex`
-- related tests and snapshot fixtures in `elixir/test/...`
-
-Those changes are exploratory and were built against the older checkpoint-first model. They improved a few narrow cases, but they are not the recommended product direction anymore.
+- Cached log content helped typing responsiveness somewhat, but as long as the composer still depended on the dashboard render path, typing could still visibly batch.
+- Local pending-preview reconciliation based only on orchestrator queue state was not enough. Pending removal needs a stronger acceptance signal tied to actual delivery/log confirmation.
+- Synthetic operator-log insertion reduced the "message never appears in log" failure mode, but it also introduced duplicate/confirmation complexity. The next design should decide this path deliberately rather than as a patch.
+- Queue/checkpoint delivery logic became hard to reason about across normal turns, paused turns, and resume paths. This reinforced the need to move to interrupt-first semantics instead of improving the old timing model further.
 
 ## Recommendation For The Next Agent
 
@@ -51,7 +49,7 @@ Do not continue from the current implementation by stacking more small fixes ont
 Instead:
 
 1. Re-plan from the revised brainstorm doc.
-2. Treat the existing local code changes as reference material only, not as the implementation baseline.
+2. Treat the prior checkpoint-first implementation as discarded exploration, not as the implementation baseline.
 3. Make an explicit architecture choice for the composer:
    - separate terminal layer / direct input rendering
    - or equivalent decoupled rendering path that avoids full dashboard redraw on each local edit
@@ -77,6 +75,4 @@ Instead:
 
 ## Branch Remote State
 
-This handoff doc and the rewritten requirements doc are intended to be committed and pushed so a new agent can start from the revised direction remotely.
-
-The uncommitted Elixir code changes remain local and are intentionally not part of this handoff commit.
+This branch now contains the revised requirements doc and this handoff note so a new agent on another machine can restart from the new model without needing any local-only context.
