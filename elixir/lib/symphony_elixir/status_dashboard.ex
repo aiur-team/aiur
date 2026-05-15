@@ -1850,7 +1850,7 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp composer_prompt_lines(composer, width) do
-    prompt = "> " <> composer.buffer
+    prompt = "› " <> composer.buffer
     cursor_index = min(Map.get(composer, :cursor_offset, 0) + 2, grapheme_length(prompt))
     prompt_lines = prompt |> String.split("\n", trim: false) |> Enum.flat_map(&wrap_line(&1, width))
     cursor_position = wrapped_cursor_position(prompt, cursor_index, width)
