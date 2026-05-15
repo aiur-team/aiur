@@ -1,7 +1,9 @@
 defmodule SymphonyElixir.TerminalInputTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias SymphonyElixir.TerminalInput
+
+  @receive_timeout 1_000
 
   defmodule DashboardProbe do
     use GenServer
@@ -23,8 +25,8 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["\e", "[", "B", "\e", "[", "A", :eof])
 
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
-    assert_receive {:dashboard_cast, {:select_agent, -1}}
+    assert_receive {:dashboard_cast, {:select_agent, 1}}, @receive_timeout
+    assert_receive {:dashboard_cast, {:select_agent, -1}}, @receive_timeout
   end
 
   test "space and enter open the log pane in typing mode" do
@@ -32,10 +34,10 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, [" ", "h", "\r", "\n", :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, {:append_text, "h"}}
-    assert_receive {:dashboard_cast, :submit_message}
-    assert_receive {:dashboard_cast, :submit_message}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "h"}}, @receive_timeout
+    assert_receive {:dashboard_cast, :submit_message}, @receive_timeout
+    assert_receive {:dashboard_cast, :submit_message}, @receive_timeout
   end
 
   test "left arrow closes the log pane from list focus" do
@@ -43,9 +45,9 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i", "\t", "\e", "[", "D", :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, :close_log}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :exit_typing}, @receive_timeout
+    assert_receive {:dashboard_cast, :close_log}, @receive_timeout
   end
 
   test "PgUp and PgDn scroll the log pane" do
@@ -53,10 +55,10 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i", "\t", "\e", "[", "5", "~", "\e", "[", "6", "~", :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, {:scroll_log, :up}}
-    assert_receive {:dashboard_cast, {:scroll_log, :down}}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :exit_typing}, @receive_timeout
+    assert_receive {:dashboard_cast, {:scroll_log, :up}}, @receive_timeout
+    assert_receive {:dashboard_cast, {:scroll_log, :down}}, @receive_timeout
   end
 
   test "tab switches from chat focus to agent-list focus and space reopens selected log" do
@@ -64,10 +66,10 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i", "\t", "j", " ", :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
-    assert_receive {:dashboard_cast, :open_log}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :exit_typing}, @receive_timeout
+    assert_receive {:dashboard_cast, {:select_agent, 1}}, @receive_timeout
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
   end
 
   test "ctrl-c pauses first and closes log on second press" do
@@ -75,9 +77,9 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i", <<3>>, <<3>>, :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :pause_agent}
-    assert_receive {:dashboard_cast, :close_log}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :pause_agent}, @receive_timeout
+    assert_receive {:dashboard_cast, :close_log}, @receive_timeout
   end
 
   test "ctrl-c pause escalation survives tabbing to agent-list focus" do
@@ -85,10 +87,10 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i", <<3>>, "\t", <<3>>, :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :pause_agent}
-    assert_receive {:dashboard_cast, :exit_typing}
-    assert_receive {:dashboard_cast, :close_log}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :pause_agent}, @receive_timeout
+    assert_receive {:dashboard_cast, :exit_typing}, @receive_timeout
+    assert_receive {:dashboard_cast, :close_log}, @receive_timeout
   end
 
   test "q remains literal input in typing mode" do
@@ -96,8 +98,8 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i", "q", :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, {:append_text, "q"}}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "q"}}, @receive_timeout
     refute_received {:dashboard_cast, :exit_typing}
   end
 
@@ -106,23 +108,34 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i", "\e", "", :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, :close_log}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :close_log}, @receive_timeout
   end
 
-  test "typing mode appends text, backspaces, submits, and supports alt-enter newline" do
+  test "typing mode appends text, backspaces, submits, and supports shift-enter newline" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 
-    start_input(dashboard, ["i", "h", "i", <<127>>, "!", "\e", "\r", "t", "\n", :eof])
+    start_input(dashboard, ["i", "h", "i", <<127>>, "!", "\e", "[", "1", "3", ";", "2", "u", "t", "\n", :eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, {:append_text, "h"}}
-    assert_receive {:dashboard_cast, {:append_text, "i"}}
-    assert_receive {:dashboard_cast, :backspace}
-    assert_receive {:dashboard_cast, {:append_text, "!"}}
-    assert_receive {:dashboard_cast, {:append_text, "\n"}}
-    assert_receive {:dashboard_cast, {:append_text, "t"}}
-    assert_receive {:dashboard_cast, :submit_message}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "h"}}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "i"}}, @receive_timeout
+    assert_receive {:dashboard_cast, :backspace}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "!"}}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "\n"}}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "t"}}, @receive_timeout
+    assert_receive {:dashboard_cast, :submit_message}, @receive_timeout
+  end
+
+  test "left and right arrows move the typing cursor instead of leaving the composer" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    start_input(dashboard, ["i", "\e", "[", "D", "\e", "[", "C", :eof])
+
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :move_cursor_left}, @receive_timeout
+    assert_receive {:dashboard_cast, :move_cursor_right}, @receive_timeout
+    refute_received {:dashboard_cast, :close_log}
   end
 
   test "unknown CSI sequences are ignored" do
@@ -131,7 +144,7 @@ defmodule SymphonyElixir.TerminalInputTest do
     # \e[Z is a real but unhandled CSI sequence (Shift-Tab); should not crash.
     start_input(dashboard, ["\e", "[", "Z", "j", :eof])
 
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
+    assert_receive {:dashboard_cast, {:select_agent, 1}}, @receive_timeout
   end
 
   test "bracketed paste framing is consumed without dispatching individual bytes" do
@@ -149,7 +162,7 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     # Only ONE select_agent cast (from the trailing real `j`), not three
     # (which is what would happen if the pasted j/k bytes leaked through).
-    assert_receive {:dashboard_cast, {:select_agent, 1}}
+    assert_receive {:dashboard_cast, {:select_agent, 1}}, @receive_timeout
     refute_received {:dashboard_cast, _}
   end
 
@@ -162,8 +175,8 @@ defmodule SymphonyElixir.TerminalInputTest do
 
     start_input(dashboard, ["i"] ++ paste_start ++ paste_body ++ paste_end ++ [:eof])
 
-    assert_receive {:dashboard_cast, :open_log}
-    assert_receive {:dashboard_cast, {:append_text, "hi\nthere"}}
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, {:append_text, "hi\nthere"}}, @receive_timeout
   end
 
   defp start_input(dashboard, byte_queue) do

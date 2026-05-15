@@ -1,18 +1,16 @@
 ```text
 ╭─ SYMPHONY STATUS
-│ ITS: linear | Agent: codex                             │ Rate Limits: unavailable
-│ Agents: 1/10                                           │ Project: project
+│ Agents: codex (1/10)                                   │ Project: project
 │ Runtime: 0m 30s                                        │ Next refresh: n/a
 ├─ Running
 │
-│   ID     STATE      ISSUE                      AGE / TURN  
-│   ────────────────────────────────────────────────────────
-│   MT-001 working    Sample issue title         0m 0s / 1   
+│   ID     TAG      STATE      ISSUE                  AGE / TURN  
+│   ─────────────────────────────────────────────────────────────
+│   MT-001 todo     working    Sample issue title     0m 0s / 1   
 │
-├─ Agent log: MT-001 (in-progress)
+├─ Agent log: MT-001 - Fix the login flow (in-progress)
 │
-│   PID: 4242 | Tokens: 0
-│   Issue: Fix the login flow
+│   URL: https://github.com/its-everdred/symphony/issues/0
 │
 │   [22:46:39] symphony · Issue prompt
 │       Fix the login flow
@@ -26,8 +24,9 @@
 │ Queued input
 │   queued: abc
 │   sending: def
-│
-│ >
-│ Enter sends · Esc closes log · Ctrl-C pauses · Alt-Enter newline
 ╰─
+                                                                                                                   
+  ›                                                                                                                
+                                                                                                                   
+Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                 
 ```
