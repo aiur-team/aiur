@@ -86,7 +86,6 @@ defmodule SymphonyElixir.TerminalInput do
       :eof -> handle_escape_timeout(parent, dashboard, input_fun, mode, :stop_reader)
       "" -> handle_escape_timeout(parent, dashboard, input_fun, mode, :continue)
       "[" -> handle_csi_escape(parent, dashboard, input_fun, mode)
-      byte when byte in ["\r", "\n"] -> handle_alt_enter(parent, dashboard, input_fun)
       other -> handle_escape_other(other, parent, dashboard, input_fun, mode)
     end
   end
@@ -237,11 +236,6 @@ defmodule SymphonyElixir.TerminalInput do
     end
   end
 
-  defp handle_alt_enter(parent, dashboard, input_fun) do
-    StatusDashboard.append_text(dashboard, "\n")
-    read_loop(parent, dashboard, input_fun, {:text, :clear})
-  end
-
   defp handle_escape_other(other, parent, dashboard, input_fun, {:text, :armed}) do
     StatusDashboard.close_log(dashboard)
     dispatch_byte(other, parent, dashboard, input_fun, :list)
@@ -288,14 +282,23 @@ defmodule SymphonyElixir.TerminalInput do
   defp dispatch_csi(dashboard, "", "B", {:log_nav, pause_state}),
     do: tap({:log_nav, pause_state}, fn _ -> StatusDashboard.select_next(dashboard) end)
 
+  defp dispatch_csi(dashboard, "", "C", {:text, pause_state}),
+    do: tap({:text, pause_state}, fn _ -> StatusDashboard.move_cursor_right(dashboard) end)
+
   defp dispatch_csi(dashboard, "", "D", {:log_nav, _pause_state}),
     do: tap(:list, fn _ -> StatusDashboard.close_log(dashboard) end)
+
+  defp dispatch_csi(dashboard, "", "D", {:text, pause_state}),
+    do: tap({:text, pause_state}, fn _ -> StatusDashboard.move_cursor_left(dashboard) end)
 
   defp dispatch_csi(dashboard, "5", "~", {:log_nav, pause_state}),
     do: tap({:log_nav, pause_state}, fn _ -> StatusDashboard.scroll_log_up(dashboard) end)
 
   defp dispatch_csi(dashboard, "6", "~", {:log_nav, pause_state}),
     do: tap({:log_nav, pause_state}, fn _ -> StatusDashboard.scroll_log_down(dashboard) end)
+
+  defp dispatch_csi(dashboard, "13;2", "u", {:text, pause_state}),
+    do: tap({:text, pause_state}, fn _ -> StatusDashboard.append_text(dashboard, "\n") end)
 
   defp dispatch_csi(_dashboard, "200", "~", _mode), do: :paste_start
   defp dispatch_csi(_dashboard, "201", "~", mode), do: mode
@@ -341,6 +344,7 @@ defmodule SymphonyElixir.TerminalInput do
   end
 
   defp restore_terminal do
+    IO.write("\e[?25h")
     disable_bracketed_paste()
     SymphonyElixir.Os.stty(["sane"])
     :ok
