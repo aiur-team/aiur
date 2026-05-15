@@ -34,7 +34,8 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       title: "Snapshot test",
       description: "Capture codex state",
       state: "In Progress",
-      url: "https://example.org/issues/MT-188"
+      url: "https://example.org/issues/MT-188",
+      labels: ["agent:todo", "backend"]
     }
 
     orchestrator_name = Module.concat(__MODULE__, :SnapshotOrchestrator)
@@ -95,6 +96,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert %{running: [snapshot_entry]} = snapshot
     assert snapshot_entry.issue_id == issue_id
     assert snapshot_entry.session_id == "thread-live-turn-live"
+    assert snapshot_entry.tag == "agent:todo"
     assert snapshot_entry.turn_count == 1
     assert snapshot_entry.last_codex_timestamp == now
 
@@ -1511,6 +1513,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     row =
       StatusDashboard.format_running_summary_for_test(%{
         identifier: "MT-233",
+        tag: "agent:todo",
         state: "running",
         work_state: :working,
         session_id: "thread-1234567890",
@@ -1523,6 +1526,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     plain = Regex.replace(~r/\e\[[\\d;]*m/, row, "")
 
     assert plain =~ "MT-233"
+    assert plain =~ "todo"
     assert plain =~ "working"
     refute plain =~ "turn completed"
   end
@@ -1531,6 +1535,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     row =
       StatusDashboard.format_running_summary_for_test(%{
         identifier: "MT-898",
+        tag: "agent:todo",
         state: "running",
         work_state: :paused,
         session_id: "thread-1234567890",
@@ -1542,6 +1547,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     plain = Regex.replace(~r/\e\[[0-9;]*m/, row, "")
 
     assert plain =~ "MT-898"
+    assert plain =~ "todo"
     assert plain =~ "paused"
   end
 
@@ -1552,6 +1558,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       StatusDashboard.format_running_summary_for_test(
         %{
           identifier: "MT-598",
+          tag: "agent:todo",
           state: "running",
           work_state: :working,
           session_id: "thread-1234567890",
@@ -1565,6 +1572,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     plain = Regex.replace(~r/\e\[[\d;]*m/, row, "")
 
     assert plain =~ "MT-598"
+    assert plain =~ "todo"
     assert plain =~ "working"
     refute plain =~ "turn completed"
   end

@@ -16,8 +16,9 @@ defmodule SymphonyElixir.StatusDashboard do
   @throughput_graph_columns 24
   @sparkline_blocks ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
   @running_id_width 6
+  @running_tag_width 8
   @running_state_width 10
-  @running_issue_width 26
+  @running_issue_width 22
   @running_age_width 12
   @default_terminal_columns 115
   @default_terminal_rows 40
@@ -698,8 +699,8 @@ defmodule SymphonyElixir.StatusDashboard do
     header_height = length(List.flatten(header_lines))
     placeholder_lines = format_input_placeholder(display_log_view, columns)
     queued_chrome_lines = if(queued_lines == [], do: 0, else: length(queued_lines) + 1)
-    chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + queued_chrome_lines + 1
-    # chrome: pane header + spacer + metadata + queued section + placeholder + closing border
+    chrome_lines = 1 + length(metadata_lines) + length(placeholder_lines) + queued_chrome_lines + 1
+    # chrome: pane header + metadata + queued section + placeholder + closing border
 
     pane_budget = rows - header_height - chrome_lines
 
@@ -715,8 +716,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
       tail =
         [
-          colorize("├─ #{pane_title}", @ansi_bold),
-          "│"
+          colorize("├─ #{pane_title}", @ansi_bold)
         ] ++
           metadata_lines ++
           pane_lines ++
@@ -731,36 +731,12 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_log_metadata(log_view, running, _columns) do
     entry = running_entry_for_identifier(running, log_view.issue_identifier)
-    title = log_view.title || (entry && Map.get(entry, :title)) || "—"
     issue_url = Map.get(entry || %{}, :url)
 
     [
-      metadata_summary_line(entry),
-      metadata_value_line("Issue", title || "—", @ansi_cyan),
       metadata_value_line("URL", issue_url || "—", if(is_binary(issue_url), do: @ansi_cyan, else: @ansi_gray)),
       "│"
     ]
-  end
-
-  defp metadata_summary_line(nil) do
-    colorize("│   ", @ansi_gray) <>
-      colorize("PID: ", @ansi_bold) <>
-      colorize("(finished)", @ansi_gray) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize("Tokens: ", @ansi_bold) <>
-      colorize("(finished)", @ansi_gray)
-  end
-
-  defp metadata_summary_line(entry) do
-    tokens = Map.get(entry, :agent_total_tokens, 0)
-    pid = Map.get(entry, :codex_app_server_pid) || "n/a"
-
-    colorize("│   ", @ansi_gray) <>
-      colorize("PID: ", @ansi_bold) <>
-      colorize(to_string(pid), @ansi_yellow) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize("Tokens: ", @ansi_bold) <>
-      colorize(format_count(tokens), @ansi_yellow)
   end
 
   defp metadata_value_line(label, value, value_color) do
@@ -886,15 +862,18 @@ defmodule SymphonyElixir.StatusDashboard do
   defp slice_log_lines(_lines, _budget, _scroll), do: []
 
   defp format_pane_title(%{issue_identifier: id} = log_view, running) do
+    entry = running_entry_for_identifier(running, id)
+    title = log_view.title || Map.get(entry || %{}, :title) || "—"
+
     state_part =
-      case running_entry_for_identifier(running, id) do
+      case entry do
         nil -> " (finished)"
         entry -> " (#{entry.state})"
       end
 
     case log_view.workspace_path do
-      nil -> "Agent log: #{id}#{state_part} — no local workspace"
-      _ -> "Agent log: #{id}#{state_part}"
+      nil -> "Agent log: #{id} - #{title}#{state_part} — no local workspace"
+      _ -> "Agent log: #{id} - #{title}#{state_part}"
     end
   end
 
@@ -921,7 +900,7 @@ defmodule SymphonyElixir.StatusDashboard do
           {"Tab returns to chat · J/K move agents · Space opens selected log · Esc closes log · Ctrl-C pauses", @ansi_gray}
 
         true ->
-          {"Enter sends · Esc closes log · Ctrl-C pauses · Alt-Enter newline", @ansi_gray}
+          {"Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline", @ansi_gray}
       end
 
     Enum.map(prompt_lines, &("│ " <> colorize(&1, @ansi_white))) ++
@@ -1047,27 +1026,23 @@ defmodule SymphonyElixir.StatusDashboard do
          agent_count,
          max_agents,
          agent_seconds_running,
-         rate_limits,
+         _rate_limits,
          polling,
          columns
        ) do
     left_lines = [
-      colorize("│ ITS: ", @ansi_bold) <>
-        colorize(Config.tracker_kind(), @ansi_cyan) <>
-        colorize(" | ", @ansi_gray) <>
-        colorize("Agent: ", @ansi_bold) <>
-        colorize(Config.agent_kind(), @ansi_cyan),
       colorize("│ Agents: ", @ansi_bold) <>
-        colorize("#{agent_count}", @ansi_green) <>
+        colorize(Config.agent_kind(), @ansi_cyan) <>
+        colorize(" ", @ansi_gray) <>
+        colorize("(#{agent_count}", @ansi_gray) <>
         colorize("/", @ansi_gray) <>
-        colorize("#{max_agents}", @ansi_gray),
+        colorize("#{max_agents})", @ansi_gray),
       colorize("│ Runtime: ", @ansi_bold) <>
         colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta)
     ]
 
     right_lines =
-      [colorize("Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits)] ++
-        right_project_lines() ++
+      right_project_lines() ++
         [right_refresh_line(polling)]
 
     rows = pair_pane_lines(left_lines, right_lines, columns)
@@ -1327,6 +1302,7 @@ defmodule SymphonyElixir.StatusDashboard do
   # credo:disable-for-next-line
   defp format_running_summary(running_entry, selected? \\ false) do
     issue = format_cell(running_entry.identifier || "unknown", @running_id_width)
+    tag = format_cell(display_tag(Map.get(running_entry, :tag)), @running_tag_width)
     state = Map.get(running_entry, :work_state) || get_in(running_entry, [:control, :status]) || :working
     state_display = format_cell(work_state_label(state), @running_state_width)
     title = format_cell(Map.get(running_entry, :title) || "", @running_issue_width)
@@ -1346,6 +1322,8 @@ defmodule SymphonyElixir.StatusDashboard do
       selection_marker(status_color, selected?),
       " ",
       colorize(issue, @ansi_cyan),
+      " ",
+      colorize(tag, @ansi_gray),
       " ",
       colorize(state_display, status_color),
       " ",
@@ -1460,30 +1438,16 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_runtime_and_turns(seconds, _turn_count), do: format_runtime_seconds(seconds)
 
-  defp format_count(nil), do: "0"
-
-  defp format_count(value) when is_integer(value) do
-    value
-    |> Integer.to_string()
-    |> group_thousands()
-  end
-
-  defp format_count(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> Integer.parse()
-    |> case do
-      {number, ""} -> group_thousands(Integer.to_string(number))
-      _ -> value
-    end
-  end
-
-  defp format_count(value), do: to_string(value)
+  defp display_tag(nil), do: "—"
+  defp display_tag(""), do: "—"
+  defp display_tag(tag) when is_binary(tag), do: String.replace_prefix(tag, "agent:", "")
+  defp display_tag(tag), do: tag |> to_string() |> display_tag()
 
   defp running_table_header_row do
     header =
       [
         format_cell("ID", @running_id_width),
+        format_cell("TAG", @running_tag_width),
         format_cell("STATE", @running_state_width),
         format_cell("ISSUE", @running_issue_width),
         format_cell("AGE / TURN", @running_age_width)
@@ -1496,9 +1460,10 @@ defmodule SymphonyElixir.StatusDashboard do
   defp running_table_separator_row do
     separator_width =
       @running_id_width +
+        @running_tag_width +
         @running_state_width +
         @running_issue_width +
-        @running_age_width + 2
+        @running_age_width + 3
 
     "│   " <> colorize(String.duplicate("─", separator_width), @ansi_gray)
   end
@@ -1653,126 +1618,11 @@ defmodule SymphonyElixir.StatusDashboard do
   defp in_bucket?(timestamp, bucket_start, bucket_end, false),
     do: timestamp >= bucket_start and timestamp < bucket_end
 
-  defp format_rate_limits(nil), do: colorize("unavailable", @ansi_gray)
-
-  defp format_rate_limits(rate_limits) when is_map(rate_limits) do
-    limit_id =
-      map_value(rate_limits, ["limit_id", :limit_id, "limit_name", :limit_name]) ||
-        "unknown"
-
-    primary = format_rate_limit_bucket(map_value(rate_limits, ["primary", :primary]))
-    secondary = format_rate_limit_bucket(map_value(rate_limits, ["secondary", :secondary]))
-    credits = format_rate_limit_credits(map_value(rate_limits, ["credits", :credits]))
-
-    colorize(to_string(limit_id), @ansi_yellow) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize("primary #{primary}", @ansi_cyan) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize("secondary #{secondary}", @ansi_cyan) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize(credits, @ansi_green)
-  end
-
-  defp format_rate_limits(other) do
-    other
-    |> inspect(limit: 10)
-    |> truncate(80)
-    |> colorize(@ansi_gray)
-  end
-
-  defp format_rate_limit_bucket(nil), do: "n/a"
-
-  defp format_rate_limit_bucket(bucket) when is_map(bucket) do
-    remaining = map_value(bucket, ["remaining", :remaining])
-    limit = map_value(bucket, ["limit", :limit])
-
-    reset_value =
-      map_value(bucket, [
-        "reset_in_seconds",
-        :reset_in_seconds,
-        "resetInSeconds",
-        :resetInSeconds,
-        "reset_at",
-        :reset_at,
-        "resetAt",
-        :resetAt,
-        "resets_at",
-        :resets_at,
-        "resetsAt",
-        :resetsAt
-      ])
-
-    base =
-      cond do
-        integer_like?(remaining) and integer_like?(limit) ->
-          "#{format_count(remaining)}/#{format_count(limit)}"
-
-        integer_like?(remaining) ->
-          "remaining #{format_count(remaining)}"
-
-        integer_like?(limit) ->
-          "limit #{format_count(limit)}"
-
-        map_size(bucket) == 0 ->
-          "n/a"
-
-        true ->
-          bucket |> inspect(limit: 6) |> truncate(40)
-      end
-
-    if is_nil(reset_value) do
-      base
-    else
-      "#{base} reset #{format_reset_value(reset_value)}"
-    end
-  end
-
-  defp format_rate_limit_bucket(other), do: to_string(other)
-
-  defp format_rate_limit_credits(nil), do: "credits n/a"
-
-  defp format_rate_limit_credits(credits) when is_map(credits) do
-    unlimited = map_value(credits, ["unlimited", :unlimited]) == true
-    has_credits = map_value(credits, ["has_credits", :has_credits]) == true
-    balance = map_value(credits, ["balance", :balance])
-
-    cond do
-      unlimited ->
-        "credits unlimited"
-
-      has_credits and is_number(balance) ->
-        "credits #{format_number(balance)}"
-
-      has_credits ->
-        "credits available"
-
-      true ->
-        "credits none"
-    end
-  end
-
-  defp format_rate_limit_credits(other), do: "credits #{to_string(other)}"
-
-  defp format_reset_value(value) when is_integer(value), do: "#{format_count(value)}s"
-  defp format_reset_value(value) when is_binary(value), do: value
-  defp format_reset_value(value), do: to_string(value)
-
-  defp format_number(value) when is_integer(value), do: format_count(value)
-
-  defp format_number(value) when is_float(value) do
-    value
-    |> Float.round(2)
-    |> :erlang.float_to_binary(decimals: 2)
-  end
-
   defp map_value(map, keys) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, &Map.get(map, &1))
   end
 
   defp map_value(_map, _keys), do: nil
-
-  defp integer_like?(value) when is_integer(value), do: true
-  defp integer_like?(_value), do: false
 
   defp selection_marker(color_code, true), do: colorize("▶", color_code)
   defp selection_marker(_color_code, false), do: " "
