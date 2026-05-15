@@ -34,7 +34,8 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       title: "Snapshot test",
       description: "Capture codex state",
       state: "In Progress",
-      url: "https://example.org/issues/MT-188"
+      url: "https://example.org/issues/MT-188",
+      labels: ["agent:todo", "backend"]
     }
 
     orchestrator_name = Module.concat(__MODULE__, :SnapshotOrchestrator)
@@ -95,6 +96,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert %{running: [snapshot_entry]} = snapshot
     assert snapshot_entry.issue_id == issue_id
     assert snapshot_entry.session_id == "thread-live-turn-live"
+    assert snapshot_entry.tag == "agent:todo"
     assert snapshot_entry.turn_count == 1
     assert snapshot_entry.last_codex_timestamp == now
 
@@ -1184,7 +1186,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "https://github.com/its-applekid/actions/issues"
   end
 
-  test "status dashboard renders the dashboard url in the title row when server port is configured" do
+  test "status dashboard renders the dashboard url in the running header when server port is configured" do
     previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
 
     on_exit(fn ->
@@ -1207,14 +1209,41 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        }}
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
+    plain = Regex.replace(~r/\e\[[0-9;]*m/, rendered, "")
 
-    assert rendered =~ "Project:"
-    assert rendered =~ "project"
-    assert rendered =~ "http://127.0.0.1:4000/"
+    assert plain =~ "Project:"
+    assert plain =~ "project"
+    assert plain =~ "http://127.0.0.1:4000/"
 
-    [title_line | _] = String.split(rendered, "\n")
+    [title_line | _] = String.split(plain, "\n")
     assert title_line =~ "SYMPHONY STATUS"
-    assert title_line =~ "http://127.0.0.1:4000/"
+    refute title_line =~ "http://127.0.0.1:4000/"
+    assert plain =~ "Running: http://127.0.0.1:4000/"
+  end
+
+  test "status dashboard runtime includes currently running agent time" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [
+           %{
+             identifier: "MT-777",
+             title: "Live runtime",
+             state: "working",
+             work_state: :working,
+             runtime_seconds: 131,
+             turn_count: 1
+           }
+         ],
+         retrying: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
+    plain = Regex.replace(~r/\e\[[0-9;]*m/, rendered, "")
+
+    assert plain =~ "Runtime: 2m 11s"
   end
 
   test "status dashboard prefers the bound server port and normalizes wildcard hosts" do
@@ -1484,6 +1513,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     row =
       StatusDashboard.format_running_summary_for_test(%{
         identifier: "MT-233",
+        tag: "agent:todo",
         state: "running",
         work_state: :working,
         session_id: "thread-1234567890",
@@ -1496,6 +1526,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     plain = Regex.replace(~r/\e\[[\\d;]*m/, row, "")
 
     assert plain =~ "MT-233"
+    assert plain =~ "todo"
     assert plain =~ "working"
     refute plain =~ "turn completed"
   end
@@ -1504,6 +1535,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     row =
       StatusDashboard.format_running_summary_for_test(%{
         identifier: "MT-898",
+        tag: "agent:todo",
         state: "running",
         work_state: :paused,
         session_id: "thread-1234567890",
@@ -1515,6 +1547,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     plain = Regex.replace(~r/\e\[[0-9;]*m/, row, "")
 
     assert plain =~ "MT-898"
+    assert plain =~ "todo"
     assert plain =~ "paused"
   end
 
@@ -1525,6 +1558,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       StatusDashboard.format_running_summary_for_test(
         %{
           identifier: "MT-598",
+          tag: "agent:todo",
           state: "running",
           work_state: :working,
           session_id: "thread-1234567890",
@@ -1538,6 +1572,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     plain = Regex.replace(~r/\e\[[\d;]*m/, row, "")
 
     assert plain =~ "MT-598"
+    assert plain =~ "todo"
     assert plain =~ "working"
     refute plain =~ "turn completed"
   end

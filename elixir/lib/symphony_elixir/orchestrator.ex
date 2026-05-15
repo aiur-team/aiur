@@ -1567,7 +1567,9 @@ defmodule SymphonyElixir.Orchestrator do
           issue_id: issue_id,
           identifier: metadata.identifier,
           state: metadata.issue.state,
+          tag: issue_tag(metadata.issue),
           title: Map.get(metadata.issue, :title),
+          url: Map.get(metadata.issue, :url),
           worker_host: Map.get(metadata, :worker_host),
           workspace_path: Map.get(metadata, :workspace_path),
           session_id: metadata.session_id,
@@ -1949,6 +1951,14 @@ defmodule SymphonyElixir.Orchestrator do
       _ -> [:notification]
     end
   end
+
+  defp issue_tag(%Issue{} = issue) do
+    issue
+    |> Issue.label_names()
+    |> Enum.find(fn label -> is_binary(label) and String.starts_with?(label, "agent:") end)
+  end
+
+  defp issue_tag(_issue), do: nil
 
   defp find_running_by_identifier(running, issue_identifier) do
     Enum.find_value(running, fn

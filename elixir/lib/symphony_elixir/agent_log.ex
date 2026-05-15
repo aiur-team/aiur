@@ -46,6 +46,7 @@ defmodule SymphonyElixir.AgentLog do
       |> Enum.map(fn [_match, timestamp, event, body] -> parse_log_entry(timestamp, event, body) end)
       |> Enum.reject(&is_nil/1)
       |> compact_log_messages()
+      |> suppress_redundant_issue_prompts()
       |> Enum.take(-@message_window)
 
     if messages == [] do
@@ -90,7 +91,11 @@ defmodule SymphonyElixir.AgentLog do
         log_message("assistant", "Agent", timestamp, text)
 
       {"warning", %{"message" => message}} ->
-        log_message("system", "Warning", timestamp, message)
+        if hidden_warning_message?(message) do
+          nil
+        else
+          log_message("system", "Warning", timestamp, message)
+        end
 
       {"item/started", %{"item" => %{"type" => "commandExecution"}}} ->
         nil
@@ -194,6 +199,33 @@ defmodule SymphonyElixir.AgentLog do
     end
   end
 
+  defp hidden_warning_message?(message) when is_binary(message) do
+    String.starts_with?(message, "Skill descriptions were shortened to fit the 2% skills context budget.")
+  end
+
+  defp hidden_warning_message?(_message), do: false
+
+  defp suppress_redundant_issue_prompts(messages) do
+    {messages, _seen_issue_prompt?} =
+      Enum.reduce(messages, {[], false}, fn message, {acc, seen_issue_prompt?} ->
+        cond do
+          issue_prompt_log_message?(message) and seen_issue_prompt? ->
+            {acc, seen_issue_prompt?}
+
+          issue_prompt_log_message?(message) ->
+            {[message | acc], true}
+
+          true ->
+            {[message | acc], seen_issue_prompt?}
+        end
+      end)
+
+    Enum.reverse(messages)
+  end
+
+  defp issue_prompt_log_message?(%{role: "user", title: "Issue prompt"}), do: true
+  defp issue_prompt_log_message?(_message), do: false
+
   defp content_text(content) when is_list(content) do
     Enum.map_join(content, "\n\n", fn
       %{"text" => text} -> text
@@ -285,7 +317,7 @@ defmodule SymphonyElixir.AgentLog do
         log_message("user", "Issue prompt", timestamp, summarize_prompt(text))
 
       true ->
-        log_message("user", "Operator message", timestamp, summarize_payload(text))
+        log_message("user", "Executor", timestamp, summarize_payload(text))
     end
   end
 
