@@ -164,6 +164,37 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
     assert %{view: {:log, _log_view}} = dashboard
   end
 
+  test "reconcile_log_view_with_snapshot preserves the last known workspace path when a running entry omits it",
+       %{dashboard: dashboard} do
+    log_view = %{paused_log_view() | workspace_path: "/tmp/mt-251", title: "Pause and resume"}
+
+    snapshot =
+      {:ok,
+       %{
+         running: [
+           %{
+             identifier: "MT-251",
+             title: nil,
+             workspace_path: nil,
+             work_state: :working,
+             control: %{status: :working},
+             pending_operator_messages: []
+           }
+         ],
+         retrying: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    dashboard =
+      dashboard
+      |> state()
+      |> Map.put(:view, {:log, log_view})
+      |> StatusDashboard.reconcile_log_view_with_snapshot_for_test(snapshot)
+
+    assert %{view: {:log, %{workspace_path: "/tmp/mt-251", title: "Pause and resume"}}} = dashboard
+  end
+
   test "rendered queued section hides operator messages once they are present in the log" do
     workspace = Path.join(System.tmp_dir!(), "status_dashboard_logged_operator_#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(workspace, "logs"))

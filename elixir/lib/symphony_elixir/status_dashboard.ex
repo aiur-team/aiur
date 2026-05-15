@@ -1804,8 +1804,8 @@ defmodule SymphonyElixir.StatusDashboard do
       running_entry ->
         reconciled_log_view = %{
           log_view
-          | workspace_path: Map.get(running_entry, :workspace_path, log_view.workspace_path),
-            title: Map.get(running_entry, :title, log_view.title),
+          | workspace_path: Map.get(running_entry, :workspace_path) || log_view.workspace_path,
+            title: Map.get(running_entry, :title) || log_view.title,
             composer: reconcile_composer_with_running_entry(log_view.composer, running_entry)
         }
 
