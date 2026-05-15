@@ -370,6 +370,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Map.merge(
       %{
         identifier: "MT-000",
+        tag: "agent:todo",
         title: "Sample issue title",
         url: "https://github.com/its-everdred/symphony/issues/0",
         state: "running",

@@ -1,17 +1,13 @@
 \e[1m╭─ SYMPHONY STATUS\e[0m
-\e[1m│ ITS: \e[0m\e[36mlinear\e[0m\e[90m | \e[0m\e[1mAgent: \e[0m\e[36mcodex\e[0m                             \e[90m│\e[0m \e[1mRate Limits: \e[0m\e[90munavailable\e[0m
-\e[1m│ Agents: \e[0m\e[32m0\e[0m\e[90m/\e[0m\e[90m10\e[0m                                           \e[90m│\e[0m \e[1mProject: \e[0m\e[36mproject\e[0m
+\e[1m│ Agents: \e[0m\e[36mcodex\e[0m\e[90m \e[0m\e[90m(0\e[0m\e[90m/\e[0m\e[90m10)\e[0m                                   \e[90m│\e[0m \e[1mProject: \e[0m\e[36mproject\e[0m
 \e[1m│ Runtime: \e[0m\e[35m0m 0s\e[0m                                         \e[90m│\e[0m \e[1mNext refresh: \e[0m\e[90mn/a\e[0m
 \e[1m├─ Running\e[0m
 │
-│   \e[90mID     STATE      ISSUE                      AGE / TURN  \e[0m
-│   \e[90m────────────────────────────────────────────────────────\e[0m
+│   \e[90mID     TAG      STATE      ISSUE                  AGE / TURN  \e[0m
+│   \e[90m─────────────────────────────────────────────────────────────\e[0m
 │  \e[90mNo active agents\e[0m
 │
-\e[1m├─ Agent log: MT-001 (finished)\e[0m
-│
-\e[90m│   \e[0m\e[1mPID: \e[0m\e[90m(finished)\e[0m\e[90m | \e[0m\e[1mTokens: \e[0m\e[90m(finished)\e[0m
-\e[90m│   \e[0m\e[1mIssue: \e[0m\e[36mFix the login flow\e[0m
+\e[1m├─ Agent log: MT-001 - Fix the login flow (finished)\e[0m
 \e[90m│   \e[0m\e[1mURL: \e[0m\e[90m—\e[0m
 │
 │   \e[36m[22:46:39] \e[0m\e[96m\e[1msymphony\e[0m\e[90m · \e[0m\e[36m\e[1mIssue prompt\e[0m
@@ -24,5 +20,5 @@
 │       \e[90mRate limit warning\e[0m
 │
 │ \e[97m>\e[0m
-│ \e[90mEnter sends · Esc closes log · Ctrl-C pauses · Alt-Enter newline\e[0m
+│ \e[90mEnter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline\e[0m
 ╰─

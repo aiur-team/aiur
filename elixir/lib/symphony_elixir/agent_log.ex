@@ -89,7 +89,11 @@ defmodule SymphonyElixir.AgentLog do
         log_message("assistant", "Agent", timestamp, text)
 
       {"warning", %{"message" => message}} ->
-        log_message("system", "Warning", timestamp, message)
+        if hidden_warning_message?(message) do
+          nil
+        else
+          log_message("system", "Warning", timestamp, message)
+        end
 
       {"item/started", %{"item" => %{"type" => "commandExecution"}}} ->
         nil
@@ -173,6 +177,12 @@ defmodule SymphonyElixir.AgentLog do
       [%{previous | body: previous.body <> message.body, timestamp: message.timestamp} | tl(acc)]
     end
   end
+
+  defp hidden_warning_message?(message) when is_binary(message) do
+    String.starts_with?(message, "Skill descriptions were shortened to fit the 2% skills context budget.")
+  end
+
+  defp hidden_warning_message?(_message), do: false
 
   defp suppress_redundant_issue_prompts(messages) do
     {messages, _seen_issue_prompt?} =

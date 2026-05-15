@@ -275,6 +275,18 @@ defmodule SymphonyElixir.AgentLogTest do
       assert [%{role: "system", title: "Warning", body: "rate limit hit"}] = AgentLog.parse(content)
     end
 
+    test "skips codex skills context budget warnings" do
+      content =
+        entry("notification", %{
+          "method" => "warning",
+          "params" => %{
+            "message" => "Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter."
+          }
+        })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
+    end
+
     test "skips successful commandExecution completions" do
       content =
         entry("notification", %{
