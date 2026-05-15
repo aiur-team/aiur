@@ -12,6 +12,7 @@
 │
 │   PID: 4242 | Tokens: 0
 │   Issue: Fix the login flow
+│   URL: https://github.com/its-everdred/symphony/issues/0
 │
 │   [22:46:39] symphony · Issue prompt
 │       Fix the login flow

@@ -44,6 +44,7 @@ defmodule SymphonyElixir.AgentLog do
       |> Enum.map(fn [_match, timestamp, event, body] -> parse_log_entry(timestamp, event, body) end)
       |> Enum.reject(&is_nil/1)
       |> compact_log_messages()
+      |> suppress_redundant_issue_prompts()
       |> Enum.take(-@message_window)
 
     if messages == [] do
@@ -172,6 +173,27 @@ defmodule SymphonyElixir.AgentLog do
       [%{previous | body: previous.body <> message.body, timestamp: message.timestamp} | tl(acc)]
     end
   end
+
+  defp suppress_redundant_issue_prompts(messages) do
+    {messages, _seen_issue_prompt?} =
+      Enum.reduce(messages, {[], false}, fn message, {acc, seen_issue_prompt?} ->
+        cond do
+          issue_prompt_log_message?(message) and seen_issue_prompt? ->
+            {acc, seen_issue_prompt?}
+
+          issue_prompt_log_message?(message) ->
+            {[message | acc], true}
+
+          true ->
+            {[message | acc], seen_issue_prompt?}
+        end
+      end)
+
+    Enum.reverse(messages)
+  end
+
+  defp issue_prompt_log_message?(%{role: "user", title: "Issue prompt"}), do: true
+  defp issue_prompt_log_message?(_message), do: false
 
   defp content_text(content) when is_list(content) do
     Enum.map_join(content, "\n\n", fn

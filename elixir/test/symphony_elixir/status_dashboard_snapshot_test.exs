@@ -371,6 +371,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
       %{
         identifier: "MT-000",
         title: "Sample issue title",
+        url: "https://github.com/its-everdred/symphony/issues/0",
         state: "running",
         work_state: :working,
         session_id: "thread-1234567890",

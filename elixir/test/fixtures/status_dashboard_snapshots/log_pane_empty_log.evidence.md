@@ -12,6 +12,7 @@
 │
 │   PID: 4242 | Tokens: 0
 │   Issue: Fix the login flow
+│   URL: https://github.com/its-everdred/symphony/issues/0
 │
 │   [n/a] system · Log
 │       No displayable chat events yet.

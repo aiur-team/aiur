@@ -2,7 +2,7 @@
 ╭─ SYMPHONY STATUS
 │ ITS: linear | Agent: codex                             │ Rate Limits: gpt-5 | primary 0/20,000 reset 95s | secondary 0/60 reset 45s | credits none
 │ Agents: 1/10                                           │ Project: project
-│ Runtime: 45m 0s                                        │ Next refresh: n/a
+│ Runtime: 65m 25s                                       │ Next refresh: n/a
 ├─ Running
 │
 │   ID     STATE      ISSUE                      AGE / TURN  

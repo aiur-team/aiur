@@ -1184,7 +1184,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "https://github.com/its-applekid/actions/issues"
   end
 
-  test "status dashboard renders the dashboard url in the title row when server port is configured" do
+  test "status dashboard renders the dashboard url in the running header when server port is configured" do
     previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
 
     on_exit(fn ->
@@ -1207,14 +1207,41 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        }}
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
+    plain = Regex.replace(~r/\e\[[0-9;]*m/, rendered, "")
 
-    assert rendered =~ "Project:"
-    assert rendered =~ "project"
-    assert rendered =~ "http://127.0.0.1:4000/"
+    assert plain =~ "Project:"
+    assert plain =~ "project"
+    assert plain =~ "http://127.0.0.1:4000/"
 
-    [title_line | _] = String.split(rendered, "\n")
+    [title_line | _] = String.split(plain, "\n")
     assert title_line =~ "SYMPHONY STATUS"
-    assert title_line =~ "http://127.0.0.1:4000/"
+    refute title_line =~ "http://127.0.0.1:4000/"
+    assert plain =~ "Running: http://127.0.0.1:4000/"
+  end
+
+  test "status dashboard runtime includes currently running agent time" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [
+           %{
+             identifier: "MT-777",
+             title: "Live runtime",
+             state: "working",
+             work_state: :working,
+             runtime_seconds: 131,
+             turn_count: 1
+           }
+         ],
+         retrying: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
+    plain = Regex.replace(~r/\e\[[0-9;]*m/, rendered, "")
+
+    assert plain =~ "Runtime: 2m 11s"
   end
 
   test "status dashboard prefers the bound server port and normalizes wildcard hosts" do

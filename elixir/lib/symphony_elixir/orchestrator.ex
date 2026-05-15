@@ -1437,6 +1437,7 @@ defmodule SymphonyElixir.Orchestrator do
           identifier: metadata.identifier,
           state: metadata.issue.state,
           title: Map.get(metadata.issue, :title),
+          url: Map.get(metadata.issue, :url),
           worker_host: Map.get(metadata, :worker_host),
           workspace_path: Map.get(metadata, :workspace_path),
           session_id: metadata.session_id,
