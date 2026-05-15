@@ -187,7 +187,11 @@ defmodule SymphonyElixir.AgentLog do
       Regex.run(~r/Issue:\n\n(.*?)(?:\n\nDescription:|\z)/s, text, capture: :all_but_first)
 
     description =
-      Regex.run(~r/Description:\n\n(.*?)(?:\n\nContinuation context:|\z)/s, text, capture: :all_but_first)
+      Regex.run(
+        ~r/Description:\n\n(.*?)(?:\n\n(?:Continuation context:|## Required Setup|## Workflow|## Workpad Template)|\z)/s,
+        text,
+        capture: :all_but_first
+      )
 
     [List.first(issue_summary || []), List.first(description || [])]
     |> Enum.reject(&is_nil/1)

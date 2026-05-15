@@ -9,8 +9,8 @@ defmodule SymphonyElixir.AgentChat do
   @spec send(String.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
   def send(issue_identifier, text, opts \\ [])
       when is_binary(issue_identifier) and is_binary(text) do
-    delivery_policy = Keyword.get(opts, :delivery_policy, :checkpoint)
-    fallback = Keyword.get(opts, :fallback)
+    delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
+    fallback = Keyword.get(opts, :fallback, :queue_next)
 
     Orchestrator.send_operator_message(
       issue_identifier,

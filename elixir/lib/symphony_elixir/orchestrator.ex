@@ -1329,6 +1329,13 @@ defmodule SymphonyElixir.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec claim_next_checkpoint_queue_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_next_checkpoint_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.call(server, {:claim_next_checkpoint_queue_item, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec claim_next_operator_queue_item(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_operator_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
@@ -1538,6 +1545,26 @@ defmodule SymphonyElixir.Orchestrator do
     {:reply, reply, state}
   end
 
+  def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        state.queue_store,
+        issue_identifier,
+        fn item -> item.delivery[:interrupt_requested] != true end
+      )
+
+    state = %{state | queue_store: queue_store}
+
+    reply =
+      case item do
+        nil -> :empty
+        _ -> {:ok, item}
+      end
+
+    {:reply, reply, state}
+  end
+
   def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier) do
     {queue_store, item} =
@@ -1697,7 +1724,10 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp notify_running_queue_update(%{pid: pid}, item) when is_pid(pid) do
     if Process.alive?(pid) do
-      send(pid, {:agent_queue_updated, item.target_issue_identifier, item.id})
+      send(
+        pid,
+        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true}
+      )
     end
 
     :ok

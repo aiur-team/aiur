@@ -271,6 +271,10 @@ defmodule SymphonyElixir.AgentRunner do
           {:agent_queue_updated, issue_identifier, _item_id} when issue_identifier == issue.identifier ->
             wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
+          {:agent_queue_updated, issue_identifier, _item_id, _interrupt_requested}
+          when issue_identifier == issue.identifier ->
+            wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
           {:pause_agent, request_id} when is_integer(request_id) ->
             Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
             send_control_state(codex_update_recipient, issue, :paused)
@@ -364,13 +368,21 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->
-      case claim_next_queue_item(orchestrator, issue.identifier) do
+      case claim_next_checkpoint_queue_item(orchestrator, issue.identifier) do
         {:ok, item} ->
           safe_checkpoint_delivery(issue, orchestrator, item, checkpoint)
 
         :empty ->
           :noop
       end
+    end
+  end
+
+  defp claim_next_checkpoint_queue_item(orchestrator, issue_identifier) when is_binary(issue_identifier) do
+    case SymphonyElixir.Orchestrator.claim_next_checkpoint_queue_item(orchestrator, issue_identifier) do
+      {:ok, item} -> {:ok, item}
+      :empty -> :empty
+      {:error, _reason} -> :empty
     end
   end
 
