@@ -86,13 +86,13 @@ defmodule SymphonyElixir.StatusDashboard do
           refresh_ms_override: pos_integer() | nil,
           enabled_override: boolean() | nil,
           render_interval_ms_override: pos_integer() | nil,
-          render_fun: (String.t() -> term()),
+          render_fun: (String.t() -> term()) | (String.t(), {pos_integer(), pos_integer()} | nil -> term()),
           token_samples: [{integer(), integer()}],
           last_tps_second: integer() | nil,
           last_tps_value: float() | nil,
           last_rendered_content: String.t() | nil,
           last_rendered_at_ms: integer() | nil,
-          pending_content: String.t() | nil,
+          pending_content: String.t() | {String.t(), {pos_integer(), pos_integer()} | nil} | nil,
           flush_timer_ref: reference() | nil,
           last_snapshot_fingerprint: term() | nil,
           last_snapshot_data: term() | nil,
@@ -127,7 +127,7 @@ defmodule SymphonyElixir.StatusDashboard do
     render_interval_ms_override = keyword_override(opts, :render_interval_ms)
     refresh_ms = refresh_ms_override || Config.observability_refresh_ms()
     render_interval_ms = render_interval_ms_override || Config.observability_render_interval_ms()
-    render_fun = Keyword.get(opts, :render_fun, &render_to_terminal/1)
+    render_fun = Keyword.get(opts, :render_fun, &render_to_terminal/2)
     enabled = resolve_override(enabled_override, Config.observability_enabled?() and dashboard_enabled?())
     schedule_tick(refresh_ms, enabled)
 
@@ -206,7 +206,7 @@ defmodule SymphonyElixir.StatusDashboard do
       ]
       |> Enum.join("\n")
 
-    render_to_terminal(content)
+    render_to_terminal(content, nil)
     :ok
   rescue
     error in [ArgumentError, RuntimeError] ->
@@ -233,11 +233,11 @@ defmodule SymphonyElixir.StatusDashboard do
         nil ->
           %{state | flush_timer_ref: nil}
 
-        content ->
+        {content, cursor_position} ->
           state
           |> Map.put(:flush_timer_ref, nil)
           |> Map.put(:pending_content, nil)
-          |> render_content(content, now_ms)
+          |> render_content(content, cursor_position, now_ms)
       end
 
     {:noreply, state}
@@ -477,7 +477,7 @@ defmodule SymphonyElixir.StatusDashboard do
     snapshot_fingerprint = {render_snapshot_data, state.selected_index, state.view}
 
     if snapshot_fingerprint != state.last_snapshot_fingerprint or periodic_rerender_due?(state, now_ms) do
-      {content, log_total_lines} =
+      {content, log_total_lines, cursor_position} =
         format_snapshot_content(
           render_snapshot_data,
           tps,
@@ -488,7 +488,7 @@ defmodule SymphonyElixir.StatusDashboard do
       state
       |> update_log_view_total_lines(log_total_lines)
       |> maybe_update_snapshot_fingerprint(snapshot_fingerprint)
-      |> maybe_enqueue_render(content, now_ms)
+      |> maybe_enqueue_render(content, cursor_position, now_ms)
     else
       state
     end
@@ -498,16 +498,16 @@ defmodule SymphonyElixir.StatusDashboard do
       state
   end
 
-  defp maybe_enqueue_render(state, content, now_ms) do
+  defp maybe_enqueue_render(state, content, cursor_position, now_ms) do
     cond do
       content == state.last_rendered_content ->
         state
 
       render_now?(state, now_ms) ->
-        render_content(state, content, now_ms)
+        render_content(state, content, cursor_position, now_ms)
 
       true ->
-        schedule_flush_render(%{state | pending_content: content}, now_ms)
+        schedule_flush_render(%{state | pending_content: {content, cursor_position}}, now_ms)
     end
   end
 
@@ -557,8 +557,8 @@ defmodule SymphonyElixir.StatusDashboard do
     max(1, remaining)
   end
 
-  defp render_content(state, content, now_ms) do
-    state.render_fun.(content)
+  defp render_content(state, content, cursor_position, now_ms) do
+    call_render_fun(state.render_fun, content, cursor_position)
 
     %{
       state
@@ -573,12 +573,18 @@ defmodule SymphonyElixir.StatusDashboard do
       %{state | pending_content: nil, flush_timer_ref: nil}
   end
 
+  defp call_render_fun(render_fun, content, cursor_position) when is_function(render_fun, 2),
+    do: render_fun.(content, cursor_position)
+
+  defp call_render_fun(render_fun, content, _cursor_position) when is_function(render_fun, 1),
+    do: render_fun.(content)
+
   defp render_cached_interactive_frame(%{last_snapshot_data: nil} = state), do: maybe_render(state)
 
   defp render_cached_interactive_frame(%{last_snapshot_data: snapshot_data} = state) do
     now_ms = System.monotonic_time(:millisecond)
 
-    {content, log_total_lines} =
+    {content, log_total_lines, cursor_position} =
       format_snapshot_content(
         snapshot_data,
         state.last_tps_value || 0.0,
@@ -588,7 +594,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
     state
     |> update_log_view_total_lines(log_total_lines)
-    |> render_content(content, now_ms)
+    |> render_content(content, cursor_position, now_ms)
   rescue
     error in [ArgumentError, RuntimeError] ->
       Logger.warning("Failed rendering cached terminal dashboard frame: #{Exception.message(error)}")
@@ -671,7 +677,7 @@ defmodule SymphonyElixir.StatusDashboard do
               running_table_separator_row()
             ] ++ running_rows
 
-        {tail_lines, log_total_lines} =
+        {tail_lines, log_total_lines, cursor_position} =
           format_view_tail(view, header_lines, running, retrying, resolved_columns, resolved_rows)
 
         content =
@@ -679,7 +685,7 @@ defmodule SymphonyElixir.StatusDashboard do
           |> List.flatten()
           |> Enum.join("\n")
 
-        {content, log_total_lines}
+        {content, log_total_lines, cursor_position}
 
       :error ->
         content =
@@ -694,7 +700,7 @@ defmodule SymphonyElixir.StatusDashboard do
           |> List.flatten()
           |> Enum.join("\n")
 
-        {content, nil}
+        {content, nil, nil}
     end
   end
 
@@ -712,7 +718,7 @@ defmodule SymphonyElixir.StatusDashboard do
           [closing_border()]
       end
 
-    {tail, nil}
+    {tail, nil, nil}
   end
 
   defp format_view_tail({:log, log_view}, header_lines, running, retrying, columns, rows) do
@@ -723,7 +729,7 @@ defmodule SymphonyElixir.StatusDashboard do
     metadata_lines = format_log_metadata(display_log_view, running, columns)
     queued_lines = format_queued_message_lines(display_log_view, running, columns, messages)
     header_height = length(List.flatten(header_lines))
-    input_section_lines = format_input_section(display_log_view, columns)
+    {input_section_lines, input_cursor} = format_input_section(display_log_view, columns)
     queued_chrome_lines = if(queued_lines == [], do: 0, else: length(queued_lines) + 1)
     chrome_lines = 1 + length(metadata_lines) + queued_chrome_lines + 1 + length(input_section_lines)
     # chrome: pane header + metadata + queued section + closing border + input section
@@ -734,7 +740,7 @@ defmodule SymphonyElixir.StatusDashboard do
       # Graceful degrade — too small to render a useful pane; fall back to list tail.
       format_view_tail(:list, header_lines, running, retrying, columns, rows)
       |> case do
-        {tail, _} -> {tail, total_lines}
+        {tail, _, _} -> {tail, total_lines, nil}
       end
     else
       pane_lines = slice_log_lines(log_lines, pane_budget, display_log_view.scroll)
@@ -750,7 +756,13 @@ defmodule SymphonyElixir.StatusDashboard do
           [closing_border()] ++
           input_section_lines
 
-      {tail, total_lines}
+      cursor_position =
+        case input_cursor do
+          {cursor_row, cursor_col} ->
+            {length(List.flatten(header_lines ++ tail)) - length(input_section_lines) + cursor_row, cursor_col}
+        end
+
+      {tail, total_lines, cursor_position}
     end
   end
 
@@ -907,7 +919,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_input_section(log_view, columns) do
     inner_width = max(20, columns - 4)
     composer = Map.get(log_view, :composer, fresh_composer())
-    prompt_lines = composer_prompt_lines(composer, inner_width - 2)
+    {prompt_lines, {cursor_row, cursor_col}} = composer_prompt_lines(composer, inner_width - 2)
 
     status =
       cond do
@@ -924,13 +936,16 @@ defmodule SymphonyElixir.StatusDashboard do
           {"Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline", :help}
       end
 
-    [
-      input_panel_blank_line(columns),
-      Enum.map(prompt_lines, &input_panel_content_line("  " <> &1, columns)),
-      input_panel_blank_line(columns),
-      input_help_line(elem(status, 0), elem(status, 1), columns)
-    ]
-    |> List.flatten()
+    lines =
+      [
+        input_panel_blank_line(columns),
+        Enum.map(prompt_lines, &input_panel_content_line("  " <> &1, columns)),
+        input_panel_blank_line(columns),
+        input_help_line(elem(status, 0), elem(status, 1), columns)
+      ]
+      |> List.flatten()
+
+    {lines, {cursor_row + 1, cursor_col + 2}}
   end
 
   defp input_panel_blank_line(columns), do: input_panel_content_line("", columns)
@@ -1250,12 +1265,21 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp render_to_terminal(content) do
+  defp render_to_terminal(content, cursor_position) do
+    cursor_commands =
+      case cursor_position do
+        {row, col} when is_integer(row) and is_integer(col) and row > 0 and col > 0 ->
+          [IO.ANSI.cursor(row, col), "\e[?25h"]
+
+        _ ->
+          ["\e[?25l"]
+      end
+
     IO.write([
-      "\e[?25l",
       IO.ANSI.home(),
       IO.ANSI.clear(),
-      normalize_status_lines(content)
+      normalize_status_lines(content),
+      cursor_commands
     ])
   end
 
@@ -1326,7 +1350,9 @@ defmodule SymphonyElixir.StatusDashboard do
       selected_index: selected_index
     ]
 
-    {content, _log_total_lines} = format_snapshot_content(snapshot_data, tps, Keyword.merge(base, opts))
+    {content, _log_total_lines, _cursor_position} =
+      format_snapshot_content(snapshot_data, tps, Keyword.merge(base, opts))
+
     content
   end
 
@@ -1824,13 +1850,32 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp composer_prompt_lines(composer, width) do
-    {before_text, after_text} = split_buffer_at_cursor(composer.buffer, Map.get(composer, :cursor_offset, 0))
-    prompt = "> " <> before_text <> "▏" <> after_text
+    prompt = "> " <> composer.buffer
+    cursor_index = min(Map.get(composer, :cursor_offset, 0) + 2, grapheme_length(prompt))
+    prompt_lines = prompt |> String.split("\n", trim: false) |> Enum.flat_map(&wrap_line(&1, width))
+    cursor_position = wrapped_cursor_position(prompt, cursor_index, width)
 
-    prompt
-    |> String.split("\n", trim: false)
-    |> Enum.flat_map(&wrap_line(&1, width))
+    {prompt_lines, cursor_position}
   end
+
+  defp wrapped_cursor_position(text, cursor_index, width) do
+    graphemes = String.graphemes(text)
+    bounded_index = max(0, min(length(graphemes), cursor_index))
+    {before_cursor, _rest} = Enum.split(graphemes, bounded_index)
+    before_text = Enum.join(before_cursor)
+    lines = String.split(before_text, "\n", trim: false)
+    {prior_lines, [last_line]} = Enum.split(lines, -1)
+
+    row =
+      Enum.reduce(prior_lines, 0, fn line, acc ->
+        acc + wrapped_line_count(line, width)
+      end) + div(grapheme_length(last_line), width) + 1
+
+    col = rem(grapheme_length(last_line), width) + 1
+    {row, col}
+  end
+
+  defp wrapped_line_count(line, width), do: div(grapheme_length(line), width) + 1
 
   defp split_buffer_at_cursor(buffer, cursor_offset) do
     graphemes = String.graphemes(buffer)
