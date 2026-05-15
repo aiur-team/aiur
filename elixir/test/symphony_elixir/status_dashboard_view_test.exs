@@ -184,7 +184,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
         terminal_rows: 40
       )
 
-    assert rendered =~ "Operator message"
+    assert rendered =~ "Executor"
     assert rendered =~ "abc"
     refute rendered =~ "Queued input"
     refute rendered =~ "queued: abc"

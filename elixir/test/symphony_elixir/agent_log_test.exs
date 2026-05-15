@@ -81,7 +81,7 @@ defmodule SymphonyElixir.AgentLogTest do
 
       assert [message] = AgentLog.parse(content)
       assert message.role == "user"
-      assert message.title == "Operator message"
+      assert message.title == "Executor"
       assert message.body == "Hello"
     end
 
