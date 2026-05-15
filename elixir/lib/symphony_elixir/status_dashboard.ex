@@ -55,6 +55,7 @@ defmodule SymphonyElixir.StatusDashboard do
     :pending_content,
     :flush_timer_ref,
     :last_snapshot_fingerprint,
+    :last_snapshot_data,
     :selected_index,
     :view
   ]
@@ -87,6 +88,7 @@ defmodule SymphonyElixir.StatusDashboard do
           pending_content: String.t() | nil,
           flush_timer_ref: reference() | nil,
           last_snapshot_fingerprint: term() | nil,
+          last_snapshot_data: term() | nil,
           selected_index: non_neg_integer() | nil,
           view: view()
         }
@@ -139,6 +141,7 @@ defmodule SymphonyElixir.StatusDashboard do
        pending_content: nil,
        flush_timer_ref: nil,
        last_snapshot_fingerprint: nil,
+       last_snapshot_data: nil,
        selected_index: Keyword.get(opts, :selected_index),
        view: :list
      }}
@@ -337,7 +340,7 @@ defmodule SymphonyElixir.StatusDashboard do
     state =
       state
       |> update_log_view(%{log_view | composer: %{composer | last_error: nil}})
-      |> maybe_render()
+      |> render_cached_interactive_frame()
 
     {:noreply, state}
   end
@@ -350,7 +353,7 @@ defmodule SymphonyElixir.StatusDashboard do
     state =
       state
       |> update_log_view(%{log_view | composer: %{composer | last_error: nil}})
-      |> maybe_render()
+      |> render_cached_interactive_frame()
 
     {:noreply, state}
   end
@@ -369,7 +372,11 @@ defmodule SymphonyElixir.StatusDashboard do
         update_log_view(state, %{log_view | composer: composer})
       end
 
-    {:noreply, maybe_render(%{state | last_snapshot_fingerprint: nil})}
+    if text == "" do
+      {:noreply, state}
+    else
+      {:noreply, render_cached_interactive_frame(%{state | last_snapshot_fingerprint: nil})}
+    end
   end
 
   def handle_cast(:submit_message, state), do: {:noreply, state}
@@ -392,8 +399,12 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp send_composer_message(send_fun, composer) when is_function(send_fun, 0) do
     case send_fun.() do
-      {:ok, request_id} -> %{fresh_composer() | pending_request_id: request_id}
-      {:error, reason} -> %{composer | last_error: format_operator_error(reason)}
+      {:ok, request_id} ->
+        pending_message = %{id: request_id, text: composer.buffer, status: :pending}
+        %{fresh_composer() | pending_request_id: request_id, local_pending_messages: [pending_message]}
+
+      {:error, reason} ->
+        %{composer | last_error: format_operator_error(reason)}
     end
   end
 
@@ -417,8 +428,10 @@ defmodule SymphonyElixir.StatusDashboard do
       state
       |> Map.put(:token_samples, token_samples)
       |> reconcile_log_view_with_snapshot(snapshot_data)
+      |> maybe_cache_snapshot_data(snapshot_data)
 
-    current_tokens = snapshot_total_tokens(snapshot_data)
+    render_snapshot_data = renderable_snapshot_data(snapshot_data, state.last_snapshot_data)
+    current_tokens = snapshot_total_tokens(render_snapshot_data)
 
     {tps_second, tps} =
       throttled_tps(
@@ -434,12 +447,12 @@ defmodule SymphonyElixir.StatusDashboard do
       |> Map.put(:last_tps_second, tps_second)
       |> Map.put(:last_tps_value, tps)
 
-    snapshot_fingerprint = {snapshot_data, state.selected_index, state.view}
+    snapshot_fingerprint = {render_snapshot_data, state.selected_index, state.view}
 
     if snapshot_fingerprint != state.last_snapshot_fingerprint or periodic_rerender_due?(state, now_ms) do
       {content, log_total_lines} =
         format_snapshot_content(
-          snapshot_data,
+          render_snapshot_data,
           tps,
           selected_index: state.selected_index,
           view: state.view
@@ -532,6 +545,36 @@ defmodule SymphonyElixir.StatusDashboard do
       Logger.warning("Failed rendering terminal dashboard frame: #{Exception.message(error)}")
       %{state | pending_content: nil, flush_timer_ref: nil}
   end
+
+  defp render_cached_interactive_frame(%{last_snapshot_data: nil} = state), do: maybe_render(state)
+
+  defp render_cached_interactive_frame(%{last_snapshot_data: snapshot_data} = state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    {content, log_total_lines} =
+      format_snapshot_content(
+        snapshot_data,
+        state.last_tps_value || 0.0,
+        selected_index: state.selected_index,
+        view: state.view
+      )
+
+    state
+    |> update_log_view_total_lines(log_total_lines)
+    |> render_content(content, now_ms)
+  rescue
+    error in [ArgumentError, RuntimeError] ->
+      Logger.warning("Failed rendering cached terminal dashboard frame: #{Exception.message(error)}")
+      maybe_render(state)
+  end
+
+  defp maybe_cache_snapshot_data(state, {:ok, _snapshot} = snapshot_data),
+    do: Map.put(state, :last_snapshot_data, snapshot_data)
+
+  defp maybe_cache_snapshot_data(state, _snapshot_data), do: state
+
+  defp renderable_snapshot_data(:error, {:ok, _snapshot} = last_snapshot_data), do: last_snapshot_data
+  defp renderable_snapshot_data(snapshot_data, _last_snapshot_data), do: snapshot_data
 
   defp snapshot_with_samples(token_samples, now_ms) do
     case snapshot_data() do
@@ -647,12 +690,13 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_view_tail({:log, log_view}, header_lines, running, retrying, columns, rows) do
     messages = read_log_messages(log_view)
+    display_log_view = reconcile_log_view_with_logged_operator_messages(log_view, running, messages)
     {log_lines, total_lines} = log_message_lines(messages, columns)
 
-    metadata_lines = format_log_metadata(log_view, running, columns)
-    queued_lines = format_queued_message_lines(log_view, running, columns)
+    metadata_lines = format_log_metadata(display_log_view, running, columns)
+    queued_lines = format_queued_message_lines(display_log_view, running, columns, messages)
     header_height = length(List.flatten(header_lines))
-    placeholder_lines = format_input_placeholder(log_view, columns)
+    placeholder_lines = format_input_placeholder(display_log_view, columns)
     queued_chrome_lines = if(queued_lines == [], do: 0, else: length(queued_lines) + 1)
     chrome_lines = 2 + length(metadata_lines) + length(placeholder_lines) + queued_chrome_lines + 1
     # chrome: pane header + spacer + metadata + queued section + placeholder + closing border
@@ -666,8 +710,8 @@ defmodule SymphonyElixir.StatusDashboard do
         {tail, _} -> {tail, total_lines}
       end
     else
-      pane_lines = slice_log_lines(log_lines, pane_budget, log_view.scroll)
-      pane_title = format_pane_title(log_view, running)
+      pane_lines = slice_log_lines(log_lines, pane_budget, display_log_view.scroll)
+      pane_title = format_pane_title(display_log_view, running)
 
       tail =
         [
@@ -878,9 +922,15 @@ defmodule SymphonyElixir.StatusDashboard do
       ["│ " <> colorize(elem(status, 0), elem(status, 1))]
   end
 
-  defp format_queued_message_lines(log_view, running, columns) do
+  defp format_queued_message_lines(log_view, running, columns, messages) do
     entry = running_entry_for_identifier(running, log_view.issue_identifier)
-    queued_messages = Map.get(entry || %{}, :pending_operator_messages, [])
+
+    queued_messages =
+      entry
+      |> then(&Map.get(&1 || %{}, :pending_operator_messages, []))
+      |> merge_local_pending_messages(Map.get(log_view, :composer, fresh_composer()))
+      |> reject_logged_operator_messages(messages)
+
     inner_width = max(20, columns - 8)
 
     case queued_messages do
@@ -906,6 +956,85 @@ defmodule SymphonyElixir.StatusDashboard do
   defp queued_message_preview(%{text: text, status: :delivered}), do: "sending: #{text}"
   defp queued_message_preview(%{text: text}), do: "queued: #{text}"
   defp queued_message_preview(_queued_message), do: "queued"
+
+  defp merge_local_pending_messages(queued_messages, composer) when is_list(queued_messages) do
+    queued_ids = MapSet.new(queued_messages, &Map.get(&1, :id))
+
+    local_messages =
+      composer
+      |> Map.get(:local_pending_messages, [])
+      |> Enum.reject(&(Map.get(&1, :id) in queued_ids))
+
+    queued_messages ++ local_messages
+  end
+
+  defp reject_logged_operator_messages(queued_messages, messages) do
+    {filtered_messages, _remaining_counts} =
+      Enum.reduce(queued_messages, {[], logged_operator_message_counts(messages)}, fn queued_message, {acc, logged_counts} ->
+        text = normalize_operator_text(Map.get(queued_message, :text))
+
+        case Map.get(logged_counts, text, 0) do
+          count when is_integer(count) and count > 0 ->
+            {acc, Map.put(logged_counts, text, count - 1)}
+
+          _ ->
+            {[queued_message | acc], logged_counts}
+        end
+      end)
+
+    Enum.reverse(filtered_messages)
+  end
+
+  defp logged_operator_message_counts(messages) do
+    Enum.reduce(messages, %{}, fn message, counts ->
+      if operator_log_message?(message) do
+        Map.update(counts, normalize_operator_text(message.body), 1, &(&1 + 1))
+      else
+        counts
+      end
+    end)
+  end
+
+  defp reconcile_log_view_with_logged_operator_messages(log_view, running, messages) do
+    composer = Map.get(log_view, :composer, fresh_composer())
+
+    case composer do
+      %{pending_request_id: request_id} when is_integer(request_id) ->
+        entry = running_entry_for_identifier(running, log_view.issue_identifier)
+        visible_messages = Map.get(entry || %{}, :pending_operator_messages, [])
+        local_messages = Map.get(composer, :local_pending_messages, [])
+
+        pending_message =
+          Enum.find(visible_messages ++ local_messages, &(Map.get(&1, :id) == request_id))
+
+        if pending_message && operator_text_logged?(Map.get(pending_message, :text), messages) do
+          %{
+            log_view
+            | composer:
+                composer
+                |> Map.put(:pending_request_id, nil)
+                |> Map.put(:local_pending_messages, [])
+          }
+        else
+          log_view
+        end
+
+      _ ->
+        log_view
+    end
+  end
+
+  defp operator_text_logged?(text, messages) do
+    normalized_text = normalize_operator_text(text)
+    Map.get(logged_operator_message_counts(messages), normalized_text, 0) > 0
+  end
+
+  defp operator_log_message?(%{role: "operator"}), do: true
+  defp operator_log_message?(%{role: "user", title: "Operator message"}), do: true
+  defp operator_log_message?(_message), do: false
+
+  defp normalize_operator_text(text) when is_binary(text), do: String.trim(text)
+  defp normalize_operator_text(text), do: text |> to_string() |> String.trim()
 
   # credo:disable-for-next-line
   defp format_two_pane_header(
@@ -1688,17 +1817,30 @@ defmodule SymphonyElixir.StatusDashboard do
   defp reconcile_log_view_with_snapshot(state, _snapshot_data), do: state
 
   defp fresh_composer do
-    %{buffer: "", pending_request_id: nil, last_error: nil}
+    %{buffer: "", pending_request_id: nil, last_error: nil, local_pending_messages: []}
   end
 
   defp reconcile_composer_with_running_entry(%{pending_request_id: request_id} = composer, running_entry)
        when is_integer(request_id) do
-    state = Map.get(running_entry, :work_state) || get_in(running_entry, [:control, :status]) || :working
+    visible_messages = Map.get(running_entry, :pending_operator_messages, [])
+    request_visible? = Enum.any?(visible_messages, &(Map.get(&1, :id) == request_id))
 
-    if state in [:paused, "paused"] do
-      %{composer | pending_request_id: nil}
-    else
+    request_locally_pending? =
       composer
+      |> Map.get(:local_pending_messages, [])
+      |> Enum.any?(&(Map.get(&1, :id) == request_id))
+
+    cond do
+      request_visible? ->
+        Map.put(composer, :local_pending_messages, [])
+
+      request_locally_pending? ->
+        composer
+
+      true ->
+        composer
+        |> Map.put(:pending_request_id, nil)
+        |> Map.put(:local_pending_messages, [])
     end
   end
 

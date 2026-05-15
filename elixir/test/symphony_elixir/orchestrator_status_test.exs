@@ -944,7 +944,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "hello"})
 
     assert is_integer(request_id)
-    assert_receive {:agent_queue_updated, "MT-CHAT", ^request_id}
+    assert_receive {:agent_queue_updated, "MT-CHAT", ^request_id, false}
 
     assert {:ok, %{id: ^request_id, category: :operator_message, body: %{text: "hello"}}} =
              Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-CHAT")
@@ -968,6 +968,8 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              )
 
     assert is_integer(interrupt_request_id)
+
+    assert :empty = Orchestrator.claim_next_checkpoint_queue_item(orchestrator_name, "MT-CHAT")
 
     assert {:ok,
             %{

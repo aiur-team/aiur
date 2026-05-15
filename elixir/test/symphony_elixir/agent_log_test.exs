@@ -128,6 +128,43 @@ defmodule SymphonyElixir.AgentLogTest do
       refute body =~ "Continuation context"
     end
 
+    test "does not include workflow instructions in issue prompt summaries" do
+      prompt = """
+      Issue:
+
+      Fix login bug
+
+      Description:
+
+      Login fails on invalid email
+
+      ## Required Setup
+
+      Follow repository setup.
+
+      ## Workpad Template
+
+      ### Validation
+
+      - [ ] ...
+      """
+
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+          }
+        })
+
+      assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
+      assert body =~ "Fix login bug"
+      assert body =~ "Login fails on invalid email"
+      refute body =~ "Required Setup"
+      refute body =~ "Validation"
+      refute body =~ "- [ ]"
+    end
+
     test "falls back to raw summary for continuation prompts without issue sections" do
       prompt = "Continuation guidance:\n\nResume from the current workspace state."
 

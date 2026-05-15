@@ -45,7 +45,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
     end
   end
 
-  test "reconcile_log_view_with_snapshot clears pending composer status once the open agent becomes paused",
+  test "reconcile_log_view_with_snapshot keeps locally pending composer status when agent becomes paused",
        %{dashboard: dashboard} do
     dashboard =
       dashboard
@@ -53,7 +53,79 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
       |> Map.put(:view, {:log, paused_log_view()})
       |> StatusDashboard.reconcile_log_view_with_snapshot_for_test(paused_snapshot())
 
-    assert %{view: {:log, %{composer: %{pending_request_id: nil}}}} = dashboard
+    assert %{view: {:log, %{composer: %{pending_request_id: 91}}}} = dashboard
+  end
+
+  test "reconcile_log_view_with_snapshot clears local pending once the queue item is visible", %{dashboard: dashboard} do
+    dashboard =
+      dashboard
+      |> state()
+      |> Map.put(:view, {:log, paused_log_view()})
+      |> StatusDashboard.reconcile_log_view_with_snapshot_for_test(snapshot_with_queued_messages())
+
+    assert %{view: {:log, %{composer: %{pending_request_id: 91, local_pending_messages: []}}}} = dashboard
+  end
+
+  test "reconcile_log_view_with_snapshot clears pending once previously visible item is consumed", %{dashboard: dashboard} do
+    log_view = %{
+      paused_log_view()
+      | composer: %{buffer: "", pending_request_id: 91, last_error: nil, local_pending_messages: []}
+    }
+
+    dashboard =
+      dashboard
+      |> state()
+      |> Map.put(:view, {:log, log_view})
+      |> StatusDashboard.reconcile_log_view_with_snapshot_for_test(paused_snapshot())
+
+    assert %{view: {:log, %{composer: %{pending_request_id: nil, local_pending_messages: []}}}} = dashboard
+  end
+
+  test "append_text renders immediately from cached snapshot despite throttled render interval", %{dashboard: dashboard} do
+    workspace = Path.join(System.tmp_dir!(), "status_dashboard_view_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(workspace, "logs"))
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    log_view = %{paused_log_view() | workspace_path: workspace, composer: fresh_composer_for_test()}
+
+    :sys.replace_state(dashboard, fn state ->
+      %{
+        state
+        | view: {:log, log_view},
+          last_snapshot_data: snapshot_with_workspace(workspace),
+          last_tps_value: 0.0,
+          last_rendered_at_ms: System.monotonic_time(:millisecond)
+      }
+    end)
+
+    :ok = StatusDashboard.append_text(dashboard, "a")
+
+    assert_receive {:render, rendered}, 100
+    assert rendered =~ "> a"
+  end
+
+  test "empty submit does not redraw cached log view", %{dashboard: dashboard} do
+    workspace = Path.join(System.tmp_dir!(), "status_dashboard_view_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(workspace, "logs"))
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    log_view = %{paused_log_view() | workspace_path: workspace, composer: fresh_composer_for_test()}
+
+    :sys.replace_state(dashboard, fn state ->
+      %{
+        state
+        | view: {:log, log_view},
+          last_snapshot_data: snapshot_with_workspace(workspace),
+          last_tps_value: 0.0,
+          last_rendered_at_ms: System.monotonic_time(:millisecond)
+      }
+    end)
+
+    :ok = StatusDashboard.submit_message(dashboard)
+
+    refute_receive {:render, _rendered}, 100
   end
 
   test "reconcile_log_view_with_snapshot keeps queued operator messages on the running entry", %{dashboard: dashboard} do
@@ -64,6 +136,34 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
       |> StatusDashboard.reconcile_log_view_with_snapshot_for_test(snapshot_with_queued_messages())
 
     assert %{view: {:log, _log_view}} = dashboard
+  end
+
+  test "rendered queued section hides operator messages once they are present in the log" do
+    workspace = Path.join(System.tmp_dir!(), "status_dashboard_logged_operator_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(workspace, "logs"))
+    File.write!(Path.join([workspace, "logs", "agent.md"]), operator_log_entry("abc"))
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    log_view = %{
+      paused_log_view()
+      | workspace_path: workspace,
+        composer: %{buffer: "", pending_request_id: 91, last_error: nil, local_pending_messages: []}
+    }
+
+    rendered =
+      snapshot_with_workspace_and_queue(workspace, [%{id: 91, text: "abc", status: :delivered}])
+      |> StatusDashboard.format_snapshot_content_for_test(0.0, 100, 0,
+        view: {:log, log_view},
+        terminal_rows: 40
+      )
+
+    assert rendered =~ "Operator message"
+    assert rendered =~ "abc"
+    refute rendered =~ "Queued input"
+    refute rendered =~ "queued: abc"
+    refute rendered =~ "sending: abc"
+    refute rendered =~ "sent; waiting for agent turn"
   end
 
   defp state(dashboard) do
@@ -78,7 +178,12 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
       scroll: 0,
       last_total_lines: 0,
       mode: :typing,
-      composer: %{buffer: "", pending_request_id: 91, last_error: nil}
+      composer: %{
+        buffer: "",
+        pending_request_id: 91,
+        last_error: nil,
+        local_pending_messages: [%{id: 91, text: "abc", status: :pending}]
+      }
     }
   end
 
@@ -100,6 +205,32 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
      }}
   end
 
+  defp snapshot_with_workspace(workspace) do
+    snapshot_with_workspace_and_queue(workspace, [])
+  end
+
+  defp snapshot_with_workspace_and_queue(workspace, pending_operator_messages) do
+    {:ok,
+     %{
+       running: [
+         %{
+           identifier: "MT-251",
+           title: "Pause and resume",
+           workspace_path: workspace,
+           runtime_seconds: 0,
+           turn_count: 0,
+           state: "running",
+           work_state: :working,
+           control: %{status: :working},
+           pending_operator_messages: pending_operator_messages
+         }
+       ],
+       retrying: [],
+       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+       rate_limits: nil
+     }}
+  end
+
   defp snapshot_with_queued_messages do
     {:ok,
      %{
@@ -111,7 +242,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
            work_state: :working,
            control: %{status: :working},
            pending_operator_messages: [
-             %{id: 1, text: "abc", status: :pending},
+             %{id: 91, text: "abc", status: :pending},
              %{id: 2, text: "def", status: :delivered}
            ]
          }
@@ -120,5 +251,32 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
        agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
        rate_limits: nil
      }}
+  end
+
+  defp fresh_composer_for_test do
+    %{buffer: "", pending_request_id: nil, last_error: nil, local_pending_messages: []}
+  end
+
+  defp operator_log_entry(text) do
+    payload =
+      Jason.encode!(%{
+        "method" => "item/started",
+        "params" => %{
+          "item" => %{
+            "type" => "userMessage",
+            "content" => [%{"text" => text}]
+          }
+        }
+      })
+
+    """
+    ## 2026-05-10T22:46:39.307486Z notification
+
+    ```text
+    #{payload}
+    ```
+
+
+    """
   end
 end
