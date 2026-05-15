@@ -181,6 +181,35 @@ defmodule SymphonyElixir.AgentQueueTest do
     assert pending_item.id == item.id
   end
 
+  test "restore pending is idempotent for pending, consumed, and missing items" do
+    store = AgentQueueStore.new()
+    {store, pending_item} = AgentQueue.operator_message("MT-883", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
+
+    {store, restored_pending} = AgentQueueStore.restore_pending(store, pending_item.id)
+    assert restored_pending.status == :pending
+
+    {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-883")
+    {store, consumed} = AgentQueueStore.mark_consumed(store, pending_item.id)
+    assert consumed.status == :consumed
+
+    {store, restored_consumed} = AgentQueueStore.restore_pending(store, pending_item.id)
+    assert restored_consumed.status == :consumed
+
+    assert {^store, nil} = AgentQueueStore.restore_pending(store, 999_999)
+  end
+
+  test "restore pending avoids duplicate pending ids" do
+    store = AgentQueueStore.new()
+    {store, item} = AgentQueue.operator_message("MT-886", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
+    {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-886")
+
+    store = %{store | pending_ids_by_target: %{"MT-886" => [item.id]}}
+    {store, restored} = AgentQueueStore.restore_pending(store, item.id)
+
+    assert restored.status == :pending
+    assert Enum.map(AgentQueueStore.list_pending(store, "MT-886"), & &1.id) == [item.id]
+  end
+
   test "visible operator messages include pending and delivered items" do
     store = AgentQueueStore.new()
     {store, first} = AgentQueue.operator_message("MT-881", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
@@ -190,6 +219,24 @@ defmodule SymphonyElixir.AgentQueueTest do
     assert [%{id: first_id}, %{id: second_id}] = AgentQueueStore.list_visible_operator_messages(store, "MT-881")
     assert first_id == first.id
     assert second_id == second.id
+  end
+
+  test "visible operator messages excludes non-operator and terminal items" do
+    store = AgentQueueStore.new()
+
+    {store, operator_item} =
+      AgentQueue.operator_message("MT-884", "abc")
+      |> then(&AgentQueueStore.enqueue(store, &1))
+
+    {store, event_item} =
+      AgentQueue.coordination_event("MT-884", :blocker_update, %{summary: "hidden"})
+      |> then(&AgentQueueStore.enqueue(store, &1))
+
+    {store, _claimed_operator} = AgentQueueStore.claim_next_deliverable(store, "MT-884")
+    {store, _consumed_operator} = AgentQueueStore.mark_consumed(store, operator_item.id)
+    {store, _failed_event} = AgentQueueStore.mark_failed(store, event_item.id, :boom)
+
+    assert AgentQueueStore.list_visible_operator_messages(store, "MT-884") == []
   end
 
   test "consume and restore delivered update all in-flight items for a target" do
@@ -209,6 +256,18 @@ defmodule SymphonyElixir.AgentQueueTest do
 
     assert Enum.map(consumed, & &1.id) == [item1.id, item2.id]
     assert Enum.all?(consumed, &(&1.status == :consumed))
+  end
+
+  test "fail delivered marks in-flight items failed for a target" do
+    store = AgentQueueStore.new()
+    {store, item} = AgentQueue.operator_message("MT-885", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
+    {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-885")
+
+    {_store, [failed]} = AgentQueueStore.fail_delivered(store, "MT-885", :turn_failed)
+
+    assert failed.id == item.id
+    assert failed.status == :failed
+    assert failed.failure_reason == :turn_failed
   end
 
   test "falls back for unknown priority values and keeps unrelated dedupe keys pending" do
