@@ -620,7 +620,7 @@ defmodule SymphonyElixir.StatusDashboard do
       {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
         polling = Map.get(snapshot, :polling)
-        agent_seconds_running = Map.get(agent_totals, :seconds_running, 0)
+        agent_seconds_running = dashboard_runtime_seconds(running, agent_totals)
         agent_count = length(running)
         max_agents = Config.max_concurrent_agents()
         running_rows = format_running_rows(running, selected_index)
@@ -638,7 +638,7 @@ defmodule SymphonyElixir.StatusDashboard do
         header_lines =
           two_pane_rows ++
             [
-              colorize("├─ Running", @ansi_bold),
+              running_header_row(),
               "│",
               running_table_header_row(),
               running_table_separator_row()
@@ -732,35 +732,41 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_log_metadata(log_view, running, _columns) do
     entry = running_entry_for_identifier(running, log_view.issue_identifier)
     title = log_view.title || (entry && Map.get(entry, :title)) || "—"
+    issue_url = Map.get(entry || %{}, :url)
 
-    metadata_line =
-      case entry do
-        nil ->
-          colorize("│   ", @ansi_gray) <>
-            colorize("PID: ", @ansi_bold) <>
-            colorize("(finished)", @ansi_gray) <>
-            colorize(" | ", @ansi_gray) <>
-            colorize("Tokens: ", @ansi_bold) <>
-            colorize("(finished)", @ansi_gray)
+    [
+      metadata_summary_line(entry),
+      metadata_value_line("Issue", title || "—", @ansi_cyan),
+      metadata_value_line("URL", issue_url || "—", if(is_binary(issue_url), do: @ansi_cyan, else: @ansi_gray)),
+      "│"
+    ]
+  end
 
-        _ ->
-          tokens = Map.get(entry, :agent_total_tokens, 0)
-          pid = Map.get(entry, :codex_app_server_pid) || "n/a"
+  defp metadata_summary_line(nil) do
+    colorize("│   ", @ansi_gray) <>
+      colorize("PID: ", @ansi_bold) <>
+      colorize("(finished)", @ansi_gray) <>
+      colorize(" | ", @ansi_gray) <>
+      colorize("Tokens: ", @ansi_bold) <>
+      colorize("(finished)", @ansi_gray)
+  end
 
-          colorize("│   ", @ansi_gray) <>
-            colorize("PID: ", @ansi_bold) <>
-            colorize(to_string(pid), @ansi_yellow) <>
-            colorize(" | ", @ansi_gray) <>
-            colorize("Tokens: ", @ansi_bold) <>
-            colorize(format_count(tokens), @ansi_yellow)
-      end
+  defp metadata_summary_line(entry) do
+    tokens = Map.get(entry, :agent_total_tokens, 0)
+    pid = Map.get(entry, :codex_app_server_pid) || "n/a"
 
-    issue_line =
-      colorize("│   ", @ansi_gray) <>
-        colorize("Issue: ", @ansi_bold) <>
-        colorize(title || "—", @ansi_cyan)
+    colorize("│   ", @ansi_gray) <>
+      colorize("PID: ", @ansi_bold) <>
+      colorize(to_string(pid), @ansi_yellow) <>
+      colorize(" | ", @ansi_gray) <>
+      colorize("Tokens: ", @ansi_bold) <>
+      colorize(format_count(tokens), @ansi_yellow)
+  end
 
-    [metadata_line, issue_line, "│"]
+  defp metadata_value_line(label, value, value_color) do
+    colorize("│   ", @ansi_gray) <>
+      colorize("#{label}: ", @ansi_bold) <>
+      colorize(value, value_color)
   end
 
   defp closing_border_or_separator, do: "│"
@@ -1069,19 +1075,17 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp format_title_row(columns) do
-    title = colorize("╭─ SYMPHONY STATUS", @ansi_bold)
+    _ = columns
+    colorize("╭─ SYMPHONY STATUS", @ansi_bold)
+  end
 
+  defp running_header_row do
     case dashboard_url() do
       url when is_binary(url) ->
-        link = colorize(url, @ansi_cyan)
-        title_visible = visible_length(title)
-        link_visible = visible_length(link)
-        # Reserve at least one space between title and link.
-        gap = max(1, columns - title_visible - link_visible)
-        title <> String.duplicate(" ", gap) <> link
+        colorize("├─ Running: ", @ansi_bold) <> colorize(url, @ansi_cyan)
 
       _ ->
-        title
+        colorize("├─ Running", @ansi_bold)
     end
   end
 
@@ -1197,8 +1201,7 @@ defmodule SymphonyElixir.StatusDashboard do
     IO.write([
       IO.ANSI.home(),
       IO.ANSI.clear(),
-      normalize_status_lines(content),
-      "\n"
+      normalize_status_lines(content)
     ])
   end
 
@@ -1435,6 +1438,21 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_runtime_seconds(seconds) when is_binary(seconds), do: seconds
   defp format_runtime_seconds(_), do: "0m 0s"
+
+  defp dashboard_runtime_seconds(running, agent_totals) when is_list(running) and is_map(agent_totals) do
+    running_seconds =
+      running
+      |> Enum.map(&Map.get(&1, :runtime_seconds, 0))
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
+
+    running_seconds + Map.get(agent_totals, :seconds_running, 0)
+  end
+
+  defp dashboard_runtime_seconds(_running, agent_totals) when is_map(agent_totals),
+    do: Map.get(agent_totals, :seconds_running, 0)
+
+  defp dashboard_runtime_seconds(_running, _agent_totals), do: 0
 
   defp format_runtime_and_turns(seconds, turn_count) when is_integer(turn_count) and turn_count > 0 do
     "#{format_runtime_seconds(seconds)} / #{turn_count}"

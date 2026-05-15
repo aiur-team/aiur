@@ -13,6 +13,7 @@
 │
 │   PID: (finished) | Tokens: (finished)
 │   Issue: Fix the login flow
+│   URL: —
 │
 │   [22:46:39] symphony · Issue prompt
 │       Fix the login flow
