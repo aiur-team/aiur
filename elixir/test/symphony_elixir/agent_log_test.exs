@@ -81,7 +81,7 @@ defmodule SymphonyElixir.AgentLogTest do
 
       assert [message] = AgentLog.parse(content)
       assert message.role == "user"
-      assert message.title == "Operator message"
+      assert message.title == "Executor"
       assert message.body == "Hello"
     end
 
@@ -180,6 +180,27 @@ defmodule SymphonyElixir.AgentLogTest do
       assert body == prompt
     end
 
+    test "suppresses repeated issue prompts after the first displayed one" do
+      prompt = "Issue:\n\nFix login bug\n\nDescription:\n\nLogin fails on invalid email"
+
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+          }
+        }) <>
+          entry("notification", %{
+            "method" => "item/started",
+            "params" => %{
+              "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+            }
+          })
+
+      assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
+      assert body =~ "Fix login bug"
+    end
+
     test "renders coordination-event user messages as system notices" do
       content =
         entry("notification", %{
@@ -252,6 +273,18 @@ defmodule SymphonyElixir.AgentLogTest do
         })
 
       assert [%{role: "system", title: "Warning", body: "rate limit hit"}] = AgentLog.parse(content)
+    end
+
+    test "skips codex skills context budget warnings" do
+      content =
+        entry("notification", %{
+          "method" => "warning",
+          "params" => %{
+            "message" => "Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter."
+          }
+        })
+
+      assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
 
     test "skips successful commandExecution completions" do

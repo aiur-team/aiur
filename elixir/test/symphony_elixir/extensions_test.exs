@@ -691,7 +691,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert log_html =~ "phx-hook=\"AgentLogPanel\""
     assert log_html =~ "phx-click-away=\"close-agent-log\""
     refute log_html =~ "modal-panel\" onclick=\"event.stopPropagation()\""
-    assert log_html =~ "Operator message"
+    assert log_html =~ "Executor"
     assert log_html =~ "hello from workspace log"
     assert log_html =~ "working now"
     assert length(Regex.scan(~r/working now/, log_html)) == 1
