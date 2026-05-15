@@ -391,7 +391,8 @@ defmodule SymphonyElixir.Codex.CodingAgent do
       pending_operator_requests: %{},
       current_turn_id: turn_id,
       pause_request_id: nil,
-      pending_interrupt_request_id: nil
+      pending_interrupt_request_id: nil,
+      interrupt_action: nil
     })
   end
 
@@ -416,6 +417,18 @@ defmodule SymphonyElixir.Codex.CodingAgent do
           {:continue, next_state} -> receive_loop(session, next_state)
           result -> result
         end
+
+      {:agent_queue_updated, _issue_identifier, _item_id, true} ->
+        case handle_operator_queue_update(session, state) do
+          {:continue, next_state} -> receive_loop(session, next_state)
+          result -> result
+        end
+
+      {:agent_queue_updated, _issue_identifier, _item_id, false} ->
+        receive_loop(session, state)
+
+      {:agent_queue_updated, _issue_identifier, _item_id} ->
+        receive_loop(session, state)
     after
       state.timeout_ms ->
         {:error, :turn_timeout}
@@ -689,17 +702,24 @@ defmodule SymphonyElixir.Codex.CodingAgent do
         pending_interrupt_request_id: nil
     }
 
-    if is_integer(state.pause_request_id) do
-      fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
+    cond do
+      is_integer(state.pause_request_id) ->
+        fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
 
-      {:paused,
-       %{
-         request_id: state.pause_request_id,
-         turn_id: state.current_turn_id,
-         details: payload
-       }}
-    else
-      {:error, {:turn_interrupted, payload}}
+        {:paused,
+         %{
+           request_id: state.pause_request_id,
+           turn_id: state.current_turn_id,
+           details: payload
+         }}
+
+      state.interrupt_action == :operator_message ->
+        fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
+        {:ok, :turn_interrupted_for_operator_message}
+
+      true ->
+        fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
+        {:error, {:turn_interrupted, payload}}
     end
   end
 
@@ -786,7 +806,28 @@ defmodule SymphonyElixir.Codex.CodingAgent do
          %{
            state
            | pause_request_id: request_id,
-             pending_interrupt_request_id: interrupt_request_id
+             pending_interrupt_request_id: interrupt_request_id,
+             interrupt_action: :pause
+         }}
+
+      {:error, reason} ->
+        {:error, {:turn_interrupt_failed, reason}}
+    end
+  end
+
+  defp handle_operator_queue_update(_session, %{pending_interrupt_request_id: request_id} = state)
+       when is_integer(request_id) do
+    {:continue, state}
+  end
+
+  defp handle_operator_queue_update(session, state) do
+    case interrupt_turn(session, state.current_turn_id) do
+      {:ok, interrupt_request_id} ->
+        {:continue,
+         %{
+           state
+           | pending_interrupt_request_id: interrupt_request_id,
+             interrupt_action: :operator_message
          }}
 
       {:error, reason} ->
