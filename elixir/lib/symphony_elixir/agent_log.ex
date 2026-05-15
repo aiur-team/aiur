@@ -296,7 +296,7 @@ defmodule SymphonyElixir.AgentLog do
         log_message("user", "Issue prompt", timestamp, summarize_prompt(text))
 
       true ->
-        log_message("user", "Operator message", timestamp, summarize_payload(text))
+        log_message("user", "Executor", timestamp, summarize_payload(text))
     end
   end
 

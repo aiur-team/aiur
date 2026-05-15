@@ -819,7 +819,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp log_message_style(%{role: role, title: title}) do
     case {role, title} do
       {"operator", _} -> operator_style()
-      {"user", "Operator message"} -> operator_style()
+      {"user", "Executor"} -> operator_style()
       {"user", _} -> prompt_style()
       {"assistant", _} -> agent_style()
       {"tool", _} -> tool_style()
@@ -1108,7 +1108,7 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp operator_log_message?(%{role: "operator"}), do: true
-  defp operator_log_message?(%{role: "user", title: "Operator message"}), do: true
+  defp operator_log_message?(%{role: "user", title: "Executor"}), do: true
   defp operator_log_message?(_message), do: false
 
   defp normalize_operator_text(text) when is_binary(text), do: String.trim(text)
