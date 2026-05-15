@@ -80,6 +80,18 @@ Current operational assumptions:
 - the user explicitly wants to preserve context about this workflow because
   future agents may need to add or replace alert sounds the same way
 
+Important clipping guidance from the user:
+
+- the timestamps the user provides are rough anchors, not exact cut points
+- these quote reels usually contain short silence buffers between spoken lines
+- future clipping work should review the actual waveform or audio energy around
+  the requested range before exporting
+- do not assume a clip starts or ends exactly on the supplied timestamp
+- the goal is to avoid bleeding into neighboring quotes while also avoiding
+  cutting off the first or last phoneme of the intended line
+- if a quote sounds clipped, bias slightly earlier/later into surrounding
+  silence rather than trimming aggressively to the nominal timestamp
+
 Important current status:
 
 - `public/` currently exists in this repo as a temporary staging area for audio
