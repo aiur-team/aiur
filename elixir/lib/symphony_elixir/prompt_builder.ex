@@ -6,6 +6,7 @@ defmodule SymphonyElixir.PromptBuilder do
   alias SymphonyElixir.{Config, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
+  @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
 
   @spec build_prompt(SymphonyElixir.Issue.t(), keyword()) :: String.t()
   def build_prompt(issue, opts \\ []) do
@@ -14,16 +15,35 @@ defmodule SymphonyElixir.PromptBuilder do
       |> prompt_template!()
       |> parse_template!()
 
-    template
-    |> Solid.render!(
-      %{
-        "attempt" => Keyword.get(opts, :attempt),
-        "issue" => issue |> Map.from_struct() |> to_solid_map()
-      },
-      @render_opts
-    )
-    |> IO.iodata_to_binary()
-    |> ensure_utf8()
+    rendered_prompt =
+      template
+      |> Solid.render!(
+        %{
+          "attempt" => Keyword.get(opts, :attempt),
+          "issue" => issue |> Map.from_struct() |> to_solid_map()
+        },
+        @render_opts
+      )
+      |> IO.iodata_to_binary()
+      |> ensure_utf8()
+
+    shared_prompt_prefix() <> rendered_prompt
+  end
+
+  defp shared_prompt_prefix do
+    case File.read(@shared_prompt_path) do
+      {:ok, content} ->
+        trimmed = String.trim(content)
+
+        if trimmed == "" do
+          ""
+        else
+          trimmed <> "\n\n"
+        end
+
+      {:error, _reason} ->
+        ""
+    end
   end
 
   defp prompt_template!({:ok, %{prompt_template: prompt}}), do: default_prompt(prompt)

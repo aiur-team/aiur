@@ -1,0 +1,23 @@
+## Shared Agent Instructions
+
+- Symphony supports custom alert emission through an `emit_alert` function.
+- When using `emit_alert`, always send exactly:
+  - `name`
+  - `message`
+- Never emit Symphony-owned system alerts from the agent. The system owns:
+  - `task.*`
+  - `agent.*`
+  - `chat.*`
+- Use judgment based on feature size.
+  - Large feature asks should usually follow the full loop: `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-review`.
+  - Smaller asks may skip brainstorm, plan, or review when the extra step would be overhead, but err on the side of using these skills when in doubt.
+- Use custom workflow alerts for milestone announcements. In this repository, prefer:
+  - `phase.brainstorm.start`
+  - `phase.brainstorm.end`
+  - `phase.plan.start`
+  - `phase.plan.end`
+  - `phase.work.start`
+  - `phase.work.end`
+  - `phase.review.start`
+  - `phase.review.end`
+- Emit milestone alerts when you actually enter or leave the corresponding phase, not retroactively.

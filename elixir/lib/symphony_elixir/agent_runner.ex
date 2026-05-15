@@ -4,7 +4,8 @@ defmodule SymphonyElixir.AgentRunner do
   """
 
   require Logger
-  alias SymphonyElixir.{CodingAgent, Config, Issue, PromptBuilder, Tracker, Workspace}
+  alias SymphonyElixir.{AgentEventLog, Alerts, CodingAgent, Config, Issue, PromptBuilder, Tracker, Workspace}
+  alias SymphonyElixir.Codex.DynamicTool
 
   @type worker_host :: String.t() | nil
 
@@ -48,7 +49,7 @@ defmodule SymphonyElixir.AgentRunner do
   defp codex_message_handler(recipient, issue, workspace, worker_host) do
     fn message ->
       message = CodingAgent.normalize_event(message)
-      write_agent_log(workspace, worker_host, message)
+      AgentEventLog.write(workspace, worker_host, message)
       send_codex_update(recipient, issue, message)
     end
   end
@@ -139,7 +140,8 @@ defmodule SymphonyElixir.AgentRunner do
            prompt,
            issue,
            on_message: message_handler,
-           on_safe_checkpoint: safe_checkpoint_handler
+           on_safe_checkpoint: safe_checkpoint_handler,
+           tool_executor: tool_executor(issue, workspace, worker_host)
          ) do
       {:ok, turn_session} ->
         :ok = SymphonyElixir.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
@@ -164,6 +166,7 @@ defmodule SymphonyElixir.AgentRunner do
         wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} ->
+        maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
         :ok = SymphonyElixir.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
         {:error, reason}
     end
@@ -325,7 +328,8 @@ defmodule SymphonyElixir.AgentRunner do
            text,
            issue,
            on_message: message_handler,
-           on_safe_checkpoint: safe_checkpoint_handler
+           on_safe_checkpoint: safe_checkpoint_handler,
+           tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
          ) do
       {:ok, _turn_session} ->
         :ok = SymphonyElixir.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
@@ -474,91 +478,57 @@ defmodule SymphonyElixir.AgentRunner do
     |> String.downcase()
   end
 
-  defp write_agent_log(_workspace, worker_host, _message) when is_binary(worker_host), do: :ok
-
-  defp write_agent_log(workspace, nil, message) when is_binary(workspace) and is_map(message) do
-    log_dir = Path.join(workspace, "logs")
-    ndjson_path = Path.join(log_dir, "agent.ndjson")
-    markdown_path = Path.join(log_dir, "agent.md")
-
-    with :ok <- File.mkdir_p(log_dir),
-         :ok <- File.write(ndjson_path, Jason.encode!(json_safe(message)) <> "\n", [:append]),
-         :ok <- File.write(markdown_path, markdown_entry(message), [:append]) do
-      :ok
-    else
-      {:error, reason} ->
-        Logger.debug("Failed writing agent log workspace=#{workspace} reason=#{inspect(reason)}")
-        :ok
-    end
-  rescue
-    error ->
-      Logger.debug("Failed writing agent log workspace=#{workspace} error=#{Exception.message(error)}")
-      :ok
-  end
-
-  defp write_agent_log(_workspace, _worker_host, _message), do: :ok
-
   defp write_pause_log(workspace, worker_host) do
-    write_agent_log(workspace, worker_host, %{
+    AgentEventLog.write(workspace, worker_host, %{
       event: :worker_paused,
       timestamp: DateTime.utc_now(),
       last_message: "Agent paused by operator."
     })
   end
 
-  defp markdown_entry(message) do
-    timestamp =
-      message
-      |> Map.get(:timestamp, DateTime.utc_now())
-      |> format_timestamp()
-
-    event = Map.get(message, :event) || Map.get(message, "event") || "event"
-    summary = event_summary(message)
-
-    """
-    ## #{timestamp} #{event}
-
-    #{summary}
-
-    """
-  end
-
-  defp event_summary(message) do
-    cond do
-      is_binary(message[:last_message]) -> message[:last_message]
-      is_binary(message["last_message"]) -> message["last_message"]
-      is_binary(message[:raw]) -> code_block(message[:raw])
-      is_binary(message["raw"]) -> code_block(message["raw"])
-      true -> code_block(inspect(Map.drop(message, [:timestamp])))
-    end
-  end
-
-  defp code_block(value) do
-    """
-    ```text
-    #{value}
-    ```
-    """
-  end
-
-  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp json_safe(%{} = value), do: Map.new(value, fn {key, val} -> {json_safe_key(key), json_safe(val)} end)
-  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
-  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
-  defp json_safe(value), do: value
-
-  defp json_safe_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp json_safe_key(key), do: to_string(key)
-
-  defp format_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
-  defp format_timestamp(timestamp) when is_binary(timestamp), do: timestamp
-  defp format_timestamp(_timestamp), do: DateTime.utc_now() |> DateTime.to_iso8601()
-
   defp session_workspace(%{workspace: workspace}) when is_binary(workspace), do: workspace
   defp session_workspace(_session), do: nil
 
   defp session_worker_host(%{worker_host: worker_host}), do: worker_host
   defp session_worker_host(_session), do: nil
+
+  defp tool_executor(issue, workspace, worker_host) do
+    fn tool, arguments ->
+      DynamicTool.execute(
+        tool,
+        arguments,
+        alert_emitter: fn name, message ->
+          Alerts.emit_custom(name, message,
+            issue: issue,
+            workspace: workspace,
+            worker_host: worker_host
+          )
+        end
+      )
+    end
+  end
+
+  defp maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
+    if more_tokens_reason?(reason) do
+      Alerts.emit_system("agent.more_tokens", issue: issue, workspace: workspace, worker_host: worker_host)
+    end
+
+    :ok
+  end
+
+  defp more_tokens_reason?(reason) do
+    reason
+    |> inspect()
+    |> String.downcase()
+    |> String.contains?([
+      "rate limit exhausted",
+      "token budget",
+      "context length",
+      "maximum context",
+      "max tokens",
+      "too many tokens"
+    ])
+  end
 
   defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"

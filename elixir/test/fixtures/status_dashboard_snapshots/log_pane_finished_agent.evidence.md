@@ -9,6 +9,7 @@
 │  No active agents
 │
 ├─ Agent log: MT-001 - Fix the login flow (finished)
+│
 │   URL: —
 │
 │   [22:46:39] symphony · Issue prompt

@@ -227,6 +227,18 @@ defmodule SymphonyElixir.AgentLogTest do
       assert [%{role: "assistant", title: "Agent", body: "thinking..."}] = AgentLog.parse(content)
     end
 
+    test "parses alert events with a dedicated alert role" do
+      content =
+        entry("alert", %{
+          "event" => "alert",
+          "name" => "task.todo",
+          "message" => "Task entered todo"
+        })
+
+      assert [%{role: "alert", title: "task.todo", body: "Task entered todo"}] =
+               AgentLog.parse(content)
+    end
+
     test "compacts consecutive deltas with the same itemId" do
       content =
         entry("notification", %{
