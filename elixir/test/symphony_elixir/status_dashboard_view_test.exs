@@ -102,7 +102,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
     :ok = StatusDashboard.append_text(dashboard, "a")
 
     assert_receive {:render, rendered}, 100
-    assert rendered =~ "> a"
+    assert rendered =~ "› a"
   end
 
   test "cursor movement edits at the insertion point", %{dashboard: dashboard} do

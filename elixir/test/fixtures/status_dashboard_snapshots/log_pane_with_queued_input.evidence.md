@@ -24,7 +24,7 @@
 │   sending: def
 ╰─
                                                                                                                    
-  >                                                                                                                
+  ›                                                                                                                
                                                                                                                    
 Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                 
 ```
