@@ -69,7 +69,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
   test "reconcile_log_view_with_snapshot clears pending once previously visible item is consumed", %{dashboard: dashboard} do
     log_view = %{
       paused_log_view()
-      | composer: %{buffer: "", pending_request_id: 91, last_error: nil, local_pending_messages: []}
+      | composer: %{buffer: "", cursor_offset: 0, pending_request_id: 91, last_error: nil, local_pending_messages: []}
     }
 
     dashboard =
@@ -103,6 +103,32 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
 
     assert_receive {:render, rendered}, 100
     assert rendered =~ "> a"
+  end
+
+  test "cursor movement edits at the insertion point", %{dashboard: dashboard} do
+    workspace = Path.join(System.tmp_dir!(), "status_dashboard_cursor_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(workspace, "logs"))
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    log_view =
+      %{paused_log_view() | workspace_path: workspace, composer: fresh_composer_for_test()}
+
+    :sys.replace_state(dashboard, fn state ->
+      %{
+        state
+        | view: {:log, log_view},
+          last_snapshot_data: snapshot_with_workspace(workspace),
+          last_tps_value: 0.0,
+          last_rendered_at_ms: System.monotonic_time(:millisecond)
+      }
+    end)
+
+    :ok = StatusDashboard.append_text(dashboard, "ac")
+    :ok = StatusDashboard.move_cursor_left(dashboard)
+    :ok = StatusDashboard.append_text(dashboard, "b")
+
+    assert %{view: {:log, %{composer: %{buffer: "abc", cursor_offset: 2}}}} = state(dashboard)
   end
 
   test "empty submit does not redraw cached log view", %{dashboard: dashboard} do
@@ -148,7 +174,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
     log_view = %{
       paused_log_view()
       | workspace_path: workspace,
-        composer: %{buffer: "", pending_request_id: 91, last_error: nil, local_pending_messages: []}
+        composer: %{buffer: "", cursor_offset: 0, pending_request_id: 91, last_error: nil, local_pending_messages: []}
     }
 
     rendered =
@@ -180,6 +206,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
       mode: :typing,
       composer: %{
         buffer: "",
+        cursor_offset: 0,
         pending_request_id: 91,
         last_error: nil,
         local_pending_messages: [%{id: 91, text: "abc", status: :pending}]
@@ -254,7 +281,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
   end
 
   defp fresh_composer_for_test do
-    %{buffer: "", pending_request_id: nil, last_error: nil, local_pending_messages: []}
+    %{buffer: "", cursor_offset: 0, pending_request_id: nil, last_error: nil, local_pending_messages: []}
   end
 
   defp operator_log_entry(text) do

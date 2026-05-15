@@ -282,8 +282,14 @@ defmodule SymphonyElixir.TerminalInput do
   defp dispatch_csi(dashboard, "", "B", {:log_nav, pause_state}),
     do: tap({:log_nav, pause_state}, fn _ -> StatusDashboard.select_next(dashboard) end)
 
+  defp dispatch_csi(dashboard, "", "C", {:text, pause_state}),
+    do: tap({:text, pause_state}, fn _ -> StatusDashboard.move_cursor_right(dashboard) end)
+
   defp dispatch_csi(dashboard, "", "D", {:log_nav, _pause_state}),
     do: tap(:list, fn _ -> StatusDashboard.close_log(dashboard) end)
+
+  defp dispatch_csi(dashboard, "", "D", {:text, pause_state}),
+    do: tap({:text, pause_state}, fn _ -> StatusDashboard.move_cursor_left(dashboard) end)
 
   defp dispatch_csi(dashboard, "5", "~", {:log_nav, pause_state}),
     do: tap({:log_nav, pause_state}, fn _ -> StatusDashboard.scroll_log_up(dashboard) end)
@@ -338,6 +344,7 @@ defmodule SymphonyElixir.TerminalInput do
   end
 
   defp restore_terminal do
+    IO.write("\e[?25h")
     disable_bracketed_paste()
     SymphonyElixir.Os.stty(["sane"])
     :ok

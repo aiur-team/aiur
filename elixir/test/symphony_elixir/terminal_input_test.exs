@@ -127,6 +127,17 @@ defmodule SymphonyElixir.TerminalInputTest do
     assert_receive {:dashboard_cast, :submit_message}, @receive_timeout
   end
 
+  test "left and right arrows move the typing cursor instead of leaving the composer" do
+    {:ok, dashboard} = DashboardProbe.start_link(self())
+
+    start_input(dashboard, ["i", "\e", "[", "D", "\e", "[", "C", :eof])
+
+    assert_receive {:dashboard_cast, :open_log}, @receive_timeout
+    assert_receive {:dashboard_cast, :move_cursor_left}, @receive_timeout
+    assert_receive {:dashboard_cast, :move_cursor_right}, @receive_timeout
+    refute_received {:dashboard_cast, :close_log}
+  end
+
   test "unknown CSI sequences are ignored" do
     {:ok, dashboard} = DashboardProbe.start_link(self())
 

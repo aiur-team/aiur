@@ -184,6 +184,12 @@ defmodule SymphonyElixir.StatusDashboard do
   @spec backspace(GenServer.name()) :: :ok
   def backspace(server \\ __MODULE__), do: GenServer.cast(server, :backspace)
 
+  @spec move_cursor_left(GenServer.name()) :: :ok
+  def move_cursor_left(server \\ __MODULE__), do: GenServer.cast(server, :move_cursor_left)
+
+  @spec move_cursor_right(GenServer.name()) :: :ok
+  def move_cursor_right(server \\ __MODULE__), do: GenServer.cast(server, :move_cursor_right)
+
   @spec submit_message(GenServer.name()) :: :ok
   def submit_message(server \\ __MODULE__), do: GenServer.cast(server, :submit_message)
 
@@ -342,7 +348,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
   def handle_cast({:append_text, text}, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state)
       when is_binary(text) do
-    composer = Map.update!(log_view.composer, :buffer, &(&1 <> text))
+    composer = insert_text_at_cursor(log_view.composer, text)
 
     state =
       state
@@ -355,7 +361,7 @@ defmodule SymphonyElixir.StatusDashboard do
   def handle_cast({:append_text, _text}, state), do: {:noreply, state}
 
   def handle_cast(:backspace, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
-    composer = Map.update!(log_view.composer, :buffer, &drop_last_grapheme/1)
+    composer = backspace_at_cursor(log_view.composer)
 
     state =
       state
@@ -366,6 +372,20 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   def handle_cast(:backspace, state), do: {:noreply, state}
+
+  def handle_cast(:move_cursor_left, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
+    composer = move_cursor(log_view.composer, -1)
+    {:noreply, state |> update_log_view(%{log_view | composer: composer}) |> render_cached_interactive_frame()}
+  end
+
+  def handle_cast(:move_cursor_left, state), do: {:noreply, state}
+
+  def handle_cast(:move_cursor_right, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
+    composer = move_cursor(log_view.composer, 1)
+    {:noreply, state |> update_log_view(%{log_view | composer: composer}) |> render_cached_interactive_frame()}
+  end
+
+  def handle_cast(:move_cursor_right, state), do: {:noreply, state}
 
   def handle_cast(:submit_message, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
     text = String.trim(log_view.composer.buffer)
@@ -887,9 +907,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_input_section(log_view, columns) do
     inner_width = max(20, columns - 4)
     composer = Map.get(log_view, :composer, fresh_composer())
-    buffer = if composer.buffer == "", do: "", else: composer.buffer
-    prompt = if buffer == "", do: ">", else: "> " <> buffer
-    prompt_lines = prompt |> String.split("\n", trim: false) |> Enum.flat_map(&wrap_line(&1, inner_width - 2))
+    prompt_lines = composer_prompt_lines(composer, inner_width - 2)
 
     status =
       cond do
@@ -1234,6 +1252,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp render_to_terminal(content) do
     IO.write([
+      "\e[?25l",
       IO.ANSI.home(),
       IO.ANSI.clear(),
       normalize_status_lines(content)
@@ -1745,7 +1764,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp reconcile_log_view_with_snapshot(state, _snapshot_data), do: state
 
   defp fresh_composer do
-    %{buffer: "", pending_request_id: nil, last_error: nil, local_pending_messages: []}
+    %{buffer: "", cursor_offset: 0, pending_request_id: nil, last_error: nil, local_pending_messages: []}
   end
 
   defp reconcile_composer_with_running_entry(%{pending_request_id: request_id} = composer, running_entry)
@@ -1773,6 +1792,58 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp reconcile_composer_with_running_entry(composer, _running_entry), do: composer
+
+  defp insert_text_at_cursor(composer, text) when is_binary(text) do
+    {before_text, after_text} = split_buffer_at_cursor(composer.buffer, Map.get(composer, :cursor_offset, 0))
+    inserted_length = grapheme_length(text)
+
+    composer
+    |> Map.put(:buffer, before_text <> text <> after_text)
+    |> Map.put(:cursor_offset, Map.get(composer, :cursor_offset, 0) + inserted_length)
+  end
+
+  defp backspace_at_cursor(%{buffer: buffer} = composer) do
+    cursor_offset = Map.get(composer, :cursor_offset, 0)
+
+    if cursor_offset <= 0 do
+      composer
+    else
+      {before_text, after_text} = split_buffer_at_cursor(buffer, cursor_offset)
+      trimmed_before = drop_last_grapheme(before_text)
+
+      composer
+      |> Map.put(:buffer, trimmed_before <> after_text)
+      |> Map.put(:cursor_offset, cursor_offset - 1)
+    end
+  end
+
+  defp move_cursor(composer, delta) when delta in [-1, 1] do
+    limit = grapheme_length(composer.buffer)
+    next_offset = Map.get(composer, :cursor_offset, 0) + delta
+    Map.put(composer, :cursor_offset, max(0, min(limit, next_offset)))
+  end
+
+  defp composer_prompt_lines(composer, width) do
+    {before_text, after_text} = split_buffer_at_cursor(composer.buffer, Map.get(composer, :cursor_offset, 0))
+    prompt = "> " <> before_text <> "▏" <> after_text
+
+    prompt
+    |> String.split("\n", trim: false)
+    |> Enum.flat_map(&wrap_line(&1, width))
+  end
+
+  defp split_buffer_at_cursor(buffer, cursor_offset) do
+    graphemes = String.graphemes(buffer)
+    bounded_offset = max(0, min(length(graphemes), cursor_offset))
+    {before_text, after_text} = Enum.split(graphemes, bounded_offset)
+    {Enum.join(before_text), Enum.join(after_text)}
+  end
+
+  defp grapheme_length(buffer) do
+    buffer
+    |> String.graphemes()
+    |> length()
+  end
 
   defp drop_last_grapheme(""), do: ""
 
