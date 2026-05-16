@@ -55,10 +55,12 @@ defmodule SymphonyElixir.StatusDashboard do
     :enabled_override,
     :render_interval_ms_override,
     :render_fun,
+    :input_render_fun,
     :token_samples,
     :last_tps_second,
     :last_tps_value,
     :last_rendered_content,
+    :last_cursor_position,
     :last_rendered_at_ms,
     :pending_content,
     :flush_timer_ref,
@@ -88,10 +90,12 @@ defmodule SymphonyElixir.StatusDashboard do
           enabled_override: boolean() | nil,
           render_interval_ms_override: pos_integer() | nil,
           render_fun: (String.t() -> term()) | (String.t(), {pos_integer(), pos_integer()} | nil -> term()),
+          input_render_fun: ([String.t()], pos_integer(), {pos_integer(), pos_integer()} | nil -> term()),
           token_samples: [{integer(), integer()}],
           last_tps_second: integer() | nil,
           last_tps_value: float() | nil,
           last_rendered_content: String.t() | nil,
+          last_cursor_position: {pos_integer(), pos_integer()} | nil,
           last_rendered_at_ms: integer() | nil,
           pending_content: String.t() | {String.t(), {pos_integer(), pos_integer()} | nil} | nil,
           flush_timer_ref: reference() | nil,
@@ -129,6 +133,7 @@ defmodule SymphonyElixir.StatusDashboard do
     refresh_ms = refresh_ms_override || Config.observability_refresh_ms()
     render_interval_ms = render_interval_ms_override || Config.observability_render_interval_ms()
     render_fun = Keyword.get(opts, :render_fun, &render_to_terminal/2)
+    input_render_fun = Keyword.get(opts, :input_render_fun, &render_input_panel_to_terminal/3)
     enabled = resolve_override(enabled_override, Config.observability_enabled?() and dashboard_enabled?())
     schedule_tick(refresh_ms, enabled)
 
@@ -141,10 +146,12 @@ defmodule SymphonyElixir.StatusDashboard do
        enabled_override: enabled_override,
        render_interval_ms_override: render_interval_ms_override,
        render_fun: render_fun,
+       input_render_fun: input_render_fun,
        token_samples: [],
        last_tps_second: nil,
        last_tps_value: nil,
        last_rendered_content: nil,
+       last_cursor_position: nil,
        last_rendered_at_ms: nil,
        pending_content: nil,
        flush_timer_ref: nil,
@@ -359,7 +366,7 @@ defmodule SymphonyElixir.StatusDashboard do
     state =
       state
       |> update_log_view(%{log_view | composer: %{composer | last_error: nil}})
-      |> render_cached_interactive_frame()
+      |> render_cached_input_panel(log_view)
 
     {:noreply, state}
   end
@@ -372,7 +379,7 @@ defmodule SymphonyElixir.StatusDashboard do
     state =
       state
       |> update_log_view(%{log_view | composer: %{composer | last_error: nil}})
-      |> render_cached_interactive_frame()
+      |> render_cached_input_panel(log_view)
 
     {:noreply, state}
   end
@@ -381,14 +388,14 @@ defmodule SymphonyElixir.StatusDashboard do
 
   def handle_cast(:move_cursor_left, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
     composer = move_cursor(log_view.composer, -1)
-    {:noreply, state |> update_log_view(%{log_view | composer: composer}) |> render_cached_interactive_frame()}
+    {:noreply, state |> update_log_view(%{log_view | composer: composer}) |> render_cached_input_panel(log_view)}
   end
 
   def handle_cast(:move_cursor_left, state), do: {:noreply, state}
 
   def handle_cast(:move_cursor_right, %{enabled: true, view: {:log, %{mode: :typing} = log_view}} = state) do
     composer = move_cursor(log_view.composer, 1)
-    {:noreply, state |> update_log_view(%{log_view | composer: composer}) |> render_cached_interactive_frame()}
+    {:noreply, state |> update_log_view(%{log_view | composer: composer}) |> render_cached_input_panel(log_view)}
   end
 
   def handle_cast(:move_cursor_right, state), do: {:noreply, state}
@@ -572,6 +579,7 @@ defmodule SymphonyElixir.StatusDashboard do
     %{
       state
       | last_rendered_content: content,
+        last_cursor_position: cursor_position,
         last_rendered_at_ms: now_ms,
         pending_content: nil,
         flush_timer_ref: nil
@@ -587,6 +595,51 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp call_render_fun(render_fun, content, _cursor_position) when is_function(render_fun, 1),
     do: render_fun.(content)
+
+  defp render_cached_input_panel(%{last_cursor_position: nil} = state, _previous_log_view),
+    do: render_cached_interactive_frame(state)
+
+  defp render_cached_input_panel(%{view: {:log, log_view}} = state, previous_log_view) do
+    columns = terminal_columns()
+    incremental_columns = max(1, columns - 1)
+    {previous_lines, previous_cursor} = format_input_section(previous_log_view, incremental_columns)
+    {lines, cursor} = format_input_section(log_view, incremental_columns)
+
+    if length(lines) == length(previous_lines) do
+      previous_start_row = input_panel_start_row(state.last_cursor_position, previous_cursor)
+
+      if is_integer(previous_start_row) and previous_start_row > 0 do
+        cursor_position = absolute_cursor(previous_start_row, cursor)
+        call_input_render_fun(state.input_render_fun, lines, previous_start_row, cursor_position)
+        %{state | last_cursor_position: cursor_position}
+      else
+        render_cached_interactive_frame(state)
+      end
+    else
+      render_cached_interactive_frame(state)
+    end
+  rescue
+    error in [ArgumentError, RuntimeError] ->
+      Logger.warning("Failed rendering cached input panel: #{Exception.message(error)}")
+      render_cached_interactive_frame(state)
+  end
+
+  defp render_cached_input_panel(state, _previous_log_view), do: render_cached_interactive_frame(state)
+
+  defp call_input_render_fun(render_fun, lines, start_row, cursor_position) when is_function(render_fun, 3),
+    do: render_fun.(lines, start_row, cursor_position)
+
+  defp input_panel_start_row({absolute_row, _absolute_col}, {relative_row, _relative_col})
+       when is_integer(absolute_row) and is_integer(relative_row) do
+    absolute_row - relative_row + 1
+  end
+
+  defp input_panel_start_row(_absolute_cursor, _relative_cursor), do: nil
+
+  defp absolute_cursor(start_row, {relative_row, relative_col})
+       when is_integer(start_row) and is_integer(relative_row) and is_integer(relative_col) do
+    {start_row + relative_row - 1, relative_col}
+  end
 
   defp render_cached_interactive_frame(%{last_snapshot_data: nil} = state), do: maybe_render(state)
 
@@ -1315,6 +1368,24 @@ defmodule SymphonyElixir.StatusDashboard do
       IO.ANSI.home(),
       IO.ANSI.clear(),
       normalize_status_lines(content),
+      cursor_commands
+    ])
+  end
+
+  defp render_input_panel_to_terminal(lines, start_row, cursor_position) do
+    cursor_commands =
+      case cursor_position do
+        {row, col} when is_integer(row) and is_integer(col) and row > 0 and col > 0 ->
+          [IO.ANSI.cursor(row, col), "\e[?25h"]
+
+        _ ->
+          ["\e[?25l"]
+      end
+
+    IO.write([
+      Enum.with_index(lines, fn line, index ->
+        [IO.ANSI.cursor(start_row + index, 1), IO.ANSI.clear_line(), line]
+      end),
       cursor_commands
     ])
   end

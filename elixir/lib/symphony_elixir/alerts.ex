@@ -89,6 +89,7 @@ defmodule SymphonyElixir.Alerts do
       })
 
       maybe_play_sound(selected_sound, opts)
+      maybe_emit_terminal_bell(selected_sound, opts)
       StatusDashboard.notify_update()
       :ok
     end
@@ -167,6 +168,7 @@ defmodule SymphonyElixir.Alerts do
   defp config_sounds(_config), do: []
 
   defp present_string(value, reason \\ :missing_string)
+
   defp present_string(value, reason) when is_binary(value) do
     case String.trim(value) do
       "" -> {:error, reason}
@@ -213,6 +215,28 @@ defmodule SymphonyElixir.Alerts do
       not File.exists?(sound) -> :ok
       true -> Task.start(fn -> System.cmd(executable, [sound], stderr_to_stdout: true) end)
     end
+  end
+
+  defp maybe_emit_terminal_bell(nil, _opts), do: :ok
+
+  defp maybe_emit_terminal_bell(_sound, opts) do
+    cond do
+      Keyword.has_key?(opts, :terminal_notifier) ->
+        Keyword.fetch!(opts, :terminal_notifier).()
+
+      Mix.env() == :test ->
+        :ok
+
+      Keyword.get(opts, :terminal_bell, true) ->
+        IO.write("\a")
+
+      true ->
+        :ok
+    end
+  rescue
+    error ->
+      Logger.debug("Alert terminal notification failed: #{Exception.message(error)}")
+      :ok
   end
 
   defp resolve_workspace(%Issue{identifier: identifier}), do: resolve_workspace(identifier)

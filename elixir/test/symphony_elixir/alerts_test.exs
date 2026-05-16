@@ -17,10 +17,13 @@ defmodule SymphonyElixir.AlertsTest do
     assert :ok =
              Alerts.emit_system("task.done",
                issue: "MT-ALERT-1",
-               player: fn sound -> send(self(), {:played_sound, sound}) end
+               player: fn sound -> send(self(), {:played_sound, sound}) end,
+               terminal_notifier: fn -> send(self(), :terminal_notified) end
              )
 
-    assert_receive {:played_sound, "/Users/kevin/alerts/advisor-upgrade-complete.wav"}
+    assert_receive {:played_sound, played_sound}
+    assert played_sound == Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
+    assert_receive :terminal_notified
 
     log_path = Path.join(workspace, "logs/agent.md")
     ndjson_path = Path.join(workspace, "logs/agent.ndjson")
@@ -125,15 +128,18 @@ defmodule SymphonyElixir.AlertsTest do
 
     log_path = Path.join(workspace, "logs/agent.ndjson")
 
-    assert_eventually(fn ->
-      send(pid, {:worker_control_state, "issue-5", :paused})
-      Process.sleep(25)
-      send(pid, {:worker_control_state, "issue-5", :working})
-      log = File.read!(log_path)
+    assert_eventually(
+      fn ->
+        send(pid, {:worker_control_state, "issue-5", :paused})
+        Process.sleep(25)
+        send(pid, {:worker_control_state, "issue-5", :working})
+        log = File.read!(log_path)
 
-      String.contains?(log, "\"name\":\"agent.paused\"") and
-        String.contains?(log, "\"name\":\"agent.unpaused\"")
-    end, 20)
+        String.contains?(log, "\"name\":\"agent.paused\"") and
+          String.contains?(log, "\"name\":\"agent.unpaused\"")
+      end,
+      20
+    )
   end
 
   defp assert_eventually(fun, attempts) when attempts > 0 do

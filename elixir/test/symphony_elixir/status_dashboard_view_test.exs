@@ -12,7 +12,8 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
         enabled: true,
         refresh_ms: 100_000,
         render_interval_ms: 100_000,
-        render_fun: fn content -> send(parent, {:render, content}) end,
+        render_fun: fn content, cursor -> send(parent, {:render, content, cursor}) end,
+        input_render_fun: fn lines, start_row, cursor -> send(parent, {:input_render, lines, start_row, cursor}) end,
         selected_index: 0
       )
 
@@ -95,14 +96,41 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
         | view: {:log, log_view},
           last_snapshot_data: snapshot_with_workspace(workspace),
           last_tps_value: 0.0,
-          last_rendered_at_ms: System.monotonic_time(:millisecond)
+          last_rendered_at_ms: System.monotonic_time(:millisecond),
+          last_cursor_position: {18, 5}
       }
     end)
 
     :ok = StatusDashboard.append_text(dashboard, "a")
 
-    assert_receive {:render, rendered}, 100
-    assert rendered =~ "› a"
+    assert_receive {:input_render, rendered_lines, _start_row, _cursor}, 100
+    assert Enum.join(rendered_lines, "\n") =~ "› a"
+    refute_receive {:render, _rendered, _cursor}, 100
+  end
+
+  test "composer input repaint keeps cursor at the typed character", %{dashboard: dashboard} do
+    workspace = Path.join(System.tmp_dir!(), "status_dashboard_cursor_position_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(workspace, "logs"))
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    log_view = %{paused_log_view() | workspace_path: workspace, composer: fresh_composer_for_test()}
+
+    :sys.replace_state(dashboard, fn state ->
+      %{
+        state
+        | view: {:log, log_view},
+          last_snapshot_data: snapshot_with_workspace(workspace),
+          last_tps_value: 0.0,
+          last_rendered_at_ms: System.monotonic_time(:millisecond),
+          last_cursor_position: {20, 5}
+      }
+    end)
+
+    :ok = StatusDashboard.append_text(dashboard, "a")
+
+    assert_receive {:input_render, _rendered_lines, 19, {20, 6}}, 100
+    refute_receive {:render, _rendered, _cursor}, 100
   end
 
   test "cursor movement edits at the insertion point", %{dashboard: dashboard} do
@@ -151,7 +179,7 @@ defmodule SymphonyElixir.StatusDashboardViewTest do
 
     :ok = StatusDashboard.submit_message(dashboard)
 
-    refute_receive {:render, _rendered}, 100
+    refute_receive {:render, _rendered, _cursor}, 100
   end
 
   test "reconcile_log_view_with_snapshot keeps queued operator messages on the running entry", %{dashboard: dashboard} do
