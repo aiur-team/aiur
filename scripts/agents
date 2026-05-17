@@ -346,7 +346,14 @@ prepare_distribution() {
   host_short="$(hostname -s 2>/dev/null || hostname)"
   local node_name="symphony-${USER}@${host_short}"
 
-  export ERL_AFLAGS="${ERL_AFLAGS:-} -sname symphony-${USER}"
+  # Read the cookie file's contents and pass it explicitly via -setcookie.
+  # ESCripts do not always pick up ~/.erlang.cookie automatically (some BEAM
+  # boot paths skip the auto-load), and a silent cookie mismatch shows up as
+  # `Node.connect/1 -> false` with no obvious cause — so we make it explicit.
+  local cookie
+  cookie="$(cat "$HOME/.erlang.cookie")"
+
+  export ERL_AFLAGS="${ERL_AFLAGS:-} -sname symphony-${USER} -setcookie ${cookie}"
   export ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}"
   export SYMPHONY_NODE="${SYMPHONY_NODE:-$node_name}"
 }

@@ -137,11 +137,34 @@ defmodule SymphonyElixir.PaneManager do
     safe_id = String.replace(identifier, ~r/[^A-Za-z0-9_-]/, "-")
     suffix = Integer.to_string(System.unique_integer([:positive]), 36)
     node_short = "pane-#{safe_id}-#{suffix}"
+
     # tmux passes the resulting string to `/bin/sh -c`, so single-quoting the
     # ERL_AFLAGS value is enough to keep `-sname <node>` together when env
     # parses it. ERL_AFLAGS overrides the parent BEAM's `-sname` so the pane
     # BEAM gets a unique node name and does not collide with the orchestrator.
-    "env ERL_AFLAGS='-sname #{node_short}' #{command}"
+    #
+    # Cookie: the parent BEAM has `-setcookie <value>` baked into its own
+    # ERL_AFLAGS (set by `scripts/agents`). When we replace ERL_AFLAGS for
+    # the pane, we must re-inject the cookie or the pane's distributed
+    # connection back to symphony fails silently with `Node.connect -> false`.
+    cookie_flag =
+      case read_erlang_cookie() do
+        cookie when is_binary(cookie) and cookie != "" -> " -setcookie #{cookie}"
+        _ -> ""
+      end
+
+    "env ERL_AFLAGS='-sname #{node_short}#{cookie_flag}' #{command}"
+  end
+
+  defp read_erlang_cookie do
+    path = Path.join(System.user_home!(), ".erlang.cookie")
+
+    case File.read(path) do
+      {:ok, contents} -> String.trim(contents)
+      {:error, _} -> nil
+    end
+  rescue
+    _ -> nil
   end
 
   defp record_pane(%__MODULE__{} = state, identifier, pane_id) do
