@@ -115,8 +115,9 @@ defmodule SymphonyPane.Conversation do
   end
 
   def handle_info({:alert, event}, state) do
-    system_line = AgentEvents.transcript_event(:system, "[alert] " <> Map.get(event, :message, ""))
-    new_state = %{state | transcript: state.transcript ++ [system_line]}
+    body = "#{Map.get(event, :name, "alert")}: #{Map.get(event, :message, "")}"
+    alert_line = AgentEvents.transcript_event(:alert, body)
+    new_state = %{state | transcript: state.transcript ++ [alert_line]}
     render(new_state)
     {:noreply, new_state}
   end
@@ -294,7 +295,7 @@ defmodule SymphonyPane.Conversation do
   defp normalize_history_entry({:transcript_event, event}), do: event
 
   defp normalize_history_entry({:alert, %{name: name, message: message}}) do
-    AgentEvents.transcript_event(:system, "[alert] #{name}: #{message}")
+    AgentEvents.transcript_event(:alert, "#{name}: #{message}")
   end
 
   defp normalize_history_entry(_other), do: AgentEvents.transcript_event(:system, "")

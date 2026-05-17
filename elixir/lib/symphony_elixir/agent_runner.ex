@@ -90,7 +90,7 @@ defmodule SymphonyElixir.AgentRunner do
         {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message))}
 
       summary = system_activity_from_codex(message) ->
-        {:ok, AgentEvents.transcript_event(:system, summary, timestamp: timestamp_for(message))}
+        {:ok, AgentEvents.transcript_event(:command, summary, timestamp: timestamp_for(message))}
 
       true ->
         legacy_transcript_event(message)

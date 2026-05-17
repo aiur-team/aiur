@@ -16,8 +16,13 @@ defmodule SymphonyElixir.AgentEvents do
   @typedoc "Stable per-agent identifier (the issue id string)."
   @type agent_identifier :: String.t()
 
-  @typedoc "Origin of a transcript line."
-  @type role :: :user | :assistant | :system
+  @typedoc """
+  Origin of a transcript line. `:user` and `:assistant` are
+  conversational turns; `:system` covers contextual/external information
+  (intro, errors, status); `:command` is a shell/tool command the agent
+  issues; `:alert` is an operator-facing notification.
+  """
+  @type role :: :user | :assistant | :system | :command | :alert
 
   @typedoc "One line of an agent conversation transcript."
   @type transcript_event :: %{
@@ -53,7 +58,7 @@ defmodule SymphonyElixir.AgentEvents do
 
   @spec transcript_event(role(), String.t(), keyword()) :: transcript_event()
   def transcript_event(role, body, opts \\ [])
-      when role in [:user, :assistant, :system] and is_binary(body) do
+      when role in [:user, :assistant, :system, :command, :alert] and is_binary(body) do
     %{
       role: role,
       body: body,
