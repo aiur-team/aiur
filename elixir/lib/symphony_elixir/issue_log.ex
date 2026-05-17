@@ -182,11 +182,9 @@ defmodule SymphonyElixir.IssueLog do
     "[#{tag_for_role(role)}] (##{identifier}) #{summarize(body)}"
   end
 
-  defp tag_for_role(:assistant), do: "agent"
-  defp tag_for_role(:user), do: "user"
-  defp tag_for_role(:system), do: "system"
-  defp tag_for_role(:command), do: "cmd"
-  defp tag_for_role(:alert), do: "alert"
+  defp tag_for_role(role) when role in [:assistant, :user, :system, :command, :alert],
+    do: AgentEvents.tag_name(role)
+
   defp tag_for_role(other), do: to_string(other)
 
   defp summarize(nil), do: ""

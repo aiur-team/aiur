@@ -34,22 +34,20 @@ defmodule SymphonyPane.Viewport do
 
   # Per-role tag styling: a colored background block carrying the role
   # name so the reader can scan the column at a glance. The text inside
-  # the tag stays black so it's legible on bright backgrounds.
-  #   [agent]  green bg   — words from the agent
-  #   [user]   cyan bg    — operator's typed message, right-aligned
-  #   [system] yellow bg  — external context (intro, errors, status)
-  #   [cmd]    magenta bg — commands the agent runs
-  #   [alert]  red bg     — operator-facing notifications
-  @tag_agent "\e[42m\e[30m [agent] \e[0m"
-  @tag_user "\e[46m\e[30m [user] \e[0m"
-  @tag_system "\e[43m\e[30m [system] \e[0m"
-  @tag_command "\e[45m\e[30m [cmd] \e[0m"
-  @tag_alert "\e[41m\e[37m [alert] \e[0m"
-  @tag_agent_width 9
-  @tag_user_width 8
-  @tag_system_width 10
-  @tag_command_width 7
-  @tag_alert_width 9
+  # the tag stays black (or white on the red alert bg) so it's legible.
+  # Tag *names* themselves are defined once in `AgentEvents.tag_name/1`;
+  # the colour map here just decorates each name with a background.
+  #
+  #   [agent] green bg   — words from the agent
+  #   [usr]   cyan bg    — operator's typed message, right-aligned
+  #   [sys]   yellow bg  — external context (intro, errors, status)
+  #   [cmd]   magenta bg — commands the agent runs
+  #   [alert] red bg     — operator-facing notifications
+  @bg_agent "\e[42m\e[30m"
+  @bg_user "\e[46m\e[30m"
+  @bg_system "\e[43m\e[30m"
+  @bg_command "\e[45m\e[30m"
+  @bg_alert "\e[41m\e[37m"
 
   # Max tinted-input rows before we stop growing the composer block. Beyond
   # this we truncate from the start of the buffer (keeping the cursor and
@@ -131,12 +129,21 @@ defmodule SymphonyPane.Viewport do
     end)
   end
 
-  defp tag_for(:assistant), do: {@tag_agent, @tag_agent_width}
-  defp tag_for(:user), do: {@tag_user, @tag_user_width}
-  defp tag_for(:system), do: {@tag_system, @tag_system_width}
-  defp tag_for(:command), do: {@tag_command, @tag_command_width}
-  defp tag_for(:alert), do: {@tag_alert, @tag_alert_width}
-  defp tag_for(_other), do: {@tag_system, @tag_system_width}
+  defp tag_for(role), do: build_tag(role, bg_for(role))
+
+  defp bg_for(:assistant), do: @bg_agent
+  defp bg_for(:user), do: @bg_user
+  defp bg_for(:system), do: @bg_system
+  defp bg_for(:command), do: @bg_command
+  defp bg_for(:alert), do: @bg_alert
+  defp bg_for(_other), do: @bg_system
+
+  defp build_tag(role, bg) do
+    display = AgentEvents.tag_display(role)
+    # Reserve a space on each side of the tag for visual breathing room.
+    text = " #{display} "
+    {[bg, text, @ansi_reset], String.length(text)}
+  end
 
   defp body_for_role(_role, body), do: to_string(body)
 

@@ -31,7 +31,7 @@ defmodule SymphonyPane.ViewportTest do
 
     {frame, _cursor} = Viewport.render(base_state(transcript: transcript))
     text = IO.iodata_to_binary(frame) |> visible()
-    assert text =~ "[user]"
+    assert text =~ "[usr]"
     assert text =~ "hi"
     assert text =~ "[agent]"
     assert text =~ "hello back"
@@ -46,13 +46,13 @@ defmodule SymphonyPane.ViewportTest do
     {frame, _cursor} = Viewport.render(base_state(transcript: transcript, columns: 40))
     text = IO.iodata_to_binary(frame) |> visible()
 
-    user_row = Enum.find(String.split(text, "\r\n"), fn line -> line =~ "[user]" end)
+    user_row = Enum.find(String.split(text, "\r\n"), fn line -> line =~ "[usr]" end)
     agent_row = Enum.find(String.split(text, "\r\n"), fn line -> line =~ "[agent]" end)
 
     # User row puts the tag on the right (preceded by padding spaces) so
     # the visual reads like a chat bubble pulled to the right side.
     assert String.starts_with?(user_row, " ")
-    assert String.ends_with?(String.trim_trailing(user_row), "[user]")
+    assert String.ends_with?(String.trim_trailing(user_row), "[usr]")
 
     # Agent row puts the tag on the left.
     assert String.starts_with?(String.trim_leading(agent_row), "[agent]")

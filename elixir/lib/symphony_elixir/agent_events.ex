@@ -56,6 +56,34 @@ defmodule SymphonyElixir.AgentEvents do
   @type message ::
           transcript_message() | alert_message() | running_change_message() | status_change_message()
 
+  @doc """
+  Canonical short tag name for a transcript role. Used by the
+  conversation pane (`SymphonyPane.Viewport`), the per-issue log writer
+  (`SymphonyElixir.IssueLog`), and any external consumer that wants to
+  surface the same labels Symphony renders in its UI. Define every new
+  role's tag here so the pane, the file log, and the system log all
+  stay in sync.
+
+  Tag-to-meaning map:
+    * `agent` — `:assistant` — words from the agent
+    * `usr`   — `:user`      — operator's typed message
+    * `sys`   — `:system`    — external context (intro, errors)
+    * `cmd`   — `:command`   — commands the agent runs
+    * `alert` — `:alert`     — operator-facing notifications
+  """
+  @spec tag_name(role()) :: String.t()
+  def tag_name(:assistant), do: "agent"
+  def tag_name(:user), do: "usr"
+  def tag_name(:system), do: "sys"
+  def tag_name(:command), do: "cmd"
+  def tag_name(:alert), do: "alert"
+
+  @doc """
+  Bracketed display form of a tag — `"[agent]"`, `"[usr]"`, etc.
+  """
+  @spec tag_display(role()) :: String.t()
+  def tag_display(role), do: "[" <> tag_name(role) <> "]"
+
   @spec transcript_event(role(), String.t(), keyword()) :: transcript_event()
   def transcript_event(role, body, opts \\ [])
       when role in [:user, :assistant, :system, :command, :alert] and is_binary(body) do
