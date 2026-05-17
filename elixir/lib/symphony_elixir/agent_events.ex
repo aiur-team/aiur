@@ -1,0 +1,89 @@
+defmodule SymphonyElixir.AgentEvents do
+  @moduledoc """
+  Canonical payload contracts for per-agent and orchestrator-wide PubSub events.
+
+  Subscribers (CLI conversation panes, agent-list pane, future MCP bridges) match
+  on these tuple shapes. Producers (`AgentRunner`, `Orchestrator`, `AgentChat`,
+  `Alerts`) construct messages with the constructor helpers in this module so
+  the wire format stays consistent.
+
+  Topic conventions:
+    * `"agent:<identifier>"` carries `t:transcript_message/0` and `t:alert_message/0`
+    * `"agents:running"` carries `t:running_change_message/0`
+    * `"agents:status"` carries `t:status_change_message/0`
+  """
+
+  @typedoc "Stable per-agent identifier (the issue id string)."
+  @type agent_identifier :: String.t()
+
+  @typedoc "Origin of a transcript line."
+  @type role :: :user | :assistant | :system
+
+  @typedoc "One line of an agent conversation transcript."
+  @type transcript_event :: %{
+          role: role(),
+          body: String.t(),
+          timestamp: DateTime.t(),
+          msg_id: String.t() | nil
+        }
+
+  @typedoc "Alert payload broadcast on the per-agent topic."
+  @type alert_event :: %{
+          name: String.t(),
+          message: String.t(),
+          sound: String.t() | nil,
+          timestamp: DateTime.t()
+        }
+
+  @typedoc "Summary row used to render the agent list."
+  @type agent_summary :: %{
+          identifier: agent_identifier(),
+          status: atom(),
+          alert_count: non_neg_integer()
+        }
+
+  @type transcript_message :: {:transcript_event, transcript_event()}
+  @type alert_message :: {:alert, alert_event()}
+  @type running_change_message :: {:running_changed, [agent_summary()]}
+  @type status_change_message :: {:status_changed, %{identifier: agent_identifier(), status: atom()}}
+
+  @typedoc "Any message that may be received on a Symphony agent topic."
+  @type message ::
+          transcript_message() | alert_message() | running_change_message() | status_change_message()
+
+  @spec transcript_event(role(), String.t(), keyword()) :: transcript_event()
+  def transcript_event(role, body, opts \\ [])
+      when role in [:user, :assistant, :system] and is_binary(body) do
+    %{
+      role: role,
+      body: body,
+      timestamp: Keyword.get(opts, :timestamp) || DateTime.utc_now(),
+      msg_id: Keyword.get(opts, :msg_id)
+    }
+  end
+
+  @spec alert_event(String.t(), String.t(), keyword()) :: alert_event()
+  def alert_event(name, message, opts \\ []) when is_binary(name) and is_binary(message) do
+    %{
+      name: name,
+      message: message,
+      sound: Keyword.get(opts, :sound),
+      timestamp: Keyword.get(opts, :timestamp) || DateTime.utc_now()
+    }
+  end
+
+  @spec agent_summary(agent_identifier(), atom(), non_neg_integer()) :: agent_summary()
+  def agent_summary(identifier, status, alert_count)
+      when is_binary(identifier) and is_atom(status) and is_integer(alert_count) and alert_count >= 0 do
+    %{identifier: identifier, status: status, alert_count: alert_count}
+  end
+
+  @spec agent_topic(agent_identifier()) :: String.t()
+  def agent_topic(identifier) when is_binary(identifier), do: "agent:" <> identifier
+
+  @spec running_topic() :: String.t()
+  def running_topic, do: "agents:running"
+
+  @spec status_topic() :: String.t()
+  def status_topic, do: "agents:status"
+end
