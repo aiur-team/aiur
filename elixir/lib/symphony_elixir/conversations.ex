@@ -14,7 +14,7 @@ defmodule SymphonyElixir.Conversations do
 
   alias SymphonyElixir.{AgentEvents, AgentPubSub}
 
-  @opaque subscription_ref :: %{identifier: AgentEvents.agent_identifier(), pid: pid()}
+  @type subscription_ref :: %{identifier: AgentEvents.agent_identifier(), pid: pid()}
 
   @spec attach(AgentEvents.agent_identifier()) :: {:ok, subscription_ref()} | {:error, term()}
   def attach(identifier) when is_binary(identifier) do
