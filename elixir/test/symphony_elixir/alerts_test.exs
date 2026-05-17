@@ -125,15 +125,18 @@ defmodule SymphonyElixir.AlertsTest do
 
     log_path = Path.join(workspace, "logs/agent.ndjson")
 
-    assert_eventually(fn ->
-      send(pid, {:worker_control_state, "issue-5", :paused})
-      Process.sleep(25)
-      send(pid, {:worker_control_state, "issue-5", :working})
-      log = File.read!(log_path)
+    assert_eventually(
+      fn ->
+        send(pid, {:worker_control_state, "issue-5", :paused})
+        Process.sleep(25)
+        send(pid, {:worker_control_state, "issue-5", :working})
+        log = File.read!(log_path)
 
-      String.contains?(log, "\"name\":\"agent.paused\"") and
-        String.contains?(log, "\"name\":\"agent.unpaused\"")
-    end, 20)
+        String.contains?(log, "\"name\":\"agent.paused\"") and
+          String.contains?(log, "\"name\":\"agent.unpaused\"")
+      end,
+      20
+    )
   end
 
   defp assert_eventually(fun, attempts) when attempts > 0 do

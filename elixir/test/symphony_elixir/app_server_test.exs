@@ -434,8 +434,11 @@ defmodule SymphonyElixir.AppServerTest do
                            "description" => description,
                            "inputSchema" => %{"required" => ["query"]},
                            "name" => "linear_graphql"
-                         } -> description =~ "Linear"
-                         _ -> false
+                         } ->
+                           description =~ "Linear"
+
+                         _ ->
+                           false
                        end) and
                          Enum.any?(tools, fn
                            %{"inputSchema" => %{"required" => ["name", "title", "message"]}, "name" => "emit_alert"} -> true

@@ -15,16 +15,22 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
                  "type" => "object"
                },
                "name" => "linear_graphql"
-             } -> description =~ "Linear"
-             _ -> false
+             } ->
+               description =~ "Linear"
+
+             _ ->
+               false
            end)
 
     assert Enum.any?(specs, fn
              %{
                "inputSchema" => %{"required" => ["name", "message"]},
                "name" => "emit_alert"
-             } -> true
-             _ -> false
+             } ->
+               true
+
+             _ ->
+               false
            end)
   end
 
