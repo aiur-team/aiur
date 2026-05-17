@@ -29,7 +29,10 @@ defmodule SymphonyPane.ViewportTest do
       AgentEvents.transcript_event(:assistant, "hello back")
     ]
 
-    {frame, _cursor} = Viewport.render(base_state(transcript: transcript))
+    # Each transcript event now produces a tag row + body row(s), and
+    # user turns add blank lines above + below, so the default 8-row
+    # pane is too tight. Bump rows so both events stay visible.
+    {frame, _cursor} = Viewport.render(base_state(transcript: transcript, rows: 16))
     text = IO.iodata_to_binary(frame) |> visible()
     assert text =~ " user "
     assert text =~ "hi"
@@ -73,26 +76,29 @@ defmodule SymphonyPane.ViewportTest do
     assert raw =~ "hello"
   end
 
-  test "right-aligns user messages and left-aligns agent messages" do
+  test "right-aligns user tag and left-aligns agent tag" do
     transcript = [
       AgentEvents.transcript_event(:user, "hi"),
       AgentEvents.transcript_event(:assistant, "hello")
     ]
 
-    {frame, _cursor} = Viewport.render(base_state(transcript: transcript, columns: 40))
+    # 16 rows fits both event blocks (tag row + body row each, plus
+    # user-turn padding blanks above/below). At 8 the body_budget
+    # truncates the user block off the top.
+    {frame, _cursor} = Viewport.render(base_state(transcript: transcript, columns: 40, rows: 16))
     text = IO.iodata_to_binary(frame) |> visible()
 
     user_row = Enum.find(String.split(text, "\r\n"), fn line -> line =~ " user " end)
     agent_row = Enum.find(String.split(text, "\r\n"), fn line -> line =~ " agent " end)
 
-    # User row puts the tag on the right (preceded by padding spaces) so
-    # the visual reads like a chat bubble pulled to the right side. The
-    # tag's trailing space is consumed by `trim_trailing/1`, so we just
-    # check the tag word lands at the end.
+    # User tag row sits on its own line, right-aligned: leading
+    # padding spaces, then the colored tag block.
     assert String.starts_with?(user_row, " ")
     assert String.ends_with?(String.trim_trailing(user_row), "user")
 
-    # Agent row puts the tag on the left.
+    # Agent tag row sits on its own line, left-aligned. After
+    # trim_leading the row begins with "agent " (the leading space of
+    # the tag block is consumed by trim_leading).
     assert String.starts_with?(String.trim_leading(agent_row), "agent ")
   end
 
