@@ -51,15 +51,18 @@ defmodule SymphonyPane.Viewport do
 
   # Body text styling — chosen via terminal-default SGR codes so the
   # color adapts to whichever palette the user's theme defines for that
-  # slot. This means `[alert]` red looks red on dark terminals (bright
-  # red) AND on light terminals (dark red), and `[cmd]` faint reads as
-  # ~50% opacity in both modes without me having to guess RGB values.
+  # slot.
   #
-  #   :alert   `\e[31m`  default red    (terminal-palette adapted)
-  #   :command `\e[2m`   faint (dim)    (terminal-palette adapted)
-  #   else     ""        no body style  (default fg color)
+  #   :alert   `\e[31m`  default red          (terminal-palette adapted)
+  #   :command `\e[90m`  bright black / gray  (terminal-palette adapted)
+  #   else     ""        no body style        (default fg color)
+  #
+  # `\e[90m` (bright black) is the conventional "muted text" SGR and is
+  # supported by every modern terminal — unlike `\e[2m` (faint), which
+  # Termius and many others render identically to the default fg, so we
+  # would see no dim effect at all.
   @body_alert "\e[31m"
-  @body_command "\e[2m"
+  @body_command "\e[90m"
 
   # Max tinted-input rows before we stop growing the composer block. Beyond
   # this we truncate from the start of the buffer (keeping the cursor and
