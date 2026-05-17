@@ -2,6 +2,7 @@
 date: 2026-05-17
 topic: Pane-side message queue with instant-vs-queued submit modes
 branch: feat/cli-pane-rearchitecture
+issue: https://github.com/its-everdred/symphony/issues/31
 status: ready-for-planning
 ---
 
@@ -22,150 +23,196 @@ interrupts the agent mid-command. Two reproducible examples from
 
 This is fine when the user is steering the agent away from a wrong
 direction, but actively destructive when the agent is mid-execution of
-an explicit instruction. The user wants two distinct submit experiences
-co-existing in one composer.
+an explicit instruction.
 
-## Requirements
+## Comparison: claw-code vs Symphony
 
-1. **Mode A — Instant submit.** When the agent is "between turns" (idle
-   waiting for the next operator message, or just finished a response
-   and not running any tool), Enter posts immediately. This is today's
-   path; only the trigger logic changes.
-2. **Mode B — Pane-queued submit.** When the agent is mid-tool-call
-   (shell command running, file edit in progress, model is still
-   streaming a reply), pressing Enter does NOT interrupt. Instead the
-   message appears in a queue section *above* the composer input, the
-   composer clears, and the operator can keep typing more messages —
-   each one stacks below the previous queued line.
-3. **Queue drain.** When the agent finishes its current activity and is
-   ready to read the next operator message, the entire queue drains as
-   one bundled message to the agent, joined with blank lines so it
-   reads as a single multi-paragraph turn. The queue lines also enter
-   the transcript as `[user]` events at drain time (not before).
-4. **Visible queue lines.** The queue renders directly above the input
-   row, styled like the input background but with a slightly different
-   tint (or a small left gutter marker) so the operator sees what is
-   pending. Queue lines wrap the same way as transcript user lines.
-5. **No silent loss.** If the agent crashes or the pane closes before
-   drain, queued lines must persist to the per-issue log so the
-   operator can recover them.
-
-## Key Decisions
-
-### Trigger for Mode A vs Mode B
-
-The choice is driven by **agent activity state**, not by user
-configuration. The pane already receives lifecycle events:
-
-- `[cmd] $ ...` events without a paired exit → agent is running a
-  command.
-- `[agent] ...` events stop arriving for >N seconds while the model is
-  streaming → agent is thinking.
-- A `task.todo` or "ready" alert / a paired `[cmd] $ ... [exit=N]`
-  followed by an `[agent]` text response → agent is idle.
-
-Track a single `agent_state ∈ {:idle, :busy}` value in the
-`Conversation` GenServer, recomputed on each PubSub event. The
-heuristic for `:busy`:
-
-- `:command` event with no matching `[exit=N]` → `:busy`
-- `:assistant` event within the last 2s with no follow-up `[exit=...]`
-  pending → debounce; treat as `:idle` after 2s of silence
-- Otherwise → `:idle`
-
-A small idle-debounce (e.g. 1500 ms) avoids the bouncy case where the
-agent is just between two quick tool calls.
-
-### Where the queue lives
-
-Option 1 — purely in the `Conversation` GenServer:
-- Simpler: no orchestrator changes.
-- Lost if the pane crashes.
-- But: pane crashes are rare and the per-issue log already mirrors the
-  operator's pre-drain queue if we log queue-add events as
-  `[queued] ...` lines.
-
-Option 2 — in the orchestrator's `AgentQueue` with a new
-`:queue_only_until_drain` policy:
-- Survives pane crashes naturally.
-- But: requires new orchestrator state, new policy code, and the pane
-  has to re-query "what's queued for me right now?" on open.
-
-**Recommendation: Option 1** for the first cut, with a `[queued]`
-mirror line written into the per-issue log on every queue-add so the
-operator can recover by tailing the log if the pane dies before drain.
-
-### Drain semantics
-
-Two sub-options:
-
-a. **Single bundled message.** Join all queue lines with `\n\n` and
-   submit one operator message. The agent reads one turn that contains
-   N paragraphs. This is closest to what a human reviewer would do.
-b. **Multiple ordered submits.** Submit each queue line as its own
-   operator message in order, with a small delay so the agent sees
-   them as N distinct turns.
-
-(a) is the right default — it matches how the user thinks (they were
-typing one continuous stream of thought, just over wall-clock seconds)
-and avoids triggering N turn-by-turn agent responses.
-
-### Submit-bypass for forced interrupt
-
-The user should still be able to actually interrupt the agent (e.g.
-when the agent is stuck or going the wrong way). Reserve a modifier
-keystroke — `Shift+Enter` to send instantly even while busy. The help
-row gets updated:
+`ultraworkers/claw-code` (Rust CLI agent harness) was reviewed for
+inspiration. **It has no user-message queue at all** — the REPL is
+strictly sequential:
 
 ```
- Ctrl+C close   Tab cycle   Shift+Enter force-send
+loop {
+    editor.read_line()        // blocks
+    cli.run_turn(input)       // blocks for the entire model+tool loop
+}
 ```
 
-(Or vice versa: bare Enter always queues, Shift+Enter always sends. The
-"smart" mode A/B is the default; modifier overrides it.)
+While `run_turn` is executing, typed bytes go to the OS terminal buffer
+and may be consumed by the next `read_line()` *or* by a permission
+prompt mid-turn (`CliPermissionPrompter::decide` reads stdin
+synchronously). Their UX advantage is not queueing; it's that a single
+human is driving a single agent and turns end fast enough that blocking
+feels OK. We can't copy that model because Symphony runs many agents in
+parallel and operator messages routinely need to wait for an active
+turn.
 
-## Scope Boundaries
+## What Symphony already has (existing infra)
 
-### In scope
+Worth knowing before designing — most of the plumbing already exists:
 
-- `Conversation` GenServer state for queue + agent_state
-- Viewport rendering of a queue section above the composer
-- PubSub-driven agent-state classifier
-- Drain logic that bundles queued lines and forwards via existing
-  `PaneRPC.send_operator_message`
-- Help-row update for the new keystroke
-- Per-issue log mirroring of queue-add events
+1. **`AgentQueue.operator_message/3`** supports two policies:
+   `:checkpoint` (queued, drained at a safe boundary) and `:interrupt`
+   (force-stop the in-flight tool). Today the pane uses `:interrupt`.
+2. **`safe_checkpoint_handler` (`agent_runner.ex:553`)** drains
+   `:checkpoint`-policy queue items **mid-turn** — every notification
+   AND every `item/tool/call` boundary invokes the handler. So
+   `:checkpoint` messages do not wait for the turn to fully end; they
+   land at the next clean point inside the running turn.
+3. **`drain_operator_messages` (`agent_runner.ex:434`)** runs after
+   each turn completes and starts a fresh turn for every queued
+   operator message in order.
+4. **PubSub broadcasts** every transcript event (`{:transcript_event,
+   event}`) to the pane already, so the pane can observe `:assistant`,
+   `:command`, etc. events without new wiring.
 
-### Out of scope
+The historical "minutes-long wait for turn end" complaint was specific
+to `:checkpoint` policy *before* intra-turn drain was wired. Today the
+remaining stall case is **a single long-running tool with no
+intermediate output** (e.g. `sleep 300`) — no notifications fire while
+the tool runs, so no checkpoint drains either.
 
-- Backend `AgentQueue` policy changes
+## Decisions confirmed with operator
+
+- **Default policy on Enter while busy:** always `:checkpoint`, never
+  interrupt. The cancelled-sleep behavior is unacceptable.
+- **Multiple queued messages:** bundle into one merged drain (single
+  combined operator message joined with blank lines). The agent reads
+  the whole stream as one thought.
+- **Queue location:** pane-local only, mirrored to per-issue log on
+  add so a pane crash doesn't lose typed text.
+- **Drain trigger:** open question — see options below.
+- **Idle (no-agent-running) case:** open question — see below.
+
+## Drain-trigger options
+
+The pane queues every submit locally. The remaining design question is
+*when* the queue drains to the orchestrator. Three candidate triggers:
+
+### Option A — Pane-side busy/idle classifier
+
+The Conversation GenServer maintains an `agent_state ∈ {:idle, :busy}`
+inferred from PubSub events:
+
+- `:command` event without paired `[exit=...]` → `:busy`
+- `:assistant` event followed by 1.5s of silence → `:idle`
+- Otherwise → previous state
+
+Enter behavior **switches based on state**:
+
+- `:idle` → submit immediately (today's path)
+- `:busy` → stack in the visible queue; drain when state flips back to
+  `:idle`
+
+**Trade-offs:**
+
+- (+) Operator sees instant submit when the agent is genuinely idle.
+- (−) Classifier is heuristic and *will* be wrong (agent pauses 4s
+  between two quick tool calls → falsely "idle" → next submit
+  interrupts the next tool).
+- (−) Two different Enter behaviors the operator has to model.
+- (−) Codex and Claude emit different events; classifier needs a
+  per-agent translation layer.
+
+### Option B — Drain at every orchestrator checkpoint
+
+The pane always queues locally for visibility, and submits each
+queue-add as a `:checkpoint`-policy item to the orchestrator
+immediately. The existing `safe_checkpoint_handler` drains it at the
+next notification/tool boundary.
+
+**Trade-offs:**
+
+- (+) Reuses existing infrastructure entirely; no new state machine in
+  the pane.
+- (+) Idle agent → drain happens at the next event (essentially
+  instant).
+- (−) Messages drain one-by-one at successive checkpoints — operator
+  types 3 lines, agent sees 3 distinct turns interleaved with its own
+  replies. Bundling into one merged drain conflicts with this model
+  (orchestrator would need a "hold off until N more are queued" hint).
+- (−) Single long-running tools (`sleep 300`) still hold the queue
+  because no checkpoints fire.
+
+### Option C — Drain after agent message (recommended for v1)
+
+The pane always queues locally. The **drain trigger is a single
+PubSub event**: when the pane receives a `{:transcript_event,
+%{role: :assistant}}` for this issue, it submits the merged queue as
+ONE `:checkpoint`-policy operator message.
+
+**Trade-offs:**
+
+- (+) Simplest possible mental model: "your queued messages get sent
+  right after the agent finishes talking."
+- (+) Implementation is tiny: ~20 lines in `Conversation` —
+  `handle_info({:transcript_event, %{role: :assistant}}, …)` checks
+  if queue is non-empty and submits.
+- (+) No classifier, no heuristics, no per-agent translation.
+- (+) Naturally handles the `sleep 300` case: when the sleep returns
+  and the agent says "done", the queue drains immediately. No
+  cancelled commands.
+- (+) Bundling fits naturally — accumulate queue, drain on next
+  `[agent]` event, one merged message goes to the agent.
+- (−) If the agent is silently generating a long response (5 paragraphs
+  streaming), the queue waits until the message lands. Acceptable —
+  the operator was going to wait anyway and at least sees their queued
+  lines stacked while waiting.
+- (−) No way to force-drain if the operator wants to interrupt. Mitigation:
+  add `Shift+Enter` as `:interrupt`-policy force-send in v2.
+
+## Idle (no-agent-running) sub-question
+
+When the operator opens a pane on an issue whose agent isn't currently
+running, what does Enter do?
+
+- **A.** Same as today — `PaneRPC.send_operator_message` RPC submits and
+  the orchestrator decides (might start a new agent run, might just
+  queue). Pane queue is only meaningful while an agent IS running.
+- **B.** Pane queues locally either way; waits indefinitely for an
+  agent to come up before draining.
+
+Option A is the smaller change and avoids the orphaned-queue case. The
+pane's local queue only kicks in when there's something to be busy
+*about*.
+
+## Open Questions for the next research pass
+
+These need code-level confirmation before we commit to Option C:
+
+1. **Does codex fire an `[agent]` transcript event at the end of every
+   turn?** Need to confirm the PubSub stream the pane sees actually
+   contains a reliable "agent just said something" signal — vs only
+   firing for some methods.
+2. **What's the granularity of `:assistant` events?** Streaming chunks
+   vs whole messages. Draining on every chunk would over-fire; need to
+   drain only on full message boundaries.
+3. **Does the per-agent translation (codex vs claude) matter for
+   Option C?** If both emit `:assistant` role events on the same
+   normalized topic, Option C works for both; if not, we may need to
+   gate on `turn/completed` or `agent_message` specifically.
+4. **What does claw-code's permission-prompt-eats-stdin behavior teach
+   us about pane safety?** They have a known bug where typed input
+   can become a permission answer. Our pane is independent of
+   permission prompts (which run on the agent process, not the pane),
+   but worth confirming our raw-stdin reader has no analogous footgun.
+5. **What happens to the pane's local queue if the agent crashes /
+   pane is closed mid-queue?** Mirror to per-issue log on add is
+   probably sufficient, but verify recovery flow.
+
+## Out of scope for v1
+
+- Backend `AgentQueue` policy changes (Option C works with existing
+  `:checkpoint` policy)
 - Web UI parity
 - Cross-pane visibility of one pane's queue
-- Editing a queued line after it's been submitted (operator deletes
-  with backspace on the queue itself — separate future work)
+- Editing a queued line after it's been submitted
+- Up/down history navigation through past queue submissions
 
-## Open Questions
+## Recommendation
 
-1. **What exact signals classify busy/idle reliably?** Codex emits
-   different events than Claude. Need a single classifier that handles
-   both. Look at `AgentRunner` event normalization.
-2. **What's the longest reasonable idle debounce?** 1500 ms feels too
-   tight if the agent does a long single-line edit; 5000 ms feels too
-   loose if the user is replying quickly.
-3. **Should the visible queue echo into the transcript on add, or only
-   on drain?** Drain-only is cleaner for the agent (no duplicate
-   `[user]` rendering) but means the transcript jumps when the queue
-   is finally drained. Suggest: queue-only-visible, then a single
-   transcript event on drain with the merged body.
-4. **How does Ctrl+C interact with a non-empty queue?** Suggest the
-   pane prompts "drop N queued messages?" once before exiting.
-
-## Notes for Planning
-
-- This sits on top of the existing pane rearchitecture
-  (`feat/cli-pane-rearchitecture`) and does not need to wait on the
-  ongoing visual cleanup (tags-above-body, arrow keys, user margin).
-- The classifier is the riskiest piece. Implement it as a pure
-  function over the event stream first, then wire it into the
-  `Conversation` state machine, so it can be unit-tested with
-  recorded event fixtures from issue 25.
+Implement **Option C (drain after agent message)** for v1. It's the
+smallest change, uses existing PubSub plumbing, handles the
+`sleep 300` case naturally, and has the clearest UX semantics. Force-
+send via `Shift+Enter` can be added in v2 if operators actually need
+it.
