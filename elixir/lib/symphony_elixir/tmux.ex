@@ -69,6 +69,7 @@ defmodule SymphonyElixir.Tmux do
   def init(opts) do
     transport = Keyword.get(opts, :transport, :port)
     session = Keyword.get(opts, :session, @default_session)
+    max_reopen = Keyword.get(opts, :max_reopen_attempts, 3)
 
     state = %{
       transport: transport,
@@ -76,7 +77,9 @@ defmodule SymphonyElixir.Tmux do
       port: nil,
       parser: Protocol.new_state(),
       pending: :queue.new(),
-      subscribers: MapSet.new()
+      subscribers: MapSet.new(),
+      reopen_attempts: 0,
+      max_reopen_attempts: max_reopen
     }
 
     case transport do
@@ -103,8 +106,17 @@ defmodule SymphonyElixir.Tmux do
   end
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) when is_port(port) do
-    Logger.warning("tmux control-mode port exited with status #{status}; reconnecting")
-    {:noreply, reopen(state)}
+    if state.reopen_attempts < state.max_reopen_attempts do
+      Logger.warning(
+        "tmux control-mode port exited with status #{status}; " <>
+          "reconnecting (#{state.reopen_attempts + 1}/#{state.max_reopen_attempts})"
+      )
+
+      {:noreply, reopen(%{state | reopen_attempts: state.reopen_attempts + 1})}
+    else
+      Logger.warning("tmux control-mode port exited and max reopen attempts reached; staying offline")
+      {:noreply, %{state | port: nil, parser: Protocol.new_state()}}
+    end
   end
 
   def handle_info({:tmux_mock_data, chunk}, state) when is_binary(chunk) do

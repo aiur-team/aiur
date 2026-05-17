@@ -27,15 +27,24 @@ defmodule SymphonyElixir.Application do
     maybe_start_distribution()
 
     interactive_cli? = Application.get_env(:symphony_elixir, :interactive_cli, false)
+    pane_cli? = Application.get_env(:symphony_elixir, :pane_cli, false)
 
-    dashboard_spec =
-      if interactive_cli? do
-        {SymphonyElixir.StatusDashboard, selected_index: 0}
-      else
-        SymphonyElixir.StatusDashboard
+    cli_children =
+      cond do
+        pane_cli? ->
+          [
+            SymphonyElixir.Tmux,
+            SymphonyElixir.PaneManager,
+            SymphonyElixir.AgentList.App,
+            SymphonyElixir.AgentList.Input
+          ]
+
+        interactive_cli? ->
+          [{SymphonyElixir.StatusDashboard, selected_index: 0}, SymphonyElixir.TerminalInput]
+
+        true ->
+          [SymphonyElixir.StatusDashboard]
       end
-
-    interactive_children = if interactive_cli?, do: [SymphonyElixir.TerminalInput], else: []
 
     children =
       [
@@ -43,9 +52,8 @@ defmodule SymphonyElixir.Application do
         {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
         SymphonyElixir.WorkflowStore,
         SymphonyElixir.Orchestrator,
-        SymphonyElixir.HttpServer,
-        dashboard_spec
-      ] ++ interactive_children
+        SymphonyElixir.HttpServer
+      ] ++ cli_children
 
     Supervisor.start_link(
       children,
@@ -56,8 +64,12 @@ defmodule SymphonyElixir.Application do
 
   @impl true
   def stop(_state) do
-    SymphonyElixir.StatusDashboard.render_offline_status()
-    :ok
+    if Application.get_env(:symphony_elixir, :pane_cli, false) do
+      :ok
+    else
+      SymphonyElixir.StatusDashboard.render_offline_status()
+      :ok
+    end
   end
 
   defp maybe_start_distribution do
