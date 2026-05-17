@@ -117,11 +117,21 @@ defmodule SymphonyElixir.IssueLog do
   @impl true
   def handle_info({:transcript_event, %{role: _role, body: _body} = event}, state) do
     write_line(state.file, format_transcript(event[:role], event[:body], event))
+
+    # Also surface the human-readable line in the system-wide
+    # `symphony.log` so an operator tailing the main log sees the same
+    # chat stream that's rendered in the pane (without having to grep
+    # past `Logger.debug` broadcast noise that --debug emits).
+    Logger.info("[pane] #{state.identifier}: #{event[:role]}: #{summarize(event[:body])}")
+
     {:noreply, push_history(state, {:transcript_event, event})}
   end
 
   def handle_info({:alert, %{name: _name, message: _message} = event}, state) do
     write_line(state.file, format_alert(event[:name], event[:message], event))
+
+    Logger.info("[pane] #{state.identifier}: alert #{event[:name]}: #{summarize(event[:message])}")
+
     {:noreply, push_history(state, {:alert, event})}
   end
 
@@ -166,6 +176,20 @@ defmodule SymphonyElixir.IssueLog do
     ts = timestamp(event)
     "#{ts} alert #{name}: #{message}\n"
   end
+
+  defp summarize(nil), do: ""
+
+  defp summarize(text) when is_binary(text) do
+    single_line = text |> String.replace(~r/\r?\n/, " ") |> String.trim()
+
+    if byte_size(single_line) > 200 do
+      binary_part(single_line, 0, 200) <> "…"
+    else
+      single_line
+    end
+  end
+
+  defp summarize(other), do: inspect(other)
 
   defp timestamp(event) do
     case Map.get(event, :timestamp) do
