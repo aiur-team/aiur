@@ -32,7 +32,7 @@ defmodule SymphonyElixir.AgentList.RendererTest do
     assert out =~ "╰"
   end
 
-  test "renders the metadata block with project, dashboard, and refresh" do
+  test "renders the metadata block with project, dashboard, and refresh chip" do
     out =
       render(
         base_state(%{
@@ -47,8 +47,8 @@ defmodule SymphonyElixir.AgentList.RendererTest do
     assert out =~ "applekid/symphony"
     assert out =~ "Dashboard:"
     assert out =~ "http://127.0.0.1:4000/"
-    assert out =~ "Next refresh:"
-    assert out =~ "15s"
+    # Refresh now lives in the title row as a 🔄 chip on the right.
+    assert out =~ "🔄 in 15s"
   end
 
   test "falls back to n/a placeholders when metadata is missing" do
@@ -57,7 +57,7 @@ defmodule SymphonyElixir.AgentList.RendererTest do
     assert out =~ "Agents: n/a"
     assert out =~ "Project: n/a"
     assert out =~ "Dashboard: n/a"
-    assert out =~ "Next refresh: n/a"
+    assert out =~ "🔄 n/a"
   end
 
   test "shows agent count and max in the Agents row" do

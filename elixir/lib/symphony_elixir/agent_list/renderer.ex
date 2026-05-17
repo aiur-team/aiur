@@ -54,7 +54,7 @@ defmodule SymphonyElixir.AgentList.Renderer do
 
     [
       "\e[H",
-      title_row(inner_width),
+      title_row(inner_width, Map.get(state, :refresh_label)),
       eol(),
       metadata_rows(state, inner_width),
       separator_row(inner_width),
@@ -74,20 +74,38 @@ defmodule SymphonyElixir.AgentList.Renderer do
 
   # ---------- header / metadata ---------------------------------------------
 
-  defp title_row(inner_width) do
-    text = "╭─ SYMPHONY STATUS"
-    pad_with_ansi(@ansi_bold, text, inner_width)
+  defp title_row(inner_width, refresh_label) do
+    title = "╭─ SYMPHONY STATUS"
+    refresh = refresh_chip(refresh_label)
+    refresh_visual = visual_width(refresh)
+    title_visual = visual_width(title)
+
+    pad_count = max(inner_width - title_visual - refresh_visual, 1)
+    pad = String.duplicate(" ", pad_count)
+
+    # Title bolds the SYMPHONY STATUS text; the refresh chip stays
+    # cyan with a leading 🔄 emoji so the eye lands on the live state
+    # indicator on the right. The plain ASCII "in" word keeps the
+    # phrase readable in any terminal palette.
+    [@ansi_bold, title, @ansi_reset, pad, @ansi_cyan, refresh, @ansi_reset]
   end
+
+  defp refresh_chip(nil), do: "🔄 n/a"
+  defp refresh_chip(""), do: "🔄 n/a"
+  defp refresh_chip(label) when is_binary(label), do: "🔄 in " <> label
 
   defp metadata_rows(state, inner_width) do
     [
-      agents_row(Map.get(state, :agent_kind), Map.get(state, :agent_count), Map.get(state, :max_agents), inner_width),
+      agents_row(
+        Map.get(state, :agent_kind),
+        Map.get(state, :agent_count),
+        Map.get(state, :max_agents),
+        inner_width
+      ),
       eol(),
       project_row(Map.get(state, :project_label), inner_width),
       eol(),
       dashboard_row(Map.get(state, :dashboard_url), inner_width),
-      eol(),
-      refresh_row(Map.get(state, :refresh_label), inner_width),
       eol()
     ]
   end
@@ -119,15 +137,6 @@ defmodule SymphonyElixir.AgentList.Renderer do
 
   defp dashboard_row(url, inner_width),
     do: metadata_row_iolist("Dashboard:", url, @ansi_cyan, inner_width)
-
-  defp refresh_row(nil, inner_width),
-    do: metadata_row_iolist("Next refresh:", "n/a", @ansi_gray, inner_width)
-
-  defp refresh_row("", inner_width),
-    do: metadata_row_iolist("Next refresh:", "n/a", @ansi_gray, inner_width)
-
-  defp refresh_row(label, inner_width),
-    do: metadata_row_iolist("Next refresh:", label, @ansi_cyan, inner_width)
 
   defp metadata_row_iolist(label, value, value_color, inner_width) do
     prefix = "│ "
@@ -354,20 +363,34 @@ defmodule SymphonyElixir.AgentList.Renderer do
     String.duplicate(" ", max(inner_width - visible, 0))
   end
 
+  # Visual column width of `text`, counting each grapheme heavier than
+  # one byte as occupying two terminal columns. That matches how every
+  # mainstream terminal renders emoji and CJK glyphs.
+  defp visual_width(text) when is_binary(text) do
+    text
+    |> strip_ansi()
+    |> String.graphemes()
+    |> Enum.reduce(0, fn g, acc -> acc + grapheme_width(g) end)
+  end
+
+  defp grapheme_width(g) when byte_size(g) > 1, do: 2
+  defp grapheme_width(_g), do: 1
+
   defp strip_ansi(text) do
     Regex.replace(~r/\e\[[0-9;]*[A-Za-z]/, text, "")
   end
 
   defp eol, do: ["\e[K", "\r\n"]
 
-  # Approximate count of rows the frame will draw (used for "blank the rest"
-  # below the last rendered row so old content doesn't linger when the agent
-  # list shrinks). Fixed rows: title, agents, project, dashboard, refresh,
-  # separator, table header, table separator, bottom border, footer = 10.
+  # Approximate count of rows the frame will draw (used for "blank the
+  # rest" below the last rendered row so old content doesn't linger
+  # when the agent list shrinks). Fixed rows: title, agents, project,
+  # dashboard, separator, table header, table separator, bottom border,
+  # footer = 9.
   defp lines_emitted(state) do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
-    10 + body_rows
+    9 + body_rows
   end
 
   defp clear_remaining(rows, lines_drawn) do
