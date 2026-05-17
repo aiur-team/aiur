@@ -75,6 +75,8 @@ defmodule SymphonyElixir.AgentList.Renderer do
 
   defp metadata_rows(state, inner_width) do
     [
+      agents_row(Map.get(state, :agent_kind), Map.get(state, :agent_count), Map.get(state, :max_agents), inner_width),
+      eol(),
       project_row(Map.get(state, :project_label), inner_width),
       eol(),
       dashboard_row(Map.get(state, :dashboard_url), inner_width),
@@ -83,6 +85,21 @@ defmodule SymphonyElixir.AgentList.Renderer do
       eol()
     ]
   end
+
+  defp agents_row(kind, count, max, inner_width)
+       when is_integer(count) and is_integer(max) and max > 0 do
+    kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
+    value = "#{kind_value} (#{count}/#{max})"
+    metadata_row_iolist("Agents:", value, @ansi_cyan, inner_width)
+  end
+
+  defp agents_row(kind, count, _max, inner_width) when is_integer(count) do
+    kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
+    metadata_row_iolist("Agents:", "#{kind_value} (#{count})", @ansi_cyan, inner_width)
+  end
+
+  defp agents_row(_kind, _count, _max, inner_width),
+    do: metadata_row_iolist("Agents:", "n/a", @ansi_gray, inner_width)
 
   defp project_row(nil, inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
   defp project_row("", inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
@@ -254,11 +271,12 @@ defmodule SymphonyElixir.AgentList.Renderer do
 
   # Approximate count of rows the frame will draw (used for "blank the rest"
   # below the last rendered row so old content doesn't linger when the agent
-  # list shrinks). 8 fixed rows + one per summary + 1 for empty state.
+  # list shrinks). Fixed rows: title, agents, project, dashboard, refresh,
+  # separator, table header, table separator, bottom border, footer = 10.
   defp lines_emitted(state) do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
-    9 + body_rows
+    10 + body_rows
   end
 
   defp clear_remaining(rows, lines_drawn) do

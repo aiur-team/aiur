@@ -64,4 +64,41 @@ defmodule SymphonyPane.ViewportTest do
       assert String.length(visible(line)) <= 19, "line too long: #{inspect(line)}"
     end)
   end
+
+  test "wraps composer buffer past the prompt-row capacity to the next tinted row" do
+    # `inner_width = cols - 1 = 19`, prompt "> " takes 2, so the first row
+    # holds 17 chars. A 25-char buffer overflows; the wrap should land the
+    # extra 8 chars on a second tinted row directly below the first.
+    long = String.duplicate("a", 25)
+    composer = Composer.append(Composer.new(), long)
+    {frame, {row, _col}} = Viewport.render(base_state(composer: composer, columns: 20, rows: 24))
+
+    text = frame |> IO.iodata_to_binary() |> visible()
+
+    assert text =~ "> aaaaaaaaaaaaaaaaa"
+    assert text =~ "aaaaaaaa"
+    # Layout: 24-row pane, 2 input rows + 2 blanks = 4 composer rows,
+    # transcript_rows = 20. Row 21 is the top blank, rows 22-23 are the
+    # tinted input rows. Cursor lives on segment index 1, so row 23.
+    assert row == 23
+  end
+
+  test "trims early composer rows but keeps the cursor visible when buffer is very long" do
+    # max_input_rows is 6; with `inner_width = 19` (first capacity 17,
+    # subsequent 19), 200 chars need 11 input rows. We expect the visible
+    # composer block to show only the last 6 segments. Those continuation
+    # rows must NOT prepend the `> ` prompt — that would overflow the row.
+    long = String.duplicate("Z", 200)
+    composer = Composer.append(Composer.new(), long)
+    {frame, _cursor} = Viewport.render(base_state(composer: composer, columns: 20, rows: 24))
+
+    text = frame |> IO.iodata_to_binary() |> visible()
+    # Continuation rows must NOT prepend `> ` (that would overflow). Check
+    # every rendered line stays within inner_width once ANSI and trailing
+    # CR/LF are stripped.
+    Enum.each(String.split(text, ["\r\n", "\n"]), fn line ->
+      line = String.replace(line, "\r", "")
+      assert String.length(line) <= 19, "wrapped line too long: #{inspect(line)}"
+    end)
+  end
 end

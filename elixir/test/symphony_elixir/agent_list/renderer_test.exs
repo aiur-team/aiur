@@ -16,7 +16,10 @@ defmodule SymphonyElixir.AgentList.RendererTest do
         rows: 20,
         project_label: nil,
         dashboard_url: nil,
-        refresh_label: nil
+        refresh_label: nil,
+        agent_kind: nil,
+        agent_count: nil,
+        max_agents: nil
       },
       overrides
     )
@@ -51,9 +54,29 @@ defmodule SymphonyElixir.AgentList.RendererTest do
   test "falls back to n/a placeholders when metadata is missing" do
     out = render(base_state()) |> visible()
 
+    assert out =~ "Agents: n/a"
     assert out =~ "Project: n/a"
     assert out =~ "Dashboard: n/a"
     assert out =~ "Next refresh: n/a"
+  end
+
+  test "shows agent count and max in the Agents row" do
+    out =
+      render(
+        base_state(%{
+          summaries: [
+            %{identifier: "MT-1", status: :running, alert_count: 0},
+            %{identifier: "MT-2", status: :running, alert_count: 0}
+          ],
+          agent_kind: "claude",
+          agent_count: 2,
+          max_agents: 5
+        })
+      )
+      |> visible()
+
+    assert out =~ "Agents:"
+    assert out =~ "claude (2/5)"
   end
 
   test "renders the agent table header columns" do
