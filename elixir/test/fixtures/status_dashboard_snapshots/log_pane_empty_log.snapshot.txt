@@ -14,7 +14,7 @@
 │   \e[90m[n/a] \e[0m\e[35m\e[1msystem\e[0m\e[90m · \e[0m\e[90m\e[1mLog\e[0m
 │       \e[90mNo displayable chat events yet.\e[0m
 ╰─
-\e[48;5;236m\e[38;5;255m                                                                                                                   \e[0m
-\e[48;5;236m\e[38;5;255m  ›                                                                                                                \e[0m
-\e[48;5;236m\e[38;5;255m                                                                                                                   \e[0m
-\e[38;5;248mEnter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                 \e[0m
+\e[48;5;236m\e[38;5;255m                                                                                                                  \e[0m
+\e[48;5;236m\e[38;5;255m  ›                                                                                                               \e[0m
+\e[48;5;236m\e[38;5;255m                                                                                                                  \e[0m
+\e[38;5;248mEnter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                \e[0m

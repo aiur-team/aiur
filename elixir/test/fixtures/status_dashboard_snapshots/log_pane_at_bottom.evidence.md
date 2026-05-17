@@ -21,8 +21,8 @@
 │   [22:46:45] system · Warning
 │       Rate limit warning
 ╰─
-                                                                                                                   
-  ›                                                                                                                
-                                                                                                                   
-Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                 
+                                                                                                                  
+  ›                                                                                                               
+                                                                                                                  
+Enter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                
 ```

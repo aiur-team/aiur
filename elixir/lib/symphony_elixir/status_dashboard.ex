@@ -24,6 +24,7 @@ defmodule SymphonyElixir.StatusDashboard do
   @default_terminal_rows 40
   @min_log_pane_lines 3
   @log_pane_chrome_width 8
+  @terminal_top_margin_rows 1
 
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
@@ -601,9 +602,8 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp render_cached_input_panel(%{view: {:log, log_view}} = state, previous_log_view) do
     columns = terminal_columns()
-    incremental_columns = max(1, columns - 1)
-    {previous_lines, previous_cursor} = format_input_section(previous_log_view, incremental_columns)
-    {lines, cursor} = format_input_section(log_view, incremental_columns)
+    {previous_lines, previous_cursor} = format_input_section(previous_log_view, columns)
+    {lines, cursor} = format_input_section(log_view, columns)
 
     if length(lines) == length(previous_lines) do
       previous_start_row = input_panel_start_row(state.last_cursor_position, previous_cursor)
@@ -1006,7 +1006,8 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp format_input_section(log_view, columns) do
-    inner_width = max(20, columns - 4)
+    panel_columns = input_panel_columns(columns)
+    inner_width = max(20, panel_columns - 4)
     composer = Map.get(log_view, :composer, fresh_composer())
     {prompt_lines, {cursor_row, cursor_col}} = composer_prompt_lines(composer, inner_width - 2)
 
@@ -1027,15 +1028,17 @@ defmodule SymphonyElixir.StatusDashboard do
 
     lines =
       [
-        input_panel_blank_line(columns),
-        Enum.map(prompt_lines, &input_panel_content_line("  " <> &1, columns)),
-        input_panel_blank_line(columns),
-        input_help_line(elem(status, 0), elem(status, 1), columns)
+        input_panel_blank_line(panel_columns),
+        Enum.map(prompt_lines, &input_panel_content_line("  " <> &1, panel_columns)),
+        input_panel_blank_line(panel_columns),
+        input_help_line(elem(status, 0), elem(status, 1), panel_columns)
       ]
       |> List.flatten()
 
     {lines, {cursor_row + 1, cursor_col + 2}}
   end
+
+  defp input_panel_columns(columns), do: max(1, columns - 1)
 
   defp input_panel_blank_line(columns), do: input_panel_content_line("", columns)
 
@@ -1358,7 +1361,7 @@ defmodule SymphonyElixir.StatusDashboard do
     cursor_commands =
       case cursor_position do
         {row, col} when is_integer(row) and is_integer(col) and row > 0 and col > 0 ->
-          [IO.ANSI.cursor(row, col), "\e[?25h"]
+          [IO.ANSI.cursor(terminal_row(row), col), "\e[?25h"]
 
         _ ->
           ["\e[?25l"]
@@ -1367,6 +1370,7 @@ defmodule SymphonyElixir.StatusDashboard do
     IO.write([
       IO.ANSI.home(),
       IO.ANSI.clear(),
+      IO.ANSI.cursor(terminal_row(1), 1),
       normalize_status_lines(content),
       cursor_commands
     ])
@@ -1376,7 +1380,7 @@ defmodule SymphonyElixir.StatusDashboard do
     cursor_commands =
       case cursor_position do
         {row, col} when is_integer(row) and is_integer(col) and row > 0 and col > 0 ->
-          [IO.ANSI.cursor(row, col), "\e[?25h"]
+          [IO.ANSI.cursor(terminal_row(row), col), "\e[?25h"]
 
         _ ->
           ["\e[?25l"]
@@ -1384,11 +1388,13 @@ defmodule SymphonyElixir.StatusDashboard do
 
     IO.write([
       Enum.with_index(lines, fn line, index ->
-        [IO.ANSI.cursor(start_row + index, 1), IO.ANSI.clear_line(), line]
+        [IO.ANSI.cursor(terminal_row(start_row + index), 1), IO.ANSI.clear_line(), line]
       end),
       cursor_commands
     ])
   end
+
+  defp terminal_row(row), do: row + @terminal_top_margin_rows
 
   defp update_token_samples(samples, now_ms, total_tokens) do
     prune_graph_samples([{now_ms, total_tokens} | samples], now_ms)

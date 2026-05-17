@@ -239,6 +239,90 @@ Current likely explanations:
    - that may contribute to user confusion when tickets are picked up outside
      startup
 
+## 2026-05-16 Follow-Up: Termius Typing And SSH Alerts
+
+Current branch: `bug-fixes`
+
+The user reported these runtime problems while using Termius on iPad over SSH:
+
+- the CLI composer cursor is still visibly offset while typing
+- typing is still laggy in the real client
+- the first/top dashboard title row is clipped or not visible
+- alert `.wav` sounds are not heard from Termius
+
+Important environment context:
+
+- The user is SSH'd from Termius on iPad into the machine running Symphony.
+- Host-side playback via `afplay` plays on the remote machine, not on the iPad.
+- Termius terminal behavior appears more sensitive than the local PTY used by
+  the agent for verification.
+
+What was tried:
+
+1. A first fix committed as `601f9cc fix(cli): stabilize terminal typing`.
+   - Added a cached input-panel repaint path for local composer edits.
+   - Avoided full dashboard redraws on append/backspace/cursor movement when
+     the input panel height stays stable.
+   - Added terminal bell fallback for sound-bearing alerts.
+   - Added brainstorm and plan docs:
+     - `docs/brainstorms/2026-05-16-cli-terminal-typing-requirements.md`
+     - `docs/plans/2026-05-16-cli-terminal-typing-plan.md`
+
+2. Local verification in the agent PTY looked acceptable but was insufficient.
+   - The agent opened `agents`, opened the log composer, typed `abcdef`, and saw
+     the input panel repaint rows in place.
+   - The user still saw lag and cursor offset in Termius, so the local PTY did
+     not represent the real target client.
+
+3. A follow-up change adjusted terminal compatibility further.
+   - Full-frame input panel rows now reserve one terminal column instead of
+     padding to the reported full width, to reduce autowrap risk.
+   - Incremental input repainting also avoids the final column and clears each
+     row before rewriting it.
+   - The terminal renderer now starts the dashboard at row 2 instead of row 1
+     and offsets cursor moves by the same top margin. This is intended to avoid
+     Termius clipping the top title row.
+
+Current hypothesis:
+
+- The remaining Termius failures are likely terminal geometry / autowrap /
+  cursor-addressing issues, not ordinary Elixir state bugs.
+- Rendering padded ANSI lines to the last terminal column can cause implicit
+  autowrap in some SSH clients. Once the terminal has wrapped, subsequent
+  absolute cursor positions appear one row too low and/or one column off.
+- Drawing from row 1 may also be unsafe in Termius' viewport; a top margin may
+  be needed for this client.
+
+Current verification status:
+
+- `601f9cc` was pushed to `origin/bug-fixes`.
+- The follow-up top-margin/full-width adjustment was validated locally with:
+  - `mise exec -- mix build`
+  - focused dashboard/alert tests: 78 tests, 0 failures
+  - `mise exec -- mix lint`
+- The agent did not complete another full interactive composer smoke after this
+  follow-up because the user redirected to preserve handoff context.
+- Remaining verification needed:
+  - a real `agents` PTY smoke test
+- Most importantly, the user must verify in Termius before this issue should be
+  considered fixed; local PTY verification alone is not enough.
+
+Suggested next debugging moves:
+
+1. Keep terminal output away from the final column everywhere in the dashboard,
+   not only the composer panel, if Termius still drifts.
+2. Consider making the top margin configurable through an environment variable
+   if row-2 rendering helps Termius but is undesirable elsewhere.
+3. Add a small terminal diagnostics mode or debug trace that prints detected
+   `COLUMNS`, `ROWS`, cursor target rows/cols, and whether top margin is active.
+4. If cursor math remains unstable, simplify further: disable incremental input
+   repaint for Termius and use a less decorative, shorter composer area that
+   avoids full-width background padding entirely.
+5. For SSH alerts, terminal bell is only a fallback. If Termius does not surface
+   BEL audibly, the realistic options are Termius notification settings, iPad
+   client support for BEL/OSC notifications, or hosted/client-side audio outside
+   the current `afplay` model.
+
 ## Suggested Files To Inspect First
 
 - `alerts.yaml`

@@ -20,7 +20,7 @@
 │   \e[90m[22:46:45] \e[0m\e[35m\e[1msystem\e[0m\e[90m · \e[0m\e[90m\e[1mWarning\e[0m
 │       \e[90mRate limit warning\e[0m
 ╰─
-\e[48;5;236m\e[38;5;255m                                                                                                                   \e[0m
-\e[48;5;236m\e[38;5;255m  ›                                                                                                                \e[0m
-\e[48;5;236m\e[38;5;255m                                                                                                                   \e[0m
-\e[38;5;248mEnter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                 \e[0m
+\e[48;5;236m\e[38;5;255m                                                                                                                  \e[0m
+\e[48;5;236m\e[38;5;255m  ›                                                                                                               \e[0m
+\e[48;5;236m\e[38;5;255m                                                                                                                  \e[0m
+\e[38;5;248mEnter sends · Esc closes log · Ctrl-C pauses · Shift-Enter newline                                                \e[0m
