@@ -27,23 +27,17 @@ defmodule SymphonyElixir.Application do
     maybe_start_distribution()
 
     interactive_cli? = Application.get_env(:symphony_elixir, :interactive_cli, false)
-    pane_cli? = Application.get_env(:symphony_elixir, :pane_cli, false)
 
     cli_children =
-      cond do
-        pane_cli? ->
-          [
-            SymphonyElixir.Tmux,
-            SymphonyElixir.PaneManager,
-            SymphonyElixir.AgentList.App,
-            SymphonyElixir.AgentList.Input
-          ]
-
-        interactive_cli? ->
-          [{SymphonyElixir.StatusDashboard, selected_index: 0}, SymphonyElixir.TerminalInput]
-
-        true ->
-          [SymphonyElixir.StatusDashboard]
+      if interactive_cli? do
+        [
+          SymphonyElixir.Tmux,
+          SymphonyElixir.PaneManager,
+          SymphonyElixir.AgentList.App,
+          SymphonyElixir.AgentList.Input
+        ]
+      else
+        []
       end
 
     children =
@@ -63,14 +57,7 @@ defmodule SymphonyElixir.Application do
   end
 
   @impl true
-  def stop(_state) do
-    if Application.get_env(:symphony_elixir, :pane_cli, false) do
-      :ok
-    else
-      SymphonyElixir.StatusDashboard.render_offline_status()
-      :ok
-    end
-  end
+  def stop(_state), do: :ok
 
   defp maybe_start_distribution do
     case SymphonyElixir.Distribution.start!() do

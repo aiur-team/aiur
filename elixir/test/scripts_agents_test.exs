@@ -47,7 +47,7 @@ defmodule ScriptsAgentsTest do
     assert {output, 0} = run_agents(ctx, ["actions"])
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
     assert output =~ "PWD=#{Path.join(ctx.actions_repo, "elixir")}"
-    assert output =~ "MISE:exec -- ./bin/symphony agents-pane --logs-root #{ctx.logs_root}/actions --port 4101"
+    assert output =~ "MISE:exec -- ./bin/symphony --logs-root #{ctx.logs_root}/actions --port 4101"
     assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.actions.md"
   end
 
@@ -188,7 +188,7 @@ defmodule ScriptsAgentsTest do
     ctx = test_context()
 
     assert {output, 0} = run_agents(ctx, ["run", "symphony"])
-    assert output =~ "MISE:exec -- ./bin/symphony agents-pane --host 127.0.0.1"
+    assert output =~ "MISE:exec -- ./bin/symphony --host 127.0.0.1"
   end
 
   test "--host opts out of the local-only injection" do
@@ -196,7 +196,7 @@ defmodule ScriptsAgentsTest do
 
     assert {output, 0} = run_agents(ctx, ["--host", "run", "symphony"])
     refute output =~ "--host 127.0.0.1"
-    assert output =~ "MISE:exec -- ./bin/symphony agents-pane --interactive"
+    assert output =~ "MISE:exec -- ./bin/symphony --interactive"
   end
 
   test "auto-rebuilds bin/symphony when missing" do

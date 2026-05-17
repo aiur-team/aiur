@@ -16,10 +16,11 @@ defmodule SymphonyElixir.Orchestrator do
     Alerts,
     Config,
     Issue,
-    StatusDashboard,
     Tracker,
     Workspace
   }
+
+  alias SymphonyElixirWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -1228,7 +1229,7 @@ defmodule SymphonyElixir.Orchestrator do
     |> running_summaries()
     |> AgentPubSub.broadcast_running_change()
 
-    StatusDashboard.notify_update()
+    ObservabilityPubSub.broadcast_update()
   end
 
   defp running_summaries(state) do

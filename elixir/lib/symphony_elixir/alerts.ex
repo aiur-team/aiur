@@ -6,7 +6,8 @@ defmodule SymphonyElixir.Alerts do
 
   require Logger
 
-  alias SymphonyElixir.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue, StatusDashboard}
+  alias SymphonyElixir.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue}
+  alias SymphonyElixirWeb.ObservabilityPubSub
 
   @alerts_path Path.expand("../../../alerts.yaml", __DIR__)
   @system_scopes ["task.", "agent.", "chat."]
@@ -90,7 +91,7 @@ defmodule SymphonyElixir.Alerts do
 
       maybe_play_sound(selected_sound, opts)
       broadcast_agent_alert(name, message, selected_sound, opts)
-      StatusDashboard.notify_update()
+      ObservabilityPubSub.broadcast_update()
       :ok
     end
   end
