@@ -98,6 +98,7 @@ defmodule SymphonyElixir.AgentList.Input do
   defp dispatch(" ", target, _input_fun), do: App.activate(target)
   defp dispatch("k", target, _input_fun), do: App.select_previous(target)
   defp dispatch("j", target, _input_fun), do: App.select_next(target)
+  defp dispatch("?", target, _input_fun), do: App.toggle_help(target)
   defp dispatch("q", target, _input_fun), do: App.quit(target)
   defp dispatch(_byte, _target, _input_fun), do: :ok
 
