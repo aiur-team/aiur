@@ -8,6 +8,8 @@ defmodule SymphonyElixir.Orchestrator do
   import Bitwise, only: [<<<: 2]
 
   alias SymphonyElixir.{
+    AgentEvents,
+    AgentPubSub,
     AgentQueue,
     AgentQueueStore,
     AgentRunner,
@@ -121,7 +123,7 @@ defmodule SymphonyElixir.Orchestrator do
         tick_token: nil
     }
 
-    notify_dashboard()
+    notify_dashboard(state)
     :ok = schedule_poll_cycle_start()
     {:noreply, state}
   end
@@ -139,7 +141,7 @@ defmodule SymphonyElixir.Orchestrator do
         tick_token: nil
     }
 
-    notify_dashboard()
+    notify_dashboard(state)
     :ok = schedule_poll_cycle_start()
     {:noreply, state}
   end
@@ -150,7 +152,7 @@ defmodule SymphonyElixir.Orchestrator do
     state = schedule_tick(state, state.poll_interval_ms)
     state = %{state | poll_check_in_progress: false}
 
-    notify_dashboard()
+    notify_dashboard(state)
     {:noreply, state}
   end
 
@@ -196,7 +198,7 @@ defmodule SymphonyElixir.Orchestrator do
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
-        notify_dashboard()
+        notify_dashboard(state)
         {:noreply, state}
     end
   end
@@ -213,7 +215,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
 
-        notify_dashboard()
+        notify_dashboard(state)
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
   end
@@ -234,7 +236,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> apply_agent_token_delta(token_delta)
           |> apply_agent_rate_limits(update)
 
-        notify_dashboard()
+        notify_dashboard(state)
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
   end
@@ -278,7 +280,7 @@ defmodule SymphonyElixir.Orchestrator do
         :missing -> {:noreply, state}
       end
 
-    notify_dashboard()
+    notify_dashboard(state)
     result
   end
 
@@ -610,6 +612,7 @@ defmodule SymphonyElixir.Orchestrator do
     state =
       Enum.reduce(issues, state, fn issue, state_acc ->
         previous_issue = Map.get(previous_issues, issue.id)
+
         state_acc
         |> emit_task_state_transition_alert(previous_issue, issue)
         |> emit_dependency_transition_events(previous_issue, issue)
@@ -1220,8 +1223,21 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp notify_dashboard do
+  defp notify_dashboard(state) do
+    state
+    |> running_summaries()
+    |> AgentPubSub.broadcast_running_change()
+
     StatusDashboard.notify_update()
+  end
+
+  defp running_summaries(state) do
+    state.running
+    |> Enum.map(fn {_issue_id, entry} ->
+      identifier = Map.get(entry, :identifier) || ""
+      AgentEvents.agent_summary(identifier, :running, 0)
+    end)
+    |> Enum.reject(fn %{identifier: id} -> id == "" end)
   end
 
   defp handle_active_retry(state, issue, attempt, metadata) do
