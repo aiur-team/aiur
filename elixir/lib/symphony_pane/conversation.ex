@@ -17,7 +17,7 @@ defmodule SymphonyPane.Conversation do
   use GenServer
   require Logger
 
-  alias SymphonyElixir.{AgentEvents, Os}
+  alias SymphonyElixir.{AgentEvents, AgentPubSub, Os}
   alias SymphonyPane.{Composer, Viewport}
 
   @type opts :: keyword()
@@ -37,9 +37,15 @@ defmodule SymphonyPane.Conversation do
     skip_raw_mode? = Keyword.get(opts, :skip_raw_mode, false)
     {cols, rows} = terminal_geometry()
 
+    Logger.debug("Conversation.init identifier=#{identifier} symphony_node=#{inspect(symphony_node)} cols=#{cols} rows=#{rows}")
+
     if symphony_node do
       _ = connect_to_symphony(symphony_node)
-      :ok = subscribe_remote(symphony_node, identifier)
+    end
+
+    case AgentPubSub.subscribe_agent(identifier) do
+      :ok -> Logger.debug("Conversation subscribed to agent topic identifier=#{identifier}")
+      other -> Logger.warning("Conversation subscribe failed identifier=#{identifier} -> #{inspect(other)}")
     end
 
     state = %{
@@ -96,6 +102,8 @@ defmodule SymphonyPane.Conversation do
   end
 
   def handle_info({:transcript_event, event}, state) do
+    Logger.debug("Conversation got transcript_event identifier=#{state.identifier} role=#{inspect(event[:role])} bytes=#{byte_size(event[:body] || "")}")
+
     new_state = %{state | transcript: state.transcript ++ [event]}
     render(new_state)
     {:noreply, new_state}
@@ -143,21 +151,6 @@ defmodule SymphonyPane.Conversation do
     else
       Logger.warning("Conversation pane could not connect to #{inspect(node)}")
       :error
-    end
-  end
-
-  defp subscribe_remote(node, identifier) when is_atom(node) and is_binary(identifier) do
-    case :rpc.call(node, SymphonyElixir.PaneRPC, :attach_conversation, [identifier], 2_000) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Conversation pane subscribe failed: #{inspect(reason)}")
-        :ok
-
-      {:badrpc, reason} ->
-        Logger.warning("Conversation pane rpc to #{inspect(node)} failed: #{inspect(reason)}")
-        :ok
     end
   end
 
