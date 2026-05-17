@@ -139,7 +139,13 @@ defmodule SymphonyPane.Conversation do
   end
 
   def handle_info({:alert, event}, state) do
-    body = "#{Map.get(event, :name, "alert")}: #{Map.get(event, :message, "")}"
+    # The pane renders just the alert message body — the structured
+    # name (e.g. "task.todo") is interesting to logs and tooling but
+    # noise to a reader scanning the chat scroll, where the colored
+    # `alert` tag already tells you the line is an alert. The per-issue
+    # file log (`SymphonyElixir.IssueLog`) still records the structured
+    # name + message via the original alert event for tail-able context.
+    body = to_string(Map.get(event, :message, ""))
     alert_line = AgentEvents.transcript_event(:alert, body)
     new_state = %{state | transcript: state.transcript ++ [alert_line]}
     render(new_state)
@@ -355,8 +361,8 @@ defmodule SymphonyPane.Conversation do
 
   defp normalize_history_entry({:transcript_event, event}), do: event
 
-  defp normalize_history_entry({:alert, %{name: name, message: message}}) do
-    AgentEvents.transcript_event(:alert, "#{name}: #{message}")
+  defp normalize_history_entry({:alert, %{message: message}}) do
+    AgentEvents.transcript_event(:alert, to_string(message))
   end
 
   defp normalize_history_entry(_other), do: AgentEvents.transcript_event(:system, "")
