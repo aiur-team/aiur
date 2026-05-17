@@ -104,15 +104,14 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp notification_method(message) do
-    case get(message, :event) do
-      "notification" ->
-        case get(message, :payload) do
-          payload when is_map(payload) -> get(payload, :method)
-          _ -> nil
-        end
-
-      _ ->
-        nil
+    # The `event` discriminator on a codex notification may be either the
+    # string "notification" or the atom :notification depending on how the
+    # JSON was decoded. Skip the gate entirely and just look for
+    # `payload.method` — every codex notification has it, and no other
+    # event shape uses that nested key.
+    case get(message, :payload) do
+      payload when is_map(payload) -> get(payload, :method)
+      _ -> nil
     end
   end
 
