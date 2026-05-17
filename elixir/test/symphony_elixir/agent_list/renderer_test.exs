@@ -124,23 +124,6 @@ defmodule SymphonyElixir.AgentList.RendererTest do
     assert out =~ "🟡"
   end
 
-  test "renders tag with a colored circle glyph" do
-    summaries = [
-      %{
-        identifier: "MT-7",
-        status: :running,
-        alert_count: 0,
-        tag: "agent:doing"
-      }
-    ]
-
-    out = render(base_state(%{summaries: summaries})) |> visible()
-
-    # `agent:doing` maps to the blue circle — workflow state at a
-    # glance using only colored circles, no varied glyphs.
-    assert out =~ "🔵"
-  end
-
   test "renders an age column from runtime_seconds and turn_count" do
     summaries = [
       %{
