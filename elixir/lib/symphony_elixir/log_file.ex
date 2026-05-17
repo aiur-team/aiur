@@ -27,6 +27,37 @@ defmodule SymphonyElixir.LogFile do
     max_files = Application.get_env(:symphony_elixir, :log_file_max_files, @default_max_files)
 
     setup_disk_handler(log_file, max_bytes, max_files)
+    configure_level()
+  end
+
+  @doc """
+  Reads `SYMPHONY_DEBUG` from the environment and sets the global Logger
+  level to `:debug` when truthy. Otherwise leaves the level untouched.
+
+  Truthy values: `"1"`, `"true"`, `"yes"` (case-insensitive). Anything
+  else is treated as falsy.
+
+  Called by `configure/0` during application start and by
+  `SymphonyPane.CLI.main/1` during pane bootstrap so both BEAMs see the
+  same flag.
+  """
+  @spec configure_level() :: :ok
+  def configure_level do
+    if debug_enabled?() do
+      Logger.configure(level: :debug)
+    end
+
+    :ok
+  end
+
+  defp debug_enabled? do
+    case System.get_env("SYMPHONY_DEBUG") do
+      value when is_binary(value) ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes"]
+
+      _ ->
+        false
+    end
   end
 
   defp setup_disk_handler(log_file, max_bytes, max_files) do

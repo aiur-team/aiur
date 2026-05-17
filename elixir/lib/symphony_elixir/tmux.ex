@@ -131,17 +131,24 @@ defmodule SymphonyElixir.Tmux do
   end
 
   defp run_args(%{transport: :shell}, args) do
+    Logger.debug("Tmux exec: tmux #{Enum.join(args, " ")}")
+
     case System.find_executable("tmux") do
       nil ->
+        Logger.warning("Tmux exec failed: tmux not in $PATH")
         {:error, :no_tmux_executable}
 
       tmux ->
         case System.cmd(tmux, args, stderr_to_stdout: true) do
           {output, 0} ->
-            {:ok, output |> String.trim_trailing("\n") |> String.split("\n", trim: true)}
+            result = output |> String.trim_trailing("\n") |> String.split("\n", trim: true)
+            Logger.debug("Tmux exec ok: #{inspect(result)}")
+            {:ok, result}
 
-          {output, _status} ->
-            {:error, String.trim(output)}
+          {output, status} ->
+            trimmed = String.trim(output)
+            Logger.warning("Tmux exec exit=#{status} args=#{inspect(args)} output=#{inspect(trimmed)}")
+            {:error, trimmed}
         end
     end
   end
