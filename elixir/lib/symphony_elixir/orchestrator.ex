@@ -1814,11 +1814,11 @@ defmodule SymphonyElixir.Orchestrator do
           AgentQueue.operator_message(issue_identifier, text, queue_opts)
           |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
-        Alerts.emit_system("chat.send",
-          issue: issue_identifier,
-          workspace: Map.get(running_entry, :workspace_path),
-          worker_host: Map.get(running_entry, :worker_host)
-        )
+        # NOTE: previously we emitted a `chat.send` alert here for every
+        # operator message. That alert was pure noise — it duplicated
+        # the `[user]` line the pane already renders and added a
+        # `[alert] chat.send: Message sent` row plus a log line for
+        # every keystroke-submitted message. Removed.
 
         next_state = %{state | queue_store: queue_store}
         notify_running_queue_update(running_entry, item)
