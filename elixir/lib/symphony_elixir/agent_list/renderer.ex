@@ -45,7 +45,13 @@ defmodule SymphonyElixir.AgentList.Renderer do
     cols = Map.get(state, :columns, 80)
     rows = Map.get(state, :rows, 24)
     inner_width = max(cols - 1, 1)
-    summaries = Map.get(state, :summaries, [])
+
+    summaries =
+      state
+      |> Map.get(:summaries, [])
+      |> filter_visible_summaries()
+      |> sort_summaries()
+
     layout = compute_layout(summaries, inner_width)
 
     [
@@ -198,13 +204,12 @@ defmodule SymphonyElixir.AgentList.Renderer do
   defp render_row(summary, selected?, inner_width, layout) do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
-    work_state = Map.get(summary, :work_state, :working)
     title = Map.get(summary, :title) || ""
     age = age_string(summary)
 
     id_cell = cell(id_str, layout.id_width)
     age_cell = cell(age, layout.age_width)
-    state_cell = emoji_cell(state_emoji(work_state), @state_cell_width)
+    state_cell = emoji_cell(summary_emoji(summary), @state_cell_width)
     title_cell = cell(title, layout.title_width)
 
     # Order: marker, ID, AGE, state-circle, TITLE. The state circle
@@ -233,13 +238,74 @@ defmodule SymphonyElixir.AgentList.Renderer do
     [body, pad]
   end
 
-  # Work-state circles: 🟢 working, 🟡 paused, 🔴 error, ⚫ unknown.
-  defp state_emoji(:working), do: "🟢"
-  defp state_emoji("working"), do: "🟢"
-  defp state_emoji(:paused), do: "🟡"
-  defp state_emoji("paused"), do: "🟡"
-  defp state_emoji(:error), do: "🔴"
-  defp state_emoji(_), do: "⚫"
+  # The state column reflects both the workflow tag *and* whether a
+  # Symphony agent slot is currently running this ticket:
+  #
+  #   running + agent:todo         → 🟡 yellow
+  #   running + agent:in-progress  → 🟢 green
+  #   running + agent:human-review → 🟣 purple
+  #   running + agent:rework       → 🟠 orange
+  #   running + agent:merging      → 🔵 blue
+  #   running + paused (any tag)   → 🟡 yellow (override)
+  #   running + error (any tag)    → 🔴 red    (override)
+  #   queued  (any tag, no slot)   → ⚫ grey
+  #
+  # The grey is intentional: a ticket carrying an `agent:*` label
+  # without an active slot reads as "waiting" at a glance.
+  # Drop cancelled/canceled tickets from the visible list — terminal
+  # state with no further conversation. Done tickets are also hidden
+  # for now (talking to a done agent has no listener); revisit if we
+  # add a "reopen / continue" flow later.
+  defp filter_visible_summaries(summaries) do
+    Enum.reject(summaries, fn s ->
+      tag = Map.get(s, :tag)
+      tag in ["agent:cancelled", "agent:canceled", "agent:done"]
+    end)
+  end
+
+  # Running first, then queued; each group sorted by identifier ascending
+  # so the row order stays stable across refreshes.
+  defp sort_summaries(summaries) do
+    Enum.sort_by(summaries, fn s ->
+      bucket =
+        case Map.get(s, :status) do
+          :running -> 0
+          :queued -> 1
+          _ -> 2
+        end
+
+      {bucket, to_string(Map.get(s, :identifier) || "")}
+    end)
+  end
+
+  defp summary_emoji(%{status: :queued}), do: "⚫"
+
+  defp summary_emoji(%{status: :running} = summary) do
+    case Map.get(summary, :work_state) do
+      :paused -> "🟡"
+      "paused" -> "🟡"
+      :error -> "🔴"
+      _ -> tag_color_emoji(Map.get(summary, :tag))
+    end
+  end
+
+  defp summary_emoji(_), do: "⚫"
+
+  defp tag_color_emoji(nil), do: "⚫"
+  defp tag_color_emoji(""), do: "⚫"
+
+  defp tag_color_emoji(tag) when is_binary(tag) do
+    case String.replace_prefix(tag, "agent:", "") do
+      "todo" -> "🟡"
+      "in-progress" -> "🟢"
+      "human-review" -> "🟣"
+      "rework" -> "🟠"
+      "merging" -> "🔵"
+      _ -> "⚫"
+    end
+  end
+
+  defp tag_color_emoji(_), do: "⚫"
 
   defp emoji_cell(glyph, width) do
     # `glyph` is a single grapheme that renders as 2 terminal columns.

@@ -303,6 +303,12 @@ defmodule SymphonyElixir.Orchestrator do
         |> sync_polled_issue_state(issues)
         |> sync_todo_capacity_alert(issues)
 
+      # The poll just refreshed `last_polled_issues`, so push a fresh
+      # summary out to any open agent-list pane immediately — without
+      # this, the pane only sees new candidate tickets after the next
+      # dispatch or completion event.
+      notify_dashboard(state)
+
       state =
         if available_slots(state) > 0 do
           choose_issues(state, issues)
@@ -1236,18 +1242,63 @@ defmodule SymphonyElixir.Orchestrator do
   defp running_summaries(state) do
     now = DateTime.utc_now()
 
-    state.running
-    |> Enum.map(fn {_issue_id, entry} ->
-      identifier = Map.get(entry, :identifier) || ""
+    running_by_identifier =
+      Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-      AgentEvents.agent_summary(identifier, :running, 0, %{
-        tag: issue_tag(Map.get(entry, :issue)),
-        title: get_in(entry, [:issue, Access.key(:title)]),
-        runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
-        turn_count: Map.get(entry, :turn_count, 0),
-        work_state: get_in(entry, [:control, :status]) || :working
-      })
-    end)
+    polled_summaries =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.map(fn issue ->
+        identifier = Map.get(issue, :identifier) || ""
+        tag = issue_tag(issue)
+        title = Map.get(issue, :title)
+
+        case Map.get(running_by_identifier, identifier) do
+          nil ->
+            # Has an `agent:*` label but no Symphony slot is running it.
+            AgentEvents.agent_summary(identifier, :queued, 0, %{
+              tag: tag,
+              title: title,
+              work_state: :idle
+            })
+
+          entry ->
+            AgentEvents.agent_summary(identifier, :running, 0, %{
+              tag: tag,
+              title: title,
+              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              turn_count: Map.get(entry, :turn_count, 0),
+              work_state: get_in(entry, [:control, :status]) || :working
+            })
+        end
+      end)
+
+    polled_identifiers = MapSet.new(polled_summaries, fn s -> s.identifier end)
+
+    # Cover the narrow race where an agent is mid-dispatch and the
+    # tracker poll hasn't refreshed yet — those issues live in
+    # `state.running` but not in `last_polled_issues`.
+    extra_running =
+      state.running
+      |> Enum.flat_map(fn {_id, entry} ->
+        identifier = Map.get(entry, :identifier) || ""
+
+        if identifier == "" or MapSet.member?(polled_identifiers, identifier) do
+          []
+        else
+          [
+            AgentEvents.agent_summary(identifier, :running, 0, %{
+              tag: issue_tag(Map.get(entry, :issue)),
+              title: get_in(entry, [:issue, Access.key(:title)]),
+              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              turn_count: Map.get(entry, :turn_count, 0),
+              work_state: get_in(entry, [:control, :status]) || :working
+            })
+          ]
+        end
+      end)
+
+    (polled_summaries ++ extra_running)
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
   end
 
