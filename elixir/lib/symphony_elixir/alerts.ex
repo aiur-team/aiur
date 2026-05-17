@@ -110,6 +110,7 @@ defmodule SymphonyElixir.Alerts do
   defp identifier_for_alert(opts) do
     case Keyword.get(opts, :issue) do
       %Issue{identifier: identifier} when is_binary(identifier) -> identifier
+      identifier when is_binary(identifier) -> identifier
       _ -> Keyword.get(opts, :identifier)
     end
   end

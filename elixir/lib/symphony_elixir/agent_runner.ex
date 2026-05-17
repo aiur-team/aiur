@@ -79,29 +79,78 @@ defmodule SymphonyElixir.AgentRunner do
   defp maybe_broadcast_transcript(_issue, _message), do: :ok
 
   defp transcript_event_from(message) when is_map(message) do
-    case assistant_message_from_codex(message) do
-      text when is_binary(text) and text != "" ->
+    cond do
+      text = assistant_message_from_codex(message) ->
         {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message))}
 
-      _ ->
+      summary = system_activity_from_codex(message) ->
+        {:ok, AgentEvents.transcript_event(:system, summary, timestamp: timestamp_for(message))}
+
+      true ->
         legacy_transcript_event(message)
     end
   end
 
   # Codex's `notification` events wrap the actual method inside `payload`.
   # `item/completed` with an `item.type == "agentMessage"` is the canonical
-  # "agent finished a chunk of natural-language output" signal — the rest
-  # (`reasoning`, `commandExecution`, `userMessage`, etc.) we deliberately
-  # skip so the transcript stays readable.
+  # "agent finished a chunk of natural-language output" signal.
   defp assistant_message_from_codex(message) do
     with method when method in ["item/completed"] <- notification_method(message),
          item when is_map(item) <- notification_item(message),
-         "agentMessage" <- get(item, :type) do
-      get(item, :text)
+         "agentMessage" <- get(item, :type),
+         text when is_binary(text) and text != "" <- get(item, :text) do
+      text
     else
       _ -> nil
     end
   end
+
+  # Surface a compact summary of agent activity (commands run, tool calls)
+  # so the conversation pane shows what the agent is doing between user
+  # input and the next final-answer message. Returns a binary or nil.
+  defp system_activity_from_codex(message) do
+    method = notification_method(message)
+    item = notification_item(message)
+    item_type = if is_map(item), do: get(item, :type), else: nil
+
+    activity_label(method, item_type, item)
+  end
+
+  defp activity_label("item/started", "commandExecution", item),
+    do: command_started_label(item)
+
+  defp activity_label("item/completed", "commandExecution", item),
+    do: command_completed_label(item)
+
+  defp activity_label(_method, _item_type, _item), do: nil
+
+  defp command_started_label(item) do
+    case command_label(item) do
+      label when is_binary(label) and label != "" -> "$ " <> label
+      _ -> nil
+    end
+  end
+
+  defp command_completed_label(item) do
+    label = command_label(item)
+    exit_code = get(item, :exitCode)
+
+    cond do
+      not (is_binary(label) and label != "") -> nil
+      is_integer(exit_code) -> "$ #{label} [exit=#{exit_code}]"
+      true -> "$ #{label} [done]"
+    end
+  end
+
+  defp command_label(item) do
+    case command_actions_label(get(item, :commandActions)) do
+      label when is_binary(label) and label != "" -> label
+      _ -> get(item, :command)
+    end
+  end
+
+  defp command_actions_label([first | _]) when is_map(first), do: get(first, :command)
+  defp command_actions_label(_), do: nil
 
   defp notification_method(message) do
     # The `event` discriminator on a codex notification may be either the
