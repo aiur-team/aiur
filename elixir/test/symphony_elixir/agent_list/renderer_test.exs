@@ -3,13 +3,46 @@ defmodule SymphonyElixir.AgentList.RendererTest do
 
   alias SymphonyElixir.AgentList.Renderer
 
-  test "render/4 returns iodata for an empty summary list" do
-    iodata = Renderer.render([], 80, 24, 0)
-    assert IO.iodata_to_binary(iodata) == ""
+  defp render(state), do: IO.iodata_to_binary(Renderer.render(state))
+
+  test "renders an empty list with a placeholder line" do
+    output = render(%{summaries: [], selection_index: 0, columns: 40, rows: 10})
+
+    assert output =~ "Symphony — Agents"
+    assert output =~ "(no agents running)"
   end
 
-  test "render/4 returns iodata for a populated summary list (scaffold)" do
-    summaries = [%{identifier: "MT-1", status: :running, alert_count: 0}]
-    assert is_list(Renderer.render(summaries, 80, 24, 0))
+  test "renders one agent per row and marks the selected row" do
+    summaries = [
+      %{identifier: "MT-1", status: :running, alert_count: 0},
+      %{identifier: "MT-2", status: :running, alert_count: 0}
+    ]
+
+    output = render(%{summaries: summaries, selection_index: 1, columns: 60, rows: 10})
+
+    assert output =~ "  MT-1"
+    assert output =~ "▶ MT-2"
+  end
+
+  test "shows alert count when greater than zero" do
+    summaries = [%{identifier: "MT-3", status: :running, alert_count: 5}]
+    output = render(%{summaries: summaries, selection_index: 0, columns: 60, rows: 10})
+
+    assert output =~ "MT-3"
+    assert output =~ "(5)"
+  end
+
+  test "truncates rows that exceed the terminal width" do
+    long_id = String.duplicate("X", 200)
+    summaries = [%{identifier: long_id, status: :running, alert_count: 0}]
+
+    output = render(%{summaries: summaries, selection_index: 0, columns: 20, rows: 10})
+
+    # Visible width per line (after stripping ANSI escapes) should never
+    # exceed (columns - 1). The renderer reserves the final column.
+    output
+    |> String.split(["\r\n", "\n"])
+    |> Enum.map(&Regex.replace(~r/\e\[[0-9;]*[A-Za-z]/, &1, ""))
+    |> Enum.each(fn line -> assert String.length(line) <= 19, "line too long: #{inspect(line)}" end)
   end
 end
