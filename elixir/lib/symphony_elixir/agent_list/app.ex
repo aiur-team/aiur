@@ -23,7 +23,7 @@ defmodule SymphonyElixir.AgentList.App do
   require Logger
 
   alias SymphonyElixir.AgentList.Renderer
-  alias SymphonyElixir.{AgentPubSub, PaneManager}
+  alias SymphonyElixir.{AgentPubSub, Config, HttpServer, PaneManager, Tracker}
 
   @type state :: %{
           summaries: [map()],
@@ -161,8 +161,45 @@ defmodule SymphonyElixir.AgentList.App do
   end
 
   defp render(state) do
-    state.write_fun.(Renderer.render(Map.take(state, [:summaries, :selection_index, :columns, :rows])))
+    render_state =
+      state
+      |> Map.take([:summaries, :selection_index, :columns, :rows])
+      |> Map.put(:project_label, project_label())
+      |> Map.put(:dashboard_url, dashboard_url())
+      |> Map.put(:refresh_label, refresh_label())
+
+    state.write_fun.(Renderer.render(render_state))
     :ok
+  end
+
+  defp project_label do
+    case safe_call(fn -> Tracker.project_identity() end) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp dashboard_url do
+    host = safe_call(fn -> Config.server_host() end)
+    port = safe_call(fn -> HttpServer.bound_port() end) || safe_call(fn -> Config.server_port() end)
+
+    cond do
+      not is_integer(port) -> nil
+      port <= 0 -> nil
+      is_binary(host) and host != "" -> "http://#{host}:#{port}/"
+      true -> "http://127.0.0.1:#{port}/"
+    end
+  end
+
+  defp refresh_label, do: nil
+
+  defp safe_call(fun) do
+    fun.()
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
+    _, _ -> nil
   end
 
   defp terminal_geometry do
