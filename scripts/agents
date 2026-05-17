@@ -276,6 +276,68 @@ ensure_bg_state_dir() {
   mkdir -p "$bg_state_dir"
 }
 
+# Distribution setup for the upcoming per-agent pane subcommand. The cookie
+# lives in ~/.erlang.cookie (auto-read by the BEAM) so it does NOT leak through
+# /proc/<pid>/environ. The wrapper validates ownership and length each run.
+ensure_erlang_cookie() {
+  local cookie_file="$HOME/.erlang.cookie"
+
+  if [ ! -f "$cookie_file" ]; then
+    (
+      umask 0177
+      tmp_file="$(mktemp "$HOME/.erlang.cookie.XXXXXX")"
+      head -c 32 /dev/urandom | base64 | tr -d '\n=+/' | head -c 32 >"$tmp_file"
+      mv "$tmp_file" "$cookie_file"
+    )
+    chmod 0400 "$cookie_file"
+  fi
+
+  if [ ! -r "$cookie_file" ]; then
+    echo "agents: ~/.erlang.cookie is not readable" >&2
+    return 1
+  fi
+
+  if [ "$(stat -c '%U' "$cookie_file" 2>/dev/null || stat -f '%Su' "$cookie_file")" != "$USER" ]; then
+    echo "agents: ~/.erlang.cookie is not owned by $USER" >&2
+    return 1
+  fi
+
+  local size
+  size="$(wc -c <"$cookie_file" | tr -d ' ')"
+
+  if [ "$size" -lt 16 ]; then
+    echo "agents: ~/.erlang.cookie is shorter than 16 bytes" >&2
+    return 1
+  fi
+}
+
+prepare_distribution() {
+  ensure_erlang_cookie || return 1
+
+  local host_short
+  host_short="$(hostname -s 2>/dev/null || hostname)"
+  local node_name="symphony-${USER}@${host_short}"
+
+  export ERL_AFLAGS="${ERL_AFLAGS:-} -sname symphony-${USER}"
+  export ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}"
+  export SYMPHONY_NODE="${SYMPHONY_NODE:-$node_name}"
+}
+
+ensure_symphony_state_dir() {
+  mkdir -p -m 0700 "$HOME/.config/symphony" 2>/dev/null || true
+}
+
+check_tmux() {
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "agents: tmux is not installed; install tmux >= 3.3 before launching the new CLI" >&2
+    return 1
+  fi
+
+  # Phase 1 only warns; the new agent-list pane is not yet the foreground
+  # process, so tmux is not strictly required for current functionality.
+  return 0
+}
+
 bg_pid_file() {
   printf '%s/%s.pid' "$bg_state_dir" "$1"
 }
@@ -499,6 +561,9 @@ run_foreground() {
   cd "$elixir_dir"
 
   source_env_files
+  ensure_symphony_state_dir
+  check_tmux || true
+  prepare_distribution || echo "agents: distribution setup failed; old CLI will still run on :nonode@nohost" >&2
 
   args=(exec -- ./bin/symphony)
 
