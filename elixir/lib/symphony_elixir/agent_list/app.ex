@@ -161,9 +161,16 @@ defmodule SymphonyElixir.AgentList.App do
   end
 
   defp render(state) do
+    # Re-query geometry on every render: tmux resizes panes after splits and
+    # doesn't update COLUMNS/LINES in our env, so the values captured at
+    # init/1 go stale.
+    {cols, rows} = terminal_geometry()
+
     render_state =
       state
-      |> Map.take([:summaries, :selection_index, :columns, :rows])
+      |> Map.take([:summaries, :selection_index])
+      |> Map.put(:columns, cols)
+      |> Map.put(:rows, rows)
       |> Map.put(:project_label, project_label())
       |> Map.put(:dashboard_url, dashboard_url())
       |> Map.put(:refresh_label, refresh_label())
@@ -203,8 +210,18 @@ defmodule SymphonyElixir.AgentList.App do
   end
 
   defp terminal_geometry do
-    cols = parse_int(System.get_env("COLUMNS"), 80)
-    rows = parse_int(System.get_env("LINES"), 24)
+    cols =
+      case :io.columns() do
+        {:ok, c} when is_integer(c) and c > 0 -> c
+        _ -> parse_int(System.get_env("COLUMNS"), 80)
+      end
+
+    rows =
+      case :io.rows() do
+        {:ok, r} when is_integer(r) and r > 0 -> r
+        _ -> parse_int(System.get_env("LINES"), 24)
+      end
+
     {cols, rows}
   end
 

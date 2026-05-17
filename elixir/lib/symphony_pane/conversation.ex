@@ -202,13 +202,18 @@ defmodule SymphonyPane.Conversation do
   end
 
   defp render(state) do
+    # Re-query geometry on every render so tmux pane resizes are picked up
+    # without us having to wire SIGWINCH (tmux doesn't update COLUMNS/LINES
+    # in the child env on resize).
+    {cols, rows} = terminal_geometry()
+
     {frame, {row, col}} =
       Viewport.render(%{
         identifier: state.identifier,
         transcript: state.transcript,
         composer: state.composer,
-        columns: state.columns,
-        rows: state.rows
+        columns: cols,
+        rows: rows
       })
 
     cursor_move = "\e[#{row};#{col}H"
@@ -245,8 +250,18 @@ defmodule SymphonyPane.Conversation do
   end
 
   defp terminal_geometry do
-    cols = parse_int(System.get_env("COLUMNS"), 80)
-    rows = parse_int(System.get_env("LINES"), 24)
+    cols =
+      case :io.columns() do
+        {:ok, c} when is_integer(c) and c > 0 -> c
+        _ -> parse_int(System.get_env("COLUMNS"), 80)
+      end
+
+    rows =
+      case :io.rows() do
+        {:ok, r} when is_integer(r) and r > 0 -> r
+        _ -> parse_int(System.get_env("LINES"), 24)
+      end
+
     {cols, rows}
   end
 
