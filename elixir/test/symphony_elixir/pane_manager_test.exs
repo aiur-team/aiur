@@ -84,6 +84,36 @@ defmodule SymphonyElixir.PaneManagerTest do
     drain_focus(tmux, "%77")
     assert {:ok, "%77"} = Task.await(task, 1_000)
 
-    assert {:ok, "%77"} = PaneManager.open_conversation(pm, "MT-PM-4", "echo hi")
+    # Second open probes select-pane to verify the cached pane is still alive
+    # before short-circuiting. Respond with an empty ack.
+    second = Task.async(fn -> PaneManager.open_conversation(pm, "MT-PM-4", "echo hi") end)
+    drain_focus(tmux, "%77")
+    assert {:ok, "%77"} = Task.await(second, 1_000)
+  end
+
+  test "respawns a new pane when the cached pane is dead", %{tmux: tmux, pm: pm} do
+    task = Task.async(fn -> PaneManager.open_conversation(pm, "MT-PM-5", "echo hi") end)
+    respond_split(tmux, "%88")
+    drain_focus(tmux, "%88")
+    assert {:ok, "%88"} = Task.await(task, 1_000)
+
+    second = Task.async(fn -> PaneManager.open_conversation(pm, "MT-PM-5", "echo hi") end)
+
+    # The probe select-pane fails — pane has been killed externally.
+    receive do
+      {:tmux_mock_out, "select-pane -t %88"} ->
+        send(
+          GenServer.whereis(tmux),
+          {:tmux_mock_data, "%begin 1 0 0\ncan't find pane: %88\n%error 1 0 0\n"}
+        )
+    after
+      1_000 -> flunk("expected select-pane probe")
+    end
+
+    # PaneManager forgets the dead pane and respawns. New pane id = %99.
+    respond_split(tmux, "%99")
+    drain_focus(tmux, "%99")
+
+    assert {:ok, "%99"} = Task.await(second, 1_000)
   end
 end
