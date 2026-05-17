@@ -42,12 +42,13 @@ defmodule SymphonyElixir.AgentList.Input do
 
     case enter_raw_mode(skip_raw_mode?) do
       :ok ->
+        Logger.info("AgentList.Input started in raw mode (target=#{inspect(target)})")
         parent = self()
         reader_pid = spawn_link(fn -> read_loop(parent, target, input_fun) end)
         {:ok, %{reader_pid: reader_pid, target: target, restore?: not skip_raw_mode?}}
 
       {:error, reason} ->
-        Logger.warning("AgentList.Input disabled: #{reason}")
+        Logger.warning("AgentList.Input disabled: #{inspect(reason)}")
         :ignore
     end
   end

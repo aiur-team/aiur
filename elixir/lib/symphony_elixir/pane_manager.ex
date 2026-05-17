@@ -71,7 +71,9 @@ defmodule SymphonyElixir.PaneManager do
         {:reply, {:ok, existing_pane}, state}
 
       :error ->
-        case Tmux.spawn_pane_for(state.tmux, identifier, command_to_run) do
+        wrapped_command = wrap_with_unique_node(command_to_run, identifier)
+
+        case Tmux.spawn_pane_for(state.tmux, identifier, wrapped_command) do
           {:ok, pane_id} ->
             new_state = record_pane(state, identifier, pane_id)
             AgentPubSub.broadcast_status_change(identifier, :pane_opened)
@@ -108,6 +110,17 @@ defmodule SymphonyElixir.PaneManager do
   def handle_info(_other, state), do: {:noreply, state}
 
   # Internals -----------------------------------------------------------------
+
+  defp wrap_with_unique_node(command, identifier) do
+    safe_id = String.replace(identifier, ~r/[^A-Za-z0-9_-]/, "-")
+    suffix = Integer.to_string(System.unique_integer([:positive]), 36)
+    node_short = "pane-#{safe_id}-#{suffix}"
+    # tmux passes the resulting string to `/bin/sh -c`, so single-quoting the
+    # ERL_AFLAGS value is enough to keep `-sname <node>` together when env
+    # parses it. ERL_AFLAGS overrides the parent BEAM's `-sname` so the pane
+    # BEAM gets a unique node name and does not collide with the orchestrator.
+    "env ERL_AFLAGS='-sname #{node_short}' #{command}"
+  end
 
   defp record_pane(%__MODULE__{} = state, identifier, pane_id) do
     %{
