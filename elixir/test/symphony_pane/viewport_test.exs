@@ -23,7 +23,7 @@ defmodule SymphonyPane.ViewportTest do
     assert IO.iodata_to_binary(frame) |> visible() =~ "Symphony — MT-VIS"
   end
 
-  test "renders user and agent events distinctly" do
+  test "renders user and agent events with tag prefixes" do
     transcript = [
       AgentEvents.transcript_event(:user, "hi"),
       AgentEvents.transcript_event(:assistant, "hello back")
@@ -31,8 +31,31 @@ defmodule SymphonyPane.ViewportTest do
 
     {frame, _cursor} = Viewport.render(base_state(transcript: transcript))
     text = IO.iodata_to_binary(frame) |> visible()
-    assert text =~ "you: hi"
-    assert text =~ "agent: hello back"
+    assert text =~ "[user]"
+    assert text =~ "hi"
+    assert text =~ "[agent]"
+    assert text =~ "hello back"
+  end
+
+  test "right-aligns user messages and left-aligns agent messages" do
+    transcript = [
+      AgentEvents.transcript_event(:user, "hi"),
+      AgentEvents.transcript_event(:assistant, "hello")
+    ]
+
+    {frame, _cursor} = Viewport.render(base_state(transcript: transcript, columns: 40))
+    text = IO.iodata_to_binary(frame) |> visible()
+
+    user_row = Enum.find(String.split(text, "\r\n"), fn line -> line =~ "[user]" end)
+    agent_row = Enum.find(String.split(text, "\r\n"), fn line -> line =~ "[agent]" end)
+
+    # User row puts the tag on the right (preceded by padding spaces) so
+    # the visual reads like a chat bubble pulled to the right side.
+    assert String.starts_with?(user_row, " ")
+    assert String.ends_with?(String.trim_trailing(user_row), "[user]")
+
+    # Agent row puts the tag on the left.
+    assert String.starts_with?(String.trim_leading(agent_row), "[agent]")
   end
 
   test "renders the composer buffer with a > prompt" do
@@ -70,14 +93,14 @@ defmodule SymphonyPane.ViewportTest do
     event = AgentEvents.transcript_event(:assistant, text)
     {frame, _cursor} = Viewport.render(base_state(transcript: [event], columns: 40, rows: 24))
 
-    # `inner_width = cols - 1 = 39`. The formatted event is
-    # "agent: aaa…aaa bbb…bbb" → 129 chars, which needs 4 wrapped rows.
+    # inner_width = cols - 1 = 39. The tag block plus space takes 10
+    # columns, leaving ~29 for the body. A 121-char body needs multiple
+    # wrapped rows.
     text = frame |> IO.iodata_to_binary() |> visible()
-    assert text =~ "agent: "
-    assert text =~ String.duplicate("a", 30)
-    assert text =~ String.duplicate("b", 30)
+    assert text =~ "[agent]"
+    assert text =~ String.duplicate("a", 29)
+    assert text =~ String.duplicate("b", 29)
 
-    # No single visible line should exceed inner_width.
     Enum.each(String.split(text, ["\r\n", "\n"]), fn line ->
       line = String.replace(line, "\r", "")
       assert String.length(line) <= 39, "transcript line too long: #{inspect(line)}"

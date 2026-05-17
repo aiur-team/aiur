@@ -32,6 +32,19 @@ defmodule SymphonyPane.Viewport do
   @ansi_input_bg "\e[48;5;236m"
   @ansi_input_fg "\e[38;5;255m"
 
+  # Per-role tag styling: a colored background block carrying the role
+  # name so the reader can scan the column at a glance. The text inside
+  # the tag stays black so it's legible on bright backgrounds.
+  #   [agent]  green bg
+  #   [system] yellow bg
+  #   [user]   cyan bg, message right-aligned
+  @tag_agent "\e[42m\e[30m [agent] \e[0m"
+  @tag_system "\e[43m\e[30m [system] \e[0m"
+  @tag_user "\e[46m\e[30m [user] \e[0m"
+  @tag_agent_width 9
+  @tag_system_width 10
+  @tag_user_width 8
+
   # Max tinted-input rows before we stop growing the composer block. Beyond
   # this we truncate from the start of the buffer (keeping the cursor and
   # tail visible) rather than letting it swallow the transcript.
@@ -69,44 +82,101 @@ defmodule SymphonyPane.Viewport do
 
     body_budget = max(transcript_rows - 1, 0)
 
-    # Wrap each event's formatted text to inner_width before assembling the
-    # visible body, so a long agent message turns into several lines
-    # instead of being truncated mid-word. We then keep the most recent
-    # `body_budget` lines so the bottom of the transcript stays anchored.
-    wrapped_lines =
+    body_rows =
       events
-      |> Enum.flat_map(fn event -> wrap_event(event, inner_width) end)
+      |> Enum.flat_map(fn event -> render_event_rows(event, inner_width) end)
       |> Enum.take(-body_budget)
 
-    body_lines = Enum.map(wrapped_lines, fn line -> pad_line(line, inner_width) end)
-
-    padding_lines = body_budget - length(body_lines)
+    padding_lines = body_budget - length(body_rows)
     blanks = List.duplicate(blank_line(inner_width), max(padding_lines, 0))
 
-    rows = [header_line | body_lines ++ blanks]
+    rows = [header_line | body_rows ++ blanks]
 
     rows
     |> Enum.flat_map(fn row -> [row, eol()] end)
   end
 
-  defp wrap_event(event, inner_width) do
-    text = format_event(event)
+  # Produces one or more rendered rows (iodata padded to `inner_width`) for
+  # a single transcript event. The first row carries the role tag with a
+  # colored background; continuation rows are indented to align with the
+  # body text. User messages have their tag on the right and the body
+  # right-aligned so they read like a chat bubble.
+  defp render_event_rows(event, inner_width) do
+    role = Map.get(event, :role, :system)
+    body = body_for_role(role, Map.get(event, :body, ""))
+    {tag_styled, tag_width} = tag_for(role)
+    align = if role == :user, do: :right, else: :left
 
-    text
+    # Leave one space of breathing room between the tag and the body.
+    spacer = " "
+    spacer_width = String.length(spacer)
+    body_width = max(inner_width - tag_width - spacer_width, 1)
+
+    body_lines = wrap_body(body, body_width)
+
+    body_lines
+    |> Enum.with_index()
+    |> Enum.map(fn {line, idx} ->
+      if idx == 0 do
+        render_first_row(tag_styled, tag_width, line, inner_width, align)
+      else
+        render_continuation_row(tag_width, line, inner_width, align)
+      end
+    end)
+  end
+
+  defp tag_for(:assistant), do: {@tag_agent, @tag_agent_width}
+  defp tag_for(:system), do: {@tag_system, @tag_system_width}
+  defp tag_for(:user), do: {@tag_user, @tag_user_width}
+  defp tag_for(_other), do: {@tag_system, @tag_system_width}
+
+  defp body_for_role(:assistant, body), do: to_string(body)
+  defp body_for_role(:user, body), do: to_string(body)
+  defp body_for_role(:system, body), do: to_string(body)
+  defp body_for_role(_role, body), do: to_string(body)
+
+  defp render_first_row(tag_styled, tag_width, line, inner_width, :left) do
+    line_width = String.length(line)
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
+    [tag_styled, " ", line, pad]
+  end
+
+  defp render_first_row(tag_styled, tag_width, line, inner_width, :right) do
+    line_width = String.length(line)
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
+    [pad, line, " ", tag_styled]
+  end
+
+  defp render_continuation_row(tag_width, line, inner_width, :left) do
+    indent = String.duplicate(" ", tag_width + 1)
+    line_width = String.length(line)
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
+    [indent, line, pad]
+  end
+
+  defp render_continuation_row(tag_width, line, inner_width, :right) do
+    indent = String.duplicate(" ", tag_width + 1)
+    line_width = String.length(line)
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
+    [pad, line, indent]
+  end
+
+  defp wrap_body(body, width) do
+    body
     |> String.split(~r/\r?\n/)
-    |> Enum.flat_map(fn line -> wrap_one_line(line, inner_width) end)
+    |> Enum.flat_map(fn line -> wrap_one_line(line, width) end)
     |> case do
       [] -> [""]
       lines -> lines
     end
   end
 
-  defp wrap_one_line("", _inner_width), do: [""]
+  defp wrap_one_line("", _width), do: [""]
 
-  defp wrap_one_line(line, inner_width) do
+  defp wrap_one_line(line, width) do
     line
     |> String.graphemes()
-    |> Enum.chunk_every(max(inner_width, 1))
+    |> Enum.chunk_every(max(width, 1))
     |> Enum.map(&Enum.join/1)
   end
 
@@ -230,17 +300,6 @@ defmodule SymphonyPane.Viewport do
   end
 
   # ---------- helpers -------------------------------------------------------
-
-  defp format_event(%{role: :user, body: body}), do: "you: " <> body
-  defp format_event(%{role: :assistant, body: body}), do: "agent: " <> body
-  defp format_event(%{role: :system, body: body}), do: "* " <> body
-  defp format_event(_other), do: ""
-
-  defp pad_line(text, inner_width) do
-    safe = String.slice(text, 0, inner_width)
-    pad = String.duplicate(" ", max(inner_width - String.length(safe), 0))
-    [safe, pad]
-  end
 
   defp pad_with_ansi(ansi, text, inner_width) do
     safe = String.slice(text, 0, inner_width)
