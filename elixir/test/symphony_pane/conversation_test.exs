@@ -57,7 +57,10 @@ defmodule SymphonyPane.ConversationTest do
       )
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "Symphony — MT-XYZ"
+    # Header now uses an emoji + identifier format ("🟢 MT-XYZ"). Just
+    # confirm the identifier still appears; the emoji is unit-tested
+    # in the viewport tests.
+    assert visible(frame) =~ "MT-XYZ"
 
     GenServer.stop(pid)
   end

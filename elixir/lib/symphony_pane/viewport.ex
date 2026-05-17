@@ -17,11 +17,13 @@ defmodule SymphonyPane.Viewport do
   alias SymphonyPane.Composer
 
   @type state :: %{
-          identifier: String.t(),
-          transcript: [AgentEvents.transcript_event()],
-          composer: Composer.t(),
-          columns: pos_integer(),
-          rows: pos_integer()
+          required(:identifier) => String.t(),
+          required(:transcript) => [AgentEvents.transcript_event()],
+          required(:composer) => Composer.t(),
+          required(:columns) => pos_integer(),
+          required(:rows) => pos_integer(),
+          optional(:title) => String.t() | nil,
+          optional(:work_state) => atom() | String.t() | nil
         }
 
   @prompt "> "
@@ -85,7 +87,9 @@ defmodule SymphonyPane.Viewport do
     total_composer_rows = composer_meta.input_rows + 3
     transcript_rows = max(rows - total_composer_rows, 1)
 
-    transcript_lines = transcript_iolist(state.identifier, transcript, transcript_rows, inner_width)
+    title = Map.get(state, :title)
+    work_state = Map.get(state, :work_state, :working)
+    transcript_lines = transcript_iolist(state.identifier, title, work_state, transcript, transcript_rows, inner_width)
 
     frame = [
       "\e[H",
@@ -104,8 +108,8 @@ defmodule SymphonyPane.Viewport do
 
   # ---------- transcript ----------------------------------------------------
 
-  defp transcript_iolist(identifier, events, transcript_rows, inner_width) do
-    header_line = header_line(identifier, inner_width)
+  defp transcript_iolist(identifier, title, work_state, events, transcript_rows, inner_width) do
+    header_line = header_line(identifier, title, work_state, inner_width)
 
     body_budget = max(transcript_rows - 1, 0)
     blank = blank_line(inner_width)
@@ -354,9 +358,72 @@ defmodule SymphonyPane.Viewport do
     |> Enum.map(&Enum.join/1)
   end
 
-  defp header_line(identifier, inner_width) do
-    text = " Symphony — #{identifier}"
-    pad_with_ansi(@ansi_bold <> @ansi_cyan, text, inner_width)
+  defp header_line(identifier, title, work_state, inner_width) do
+    # Format: "<state-circle> <identifier> - <title>" truncated with an
+    # ellipsis if it would exceed the pane width. The state circle is
+    # the same palette as the agent-list (`🟢` working, `🟡` paused,
+    # `🔴` error) so the operator scans both views with the same
+    # mental model.
+    emoji = header_state_emoji(work_state)
+    base = " #{emoji} #{identifier}"
+
+    text =
+      case title do
+        title_text when is_binary(title_text) and title_text != "" ->
+          base <> " - " <> title_text
+
+        _ ->
+          base
+      end
+
+    truncated = truncate_with_ellipsis(text, inner_width)
+    # Pad by *visual* width — the emoji counts as 2 terminal cols, so
+    # `String.length`-based padding would leave the trailing column
+    # blank and break the bottom border on resize.
+    pad_width = max(inner_width - header_visual_width(truncated), 0)
+    pad = String.duplicate(" ", pad_width)
+    [@ansi_bold, @ansi_cyan, truncated, @ansi_reset, pad]
+  end
+
+  defp header_state_emoji(:working), do: "🟢"
+  defp header_state_emoji("working"), do: "🟢"
+  defp header_state_emoji(:paused), do: "🟡"
+  defp header_state_emoji("paused"), do: "🟡"
+  defp header_state_emoji(:error), do: "🔴"
+  defp header_state_emoji(_), do: "⚫"
+
+  # Hard-truncate to fit the row, appending an ellipsis when content
+  # is cut. Counts an emoji as 2 visible columns so the truncation
+  # math matches what the terminal will actually paint.
+  defp truncate_with_ellipsis(text, inner_width) do
+    if header_visual_width(text) <= inner_width do
+      text
+    else
+      take_graphemes_to_width(text, max(inner_width - 1, 0)) <> "…"
+    end
+  end
+
+  defp header_visual_width(text) when is_binary(text) do
+    text
+    |> String.graphemes()
+    |> Enum.reduce(0, fn g, acc ->
+      acc + if byte_size(g) > 1, do: 2, else: 1
+    end)
+  end
+
+  defp take_graphemes_to_width(text, max_width) do
+    text
+    |> String.graphemes()
+    |> Enum.reduce_while({"", 0}, fn g, {acc, width} ->
+      glyph_width = if byte_size(g) > 1, do: 2, else: 1
+
+      if width + glyph_width > max_width do
+        {:halt, {acc, width}}
+      else
+        {:cont, {acc <> g, width + glyph_width}}
+      end
+    end)
+    |> elem(0)
   end
 
   # ---------- composer ------------------------------------------------------
@@ -485,12 +552,6 @@ defmodule SymphonyPane.Viewport do
   end
 
   # ---------- helpers -------------------------------------------------------
-
-  defp pad_with_ansi(ansi, text, inner_width) do
-    safe = String.slice(text, 0, inner_width)
-    pad = String.duplicate(" ", max(inner_width - String.length(safe), 0))
-    [ansi, safe, @ansi_reset, pad]
-  end
 
   defp blank_line(inner_width), do: String.duplicate(" ", inner_width)
 

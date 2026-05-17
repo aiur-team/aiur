@@ -57,10 +57,17 @@ defmodule SymphonyPane.Conversation do
       other -> Logger.warning("Conversation subscribe failed identifier=#{identifier} -> #{inspect(other)}")
     end
 
-    initial_transcript = fetch_initial_transcript(symphony_node, identifier)
+    # Also subscribe to the global running-summary stream so the
+    # pane's header can reflect this agent's live work_state and
+    # title without a separate RPC poll.
+    _ = AgentPubSub.subscribe_running()
+
+    {initial_transcript, initial_title} = fetch_initial_transcript(symphony_node, identifier)
 
     state = %{
       identifier: identifier,
+      title: initial_title,
+      work_state: :working,
       transcript: initial_transcript,
       composer: Composer.new(),
       columns: cols,
@@ -162,6 +169,30 @@ defmodule SymphonyPane.Conversation do
     new_state = %{state | transcript: state.transcript ++ [alert_line]}
     render(new_state)
     {:noreply, new_state}
+  end
+
+  def handle_info({:running_changed, summaries}, state) do
+    # Find this issue's summary in the broadcast and pull out
+    # `work_state` + `title` so the header reflects the live state.
+    # When the agent isn't in the running set (just finished), keep
+    # whatever we last knew — the header should not flicker to
+    # `:working` and back.
+    case Enum.find(summaries, fn s -> Map.get(s, :identifier) == state.identifier end) do
+      nil ->
+        {:noreply, state}
+
+      summary ->
+        new_work_state = Map.get(summary, :work_state, state.work_state)
+        new_title = Map.get(summary, :title) || state.title
+
+        if new_work_state == state.work_state and new_title == state.title do
+          {:noreply, state}
+        else
+          new_state = %{state | work_state: new_work_state, title: new_title}
+          render(new_state)
+          {:noreply, new_state}
+        end
+    end
   end
 
   def handle_info(:geometry_tick, state) do
@@ -274,6 +305,8 @@ defmodule SymphonyPane.Conversation do
     {frame, {row, col}} =
       Viewport.render(%{
         identifier: state.identifier,
+        title: Map.get(state, :title),
+        work_state: Map.get(state, :work_state, :working),
         transcript: state.transcript,
         composer: state.composer,
         columns: cols,
@@ -366,27 +399,52 @@ defmodule SymphonyPane.Conversation do
     {cols, rows}
   end
 
-  defp fetch_initial_transcript(nil, _identifier), do: []
+  defp fetch_initial_transcript(nil, _identifier), do: {[], nil}
 
   defp fetch_initial_transcript(node, identifier) when is_atom(node) do
     case :rpc.call(node, SymphonyElixir.PaneRPC, :fetch_context, [identifier, 50], 2_000) do
-      {:ok, %{context_message: context_message, history: history}} ->
+      {:ok, %{context_message: context_message, history: history} = result} ->
         history_events = Enum.map(history, &normalize_history_entry/1)
 
-        case context_message do
-          nil -> history_events
-          msg -> [AgentEvents.transcript_event(:system, msg) | history_events]
-        end
+        events =
+          case context_message do
+            nil -> history_events
+            msg -> [AgentEvents.transcript_event(:system, msg) | history_events]
+          end
+
+        # The context map may also expose the ticket title directly so
+        # the pane header can render it without re-parsing the
+        # `Working on …` system message. Fall back to extracting from
+        # the system message when an older `fetch_context` shape
+        # doesn't include `:title`.
+        title = Map.get(result, :title) || extract_title_from_context(context_message)
+        {events, title}
 
       {:badrpc, reason} ->
         Logger.warning("Conversation.fetch_initial_transcript badrpc identifier=#{identifier} reason=#{inspect(reason)}")
 
-        []
+        {[], nil}
 
       other ->
         Logger.warning("Conversation.fetch_initial_transcript unexpected identifier=#{identifier} result=#{inspect(other)}")
 
-        []
+        {[], nil}
+    end
+  end
+
+  # `IssueContext.to_message/1` builds a string like
+  # `Working on MT-25: Ticket title\n  https://…\n  labels: …\n\n…`.
+  # Extract just the title portion (after `: `) so the header can show
+  # it without exposing the URL block.
+  defp extract_title_from_context(nil), do: nil
+  defp extract_title_from_context(""), do: nil
+
+  defp extract_title_from_context(text) when is_binary(text) do
+    first_line = text |> String.split(~r/\r?\n/, parts: 2) |> List.first()
+
+    case String.split(first_line, ": ", parts: 2) do
+      [_prefix, title] when is_binary(title) and title != "" -> title
+      _ -> nil
     end
   end
 

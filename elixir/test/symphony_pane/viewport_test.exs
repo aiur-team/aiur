@@ -20,7 +20,10 @@ defmodule SymphonyPane.ViewportTest do
 
   test "renders the identifier in the transcript header" do
     {frame, _cursor} = Viewport.render(base_state(identifier: "MT-VIS"))
-    assert IO.iodata_to_binary(frame) |> visible() =~ "Symphony — MT-VIS"
+    text = IO.iodata_to_binary(frame) |> visible()
+    # Header format: "🟢 MT-VIS" (default work_state circle + id).
+    assert text =~ "MT-VIS"
+    assert text =~ "🟢"
   end
 
   test "renders user and agent events with tag prefixes" do
