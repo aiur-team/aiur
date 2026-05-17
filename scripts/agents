@@ -342,29 +342,29 @@ ensure_erlang_cookie() {
 prepare_distribution() {
   ensure_erlang_cookie || return 1
 
-  local host_short
-  host_short="$(hostname -s 2>/dev/null || hostname)"
-  local node_name="symphony-${USER}@${host_short}"
+  # Use LONG names with `@127.0.0.1` as the host part so neither BEAM has to
+  # resolve a hostname. On Debian-style boxes `/etc/hosts` maps the local
+  # hostname to `127.0.1.1` while we listen on `127.0.0.1` — the resulting
+  # IP mismatch shows up as `Node.connect -> false` with no helpful error.
+  # Skipping the resolver entirely makes connection deterministic.
+  local node_name="symphony-${USER}@127.0.0.1"
 
-  # Read the cookie file's contents and pass it explicitly via -setcookie.
-  # ESCripts do not always pick up ~/.erlang.cookie automatically (some BEAM
-  # boot paths skip the auto-load), and a silent cookie mismatch shows up as
-  # `Node.connect/1 -> false` with no obvious cause — so we make it explicit.
+  # Read the cookie and set it explicitly via -setcookie. ESCripts do not
+  # always pick up ~/.erlang.cookie automatically (some BEAM boot paths
+  # skip the auto-load), so a silent cookie mismatch otherwise shows up as
+  # `Node.connect/1 -> false`.
   local cookie
   cookie="$(cat "$HOME/.erlang.cookie")"
 
-  # Force IPv4 distribution and pin to 127.0.0.1 — hostnames on some boxes
-  # resolve to IPv6 first, while the BEAM's distribution port binds to
-  # 0.0.0.0 (IPv4 only). The mismatch shows up as `Node.connect -> false`
-  # with no helpful error. We pass the Erlang tuple `{127,0,0,1}` unquoted
-  # because the BEAM's own argv splitter understands it; bash inside the
-  # surrounding double quotes doesn't try to brace-expand it either.
-  export ERL_AFLAGS="${ERL_AFLAGS:-} -sname symphony-${USER} -setcookie ${cookie} -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
+  # Pin the distribution listener to 127.0.0.1 too, matching the IP used in
+  # the node name. {127,0,0,1} is the Erlang tuple — unquoted because
+  # bash inside the surrounding double quotes does not brace-expand it.
+  export ERL_AFLAGS="${ERL_AFLAGS:-} -name symphony-${USER}@127.0.0.1 -setcookie ${cookie} -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
   export ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}"
   export SYMPHONY_NODE="${SYMPHONY_NODE:-$node_name}"
 
   # Export the cookie under our own name so the pane-side wrapper can pick
-  # it up even when it replaces ERL_AFLAGS for a unique -sname.
+  # it up even when it replaces ERL_AFLAGS for its own unique node name.
   export SYMPHONY_ERLANG_COOKIE="$cookie"
 }
 
