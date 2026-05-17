@@ -68,20 +68,46 @@ defmodule SymphonyPane.Viewport do
     header_line = header_line(identifier, inner_width)
 
     body_budget = max(transcript_rows - 1, 0)
-    visible_events = Enum.take(events, -body_budget)
 
-    body_lines =
-      Enum.map(visible_events, fn event ->
-        pad_line(format_event(event), inner_width)
-      end)
+    # Wrap each event's formatted text to inner_width before assembling the
+    # visible body, so a long agent message turns into several lines
+    # instead of being truncated mid-word. We then keep the most recent
+    # `body_budget` lines so the bottom of the transcript stays anchored.
+    wrapped_lines =
+      events
+      |> Enum.flat_map(fn event -> wrap_event(event, inner_width) end)
+      |> Enum.take(-body_budget)
 
-    padding_lines = body_budget - length(visible_events)
+    body_lines = Enum.map(wrapped_lines, fn line -> pad_line(line, inner_width) end)
+
+    padding_lines = body_budget - length(body_lines)
     blanks = List.duplicate(blank_line(inner_width), max(padding_lines, 0))
 
     rows = [header_line | body_lines ++ blanks]
 
     rows
     |> Enum.flat_map(fn row -> [row, eol()] end)
+  end
+
+  defp wrap_event(event, inner_width) do
+    text = format_event(event)
+
+    text
+    |> String.split(~r/\r?\n/)
+    |> Enum.flat_map(fn line -> wrap_one_line(line, inner_width) end)
+    |> case do
+      [] -> [""]
+      lines -> lines
+    end
+  end
+
+  defp wrap_one_line("", _inner_width), do: [""]
+
+  defp wrap_one_line(line, inner_width) do
+    line
+    |> String.graphemes()
+    |> Enum.chunk_every(max(inner_width, 1))
+    |> Enum.map(&Enum.join/1)
   end
 
   defp header_line(identifier, inner_width) do
