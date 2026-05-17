@@ -190,12 +190,9 @@ defmodule SymphonyPane.Viewport do
     body = body_for_role(:command, Map.get(event, :body, ""))
     body_style = body_style_for(:command)
 
-    {_, agent_tag_width} = tag_for(:assistant)
-    # Match the agent tag's leading-edge column, then push two columns
-    # further so the command rows visibly indent under the agent's body
-    # with a noticeable gap (one more char than where the agent body
-    # actually starts, which sits at agent_tag_width + 1).
-    indent_width = agent_tag_width + 2
+    # Minimal 2-column indent — enough to visually mark a command as
+    # subordinate without consuming the entire transcript width.
+    indent_width = 2
     body_width = max(inner_width - indent_width, 1)
     indent = String.duplicate(" ", indent_width)
 
