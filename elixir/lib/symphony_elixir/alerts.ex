@@ -6,7 +6,7 @@ defmodule SymphonyElixir.Alerts do
 
   require Logger
 
-  alias SymphonyElixir.{AgentEventLog, Config, Issue, StatusDashboard}
+  alias SymphonyElixir.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue, StatusDashboard}
 
   @alerts_path Path.expand("../../../alerts.yaml", __DIR__)
   @system_scopes ["task.", "agent.", "chat."]
@@ -89,8 +89,27 @@ defmodule SymphonyElixir.Alerts do
       })
 
       maybe_play_sound(selected_sound, opts)
+      broadcast_agent_alert(name, message, selected_sound, opts)
       StatusDashboard.notify_update()
       :ok
+    end
+  end
+
+  defp broadcast_agent_alert(name, message, selected_sound, opts) do
+    case identifier_for_alert(opts) do
+      identifier when is_binary(identifier) ->
+        event = AgentEvents.alert_event(name, message, sound: selected_sound)
+        AgentPubSub.broadcast_alert(identifier, event)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp identifier_for_alert(opts) do
+    case Keyword.get(opts, :issue) do
+      %Issue{identifier: identifier} when is_binary(identifier) -> identifier
+      _ -> Keyword.get(opts, :identifier)
     end
   end
 
@@ -167,6 +186,7 @@ defmodule SymphonyElixir.Alerts do
   defp config_sounds(_config), do: []
 
   defp present_string(value, reason \\ :missing_string)
+
   defp present_string(value, reason) when is_binary(value) do
     case String.trim(value) do
       "" -> {:error, reason}
