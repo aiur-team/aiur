@@ -40,10 +40,16 @@ defmodule SymphonyElixir.AgentEvents do
           timestamp: DateTime.t()
         }
 
-  @typedoc "Summary row used to render the agent list."
+  @typedoc """
+  Summary row used to render the agent list.
+
+    * `:status` — `:running` (a Symphony agent slot is actively running
+      this ticket) or `:queued` (the ticket carries an `agent:*` label
+      but no slot is allocated).
+  """
   @type agent_summary :: %{
           required(:identifier) => agent_identifier(),
-          required(:status) => atom(),
+          required(:status) => :running | :queued | atom(),
           required(:alert_count) => non_neg_integer(),
           optional(:tag) => String.t() | nil,
           optional(:title) => String.t() | nil,
