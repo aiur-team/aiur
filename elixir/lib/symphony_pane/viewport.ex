@@ -100,10 +100,31 @@ defmodule SymphonyPane.Viewport do
     header_line = header_line(identifier, inner_width)
 
     body_budget = max(transcript_rows - 1, 0)
+    blank = blank_line(inner_width)
 
     body_rows =
       events
-      |> Enum.flat_map(fn event -> render_event_rows(event, inner_width) end)
+      |> tag_visibility()
+      |> Enum.flat_map(fn {event, show_tag?} ->
+        rows = render_event_rows(event, inner_width, show_tag?)
+
+        # Visually separate turns in the pane only. The file logs do not
+        # get these blanks — they're readability spacing for the live
+        # chat scroll, not real event boundaries.
+        #   * user turns: blank line above AND below
+        #   * continuation agent posts (tagless): blank line above so
+        #     consecutive monologue paragraphs stay legible
+        cond do
+          Map.get(event, :role) == :user ->
+            [blank] ++ rows ++ [blank]
+
+          Map.get(event, :role) == :assistant and not show_tag? ->
+            [blank] ++ rows
+
+          true ->
+            rows
+        end
+      end)
       |> Enum.take(-body_budget)
 
     padding_lines = body_budget - length(body_rows)
@@ -120,7 +141,40 @@ defmodule SymphonyPane.Viewport do
   # colored background; continuation rows are indented to align with the
   # body text. User messages have their tag on the right and the body
   # right-aligned so they read like a chat bubble.
-  defp render_event_rows(%{role: :command} = event, inner_width) do
+  # Decide which events should render their tag in the pane. We coalesce
+  # consecutive agent turns: only the first agent message after a
+  # `:user` (or any other "non-agent" speaker) carries the `[agent]`
+  # block; subsequent agent rows render as tagless indented body so the
+  # transcript reads like a chat thread, not "agent agent agent agent".
+  # `:command` events stay tagless either way (handled inline), but they
+  # do NOT reset the "previous speaker" — a cmd in the middle of an
+  # agent monologue should not bring the tag back.
+  defp tag_visibility(events) do
+    {prepared, _} =
+      Enum.reduce(events, {[], nil}, fn event, {acc, prev_speaker} ->
+        role = Map.get(event, :role)
+
+        show_tag? =
+          case role do
+            :assistant -> prev_speaker != :assistant
+            _ -> true
+          end
+
+        next_speaker =
+          case role do
+            # Commands are sub-actions of the agent; preserve the prior
+            # speaker so the next agent message stays tagless.
+            :command -> prev_speaker
+            other -> other
+          end
+
+        {[{event, show_tag?} | acc], next_speaker}
+      end)
+
+    Enum.reverse(prepared)
+  end
+
+  defp render_event_rows(%{role: :command} = event, inner_width, _show_tag?) do
     # Command rows are rendered tagless in the pane — they read as
     # indented sub-bullets under the preceding [agent] block. The
     # per-issue log file (written by `SymphonyElixir.IssueLog`) still
@@ -129,8 +183,30 @@ defmodule SymphonyPane.Viewport do
     body_style = body_style_for(:command)
 
     {_, agent_tag_width} = tag_for(:assistant)
-    # Match the agent tag's leading-edge column, then push one further
-    # so the command rows visibly indent under the agent's body.
+    # Match the agent tag's leading-edge column, then push two columns
+    # further so the command rows visibly indent under the agent's body
+    # with a noticeable gap (one more char than where the agent body
+    # actually starts, which sits at agent_tag_width + 1).
+    indent_width = agent_tag_width + 2
+    body_width = max(inner_width - indent_width, 1)
+    indent = String.duplicate(" ", indent_width)
+
+    body
+    |> wrap_body(body_width)
+    |> Enum.map(fn line ->
+      styled = stylize(body_style, line)
+      pad = String.duplicate(" ", max(inner_width - indent_width - String.length(line), 0))
+      [indent, styled, pad]
+    end)
+  end
+
+  defp render_event_rows(%{role: :assistant} = event, inner_width, false) do
+    # Continuation agent message: no tag, body sits exactly at the
+    # column where a tagged agent body would have started.
+    body = body_for_role(:assistant, Map.get(event, :body, ""))
+    body_style = body_style_for(:assistant)
+
+    {_, agent_tag_width} = tag_for(:assistant)
     indent_width = agent_tag_width + 1
     body_width = max(inner_width - indent_width, 1)
     indent = String.duplicate(" ", indent_width)
@@ -144,7 +220,7 @@ defmodule SymphonyPane.Viewport do
     end)
   end
 
-  defp render_event_rows(event, inner_width) do
+  defp render_event_rows(event, inner_width, _show_tag?) do
     role = Map.get(event, :role, :system)
     body = body_for_role(role, Map.get(event, :body, ""))
     {tag_styled, tag_width} = tag_for(role)
@@ -188,8 +264,12 @@ defmodule SymphonyPane.Viewport do
   defp bg_for(_other), do: @bg_system
 
   defp build_tag(role, bg) do
-    display = AgentEvents.tag_display(role)
-    # Reserve a space on each side of the tag for visual breathing room.
+    # In the pane we drop the surrounding `[...]` brackets — the colored
+    # background block is already enough to delineate the tag. The log
+    # files (`SymphonyElixir.IssueLog` and the system-wide `symphony.log`)
+    # keep `[role]` brackets because they aren't styled and need explicit
+    # delimiters to be greppable.
+    display = AgentEvents.tag_name(role)
     text = " #{display} "
     {[bg, text, @ansi_reset], String.length(text)}
   end
@@ -271,12 +351,15 @@ defmodule SymphonyPane.Viewport do
         [@ansi_input_bg, @ansi_input_fg, padded, @ansi_reset]
       end)
 
-    blank = blank_line(inner_width)
+    # Wrap the input row with the same `\e[48;5;236m` background gray
+    # above and below so the whole composer reads as a single inset
+    # block rather than a floating input line.
+    gray_blank = [@ansi_input_bg, blank_line(inner_width), @ansi_reset]
 
     lines =
-      [blank, eol()] ++
+      [gray_blank, eol()] ++
         Enum.flat_map(tinted_rows, fn row -> [row, eol()] end) ++
-        [blank, "\e[K"]
+        [gray_blank, "\e[K"]
 
     # Account for the prompt on the cursor's row only when that row is the
     # buffer's actual first row (i.e. we did not trim the top).

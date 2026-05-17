@@ -125,10 +125,16 @@ defmodule SymphonyElixir.IssueContext do
   defp description_block(""), do: nil
 
   defp description_block(text) do
+    # Some trackers return descriptions where newlines have been escaped
+    # to literal `\\n` strings (a single backslash followed by `n`). The
+    # pane has no way to know those are line breaks unless we unescape
+    # back to real newline bytes, so we always normalise here before
+    # truncating + previewing.
     preview =
       text
+      |> String.replace("\\n", "\n")
       |> String.split(~r/\r?\n/)
-      |> Enum.take(8)
+      |> Enum.take(12)
       |> Enum.join("\n")
       |> String.slice(0, 600)
 
