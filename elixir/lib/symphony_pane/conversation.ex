@@ -8,10 +8,13 @@ defmodule SymphonyPane.Conversation do
   `{:transcript_event, ...}` and `{:alert, ...}` messages append to the
   in-memory transcript and trigger a re-render.
 
-  Submit path: the composer is reset locally, an optimistic-echo entry
-  is appended to the transcript, and the message is forwarded to the
-  Symphony node via `:rpc.cast` so the composer never blocks on network
-  latency.
+  Submit path: the composer is reset locally, the message is forwarded
+  to the Symphony node via `:rpc.call` (2 s timeout) so we can surface
+  any error to the user. On `:ok`, the symmetric `AgentChat.send`
+  broadcast arrives over PubSub and renders the `you: …` echo. On
+  `{:error, reason}` (e.g. `:body_too_long`, RPC failure), a
+  `:system` transcript event is appended so the message never silently
+  vanishes.
   """
 
   use GenServer
@@ -130,34 +133,72 @@ defmodule SymphonyPane.Conversation do
   defp handle_submit(state) do
     {new_composer, text} = Composer.submit(state.composer)
 
-    if text != "" do
-      send_message(state.symphony_node, state.identifier, text)
-      echo = AgentEvents.transcript_event(:user, text)
-      new_state = %{state | composer: new_composer, transcript: state.transcript ++ [echo]}
-      render(new_state)
-      {:noreply, new_state}
-    else
+    if text == "" do
       new_state = %{state | composer: new_composer}
       render(new_state)
       {:noreply, new_state}
+    else
+      submit_text(state, new_composer, text)
+    end
+  end
+
+  defp submit_text(state, new_composer, text) do
+    case send_message(state.symphony_node, state.identifier, text) do
+      :ok ->
+        # Success: the symmetric AgentChat broadcast will arrive over PubSub
+        # and append the `you: …` echo. No local optimistic echo here.
+        new_state = %{state | composer: new_composer}
+        render(new_state)
+        {:noreply, new_state}
+
+      {:error, reason} ->
+        system = AgentEvents.transcript_event(:system, "send failed: #{inspect(reason)}")
+        new_state = %{state | composer: new_composer, transcript: state.transcript ++ [system]}
+        render(new_state)
+        {:noreply, new_state}
     end
   end
 
   defp connect_to_symphony(node) when is_atom(node) do
-    if Node.connect(node) do
-      Process.monitor({SymphonyElixir.Distribution, node})
-      Node.monitor(node, true)
-      :ok
-    else
-      Logger.warning("Conversation pane could not connect to #{inspect(node)}")
-      :error
+    case Node.connect(node) do
+      true ->
+        Process.monitor({SymphonyElixir.Distribution, node})
+        Node.monitor(node, true)
+        :ok
+
+      false ->
+        Logger.warning("Conversation pane could not connect to #{inspect(node)}")
+        :error
+
+      :ignored ->
+        Logger.warning("Conversation pane skipping Node.connect (#{inspect(node)}): local node not distributed")
+
+        :error
     end
   end
 
-  defp send_message(nil, identifier, text), do: Logger.info("(no node) pane #{identifier}: #{text}")
+  defp send_message(nil, identifier, text) do
+    Logger.info("(no node) pane #{identifier}: #{text}")
+    :ok
+  end
 
   defp send_message(node, identifier, text) when is_atom(node) do
-    :rpc.cast(node, SymphonyElixir.PaneRPC, :send_operator_message, [identifier, text])
+    Logger.debug("Conversation.send_message rpc.call identifier=#{identifier} node=#{inspect(node)} bytes=#{byte_size(text)}")
+
+    case :rpc.call(node, SymphonyElixir.PaneRPC, :send_operator_message, [identifier, text], 2_000) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Conversation.send_message error identifier=#{identifier} reason=#{inspect(reason)}")
+
+        {:error, reason}
+
+      {:badrpc, reason} ->
+        Logger.warning("Conversation.send_message badrpc identifier=#{identifier} reason=#{inspect(reason)}")
+
+        {:error, {:rpc, reason}}
+    end
   end
 
   defp render(state) do
