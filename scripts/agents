@@ -11,6 +11,7 @@ systemctl_bin="${AGENTS_SYSTEMCTL_BIN:-systemctl}"
 pkill_bin="${AGENTS_PKILL_BIN:-pkill}"
 nohup_bin="${AGENTS_NOHUP_BIN:-nohup}"
 kill_bin="${AGENTS_KILL_BIN:-kill}"
+tmux_bin="${AGENTS_TMUX_BIN:-$(command -v tmux 2>/dev/null || echo tmux)}"
 bg_state_dir="${AGENTS_BG_STATE_DIR:-$HOME/.local/state/symphony}"
 
 agents_os="${AGENTS_OS_OVERRIDE:-$(uname -s)}"
@@ -328,13 +329,11 @@ ensure_symphony_state_dir() {
 }
 
 check_tmux() {
-  if ! command -v tmux >/dev/null 2>&1; then
-    echo "agents: tmux is not installed; install tmux >= 3.3 before launching the new CLI" >&2
+  if ! "$tmux_bin" -V >/dev/null 2>&1; then
+    echo "agents: tmux is not installed or not executable; install tmux >= 3.3 before launching" >&2
     return 1
   fi
 
-  # Phase 1 only warns; the new agent-list pane is not yet the foreground
-  # process, so tmux is not strictly required for current functionality.
   return 0
 }
 
@@ -546,7 +545,7 @@ run_foreground() {
   local workflow
   local port
   local logs_root
-  local args=()
+  local symphony_args=()
 
   require_profile "$profile"
   stop_profile "$profile"
@@ -562,26 +561,69 @@ run_foreground() {
 
   source_env_files
   ensure_symphony_state_dir
-  check_tmux || true
-  prepare_distribution || echo "agents: distribution setup failed; old CLI will still run on :nonode@nohost" >&2
+  check_tmux || die "tmux >= 3.3 is required; install tmux before running agents"
+  prepare_distribution || die "distribution setup failed; cannot launch agent-list pane"
 
-  args=(exec -- ./bin/symphony)
+  symphony_args=(exec -- ./bin/symphony agents-pane)
 
   if [ -n "$logs_root" ]; then
-    args+=(--logs-root "$logs_root")
+    symphony_args+=(--logs-root "$logs_root")
   fi
 
   if [ -n "$port" ]; then
-    args+=(--port "$port")
+    symphony_args+=(--port "$port")
   fi
 
   if [ "$expose_host" -eq 0 ]; then
-    args+=(--host 127.0.0.1)
+    symphony_args+=(--host 127.0.0.1)
   fi
 
-  args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
+  symphony_args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
 
-  exec "$mise_bin" "${args[@]}"
+  run_in_tmux "$profile" "$elixir_dir" "${symphony_args[@]}"
+}
+
+die() {
+  echo "agents: $*" >&2
+  exit 1
+}
+
+symphony_tmux_session_name() {
+  local profile="$1"
+  printf 'symphony-%s-%s' "${USER:-user}" "$profile"
+}
+
+run_in_tmux() {
+  local profile="$1"
+  local elixir_dir="$2"
+  shift 2
+
+  local session
+  session="$(symphony_tmux_session_name "$profile")"
+
+  # Persist session name so the conversation pane subcommand and other tools
+  # can find it.
+  printf '%s\n' "$session" >"$HOME/.config/symphony/state"
+
+  if "$tmux_bin" has-session -t "$session" 2>/dev/null; then
+    "$tmux_bin" kill-session -t "$session" 2>/dev/null || true
+  fi
+
+  # Build the inner command as a single string for tmux to exec inside its
+  # pane. We change into the elixir dir and call mise with the supplied args.
+  local inner_cmd
+  printf -v inner_cmd 'cd %q && exec %q' "$elixir_dir" "$mise_bin"
+
+  local arg
+  for arg in "$@"; do
+    printf -v inner_cmd '%s %q' "$inner_cmd" "$arg"
+  done
+
+  "$tmux_bin" new-session -d -s "$session" -x "${COLUMNS:-200}" -y "${LINES:-50}" \
+    "$inner_cmd"
+
+  # In the foreground, the user attaches to the session normally.
+  exec "$tmux_bin" attach -t "$session"
 }
 
 run_ad_hoc_workflow() {

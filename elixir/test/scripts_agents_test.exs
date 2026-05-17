@@ -47,7 +47,7 @@ defmodule ScriptsAgentsTest do
     assert {output, 0} = run_agents(ctx, ["actions"])
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
     assert output =~ "PWD=#{Path.join(ctx.actions_repo, "elixir")}"
-    assert output =~ "MISE:exec -- ./bin/symphony --logs-root #{ctx.logs_root}/actions --port 4101"
+    assert output =~ "MISE:exec -- ./bin/symphony agents-pane --logs-root #{ctx.logs_root}/actions --port 4101"
     assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.actions.md"
   end
 
@@ -188,7 +188,7 @@ defmodule ScriptsAgentsTest do
     ctx = test_context()
 
     assert {output, 0} = run_agents(ctx, ["run", "symphony"])
-    assert output =~ "MISE:exec -- ./bin/symphony --host 127.0.0.1"
+    assert output =~ "MISE:exec -- ./bin/symphony agents-pane --host 127.0.0.1"
   end
 
   test "--host opts out of the local-only injection" do
@@ -196,7 +196,7 @@ defmodule ScriptsAgentsTest do
 
     assert {output, 0} = run_agents(ctx, ["--host", "run", "symphony"])
     refute output =~ "--host 127.0.0.1"
-    assert output =~ "MISE:exec -- ./bin/symphony --interactive"
+    assert output =~ "MISE:exec -- ./bin/symphony agents-pane --interactive"
   end
 
   test "auto-rebuilds bin/symphony when missing" do
@@ -320,6 +320,7 @@ defmodule ScriptsAgentsTest do
     fake_pkill = Path.join(bin_dir, "pkill")
     fake_nohup = Path.join(bin_dir, "nohup")
     fake_kill = Path.join(bin_dir, "kill")
+    fake_tmux = Path.join(bin_dir, "tmux")
 
     write_executable!(fake_mise, """
     #!/usr/bin/env bash
@@ -350,6 +351,30 @@ defmodule ScriptsAgentsTest do
     printf 'KILL:%s\\n' "$*" | tee -a "$AGENTS_TEST_COMMAND_LOG"
     """)
 
+    write_executable!(fake_tmux, """
+    #!/usr/bin/env bash
+    printf 'TMUX:%s\\n' "$*" >>"$AGENTS_TEST_COMMAND_LOG"
+
+    case "$1" in
+      -V)
+        printf 'tmux 3.5a\\n'
+        ;;
+      has-session)
+        # Always report no existing session in tests.
+        exit 1
+        ;;
+      new-session)
+        # Run the inner command synchronously so the assertions that look
+        # for MISE/PWD output keep working.
+        inner_cmd="${!#}"
+        bash -c "$inner_cmd"
+        ;;
+      attach|kill-session)
+        :
+        ;;
+    esac
+    """)
+
     %{
       repo_root: repo_root,
       actions_repo: actions_repo,
@@ -361,7 +386,8 @@ defmodule ScriptsAgentsTest do
       fake_systemctl: fake_systemctl,
       fake_pkill: fake_pkill,
       fake_nohup: fake_nohup,
-      fake_kill: fake_kill
+      fake_kill: fake_kill,
+      fake_tmux: fake_tmux
     }
   end
 
@@ -383,6 +409,7 @@ defmodule ScriptsAgentsTest do
         {"AGENTS_PKILL_BIN", ctx.fake_pkill},
         {"AGENTS_NOHUP_BIN", ctx.fake_nohup},
         {"AGENTS_KILL_BIN", ctx.fake_kill},
+        {"AGENTS_TMUX_BIN", ctx.fake_tmux},
         {"AGENTS_BG_STATE_DIR", ctx.bg_state_dir},
         {"AGENTS_OS_OVERRIDE", os_override},
         {"AGENTS_SKIP_BUILD", skip_build},
