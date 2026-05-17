@@ -138,28 +138,33 @@ defmodule SymphonyElixir.PaneManager do
     suffix = Integer.to_string(System.unique_integer([:positive]), 36)
     node_short = "pane-#{safe_id}-#{suffix}"
 
-    # tmux passes the resulting string to `/bin/sh -c`, so single-quoting the
-    # ERL_AFLAGS value is enough to keep `-sname <node>` together when env
-    # parses it. ERL_AFLAGS overrides the parent BEAM's `-sname` so the pane
-    # BEAM gets a unique node name and does not collide with the orchestrator.
+    # tmux passes the resulting string to `/bin/sh -c`, so the value of
+    # ERL_AFLAGS is parsed once by /bin/sh and then again by the BEAM's argv
+    # splitter. We use DOUBLE quotes for the outer wrapping so we can embed
+    # the literal Erlang tuple `{127,0,0,1}` without /bin/sh's single-quote
+    # rules tripping on it (single-quoted strings can't be re-opened, and
+    # bash brace expansion would otherwise eat `{127,0,0,1}`). Inside double
+    # quotes neither `{` nor `,` is special in /bin/sh.
+    #
+    # ERL_AFLAGS overrides the parent BEAM's `-sname` so the pane BEAM gets
+    # a unique node name and does not collide with the orchestrator.
     #
     # Cookie: the parent BEAM has `-setcookie <value>` baked into its own
-    # ERL_AFLAGS (set by `scripts/agents`). When we replace ERL_AFLAGS for
-    # the pane, we must re-inject the cookie or the pane's distributed
-    # connection back to symphony fails silently with `Node.connect -> false`.
+    # ERL_AFLAGS. When we replace ERL_AFLAGS for the pane, we must re-inject
+    # the cookie or the pane's distributed connection back to symphony fails
+    # silently with `Node.connect -> false`.
     cookie_flag =
       case read_erlang_cookie() do
         cookie when is_binary(cookie) and cookie != "" -> " -setcookie #{cookie}"
         _ -> ""
       end
 
-    # Mirror the parent BEAM's distribution flags so the pane can actually
-    # connect back to symphony. Pinning to 127.0.0.1 sidesteps boxes where
-    # the hostname resolves to IPv6 first while the BEAM listens on
-    # 0.0.0.0 (IPv4 only).
-    dist_flags = " -proto_dist inet_tcp -kernel inet_dist_use_interface '{127,0,0,1}'"
+    # Pin distribution to 127.0.0.1 so the pane can connect back to symphony
+    # on boxes where the hostname resolves to IPv6 while the BEAM only
+    # listens on 0.0.0.0.
+    dist_flags = " -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
 
-    "env ERL_AFLAGS='-sname #{node_short}#{cookie_flag}#{dist_flags}' #{command}"
+    "env ERL_AFLAGS=\"-sname #{node_short}#{cookie_flag}#{dist_flags}\" #{command}"
   end
 
   defp read_erlang_cookie do
