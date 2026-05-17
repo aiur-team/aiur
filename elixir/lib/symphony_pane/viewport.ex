@@ -64,6 +64,13 @@ defmodule SymphonyPane.Viewport do
   @body_alert "\e[31m"
   @body_command "\e[90m"
 
+  # Help row anchored below the composer — keep it brief, only the keys
+  # the operator hasn't memorized yet. `\e[90m` (bright black) renders
+  # as dimmed default-fg in every terminal so it doesn't compete with
+  # the chat content for visual weight.
+  @help_text " Ctrl+C close   Tab cycle"
+  @help_style "\e[90m"
+
   # Max tinted-input rows before we stop growing the composer block. Beyond
   # this we truncate from the start of the buffer (keeping the cursor and
   # tail visible) rather than letting it swallow the transcript.
@@ -74,7 +81,8 @@ defmodule SymphonyPane.Viewport do
     inner_width = max(cols - 1, 1)
 
     {composer_lines, composer_meta} = composer_iolist(composer, inner_width)
-    total_composer_rows = composer_meta.input_rows + 2
+    # composer chrome: top gray, N input rows, bottom gray, help row.
+    total_composer_rows = composer_meta.input_rows + 3
     transcript_rows = max(rows - total_composer_rows, 1)
 
     transcript_lines = transcript_iolist(state.identifier, transcript, transcript_rows, inner_width)
@@ -356,10 +364,18 @@ defmodule SymphonyPane.Viewport do
     # block rather than a floating input line.
     gray_blank = [@ansi_input_bg, blank_line(inner_width), @ansi_reset]
 
+    # Help row sits just below the composer block. Slice to `inner_width`
+    # first so a narrow pane doesn't push the row past the column
+    # reservation; then pad so the row fully overwrites previous content.
+    help_safe = String.slice(@help_text, 0, inner_width)
+    help_padded = String.pad_trailing(help_safe, inner_width)
+    help_row = [@help_style, help_padded, @ansi_reset]
+
     lines =
       [gray_blank, eol()] ++
         Enum.flat_map(tinted_rows, fn row -> [row, eol()] end) ++
-        [gray_blank, "\e[K"]
+        [gray_blank, eol()] ++
+        [help_row, "\e[K"]
 
     # Account for the prompt on the cursor's row only when that row is the
     # buffer's actual first row (i.e. we did not trim the top).
