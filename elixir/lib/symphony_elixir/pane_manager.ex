@@ -1,24 +1,144 @@
 defmodule SymphonyElixir.PaneManager do
   @moduledoc """
-  Owns the mapping from `agent_identifier` to its tmux pane_id.
+  Owns the mapping from `agent_identifier` to its tmux pane id.
 
-  UI concern only — `SymphonyElixir.Conversations.attach/1` is the
-  data-side primitive. The pane manager consumes `Tmux.subscribe_events/0`
-  and `:net_kernel.monitor_nodes/2` notifications, treating `:nodedown`
-  as the authoritative pane-closed signal (per cited tmux issues #2483,
-  #2882, where hooks fire inconsistently).
+  UI concern only. The data-side primitive for subscribing to an agent's
+  events is `SymphonyElixir.Conversations.attach/1`. This GenServer
+  coordinates the *visual* side: which tmux pane is currently showing a
+  given agent's conversation.
 
-  Scaffold: implementation lands together with `Tmux`.
+  Consumes tmux notifications via `SymphonyElixir.Tmux.subscribe_events/1`
+  and treats `%pane-died` (and, when distribution is in play, `:nodedown`)
+  as authoritative pane-closed signals.
   """
 
-  alias SymphonyElixir.AgentEvents
+  use GenServer
+  require Logger
 
-  @spec open_conversation(AgentEvents.agent_identifier()) :: {:ok, String.t()} | {:error, term()}
-  def open_conversation(identifier) when is_binary(identifier), do: {:error, :not_implemented}
+  alias SymphonyElixir.{AgentEvents, AgentPubSub, Tmux}
 
-  @spec close_conversation(AgentEvents.agent_identifier()) :: :ok | {:error, term()}
-  def close_conversation(identifier) when is_binary(identifier), do: {:error, :not_implemented}
+  @type agent_id :: AgentEvents.agent_agent_id()
+  @type pane_id :: String.t()
 
-  @spec list_open_panes() :: %{optional(AgentEvents.agent_identifier()) => String.t()}
-  def list_open_panes, do: %{}
+  defstruct identifier_to_pane: %{},
+            pane_to_identifier: %{},
+            tmux: nil
+
+  # Public API ----------------------------------------------------------------
+
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
+
+  @spec open_conversation(GenServer.server(), agent_id(), String.t()) ::
+          {:ok, pane_id()} | {:error, term()}
+  def open_conversation(server \\ __MODULE__, identifier, command_to_run)
+      when is_binary(identifier) and is_binary(command_to_run) do
+    GenServer.call(server, {:open, identifier, command_to_run})
+  end
+
+  @spec close_conversation(GenServer.server(), agent_id()) :: :ok | {:error, term()}
+  def close_conversation(server \\ __MODULE__, identifier) when is_binary(identifier) do
+    GenServer.call(server, {:close, identifier})
+  end
+
+  @spec list_open_panes(GenServer.server()) :: %{optional(agent_id()) => pane_id()}
+  def list_open_panes(server \\ __MODULE__) do
+    GenServer.call(server, :list)
+  end
+
+  # GenServer callbacks -------------------------------------------------------
+
+  @impl true
+  def init(opts) do
+    tmux = Keyword.get(opts, :tmux, Tmux)
+
+    case Tmux.subscribe_events(tmux) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
+    end
+
+    :net_kernel.monitor_nodes(true, node_type: :hidden)
+
+    {:ok, %__MODULE__{tmux: tmux}}
+  end
+
+  @impl true
+  def handle_call({:open, identifier, command_to_run}, _from, state) do
+    case Map.fetch(state.identifier_to_pane, identifier) do
+      {:ok, existing_pane} ->
+        {:reply, {:ok, existing_pane}, state}
+
+      :error ->
+        case Tmux.spawn_pane_for(state.tmux, identifier, command_to_run) do
+          {:ok, pane_id} ->
+            new_state = record_pane(state, identifier, pane_id)
+            AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+            {:reply, {:ok, pane_id}, new_state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+    end
+  end
+
+  def handle_call({:close, identifier}, _from, state) do
+    case Map.fetch(state.identifier_to_pane, identifier) do
+      {:ok, pane_id} ->
+        _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
+        {:reply, :ok, forget_pane_by_identifier(state, identifier)}
+
+      :error ->
+        {:reply, {:error, :not_open}, state}
+    end
+  end
+
+  def handle_call(:list, _from, state), do: {:reply, state.identifier_to_pane, state}
+
+  @impl true
+  def handle_info({:tmux_event, {:notification, :pane_died, pane_id}}, state) do
+    {:noreply, handle_pane_closed(state, pane_id)}
+  end
+
+  def handle_info({:nodedown, _node}, state), do: {:noreply, state}
+  def handle_info({:nodeup, _node, _info}, state), do: {:noreply, state}
+  def handle_info({:nodeup, _node}, state), do: {:noreply, state}
+  def handle_info({:tmux_event, _event}, state), do: {:noreply, state}
+  def handle_info(_other, state), do: {:noreply, state}
+
+  # Internals -----------------------------------------------------------------
+
+  defp record_pane(%__MODULE__{} = state, identifier, pane_id) do
+    %{
+      state
+      | identifier_to_pane: Map.put(state.identifier_to_pane, identifier, pane_id),
+        pane_to_identifier: Map.put(state.pane_to_identifier, pane_id, identifier)
+    }
+  end
+
+  defp forget_pane_by_identifier(%__MODULE__{} = state, identifier) do
+    case Map.fetch(state.identifier_to_pane, identifier) do
+      {:ok, pane_id} ->
+        %{
+          state
+          | identifier_to_pane: Map.delete(state.identifier_to_pane, identifier),
+            pane_to_identifier: Map.delete(state.pane_to_identifier, pane_id)
+        }
+
+      :error ->
+        state
+    end
+  end
+
+  defp handle_pane_closed(state, pane_id) do
+    case Map.fetch(state.pane_to_identifier, pane_id) do
+      {:ok, identifier} ->
+        AgentPubSub.broadcast_status_change(identifier, :pane_closed)
+        forget_pane_by_identifier(state, identifier)
+
+      :error ->
+        state
+    end
+  end
 end
