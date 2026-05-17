@@ -22,8 +22,16 @@ agents_os="${AGENTS_OS_OVERRIDE:-$(uname -s)}"
 expose_host=0
 debug_mode=0
 logs_mode=0
+log_issue_id=""
 filtered_args=()
+expect_log_value=0
 for arg in "$@"; do
+  if [ "$expect_log_value" -eq 1 ]; then
+    log_issue_id="$arg"
+    expect_log_value=0
+    continue
+  fi
+
   case "$arg" in
     --host)
       expose_host=1
@@ -34,11 +42,22 @@ for arg in "$@"; do
     --logs)
       logs_mode=1
       ;;
+    --log)
+      expect_log_value=1
+      ;;
+    --log=*)
+      log_issue_id="${arg#--log=}"
+      ;;
     *)
       filtered_args+=("$arg")
       ;;
   esac
 done
+
+if [ "$expect_log_value" -eq 1 ]; then
+  echo "agents: --log requires an issue identifier (e.g. --log 25)" >&2
+  exit 64
+fi
 
 if [ "$debug_mode" -eq 1 ]; then
   export SYMPHONY_DEBUG=1
@@ -83,6 +102,10 @@ Options:
   --logs [profile]     tail the (default or named) profile's symphony.log
                        and exit on Ctrl+C. Does not start any agents.
                        Useful in a separate terminal alongside `agents --debug`.
+  --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
+                       SymphonyElixir.IssueLog writes for an active
+                       conversation pane. Does not start agents.
+                       Example: `agents --log 25`
   --host               leave the workflow's configured host alone (default
                        binds to 127.0.0.1 for loopback-only access).
 
@@ -734,7 +757,7 @@ run_ad_hoc_workflow() {
 
 load_profiles
 
-if [ "$logs_mode" -eq 1 ]; then
+if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
   log_profile="${1:-default}"
 
   if profile_exists "$log_profile"; then
@@ -746,14 +769,35 @@ if [ "$logs_mode" -eq 1 ]; then
   fi
 
   if [ -n "$log_logs_root" ]; then
-    log_target="$log_logs_root/log/symphony.log"
+    log_dir="$log_logs_root/log"
   else
-    log_target="$log_elixir_dir/log/symphony.log"
+    log_dir="$log_elixir_dir/log"
+  fi
+
+  if [ -n "$log_issue_id" ]; then
+    # Per-issue file: SymphonyElixir.IssueLog writes to
+    # `<log_dir>/<repo>.<issue>.log`. Match the actual repo prefix by
+    # globbing so the caller doesn't have to know the project name.
+    log_target=""
+    shopt -s nullglob
+    for candidate in "$log_dir"/*."$log_issue_id".log; do
+      log_target="$candidate"
+      break
+    done
+    shopt -u nullglob
+
+    if [ -z "$log_target" ]; then
+      # File doesn't exist yet — fall back to a `symphony.<id>.log`
+      # name so `tail -F` can wait for it to appear when the agent
+      # first writes.
+      log_target="$log_dir/symphony.$log_issue_id.log"
+    fi
+  else
+    log_target="$log_dir/symphony.log"
   fi
 
   if [ ! -e "$log_target" ]; then
-    parent="$(dirname "$log_target")"
-    mkdir -p "$parent" 2>/dev/null || true
+    mkdir -p "$log_dir" 2>/dev/null || true
     : >>"$log_target" 2>/dev/null || true
   fi
 
