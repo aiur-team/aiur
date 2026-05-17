@@ -105,10 +105,10 @@ defmodule SymphonyPane.ViewportTest do
   test "places the cursor on the composer input row, after the prompt and buffer" do
     composer = Composer.append(Composer.new(), "hi")
     {_frame, {row, col}} = Viewport.render(base_state(composer: composer, rows: 8))
-    # The composer occupies the bottom three rows (blank / tinted input /
-    # blank). For an 8-row terminal, that's rows 6, 7, 8; the input lives on
-    # the middle row.
-    assert row == 7
+    # The composer occupies the bottom four rows: gray-blank / tinted
+    # input / gray-blank / help. For an 8-row terminal, those are rows
+    # 5, 6, 7, 8; the input lives on row 6 (one input row, no wrap).
+    assert row == 6
     # prompt "> " is 2 chars + 2 chars of buffer + 1-based column
     assert col == 5
   end
@@ -157,10 +157,11 @@ defmodule SymphonyPane.ViewportTest do
 
     assert text =~ "> aaaaaaaaaaaaaaaaa"
     assert text =~ "aaaaaaaa"
-    # Layout: 24-row pane, 2 input rows + 2 blanks = 4 composer rows,
-    # transcript_rows = 20. Row 21 is the top blank, rows 22-23 are the
-    # tinted input rows. Cursor lives on segment index 1, so row 23.
-    assert row == 23
+    # Layout: 24-row pane, 2 input rows + 3 composer chrome rows (top
+    # gray blank, bottom gray blank, help row) = 5 composer rows total,
+    # so transcript_rows = 19. Row 20 is the top blank, rows 21-22 are
+    # the tinted input rows. Cursor lives on segment index 1, so row 22.
+    assert row == 22
   end
 
   test "trims early composer rows but keeps the cursor visible when buffer is very long" do
