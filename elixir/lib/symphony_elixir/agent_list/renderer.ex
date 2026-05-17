@@ -46,32 +46,129 @@ defmodule SymphonyElixir.AgentList.Renderer do
     rows = Map.get(state, :rows, 24)
     inner_width = max(cols - 1, 1)
 
-    summaries =
-      state
-      |> Map.get(:summaries, [])
-      |> filter_visible_summaries()
-      |> sort_summaries()
+    if Map.get(state, :help_visible?, false) do
+      render_help(inner_width, rows, state)
+    else
+      summaries =
+        state
+        |> Map.get(:summaries, [])
+        |> filter_visible_summaries()
+        |> sort_summaries()
 
-    layout = compute_layout(summaries, inner_width)
+      layout = compute_layout(summaries, inner_width)
 
-    [
-      "\e[H",
-      title_row(inner_width, Map.get(state, :refresh_label)),
-      eol(),
-      metadata_rows(state, inner_width),
-      separator_row(inner_width),
-      eol(),
-      table_header_row(inner_width, layout),
-      eol(),
-      table_separator_row(inner_width, layout),
-      eol(),
-      render_rows(summaries, Map.get(state, :selection_index, 0), inner_width, layout),
-      bottom_border(inner_width),
-      eol(),
-      footer_row(inner_width),
-      eol(),
-      clear_remaining(rows, lines_emitted(state))
+      [
+        "\e[H",
+        title_row(inner_width, Map.get(state, :refresh_label)),
+        eol(),
+        metadata_rows(state, inner_width),
+        separator_row(inner_width),
+        eol(),
+        table_header_row(inner_width, layout),
+        eol(),
+        table_separator_row(inner_width, layout),
+        eol(),
+        render_rows(summaries, Map.get(state, :selection_index, 0), inner_width, layout),
+        bottom_border(inner_width),
+        eol(),
+        footer_row(inner_width),
+        eol(),
+        clear_remaining(rows, lines_emitted(state))
+      ]
+    end
+  end
+
+  # Help overlay reusing the same bordered chrome as the main view.
+  # Lists the keybinds and the state-circle legend so an operator new
+  # to the agent-list pane can self-orient.
+  defp render_help(inner_width, rows, state) do
+    body_rows = help_body_rows(inner_width)
+    body_count = length(body_rows)
+
+    drawn =
+      [
+        "\e[H",
+        title_row(inner_width, Map.get(state, :refresh_label)),
+        eol(),
+        separator_row(inner_width),
+        eol()
+      ] ++
+        Enum.flat_map(body_rows, fn row -> [row, eol()] end) ++
+        [
+          bottom_border(inner_width),
+          eol(),
+          help_footer_row(inner_width),
+          eol()
+        ]
+
+    # 5 fixed chrome rows (title, separator, bottom border, footer) +
+    # 1 newline after each + the help body rows.
+    drawn_count = 4 + body_count
+    drawn ++ [clear_remaining(rows, drawn_count)]
+  end
+
+  defp help_body_rows(inner_width) do
+    sections = [
+      {"Keybinds",
+       [
+         "↑ / k        select previous",
+         "↓ / j        select next",
+         "enter, space open conversation for selected agent",
+         "?            toggle this help screen",
+         "q            quit the agent list"
+       ]},
+      {"State circle",
+       [
+         "🟢  agent running, label is agent:in-progress",
+         "🟡  agent running, label is agent:todo (queued for codex)",
+         "🟡  agent paused (label override)",
+         "🟣  agent running, label is agent:human-review",
+         "🟠  agent running, label is agent:rework",
+         "🔵  agent running, label is agent:merging",
+         "🔴  agent in error state",
+         "⚫  agent:* label present but no Symphony slot allocated yet"
+       ]},
+      {"Tips",
+       [
+         "Open multiple agents in panes to watch them in parallel.",
+         "Tickets cycle through 5 conversation slots; #6 replaces #1.",
+         "Press `?` again or `q` to leave this help screen."
+       ]}
     ]
+
+    sections
+    |> Enum.flat_map(fn {heading, lines} ->
+      [help_heading_row(heading, inner_width)] ++
+        Enum.map(lines, fn line -> help_line_row(line, inner_width) end) ++
+        [help_blank_row(inner_width)]
+    end)
+    |> Enum.drop(-1)
+  end
+
+  defp help_heading_row(text, inner_width) do
+    prefix = "│ "
+    bold = @ansi_bold <> text <> @ansi_reset
+    plain = prefix <> text
+    pad = padding_for(plain, inner_width)
+    [prefix, bold, pad]
+  end
+
+  defp help_line_row(text, inner_width) do
+    prefix = "│   "
+    plain = prefix <> text
+    pad_width = max(inner_width - visual_width(plain), 0)
+    pad = String.duplicate(" ", pad_width)
+    [prefix, text, pad]
+  end
+
+  defp help_blank_row(inner_width) do
+    pad = String.duplicate(" ", max(inner_width - 1, 0))
+    ["│", pad]
+  end
+
+  defp help_footer_row(inner_width) do
+    text = "  ? close help   q quit"
+    pad_with_ansi(@ansi_dim, text, inner_width)
   end
 
   # ---------- header / metadata ---------------------------------------------
@@ -158,7 +255,7 @@ defmodule SymphonyElixir.AgentList.Renderer do
   end
 
   defp footer_row(inner_width) do
-    text = "  ↑/↓ select   enter/space open   q quit"
+    text = "  ↑/↓ select   enter/space open   ? help   q quit"
     pad_with_ansi(@ansi_dim, text, inner_width)
   end
 
@@ -418,10 +515,16 @@ defmodule SymphonyElixir.AgentList.Renderer do
   # rest" below the last rendered row so old content doesn't linger
   # when the agent list shrinks). Fixed rows: title, agents, project,
   # dashboard, separator, table header, table separator, bottom border,
-  # footer = 9.
+  # footer = 9. Body rows must reflect the *visible* summaries — i.e.
+  # after `filter_visible_summaries/1` — otherwise hidden tickets
+  # inflate the count and leave a stale footer row on screen.
   defp lines_emitted(state) do
-    summaries = Map.get(state, :summaries, [])
-    body_rows = if summaries == [], do: 1, else: length(summaries)
+    visible =
+      state
+      |> Map.get(:summaries, [])
+      |> filter_visible_summaries()
+
+    body_rows = if visible == [], do: 1, else: length(visible)
     9 + body_rows
   end
 

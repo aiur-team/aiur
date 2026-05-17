@@ -61,6 +61,9 @@ defmodule SymphonyElixir.AgentList.App do
   @spec quit(GenServer.server()) :: :ok
   def quit(server \\ __MODULE__), do: GenServer.cast(server, :quit)
 
+  @spec toggle_help(GenServer.server()) :: :ok
+  def toggle_help(server \\ __MODULE__), do: GenServer.cast(server, :toggle_help)
+
   @spec snapshot(GenServer.server()) :: state()
   def snapshot(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
@@ -81,6 +84,7 @@ defmodule SymphonyElixir.AgentList.App do
       selection_index: 0,
       columns: cols,
       rows: rows,
+      help_visible?: false,
       write_fun: write_fun,
       pane_manager: pane_manager,
       command_template: command_template
@@ -131,6 +135,12 @@ defmodule SymphonyElixir.AgentList.App do
 
   def handle_cast(:quit, state) do
     {:stop, :normal, state}
+  end
+
+  def handle_cast(:toggle_help, state) do
+    new_state = %{state | help_visible?: not Map.get(state, :help_visible?, false)}
+    render(new_state)
+    {:noreply, new_state}
   end
 
   @impl true
@@ -197,7 +207,7 @@ defmodule SymphonyElixir.AgentList.App do
 
     render_state =
       state
-      |> Map.take([:summaries, :selection_index])
+      |> Map.take([:summaries, :selection_index, :help_visible?])
       |> Map.put(:columns, cols)
       |> Map.put(:rows, rows)
       |> Map.put(:project_label, project_label())
