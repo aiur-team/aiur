@@ -1555,6 +1555,29 @@ defmodule SymphonyElixir.Orchestrator do
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
+  @doc """
+  Lightweight read of the polling clock so UI surfaces (the agent-list
+  pane) can render a "Next refresh: Ns" countdown without doing a full
+  `snapshot/0` every tick. Returns `%{checking?: boolean, next_poll_in_ms: integer | nil}`,
+  or `:unavailable` if the orchestrator isn't running.
+  """
+  @spec poll_status() :: %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+  def poll_status, do: poll_status(__MODULE__, 1_000)
+
+  @spec poll_status(GenServer.server(), timeout()) ::
+          %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+  def poll_status(server, timeout) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, :poll_status, timeout)
+      catch
+        :exit, _ -> :unavailable
+      end
+    else
+      :unavailable
+    end
+  end
+
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout) do
     if Process.whereis(server) do
@@ -1570,6 +1593,17 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @impl true
+  def handle_call(:poll_status, _from, state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    reply = %{
+      checking?: state.poll_check_in_progress == true,
+      next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms)
+    }
+
+    {:reply, reply, state}
+  end
+
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
     now = DateTime.utc_now()

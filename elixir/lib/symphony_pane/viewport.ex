@@ -120,6 +120,30 @@ defmodule SymphonyPane.Viewport do
   # colored background; continuation rows are indented to align with the
   # body text. User messages have their tag on the right and the body
   # right-aligned so they read like a chat bubble.
+  defp render_event_rows(%{role: :command} = event, inner_width) do
+    # Command rows are rendered tagless in the pane — they read as
+    # indented sub-bullets under the preceding [agent] block. The
+    # per-issue log file (written by `SymphonyElixir.IssueLog`) still
+    # carries the `[cmd]` tag for tail-able context.
+    body = body_for_role(:command, Map.get(event, :body, ""))
+    body_style = body_style_for(:command)
+
+    {_, agent_tag_width} = tag_for(:assistant)
+    # Match the agent tag's leading-edge column, then push one further
+    # so the command rows visibly indent under the agent's body.
+    indent_width = agent_tag_width + 1
+    body_width = max(inner_width - indent_width, 1)
+    indent = String.duplicate(" ", indent_width)
+
+    body
+    |> wrap_body(body_width)
+    |> Enum.map(fn line ->
+      styled = stylize(body_style, line)
+      pad = String.duplicate(" ", max(inner_width - indent_width - String.length(line), 0))
+      [indent, styled, pad]
+    end)
+  end
+
   defp render_event_rows(event, inner_width) do
     role = Map.get(event, :role, :system)
     body = body_for_role(role, Map.get(event, :body, ""))
