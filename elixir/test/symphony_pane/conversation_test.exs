@@ -138,7 +138,7 @@ defmodule SymphonyPane.ConversationTest do
     AgentPubSub.broadcast_transcript(identifier, AgentEvents.transcript_event(:user, "hi"))
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "[usr]"
+    assert visible(frame) =~ "[user]"
     assert visible(frame) =~ "hi"
   end
 

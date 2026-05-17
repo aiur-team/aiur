@@ -66,14 +66,14 @@ defmodule SymphonyElixir.AgentEvents do
 
   Tag-to-meaning map:
     * `agent` — `:assistant` — words from the agent
-    * `usr`   — `:user`      — operator's typed message
+    * `user`  — `:user`      — operator's typed message
     * `sys`   — `:system`    — external context (intro, errors)
     * `cmd`   — `:command`   — commands the agent runs
     * `alert` — `:alert`     — operator-facing notifications
   """
   @spec tag_name(role()) :: String.t()
   def tag_name(:assistant), do: "agent"
-  def tag_name(:user), do: "usr"
+  def tag_name(:user), do: "user"
   def tag_name(:system), do: "sys"
   def tag_name(:command), do: "cmd"
   def tag_name(:alert), do: "alert"
