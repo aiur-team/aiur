@@ -221,7 +221,10 @@ defmodule SymphonyElixir.AgentList.App do
   defp refresh_label do
     case safe_call(fn -> Orchestrator.poll_status() end) do
       %{checking?: true} ->
-        "checking now…"
+        # The "in-progress" state collapses to the same `0s` label as
+        # the final-second countdown — they read the same to the
+        # operator and the unified label is calmer to look at.
+        "0s"
 
       %{next_poll_in_ms: ms} when is_integer(ms) ->
         seconds = div(max(ms, 0) + 999, 1000)
