@@ -612,6 +612,7 @@ run_foreground() {
 
   if [ -n "$logs_root" ]; then
     symphony_args+=(--logs-root "$logs_root")
+    export SYMPHONY_LOGS_ROOT="$logs_root"
   fi
 
   if [ -n "$port" ]; then
@@ -680,9 +681,20 @@ run_in_tmux() {
   export SYMPHONY_BIN="$elixir_dir/bin/symphony"
   export SYMPHONY_MISE_BIN="$mise_bin"
 
+  # Resolve where the BEAM will write its log file. The Elixir CLI sets
+  # `:log_file` to `<logs_root>/log/symphony.log` when `--logs-root` is
+  # passed (LogFile.default_log_file/1); otherwise the file lives at
+  # `<elixir_dir>/log/symphony.log`.
+  local log_path
+  if [ -n "${SYMPHONY_LOGS_ROOT:-}" ]; then
+    log_path="${SYMPHONY_LOGS_ROOT}/log/symphony.log"
+  else
+    log_path="$elixir_dir/log/symphony.log"
+  fi
+
   if [ "$debug_mode" -eq 1 ]; then
     echo "agents: debug logging enabled" >&2
-    echo "agents: tail logs with -> tail -F $elixir_dir/log/symphony.log" >&2
+    echo "agents: tail logs with -> tail -F $log_path" >&2
     echo "agents: tmux socket=$socket conf=$conf" >&2
   fi
 
