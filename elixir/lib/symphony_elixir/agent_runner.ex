@@ -13,6 +13,7 @@ defmodule SymphonyElixir.AgentRunner do
     CodingAgent,
     Config,
     Issue,
+    IssueLog,
     PromptBuilder,
     Tracker,
     Workspace
@@ -26,6 +27,11 @@ defmodule SymphonyElixir.AgentRunner do
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
+
+    # Make sure a per-issue file writer is running so this session's
+    # transcript and alert events land in <repo>.<issue>.log alongside any
+    # earlier session's output.
+    maybe_attach_issue_log(issue)
 
     Logger.info("Starting agent run for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
 
@@ -645,6 +651,14 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
+
+  defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier),
+    do: IssueLog.attach(identifier)
+
+  defp maybe_attach_issue_log(%{identifier: identifier}) when is_binary(identifier),
+    do: IssueLog.attach(identifier)
+
+  defp maybe_attach_issue_log(_), do: :ok
 
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     state_name
