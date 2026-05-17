@@ -4,13 +4,8 @@ defmodule SymphonyElixir.DistributionTest do
   alias SymphonyElixir.Distribution
 
   describe "start!/0" do
-    test "returns :not_distributed when the BEAM is not running as a named node" do
-      if Node.alive?() do
-        # Skip in distributed test environments — see comment in node_name/0 test.
-        :ok
-      else
-        assert {:error, :not_distributed} = Distribution.start!()
-      end
+    test "returns :ok regardless of distribution state and installs a nodes monitor" do
+      assert :ok = Distribution.start!()
     end
   end
 

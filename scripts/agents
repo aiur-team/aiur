@@ -604,6 +604,9 @@ run_in_tmux() {
   # Persist session name so the conversation pane subcommand and other tools
   # can find it.
   printf '%s\n' "$session" >"$HOME/.config/symphony/state"
+  export SYMPHONY_TMUX_SESSION="$session"
+  export SYMPHONY_BIN="$elixir_dir/bin/symphony"
+  export SYMPHONY_MISE_BIN="$mise_bin"
 
   if "$tmux_bin" has-session -t "$session" 2>/dev/null; then
     "$tmux_bin" kill-session -t "$session" 2>/dev/null || true

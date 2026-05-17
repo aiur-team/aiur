@@ -181,12 +181,13 @@ defmodule SymphonyElixir.AgentList.App do
   defp parse_int(_value, default), do: default
 
   defp default_command_template do
-    case :code.priv_dir(:symphony_elixir) do
-      dir when is_list(dir) ->
-        Path.join([Path.dirname(to_string(dir)), "..", "..", "bin", "symphony"]) <> " conversation"
+    bin = System.get_env("SYMPHONY_BIN") || "./bin/symphony"
+    mise = System.get_env("SYMPHONY_MISE_BIN")
 
-      _ ->
-        "bin/symphony conversation"
+    if is_binary(mise) and mise != "" do
+      ~s(#{mise} exec -- #{bin} conversation)
+    else
+      "#{bin} conversation"
     end
   end
 end

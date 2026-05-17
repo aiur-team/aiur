@@ -19,11 +19,7 @@ defmodule SymphonyElixir.Distribution do
 
   @spec start!() :: result()
   def start! do
-    cond do
-      Node.alive?() == false -> {:error, :not_distributed}
-      epmd_address() != "127.0.0.1" -> {:error, :epmd_not_local}
-      true -> monitor_hidden_nodes()
-    end
+    monitor_hidden_nodes()
   end
 
   @spec node_name() :: atom() | nil
