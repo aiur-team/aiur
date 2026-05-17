@@ -81,14 +81,15 @@ defmodule SymphonyElixir.Tmux do
   end
 
   def handle_call({:spawn_pane, identifier, command_to_run}, _from, state) do
-    target = "#{state.session}:"
-    _ = run_args(state, ["select-pane", "-t", "#{target}.0"])
+    target = "#{state.session}:.{right}"
 
     args = ["split-window", "-t", target, "-h", "-P", "-F", "\#{pane_id}", command_to_run]
 
     case run_args(state, args) do
       {:ok, [pane_id | _]} ->
-        {:reply, {:ok, String.trim(pane_id)}, state}
+        new_id = String.trim(pane_id)
+        _ = run_args(state, ["select-pane", "-t", new_id])
+        {:reply, {:ok, new_id}, state}
 
       {:ok, []} ->
         {:reply, {:error, :no_pane_id}, state}
