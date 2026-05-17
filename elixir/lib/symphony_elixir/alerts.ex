@@ -78,7 +78,7 @@ defmodule SymphonyElixir.Alerts do
       workspace = Keyword.get(opts, :workspace) || resolve_workspace(Keyword.get(opts, :issue))
       worker_host = Keyword.get(opts, :worker_host)
 
-      Logger.info("[alert] #{name}: #{message}")
+      Logger.info("[alert]#{identifier_suffix(opts)} #{name}: #{message}")
 
       AgentEventLog.write(workspace, worker_host, %{
         event: :alert,
@@ -112,6 +112,13 @@ defmodule SymphonyElixir.Alerts do
       %Issue{identifier: identifier} when is_binary(identifier) -> identifier
       identifier when is_binary(identifier) -> identifier
       _ -> Keyword.get(opts, :identifier)
+    end
+  end
+
+  defp identifier_suffix(opts) do
+    case identifier_for_alert(opts) do
+      identifier when is_binary(identifier) and identifier != "" -> " (##{identifier})"
+      _ -> ""
     end
   end
 

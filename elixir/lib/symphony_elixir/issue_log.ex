@@ -118,20 +118,21 @@ defmodule SymphonyElixir.IssueLog do
   def handle_info({:transcript_event, %{role: _role, body: _body} = event}, state) do
     write_line(state.file, format_transcript(event[:role], event[:body], event))
 
-    # Also surface the human-readable line in the system-wide
-    # `symphony.log` so an operator tailing the main log sees the same
-    # chat stream that's rendered in the pane (without having to grep
-    # past `Logger.debug` broadcast noise that --debug emits).
-    Logger.info("[pane] #{state.identifier}: #{event[:role]}: #{summarize(event[:body])}")
+    # Also surface the line in the system-wide `symphony.log` using the
+    # same `[tag]` shape the pane shows. `Logger.debug` entries
+    # (broadcast traces, codex notifications) only appear when
+    # `--debug` is on; everything else in symphony.log is one of these
+    # human-readable rows, mirroring what the operator sees in the pane.
+    Logger.info(format_log_line(event[:role], event[:body], state.identifier))
 
     {:noreply, push_history(state, {:transcript_event, event})}
   end
 
   def handle_info({:alert, %{name: _name, message: _message} = event}, state) do
     write_line(state.file, format_alert(event[:name], event[:message], event))
-
-    Logger.info("[pane] #{state.identifier}: alert #{event[:name]}: #{summarize(event[:message])}")
-
+    # No Logger.info here — `Alerts.emit_system/2` already logs each
+    # alert with `[alert] (#identifier) name: message`, so mirroring it
+    # would double every alert row in symphony.log.
     {:noreply, push_history(state, {:alert, event})}
   end
 
@@ -169,13 +170,24 @@ defmodule SymphonyElixir.IssueLog do
   defp format_transcript(role, body, event) do
     ts = timestamp(event)
     body_text = body |> to_string() |> String.replace("\r\n", "\n")
-    "#{ts} #{role}: #{body_text}\n"
+    "#{ts} [#{tag_for_role(role)}] #{body_text}\n"
   end
 
   defp format_alert(name, message, event) do
     ts = timestamp(event)
-    "#{ts} alert #{name}: #{message}\n"
+    "#{ts} [alert] #{name}: #{message}\n"
   end
+
+  defp format_log_line(role, body, identifier) do
+    "[#{tag_for_role(role)}] (##{identifier}) #{summarize(body)}"
+  end
+
+  defp tag_for_role(:assistant), do: "agent"
+  defp tag_for_role(:user), do: "user"
+  defp tag_for_role(:system), do: "system"
+  defp tag_for_role(:command), do: "cmd"
+  defp tag_for_role(:alert), do: "alert"
+  defp tag_for_role(other), do: to_string(other)
 
   defp summarize(nil), do: ""
 

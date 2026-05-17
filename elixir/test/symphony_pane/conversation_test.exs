@@ -94,8 +94,8 @@ defmodule SymphonyPane.ConversationTest do
     send(pid, {:alert, AgentEvents.alert_event("demo.heads_up", "look")})
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "[system]"
-    assert visible(frame) =~ "[alert] look"
+    assert visible(frame) =~ "[alert]"
+    assert visible(frame) =~ "demo.heads_up: look"
 
     state = :sys.get_state(pid)
     assert length(state.transcript) == 1
