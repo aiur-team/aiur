@@ -102,6 +102,9 @@ defmodule SymphonyElixir.AgentList.App do
     case Enum.at(state.summaries, state.selection_index) do
       %{identifier: identifier} ->
         command = "#{state.command_template} #{identifier}"
+        # Routes through the agent-native facade so external consumers
+        # (MCP bridge, automation agents) drive conversations the same
+        # way the CLI does.
         _ = PaneManager.open_conversation(state.pane_manager, identifier, command)
 
       _ ->

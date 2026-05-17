@@ -1,21 +1,34 @@
 defmodule SymphonyElixir.Conversations do
   @moduledoc """
-  Agent-native primitive for attaching to an agent's event stream.
+  Agent-native facade for opening and closing conversation surfaces.
 
-  `attach/1` subscribes the caller to the per-agent topic and returns a handle
-  that can later be passed to `detach/1`. UI surfaces (the tmux pane subcommand)
-  compose this primitive with `SymphonyElixir.Tmux.spawn_pane_for/1`; future
-  external consumers (MCP bridge, in-process automation agents) can call
-  `attach/1` directly without going through tmux.
+  The CLI's `AgentList.App` calls `open/2` on Enter so that any future
+  external consumer (MCP bridge, in-process automation agent) drives
+  conversations through the same chokepoint:
 
-  Scaffold: API shape is settled; the implementation lands together with the
-  conversation pane in a follow-up session.
+  * `open/2`   — subscribe to the agent's event stream AND open a tmux
+                 conversation pane in one step.
+  * `close/1`  — kill the tmux pane AND unsubscribe.
+  * `attach/1` — subscribe only (no pane). Useful for consumers that
+                 want events without a TTY surface.
+  * `detach/1` — unsubscribe only.
+
+  This symmetric pair fixes the older `attach` / `detach`-only API,
+  which leaked tmux panes if the consumer relied on `detach` for full
+  cleanup.
   """
 
-  alias SymphonyElixir.{AgentEvents, AgentPubSub}
+  alias SymphonyElixir.{AgentEvents, AgentPubSub, PaneManager}
 
-  @type subscription_ref :: %{identifier: AgentEvents.agent_identifier(), pid: pid()}
+  @type subscription_ref :: %{
+          required(:identifier) => AgentEvents.agent_identifier(),
+          required(:pid) => pid(),
+          optional(:pane_id) => String.t()
+        }
 
+  @doc """
+  Subscribe the calling process to the agent's PubSub topic.
+  """
   @spec attach(AgentEvents.agent_identifier()) :: {:ok, subscription_ref()} | {:error, term()}
   def attach(identifier) when is_binary(identifier) do
     case AgentPubSub.subscribe_agent(identifier) do
@@ -24,8 +37,62 @@ defmodule SymphonyElixir.Conversations do
     end
   end
 
+  @doc """
+  Unsubscribe the caller from the agent's PubSub topic. Use `close/1`
+  instead when the consumer also owns a tmux pane.
+  """
   @spec detach(subscription_ref()) :: :ok
   def detach(%{identifier: identifier}) when is_binary(identifier) do
     Phoenix.PubSub.unsubscribe(SymphonyElixir.PubSub, AgentEvents.agent_topic(identifier))
+  end
+
+  @doc """
+  Subscribe and open a tmux conversation pane in one call. Returns a
+  subscription ref carrying the spawned `:pane_id` so callers can
+  later pass it to `close/1`.
+  """
+  @spec open(AgentEvents.agent_identifier(), keyword()) ::
+          {:ok, subscription_ref()} | {:error, term()}
+  def open(identifier, opts \\ []) when is_binary(identifier) do
+    pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
+    command = Keyword.get(opts, :command, default_command(identifier))
+
+    with {:ok, ref} <- attach(identifier),
+         {:ok, pane_id} <- PaneManager.open_conversation(pane_manager, identifier, command) do
+      {:ok, Map.put(ref, :pane_id, pane_id)}
+    end
+  end
+
+  @doc """
+  Close the tmux pane (if any) AND unsubscribe. Accepts either the
+  `subscription_ref` returned by `open/2` or a bare identifier (in
+  which case the unsubscribe is best-effort for the caller's pid).
+  """
+  @spec close(subscription_ref() | AgentEvents.agent_identifier()) :: :ok
+  def close(ref_or_identifier), do: close(ref_or_identifier, [])
+
+  @spec close(subscription_ref() | AgentEvents.agent_identifier(), keyword()) :: :ok
+  def close(%{identifier: identifier} = ref, opts) when is_binary(identifier) do
+    pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
+    _ = PaneManager.close_conversation(pane_manager, identifier)
+    detach(ref)
+  end
+
+  def close(identifier, opts) when is_binary(identifier) do
+    close(%{identifier: identifier, pid: self()}, opts)
+  end
+
+  defp default_command(identifier) do
+    bin = System.get_env("SYMPHONY_BIN") || "./bin/symphony"
+    mise = System.get_env("SYMPHONY_MISE_BIN")
+
+    base =
+      if is_binary(mise) and mise != "" do
+        "#{mise} exec -- #{bin} conversation #{identifier}"
+      else
+        "#{bin} conversation #{identifier}"
+      end
+
+    base
   end
 end
