@@ -30,6 +30,12 @@ defmodule SymphonyPane.Conversation do
     GenServer.start_link(__MODULE__, {identifier, opts}, name: Keyword.get(opts, :name, __MODULE__))
   end
 
+  # Geometry-watch tick interval. Re-renders the pane when the
+  # terminal dimensions change (tmux resizes our pane after a new pane
+  # is added to the window). Cheap operation; idempotent when no
+  # change is detected.
+  @geometry_tick_ms 250
+
   @impl true
   def init({identifier, opts}) do
     Process.flag(:trap_exit, true)
@@ -65,6 +71,8 @@ defmodule SymphonyPane.Conversation do
       reader_pid: nil
     }
 
+    schedule_geometry_tick()
+
     case enter_raw_mode(skip_raw_mode?) do
       :ok ->
         parent = self()
@@ -77,6 +85,10 @@ defmodule SymphonyPane.Conversation do
         render(state)
         {:ok, state}
     end
+  end
+
+  defp schedule_geometry_tick do
+    Process.send_after(self(), :geometry_tick, @geometry_tick_ms)
   end
 
   @impl true
@@ -150,6 +162,25 @@ defmodule SymphonyPane.Conversation do
     new_state = %{state | transcript: state.transcript ++ [alert_line]}
     render(new_state)
     {:noreply, new_state}
+  end
+
+  def handle_info(:geometry_tick, state) do
+    # tmux resizes the pane when another pane is added or removed from
+    # the window; the existing rendered frame is sized for the old
+    # geometry until something forces a re-render. Poll the current
+    # geometry on a short interval and re-render when it changes so
+    # the layout reflows immediately, without waiting for the user to
+    # type a key.
+    {cols, rows} = terminal_geometry()
+    schedule_geometry_tick()
+
+    if cols == state.columns and rows == state.rows do
+      {:noreply, state}
+    else
+      new_state = %{state | columns: cols, rows: rows}
+      render(new_state)
+      {:noreply, new_state}
+    end
   end
 
   def handle_info({:nodedown, _node}, state) do

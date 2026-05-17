@@ -26,6 +26,11 @@ defmodule SymphonyElixir.AgentList.App do
   alias SymphonyElixir.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
 
   @refresh_tick_ms 1_000
+  # Geometry-watch interval. Far faster than the refresh tick so that
+  # tmux resizes (caused by another pane opening/closing in the same
+  # window) reflow the agent list within a quarter-second — the old
+  # 1-second cadence left visibly stale layout until the next refresh.
+  @geometry_tick_ms 250
 
   @type state :: %{
           summaries: [map()],
@@ -82,12 +87,17 @@ defmodule SymphonyElixir.AgentList.App do
     }
 
     schedule_refresh_tick()
+    schedule_geometry_tick()
     render(state)
     {:ok, state}
   end
 
   defp schedule_refresh_tick do
     Process.send_after(self(), :refresh_tick, @refresh_tick_ms)
+  end
+
+  defp schedule_geometry_tick do
+    Process.send_after(self(), :geometry_tick, @geometry_tick_ms)
   end
 
   @impl true
@@ -141,6 +151,22 @@ defmodule SymphonyElixir.AgentList.App do
     render(state)
     schedule_refresh_tick()
     {:noreply, state}
+  end
+
+  def handle_info(:geometry_tick, state) do
+    # Re-render whenever the terminal geometry changes so a tmux pane
+    # resize (caused by another pane being added/closed) reflows
+    # immediately. No-op when nothing changed to avoid wasted writes.
+    {cols, rows} = terminal_geometry()
+    schedule_geometry_tick()
+
+    if cols == state.columns and rows == state.rows do
+      {:noreply, state}
+    else
+      new_state = %{state | columns: cols, rows: rows}
+      render(new_state)
+      {:noreply, new_state}
+    end
   end
 
   def handle_info(_other, state), do: {:noreply, state}
