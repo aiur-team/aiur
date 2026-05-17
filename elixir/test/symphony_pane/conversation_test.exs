@@ -69,7 +69,7 @@ defmodule SymphonyPane.ConversationTest do
     send(pid, {:transcript_event, event})
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "[agent]"
+    assert visible(frame) =~ " agent "
     assert visible(frame) =~ "hello there"
 
     state = :sys.get_state(pid)
@@ -94,7 +94,7 @@ defmodule SymphonyPane.ConversationTest do
     send(pid, {:alert, AgentEvents.alert_event("demo.heads_up", "look")})
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "[alert]"
+    assert visible(frame) =~ " alert "
     assert visible(frame) =~ "demo.heads_up: look"
 
     state = :sys.get_state(pid)
@@ -111,7 +111,7 @@ defmodule SymphonyPane.ConversationTest do
     )
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "[agent]"
+    assert visible(frame) =~ " agent "
     assert visible(frame) =~ "hello via pubsub"
 
     state = :sys.get_state(pid)
@@ -138,7 +138,7 @@ defmodule SymphonyPane.ConversationTest do
     AgentPubSub.broadcast_transcript(identifier, AgentEvents.transcript_event(:user, "hi"))
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "[user]"
+    assert visible(frame) =~ " user "
     assert visible(frame) =~ "hi"
   end
 
