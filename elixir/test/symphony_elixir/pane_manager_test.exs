@@ -23,20 +23,14 @@ defmodule SymphonyElixir.PaneManagerTest do
     %{server: pid, tmux: tmux_name, pm: pm_name}
   end
 
-  # Drain the select-pane preamble that spawn_pane_for issues before the
-  # real split-window. The mock test pid receives both commands in order.
-  defp drain_select_pane(tmux) do
-    receive do
-      {:tmux_mock_out, "select-pane " <> _} ->
-        send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 0 0\n%end 1 0 0\n"})
-    after
-      1_000 -> flunk("expected select-pane preamble")
-    end
-  end
-
   defp respond_split(tmux, pane_id) do
     receive do
-      {:tmux_mock_out, "split-window " <> _} ->
+      {:tmux_mock_out, "split-window " <> _ = cmd} ->
+        # The split target should anchor to the rightmost pane so each new
+        # conversation opens to the right of the existing rightmost pane.
+        assert cmd =~ ~r/-t test:\.\{right\}/,
+               "expected split-window to target rightmost pane, got #{inspect(cmd)}"
+
         send(
           GenServer.whereis(tmux),
           {:tmux_mock_data, "%begin 1 1 0\n#{pane_id}\n%end 1 1 0\n"}
@@ -46,13 +40,24 @@ defmodule SymphonyElixir.PaneManagerTest do
     end
   end
 
-  test "open_conversation records the mapping and broadcasts a status change", %{tmux: tmux, pm: pm} do
+  defp drain_focus(tmux, pane_id) do
+    receive do
+      {:tmux_mock_out, "select-pane -t " <> rest} ->
+        assert String.trim(rest) == pane_id
+
+        send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 2 0\n%end 1 2 0\n"})
+    after
+      1_000 -> flunk("expected select-pane focus on #{pane_id}")
+    end
+  end
+
+  test "open_conversation splits right, focuses the new pane, and broadcasts a status change", %{tmux: tmux, pm: pm} do
     :ok = AgentPubSub.subscribe_status()
 
     task = Task.async(fn -> PaneManager.open_conversation(pm, "MT-PM-1", "echo hi") end)
 
-    drain_select_pane(tmux)
     respond_split(tmux, "%99")
+    drain_focus(tmux, "%99")
 
     assert {:ok, "%99"} = Task.await(task, 1_000)
     assert_receive {:status_changed, %{identifier: "MT-PM-1", status: :pane_opened}}, 1_000
@@ -61,8 +66,8 @@ defmodule SymphonyElixir.PaneManagerTest do
 
   test "close_conversation issues a kill-pane and forgets the mapping", %{tmux: tmux, pm: pm} do
     task = Task.async(fn -> PaneManager.open_conversation(pm, "MT-PM-3", "echo hi") end)
-    drain_select_pane(tmux)
     respond_split(tmux, "%55")
+    drain_focus(tmux, "%55")
     assert {:ok, "%55"} = Task.await(task, 1_000)
 
     close_task = Task.async(fn -> PaneManager.close_conversation(pm, "MT-PM-3") end)
@@ -75,8 +80,8 @@ defmodule SymphonyElixir.PaneManagerTest do
 
   test "opening the same identifier twice returns the existing pane", %{tmux: tmux, pm: pm} do
     task = Task.async(fn -> PaneManager.open_conversation(pm, "MT-PM-4", "echo hi") end)
-    drain_select_pane(tmux)
     respond_split(tmux, "%77")
+    drain_focus(tmux, "%77")
     assert {:ok, "%77"} = Task.await(task, 1_000)
 
     assert {:ok, "%77"} = PaneManager.open_conversation(pm, "MT-PM-4", "echo hi")
