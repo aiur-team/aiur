@@ -32,7 +32,6 @@ defmodule SymphonyElixir.AgentList.App do
           selection_index: non_neg_integer(),
           columns: pos_integer(),
           rows: pos_integer(),
-          alert_counts: %{optional(String.t()) => non_neg_integer()},
           write_fun: (iodata() -> any()),
           pane_manager: GenServer.name(),
           command_template: String.t()
@@ -77,7 +76,6 @@ defmodule SymphonyElixir.AgentList.App do
       selection_index: 0,
       columns: cols,
       rows: rows,
-      alert_counts: %{},
       write_fun: write_fun,
       pane_manager: pane_manager,
       command_template: command_template
@@ -130,15 +128,7 @@ defmodule SymphonyElixir.AgentList.App do
 
   @impl true
   def handle_info({:running_changed, summaries}, state) do
-    enriched = Enum.map(summaries, &apply_alert_count(&1, state.alert_counts))
-    new_state = clamp_selection(%{state | summaries: enriched})
-    render(new_state)
-    {:noreply, new_state}
-  end
-
-  def handle_info({:status_changed, %{identifier: id, status: :pane_opened}}, state) do
-    new_state = update_in(state, [:alert_counts], &Map.put(&1, id, 0))
-    new_state = %{new_state | summaries: Enum.map(new_state.summaries, &apply_alert_count(&1, new_state.alert_counts))}
+    new_state = clamp_selection(%{state | summaries: summaries})
     render(new_state)
     {:noreply, new_state}
   end
@@ -171,10 +161,6 @@ defmodule SymphonyElixir.AgentList.App do
       state.selection_index >= count -> %{state | selection_index: count - 1}
       true -> state
     end
-  end
-
-  defp apply_alert_count(%{identifier: id} = summary, counts) do
-    Map.put(summary, :alert_count, Map.get(counts, id, summary[:alert_count] || 0))
   end
 
   defp render(state) do

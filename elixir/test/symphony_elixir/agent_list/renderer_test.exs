@@ -84,7 +84,9 @@ defmodule SymphonyElixir.AgentList.RendererTest do
       render(base_state(%{summaries: [%{identifier: "MT-1", status: :running, alert_count: 0}]}))
       |> visible()
 
-    assert out =~ ~r/ID\s+STATUS\s+ALERTS/
+    # ID and AGE are labelled; TAG and STATE columns use emoji-only
+    # cells and therefore have no header text.
+    assert out =~ ~r/ID\s+TITLE\s+AGE/
   end
 
   test "shows '(no agents running)' when the list is empty" do
@@ -104,19 +106,67 @@ defmodule SymphonyElixir.AgentList.RendererTest do
     assert out =~ "▶ MT-2"
   end
 
-  test "shows alert count when greater than zero" do
-    summaries = [%{identifier: "MT-3", status: :running, alert_count: 5}]
+  test "renders state with a colored circle emoji" do
+    summaries = [
+      %{
+        identifier: "MT-9",
+        status: :running,
+        alert_count: 0,
+        work_state: :paused
+      }
+    ]
+
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    assert out =~ "MT-3"
-    assert out =~ "5"
+    # Paused agent state surfaces as a yellow circle (🟡 in the state
+    # column). Working agents would render as 🟢.
+    assert out =~ "🟡"
   end
 
-  test "renders status with column padding" do
-    summaries = [%{identifier: "MT-9", status: :paused, alert_count: 0}]
+  test "renders tag with an emoji glyph" do
+    summaries = [
+      %{
+        identifier: "MT-7",
+        status: :running,
+        alert_count: 0,
+        tag: "agent:doing"
+      }
+    ]
+
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    assert out =~ "paused"
+    # The agent:doing label gets the hammer emoji in the tag column.
+    assert out =~ "🔨"
+  end
+
+  test "renders an age column from runtime_seconds and turn_count" do
+    summaries = [
+      %{
+        identifier: "MT-A",
+        status: :running,
+        alert_count: 0,
+        runtime_seconds: 125,
+        turn_count: 3
+      }
+    ]
+
+    out = render(base_state(%{summaries: summaries})) |> visible()
+
+    assert out =~ "2m/3t"
+  end
+
+  test "title column flexes to fill the remaining width" do
+    summaries = [
+      %{
+        identifier: "MT-A",
+        status: :running,
+        alert_count: 0,
+        title: "A short title"
+      }
+    ]
+
+    out = render(base_state(%{summaries: summaries, columns: 80})) |> visible()
+    assert out =~ "A short title"
   end
 
   test "skips the screen clear escape so frames do not flash" do
