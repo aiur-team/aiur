@@ -26,8 +26,20 @@ defmodule SymphonyElixir.PaneRPC do
           {:ok, term()} | {:error, term()}
   def send_operator_message(identifier, body)
       when is_binary(identifier) and is_binary(body) do
+    # Pane submits use `:checkpoint` delivery — the message lands at
+    # the next safe codex boundary (notification or tool result)
+    # instead of cancelling the in-flight tool. Long-running tools
+    # like `sleep 300` are no longer killed by a typed message; they
+    # complete first, then the operator message is delivered.
+    #
+    # `:queue_next` fallback means a non-interrupt-capable agent still
+    # queues the message instead of erroring. Other consumers of
+    # `AgentChat.send` (web UI, automation) keep their own defaults.
     with {:ok, sanitized} <- validate_body(body) do
-      AgentChat.send(identifier, sanitized)
+      AgentChat.send(identifier, sanitized,
+        delivery_policy: :checkpoint,
+        fallback: :queue_next
+      )
     end
   end
 
