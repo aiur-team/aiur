@@ -29,9 +29,6 @@ defmodule SymphonyElixir.AgentList.Renderer do
   @ansi_bold IO.ANSI.bright()
   @ansi_dim IO.ANSI.faint()
   @ansi_cyan IO.ANSI.cyan()
-  @ansi_green IO.ANSI.green()
-  @ansi_yellow IO.ANSI.yellow()
-  @ansi_red IO.ANSI.red()
   @ansi_gray IO.ANSI.light_black()
 
   @type state :: %{
@@ -167,11 +164,11 @@ defmodule SymphonyElixir.AgentList.Renderer do
       "│   ",
       cell("ID", layout.id_width),
       "  ",
+      cell("AGE", layout.age_width),
+      "  ",
       cell("", @tag_cell_width),
       cell("", @state_cell_width),
-      cell("TITLE", layout.title_width),
-      "  ",
-      cell("AGE", layout.age_width)
+      cell("TITLE", layout.title_width)
     ]
 
     pad_with_ansi(@ansi_gray, IO.iodata_to_binary(body), inner_width)
@@ -179,8 +176,8 @@ defmodule SymphonyElixir.AgentList.Renderer do
 
   defp table_separator_row(inner_width, layout) do
     width =
-      layout.id_width + 2 + @tag_cell_width + @state_cell_width +
-        layout.title_width + 2 + layout.age_width
+      layout.id_width + 2 + layout.age_width + 2 + @tag_cell_width +
+        @state_cell_width + layout.title_width
 
     body = "│   " <> String.duplicate("─", max(min(width, inner_width - 4), 0))
     pad_with_ansi(@ansi_gray, body, inner_width)
@@ -210,13 +207,14 @@ defmodule SymphonyElixir.AgentList.Renderer do
     age = age_string(summary)
 
     id_cell = cell(id_str, layout.id_width)
+    age_cell = cell(age, layout.age_width)
     tag_cell = emoji_cell(tag_emoji(tag), @tag_cell_width)
     state_cell = emoji_cell(state_emoji(work_state), @state_cell_width)
     title_cell = cell(title, layout.title_width)
-    age_cell = cell(age, layout.age_width)
 
-    state_color_seq = state_color(work_state)
-
+    # Order: marker, ID, AGE, tag-circle, state-circle, TITLE.
+    # The two emoji columns sit between AGE and TITLE so the row
+    # reads "MT-25  1h/2t  🔵 🟡  Demo issue".
     body = [
       "│ ",
       marker,
@@ -224,57 +222,60 @@ defmodule SymphonyElixir.AgentList.Renderer do
       id_cell,
       @ansi_reset,
       "  ",
-      tag_cell,
-      state_color_seq,
-      state_cell,
-      @ansi_reset,
-      title_cell,
-      "  ",
       @ansi_dim,
       age_cell,
-      @ansi_reset
+      @ansi_reset,
+      "  ",
+      tag_cell,
+      state_cell,
+      title_cell
     ]
 
     plain_visual =
-      4 + 2 + layout.id_width + 2 + @tag_cell_width + @state_cell_width +
-        layout.title_width + 2 + layout.age_width
+      4 + 2 + layout.id_width + 2 + layout.age_width + 2 +
+        @tag_cell_width + @state_cell_width + layout.title_width
 
     pad = String.duplicate(" ", max(inner_width - plain_visual, 0))
     [body, pad]
   end
 
-  defp state_color(:paused), do: @ansi_yellow
-  defp state_color("paused"), do: @ansi_yellow
-  defp state_color(:error), do: @ansi_red
-  defp state_color(_), do: @ansi_green
-
-  # Emoji choices. Earlier "agent:doing" → 🔨 etc — picked so the column
-  # reads as a glance, not a label. Unknown / nil tags get a small dot
-  # so the column stays the same width as populated rows.
-  defp tag_emoji(nil), do: "·"
-  defp tag_emoji(""), do: "·"
+  # Tag emojis: colored circles communicate workflow state at a glance.
+  # Same palette as the work-state column (which uses 🟢/🟡), so the eye
+  # learns the colors instead of memorising distinct glyphs.
+  #
+  #   ⚪ todo            — pending, not yet picked up
+  #   🔵 doing           — actively working
+  #   🟢 done            — complete
+  #   🔴 error           — failed / errored
+  #   🟣 human-review    — awaiting human attention
+  #   🟠 blocked         — externally blocked
+  #   ⚫ unknown / nil   — uncategorised
+  defp tag_emoji(nil), do: "⚫"
+  defp tag_emoji(""), do: "⚫"
 
   defp tag_emoji(tag) when is_binary(tag) do
     case String.replace_prefix(tag, "agent:", "") do
-      "todo" -> "⏳"
-      "doing" -> "🔨"
-      "done" -> "✅"
-      "error" -> "❗"
-      "human-review" -> "👀"
-      "blocked" -> "🚫"
-      "review" -> "👀"
-      _ -> "·"
+      "todo" -> "⚪"
+      "doing" -> "🔵"
+      "done" -> "🟢"
+      "error" -> "🔴"
+      "human-review" -> "🟣"
+      "review" -> "🟣"
+      "blocked" -> "🟠"
+      _ -> "⚫"
     end
   end
 
-  defp tag_emoji(_), do: "·"
+  defp tag_emoji(_), do: "⚫"
 
+  # Work-state circles: a smaller palette that overlays cleanly on the
+  # tag column for one-glance scanning.
   defp state_emoji(:working), do: "🟢"
   defp state_emoji("working"), do: "🟢"
   defp state_emoji(:paused), do: "🟡"
   defp state_emoji("paused"), do: "🟡"
   defp state_emoji(:error), do: "🔴"
-  defp state_emoji(_), do: "⚪"
+  defp state_emoji(_), do: "⚫"
 
   defp emoji_cell(glyph, width) do
     # `glyph` is a single grapheme that renders as 2 terminal columns.
@@ -317,8 +318,9 @@ defmodule SymphonyElixir.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_id_width)
 
-    # `│ ` (2) + marker (2) + id + `  ` (2) + tag + state + title + `  ` (2) + age
-    fixed_non_id_overhead = 2 + 2 + 2 + @tag_cell_width + @state_cell_width + 2 + age_width
+    # `│ ` (2) + marker (2) + id + `  ` (2) + age + `  ` (2) + tag +
+    # state + title
+    fixed_non_id_overhead = 2 + 2 + 2 + age_width + 2 + @tag_cell_width + @state_cell_width
 
     # Cap id so the row never bleeds past `inner_width` — title still
     # gets at least @min_title_width regardless of identifier length.
