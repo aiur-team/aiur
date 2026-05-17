@@ -131,7 +131,8 @@ defmodule SymphonyElixir.Tmux do
   end
 
   defp run_args(%{transport: :shell}, args) do
-    Logger.debug("Tmux exec: tmux #{Enum.join(args, " ")}")
+    full_args = prepend_socket(args)
+    Logger.debug("Tmux exec: tmux #{Enum.join(full_args, " ")}")
 
     case System.find_executable("tmux") do
       nil ->
@@ -139,7 +140,7 @@ defmodule SymphonyElixir.Tmux do
         {:error, :no_tmux_executable}
 
       tmux ->
-        case System.cmd(tmux, args, stderr_to_stdout: true) do
+        case System.cmd(tmux, full_args, stderr_to_stdout: true) do
           {output, 0} ->
             result = output |> String.trim_trailing("\n") |> String.split("\n", trim: true)
             Logger.debug("Tmux exec ok: #{inspect(result)}")
@@ -147,9 +148,20 @@ defmodule SymphonyElixir.Tmux do
 
           {output, status} ->
             trimmed = String.trim(output)
-            Logger.warning("Tmux exec exit=#{status} args=#{inspect(args)} output=#{inspect(trimmed)}")
+
+            Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
+
             {:error, trimmed}
         end
+    end
+  end
+
+  # Read SYMPHONY_TMUX_SOCKET each invocation so the Tmux GenServer (started
+  # before the wrapper exports the var, in some test paths) still picks it up.
+  defp prepend_socket(args) do
+    case System.get_env("SYMPHONY_TMUX_SOCKET") do
+      socket when is_binary(socket) and socket != "" -> ["-L", socket | args]
+      _ -> args
     end
   end
 

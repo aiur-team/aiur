@@ -355,7 +355,20 @@ defmodule ScriptsAgentsTest do
     #!/usr/bin/env bash
     printf 'TMUX:%s\\n' "$*" >>"$AGENTS_TEST_COMMAND_LOG"
 
-    case "$1" in
+    # Skip past the isolated-socket/conf prefix so the case below still
+    # matches the actual subcommand.
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -L|-f)
+          shift 2
+          ;;
+        *)
+          break
+          ;;
+      esac
+    done
+
+    case "${1:-}" in
       -V)
         printf 'tmux 3.5a\\n'
         ;;

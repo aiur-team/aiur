@@ -40,6 +40,15 @@ if [ "$debug_mode" -eq 1 ]; then
   export SYMPHONY_DEBUG=1
 fi
 
+# Refuse to run inside an existing tmux session — Symphony spawns its own
+# isolated tmux on a dedicated socket and does not nest cleanly. Detected
+# via the `$TMUX` env var, which is set inside every shell tmux owns.
+if [ -n "${TMUX:-}" ]; then
+  echo "agents: already inside a tmux session (\$TMUX is set)" >&2
+  echo "Open a fresh terminal without tmux and try again." >&2
+  exit 1
+fi
+
 if [ "${#filtered_args[@]}" -gt 0 ]; then
   set -- "${filtered_args[@]}"
 else
@@ -611,23 +620,57 @@ symphony_tmux_session_name() {
   printf 'symphony-%s-%s' "${USER:-user}" "$profile"
 }
 
+symphony_tmux_socket_name() {
+  printf 'symphony-%s' "${USER:-user}"
+}
+
+resolve_symphony_tmux_conf() {
+  local override="${SYMPHONY_TMUX_CONF:-}"
+  if [ -n "$override" ] && [ -f "$override" ]; then
+    printf '%s\n' "$override"
+    return
+  fi
+
+  local user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/symphony/tmux.conf"
+  if [ -f "$user_conf" ]; then
+    printf '%s\n' "$user_conf"
+    return
+  fi
+
+  printf '%s\n' "$script_dir/symphony.tmux.conf"
+}
+
 run_in_tmux() {
   local profile="$1"
   local elixir_dir="$2"
   shift 2
 
-  local session
+  local session socket conf
   session="$(symphony_tmux_session_name "$profile")"
+  socket="$(symphony_tmux_socket_name)"
+  conf="$(resolve_symphony_tmux_conf)"
 
-  # Persist session name so the conversation pane subcommand and other tools
-  # can find it.
+  if [ ! -f "$conf" ]; then
+    die "tmux conf not found at $conf"
+  fi
+
+  # Persist session/socket/conf so the conversation pane subcommand and the
+  # Elixir Tmux client can target the same isolated server.
   printf '%s\n' "$session" >"$HOME/.config/symphony/state"
   export SYMPHONY_TMUX_SESSION="$session"
+  export SYMPHONY_TMUX_SOCKET="$socket"
+  export SYMPHONY_TMUX_CONF="$conf"
   export SYMPHONY_BIN="$elixir_dir/bin/symphony"
   export SYMPHONY_MISE_BIN="$mise_bin"
 
-  if "$tmux_bin" has-session -t "$session" 2>/dev/null; then
-    "$tmux_bin" kill-session -t "$session" 2>/dev/null || true
+  if [ "$debug_mode" -eq 1 ]; then
+    echo "agents: debug logging enabled" >&2
+    echo "agents: tail logs with -> tail -F $elixir_dir/log/symphony.log" >&2
+    echo "agents: tmux socket=$socket conf=$conf" >&2
+  fi
+
+  if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
   fi
 
   # Build the inner command as a single string for tmux to exec inside its
@@ -640,11 +683,11 @@ run_in_tmux() {
     printf -v inner_cmd '%s %q' "$inner_cmd" "$arg"
   done
 
-  "$tmux_bin" new-session -d -s "$session" -x "${COLUMNS:-200}" -y "${LINES:-50}" \
-    "$inner_cmd"
+  "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
+    -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"
 
   # In the foreground, the user attaches to the session normally.
-  exec "$tmux_bin" attach -t "$session"
+  exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
 }
 
 run_ad_hoc_workflow() {
