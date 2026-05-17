@@ -39,7 +39,7 @@ defmodule SymphonyPane.Viewport do
   # the colour map here just decorates each name with a background.
   #
   #   [agent] green bg   — words from the agent
-  #   [usr]   cyan bg    — operator's typed message, right-aligned
+  #   [user]  cyan bg    — operator's typed message, right-aligned
   #   [sys]   yellow bg  — external context (intro, errors, status)
   #   [cmd]   magenta bg — commands the agent runs
   #   [alert] red bg     — operator-facing notifications
