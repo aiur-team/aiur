@@ -43,6 +43,8 @@ defmodule SymphonyElixir.Application do
     children =
       [
         {Phoenix.PubSub, name: SymphonyElixir.PubSub},
+        {Registry, keys: :unique, name: SymphonyElixir.IssueLog.Registry},
+        {DynamicSupervisor, strategy: :one_for_one, name: SymphonyElixir.IssueLog.Supervisor},
         {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
         SymphonyElixir.WorkflowStore,
         SymphonyElixir.Orchestrator,
