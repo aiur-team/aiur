@@ -21,6 +21,7 @@ agents_os="${AGENTS_OS_OVERRIDE:-$(uname -s)}"
 # `--host 127.0.0.1` so a default `agents` run binds locally only.
 expose_host=0
 debug_mode=0
+logs_mode=0
 filtered_args=()
 for arg in "$@"; do
   case "$arg" in
@@ -29,6 +30,9 @@ for arg in "$@"; do
       ;;
     --debug)
       debug_mode=1
+      ;;
+    --logs)
+      logs_mode=1
       ;;
     *)
       filtered_args+=("$arg")
@@ -75,8 +79,10 @@ With stop, stop a profile, every profile, or ad hoc foreground Symphony processe
 
 Options:
   --debug              enable verbose debug logging (sets SYMPHONY_DEBUG=1).
-                       Tail logs in another terminal:
-                         tail -F elixir/log/symphony.log
+                       Tail logs in another terminal: `agents --logs`.
+  --logs [profile]     tail the (default or named) profile's symphony.log
+                       and exit on Ctrl+C. Does not start any agents.
+                       Useful in a separate terminal alongside `agents --debug`.
   --host               leave the workflow's configured host alone (default
                        binds to 127.0.0.1 for loopback-only access).
 
@@ -727,6 +733,33 @@ run_ad_hoc_workflow() {
 }
 
 load_profiles
+
+if [ "$logs_mode" -eq 1 ]; then
+  log_profile="${1:-default}"
+
+  if profile_exists "$log_profile"; then
+    log_elixir_dir="$(profile_elixir_dir "$log_profile")"
+    log_logs_root="$(profile_value logs_root "$log_profile")"
+  else
+    log_elixir_dir="$repo_root/elixir"
+    log_logs_root=""
+  fi
+
+  if [ -n "$log_logs_root" ]; then
+    log_target="$log_logs_root/log/symphony.log"
+  else
+    log_target="$log_elixir_dir/log/symphony.log"
+  fi
+
+  if [ ! -e "$log_target" ]; then
+    parent="$(dirname "$log_target")"
+    mkdir -p "$parent" 2>/dev/null || true
+    : >>"$log_target" 2>/dev/null || true
+  fi
+
+  echo "agents: tailing $log_target (Ctrl+C to stop)" >&2
+  exec tail -F "$log_target"
+fi
 
 case "${1:-}" in
   -h | --help)
