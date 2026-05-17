@@ -1,11 +1,26 @@
 defmodule SymphonyElixir.PaneManager do
   @moduledoc """
-  Owns the mapping from `agent_identifier` to its tmux pane id.
+  Owns the mapping from `agent_identifier` to its tmux pane id and
+  drives the 5-slot conversation-pane cycle around the persistent
+  agent-list pane.
 
-  UI concern only. The data-side primitive for subscribing to an agent's
-  events is `SymphonyElixir.Conversations.attach/1`. This GenServer
-  coordinates the *visual* side: which tmux pane is currently showing a
-  given agent's conversation.
+  Layout (tickets 1-5 each open a fresh slot; tickets 6+ cycle):
+
+      +----------+----------+----------+
+      | agent    | slot 1   | slot 2   |
+      | list     | (top mid)| (top R)  |
+      +----------+----------+----------+
+      | slot 3   | slot 4   | slot 5   |
+      | (bot L)  | (bot mid)| (bot R)  |
+      +----------+----------+----------+
+
+  Each slot has a deterministic split recipe anchored to either the
+  agent-list pane or a previously-created slot pane. When the cycle
+  pointer lands on a slot whose pane is alive, the running command is
+  replaced via `respawn-pane`; when the slot's pane is gone (closed,
+  crashed, or never created), the slot is recreated via the split
+  recipe, falling back to a broader anchor when the primary anchor
+  pane is also missing.
 
   Consumes tmux notifications via `SymphonyElixir.Tmux.subscribe_events/1`
   and treats `%pane-died` (and, when distribution is in play, `:nodedown`)
@@ -20,8 +35,14 @@ defmodule SymphonyElixir.PaneManager do
   @type agent_id :: AgentEvents.agent_agent_id()
   @type pane_id :: String.t()
 
+  @num_slots 5
+
   defstruct identifier_to_pane: %{},
             pane_to_identifier: %{},
+            pane_to_slot: %{},
+            slot_panes: %{1 => nil, 2 => nil, 3 => nil, 4 => nil, 5 => nil},
+            cycle_index: 0,
+            agent_list_pane: nil,
             tmux: nil
 
   # Public API ----------------------------------------------------------------
@@ -53,6 +74,7 @@ defmodule SymphonyElixir.PaneManager do
   @impl true
   def init(opts) do
     tmux = Keyword.get(opts, :tmux, Tmux)
+    agent_list_pane = Keyword.get(opts, :agent_list_pane, System.get_env("TMUX_PANE"))
 
     case Tmux.subscribe_events(tmux) do
       :ok -> :ok
@@ -61,27 +83,22 @@ defmodule SymphonyElixir.PaneManager do
 
     :net_kernel.monitor_nodes(true, node_type: :hidden)
 
-    {:ok, %__MODULE__{tmux: tmux}}
+    {:ok, %__MODULE__{tmux: tmux, agent_list_pane: agent_list_pane}}
   end
 
   @impl true
   def handle_call({:open, identifier, command_to_run}, _from, state) do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, existing_pane} ->
-        # The cache can hold a stale pane id if the user closed the pane via
-        # Ctrl+C (which kills the pane outside of our control). Verify the
-        # pane still exists before short-circuiting; if not, fall through to
-        # a fresh split-window.
+        # Identifier already mapped to a live (cached) pane. Verify
+        # the pane still exists; if it's been killed externally, fall
+        # through to allocating a fresh slot.
         case Tmux.command(state.tmux, "select-pane -t #{existing_pane}") do
           {:ok, _} ->
-            Logger.debug("PaneManager.open identifier=#{identifier} re-focused existing pane=#{existing_pane}")
-
             {:reply, {:ok, existing_pane}, state}
 
           {:error, _reason} ->
-            Logger.debug("PaneManager.open identifier=#{identifier} cached pane=#{existing_pane} is dead; respawning")
-
-            do_open(forget_pane_by_identifier(state, identifier), identifier, command_to_run)
+            do_open(forget_pane_by_identifier(state, existing_pane), identifier, command_to_run)
         end
 
       :error ->
@@ -93,7 +110,7 @@ defmodule SymphonyElixir.PaneManager do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, pane_id} ->
         _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
-        {:reply, :ok, forget_pane_by_identifier(state, identifier)}
+        {:reply, :ok, forget_pane_by_identifier(state, pane_id)}
 
       :error ->
         {:reply, {:error, :not_open}, state}
@@ -101,24 +118,6 @@ defmodule SymphonyElixir.PaneManager do
   end
 
   def handle_call(:list, _from, state), do: {:reply, state.identifier_to_pane, state}
-
-  defp do_open(state, identifier, command_to_run) do
-    wrapped_command = wrap_with_unique_node(command_to_run, identifier)
-
-    Logger.debug("PaneManager.open identifier=#{identifier} command=#{inspect(wrapped_command)}")
-
-    case Tmux.spawn_pane_for(state.tmux, identifier, wrapped_command) do
-      {:ok, pane_id} ->
-        new_state = record_pane(state, identifier, pane_id)
-        AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-        Logger.debug("PaneManager.open identifier=#{identifier} -> pane_id=#{pane_id}")
-        {:reply, {:ok, pane_id}, new_state}
-
-      {:error, reason} ->
-        Logger.warning("PaneManager.open identifier=#{identifier} failed: #{inspect(reason)}")
-        {:reply, {:error, reason}, state}
-    end
-  end
 
   @impl true
   def handle_info({:tmux_event, {:notification, :pane_died, pane_id}}, state) do
@@ -131,7 +130,164 @@ defmodule SymphonyElixir.PaneManager do
   def handle_info({:tmux_event, _event}, state), do: {:noreply, state}
   def handle_info(_other, state), do: {:noreply, state}
 
-  # Internals -----------------------------------------------------------------
+  # Slot allocation ----------------------------------------------------------
+
+  defp do_open(state, identifier, command_to_run) do
+    wrapped = wrap_with_unique_node(command_to_run, identifier)
+    slot = state.cycle_index + 1
+
+    case open_in_slot(state, slot, identifier, wrapped) do
+      {:ok, pane_id, new_state} ->
+        AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+        {:reply, {:ok, pane_id}, advance_cycle(new_state)}
+
+      {:error, reason} ->
+        Logger.warning("PaneManager.open identifier=#{identifier} slot=#{slot} failed: #{inspect(reason)}")
+
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp advance_cycle(%__MODULE__{} = state) do
+    %{state | cycle_index: rem(state.cycle_index + 1, @num_slots)}
+  end
+
+  defp open_in_slot(state, slot, identifier, wrapped) do
+    case Map.get(state.slot_panes, slot) do
+      nil ->
+        create_pane_for_slot(state, slot, identifier, wrapped)
+
+      existing_pane ->
+        replace_in_slot(state, slot, existing_pane, identifier, wrapped)
+    end
+  end
+
+  defp replace_in_slot(state, slot, existing_pane, identifier, wrapped) do
+    case Tmux.respawn_pane(state.tmux, existing_pane, wrapped) do
+      :ok ->
+        new_state =
+          state
+          |> forget_identifier_for_pane(existing_pane)
+          |> record_slot_pane(slot, existing_pane, identifier)
+
+        {:ok, existing_pane, new_state}
+
+      {:error, _} ->
+        # The cached pane id is stale (tmux killed it under us). Forget
+        # the dead pane and create a fresh one in this slot.
+        create_pane_for_slot(forget_dead_slot(state, slot), slot, identifier, wrapped)
+    end
+  end
+
+  defp create_pane_for_slot(state, slot, identifier, wrapped) do
+    case try_split_chain(state, slot_anchor_chain(slot), wrapped) do
+      {:ok, pane_id} ->
+        new_state = record_slot_pane(state, slot, pane_id, identifier)
+        {:ok, pane_id, new_state}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp try_split_chain(_state, [], _wrapped), do: {:error, :no_live_anchor}
+
+  defp try_split_chain(state, [{anchor, direction, percent} | rest], wrapped) do
+    case anchor_pane_id(state, anchor) do
+      nil ->
+        try_split_chain(state, rest, wrapped)
+
+      target_pane ->
+        case Tmux.split_pane(state.tmux, target_pane, direction, percent, wrapped) do
+          {:ok, new_id} -> {:ok, new_id}
+          {:error, _} -> try_split_chain(state, rest, wrapped)
+        end
+    end
+  end
+
+  defp anchor_pane_id(state, :agent_list), do: state.agent_list_pane
+
+  defp anchor_pane_id(state, slot) when slot in 1..@num_slots,
+    do: Map.get(state.slot_panes, slot)
+
+  # Recipe table: each slot's anchor chain. The first tuple is the
+  # canonical position; subsequent tuples are fallbacks used when the
+  # primary anchor pane is gone (closed by the user).
+  defp slot_anchor_chain(1), do: [{:agent_list, :horizontal, 67}]
+  defp slot_anchor_chain(2), do: [{1, :horizontal, 50}, {:agent_list, :horizontal, 67}]
+  defp slot_anchor_chain(3), do: [{:agent_list, :vertical, 50}]
+  defp slot_anchor_chain(4), do: [{1, :vertical, 50}, {:agent_list, :vertical, 50}]
+
+  defp slot_anchor_chain(5),
+    do: [{2, :vertical, 50}, {1, :vertical, 50}, {:agent_list, :vertical, 50}]
+
+  # State bookkeeping --------------------------------------------------------
+
+  defp record_slot_pane(%__MODULE__{} = state, slot, pane_id, identifier) do
+    %{
+      state
+      | identifier_to_pane: Map.put(state.identifier_to_pane, identifier, pane_id),
+        pane_to_identifier: Map.put(state.pane_to_identifier, pane_id, identifier),
+        pane_to_slot: Map.put(state.pane_to_slot, pane_id, slot),
+        slot_panes: Map.put(state.slot_panes, slot, pane_id)
+    }
+  end
+
+  defp forget_identifier_for_pane(%__MODULE__{} = state, pane_id) do
+    case Map.get(state.pane_to_identifier, pane_id) do
+      nil ->
+        state
+
+      old_identifier ->
+        %{state | identifier_to_pane: Map.delete(state.identifier_to_pane, old_identifier)}
+    end
+  end
+
+  defp forget_pane_by_identifier(%__MODULE__{} = state, pane_id) do
+    identifier = Map.get(state.pane_to_identifier, pane_id)
+    slot = Map.get(state.pane_to_slot, pane_id)
+
+    new_state = %{
+      state
+      | pane_to_identifier: Map.delete(state.pane_to_identifier, pane_id),
+        pane_to_slot: Map.delete(state.pane_to_slot, pane_id)
+    }
+
+    new_state =
+      if identifier do
+        %{new_state | identifier_to_pane: Map.delete(new_state.identifier_to_pane, identifier)}
+      else
+        new_state
+      end
+
+    if slot do
+      %{new_state | slot_panes: Map.put(new_state.slot_panes, slot, nil)}
+    else
+      new_state
+    end
+  end
+
+  defp forget_dead_slot(%__MODULE__{} = state, slot) do
+    case Map.get(state.slot_panes, slot) do
+      nil -> state
+      pane_id -> forget_pane_by_identifier(state, pane_id)
+    end
+  end
+
+  defp handle_pane_closed(state, pane_id) do
+    case Map.fetch(state.pane_to_identifier, pane_id) do
+      {:ok, identifier} ->
+        AgentPubSub.broadcast_status_change(identifier, :pane_closed)
+        forget_pane_by_identifier(state, pane_id)
+
+      :error ->
+        # Unknown pane (could be the agent-list pane itself, or a
+        # transient probe). Still clear any stale slot mapping.
+        forget_pane_by_identifier(state, pane_id)
+    end
+  end
+
+  # Distribution wrapping ----------------------------------------------------
 
   defp wrap_with_unique_node(command, identifier) do
     safe_id = String.replace(identifier, ~r/[^A-Za-z0-9_-]/, "-")
@@ -174,38 +330,5 @@ defmodule SymphonyElixir.PaneManager do
     end
   rescue
     _ -> nil
-  end
-
-  defp record_pane(%__MODULE__{} = state, identifier, pane_id) do
-    %{
-      state
-      | identifier_to_pane: Map.put(state.identifier_to_pane, identifier, pane_id),
-        pane_to_identifier: Map.put(state.pane_to_identifier, pane_id, identifier)
-    }
-  end
-
-  defp forget_pane_by_identifier(%__MODULE__{} = state, identifier) do
-    case Map.fetch(state.identifier_to_pane, identifier) do
-      {:ok, pane_id} ->
-        %{
-          state
-          | identifier_to_pane: Map.delete(state.identifier_to_pane, identifier),
-            pane_to_identifier: Map.delete(state.pane_to_identifier, pane_id)
-        }
-
-      :error ->
-        state
-    end
-  end
-
-  defp handle_pane_closed(state, pane_id) do
-    case Map.fetch(state.pane_to_identifier, pane_id) do
-      {:ok, identifier} ->
-        AgentPubSub.broadcast_status_change(identifier, :pane_closed)
-        forget_pane_by_identifier(state, identifier)
-
-      :error ->
-        state
-    end
   end
 end
