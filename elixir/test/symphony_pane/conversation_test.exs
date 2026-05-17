@@ -125,7 +125,10 @@ defmodule SymphonyPane.ConversationTest do
 
     assert_receive {:frame, frame}, 500
     assert visible(frame) =~ " alert "
-    assert visible(frame) =~ "demo.heads_up: look"
+    # The pane drops the structured alert name from the rendered body —
+    # only the human-readable message lands in the transcript.
+    assert visible(frame) =~ "look"
+    refute visible(frame) =~ "demo.heads_up"
 
     state = :sys.get_state(pid)
     assert length(state.transcript) == 1
