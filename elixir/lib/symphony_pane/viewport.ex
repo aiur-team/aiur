@@ -98,13 +98,16 @@ defmodule SymphonyPane.Viewport do
 
     cursor_col = prompt_len + min(cursor, available) + 1
 
+    # Note: no trailing \r\n after the last composer row. The bottom row of
+    # the pane is the final byte we emit — writing past it would scroll the
+    # screen up by one and eat the title row.
     lines = [
       blank,
       eol(),
       tinted,
       eol(),
       blank,
-      eol()
+      "\e[K"
     ]
 
     {lines, cursor_col}

@@ -263,6 +263,17 @@ defmodule SymphonyElixir.AgentList.Renderer do
 
   defp clear_remaining(rows, lines_drawn) do
     remaining = max(rows - lines_drawn - 1, 0)
-    Enum.map(1..max(remaining, 0)//1, fn _ -> ["\e[K", "\r\n"] end)
+
+    if remaining == 0 do
+      # Even at zero we want to clear the trailing row so any leftover
+      # content from a previous frame disappears. No newline so we don't
+      # scroll the screen up by one.
+      ["\e[K"]
+    else
+      # Emit `remaining - 1` "blank + newline" rows followed by one final
+      # blank row with no newline. Writing past the bottom would scroll the
+      # screen up by one row each frame, eating the title.
+      Enum.map(1..(remaining - 1)//1, fn _ -> ["\e[K", "\r\n"] end) ++ [["\e[K"]]
+    end
   end
 end

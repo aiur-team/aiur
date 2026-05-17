@@ -68,24 +68,24 @@ defmodule SymphonyElixir.PaneManager do
   def handle_call({:open, identifier, command_to_run}, _from, state) do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, existing_pane} ->
-        Logger.debug("PaneManager.open identifier=#{identifier} already_open=#{existing_pane}")
-        {:reply, {:ok, existing_pane}, state}
+        # The cache can hold a stale pane id if the user closed the pane via
+        # Ctrl+C (which kills the pane outside of our control). Verify the
+        # pane still exists before short-circuiting; if not, fall through to
+        # a fresh split-window.
+        case Tmux.command(state.tmux, "select-pane -t #{existing_pane}") do
+          {:ok, _} ->
+            Logger.debug("PaneManager.open identifier=#{identifier} re-focused existing pane=#{existing_pane}")
+
+            {:reply, {:ok, existing_pane}, state}
+
+          {:error, _reason} ->
+            Logger.debug("PaneManager.open identifier=#{identifier} cached pane=#{existing_pane} is dead; respawning")
+
+            do_open(forget_pane_by_identifier(state, identifier), identifier, command_to_run)
+        end
 
       :error ->
-        wrapped_command = wrap_with_unique_node(command_to_run, identifier)
-        Logger.debug("PaneManager.open identifier=#{identifier} command=#{inspect(wrapped_command)}")
-
-        case Tmux.spawn_pane_for(state.tmux, identifier, wrapped_command) do
-          {:ok, pane_id} ->
-            new_state = record_pane(state, identifier, pane_id)
-            AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-            Logger.debug("PaneManager.open identifier=#{identifier} -> pane_id=#{pane_id}")
-            {:reply, {:ok, pane_id}, new_state}
-
-          {:error, reason} ->
-            Logger.warning("PaneManager.open identifier=#{identifier} failed: #{inspect(reason)}")
-            {:reply, {:error, reason}, state}
-        end
+        do_open(state, identifier, command_to_run)
     end
   end
 
@@ -101,6 +101,24 @@ defmodule SymphonyElixir.PaneManager do
   end
 
   def handle_call(:list, _from, state), do: {:reply, state.identifier_to_pane, state}
+
+  defp do_open(state, identifier, command_to_run) do
+    wrapped_command = wrap_with_unique_node(command_to_run, identifier)
+
+    Logger.debug("PaneManager.open identifier=#{identifier} command=#{inspect(wrapped_command)}")
+
+    case Tmux.spawn_pane_for(state.tmux, identifier, wrapped_command) do
+      {:ok, pane_id} ->
+        new_state = record_pane(state, identifier, pane_id)
+        AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+        Logger.debug("PaneManager.open identifier=#{identifier} -> pane_id=#{pane_id}")
+        {:reply, {:ok, pane_id}, new_state}
+
+      {:error, reason} ->
+        Logger.warning("PaneManager.open identifier=#{identifier} failed: #{inspect(reason)}")
+        {:reply, {:error, reason}, state}
+    end
+  end
 
   @impl true
   def handle_info({:tmux_event, {:notification, :pane_died, pane_id}}, state) do
