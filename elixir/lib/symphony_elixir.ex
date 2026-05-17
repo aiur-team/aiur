@@ -19,9 +19,12 @@ defmodule SymphonyElixir.Application do
 
   use Application
 
+  require Logger
+
   @impl true
   def start(_type, _args) do
     :ok = SymphonyElixir.LogFile.configure()
+    maybe_start_distribution()
 
     interactive_cli? = Application.get_env(:symphony_elixir, :interactive_cli, false)
 
@@ -55,5 +58,15 @@ defmodule SymphonyElixir.Application do
   def stop(_state) do
     SymphonyElixir.StatusDashboard.render_offline_status()
     :ok
+  end
+
+  defp maybe_start_distribution do
+    case SymphonyElixir.Distribution.start!() do
+      :ok ->
+        Logger.info("Distribution active as #{inspect(SymphonyElixir.Distribution.node_name())}")
+
+      {:error, reason} ->
+        Logger.debug("Distribution not active: #{inspect(reason)}; pane subcommand will not connect")
+    end
   end
 end
