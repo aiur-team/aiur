@@ -53,7 +53,17 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixirWeb.StaticAssetController,
           SymphonyElixirWeb.StaticAssets,
           SymphonyElixirWeb.Router,
-          SymphonyElixirWeb.Router.Helpers
+          SymphonyElixirWeb.Router.Helpers,
+          SymphonyElixir.AgentList.App,
+          SymphonyElixir.AgentList.Input,
+          SymphonyElixir.AgentList.Renderer,
+          SymphonyElixir.PaneManager,
+          SymphonyElixir.PaneWarmPool,
+          SymphonyElixir.Tmux,
+          SymphonyPane.CLI,
+          SymphonyPane.Composer,
+          SymphonyPane.Conversation,
+          SymphonyPane.Viewport
         ]
       ],
       test_ignore_filters: [
