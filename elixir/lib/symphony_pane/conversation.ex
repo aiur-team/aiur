@@ -51,9 +51,11 @@ defmodule SymphonyPane.Conversation do
       other -> Logger.warning("Conversation subscribe failed identifier=#{identifier} -> #{inspect(other)}")
     end
 
+    initial_transcript = fetch_initial_transcript(symphony_node, identifier)
+
     state = %{
       identifier: identifier,
-      transcript: [],
+      transcript: initial_transcript,
       composer: Composer.new(),
       columns: cols,
       rows: rows,
@@ -264,6 +266,38 @@ defmodule SymphonyPane.Conversation do
 
     {cols, rows}
   end
+
+  defp fetch_initial_transcript(nil, _identifier), do: []
+
+  defp fetch_initial_transcript(node, identifier) when is_atom(node) do
+    case :rpc.call(node, SymphonyElixir.PaneRPC, :fetch_context, [identifier, 50], 2_000) do
+      {:ok, %{context_message: context_message, history: history}} ->
+        history_events = Enum.map(history, &normalize_history_entry/1)
+
+        case context_message do
+          nil -> history_events
+          msg -> [AgentEvents.transcript_event(:system, msg) | history_events]
+        end
+
+      {:badrpc, reason} ->
+        Logger.warning("Conversation.fetch_initial_transcript badrpc identifier=#{identifier} reason=#{inspect(reason)}")
+
+        []
+
+      other ->
+        Logger.warning("Conversation.fetch_initial_transcript unexpected identifier=#{identifier} result=#{inspect(other)}")
+
+        []
+    end
+  end
+
+  defp normalize_history_entry({:transcript_event, event}), do: event
+
+  defp normalize_history_entry({:alert, %{name: name, message: message}}) do
+    AgentEvents.transcript_event(:system, "[alert] #{name}: #{message}")
+  end
+
+  defp normalize_history_entry(_other), do: AgentEvents.transcript_event(:system, "")
 
   defp parse_int(value, default) when is_binary(value) do
     case Integer.parse(value) do

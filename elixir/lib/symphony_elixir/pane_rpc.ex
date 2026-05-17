@@ -15,7 +15,7 @@ defmodule SymphonyElixir.PaneRPC do
   Scaffold: implementations land alongside the conversation pane subcommand.
   """
 
-  alias SymphonyElixir.{AgentChat, AgentDirectory, AgentEvents}
+  alias SymphonyElixir.{AgentChat, AgentDirectory, AgentEvents, IssueContext, IssueLog}
 
   @max_body_bytes 65_536
 
@@ -37,6 +37,31 @@ defmodule SymphonyElixir.PaneRPC do
       {:ok, _ref} -> :ok
       error -> error
     end
+  end
+
+  @doc """
+  Fetches the per-issue intro context plus any recent transcript/alert
+  history captured by `SymphonyElixir.IssueLog`. The pane calls this
+  during `init/1` so the operator sees what the agent is working on
+  immediately, even when the agent is mid-turn and not producing output.
+
+  Returns a map shaped for the conversation pane's
+  `prepend_pane_intro/2`: a `:context_message` body (or `nil` if no
+  detail is available) and a `:history` list of past events oldest-first.
+  """
+  @spec fetch_context(AgentEvents.agent_identifier(), pos_integer()) ::
+          {:ok, %{context_message: String.t() | nil, history: [tuple()]}}
+  def fetch_context(identifier, limit \\ 50) when is_binary(identifier) do
+    summary = IssueContext.for(identifier)
+    history = IssueLog.history(identifier, limit)
+
+    context_message =
+      case summary do
+        %{title: nil, description: nil, url: nil} -> nil
+        _ -> IssueContext.to_message(summary)
+      end
+
+    {:ok, %{context_message: context_message, history: history}}
   end
 
   @spec detach_conversation(AgentEvents.agent_identifier()) :: :ok
