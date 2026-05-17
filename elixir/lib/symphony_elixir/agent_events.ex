@@ -42,9 +42,14 @@ defmodule SymphonyElixir.AgentEvents do
 
   @typedoc "Summary row used to render the agent list."
   @type agent_summary :: %{
-          identifier: agent_identifier(),
-          status: atom(),
-          alert_count: non_neg_integer()
+          required(:identifier) => agent_identifier(),
+          required(:status) => atom(),
+          required(:alert_count) => non_neg_integer(),
+          optional(:tag) => String.t() | nil,
+          optional(:title) => String.t() | nil,
+          optional(:runtime_seconds) => non_neg_integer(),
+          optional(:turn_count) => non_neg_integer(),
+          optional(:work_state) => atom() | String.t()
         }
 
   @type transcript_message :: {:transcript_event, transcript_event()}
@@ -109,6 +114,21 @@ defmodule SymphonyElixir.AgentEvents do
   def agent_summary(identifier, status, alert_count)
       when is_binary(identifier) and is_atom(status) and is_integer(alert_count) and alert_count >= 0 do
     %{identifier: identifier, status: status, alert_count: alert_count}
+  end
+
+  @doc """
+  Build an `agent_summary` map and merge in the optional `extras`
+  fields (`:tag`, `:title`, `:runtime_seconds`, `:turn_count`,
+  `:work_state`). Extras with `nil` values are filtered so callers can
+  unconditionally pass `Map.get(entry, :title)` without polluting the
+  summary.
+  """
+  @spec agent_summary(agent_identifier(), atom(), non_neg_integer(), map()) :: agent_summary()
+  def agent_summary(identifier, status, alert_count, extras)
+      when is_binary(identifier) and is_atom(status) and is_integer(alert_count) and
+             alert_count >= 0 and is_map(extras) do
+    base = %{identifier: identifier, status: status, alert_count: alert_count}
+    Map.merge(base, Enum.reject(extras, fn {_k, v} -> is_nil(v) end) |> Map.new())
   end
 
   @spec agent_topic(agent_identifier()) :: String.t()

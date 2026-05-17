@@ -1234,10 +1234,19 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp running_summaries(state) do
+    now = DateTime.utc_now()
+
     state.running
     |> Enum.map(fn {_issue_id, entry} ->
       identifier = Map.get(entry, :identifier) || ""
-      AgentEvents.agent_summary(identifier, :running, 0)
+
+      AgentEvents.agent_summary(identifier, :running, 0, %{
+        tag: issue_tag(Map.get(entry, :issue)),
+        title: get_in(entry, [:issue, Access.key(:title)]),
+        runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+        turn_count: Map.get(entry, :turn_count, 0),
+        work_state: get_in(entry, [:control, :status]) || :working
+      })
     end)
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
   end
