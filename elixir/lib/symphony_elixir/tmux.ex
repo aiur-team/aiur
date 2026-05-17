@@ -168,44 +168,50 @@ defmodule SymphonyElixir.Tmux do
       end)
       |> Enum.reverse()
 
-    cond do
-      Enum.any?(lines, &String.starts_with?(&1, "%error")) -> {:error, body}
-      true -> {:ok, body}
+    if Enum.any?(lines, &String.starts_with?(&1, "%error")) do
+      {:error, body}
+    else
+      {:ok, body}
     end
   end
 
   defp split_command(cmd) do
     {tokens, _} =
-      Enum.reduce(String.split(cmd, ~r/\s+/, trim: true), {[], nil}, fn token, {acc, quoted} ->
-        cond do
-          is_nil(quoted) and String.starts_with?(token, "\"") ->
-            inner = String.trim_leading(token, "\"")
-
-            cond do
-              String.ends_with?(inner, "\"") ->
-                {[String.trim_trailing(inner, "\"") | acc], nil}
-
-              true ->
-                {acc, inner}
-            end
-
-          quoted ->
-            joined = quoted <> " " <> token
-
-            cond do
-              String.ends_with?(joined, "\"") ->
-                {[String.trim_trailing(joined, "\"") | acc], nil}
-
-              true ->
-                {acc, joined}
-            end
-
-          true ->
-            {[token | acc], nil}
-        end
-      end)
+      cmd
+      |> String.split(~r/\s+/, trim: true)
+      |> Enum.reduce({[], nil}, &split_command_step/2)
 
     Enum.reverse(tokens)
+  end
+
+  defp split_command_step(token, {acc, nil}) do
+    if String.starts_with?(token, "\"") do
+      start_quoted(token, acc)
+    else
+      {[token | acc], nil}
+    end
+  end
+
+  defp split_command_step(token, {acc, quoted}), do: continue_quoted(token, quoted, acc)
+
+  defp start_quoted(token, acc) do
+    inner = String.trim_leading(token, "\"")
+
+    if String.ends_with?(inner, "\"") do
+      {[String.trim_trailing(inner, "\"") | acc], nil}
+    else
+      {acc, inner}
+    end
+  end
+
+  defp continue_quoted(token, quoted, acc) do
+    joined = quoted <> " " <> token
+
+    if String.ends_with?(joined, "\"") do
+      {[String.trim_trailing(joined, "\"") | acc], nil}
+    else
+      {acc, joined}
+    end
   end
 
   defp default_session do

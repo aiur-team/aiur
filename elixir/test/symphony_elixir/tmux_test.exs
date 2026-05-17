@@ -36,7 +36,11 @@ defmodule SymphonyElixir.TmuxTest do
   test "command/2 surfaces error responses", %{name: name} do
     parent = self()
 
-    task = Task.async(fn -> send(parent, :ready); Tmux.command(name, "bogus") end)
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.command(name, "bogus")
+      end)
     assert_receive :ready
     assert_receive {:tmux_mock_out, "bogus"}
 
