@@ -85,8 +85,9 @@ defmodule SymphonyElixir.AgentList.RendererTest do
       |> visible()
 
     # ID and AGE are labelled; TAG and STATE columns use emoji-only
-    # cells and therefore have no header text.
-    assert out =~ ~r/ID\s+TITLE\s+AGE/
+    # cells and therefore have no header text. Column order is
+    # ID → AGE → tag-circle → state-circle → TITLE.
+    assert out =~ ~r/ID\s+AGE\s+TITLE/
   end
 
   test "shows '(no agents running)' when the list is empty" do
@@ -123,7 +124,7 @@ defmodule SymphonyElixir.AgentList.RendererTest do
     assert out =~ "🟡"
   end
 
-  test "renders tag with an emoji glyph" do
+  test "renders tag with a colored circle glyph" do
     summaries = [
       %{
         identifier: "MT-7",
@@ -135,8 +136,9 @@ defmodule SymphonyElixir.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    # The agent:doing label gets the hammer emoji in the tag column.
-    assert out =~ "🔨"
+    # `agent:doing` maps to the blue circle — workflow state at a
+    # glance using only colored circles, no varied glyphs.
+    assert out =~ "🔵"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do
