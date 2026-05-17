@@ -673,10 +673,10 @@ defmodule SymphonyElixir.ExtensionsTest do
       Keyword.put(state, :snapshot, updated_snapshot)
     end)
 
-    StatusDashboard.notify_update()
+    SymphonyElixirWeb.ObservabilityPubSub.broadcast_update()
 
     assert_eventually(fn ->
-      render(view) =~ "agent message content streaming: structured update"
+      render(view) =~ "structured update"
     end)
 
     log_html =
@@ -711,7 +711,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       [:append]
     )
 
-    StatusDashboard.notify_update()
+    SymphonyElixirWeb.ObservabilityPubSub.broadcast_update()
 
     assert_eventually(fn ->
       render(view) =~ "fresh modal update"

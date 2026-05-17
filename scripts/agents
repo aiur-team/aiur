@@ -564,7 +564,7 @@ run_foreground() {
   check_tmux || die "tmux >= 3.3 is required; install tmux before running agents"
   prepare_distribution || die "distribution setup failed; cannot launch agent-list pane"
 
-  symphony_args=(exec -- ./bin/symphony agents-pane)
+  symphony_args=(exec -- ./bin/symphony)
 
   if [ -n "$logs_root" ]; then
     symphony_args+=(--logs-root "$logs_root")
