@@ -3,7 +3,7 @@ defmodule SymphonyElixir.AgentChat do
   Public facade for operator messages sent to active agent sessions.
   """
 
-  alias SymphonyElixir.Orchestrator
+  alias SymphonyElixir.{AgentEvents, AgentPubSub, Orchestrator}
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
   @spec send(String.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
@@ -12,10 +12,24 @@ defmodule SymphonyElixir.AgentChat do
     delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
     fallback = Keyword.get(opts, :fallback, :queue_next)
 
-    Orchestrator.send_operator_message(
-      issue_identifier,
-      %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback}
-    )
+    result =
+      Orchestrator.send_operator_message(
+        issue_identifier,
+        %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback}
+      )
+
+    case result do
+      {:ok, _} = ok ->
+        AgentPubSub.broadcast_transcript(
+          issue_identifier,
+          AgentEvents.transcript_event(:user, text)
+        )
+
+        ok
+
+      other ->
+        other
+    end
   end
 
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}

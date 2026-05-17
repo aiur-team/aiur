@@ -4,7 +4,20 @@ defmodule SymphonyElixir.AgentRunner do
   """
 
   require Logger
-  alias SymphonyElixir.{AgentEventLog, Alerts, CodingAgent, Config, Issue, PromptBuilder, Tracker, Workspace}
+
+  alias SymphonyElixir.{
+    AgentEventLog,
+    AgentEvents,
+    AgentPubSub,
+    Alerts,
+    CodingAgent,
+    Config,
+    Issue,
+    PromptBuilder,
+    Tracker,
+    Workspace
+  }
+
   alias SymphonyElixir.Codex.DynamicTool
 
   @type worker_host :: String.t() | nil
@@ -50,7 +63,66 @@ defmodule SymphonyElixir.AgentRunner do
     fn message ->
       message = CodingAgent.normalize_event(message)
       AgentEventLog.write(workspace, worker_host, message)
+      maybe_broadcast_transcript(issue, message)
       send_codex_update(recipient, issue, message)
+    end
+  end
+
+  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message)
+       when is_binary(identifier) do
+    case transcript_event_from(message) do
+      {:ok, event} -> AgentPubSub.broadcast_transcript(identifier, event)
+      :skip -> :ok
+    end
+  end
+
+  defp maybe_broadcast_transcript(_issue, _message), do: :ok
+
+  defp transcript_event_from(message) when is_map(message) do
+    role = role_for_event(message)
+    body = body_for_event(message)
+
+    cond do
+      is_nil(role) -> :skip
+      is_nil(body) -> :skip
+      body == "" -> :skip
+      true -> {:ok, AgentEvents.transcript_event(role, body, timestamp: timestamp_for(message))}
+    end
+  end
+
+  defp role_for_event(message) do
+    case event_kind(message) do
+      kind when kind in ["agent_message", "assistant_message", "task_finished", "task_complete"] ->
+        :assistant
+
+      kind when kind in ["user_message", "operator_message"] ->
+        :user
+
+      _ ->
+        nil
+    end
+  end
+
+  defp event_kind(message) do
+    case Map.get(message, :event) || Map.get(message, "event") do
+      nil -> nil
+      atom when is_atom(atom) -> Atom.to_string(atom)
+      other -> to_string(other)
+    end
+  end
+
+  defp body_for_event(message) do
+    Map.get(message, :last_message) ||
+      Map.get(message, "last_message") ||
+      Map.get(message, :body) ||
+      Map.get(message, "body") ||
+      nil
+  end
+
+  defp timestamp_for(message) do
+    case Map.get(message, :timestamp) || Map.get(message, "timestamp") do
+      %DateTime{} = ts -> ts
+      _ -> DateTime.utc_now()
     end
   end
 
