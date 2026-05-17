@@ -356,8 +356,10 @@ prepare_distribution() {
   # Force IPv4 distribution and pin to 127.0.0.1 — hostnames on some boxes
   # resolve to IPv6 first, while the BEAM's distribution port binds to
   # 0.0.0.0 (IPv4 only). The mismatch shows up as `Node.connect -> false`
-  # with no helpful error.
-  export ERL_AFLAGS="${ERL_AFLAGS:-} -sname symphony-${USER} -setcookie ${cookie} -proto_dist inet_tcp -kernel inet_dist_use_interface '{127,0,0,1}'"
+  # with no helpful error. We pass the Erlang tuple `{127,0,0,1}` unquoted
+  # because the BEAM's own argv splitter understands it; bash inside the
+  # surrounding double quotes doesn't try to brace-expand it either.
+  export ERL_AFLAGS="${ERL_AFLAGS:-} -sname symphony-${USER} -setcookie ${cookie} -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
   export ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}"
   export SYMPHONY_NODE="${SYMPHONY_NODE:-$node_name}"
 
