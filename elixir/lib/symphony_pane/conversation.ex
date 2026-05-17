@@ -88,6 +88,11 @@ defmodule SymphonyPane.Conversation do
   def terminate(_reason, _state), do: :ok
 
   @impl true
+  # Bare `\e` arrives when the reader saw an ESC that wasn't followed by
+  # a CSI introducer (`[`). The reader filters CSI sequences out of the
+  # byte stream and emits semantic `{:input_key, ...}` events instead,
+  # so any `{:input, "\e"}` that still reaches us is a lone escape and
+  # should be ignored — we don't want it inserted into the buffer.
   def handle_info({:input, "\e"}, state), do: {:noreply, state}
   def handle_info({:input, ""}, state), do: {:noreply, state}
 
@@ -105,6 +110,25 @@ defmodule SymphonyPane.Conversation do
     render(new_state)
     {:noreply, new_state}
   end
+
+  # Semantic key events emitted by the raw-stdin reader after it has
+  # decoded a CSI escape sequence. `:left` / `:right` move the cursor
+  # within the composer buffer; `:up` / `:down` are reserved for future
+  # history navigation and currently no-op so an accidental arrow key
+  # doesn't corrupt the buffer.
+  def handle_info({:input_key, :left}, state) do
+    new_state = %{state | composer: Composer.move_left(state.composer)}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:input_key, :right}, state) do
+    new_state = %{state | composer: Composer.move_right(state.composer)}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:input_key, _other}, state), do: {:noreply, state}
 
   def handle_info({:transcript_event, event}, state) do
     Logger.debug("Conversation got transcript_event identifier=#{state.identifier} role=#{inspect(event[:role])} bytes=#{byte_size(event[:body] || "")}")
@@ -232,11 +256,48 @@ defmodule SymphonyPane.Conversation do
       "" ->
         read_loop(parent, input_fun)
 
+      "\e" ->
+        # Possible CSI escape sequence: `\e[<params><final>`. Peek the
+        # next byte to decide. If it isn't `[`, treat as a bare ESC and
+        # drop both bytes (terminal apps generally ignore unknown ESC
+        # sequences and we don't want them landing in the buffer).
+        case input_fun.() do
+          :eof -> :ok
+          "[" -> read_csi(parent, input_fun, "")
+          _other -> read_loop(parent, input_fun)
+        end
+
       byte ->
         send(parent, {:input, byte})
         read_loop(parent, input_fun)
     end
   end
+
+  defp read_csi(parent, input_fun, params) do
+    case input_fun.() do
+      :eof ->
+        :ok
+
+      byte ->
+        if csi_final?(byte) do
+          dispatch_csi(parent, params, byte)
+          read_loop(parent, input_fun)
+        else
+          read_csi(parent, input_fun, params <> byte)
+        end
+    end
+  end
+
+  # CSI sequences terminate on the first byte in `@<final>~` ranges; we
+  # only care about the alphabetic finals used by arrow keys (A/B/C/D).
+  defp csi_final?(<<c>>) when c in ?A..?Z or c in ?a..?z or c == ?~, do: true
+  defp csi_final?(_byte), do: false
+
+  defp dispatch_csi(parent, "", "A"), do: send(parent, {:input_key, :up})
+  defp dispatch_csi(parent, "", "B"), do: send(parent, {:input_key, :down})
+  defp dispatch_csi(parent, "", "C"), do: send(parent, {:input_key, :right})
+  defp dispatch_csi(parent, "", "D"), do: send(parent, {:input_key, :left})
+  defp dispatch_csi(_parent, _params, _final), do: :ok
 
   defp enter_raw_mode(true), do: :ok
 

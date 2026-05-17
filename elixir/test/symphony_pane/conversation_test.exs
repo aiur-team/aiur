@@ -88,6 +88,36 @@ defmodule SymphonyPane.ConversationTest do
     assert state.composer.buffer == "hi"
   end
 
+  test "left/right input_key events move the composer cursor" do
+    pid = start_pane("MT-ARROW")
+
+    send(pid, {:input, "h"})
+    send(pid, {:input, "i"})
+    # Left twice moves cursor to position 0, then a typed char inserts at 0.
+    send(pid, {:input_key, :left})
+    send(pid, {:input_key, :left})
+    send(pid, {:input, "!"})
+
+    # Drain renders.
+    for _ <- 1..5, do: assert_receive({:frame, _}, 500)
+
+    state = :sys.get_state(pid)
+    assert state.composer.buffer == "!hi"
+    # Cursor sits after the inserted "!".
+    assert state.composer.cursor == 1
+
+    # Right twice moves cursor to end; another typed char appends.
+    send(pid, {:input_key, :right})
+    send(pid, {:input_key, :right})
+    send(pid, {:input, "?"})
+
+    for _ <- 1..3, do: assert_receive({:frame, _}, 500)
+
+    state = :sys.get_state(pid)
+    assert state.composer.buffer == "!hi?"
+    assert state.composer.cursor == 4
+  end
+
   test "alert message appends a system-line into the transcript" do
     pid = start_pane("MT-A")
 
