@@ -1,9 +1,28 @@
 # CLI Pane Rearchitecture Handoff
 
-Created: 2026-05-16 (revised same day after Session 2 progress)
+Created: 2026-05-16 (revised 2026-05-17 after end-to-end demo works)
 Current branch: `feat/cli-pane-rearchitecture`
 Base commit: `b6133c8` (`Add CLI rearchitecture plan`)
-Latest commit at handoff revision: `d1ae3e1` (`Wire agents-pane CLI subcommand`)
+Latest commit at handoff revision: `30e67e2` (`Wire end-to-end pane spawning`)
+
+## Session 3 Result: `./scripts/agents` Works End-to-End
+
+After the cutover and tmux-spawning wiring, the demo works:
+
+```
+./scripts/agents
+```
+
+creates a tmux session, runs the new agent-list pane as the foreground process, dispatches agents, and lets the user press enter/space to open per-agent conversation panes. Typing in the composer renders locally as `you: <text>` and dispatches an `:rpc.cast` to the orchestrator's chat-send path.
+
+Verified manually 2026-05-17:
+
+- Agent-list pane renders `Symphony — Agents`, `▶ 25 [running]`, footer hints.
+- Enter spawns a horizontal split with `bin/symphony conversation 25` inside.
+- Conversation pane renders `Symphony — 25` header.
+- Typing "hello world" + Enter renders `you: hello world` in the transcript.
+
+The path between conversation composer and orchestrator's chat-send is wired via `:rpc.cast` and `Phoenix.PubSub`, with a unique `-sname pane-<id>` per spawned pane so multiple BEAM nodes don't collide on the same name.
 
 ## Why This Handoff Exists
 
