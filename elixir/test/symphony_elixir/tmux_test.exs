@@ -8,9 +8,7 @@ defmodule SymphonyElixir.TmuxTest do
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
 
     {:ok, pid} =
-      start_supervised(
-        {Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]}
-      )
+      start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
 
     %{server: pid, name: name}
   end
@@ -41,6 +39,7 @@ defmodule SymphonyElixir.TmuxTest do
         send(parent, :ready)
         Tmux.command(name, "bogus")
       end)
+
     assert_receive :ready
     assert_receive {:tmux_mock_out, "bogus"}
 
