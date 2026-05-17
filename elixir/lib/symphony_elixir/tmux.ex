@@ -56,6 +56,37 @@ defmodule SymphonyElixir.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  Split an existing pane and start `command_to_run` in the new pane.
+  Direction is `:horizontal` (new pane to the right) or `:vertical`
+  (new pane below); `percent` sets the new pane's size as a percentage
+  of the target pane.
+  """
+  @spec split_pane(GenServer.server(), String.t(), :horizontal | :vertical, pos_integer(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def split_pane(server \\ __MODULE__, target_pane_id, direction, percent, command_to_run)
+      when is_binary(target_pane_id) and direction in [:horizontal, :vertical] and
+             is_integer(percent) and percent > 0 and percent < 100 and is_binary(command_to_run) do
+    GenServer.call(server, {:split_pane, target_pane_id, direction, percent, command_to_run}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Kill the command running in `pane_id` and replace it with a fresh
+  process running `command_to_run`. Pane id stays the same, so the
+  physical position in the tmux layout doesn't change.
+  """
+  @spec respawn_pane(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def respawn_pane(server \\ __MODULE__, pane_id, command_to_run)
+      when is_binary(pane_id) and is_binary(command_to_run) do
+    GenServer.call(server, {:respawn_pane, pane_id, command_to_run}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @spec session(GenServer.server()) :: String.t()
   def session(server \\ __MODULE__), do: GenServer.call(server, :session)
 
@@ -97,6 +128,48 @@ defmodule SymphonyElixir.Tmux do
       {:error, _} = err ->
         Logger.warning("Tmux split-window for #{identifier} failed: #{inspect(err)}")
         {:reply, err, state}
+    end
+  end
+
+  def handle_call({:split_pane, target_pane, direction, percent, command_to_run}, _from, state) do
+    direction_flag = if direction == :horizontal, do: "-h", else: "-v"
+
+    args = [
+      "split-window",
+      "-t",
+      target_pane,
+      direction_flag,
+      "-p",
+      Integer.to_string(percent),
+      "-P",
+      "-F",
+      "\#{pane_id}",
+      command_to_run
+    ]
+
+    case run_args(state, args) do
+      {:ok, [pane_id | _]} ->
+        new_id = String.trim(pane_id)
+        _ = run_args(state, ["select-pane", "-t", new_id])
+        {:reply, {:ok, new_id}, state}
+
+      {:ok, []} ->
+        {:reply, {:error, :no_pane_id}, state}
+
+      {:error, _} = err ->
+        Logger.warning("Tmux split-window failed for target=#{target_pane}: #{inspect(err)}")
+        {:reply, err, state}
+    end
+  end
+
+  def handle_call({:respawn_pane, pane_id, command_to_run}, _from, state) do
+    # `-k` kills the existing command in the pane; tmux then starts the
+    # new command in the same pane id, preserving the layout position.
+    args = ["respawn-pane", "-k", "-t", pane_id, command_to_run]
+
+    case run_args(state, args) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
     end
   end
 
