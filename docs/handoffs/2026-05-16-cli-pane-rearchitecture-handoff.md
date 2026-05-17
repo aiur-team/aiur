@@ -1,9 +1,9 @@
 # CLI Pane Rearchitecture Handoff
 
-Created: 2026-05-16
+Created: 2026-05-16 (revised same day after Session 2 progress)
 Current branch: `feat/cli-pane-rearchitecture`
 Base commit: `b6133c8` (`Add CLI rearchitecture plan`)
-Latest commit at handoff: `bd00618` (`Drop opaque from subscription_ref`)
+Latest commit at handoff revision: `d1ae3e1` (`Wire agents-pane CLI subcommand`)
 
 ## Why This Handoff Exists
 
@@ -121,22 +121,121 @@ sessions implement real boot logic.
 
 `bin/symphony --version` and the existing workflow path forms are unchanged.
 
-## What is NOT Done Yet
+## Session 2 Addendum (same day)
 
-- The new agent-list pane does not render anything. The old `status_dashboard.ex`
-  is still the CLI surface.
-- No tmux integration code runs. The wrapper does not spawn a tmux session.
-- No conversation pane process exists. `bin/symphony conversation <id>`
-  exits immediately.
-- `AgentRunner.codex_message_handler/4` does NOT yet broadcast transcript
-  events. (Deferred — only useful when the conversation pane consumes them.)
-- `AgentChat.send/2` does NOT yet broadcast a symmetric user-side
-  `{:transcript_event, role: :user, ...}`. (Deferred — same reason.)
-- `StatusDashboard` and `TerminalInput` are still in the supervision tree
-  and still own the CLI surface. Cutover happens when the new agent-list
-  pane is functional.
-- CI image does not yet have tmux. Add as part of the integration-test
+After the initial handoff was written, the same agent continued implementing
+the remaining Phase 1 modules. Additional commits on `feat/cli-pane-rearchitecture`:
+
+| Commit | Description |
+|---|---|
+| `e922f5c` | Add pane rearchitecture handoff |
+| `887dc16` | Add tmux control-mode protocol parser |
+| `81b37b4` | Implement Tmux control-mode GenServer |
+| `643e123` | Implement PaneManager |
+| `c599e21` | Implement AgentList Renderer |
+| `a546227` | Implement AgentList Input and App |
+| `3a72b5c` | Implement Composer state machine |
+| `deebe83` | Implement Viewport full-frame renderer |
+| `95c0870` | Implement Conversation and CLI bootstrap |
+| `d1ae3e1` | Wire agents-pane CLI subcommand |
+
+**What this means:** every module the plan calls out as Phase 1 now has a real
+implementation with tests, not just a scaffold. The new agent-list pane is
+launchable today via `bin/symphony agents-pane`.
+
+### What is real now
+
+- `SymphonyElixir.Tmux.Protocol` — pure parser for the tmux control-mode wire
+  format (`%begin`/`%end`/`%error`/`%pane-died`/`%window-pane-changed`/
+  `%client-detached`/`%session-changed`/`%output`/`%exit`). 13 unit tests.
+- `SymphonyElixir.Tmux` — GenServer owning the `tmux -CC attach` Port,
+  routing commands and notifications. Pluggable transport (`:port` for
+  production, `{:mock, pid}` for tests). Bounded reopen on Port exit (3
+  attempts by default). 3 tests.
+- `SymphonyElixir.PaneManager` — `identifier -> pane_id` mapping, consumes
+  tmux notifications, broadcasts `:pane_opened` / `:pane_closed` on
+  `"agents:status"`. 4 tests.
+- `SymphonyElixir.AgentList.Renderer` — pure rendering function (transcript
+  header, agent rows with selection marker and alert count, footer). 4 tests.
+- `SymphonyElixir.AgentList.Input` — keystroke loop with CSI parser for
+  arrow keys, dispatches to `AgentList.App` (select/activate/quit).
+- `SymphonyElixir.AgentList.App` — GenServer subscribing to
+  `"agents:running"` and `"agents:status"`, holds selection state, renders
+  via `Renderer`. On activate, calls `PaneManager.open_conversation/3`. 4
+  tests.
+- `SymphonyPane.Composer` — buffer + cursor state machine. Length cap,
+  control-char filter, history. 11 tests.
+- `SymphonyPane.Viewport` — full-frame renderer with transcript region +
+  composer prompt. Cursor positioning. Reserved final column. 5 tests.
+- `SymphonyPane.Conversation` — GenServer threading viewport + composer +
+  PubSub subscription + remote `:rpc.cast` to send messages. 4 tests.
+- `SymphonyPane.CLI` — bootstrap: start `:phoenix_pubsub`, start the
+  Conversation GenServer, monitor it for shutdown.
+
+### CLI dispatch and supervision
+
+- `bin/symphony agents-pane <workflow>` — sets `:pane_cli` env flag, then
+  invokes the existing CLI entry; the application boots with Tmux,
+  PaneManager, AgentList.App, AgentList.Input in supervision **instead of**
+  `StatusDashboard` + `TerminalInput`.
+- `bin/symphony --interactive <workflow>` — unchanged old CLI.
+- `bin/symphony conversation <id>` — starts a conversation pane bootstrap
+  (real now, not just `System.halt(0)`).
+- `Application.stop/2` knows about both modes and only calls
+  `StatusDashboard.render_offline_status/0` in the legacy path.
+
+### What is still NOT done
+
+- `scripts/agents` does NOT yet auto-create a tmux session and run
+  `agents-pane` inside it. The user has to wire this manually for now (run
+  `tmux new-session -s symphony && tmux send-keys './bin/symphony
+  agents-pane ./local-workflows/WORKFLOW.symphony.local.md' Enter && tmux
+  attach -t symphony`). The next session should update the wrapper.
+- `AgentRunner.codex_message_handler/4` does NOT broadcast transcript
+  events. The conversation pane will show alerts (because `Alerts.do_emit/3`
+  broadcasts already) but NOT agent transcript turns until this is wired.
+- `AgentChat.send/2` does NOT broadcast a symmetric user-side
+  `{:transcript_event, role: :user, ...}`. The composer's local optimistic
+  echo works, but other subscribers (e.g., a second pane on the same agent)
+  won't see user-side turns.
+- `StatusDashboard` and `TerminalInput` are still in the codebase (used by
+  legacy `--interactive` mode). Hard cutover (delete the files) is a future
   task.
+- Three Phase 1 integration tests (real tmux end-to-end, cross-node PubSub,
+  pane-exits-on-Symphony-death) are not written.
+- CI image does not yet have tmux installed.
+- Termius-on-iPad verification has not happened. **This is still the merge
+  gate.**
+
+### Manual end-to-end smoke (works in any terminal)
+
+```
+# Terminal 1
+cd elixir
+mise exec -- mix escript.build
+mise exec -- ./bin/symphony agents-pane --interactive \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  ./local-workflows/WORKFLOW.symphony.local.md
+```
+
+You will see the `Symphony — Agents` pane render. Pressing keys (j/k/↑/↓
+to select, enter/space to activate) will work in a real TTY; in
+non-interactive shells the raw-mode setup fails gracefully and rendering
+still happens.
+
+`SYMPHONY_NODE` env var (set by `scripts/agents`) makes `bin/symphony
+conversation <id>` connect to the running Symphony BEAM via Erlang
+distribution; without it the conversation pane shows transcript locally
+but cannot send messages back.
+
+### Test state at this revision
+
+- 481 tests total (43 new this session).
+- 4 pre-existing failures unchanged from `main` (alerts hardcoded
+  `/Users/kevin/` path, three prompt-builder env-drift tests).
+- `mix credo --strict`: zero issues.
+- `mix specs.check`: clean.
+- `mix compile --warnings-as-errors`: clean for all new code.
 
 ## Verification State at Handoff
 
@@ -158,7 +257,42 @@ sessions implement real boot logic.
   `Alerts.emit_custom("demo.x", "msg", identifier: "MT-1")` deliver
   `{:alert, ...}` on the matching agent topic.
 
-## Recommended Next Work (in suggested order)
+## Recommended Next Work (REVISED for post-Session-2 state)
+
+The remaining work after Session 2 is much smaller than the original list.
+In suggested order:
+
+1. **Update `scripts/agents` to launch the new pane CLI inside tmux.**
+   - Detect tmux + create session if absent.
+   - Run `bin/symphony agents-pane <workflow>` as foreground of pane 0.
+   - `tmux attach -t <session>` if foreground mode requested.
+   - Keep the existing `agents` subcommand working for legacy users until
+     the user is happy with the new pane CLI.
+2. **Wire `AgentRunner.codex_message_handler/4` to broadcast transcript
+   events.** Map the loose codex event map to a `transcript_event` and
+   call `AgentPubSub.broadcast_transcript/2`. Skip events that aren't
+   transcript-shaped (token usage, rate limits).
+3. **Wire `AgentChat.send/2` symmetric broadcast.** After
+   `Orchestrator.send_operator_message/2` returns `{:ok, _}`, broadcast
+   `{:transcript_event, %{role: :user, body: text, msg_id: ...}}` on
+   `"agent:<id>"`.
+4. **Termius verification on iPad.** The user runs the new flow and
+   confirms typing feels like Claude Code. **This is the merge gate.**
+5. **Hard cutover.** Delete `lib/symphony_elixir/status_dashboard.ex`,
+   `lib/symphony_elixir/terminal_input.ex`, and their tests. Drop the
+   `pane_cli`/`interactive_cli` env-flag branching in `application.ex`
+   (always use the pane stack). Update `mix.exs` coverage `ignore_modules`
+   to drop the deleted modules.
+6. **Integration tests.** Three scenarios per the plan:
+   - End-to-end pane spawn (tmux pane exists, hidden BEAM connected,
+     `"agent:<id>"` subscribed).
+   - Cross-node PubSub delivery.
+   - Pane exits cleanly on Symphony death.
+   Provision tmux >= 3.3 in the CI image.
+
+---
+
+## Original Recommended Next Work (kept for reference)
 
 Each item is a small commit. User-facing conventions from
 `docs/handoffs/2026-05-15-pubsub-next-handoff.md` and previously-saved
