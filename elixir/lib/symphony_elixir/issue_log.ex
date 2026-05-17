@@ -28,6 +28,9 @@ defmodule SymphonyElixir.IssueLog do
     }
   end
 
+  # Cap on how many recent events we keep in memory for `history/2`.
+  @history_limit 100
+
   @doc """
   Ensure a writer is running for `identifier`. Returns `:ok` on success;
   if a writer is already running for this identifier the call is a
@@ -46,6 +49,22 @@ defmodule SymphonyElixir.IssueLog do
         Logger.warning("IssueLog.attach(#{identifier}) failed: #{inspect(reason)}")
         :ok
     end
+  end
+
+  @doc """
+  Return up to `limit` recent transcript/alert events captured for this
+  issue, oldest first. Returns `[]` if no writer is running yet for the
+  given identifier — callers should still treat that as "no history
+  available" rather than as an error.
+  """
+  @spec history(AgentEvents.agent_identifier(), pos_integer()) :: [map()]
+  def history(identifier, limit \\ @history_limit) when is_binary(identifier) do
+    case Registry.lookup(SymphonyElixir.IssueLog.Registry, identifier) do
+      [{pid, _}] -> GenServer.call(pid, {:history, limit}, 1_000)
+      [] -> []
+    end
+  catch
+    :exit, _ -> []
   end
 
   @doc """
@@ -72,10 +91,11 @@ defmodule SymphonyElixir.IssueLog do
       {:ok, file} ->
         :ok = AgentPubSub.subscribe_agent(identifier)
         Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
-        {:ok, %{identifier: identifier, file: file, path: path}}
+        {:ok, %{identifier: identifier, file: file, path: path, history: :queue.new(), history_size: 0}}
 
       {:error, reason} ->
         Logger.warning("IssueLog open failed identifier=#{identifier} path=#{path} reason=#{inspect(reason)}")
+
         {:stop, reason}
     end
   end
@@ -89,17 +109,35 @@ defmodule SymphonyElixir.IssueLog do
   def terminate(_reason, _state), do: :ok
 
   @impl true
-  def handle_info({:transcript_event, %{role: role, body: body} = event}, state) do
-    write_line(state.file, format_transcript(role, body, event))
-    {:noreply, state}
+  def handle_call({:history, limit}, _from, state) do
+    items = :queue.to_list(state.history) |> Enum.take(-limit)
+    {:reply, items, state}
   end
 
-  def handle_info({:alert, %{name: name, message: message} = event}, state) do
-    write_line(state.file, format_alert(name, message, event))
-    {:noreply, state}
+  @impl true
+  def handle_info({:transcript_event, %{role: _role, body: _body} = event}, state) do
+    write_line(state.file, format_transcript(event[:role], event[:body], event))
+    {:noreply, push_history(state, {:transcript_event, event})}
+  end
+
+  def handle_info({:alert, %{name: _name, message: _message} = event}, state) do
+    write_line(state.file, format_alert(event[:name], event[:message], event))
+    {:noreply, push_history(state, {:alert, event})}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
+
+  defp push_history(state, item) do
+    queue = :queue.in(item, state.history)
+    size = state.history_size + 1
+
+    if size > @history_limit do
+      {_, trimmed} = :queue.out(queue)
+      %{state | history: trimmed, history_size: @history_limit}
+    else
+      %{state | history: queue, history_size: size}
+    end
+  end
 
   # ---------- helpers ------------------------------------------------------
 
