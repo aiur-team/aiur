@@ -237,10 +237,39 @@ defmodule SymphonyPane.Viewport do
     [tag_row | body_rows]
   end
 
+  defp render_event_rows(%{role: :alert} = event, inner_width, _show_tag?) do
+    # Alerts render inline (tag + body on the same row) — they're
+    # short status pings ("task.todo: …") that read better as a single
+    # line, not a tag-above-body block.
+    body = body_for_role(:alert, Map.get(event, :body, ""))
+    {tag_styled, tag_width} = tag_for(:alert)
+    body_style = body_style_for(:alert)
+
+    spacer = " "
+    spacer_width = String.length(spacer)
+    body_width = max(inner_width - tag_width - spacer_width, 1)
+
+    body
+    |> wrap_body(body_width)
+    |> Enum.with_index()
+    |> Enum.map(fn {line, idx} ->
+      styled = stylize(body_style, line)
+      pad = String.duplicate(" ", max(inner_width - tag_width - spacer_width - String.length(line), 0))
+
+      if idx == 0 do
+        [tag_styled, spacer, styled, pad]
+      else
+        # Continuation lines align under the body, not under the tag.
+        indent = String.duplicate(" ", tag_width + spacer_width)
+        [indent, styled, pad]
+      end
+    end)
+  end
+
   defp render_event_rows(event, inner_width, _show_tag?) do
-    # Agent / system / alert: tag on its own row, body rows below
-    # filling the full inner_width. Body alignment stays left for these
-    # roles — only user gets right-alignment.
+    # Agent / system: tag on its own row, body rows below filling the
+    # full inner_width. Body alignment stays left for these roles —
+    # only user gets right-alignment.
     role = Map.get(event, :role, :system)
     body = body_for_role(role, Map.get(event, :body, ""))
     {tag_styled, tag_width} = tag_for(role)
