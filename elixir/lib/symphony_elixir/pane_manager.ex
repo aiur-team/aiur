@@ -68,18 +68,22 @@ defmodule SymphonyElixir.PaneManager do
   def handle_call({:open, identifier, command_to_run}, _from, state) do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, existing_pane} ->
+        Logger.debug("PaneManager.open identifier=#{identifier} already_open=#{existing_pane}")
         {:reply, {:ok, existing_pane}, state}
 
       :error ->
         wrapped_command = wrap_with_unique_node(command_to_run, identifier)
+        Logger.debug("PaneManager.open identifier=#{identifier} command=#{inspect(wrapped_command)}")
 
         case Tmux.spawn_pane_for(state.tmux, identifier, wrapped_command) do
           {:ok, pane_id} ->
             new_state = record_pane(state, identifier, pane_id)
             AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+            Logger.debug("PaneManager.open identifier=#{identifier} -> pane_id=#{pane_id}")
             {:reply, {:ok, pane_id}, new_state}
 
           {:error, reason} ->
+            Logger.warning("PaneManager.open identifier=#{identifier} failed: #{inspect(reason)}")
             {:reply, {:error, reason}, state}
         end
     end

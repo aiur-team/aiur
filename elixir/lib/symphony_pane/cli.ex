@@ -19,10 +19,13 @@ defmodule SymphonyPane.CLI do
   @spec main([String.t()]) :: no_return()
   def main([identifier | _rest]) when is_binary(identifier) and identifier != "" do
     _ = Application.ensure_all_started(:logger)
+    _ = SymphonyElixir.LogFile.configure_level()
     _ = Application.ensure_all_started(:phoenix_pubsub)
     _ = Application.ensure_started(:symphony_elixir_pubsub_pane)
 
     start_pubsub()
+
+    Logger.debug("SymphonyPane.CLI starting for identifier=#{inspect(identifier)}")
 
     {:ok, pid} = Conversation.start_link(identifier, [])
 

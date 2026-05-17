@@ -9,13 +9,18 @@ defmodule SymphonyElixir.AgentPubSub do
   contexts).
   """
 
+  require Logger
+
   alias SymphonyElixir.AgentEvents
 
   @pubsub SymphonyElixir.PubSub
 
   @spec subscribe_agent(AgentEvents.agent_identifier()) :: :ok | {:error, term()}
   def subscribe_agent(identifier) when is_binary(identifier) do
-    Phoenix.PubSub.subscribe(@pubsub, AgentEvents.agent_topic(identifier))
+    topic = AgentEvents.agent_topic(identifier)
+    result = Phoenix.PubSub.subscribe(@pubsub, topic)
+    Logger.debug("AgentPubSub.subscribe_agent topic=#{topic} pid=#{inspect(self())} result=#{inspect(result)}")
+    result
   end
 
   @spec subscribe_running() :: :ok | {:error, term()}
@@ -48,8 +53,16 @@ defmodule SymphonyElixir.AgentPubSub do
 
   defp do_broadcast(topic, message) do
     case Process.whereis(@pubsub) do
-      pid when is_pid(pid) -> Phoenix.PubSub.broadcast(@pubsub, topic, message)
-      _ -> :ok
+      pid when is_pid(pid) ->
+        Logger.debug("AgentPubSub.broadcast topic=#{topic} tag=#{inspect(message_tag(message))}")
+        Phoenix.PubSub.broadcast(@pubsub, topic, message)
+
+      _ ->
+        Logger.debug("AgentPubSub.broadcast skipped (no PubSub registry): topic=#{topic}")
+        :ok
     end
   end
+
+  defp message_tag(message) when is_tuple(message) and tuple_size(message) > 0, do: elem(message, 0)
+  defp message_tag(_message), do: :unknown
 end

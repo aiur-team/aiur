@@ -20,14 +20,25 @@ agents_os="${AGENTS_OS_OVERRIDE:-$(uname -s)}"
 # Tailscale or LAN exposure). When absent, the wrapper injects
 # `--host 127.0.0.1` so a default `agents` run binds locally only.
 expose_host=0
+debug_mode=0
 filtered_args=()
 for arg in "$@"; do
-  if [ "$arg" = "--host" ]; then
-    expose_host=1
-  else
-    filtered_args+=("$arg")
-  fi
+  case "$arg" in
+    --host)
+      expose_host=1
+      ;;
+    --debug)
+      debug_mode=1
+      ;;
+    *)
+      filtered_args+=("$arg")
+      ;;
+  esac
 done
+
+if [ "$debug_mode" -eq 1 ]; then
+  export SYMPHONY_DEBUG=1
+fi
 
 if [ "${#filtered_args[@]}" -gt 0 ]; then
   set -- "${filtered_args[@]}"
@@ -52,6 +63,13 @@ With a profile name, run that profile's workflow in the foreground.
 With --bg, restart background services only and return. Defaults to the default profile.
 With all, restart the other configured services and run the default profile in the foreground.
 With stop, stop a profile, every profile, or ad hoc foreground Symphony processes.
+
+Options:
+  --debug              enable verbose debug logging (sets SYMPHONY_DEBUG=1).
+                       Tail logs in another terminal:
+                         tail -F elixir/log/symphony.log
+  --host               leave the workflow's configured host alone (default
+                       binds to 127.0.0.1 for loopback-only access).
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
