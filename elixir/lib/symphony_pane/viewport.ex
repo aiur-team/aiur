@@ -209,48 +209,73 @@ defmodule SymphonyPane.Viewport do
   end
 
   defp render_event_rows(%{role: :assistant} = event, inner_width, false) do
-    # Continuation agent message: no tag, body sits exactly at the
-    # column where a tagged agent body would have started.
+    # Continuation agent message: no tag row, body uses the full
+    # inner_width starting at column 0 — the visual continuity of
+    # paragraphs without a repeated [agent] tag.
     body = body_for_role(:assistant, Map.get(event, :body, ""))
     body_style = body_style_for(:assistant)
+    render_body_lines(body, body_style, inner_width, :left, 0)
+  end
 
-    {_, agent_tag_width} = tag_for(:assistant)
-    indent_width = agent_tag_width + 1
-    body_width = max(inner_width - indent_width, 1)
-    indent = String.duplicate(" ", indent_width)
+  defp render_event_rows(%{role: :user} = event, inner_width, _show_tag?) do
+    body = body_for_role(:user, Map.get(event, :body, ""))
+    {tag_styled, tag_width} = tag_for(:user)
+    body_style = body_style_for(:user)
+
+    # User bodies render in two modes:
+    #   * Fits in one line → keep the chat-bubble look: tag row right,
+    #     body row right-aligned with no margin.
+    #   * Wraps → add a 5-column left margin to every body line so the
+    #     block visually distinguishes from agent text (which uses the
+    #     full inner_width starting at column 0).
+    full_wrap = wrap_body(body, inner_width)
+    margin = if length(full_wrap) > 1, do: 5, else: 0
+
+    tag_row = render_tag_row(tag_styled, tag_width, inner_width, :right)
+    body_rows = render_body_lines(body, body_style, inner_width, :right, margin)
+
+    [tag_row | body_rows]
+  end
+
+  defp render_event_rows(event, inner_width, _show_tag?) do
+    # Agent / system / alert: tag on its own row, body rows below
+    # filling the full inner_width. Body alignment stays left for these
+    # roles — only user gets right-alignment.
+    role = Map.get(event, :role, :system)
+    body = body_for_role(role, Map.get(event, :body, ""))
+    {tag_styled, tag_width} = tag_for(role)
+    body_style = body_style_for(role)
+
+    tag_row = render_tag_row(tag_styled, tag_width, inner_width, :left)
+    body_rows = render_body_lines(body, body_style, inner_width, :left, 0)
+
+    [tag_row | body_rows]
+  end
+
+  defp render_tag_row(tag_styled, tag_width, inner_width, :left) do
+    pad = String.duplicate(" ", max(inner_width - tag_width, 0))
+    [tag_styled, pad]
+  end
+
+  defp render_tag_row(tag_styled, tag_width, inner_width, :right) do
+    pad = String.duplicate(" ", max(inner_width - tag_width, 0))
+    [pad, tag_styled]
+  end
+
+  defp render_body_lines(body, body_style, inner_width, align, left_margin) do
+    body_width = max(inner_width - left_margin, 1)
+    margin_str = String.duplicate(" ", left_margin)
 
     body
     |> wrap_body(body_width)
     |> Enum.map(fn line ->
       styled = stylize(body_style, line)
-      pad = String.duplicate(" ", max(inner_width - indent_width - String.length(line), 0))
-      [indent, styled, pad]
-    end)
-  end
+      pad_count = max(inner_width - left_margin - String.length(line), 0)
+      pad = String.duplicate(" ", pad_count)
 
-  defp render_event_rows(event, inner_width, _show_tag?) do
-    role = Map.get(event, :role, :system)
-    body = body_for_role(role, Map.get(event, :body, ""))
-    {tag_styled, tag_width} = tag_for(role)
-    body_style = body_style_for(role)
-    align = if role == :user, do: :right, else: :left
-
-    # Leave one space of breathing room between the tag and the body.
-    spacer = " "
-    spacer_width = String.length(spacer)
-    body_width = max(inner_width - tag_width - spacer_width, 1)
-
-    body_lines = wrap_body(body, body_width)
-
-    body_lines
-    |> Enum.with_index()
-    |> Enum.map(fn {line, idx} ->
-      styled_line = stylize(body_style, line)
-
-      if idx == 0 do
-        render_first_row(tag_styled, tag_width, styled_line, line, inner_width, align)
-      else
-        render_continuation_row(tag_width, styled_line, line, inner_width, align)
+      case align do
+        :left -> [margin_str, styled, pad]
+        :right -> [margin_str, pad, styled]
       end
     end)
   end
@@ -283,32 +308,6 @@ defmodule SymphonyPane.Viewport do
   end
 
   defp body_for_role(_role, body), do: to_string(body)
-
-  # `styled_line` carries any ANSI body styling; `raw_line` is the plain
-  # text used to measure visible width for padding. Without that split,
-  # padding would account for the invisible ANSI escapes and short-pad
-  # every styled row.
-  defp render_first_row(tag_styled, tag_width, styled_line, raw_line, inner_width, :left) do
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
-    [tag_styled, " ", styled_line, pad]
-  end
-
-  defp render_first_row(tag_styled, tag_width, styled_line, raw_line, inner_width, :right) do
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
-    [pad, styled_line, " ", tag_styled]
-  end
-
-  defp render_continuation_row(tag_width, styled_line, raw_line, inner_width, :left) do
-    indent = String.duplicate(" ", tag_width + 1)
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
-    [indent, styled_line, pad]
-  end
-
-  defp render_continuation_row(tag_width, styled_line, raw_line, inner_width, :right) do
-    indent = String.duplicate(" ", tag_width + 1)
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
-    [pad, styled_line, indent]
-  end
 
   defp wrap_body(body, width) do
     body
