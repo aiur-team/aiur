@@ -1135,15 +1135,13 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
             }} = Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
   end
 
-  test "application configures a rotating file logger handler" do
-    assert {:ok, handler_config} = :logger.get_handler_config(:symphony_disk_log)
-    assert handler_config.module == :logger_disk_log_h
+  test "application configures a single-file logger handler" do
+    assert {:ok, handler_config} = :logger.get_handler_config(:symphony_file_log)
+    assert handler_config.module == :logger_std_h
 
-    disk_config = handler_config.config
-    assert disk_config.type == :wrap
-    assert is_list(disk_config.file)
-    assert disk_config.max_no_bytes > 0
-    assert disk_config.max_no_files > 0
+    file_config = handler_config.config
+    assert file_config.type == :file
+    assert is_list(file_config.file)
   end
 
   defp wait_for_snapshot(pid, predicate, timeout_ms \\ 200) when is_function(predicate, 1) do
