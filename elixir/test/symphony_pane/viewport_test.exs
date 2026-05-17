@@ -65,6 +65,25 @@ defmodule SymphonyPane.ViewportTest do
     end)
   end
 
+  test "wraps long transcript events to multiple lines instead of truncating" do
+    text = String.duplicate("a", 60) <> " " <> String.duplicate("b", 60)
+    event = AgentEvents.transcript_event(:assistant, text)
+    {frame, _cursor} = Viewport.render(base_state(transcript: [event], columns: 40, rows: 24))
+
+    # `inner_width = cols - 1 = 39`. The formatted event is
+    # "agent: aaa…aaa bbb…bbb" → 129 chars, which needs 4 wrapped rows.
+    text = frame |> IO.iodata_to_binary() |> visible()
+    assert text =~ "agent: "
+    assert text =~ String.duplicate("a", 30)
+    assert text =~ String.duplicate("b", 30)
+
+    # No single visible line should exceed inner_width.
+    Enum.each(String.split(text, ["\r\n", "\n"]), fn line ->
+      line = String.replace(line, "\r", "")
+      assert String.length(line) <= 39, "transcript line too long: #{inspect(line)}"
+    end)
+  end
+
   test "wraps composer buffer past the prompt-row capacity to the next tinted row" do
     # `inner_width = cols - 1 = 19`, prompt "> " takes 2, so the first row
     # holds 17 chars. A 25-char buffer overflows; the wrap should land the
