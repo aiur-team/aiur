@@ -3,6 +3,8 @@ defmodule SymphonyElixir.AgentChat do
   Public facade for operator messages sent to active agent sessions.
   """
 
+  require Logger
+
   alias SymphonyElixir.{AgentEvents, AgentPubSub, Orchestrator}
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
@@ -11,6 +13,8 @@ defmodule SymphonyElixir.AgentChat do
       when is_binary(issue_identifier) and is_binary(text) do
     delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
     fallback = Keyword.get(opts, :fallback, :queue_next)
+
+    Logger.info("AgentChat.send issue=#{issue_identifier} bytes=#{byte_size(text)} body=#{inspect(preview(text))}")
 
     result =
       Orchestrator.send_operator_message(
@@ -28,8 +32,13 @@ defmodule SymphonyElixir.AgentChat do
         ok
 
       other ->
+        Logger.warning("AgentChat.send issue=#{issue_identifier} failed: #{inspect(other)}")
         other
     end
+  end
+
+  defp preview(text) when is_binary(text) do
+    if byte_size(text) > 500, do: binary_part(text, 0, 500) <> "…", else: text
   end
 
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}

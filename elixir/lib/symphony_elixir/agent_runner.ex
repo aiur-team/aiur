@@ -79,6 +79,53 @@ defmodule SymphonyElixir.AgentRunner do
   defp maybe_broadcast_transcript(_issue, _message), do: :ok
 
   defp transcript_event_from(message) when is_map(message) do
+    case assistant_message_from_codex(message) do
+      text when is_binary(text) and text != "" ->
+        {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message))}
+
+      _ ->
+        legacy_transcript_event(message)
+    end
+  end
+
+  # Codex's `notification` events wrap the actual method inside `payload`.
+  # `item/completed` with an `item.type == "agentMessage"` is the canonical
+  # "agent finished a chunk of natural-language output" signal — the rest
+  # (`reasoning`, `commandExecution`, `userMessage`, etc.) we deliberately
+  # skip so the transcript stays readable.
+  defp assistant_message_from_codex(message) do
+    with method when method in ["item/completed"] <- notification_method(message),
+         item when is_map(item) <- notification_item(message),
+         "agentMessage" <- get(item, :type) do
+      get(item, :text)
+    else
+      _ -> nil
+    end
+  end
+
+  defp notification_method(message) do
+    case get(message, :event) do
+      "notification" ->
+        case get(message, :payload) do
+          payload when is_map(payload) -> get(payload, :method)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp notification_item(message) do
+    with payload when is_map(payload) <- get(message, :payload),
+         params when is_map(params) <- get(payload, :params) do
+      get(params, :item)
+    else
+      _ -> nil
+    end
+  end
+
+  defp legacy_transcript_event(message) do
     role = role_for_event(message)
     body = body_for_event(message)
 
@@ -104,7 +151,7 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp event_kind(message) do
-    case Map.get(message, :event) || Map.get(message, "event") do
+    case get(message, :event) do
       nil -> nil
       atom when is_atom(atom) -> Atom.to_string(atom)
       other -> to_string(other)
@@ -112,12 +159,19 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp body_for_event(message) do
-    Map.get(message, :last_message) ||
-      Map.get(message, "last_message") ||
-      Map.get(message, :body) ||
-      Map.get(message, "body") ||
+    get(message, :last_message) ||
+      get(message, :body) ||
       nil
   end
+
+  # Look up `key` in `map` using both atom and binary forms so we tolerate
+  # either shape (`%{event: "..."}` or `%{"event" => "..."}`) — codex events
+  # arrive as string-keyed JSON, while internal messages stay atom-keyed.
+  defp get(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp get(_map, _key), do: nil
 
   defp timestamp_for(message) do
     case Map.get(message, :timestamp) || Map.get(message, "timestamp") do

@@ -174,6 +174,9 @@ defmodule SymphonyElixir.AgentList.App do
       |> Map.put(:project_label, project_label())
       |> Map.put(:dashboard_url, dashboard_url())
       |> Map.put(:refresh_label, refresh_label())
+      |> Map.put(:agent_kind, agent_kind())
+      |> Map.put(:agent_count, length(state.summaries))
+      |> Map.put(:max_agents, max_agents())
 
     state.write_fun.(Renderer.render(render_state))
     :ok
@@ -199,6 +202,20 @@ defmodule SymphonyElixir.AgentList.App do
   end
 
   defp refresh_label, do: nil
+
+  defp agent_kind do
+    case safe_call(fn -> Config.agent_kind() end) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp max_agents do
+    case safe_call(fn -> Config.max_concurrent_agents() end) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> nil
+    end
+  end
 
   defp safe_call(fun) do
     fun.()
