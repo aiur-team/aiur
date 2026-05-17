@@ -35,6 +35,11 @@ defmodule SymphonyElixir.CLI do
   @spec main([String.t()]) :: no_return()
   def main(["conversation" | rest]), do: SymphonyPane.CLI.main(rest)
 
+  def main(["agents-pane" | rest]) do
+    Application.put_env(:symphony_elixir, :pane_cli, true)
+    main(rest)
+  end
+
   def main(args) do
     case evaluate(args) do
       :ok ->
