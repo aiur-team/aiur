@@ -23,7 +23,9 @@ defmodule SymphonyElixir.AgentList.App do
   require Logger
 
   alias SymphonyElixir.AgentList.Renderer
-  alias SymphonyElixir.{AgentPubSub, Config, HttpServer, PaneManager, Tracker}
+  alias SymphonyElixir.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
+
+  @refresh_tick_ms 1_000
 
   @type state :: %{
           summaries: [map()],
@@ -81,8 +83,13 @@ defmodule SymphonyElixir.AgentList.App do
       command_template: command_template
     }
 
+    schedule_refresh_tick()
     render(state)
     {:ok, state}
+  end
+
+  defp schedule_refresh_tick do
+    Process.send_after(self(), :refresh_tick, @refresh_tick_ms)
   end
 
   @impl true
@@ -139,6 +146,13 @@ defmodule SymphonyElixir.AgentList.App do
   def handle_info({:status_changed, _}, state), do: {:noreply, state}
 
   def handle_info({:alert, %{}}, state), do: {:noreply, state}
+
+  def handle_info(:refresh_tick, state) do
+    render(state)
+    schedule_refresh_tick()
+    {:noreply, state}
+  end
+
   def handle_info(_other, state), do: {:noreply, state}
 
   # Internals -----------------------------------------------------------------
@@ -204,7 +218,19 @@ defmodule SymphonyElixir.AgentList.App do
     end
   end
 
-  defp refresh_label, do: nil
+  defp refresh_label do
+    case safe_call(fn -> Orchestrator.poll_status() end) do
+      %{checking?: true} ->
+        "checking now…"
+
+      %{next_poll_in_ms: ms} when is_integer(ms) ->
+        seconds = div(max(ms, 0) + 999, 1000)
+        "#{seconds}s"
+
+      _ ->
+        nil
+    end
+  end
 
   defp agent_kind do
     case safe_call(fn -> Config.agent_kind() end) do
