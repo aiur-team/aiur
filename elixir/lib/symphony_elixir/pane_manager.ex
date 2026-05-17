@@ -153,15 +153,27 @@ defmodule SymphonyElixir.PaneManager do
         _ -> ""
       end
 
-    "env ERL_AFLAGS='-sname #{node_short}#{cookie_flag}' #{command}"
+    # Mirror the parent BEAM's distribution flags so the pane can actually
+    # connect back to symphony. Pinning to 127.0.0.1 sidesteps boxes where
+    # the hostname resolves to IPv6 first while the BEAM listens on
+    # 0.0.0.0 (IPv4 only).
+    dist_flags = " -proto_dist inet_tcp -kernel inet_dist_use_interface '{127,0,0,1}'"
+
+    "env ERL_AFLAGS='-sname #{node_short}#{cookie_flag}#{dist_flags}' #{command}"
   end
 
   defp read_erlang_cookie do
-    path = Path.join(System.user_home!(), ".erlang.cookie")
+    case System.get_env("SYMPHONY_ERLANG_COOKIE") do
+      env when is_binary(env) and env != "" ->
+        String.trim(env)
 
-    case File.read(path) do
-      {:ok, contents} -> String.trim(contents)
-      {:error, _} -> nil
+      _ ->
+        path = Path.join(System.user_home!(), ".erlang.cookie")
+
+        case File.read(path) do
+          {:ok, contents} -> String.trim(contents)
+          {:error, _} -> nil
+        end
     end
   rescue
     _ -> nil
