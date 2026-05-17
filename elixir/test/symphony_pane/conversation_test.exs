@@ -1,7 +1,7 @@
 defmodule SymphonyPane.ConversationTest do
   use ExUnit.Case, async: false
 
-  alias SymphonyElixir.AgentEvents
+  alias SymphonyElixir.{AgentEvents, AgentPubSub}
   alias SymphonyPane.Conversation
 
   defp start_pane(identifier) do
@@ -21,7 +21,20 @@ defmodule SymphonyPane.ConversationTest do
     # Drain the initial render.
     assert_receive {:frame, _}, 500
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        try do
+          GenServer.stop(pid, :normal, 100)
+        catch
+          # Tolerate the narrow race between `Process.alive?/1` and
+          # `GenServer.stop/3`'s monitor: PubSub-driven tests can finish
+          # rendering after the test body returns, and the pane may already
+          # be mid-shutdown when `stop/3` reaches it.
+          :exit, _ -> :ok
+        end
+      end
+    end)
+
     pid
   end
 
@@ -84,5 +97,21 @@ defmodule SymphonyPane.ConversationTest do
 
     state = :sys.get_state(pid)
     assert length(state.transcript) == 1
+  end
+
+  test "subscribes locally and renders broadcasts on the agent topic" do
+    identifier = "MT-PUBSUB-#{System.unique_integer([:positive])}"
+    pid = start_pane(identifier)
+
+    AgentPubSub.broadcast_transcript(
+      identifier,
+      AgentEvents.transcript_event(:assistant, "hello via pubsub")
+    )
+
+    assert_receive {:frame, frame}, 500
+    assert visible(frame) =~ "agent: hello via pubsub"
+
+    state = :sys.get_state(pid)
+    assert Enum.any?(state.transcript, fn e -> e.body == "hello via pubsub" end)
   end
 end
