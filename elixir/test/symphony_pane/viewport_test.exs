@@ -37,6 +37,41 @@ defmodule SymphonyPane.ViewportTest do
     assert text =~ "hello back"
   end
 
+  test "wraps alert body text in the terminal-default red SGR" do
+    event = AgentEvents.transcript_event(:alert, "task.todo: Task entered todo")
+    {frame, _cursor} = Viewport.render(base_state(transcript: [event]))
+
+    raw = IO.iodata_to_binary(frame)
+    # `\e[31m` is SGR "default red" — terminals render it from their
+    # current palette so it stays readable in both light and dark mode.
+    assert raw =~ "\e[31mtask.todo"
+    assert raw =~ "task.todo: Task entered todo\e[0m"
+  end
+
+  test "wraps command body text in the faint SGR for a greyed-out look" do
+    event = AgentEvents.transcript_event(:command, "$ ls")
+    {frame, _cursor} = Viewport.render(base_state(transcript: [event]))
+
+    raw = IO.iodata_to_binary(frame)
+    # `\e[2m` is SGR "faint" — every modern terminal renders it as a
+    # dim variant of the default foreground, theme-aware by definition.
+    assert raw =~ "\e[2m$ ls"
+    assert raw =~ "$ ls\e[0m"
+  end
+
+  test "leaves regular agent text un-styled" do
+    event = AgentEvents.transcript_event(:assistant, "hello")
+    {frame, _cursor} = Viewport.render(base_state(transcript: [event]))
+
+    raw = IO.iodata_to_binary(frame)
+    # The body itself must not be wrapped in a colour SGR — only the
+    # tag (which is reset before the body) carries colour. Look at the
+    # line tail to confirm no body-styling escape precedes the body.
+    refute raw =~ "\e[31mhello"
+    refute raw =~ "\e[2mhello"
+    assert raw =~ "hello"
+  end
+
   test "right-aligns user messages and left-aligns agent messages" do
     transcript = [
       AgentEvents.transcript_event(:user, "hi"),

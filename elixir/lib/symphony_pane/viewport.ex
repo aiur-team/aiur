@@ -49,6 +49,18 @@ defmodule SymphonyPane.Viewport do
   @bg_command "\e[45m\e[30m"
   @bg_alert "\e[41m\e[37m"
 
+  # Body text styling — chosen via terminal-default SGR codes so the
+  # color adapts to whichever palette the user's theme defines for that
+  # slot. This means `[alert]` red looks red on dark terminals (bright
+  # red) AND on light terminals (dark red), and `[cmd]` faint reads as
+  # ~50% opacity in both modes without me having to guess RGB values.
+  #
+  #   :alert   `\e[31m`  default red    (terminal-palette adapted)
+  #   :command `\e[2m`   faint (dim)    (terminal-palette adapted)
+  #   else     ""        no body style  (default fg color)
+  @body_alert "\e[31m"
+  @body_command "\e[2m"
+
   # Max tinted-input rows before we stop growing the composer block. Beyond
   # this we truncate from the start of the buffer (keeping the cursor and
   # tail visible) rather than letting it swallow the transcript.
@@ -109,6 +121,7 @@ defmodule SymphonyPane.Viewport do
     role = Map.get(event, :role, :system)
     body = body_for_role(role, Map.get(event, :body, ""))
     {tag_styled, tag_width} = tag_for(role)
+    body_style = body_style_for(role)
     align = if role == :user, do: :right, else: :left
 
     # Leave one space of breathing room between the tag and the body.
@@ -121,13 +134,22 @@ defmodule SymphonyPane.Viewport do
     body_lines
     |> Enum.with_index()
     |> Enum.map(fn {line, idx} ->
+      styled_line = stylize(body_style, line)
+
       if idx == 0 do
-        render_first_row(tag_styled, tag_width, line, inner_width, align)
+        render_first_row(tag_styled, tag_width, styled_line, line, inner_width, align)
       else
-        render_continuation_row(tag_width, line, inner_width, align)
+        render_continuation_row(tag_width, styled_line, line, inner_width, align)
       end
     end)
   end
+
+  defp body_style_for(:alert), do: @body_alert
+  defp body_style_for(:command), do: @body_command
+  defp body_style_for(_role), do: ""
+
+  defp stylize("", line), do: line
+  defp stylize(style, line), do: [style, line, @ansi_reset]
 
   defp tag_for(role), do: build_tag(role, bg_for(role))
 
@@ -147,30 +169,30 @@ defmodule SymphonyPane.Viewport do
 
   defp body_for_role(_role, body), do: to_string(body)
 
-  defp render_first_row(tag_styled, tag_width, line, inner_width, :left) do
-    line_width = String.length(line)
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
-    [tag_styled, " ", line, pad]
+  # `styled_line` carries any ANSI body styling; `raw_line` is the plain
+  # text used to measure visible width for padding. Without that split,
+  # padding would account for the invisible ANSI escapes and short-pad
+  # every styled row.
+  defp render_first_row(tag_styled, tag_width, styled_line, raw_line, inner_width, :left) do
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
+    [tag_styled, " ", styled_line, pad]
   end
 
-  defp render_first_row(tag_styled, tag_width, line, inner_width, :right) do
-    line_width = String.length(line)
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
-    [pad, line, " ", tag_styled]
+  defp render_first_row(tag_styled, tag_width, styled_line, raw_line, inner_width, :right) do
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
+    [pad, styled_line, " ", tag_styled]
   end
 
-  defp render_continuation_row(tag_width, line, inner_width, :left) do
+  defp render_continuation_row(tag_width, styled_line, raw_line, inner_width, :left) do
     indent = String.duplicate(" ", tag_width + 1)
-    line_width = String.length(line)
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
-    [indent, line, pad]
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
+    [indent, styled_line, pad]
   end
 
-  defp render_continuation_row(tag_width, line, inner_width, :right) do
+  defp render_continuation_row(tag_width, styled_line, raw_line, inner_width, :right) do
     indent = String.duplicate(" ", tag_width + 1)
-    line_width = String.length(line)
-    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - line_width, 0))
-    [pad, line, indent]
+    pad = String.duplicate(" ", max(inner_width - tag_width - 1 - String.length(raw_line), 0))
+    [pad, styled_line, indent]
   end
 
   defp wrap_body(body, width) do
