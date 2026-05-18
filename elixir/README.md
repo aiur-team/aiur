@@ -82,6 +82,19 @@ gitignored at the repo root.
 By default `aiur` injects `--host 127.0.0.1` so the dashboard stays local. Pass `--host`
 explicitly to opt out.
 
+Use `--port <N>` before the command/profile name to override the configured profile or
+workflow port for one invocation:
+
+```bash
+aiur --port 4099
+aiur --port 4099 --bg
+aiur --port 4102 actions
+```
+
+When no `--port` override is present and the configured port is busy, the wrapper tries
+the next 9 ports and prints the selected port. If none are free, a fast startup crash is
+replayed in the host shell with the last pane output and a port-collision hint.
+
 ## Dashboard
 
 When `server.port` (or CLI `--port`) is set, Aiur exposes:

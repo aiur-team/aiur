@@ -32,9 +32,17 @@ expose_host=0
 debug_mode=0
 logs_mode=0
 log_issue_id=""
+port_override=""
 filtered_args=()
 expect_log_value=0
+expect_port_value=0
 for arg in "$@"; do
+  if [ "$expect_port_value" -eq 1 ]; then
+    port_override="$arg"
+    expect_port_value=0
+    continue
+  fi
+
   if [ "$expect_log_value" -eq 1 ]; then
     log_issue_id="$arg"
     expect_log_value=0
@@ -57,15 +65,39 @@ for arg in "$@"; do
     --log=*)
       log_issue_id="${arg#--log=}"
       ;;
+    --port)
+      expect_port_value=1
+      ;;
+    --port=*)
+      port_override="${arg#--port=}"
+      ;;
     *)
       filtered_args+=("$arg")
       ;;
   esac
 done
 
+if [ "$expect_port_value" -eq 1 ]; then
+  echo "aiur: --port requires a port number (e.g. --port 4099)" >&2
+  exit 64
+fi
+
 if [ "$expect_log_value" -eq 1 ]; then
   echo "aiur: --log requires an issue identifier (e.g. --log 25)" >&2
   exit 64
+fi
+
+validate_port() {
+  local port="$1"
+
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "aiur: invalid --port value '$port' (expected 1-65535)" >&2
+    exit 64
+  fi
+}
+
+if [ -n "$port_override" ]; then
+  validate_port "$port_override"
 fi
 
 if [ "$debug_mode" -eq 1 ]; then
@@ -117,6 +149,9 @@ Options:
                        Example: `aiur --log 25`
   --host               leave the workflow's configured host alone (default
                        binds to 127.0.0.1 for loopback-only access).
+  --port <N>           override the profile/workflow port for this invocation.
+                       Without this, aiur auto-increments up to 9 ports when
+                       the configured port is already in use.
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
@@ -252,6 +287,104 @@ profile_workflow_arg() {
   else
     printf './%s' "$workflow"
   fi
+}
+
+workflow_configured_port() {
+  local elixir_dir="$1"
+  local workflow="$2"
+  local path
+
+  if [[ "$workflow" = /* ]]; then
+    path="$workflow"
+  else
+    path="$elixir_dir/${workflow#./}"
+  fi
+
+  if [ ! -r "$path" ]; then
+    return 0
+  fi
+
+  awk '
+    BEGIN { in_frontmatter = 0; in_server = 0 }
+    NR == 1 && $0 == "---" { in_frontmatter = 1; next }
+    in_frontmatter && $0 == "---" { exit }
+    in_frontmatter && $0 ~ /^server:[[:space:]]*$/ { in_server = 1; next }
+    in_server && $0 ~ /^[^[:space:]]/ { in_server = 0 }
+    in_server && $0 ~ /^[[:space:]]+port:[[:space:]]*[0-9]+[[:space:]]*$/ {
+      sub(/^[[:space:]]+port:[[:space:]]*/, "")
+      sub(/[[:space:]]*$/, "")
+      print
+      exit
+    }
+  ' "$path"
+}
+
+port_in_use() {
+  local port="$1"
+  local output
+
+  if [ -n "${AIUR_PORT_CHECK_BIN:-}" ]; then
+    "$AIUR_PORT_CHECK_BIN" "$port"
+    return $?
+  fi
+
+  if command -v ss >/dev/null 2>&1; then
+    output="$(ss -H -ltn "sport = :$port" 2>/dev/null || true)"
+    [ -n "$output" ] && return 0
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  fi
+
+  return 1
+}
+
+launch_port_for_profile() {
+  local profile="$1"
+  local elixir_dir="$2"
+  local workflow="$3"
+  local configured_port
+  local candidate
+  local offset
+
+  if [ -n "$port_override" ]; then
+    printf '%s' "$port_override"
+    return 0
+  fi
+
+  configured_port="$(profile_value port "$profile")"
+
+  if [ -z "$configured_port" ]; then
+    configured_port="$(workflow_configured_port "$elixir_dir" "$workflow")"
+  fi
+
+  if [ -z "$configured_port" ]; then
+    return 0
+  fi
+
+  validate_port "$configured_port"
+
+  for offset in 0 1 2 3 4 5 6 7 8 9; do
+    candidate=$((configured_port + offset))
+
+    if [ "$candidate" -gt 65535 ]; then
+      break
+    fi
+
+    if ! port_in_use "$candidate"; then
+      if [ "$offset" -gt 0 ]; then
+        echo "aiur: port $configured_port in use; bound to $candidate instead (run with \`--port\` to override)" >&2
+      fi
+
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+
+  # Let Aiur attempt the configured port so the real BEAM startup error is
+  # captured and surfaced by the tmux startup failure path.
+  printf '%s' "$configured_port"
 }
 
 require_profile() {
@@ -518,9 +651,9 @@ start_bg_nohup() {
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
-  port="$(profile_value port "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
   service="$(profile_value service "$profile")"
+  port="$(launch_port_for_profile "$profile" "$elixir_dir" "$workflow")"
 
   ensure_built "$elixir_dir"
 
@@ -563,6 +696,11 @@ restart_one_background_service() {
   local profile="$1"
   local service
   service="$(profile_value service "$profile")"
+
+  if [ -n "$port_override" ]; then
+    start_bg_nohup "$profile"
+    return
+  fi
 
   case "$aiur_os" in
     Darwin*)
@@ -634,8 +772,8 @@ run_foreground() {
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
-  port="$(profile_value port "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
+  port="$(launch_port_for_profile "$profile" "$elixir_dir" "$workflow")"
 
   ensure_built "$elixir_dir"
 
@@ -669,6 +807,22 @@ run_foreground() {
 die() {
   echo "aiur: $*" >&2
   exit 1
+}
+
+print_startup_failure() {
+  local startup_capture="$1"
+
+  echo "aiur: Aiur exited during startup — captured pane output:" >&2
+  echo >&2
+
+  if [ -s "$startup_capture" ]; then
+    tail -n 30 "$startup_capture" | sed 's/^/  /' >&2
+  else
+    echo "  (no pane output captured)" >&2
+  fi
+
+  echo >&2
+  echo "Hint: port already in use. Aiur automatically tries the next 9 ports; try \`aiur --port <N>\` or set a different port in your profile." >&2
 }
 
 aiur_tmux_session_name() {
@@ -718,6 +872,9 @@ run_in_tmux() {
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="$elixir_dir/bin/aiur"
   export AIUR_MISE_BIN="$mise_bin"
+  local startup_capture
+  startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
+  trap 'rm -f "$startup_capture"' EXIT
 
   # Resolve where the BEAM will write its log file. The Elixir CLI sets
   # `:log_file` to `<logs_root>/log/aiur.log` when `--logs-root` is
@@ -740,20 +897,38 @@ run_in_tmux() {
     "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
   fi
 
-  # Build the inner command as a single string for tmux to exec inside its
-  # pane. We change into the elixir dir and call mise with the supplied args.
+  # Build the inner command as a single string for tmux to run inside its
+  # pane. Output is tee'd to a temp file so a startup crash can be replayed
+  # after tmux tears down the pane.
   local inner_cmd
-  printf -v inner_cmd 'cd %q && exec %q' "$elixir_dir" "$mise_bin"
+  printf -v inner_cmd 'cd %q && set -o pipefail && %q' "$elixir_dir" "$mise_bin"
 
   local arg
   for arg in "$@"; do
     printf -v inner_cmd '%s %q' "$inner_cmd" "$arg"
   done
+  printf -v inner_cmd '%s 2>&1 | tee -a %q; exit ${PIPESTATUS[0]}' "$inner_cmd" "$startup_capture"
 
-  "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
-    -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"
+  if ! "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
+    -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
+    print_startup_failure "$startup_capture"
+    exit 1
+  fi
+
+  local grace_ticks="${AIUR_STARTUP_GRACE_TICKS:-30}"
+  local grace_sleep="${AIUR_STARTUP_GRACE_SLEEP:-0.1}"
+  local tick
+  for ((tick = 0; tick < grace_ticks; tick++)); do
+    if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+      print_startup_failure "$startup_capture"
+      exit 1
+    fi
+
+    sleep "$grace_sleep"
+  done
 
   # In the foreground, the user attaches to the session normally.
+  rm -f "$startup_capture"
   exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
 }
 
