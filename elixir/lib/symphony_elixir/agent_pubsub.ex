@@ -63,6 +63,6 @@ defmodule SymphonyElixir.AgentPubSub do
     end
   end
 
-  defp message_tag(message) when is_tuple(message) and tuple_size(message) > 0, do: elem(message, 0)
-  defp message_tag(_message), do: :unknown
+  defp message_tag(message) when is_tuple(message) and tuple_size(message) > 0,
+    do: elem(message, 0)
 end
