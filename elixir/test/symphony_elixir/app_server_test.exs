@@ -441,7 +441,10 @@ defmodule SymphonyElixir.AppServerTest do
                            false
                        end) and
                          Enum.any?(tools, fn
-                           %{"inputSchema" => %{"required" => ["name", "title", "message"]}, "name" => "emit_alert"} -> true
+                           # The emit_alert tool only requires `name`
+                           # and `message`; `title` is not part of the
+                           # alert schema.
+                           %{"inputSchema" => %{"required" => ["name", "message"]}, "name" => "emit_alert"} -> true
                            _ -> false
                          end)
 
