@@ -2,7 +2,7 @@
 date: 2026-05-18
 topic: Aiur — agent event publishing + subscription system
 branch: main
-issue: https://github.com/its-everdred/symphony/issues/46
+issue: https://github.com/its-everdred/aiur/issues/46
 status: ready-for-planning
 ---
 
@@ -23,7 +23,7 @@ A new **Aiur skill** at `.claude/skills/aiur/` (with `.codex/skills/aiur/` symli
 
 ## Why This Approach
 
-Today an agent sees only its own ticket. If issue 1 blocks 2 blocks 3, agent 3 has no signal when 1 lands — it has to poll or be told manually. If agent 3 notices a flaw in agent 2's design, there's no channel to inform agent 2. Symphony already has the orchestrator-side data (running set, workspaces, GitHub poll); Aiur adds the publish/subscribe layer on top so this context flows naturally between agents and surfaces in the pane for the operator.
+Today an agent sees only its own ticket. If issue 1 blocks 2 blocks 3, agent 3 has no signal when 1 lands — it has to poll or be told manually. If agent 3 notices a flaw in agent 2's design, there's no channel to inform agent 2. Aiur already has the orchestrator-side data (running set, workspaces, GitHub poll); Aiur adds the publish/subscribe layer on top so this context flows naturally between agents and surfaces in the pane for the operator.
 
 ## Key Decisions
 
@@ -157,20 +157,20 @@ The pane shows **received** events; events the agent itself emitted live in a se
 A per-repo notify script + workspace-level symlinks + HTTP callback into BEAM.
 
 ```
-~/.symphony/hooks/
-└── its-everdred-symphony/
+~/.aiur/hooks/
+└── its-everdred-aiur/
     ├── notify.sh                     ← shared callback, one source of truth per repo
     ├── post-commit                    ← thin shim: exec notify.sh "commit"
     ├── post-merge                     ← thin shim: exec notify.sh "merge"
     ├── post-rewrite                   ← thin shim: exec notify.sh "rewrite"
     └── .secret                         ← per-install random token for callback auth
 
-<workspace>/.git/hooks/post-commit    → symlink → ~/.symphony/hooks/<repo>/post-commit
+<workspace>/.git/hooks/post-commit    → symlink → ~/.aiur/hooks/<repo>/post-commit
 <workspace>/.git/hooks/post-merge     → symlink
 <workspace>/.git/hooks/post-rewrite   → symlink
 ```
 
-The notify script POSTs to `http://127.0.0.1:4000/aiur/git` with the SHA, author, subject, and event kind. Symphony's HTTP server has a new `/aiur/git` endpoint that maps workspace → issue, distinguishes agent-authored vs external commits by comparing the author email, and publishes `git.MT-25.commit.{agent,external,rewrite}` events. Hooks run in the background (`curl &`) so git operations are never blocked.
+The notify script POSTs to `http://127.0.0.1:4000/aiur/git` with the SHA, author, subject, and event kind. Aiur's HTTP server has a new `/aiur/git` endpoint that maps workspace → issue, distinguishes agent-authored vs external commits by comparing the author email, and publishes `git.MT-25.commit.{agent,external,rewrite}` events. Hooks run in the background (`curl &`) so git operations are never blocked.
 
 Hook installation happens in `Workspace.run_after_create_hook` for every new workspace and is idempotent. The shared script per repo means upgrades are one-edit / all-workspaces.
 
@@ -182,9 +182,9 @@ Webhooks are the right long-term answer but require public-facing URLs (or ngrok
 
 ### Single-machine assumption + workspace inspection
 
-All agents run on the same machine. Each workspace is at `~/code/symphony-workspaces/<issue_id>/`. When an agent receives an event with a SHA or workspace identifier, it can directly `git show <sha>` or read files in another agent's workspace path — no push required. The Aiur skill instructs the agent:
+All agents run on the same machine. Each workspace is at `~/code/aiur-workspaces/<issue_id>/`. When an agent receives an event with a SHA or workspace identifier, it can directly `git show <sha>` or read files in another agent's workspace path — no push required. The Aiur skill instructs the agent:
 
-- Workspace root: `$SYMPHONY_WORKSPACE_ROOT` (env var the agent can read)
+- Workspace root: `$AIUR_WORKSPACE_ROOT` (env var the agent can read)
 - Read-only convention: never modify files in another agent's workspace
 - For uncommitted changes: read the working tree directly (`cat <peer-workspace>/path/to/file.ex`)
 - For committed changes: use `cd <peer-workspace> && git show <sha>`
@@ -351,14 +351,14 @@ None remaining — see Resolved Questions section.
 - Cross-machine agent topology (Aiur assumes single-machine for v1)
 - Rate-limited / batched delivery beyond turn-boundary bundling
 - Subscription editing UI in the pane (manage via the existing tools and the on-disk JSON)
-- `bin/symphony events tail` / `bin/symphony subscriptions list` operator commands
+- `bin/aiur events tail` / `bin/aiur subscriptions list` operator commands
 
 ### Webhook endpoint scope
 
-The `/aiur/github` webhook is included in v1 but **disabled by default**. Users with publicly-reachable Symphony deployments enable it by setting a webhook secret in WORKFLOW.md and configuring GitHub to POST there. v1 always works via the 30s poll path; the webhook is a real-time enhancement when available.
+The `/aiur/github` webhook is included in v1 but **disabled by default**. Users with publicly-reachable Aiur deployments enable it by setting a webhook secret in WORKFLOW.md and configuring GitHub to POST there. v1 always works via the 30s poll path; the webhook is a real-time enhancement when available.
 
 ## Related
 
 - Issue #31 — pane-side message queue: same "between turns" drain timing as Aiur events; both ride the same checkpoint hook
-- Issue #47 — `bin/symphony repo`: installs the Aiur git hooks during repo bootstrap
+- Issue #47 — `bin/aiur repo`: installs the Aiur git hooks during repo bootstrap
 - PR #44 (merged) — `AgentPubSub` + `IssueLog` infrastructure that Aiur extends
