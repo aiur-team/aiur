@@ -154,7 +154,7 @@ defmodule Aiur.AgentList.App do
 
   @impl true
   def handle_info({:running_changed, summaries}, state) do
-    new_state = clamp_selection(%{state | summaries: summaries})
+    new_state = clamp_selection(%{state | summaries: visible_summaries(summaries)})
     render(new_state)
     {:noreply, new_state}
   end
@@ -203,6 +203,27 @@ defmodule Aiur.AgentList.App do
       state.selection_index >= count -> %{state | selection_index: count - 1}
       true -> state
     end
+  end
+
+  # Canonical "what's shown to the user" transform. Applied on intake so
+  # state.summaries matches what the renderer draws — keeping the :activate
+  # handler's Enum.at index aligned with the visible row.
+  defp visible_summaries(summaries) do
+    summaries
+    |> Enum.reject(fn s ->
+      tag = Map.get(s, :tag)
+      tag in ["agent:cancelled", "agent:canceled", "agent:done"]
+    end)
+    |> Enum.sort_by(fn s ->
+      bucket =
+        case Map.get(s, :status) do
+          :running -> 0
+          :queued -> 1
+          _ -> 2
+        end
+
+      {bucket, to_string(Map.get(s, :identifier) || "")}
+    end)
   end
 
   defp render(state) do
