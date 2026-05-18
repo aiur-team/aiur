@@ -38,4 +38,26 @@ defmodule SymphonyElixir.DistributionTest do
       assert is_list(Distribution.hidden_pane_nodes())
     end
   end
+
+  describe "start!/1 with an injected monitor function" do
+    test "returns :ok when the monitor call succeeds" do
+      assert :ok = Distribution.start!(fn _enable, _opts -> :ok end)
+    end
+
+    test "returns {:error, :not_distributed} when the monitor call raises" do
+      raising = fn _enable, _opts -> raise ArgumentError, "no distribution" end
+      assert {:error, :not_distributed} = Distribution.start!(raising)
+    end
+  end
+
+  describe "node_name/1 with an injected Node.self/0" do
+    test "returns the node name when distribution is active" do
+      assert :"sym@127.0.0.1" =
+               Distribution.node_name(fn -> :"sym@127.0.0.1" end)
+    end
+
+    test "returns nil when the BEAM is not distributed" do
+      assert is_nil(Distribution.node_name(fn -> :nonode@nohost end))
+    end
+  end
 end
