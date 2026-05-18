@@ -299,6 +299,20 @@ defmodule SymphonyElixir.AgentLogTest do
       assert [%{role: "system", title: "Log"}] = AgentLog.parse(content)
     end
 
+    test "renders a warning whose message is not a binary" do
+      # The `hidden_warning_message?/1` fallback handles non-binary
+      # message payloads (codex occasionally emits a structured map
+      # instead of a string). The entry should still surface as a
+      # warning rather than crash or be silently dropped.
+      content =
+        entry("notification", %{
+          "method" => "warning",
+          "params" => %{"message" => %{"code" => "RATE_LIMIT"}}
+        })
+
+      assert [%{role: "system", title: "Warning"}] = AgentLog.parse(content)
+    end
+
     test "skips successful commandExecution completions" do
       content =
         entry("notification", %{

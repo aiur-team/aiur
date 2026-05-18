@@ -11,6 +11,7 @@ systemctl_bin="${AGENTS_SYSTEMCTL_BIN:-systemctl}"
 pkill_bin="${AGENTS_PKILL_BIN:-pkill}"
 nohup_bin="${AGENTS_NOHUP_BIN:-nohup}"
 kill_bin="${AGENTS_KILL_BIN:-kill}"
+tmux_bin="${AGENTS_TMUX_BIN:-$(command -v tmux 2>/dev/null || echo tmux)}"
 bg_state_dir="${AGENTS_BG_STATE_DIR:-$HOME/.local/state/symphony}"
 
 agents_os="${AGENTS_OS_OVERRIDE:-$(uname -s)}"
@@ -19,14 +20,57 @@ agents_os="${AGENTS_OS_OVERRIDE:-$(uname -s)}"
 # Tailscale or LAN exposure). When absent, the wrapper injects
 # `--host 127.0.0.1` so a default `agents` run binds locally only.
 expose_host=0
+debug_mode=0
+logs_mode=0
+log_issue_id=""
 filtered_args=()
+expect_log_value=0
 for arg in "$@"; do
-  if [ "$arg" = "--host" ]; then
-    expose_host=1
-  else
-    filtered_args+=("$arg")
+  if [ "$expect_log_value" -eq 1 ]; then
+    log_issue_id="$arg"
+    expect_log_value=0
+    continue
   fi
+
+  case "$arg" in
+    --host)
+      expose_host=1
+      ;;
+    --debug)
+      debug_mode=1
+      ;;
+    --logs)
+      logs_mode=1
+      ;;
+    --log)
+      expect_log_value=1
+      ;;
+    --log=*)
+      log_issue_id="${arg#--log=}"
+      ;;
+    *)
+      filtered_args+=("$arg")
+      ;;
+  esac
 done
+
+if [ "$expect_log_value" -eq 1 ]; then
+  echo "agents: --log requires an issue identifier (e.g. --log 25)" >&2
+  exit 64
+fi
+
+if [ "$debug_mode" -eq 1 ]; then
+  export SYMPHONY_DEBUG=1
+fi
+
+# Refuse to run inside an existing tmux session — Symphony spawns its own
+# isolated tmux on a dedicated socket and does not nest cleanly. Detected
+# via the `$TMUX` env var, which is set inside every shell tmux owns.
+if [ -n "${TMUX:-}" ]; then
+  echo "agents: already inside a tmux session (\$TMUX is set)" >&2
+  echo "Open a fresh terminal without tmux and try again." >&2
+  exit 1
+fi
 
 if [ "${#filtered_args[@]}" -gt 0 ]; then
   set -- "${filtered_args[@]}"
@@ -51,6 +95,19 @@ With a profile name, run that profile's workflow in the foreground.
 With --bg, restart background services only and return. Defaults to the default profile.
 With all, restart the other configured services and run the default profile in the foreground.
 With stop, stop a profile, every profile, or ad hoc foreground Symphony processes.
+
+Options:
+  --debug              enable verbose debug logging (sets SYMPHONY_DEBUG=1).
+                       Tail logs in another terminal: `agents --logs`.
+  --logs [profile]     tail the (default or named) profile's symphony.log
+                       and exit on Ctrl+C. Does not start any agents.
+                       Useful in a separate terminal alongside `agents --debug`.
+  --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
+                       SymphonyElixir.IssueLog writes for an active
+                       conversation pane. Does not start agents.
+                       Example: `agents --log 25`
+  --host               leave the workflow's configured host alone (default
+                       binds to 127.0.0.1 for loopback-only access).
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
@@ -276,6 +333,83 @@ ensure_bg_state_dir() {
   mkdir -p "$bg_state_dir"
 }
 
+# Distribution setup for the upcoming per-agent pane subcommand. The cookie
+# lives in ~/.erlang.cookie (auto-read by the BEAM) so it does NOT leak through
+# /proc/<pid>/environ. The wrapper validates ownership and length each run.
+ensure_erlang_cookie() {
+  local cookie_file="$HOME/.erlang.cookie"
+
+  if [ ! -f "$cookie_file" ]; then
+    (
+      umask 0177
+      tmp_file="$(mktemp "$HOME/.erlang.cookie.XXXXXX")"
+      head -c 32 /dev/urandom | base64 | tr -d '\n=+/' | head -c 32 >"$tmp_file"
+      mv "$tmp_file" "$cookie_file"
+    )
+    chmod 0400 "$cookie_file"
+  fi
+
+  if [ ! -r "$cookie_file" ]; then
+    echo "agents: ~/.erlang.cookie is not readable" >&2
+    return 1
+  fi
+
+  if [ "$(stat -c '%U' "$cookie_file" 2>/dev/null || stat -f '%Su' "$cookie_file")" != "$USER" ]; then
+    echo "agents: ~/.erlang.cookie is not owned by $USER" >&2
+    return 1
+  fi
+
+  local size
+  size="$(wc -c <"$cookie_file" | tr -d ' ')"
+
+  if [ "$size" -lt 16 ]; then
+    echo "agents: ~/.erlang.cookie is shorter than 16 bytes" >&2
+    return 1
+  fi
+}
+
+prepare_distribution() {
+  ensure_erlang_cookie || return 1
+
+  # Use LONG names with `@127.0.0.1` as the host part so neither BEAM has to
+  # resolve a hostname. On Debian-style boxes `/etc/hosts` maps the local
+  # hostname to `127.0.1.1` while we listen on `127.0.0.1` — the resulting
+  # IP mismatch shows up as `Node.connect -> false` with no helpful error.
+  # Skipping the resolver entirely makes connection deterministic.
+  local node_name="symphony-${USER}@127.0.0.1"
+
+  # Read the cookie and set it explicitly via -setcookie. ESCripts do not
+  # always pick up ~/.erlang.cookie automatically (some BEAM boot paths
+  # skip the auto-load), so a silent cookie mismatch otherwise shows up as
+  # `Node.connect/1 -> false`.
+  local cookie
+  cookie="$(cat "$HOME/.erlang.cookie")"
+
+  # Pin the distribution listener to 127.0.0.1 too, matching the IP used in
+  # the node name. {127,0,0,1} is the Erlang tuple — unquoted because
+  # bash inside the surrounding double quotes does not brace-expand it.
+  export ERL_AFLAGS="${ERL_AFLAGS:-} -name symphony-${USER}@127.0.0.1 -setcookie ${cookie} -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
+  export ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}"
+  export SYMPHONY_NODE="${SYMPHONY_NODE:-$node_name}"
+
+  # Export the cookie under our own name so the pane-side wrapper can pick
+  # it up even when it replaces ERL_AFLAGS for its own unique node name.
+  export SYMPHONY_ERLANG_COOKIE="$cookie"
+}
+
+ensure_symphony_state_dir() {
+  mkdir -p -m 0700 "$HOME/.config/symphony" 2>/dev/null || true
+}
+
+check_tmux() {
+  if ! "$tmux_bin" -V >/dev/null 2>&1; then
+    echo "agents: tmux is not installed or not executable; install tmux >= 3.3 before launching" >&2
+    return 1
+  fi
+
+  return 0
+}
+
 bg_pid_file() {
   printf '%s/%s.pid' "$bg_state_dir" "$1"
 }
@@ -484,7 +618,7 @@ run_foreground() {
   local workflow
   local port
   local logs_root
-  local args=()
+  local symphony_args=()
 
   require_profile "$profile"
   stop_profile "$profile"
@@ -499,24 +633,119 @@ run_foreground() {
   cd "$elixir_dir"
 
   source_env_files
+  ensure_symphony_state_dir
+  check_tmux || die "tmux >= 3.3 is required; install tmux before running agents"
+  prepare_distribution || die "distribution setup failed; cannot launch agent-list pane"
 
-  args=(exec -- ./bin/symphony)
+  symphony_args=(exec -- ./bin/symphony)
 
   if [ -n "$logs_root" ]; then
-    args+=(--logs-root "$logs_root")
+    symphony_args+=(--logs-root "$logs_root")
+    export SYMPHONY_LOGS_ROOT="$logs_root"
   fi
 
   if [ -n "$port" ]; then
-    args+=(--port "$port")
+    symphony_args+=(--port "$port")
   fi
 
   if [ "$expose_host" -eq 0 ]; then
-    args+=(--host 127.0.0.1)
+    symphony_args+=(--host 127.0.0.1)
   fi
 
-  args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
+  symphony_args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
 
-  exec "$mise_bin" "${args[@]}"
+  run_in_tmux "$profile" "$elixir_dir" "${symphony_args[@]}"
+}
+
+die() {
+  echo "agents: $*" >&2
+  exit 1
+}
+
+symphony_tmux_session_name() {
+  local profile="$1"
+  printf 'symphony-%s-%s' "${USER:-user}" "$profile"
+}
+
+symphony_tmux_socket_name() {
+  printf 'symphony-%s' "${USER:-user}"
+}
+
+resolve_symphony_tmux_conf() {
+  local override="${SYMPHONY_TMUX_CONF:-}"
+  if [ -n "$override" ] && [ -f "$override" ]; then
+    printf '%s\n' "$override"
+    return
+  fi
+
+  local user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/symphony/tmux.conf"
+  if [ -f "$user_conf" ]; then
+    printf '%s\n' "$user_conf"
+    return
+  fi
+
+  printf '%s\n' "$script_dir/symphony.tmux.conf"
+}
+
+run_in_tmux() {
+  local profile="$1"
+  local elixir_dir="$2"
+  shift 2
+
+  local session socket conf
+  session="$(symphony_tmux_session_name "$profile")"
+  socket="$(symphony_tmux_socket_name)"
+  conf="$(resolve_symphony_tmux_conf)"
+
+  if [ ! -f "$conf" ]; then
+    die "tmux conf not found at $conf"
+  fi
+
+  # Persist session/socket/conf so the conversation pane subcommand and the
+  # Elixir Tmux client can target the same isolated server.
+  printf '%s\n' "$session" >"$HOME/.config/symphony/state"
+  export SYMPHONY_TMUX_SESSION="$session"
+  export SYMPHONY_TMUX_SOCKET="$socket"
+  export SYMPHONY_TMUX_CONF="$conf"
+  export SYMPHONY_BIN="$elixir_dir/bin/symphony"
+  export SYMPHONY_MISE_BIN="$mise_bin"
+
+  # Resolve where the BEAM will write its log file. The Elixir CLI sets
+  # `:log_file` to `<logs_root>/log/symphony.log` when `--logs-root` is
+  # passed (LogFile.default_log_file/1); otherwise the file lives at
+  # `<elixir_dir>/log/symphony.log`.
+  local log_path
+  if [ -n "${SYMPHONY_LOGS_ROOT:-}" ]; then
+    log_path="${SYMPHONY_LOGS_ROOT}/log/symphony.log"
+  else
+    log_path="$elixir_dir/log/symphony.log"
+  fi
+
+  if [ "$debug_mode" -eq 1 ]; then
+    echo "agents: debug logging enabled" >&2
+    echo "agents: tail logs with -> tail -F $log_path" >&2
+    echo "agents: tmux socket=$socket conf=$conf" >&2
+  fi
+
+  if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+  fi
+
+  # Build the inner command as a single string for tmux to exec inside its
+  # pane. We change into the elixir dir and call mise with the supplied args.
+  local inner_cmd
+  printf -v inner_cmd 'cd %q && exec %q' "$elixir_dir" "$mise_bin"
+
+  local arg
+  for arg in "$@"; do
+    printf -v inner_cmd '%s %q' "$inner_cmd" "$arg"
+  done
+
+  "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
+    -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"
+
+  # In the foreground, the user attaches to the session normally.
+  exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
 }
 
 run_ad_hoc_workflow() {
@@ -527,6 +756,54 @@ run_ad_hoc_workflow() {
 }
 
 load_profiles
+
+if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
+  log_profile="${1:-default}"
+
+  if profile_exists "$log_profile"; then
+    log_elixir_dir="$(profile_elixir_dir "$log_profile")"
+    log_logs_root="$(profile_value logs_root "$log_profile")"
+  else
+    log_elixir_dir="$repo_root/elixir"
+    log_logs_root=""
+  fi
+
+  if [ -n "$log_logs_root" ]; then
+    log_dir="$log_logs_root/log"
+  else
+    log_dir="$log_elixir_dir/log"
+  fi
+
+  if [ -n "$log_issue_id" ]; then
+    # Per-issue file: SymphonyElixir.IssueLog writes to
+    # `<log_dir>/<repo>.<issue>.log`. Match the actual repo prefix by
+    # globbing so the caller doesn't have to know the project name.
+    log_target=""
+    shopt -s nullglob
+    for candidate in "$log_dir"/*."$log_issue_id".log; do
+      log_target="$candidate"
+      break
+    done
+    shopt -u nullglob
+
+    if [ -z "$log_target" ]; then
+      # File doesn't exist yet — fall back to a `symphony.<id>.log`
+      # name so `tail -F` can wait for it to appear when the agent
+      # first writes.
+      log_target="$log_dir/symphony.$log_issue_id.log"
+    fi
+  else
+    log_target="$log_dir/symphony.log"
+  fi
+
+  if [ ! -e "$log_target" ]; then
+    mkdir -p "$log_dir" 2>/dev/null || true
+    : >>"$log_target" 2>/dev/null || true
+  fi
+
+  echo "agents: tailing $log_target (Ctrl+C to stop)" >&2
+  exec tail -F "$log_target"
+fi
 
 case "${1:-}" in
   -h | --help)

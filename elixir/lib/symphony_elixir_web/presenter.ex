@@ -3,7 +3,7 @@ defmodule SymphonyElixirWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
-  alias SymphonyElixir.{Config, Orchestrator, StatusDashboard}
+  alias SymphonyElixir.{Config, Orchestrator}
 
   @spec state_payload(GenServer.name(), timeout()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms) do
@@ -186,8 +186,19 @@ defmodule SymphonyElixirWeb.Presenter do
     |> Enum.reject(&is_nil(&1.at))
   end
 
-  defp summarize_message(nil), do: nil
-  defp summarize_message(message), do: StatusDashboard.humanize_codex_message(message)
+  defp summarize_message(nil), do: "no message from #{Config.agent_kind()} yet"
+
+  defp summarize_message(%{message: message}) do
+    message
+    |> inspect_safely()
+    |> String.replace(~r/\s+/, " ")
+    |> String.slice(0, 140)
+  end
+
+  defp summarize_message(message), do: message |> inspect_safely() |> String.slice(0, 140)
+
+  defp inspect_safely(value) when is_binary(value), do: value
+  defp inspect_safely(value), do: inspect(value, limit: 10, printable_limit: 200)
 
   defp due_at_iso8601(due_in_ms) when is_integer(due_in_ms) do
     DateTime.utc_now()

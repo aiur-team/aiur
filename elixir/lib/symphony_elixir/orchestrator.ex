@@ -8,20 +8,24 @@ defmodule SymphonyElixir.Orchestrator do
   import Bitwise, only: [<<<: 2]
 
   alias SymphonyElixir.{
+    AgentEvents,
+    AgentPubSub,
     AgentQueue,
     AgentQueueStore,
     AgentRunner,
     Alerts,
     Config,
     Issue,
-    StatusDashboard,
     Tracker,
     Workspace
   }
 
+  alias SymphonyElixirWeb.ObservabilityPubSub
+
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
-  # Slightly above the dashboard render interval so "checking now…" can render.
+  # Slightly above the dashboard render interval so the `0s` in-progress
+  # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
   @empty_agent_totals %{
     input_tokens: 0,
@@ -121,7 +125,7 @@ defmodule SymphonyElixir.Orchestrator do
         tick_token: nil
     }
 
-    notify_dashboard()
+    notify_dashboard(state)
     :ok = schedule_poll_cycle_start()
     {:noreply, state}
   end
@@ -139,7 +143,7 @@ defmodule SymphonyElixir.Orchestrator do
         tick_token: nil
     }
 
-    notify_dashboard()
+    notify_dashboard(state)
     :ok = schedule_poll_cycle_start()
     {:noreply, state}
   end
@@ -150,7 +154,7 @@ defmodule SymphonyElixir.Orchestrator do
     state = schedule_tick(state, state.poll_interval_ms)
     state = %{state | poll_check_in_progress: false}
 
-    notify_dashboard()
+    notify_dashboard(state)
     {:noreply, state}
   end
 
@@ -196,7 +200,7 @@ defmodule SymphonyElixir.Orchestrator do
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
-        notify_dashboard()
+        notify_dashboard(state)
         {:noreply, state}
     end
   end
@@ -213,7 +217,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
 
-        notify_dashboard()
+        notify_dashboard(state)
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
   end
@@ -234,7 +238,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> apply_agent_token_delta(token_delta)
           |> apply_agent_rate_limits(update)
 
-        notify_dashboard()
+        notify_dashboard(state)
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
   end
@@ -278,7 +282,7 @@ defmodule SymphonyElixir.Orchestrator do
         :missing -> {:noreply, state}
       end
 
-    notify_dashboard()
+    notify_dashboard(state)
     result
   end
 
@@ -298,6 +302,12 @@ defmodule SymphonyElixir.Orchestrator do
         state
         |> sync_polled_issue_state(issues)
         |> sync_todo_capacity_alert(issues)
+
+      # The poll just refreshed `last_polled_issues`, so push a fresh
+      # summary out to any open agent-list pane immediately — without
+      # this, the pane only sees new candidate tickets after the next
+      # dispatch or completion event.
+      notify_dashboard(state)
 
       state =
         if available_slots(state) > 0 do
@@ -610,6 +620,7 @@ defmodule SymphonyElixir.Orchestrator do
     state =
       Enum.reduce(issues, state, fn issue, state_acc ->
         previous_issue = Map.get(previous_issues, issue.id)
+
         state_acc
         |> emit_task_state_transition_alert(previous_issue, issue)
         |> emit_dependency_transition_events(previous_issue, issue)
@@ -1220,8 +1231,75 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp notify_dashboard do
-    StatusDashboard.notify_update()
+  defp notify_dashboard(state) do
+    state
+    |> running_summaries()
+    |> AgentPubSub.broadcast_running_change()
+
+    ObservabilityPubSub.broadcast_update()
+  end
+
+  defp running_summaries(state) do
+    now = DateTime.utc_now()
+
+    running_by_identifier =
+      Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
+
+    polled_summaries =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.map(fn issue ->
+        identifier = Map.get(issue, :identifier) || ""
+        tag = issue_tag(issue)
+        title = Map.get(issue, :title)
+
+        case Map.get(running_by_identifier, identifier) do
+          nil ->
+            # Has an `agent:*` label but no Symphony slot is running it.
+            AgentEvents.agent_summary(identifier, :queued, 0, %{
+              tag: tag,
+              title: title,
+              work_state: :idle
+            })
+
+          entry ->
+            AgentEvents.agent_summary(identifier, :running, 0, %{
+              tag: tag,
+              title: title,
+              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              turn_count: Map.get(entry, :turn_count, 0),
+              work_state: get_in(entry, [:control, :status]) || :working
+            })
+        end
+      end)
+
+    polled_identifiers = MapSet.new(polled_summaries, fn s -> s.identifier end)
+
+    # Cover the narrow race where an agent is mid-dispatch and the
+    # tracker poll hasn't refreshed yet — those issues live in
+    # `state.running` but not in `last_polled_issues`.
+    extra_running =
+      state.running
+      |> Enum.flat_map(fn {_id, entry} ->
+        identifier = Map.get(entry, :identifier) || ""
+
+        if identifier == "" or MapSet.member?(polled_identifiers, identifier) do
+          []
+        else
+          [
+            AgentEvents.agent_summary(identifier, :running, 0, %{
+              tag: issue_tag(Map.get(entry, :issue)),
+              title: get_in(entry, [:issue, Access.key(:title)]),
+              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              turn_count: Map.get(entry, :turn_count, 0),
+              work_state: get_in(entry, [:control, :status]) || :working
+            })
+          ]
+        end
+      end)
+
+    (polled_summaries ++ extra_running)
+    |> Enum.reject(fn %{identifier: id} -> id == "" end)
   end
 
   defp handle_active_retry(state, issue, attempt, metadata) do
@@ -1538,6 +1616,29 @@ defmodule SymphonyElixir.Orchestrator do
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
+  @doc """
+  Lightweight read of the polling clock so UI surfaces (the agent-list
+  pane) can render a "Next refresh: Ns" countdown without doing a full
+  `snapshot/0` every tick. Returns `%{checking?: boolean, next_poll_in_ms: integer | nil}`,
+  or `:unavailable` if the orchestrator isn't running.
+  """
+  @spec poll_status() :: %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+  def poll_status, do: poll_status(__MODULE__, 1_000)
+
+  @spec poll_status(GenServer.server(), timeout()) ::
+          %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+  def poll_status(server, timeout) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, :poll_status, timeout)
+      catch
+        :exit, _ -> :unavailable
+      end
+    else
+      :unavailable
+    end
+  end
+
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout) do
     if Process.whereis(server) do
@@ -1553,6 +1654,17 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @impl true
+  def handle_call(:poll_status, _from, state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    reply = %{
+      checking?: state.poll_check_in_progress == true,
+      next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms)
+    }
+
+    {:reply, reply, state}
+  end
+
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
     now = DateTime.utc_now()
@@ -1797,11 +1909,11 @@ defmodule SymphonyElixir.Orchestrator do
           AgentQueue.operator_message(issue_identifier, text, queue_opts)
           |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
-        Alerts.emit_system("chat.send",
-          issue: issue_identifier,
-          workspace: Map.get(running_entry, :workspace_path),
-          worker_host: Map.get(running_entry, :worker_host)
-        )
+        # NOTE: previously we emitted a `chat.send` alert here for every
+        # operator message. That alert was pure noise — it duplicated
+        # the `[user]` line the pane already renders and added a
+        # `[alert] chat.send: Message sent` row plus a log line for
+        # every keystroke-submitted message. Removed.
 
         next_state = %{state | queue_store: queue_store}
         notify_running_queue_update(running_entry, item)
