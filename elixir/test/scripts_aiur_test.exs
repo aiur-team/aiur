@@ -1,4 +1,4 @@
-defmodule ScriptsAgentsTest do
+defmodule ScriptsAiurTest do
   use ExUnit.Case, async: true
 
   @script Path.expand("../../scripts/aiur", __DIR__)
@@ -6,8 +6,8 @@ defmodule ScriptsAgentsTest do
   test "prints help without starting anything" do
     ctx = test_context()
 
-    assert {output, 0} = run_agents(ctx, ["--help"])
-    assert output =~ "Usage: agents"
+    assert {output, 0} = run_aiur(ctx, ["--help"])
+    assert output =~ "Usage: aiur"
     refute output =~ "MISE:"
     refute output =~ "SYSTEMCTL:"
     refute output =~ "PKILL:"
@@ -16,9 +16,9 @@ defmodule ScriptsAgentsTest do
   test "rejects unknown profiles" do
     ctx = test_context()
 
-    assert {output, 64} = run_agents(ctx, ["missing"])
+    assert {output, 64} = run_aiur(ctx, ["missing"])
     assert output =~ "Unknown profile: missing"
-    assert output =~ "Usage: agents"
+    assert output =~ "Usage: aiur"
     refute output =~ "MISE:"
   end
 
@@ -29,7 +29,7 @@ defmodule ScriptsAgentsTest do
     actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
-    assert {output, 0} = run_agents(ctx, ["list"])
+    assert {output, 0} = run_aiur(ctx, ["list"])
     assert output =~ "default"
     assert output =~ "aiur"
     assert output =~ "actions"
@@ -44,7 +44,7 @@ defmodule ScriptsAgentsTest do
     actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
-    assert {output, 0} = run_agents(ctx, ["actions"])
+    assert {output, 0} = run_aiur(ctx, ["actions"])
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
     assert output =~ "PWD=#{Path.join(ctx.actions_repo, "elixir")}"
     assert output =~ "MISE:exec -- ./bin/aiur --logs-root #{ctx.logs_root}/actions --port 4101"
@@ -54,7 +54,7 @@ defmodule ScriptsAgentsTest do
   test "runs the built-in aiur profile in the foreground" do
     ctx = test_context()
 
-    assert {output, 0} = run_agents(ctx, ["aiur"])
+    assert {output, 0} = run_aiur(ctx, ["aiur"])
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
@@ -65,7 +65,7 @@ defmodule ScriptsAgentsTest do
   test "runs the built-in actions profile in the foreground" do
     ctx = test_context()
 
-    assert {output, 0} = run_agents(ctx, ["actions"])
+    assert {output, 0} = run_aiur(ctx, ["actions"])
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
@@ -80,7 +80,7 @@ defmodule ScriptsAgentsTest do
     actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
-    assert {output, 0} = run_agents(ctx, ["--bg", "actions"])
+    assert {output, 0} = run_aiur(ctx, ["--bg", "actions"])
     assert output =~ "SYSTEMCTL:--user restart aiur-actions\n"
     assert output =~ "SYSTEMCTL:--user status aiur-actions --no-pager\n"
     refute output =~ "MISE:"
@@ -95,7 +95,7 @@ defmodule ScriptsAgentsTest do
     duplicate|#{ctx.actions_repo}|WORKFLOW.other.md|4102|#{ctx.logs_root}/other|aiur-actions
     """)
 
-    assert {output, 0} = run_agents(ctx, ["--bg", "all"])
+    assert {output, 0} = run_aiur(ctx, ["--bg", "all"])
     assert output =~ "SYSTEMCTL:--user restart aiur\n"
     assert output =~ "SYSTEMCTL:--user restart aiur-actions\n"
     assert count_occurrences(output, "restart aiur-actions") == 1
@@ -108,7 +108,7 @@ defmodule ScriptsAgentsTest do
     actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
-    assert {output, 0} = run_agents(ctx, [])
+    assert {output, 0} = run_aiur(ctx, [])
     refute output =~ "SYSTEMCTL:--user restart"
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
 
@@ -119,7 +119,7 @@ defmodule ScriptsAgentsTest do
   test "run starts the default profile in the foreground" do
     ctx = test_context()
 
-    assert {output, 0} = run_agents(ctx, ["run"])
+    assert {output, 0} = run_aiur(ctx, ["run"])
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
@@ -130,7 +130,7 @@ defmodule ScriptsAgentsTest do
   test "runs an ad hoc workflow path with the default repo" do
     ctx = test_context()
 
-    assert {output, 0} = run_agents(ctx, ["custom/WORKFLOW.md"])
+    assert {output, 0} = run_aiur(ctx, ["custom/WORKFLOW.md"])
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
     assert output =~ "./custom/WORKFLOW.md"
   end
@@ -139,7 +139,7 @@ defmodule ScriptsAgentsTest do
     ctx = test_context()
     workflow = Path.join(ctx.actions_repo, "WORKFLOW.custom.md")
 
-    assert {output, 0} = run_agents(ctx, [workflow])
+    assert {output, 0} = run_aiur(ctx, [workflow])
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
     assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails #{workflow}"
   end
@@ -151,7 +151,7 @@ defmodule ScriptsAgentsTest do
     actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
-    assert {output, 0} = run_agents(ctx, ["stop"])
+    assert {output, 0} = run_aiur(ctx, ["stop"])
     command_log = command_log(ctx)
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
@@ -172,7 +172,7 @@ defmodule ScriptsAgentsTest do
     actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
-    assert {output, 0} = run_agents(ctx, ["stop", "actions"])
+    assert {output, 0} = run_aiur(ctx, ["stop", "actions"])
     command_log = command_log(ctx)
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
@@ -187,14 +187,14 @@ defmodule ScriptsAgentsTest do
   test "default foreground run binds locally via --host 127.0.0.1" do
     ctx = test_context()
 
-    assert {output, 0} = run_agents(ctx, ["run", "aiur"])
+    assert {output, 0} = run_aiur(ctx, ["run", "aiur"])
     assert output =~ "MISE:exec -- ./bin/aiur --host 127.0.0.1"
   end
 
   test "--host opts out of the local-only injection" do
     ctx = test_context()
 
-    assert {output, 0} = run_agents(ctx, ["--host", "run", "aiur"])
+    assert {output, 0} = run_aiur(ctx, ["--host", "run", "aiur"])
     refute output =~ "--host 127.0.0.1"
     assert output =~ "MISE:exec -- ./bin/aiur --interactive"
   end
@@ -203,12 +203,55 @@ defmodule ScriptsAgentsTest do
     ctx = test_context()
     # The repo_root/elixir dir is empty by default — bin/aiur does not
     # exist, so ensure_built should call `mix escript.build` via fake mise.
-    assert {output, 0} = run_agents(ctx, ["run", "aiur"], skip_build: false)
+    assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
 
-    assert output =~ "agents: rebuilding bin/aiur"
+    assert output =~ "aiur: rebuilding bin/aiur"
     assert output =~ "MISE:exec -- mix escript.build"
     # The real Aiur invocation still runs after the rebuild step.
     assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "resolves repo root when invoked through a symlink" do
+    # Regression: when the script is invoked via a symlink on PATH (e.g.
+    # ~/.local/bin/aiur → ../github.com/its-everdred/aiur/scripts/aiur),
+    # BASH_SOURCE points to the symlink. Without symlink resolution,
+    # script_dir = ~/.local/bin and repo_root falls back to ~/.local,
+    # so `cd $repo_root/elixir` fails with "No such file or directory".
+    ctx = test_context()
+    real_repo = Path.expand("../..", @script)
+
+    symlink_dir =
+      Path.join(System.tmp_dir!(), "aiur-symlink-test-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(symlink_dir)
+    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(symlink_dir) end)
+    symlink = Path.join(symlink_dir, "aiur")
+    File.ln_s!(@script, symlink)
+
+    # Invoke via the symlink WITHOUT AIUR_REPO_ROOT — force the script to
+    # compute repo_root from its own location.
+    {output, status} =
+      System.cmd("bash", [symlink, "aiur"],
+        env: [
+          {"AIUR_CONFIG_FILE", ctx.config_file},
+          {"AIUR_ENV_FILE", Path.join(ctx.repo_root, "missing.env")},
+          {"AIUR_MISE_BIN", ctx.fake_mise},
+          {"AIUR_SYSTEMCTL_BIN", ctx.fake_systemctl},
+          {"AIUR_PKILL_BIN", ctx.fake_pkill},
+          {"AIUR_NOHUP_BIN", ctx.fake_nohup},
+          {"AIUR_KILL_BIN", ctx.fake_kill},
+          {"AIUR_TMUX_BIN", ctx.fake_tmux},
+          {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
+          {"AIUR_OS_OVERRIDE", "Linux"},
+          {"AIUR_SKIP_BUILD", "1"},
+          {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0
+    assert output =~ "PWD=#{Path.join(real_repo, "elixir")}"
+    refute output =~ "No such file or directory"
   end
 
   describe "macOS (Darwin) background mode" do
@@ -219,7 +262,7 @@ defmodule ScriptsAgentsTest do
       actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
       """)
 
-      assert {output, 0} = run_agents(ctx, ["--bg", "actions"], os: "Darwin")
+      assert {output, 0} = run_aiur(ctx, ["--bg", "actions"], os: "Darwin")
 
       pid_file = Path.join(ctx.bg_state_dir, "aiur-actions.pid")
       assert File.exists?(pid_file)
@@ -242,7 +285,7 @@ defmodule ScriptsAgentsTest do
       duplicate|#{ctx.actions_repo}|WORKFLOW.other.md|4102|#{ctx.logs_root}/other|aiur-actions
       """)
 
-      assert {_output, 0} = run_agents(ctx, ["--bg", "all"], os: "Darwin")
+      assert {_output, 0} = run_aiur(ctx, ["--bg", "all"], os: "Darwin")
 
       assert File.exists?(Path.join(ctx.bg_state_dir, "aiur.pid"))
       assert File.exists?(Path.join(ctx.bg_state_dir, "aiur-actions.pid"))
@@ -272,7 +315,7 @@ defmodule ScriptsAgentsTest do
       pid_file = Path.join(ctx.bg_state_dir, "aiur-actions.pid")
       File.write!(pid_file, "424242\n")
 
-      assert {_output, 0} = run_agents(ctx, ["stop", "actions"], os: "Darwin")
+      assert {_output, 0} = run_aiur(ctx, ["stop", "actions"], os: "Darwin")
       command_log = command_log(ctx)
 
       assert command_log =~ "KILL:-TERM 424242\n"
@@ -287,7 +330,7 @@ defmodule ScriptsAgentsTest do
       actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
       """)
 
-      assert {_output, 0} = run_agents(ctx, ["stop", "actions"], os: "Darwin")
+      assert {_output, 0} = run_aiur(ctx, ["stop", "actions"], os: "Darwin")
       command_log = command_log(ctx)
 
       refute command_log =~ "KILL:-TERM"
@@ -296,7 +339,7 @@ defmodule ScriptsAgentsTest do
   end
 
   defp test_context do
-    root = Path.join(System.tmp_dir!(), "agents-script-test-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-script-test-#{System.unique_integer([:positive])}")
     repo_root = Path.join(root, "aiur")
     actions_repo = Path.join(root, "actions")
     bin_dir = Path.join(root, "bin")
@@ -327,33 +370,33 @@ defmodule ScriptsAgentsTest do
     {
       printf 'PWD=%s\\n' "$PWD"
       printf 'MISE:%s\\n' "$*"
-    } | tee -a "$AGENTS_TEST_COMMAND_LOG"
+    } | tee -a "$AIUR_TEST_COMMAND_LOG"
     """)
 
     write_executable!(fake_systemctl, """
     #!/usr/bin/env bash
-    printf 'SYSTEMCTL:%s\\n' "$*" | tee -a "$AGENTS_TEST_COMMAND_LOG"
+    printf 'SYSTEMCTL:%s\\n' "$*" | tee -a "$AIUR_TEST_COMMAND_LOG"
     """)
 
     write_executable!(fake_pkill, """
     #!/usr/bin/env bash
-    printf 'PKILL:%s\\n' "$*" | tee -a "$AGENTS_TEST_COMMAND_LOG"
+    printf 'PKILL:%s\\n' "$*" | tee -a "$AIUR_TEST_COMMAND_LOG"
     """)
 
     write_executable!(fake_nohup, """
     #!/usr/bin/env bash
-    printf 'NOHUP:%s\\n' "$*" >>"$AGENTS_TEST_COMMAND_LOG"
+    printf 'NOHUP:%s\\n' "$*" >>"$AIUR_TEST_COMMAND_LOG"
     sleep 0 &
     """)
 
     write_executable!(fake_kill, """
     #!/usr/bin/env bash
-    printf 'KILL:%s\\n' "$*" | tee -a "$AGENTS_TEST_COMMAND_LOG"
+    printf 'KILL:%s\\n' "$*" | tee -a "$AIUR_TEST_COMMAND_LOG"
     """)
 
     write_executable!(fake_tmux, """
     #!/usr/bin/env bash
-    printf 'TMUX:%s\\n' "$*" >>"$AGENTS_TEST_COMMAND_LOG"
+    printf 'TMUX:%s\\n' "$*" >>"$AIUR_TEST_COMMAND_LOG"
 
     # Skip past the isolated-socket/conf prefix so the case below still
     # matches the actual subcommand.
@@ -408,7 +451,7 @@ defmodule ScriptsAgentsTest do
     File.write!(ctx.config_file, body)
   end
 
-  defp run_agents(ctx, args, opts \\ []) do
+  defp run_aiur(ctx, args, opts \\ []) do
     os_override = Keyword.get(opts, :os, "Linux")
     skip_build = if Keyword.get(opts, :skip_build, true), do: "1", else: "0"
 
@@ -425,8 +468,8 @@ defmodule ScriptsAgentsTest do
         {"AIUR_TMUX_BIN", ctx.fake_tmux},
         {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
         {"AIUR_OS_OVERRIDE", os_override},
-        {"AGENTS_SKIP_BUILD", skip_build},
-        {"AGENTS_TEST_COMMAND_LOG", ctx.command_log}
+        {"AIUR_SKIP_BUILD", skip_build},
+        {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
       ],
       stderr_to_stdout: true
     )

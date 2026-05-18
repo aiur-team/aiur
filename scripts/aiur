@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so the script works when invoked via a symlink on PATH
+# (e.g. `ln -s .../scripts/aiur ~/.local/bin/aiur`). Without this, BASH_SOURCE
+# returns the symlink path and script_dir resolves to the symlink's parent.
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ "$src" != /* ]] && src="$dir/$src"
+done
+script_dir="$(cd -P "$(dirname "$src")" && pwd)"
 default_repo_root="$(cd "$script_dir/.." && pwd)"
 repo_root="${AIUR_REPO_ROOT:-$default_repo_root}"
 config_file="${AIUR_CONFIG_FILE:-$HOME/.config/aiur/aiur.profiles}"
@@ -14,7 +23,7 @@ kill_bin="${AIUR_KILL_BIN:-kill}"
 tmux_bin="${AIUR_TMUX_BIN:-$(command -v tmux 2>/dev/null || echo tmux)}"
 bg_state_dir="${AIUR_BG_STATE_DIR:-$HOME/.local/state/aiur}"
 
-agents_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
+aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 
 # --host: when present, let the workflow's configured host stand (typical for
 # Tailscale or LAN exposure). When absent, the wrapper injects
@@ -55,7 +64,7 @@ for arg in "$@"; do
 done
 
 if [ "$expect_log_value" -eq 1 ]; then
-  echo "agents: --log requires an issue identifier (e.g. --log 25)" >&2
+  echo "aiur: --log requires an issue identifier (e.g. --log 25)" >&2
   exit 64
 fi
 
@@ -67,7 +76,7 @@ fi
 # isolated tmux on a dedicated socket and does not nest cleanly. Detected
 # via the `$TMUX` env var, which is set inside every shell tmux owns.
 if [ -n "${TMUX:-}" ]; then
-  echo "agents: already inside a tmux session (\$TMUX is set)" >&2
+  echo "aiur: already inside a tmux session (\$TMUX is set)" >&2
   echo "Open a fresh terminal without tmux and try again." >&2
   exit 1
 fi
@@ -87,7 +96,7 @@ declare -a profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: agents [list|stop [profile|all]|--bg [profile|all]|run [profile]|profile|<workflow-path>]
+Usage: aiur [list|stop [profile|all]|--bg [profile|all]|run [profile]|profile|<workflow-path>]
 
 Without args, restart the other configured services and run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
@@ -98,14 +107,14 @@ With stop, stop a profile, every profile, or ad hoc foreground Aiur processes.
 
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
-                       Tail logs in another terminal: `agents --logs`.
+                       Tail logs in another terminal: `aiur --logs`.
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
-                       Useful in a separate terminal alongside `agents --debug`.
+                       Useful in a separate terminal alongside `aiur --debug`.
   --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
                        Aiur.IssueLog writes for an active
                        conversation pane. Does not start agents.
-                       Example: `agents --log 25`
+                       Example: `aiur --log 25`
   --host               leave the workflow's configured host alone (default
                        binds to 127.0.0.1 for loopback-only access).
 
@@ -285,7 +294,7 @@ load_env_file() {
 
 require_mise() {
   if [ -z "$mise_bin" ] || [ ! -x "$mise_bin" ]; then
-    echo "agents: mise not found on PATH. Install mise (https://mise.jdx.dev) or set AIUR_MISE_BIN." >&2
+    echo "aiur: mise not found on PATH. Install mise (https://mise.jdx.dev) or set AIUR_MISE_BIN." >&2
     exit 64
   fi
 }
@@ -294,9 +303,9 @@ ensure_built() {
   local elixir_dir="$1"
   local aiur_bin="$elixir_dir/bin/aiur"
 
-  # AGENTS_SKIP_BUILD lets the test fixture short-circuit this without faking
+  # AIUR_SKIP_BUILD lets the test fixture short-circuit this without faking
   # `mix escript.build` invocations on top of every other stubbed binary.
-  if [ "${AGENTS_SKIP_BUILD:-0}" = "1" ]; then
+  if [ "${AIUR_SKIP_BUILD:-0}" = "1" ]; then
     return 0
   fi
 
@@ -317,7 +326,7 @@ build_aiur() {
   local elixir_dir="$1"
 
   require_mise
-  echo "agents: rebuilding bin/aiur…" >&2
+  echo "aiur: rebuilding bin/aiur…" >&2
   (cd "$elixir_dir" && "$mise_bin" exec -- mix escript.build) >&2
 }
 
@@ -350,12 +359,12 @@ ensure_erlang_cookie() {
   fi
 
   if [ ! -r "$cookie_file" ]; then
-    echo "agents: ~/.erlang.cookie is not readable" >&2
+    echo "aiur: ~/.erlang.cookie is not readable" >&2
     return 1
   fi
 
   if [ "$(stat -c '%U' "$cookie_file" 2>/dev/null || stat -f '%Su' "$cookie_file")" != "$USER" ]; then
-    echo "agents: ~/.erlang.cookie is not owned by $USER" >&2
+    echo "aiur: ~/.erlang.cookie is not owned by $USER" >&2
     return 1
   fi
 
@@ -363,7 +372,7 @@ ensure_erlang_cookie() {
   size="$(wc -c <"$cookie_file" | tr -d ' ')"
 
   if [ "$size" -lt 16 ]; then
-    echo "agents: ~/.erlang.cookie is shorter than 16 bytes" >&2
+    echo "aiur: ~/.erlang.cookie is shorter than 16 bytes" >&2
     return 1
   fi
 }
@@ -403,7 +412,7 @@ ensure_aiur_state_dir() {
 
 check_tmux() {
   if ! "$tmux_bin" -V >/dev/null 2>&1; then
-    echo "agents: tmux is not installed or not executable; install tmux >= 3.3 before launching" >&2
+    echo "aiur: tmux is not installed or not executable; install tmux >= 3.3 before launching" >&2
     return 1
   fi
 
@@ -458,7 +467,7 @@ stop_profile() {
   logs_root="$(profile_value logs_root "$profile")"
   port="$(profile_value port "$profile")"
 
-  case "$agents_os" in
+  case "$aiur_os" in
     Darwin*)
       stop_bg_pidfile "$service"
       ;;
@@ -555,7 +564,7 @@ restart_one_background_service() {
   local service
   service="$(profile_value service "$profile")"
 
-  case "$agents_os" in
+  case "$aiur_os" in
     Darwin*)
       start_bg_nohup "$profile"
       ;;
@@ -634,7 +643,7 @@ run_foreground() {
 
   source_env_files
   ensure_aiur_state_dir
-  check_tmux || die "tmux >= 3.3 is required; install tmux before running agents"
+  check_tmux || die "tmux >= 3.3 is required; install tmux before running aiur"
   prepare_distribution || die "distribution setup failed; cannot launch agent-list pane"
 
   aiur_args=(exec -- ./bin/aiur)
@@ -658,7 +667,7 @@ run_foreground() {
 }
 
 die() {
-  echo "agents: $*" >&2
+  echo "aiur: $*" >&2
   exit 1
 }
 
@@ -722,9 +731,9 @@ run_in_tmux() {
   fi
 
   if [ "$debug_mode" -eq 1 ]; then
-    echo "agents: debug logging enabled" >&2
-    echo "agents: tail logs with -> tail -F $log_path" >&2
-    echo "agents: tmux socket=$socket conf=$conf" >&2
+    echo "aiur: debug logging enabled" >&2
+    echo "aiur: tail logs with -> tail -F $log_path" >&2
+    echo "aiur: tmux socket=$socket conf=$conf" >&2
   fi
 
   if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
@@ -801,7 +810,7 @@ if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
     : >>"$log_target" 2>/dev/null || true
   fi
 
-  echo "agents: tailing $log_target (Ctrl+C to stop)" >&2
+  echo "aiur: tailing $log_target (Ctrl+C to stop)" >&2
   exec tail -F "$log_target"
 fi
 
