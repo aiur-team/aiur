@@ -127,12 +127,13 @@ defmodule SymphonyElixir.Tmux.Protocol do
   end
 
   defp parse_end_or_error(line) do
+    # Callers always pre-filter on `%end ` / `%error ` prefixes, so we
+    # don't need a third fallback clause — the line is guaranteed to
+    # match one of these two forms.
     rest =
-      cond do
-        String.starts_with?(line, "%end ") -> String.replace_prefix(line, "%end ", "")
-        String.starts_with?(line, "%error ") -> String.replace_prefix(line, "%error ", "")
-        true -> line
-      end
+      if String.starts_with?(line, "%end "),
+        do: String.replace_prefix(line, "%end ", ""),
+        else: String.replace_prefix(line, "%error ", "")
 
     case String.split(rest, " ", parts: 3) do
       [_time, cmd_num_str, _flags] -> safe_cmd_num(cmd_num_str)
