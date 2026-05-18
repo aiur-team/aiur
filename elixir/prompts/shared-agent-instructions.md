@@ -21,3 +21,20 @@
   - `phase.review.start`
   - `phase.review.end`
 - Emit milestone alerts when you actually enter or leave the corresponding phase, not retroactively.
+
+### Dev loop
+
+Branch off the latest `main` and run this loop:
+
+1. Implement
+2. Add / update / run tests
+3. Build
+4. Lint (with autofix)
+5. Commit using short, 3–7 word messages
+6. Push
+
+Once finished, open a PR and **await user review before merging**. Do not self-merge.
+
+### Manual CLI verification before opening a PR
+
+Before opening the PR, run the CLI locally and manually exercise all new functionality end-to-end. If the CLI fails to run, debug and fix the issues — do not skip verification or give up. Only open the PR once the requested functionality is confirmed working in the CLI.
