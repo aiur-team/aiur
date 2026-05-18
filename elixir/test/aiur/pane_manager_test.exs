@@ -4,6 +4,10 @@ defmodule Aiur.PaneManagerTest do
   alias Aiur.{AgentPubSub, PaneManager, Tmux}
 
   setup do
+    start_pane_manager(3)
+  end
+
+  defp start_pane_manager(max_vertical_panes) do
     test_pid = self()
     tmux_name = Module.concat(__MODULE__, :"Tmux#{System.unique_integer([:positive])}")
     pm_name = Module.concat(__MODULE__, :"PM#{System.unique_integer([:positive])}")
@@ -16,7 +20,13 @@ defmodule Aiur.PaneManagerTest do
 
     {:ok, pid} =
       start_supervised(
-        {PaneManager, [tmux: tmux_name, name: pm_name, agent_list_pane: "%1"]},
+        {PaneManager,
+         [
+           tmux: tmux_name,
+           name: pm_name,
+           agent_list_pane: "%1",
+           max_vertical_panes: max_vertical_panes
+         ]},
         id: pm_name
       )
 
@@ -26,7 +36,7 @@ defmodule Aiur.PaneManagerTest do
   # Drain the split-window command issued by the open-conversation
   # flow, asserting the target pane and direction match what the
   # given slot expects. Reply with a fresh pane id.
-  defp respond_split(tmux, target_pane, direction, pane_id) do
+  defp respond_split(tmux, target_pane, direction, pane_id, percent) do
     direction_flag = if direction == :horizontal, do: "-h", else: "-v"
 
     receive do
@@ -36,6 +46,9 @@ defmodule Aiur.PaneManagerTest do
 
         assert cmd =~ ~r/(^|\s)#{direction_flag}(\s|$)/,
                "expected direction flag #{direction_flag}, got #{inspect(cmd)}"
+
+        assert cmd =~ ~r/(^|\s)-p #{percent}(\s|$)/,
+               "expected split percent #{percent}, got #{inspect(cmd)}"
 
         send(
           GenServer.whereis(tmux),
@@ -71,9 +84,9 @@ defmodule Aiur.PaneManagerTest do
     end
   end
 
-  defp open_in_slot(pm, tmux, identifier, target_pane, direction, new_pane_id) do
+  defp open_in_slot(pm, tmux, identifier, target_pane, direction, new_pane_id, percent) do
     task = Task.async(fn -> PaneManager.open_conversation(pm, identifier, "echo " <> identifier) end)
-    respond_split(tmux, target_pane, direction, new_pane_id)
+    respond_split(tmux, target_pane, direction, new_pane_id, percent)
     drain_focus(tmux, new_pane_id)
     assert {:ok, ^new_pane_id} = Task.await(task, 1_000)
   end
@@ -81,48 +94,48 @@ defmodule Aiur.PaneManagerTest do
   test "first open splits the agent-list pane horizontally into slot 1", %{tmux: tmux, pm: pm} do
     :ok = AgentPubSub.subscribe_status()
 
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
 
     assert_receive {:status_changed, %{identifier: "MT-1", status: :pane_opened}}, 1_000
     assert PaneManager.list_open_panes(pm) == %{"MT-1" => "%10"}
   end
 
   test "second open splits slot 1 horizontally into slot 2", %{tmux: tmux, pm: pm} do
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
-    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 50)
 
     assert PaneManager.list_open_panes(pm) == %{"MT-1" => "%10", "MT-2" => "%11"}
   end
 
   test "third open splits the agent-list pane vertically into slot 3", %{tmux: tmux, pm: pm} do
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
-    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11")
-    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 50)
+    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12", 50)
 
     assert PaneManager.list_open_panes(pm) == %{"MT-1" => "%10", "MT-2" => "%11", "MT-3" => "%12"}
   end
 
   test "fourth open splits slot 1 vertically into slot 4", %{tmux: tmux, pm: pm} do
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
-    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11")
-    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12")
-    open_in_slot(pm, tmux, "MT-4", "%10", :vertical, "%13")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 50)
+    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12", 50)
+    open_in_slot(pm, tmux, "MT-4", "%10", :vertical, "%13", 50)
   end
 
   test "fifth open splits slot 2 vertically into slot 5", %{tmux: tmux, pm: pm} do
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
-    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11")
-    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12")
-    open_in_slot(pm, tmux, "MT-4", "%10", :vertical, "%13")
-    open_in_slot(pm, tmux, "MT-5", "%11", :vertical, "%14")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 50)
+    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12", 50)
+    open_in_slot(pm, tmux, "MT-4", "%10", :vertical, "%13", 50)
+    open_in_slot(pm, tmux, "MT-5", "%11", :vertical, "%14", 50)
   end
 
   test "sixth open replaces slot 1 via respawn-pane", %{tmux: tmux, pm: pm} do
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
-    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11")
-    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12")
-    open_in_slot(pm, tmux, "MT-4", "%10", :vertical, "%13")
-    open_in_slot(pm, tmux, "MT-5", "%11", :vertical, "%14")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 50)
+    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12", 50)
+    open_in_slot(pm, tmux, "MT-4", "%10", :vertical, "%13", 50)
+    open_in_slot(pm, tmux, "MT-5", "%11", :vertical, "%14", 50)
 
     # Cycle wraps; the next open targets slot 1, which already holds
     # `%10`. The implementation replaces the running command via
@@ -138,7 +151,7 @@ defmodule Aiur.PaneManagerTest do
   end
 
   test "close_conversation issues kill-pane and frees the slot", %{tmux: tmux, pm: pm} do
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
 
     close_task = Task.async(fn -> PaneManager.close_conversation(pm, "MT-1") end)
     assert_receive {:tmux_mock_out, "kill-pane -t %10"}, 1_000
@@ -149,12 +162,66 @@ defmodule Aiur.PaneManagerTest do
   end
 
   test "opening the same identifier twice returns the existing pane", %{tmux: tmux, pm: pm} do
-    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10")
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
 
     # Second open probes select-pane; the cached pane is still alive
     # so the manager short-circuits and returns it without splitting.
     second = Task.async(fn -> PaneManager.open_conversation(pm, "MT-1", "echo hi") end)
     drain_focus(tmux, "%10")
     assert {:ok, "%10"} = Task.await(second, 1_000)
+  end
+
+  test "closed slots are not filled until the cycle returns", %{tmux: tmux, pm: pm} do
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 50)
+
+    close_task = Task.async(fn -> PaneManager.close_conversation(pm, "MT-1") end)
+    assert_receive {:tmux_mock_out, "kill-pane -t %10"}, 1_000
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 4 0\n%end 1 4 0\n"})
+    assert :ok = Task.await(close_task, 1_000)
+
+    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12", 50)
+
+    assert PaneManager.list_open_panes(pm) == %{"MT-2" => "%11", "MT-3" => "%12"}
+  end
+
+  test "closed slot is recreated when the cycle returns to it", %{tmux: tmux, pm: pm} do
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 67)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 50)
+    open_in_slot(pm, tmux, "MT-3", "%1", :vertical, "%12", 50)
+    open_in_slot(pm, tmux, "MT-4", "%10", :vertical, "%13", 50)
+    open_in_slot(pm, tmux, "MT-5", "%11", :vertical, "%14", 50)
+
+    close_task = Task.async(fn -> PaneManager.close_conversation(pm, "MT-1") end)
+    assert_receive {:tmux_mock_out, "kill-pane -t %10"}, 1_000
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 4 0\n%end 1 4 0\n"})
+    assert :ok = Task.await(close_task, 1_000)
+
+    open_in_slot(pm, tmux, "MT-6", "%1", :horizontal, "%15", 67)
+
+    panes = PaneManager.list_open_panes(pm)
+    assert Map.get(panes, "MT-6") == "%15"
+    refute Map.has_key?(panes, "MT-1")
+  end
+
+  test "four configured columns create seven slots before cycling" do
+    %{tmux: tmux, pm: pm} = start_pane_manager(4)
+
+    open_in_slot(pm, tmux, "MT-1", "%1", :horizontal, "%10", 75)
+    open_in_slot(pm, tmux, "MT-2", "%10", :horizontal, "%11", 67)
+    open_in_slot(pm, tmux, "MT-3", "%11", :horizontal, "%12", 50)
+    open_in_slot(pm, tmux, "MT-4", "%1", :vertical, "%13", 50)
+    open_in_slot(pm, tmux, "MT-5", "%10", :vertical, "%14", 50)
+    open_in_slot(pm, tmux, "MT-6", "%11", :vertical, "%15", 50)
+    open_in_slot(pm, tmux, "MT-7", "%12", :vertical, "%16", 50)
+
+    task = Task.async(fn -> PaneManager.open_conversation(pm, "MT-8", "echo eight") end)
+    respond_respawn(tmux, "%10")
+    assert {:ok, "%10"} = Task.await(task, 1_000)
+
+    panes = PaneManager.list_open_panes(pm)
+    assert map_size(panes) == 7
+    assert Map.get(panes, "MT-8") == "%10"
+    refute Map.has_key?(panes, "MT-1")
   end
 end

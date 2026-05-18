@@ -104,6 +104,11 @@ defmodule Aiur.Config do
     settings!().workspace.root
   end
 
+  @spec max_vertical_panes() :: pos_integer()
+  def max_vertical_panes do
+    settings!().max_vertical_panes
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks
