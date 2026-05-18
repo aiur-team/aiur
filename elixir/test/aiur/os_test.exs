@@ -58,7 +58,12 @@ defmodule Aiur.OsTest do
   end
 
   defp write_script!(body) do
-    root = Path.join(System.tmp_dir!(), "os-test-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "os-test-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
+      )
+
     path = Path.join(root, "fake-stty")
     File.mkdir_p!(root)
     File.write!(path, "#!/bin/sh\n" <> body)

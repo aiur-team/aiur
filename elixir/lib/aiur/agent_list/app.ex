@@ -8,13 +8,15 @@ defmodule Aiur.AgentList.App do
   `Aiur.AgentList.Input`, and renders to stdout through
   `Aiur.AgentList.Renderer`.
 
-  On activate (enter / space / `i`), calls
+  On activate (enter), calls
   `Aiur.PaneManager.open_conversation/3` with the configured
   command template (typically `bin/aiur conversation <id>`).
 
   Accepts these test seams:
     * `:write_fun` — function called with the rendered iodata (defaults to `IO.write/1`).
     * `:pane_manager` — name of the PaneManager GenServer.
+    * `:orchestrator` — name of the Orchestrator GenServer.
+    * `:subscribe?` — subscribe to agent PubSub topics (defaults to `true`).
     * `:command_template` — string with `~s` placeholder filled by the
       selected identifier. Defaults to `bin/aiur conversation`.
   """
@@ -41,11 +43,14 @@ defmodule Aiur.AgentList.App do
   @type state :: %{
           summaries: [map()],
           selection_index: non_neg_integer(),
+          selection_focus: :agents | :max_agents,
           columns: pos_integer(),
           rows: pos_integer(),
           write_fun: (iodata() -> any()),
           pane_manager: GenServer.name(),
-          command_template: String.t()
+          command_template: String.t(),
+          orchestrator: GenServer.name(),
+          max_agents_alert?: boolean()
         }
 
   # Public API ----------------------------------------------------------------
@@ -64,6 +69,15 @@ defmodule Aiur.AgentList.App do
   @spec activate(GenServer.server()) :: :ok
   def activate(server \\ __MODULE__), do: GenServer.cast(server, :activate)
 
+  @spec toggle_pause(GenServer.server()) :: :ok
+  def toggle_pause(server \\ __MODULE__), do: GenServer.cast(server, :toggle_pause)
+
+  @spec adjust_max_concurrent_agents(integer()) :: :ok
+  @spec adjust_max_concurrent_agents(GenServer.server(), integer()) :: :ok
+  def adjust_max_concurrent_agents(server \\ __MODULE__, delta) when is_integer(delta) do
+    GenServer.cast(server, {:adjust_max_concurrent_agents, delta})
+  end
+
   @spec quit(GenServer.server()) :: :ok
   def quit(server \\ __MODULE__), do: GenServer.cast(server, :quit)
 
@@ -79,20 +93,26 @@ defmodule Aiur.AgentList.App do
   def init(opts) do
     write_fun = Keyword.get(opts, :write_fun, &IO.write/1)
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
+    orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
     command_template = Keyword.get(opts, :command_template, default_command_template())
     {cols, rows} = terminal_geometry()
 
-    AgentPubSub.subscribe_running()
-    AgentPubSub.subscribe_status()
+    if Keyword.get(opts, :subscribe?, true) do
+      AgentPubSub.subscribe_running()
+      AgentPubSub.subscribe_status()
+    end
 
     state = %{
       summaries: [],
       selection_index: 0,
+      selection_focus: :agents,
       columns: cols,
       rows: rows,
       help_visible?: false,
+      max_agents_alert?: false,
       write_fun: write_fun,
       pane_manager: pane_manager,
+      orchestrator: orchestrator,
       command_template: command_template
     }
 
@@ -124,18 +144,38 @@ defmodule Aiur.AgentList.App do
   end
 
   def handle_cast(:activate, state) do
-    case Enum.at(state.summaries, state.selection_index) do
-      %{identifier: identifier} ->
-        command = "#{state.command_template} #{identifier}"
-        # Routes through the agent-native facade so external consumers
-        # (MCP bridge, automation agents) drive conversations the same
-        # way the CLI does.
-        _ = PaneManager.open_conversation(state.pane_manager, identifier, command)
+    if state.selection_focus == :agents do
+      case Enum.at(state.summaries, state.selection_index) do
+        %{identifier: identifier} ->
+          command = "#{state.command_template} #{identifier}"
+          # Routes through the agent-native facade so external consumers
+          # (MCP bridge, automation agents) drive conversations the same
+          # way the CLI does.
+          _ = PaneManager.open_conversation(state.pane_manager, identifier, command)
 
-      _ ->
-        :ok
+        _ ->
+          :ok
+      end
     end
 
+    {:noreply, state}
+  end
+
+  def handle_cast(:toggle_pause, state) do
+    state = toggle_selected_agent_pause(state)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_cast({:adjust_max_concurrent_agents, delta}, state) do
+    state =
+      if state.selection_focus == :max_agents do
+        handle_max_adjust_result(state, Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta))
+      else
+        state
+      end
+
+    render(state)
     {:noreply, state}
   end
 
@@ -154,7 +194,9 @@ defmodule Aiur.AgentList.App do
 
   @impl true
   def handle_info({:running_changed, summaries}, state) do
-    new_state = clamp_selection(%{state | summaries: visible_summaries(summaries)})
+    summaries = visible_summaries(summaries)
+    selection_focus = if state.summaries == [] and summaries != [], do: :agents, else: state.selection_focus
+    new_state = clamp_selection(%{state | summaries: summaries, selection_focus: selection_focus})
     render(new_state)
     {:noreply, new_state}
   end
@@ -162,6 +204,12 @@ defmodule Aiur.AgentList.App do
   def handle_info({:status_changed, _}, state), do: {:noreply, state}
 
   def handle_info({:alert, %{}}, state), do: {:noreply, state}
+
+  def handle_info(:clear_max_agents_alert, state) do
+    new_state = %{state | max_agents_alert?: false}
+    render(new_state)
+    {:noreply, new_state}
+  end
 
   def handle_info(:refresh_tick, state) do
     render(state)
@@ -189,10 +237,83 @@ defmodule Aiur.AgentList.App do
 
   # Internals -----------------------------------------------------------------
 
+  defp handle_resume_result(state, {:ok, _}), do: state
+
+  defp handle_resume_result(state, {:error, reason})
+       when reason in [:max_concurrent_agents_reached, :below_active_count] do
+    ring_bell(state)
+    schedule_max_agents_alert_clear()
+    %{state | max_agents_alert?: true}
+  end
+
+  defp handle_resume_result(state, _result), do: state
+
+  defp handle_max_adjust_result(state, {:ok, _status}), do: state
+
+  defp handle_max_adjust_result(state, {:error, :below_active_count}) do
+    ring_bell(state)
+    schedule_max_agents_alert_clear()
+    %{state | max_agents_alert?: true}
+  end
+
+  defp handle_max_adjust_result(state, _result), do: state
+
+  defp ring_bell(state) do
+    state.write_fun.("\a")
+    :ok
+  end
+
+  defp schedule_max_agents_alert_clear do
+    Process.send_after(self(), :clear_max_agents_alert, 750)
+  end
+
+  defp paused_summary?(summary) do
+    Map.get(summary, :work_state) in [:paused, "paused"]
+  end
+
+  defp toggle_selected_agent_pause(%{selection_focus: :agents} = state) do
+    state.summaries
+    |> Enum.at(state.selection_index)
+    |> toggle_agent_pause(state)
+  end
+
+  defp toggle_selected_agent_pause(state), do: state
+
+  defp toggle_agent_pause(%{identifier: identifier, status: :running} = summary, state) do
+    if paused_summary?(summary) do
+      handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
+    else
+      _ = Orchestrator.pause_agent(state.orchestrator, identifier)
+      state
+    end
+  end
+
+  defp toggle_agent_pause(%{identifier: identifier, status: :queued}, state) do
+    handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
+  end
+
+  defp toggle_agent_pause(_summary, state), do: state
+
   defp move_selection(state, delta) do
     count = length(state.summaries)
-    new_index = if count == 0, do: 0, else: rem(state.selection_index + delta + count, count)
-    %{state | selection_index: new_index}
+
+    cond do
+      count == 0 ->
+        %{state | selection_index: 0, selection_focus: :max_agents}
+
+      state.selection_focus == :max_agents and delta > 0 ->
+        %{state | selection_index: 0, selection_focus: :agents}
+
+      state.selection_focus == :max_agents and delta < 0 ->
+        %{state | selection_index: count - 1, selection_focus: :agents}
+
+      state.selection_index == 0 and delta < 0 ->
+        %{state | selection_focus: :max_agents}
+
+      true ->
+        new_index = rem(state.selection_index + delta + count, count)
+        %{state | selection_index: new_index, selection_focus: :agents}
+    end
   end
 
   defp clamp_selection(state) do
@@ -234,15 +355,15 @@ defmodule Aiur.AgentList.App do
 
     render_state =
       state
-      |> Map.take([:summaries, :selection_index, :help_visible?])
+      |> Map.take([:summaries, :selection_index, :selection_focus, :help_visible?, :max_agents_alert?])
       |> Map.put(:columns, cols)
       |> Map.put(:rows, rows)
       |> Map.put(:project_label, project_label())
       |> Map.put(:dashboard_url, dashboard_url())
       |> Map.put(:refresh_label, refresh_label())
       |> Map.put(:agent_kind, agent_kind())
-      |> Map.put(:agent_count, length(state.summaries))
-      |> Map.put(:max_agents, max_agents())
+      |> Map.put(:agent_count, active_agent_count(state.summaries))
+      |> Map.put(:max_agents, max_agents(state.orchestrator))
 
     state.write_fun.(Renderer.render(render_state))
     :ok
@@ -291,8 +412,16 @@ defmodule Aiur.AgentList.App do
     end
   end
 
-  defp max_agents do
-    case safe_call(fn -> Config.max_concurrent_agents() end) do
+  defp active_agent_count(summaries) when is_list(summaries) do
+    Enum.count(summaries, fn
+      %{status: :running} = summary -> not paused_summary?(summary)
+      _ -> false
+    end)
+  end
+
+  defp max_agents(orchestrator) do
+    case safe_call(fn -> Orchestrator.max_concurrent_agents(orchestrator) end) do
+      %{max: n} when is_integer(n) and n > 0 -> n
       n when is_integer(n) and n > 0 -> n
       _ -> nil
     end

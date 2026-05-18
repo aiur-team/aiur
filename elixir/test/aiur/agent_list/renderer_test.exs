@@ -79,6 +79,37 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "claude (2/5)"
   end
 
+  test "focused max display highlights editable value and shows arrow affordances" do
+    out =
+      render(
+        base_state(%{
+          agent_kind: "codex",
+          agent_count: 1,
+          max_agents: 2,
+          selection_focus: :max_agents
+        })
+      )
+      |> visible()
+
+    assert out =~ "codex (1/[2])"
+    assert out =~ "← →"
+  end
+
+  test "max alert applies terminal highlight styling" do
+    raw =
+      render(
+        base_state(%{
+          agent_kind: "codex",
+          agent_count: 2,
+          max_agents: 2,
+          max_agents_alert?: true
+        })
+      )
+
+    assert raw =~ IO.ANSI.red()
+    assert raw =~ IO.ANSI.reverse()
+  end
+
   test "renders the agent table header columns" do
     out =
       render(base_state(%{summaries: [%{identifier: "MT-1", status: :running, alert_count: 0}]}))
@@ -105,6 +136,28 @@ defmodule Aiur.AgentList.RendererTest do
 
     assert out =~ "  MT-1"
     assert out =~ "▶ MT-2"
+  end
+
+  test "does not mark an agent row when the max control is focused" do
+    summaries = [
+      %{identifier: "MT-1", status: :running, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          selection_index: 0,
+          selection_focus: :max_agents,
+          agent_kind: "codex",
+          agent_count: 1,
+          max_agents: 2
+        })
+      )
+      |> visible()
+
+    assert out =~ "codex (1/[2])"
+    refute out =~ "▶ MT-1"
   end
 
   test "renders state with a colored circle emoji" do

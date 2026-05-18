@@ -462,6 +462,11 @@ defmodule Aiur.AgentRunner do
             Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
             send_control_state(codex_update_recipient, issue, :paused)
             wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
+          {:resume_agent, request_id} when is_integer(request_id) ->
+            Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{request_id}")
+            send_control_state(codex_update_recipient, issue, :working)
+            :ok
         end
     end
   end

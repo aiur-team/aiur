@@ -29,15 +29,18 @@ defmodule Aiur.AgentList.Renderer do
   @ansi_dim IO.ANSI.faint()
   @ansi_cyan IO.ANSI.cyan()
   @ansi_gray IO.ANSI.light_black()
+  @ansi_red IO.ANSI.red()
+  @ansi_reverse IO.ANSI.reverse()
 
   @type state :: %{
-          summaries: [AgentEvents.agent_summary()],
-          selection_index: non_neg_integer(),
-          columns: pos_integer(),
-          rows: pos_integer(),
-          project_label: String.t() | nil,
-          dashboard_url: String.t() | nil,
-          refresh_label: String.t() | nil
+          required(:summaries) => [AgentEvents.agent_summary()],
+          required(:selection_index) => non_neg_integer(),
+          optional(:selection_focus) => :agents | :max_agents,
+          required(:columns) => pos_integer(),
+          required(:rows) => pos_integer(),
+          required(:project_label) => String.t() | nil,
+          required(:dashboard_url) => String.t() | nil,
+          required(:refresh_label) => String.t() | nil
         }
 
   @spec render(state()) :: iodata()
@@ -66,7 +69,13 @@ defmodule Aiur.AgentList.Renderer do
         eol(),
         table_separator_row(inner_width, layout),
         eol(),
-        render_rows(summaries, Map.get(state, :selection_index, 0), inner_width, layout),
+        render_rows(
+          summaries,
+          Map.get(state, :selection_index, 0),
+          Map.get(state, :selection_focus, :agents),
+          inner_width,
+          layout
+        ),
         bottom_border(inner_width),
         eol(),
         footer_row(inner_width),
@@ -111,7 +120,9 @@ defmodule Aiur.AgentList.Renderer do
        [
          "↑ / k        select previous",
          "↓ / j        select next",
-         "enter, space open conversation for selected agent",
+         "enter        open conversation for selected agent",
+         "space        pause/resume selected agent",
+         "left/right   decrease/increase focused active-agent max",
          "?            toggle this help screen",
          "q            quit the agent list"
        ]},
@@ -197,6 +208,8 @@ defmodule Aiur.AgentList.Renderer do
         Map.get(state, :agent_kind),
         Map.get(state, :agent_count),
         Map.get(state, :max_agents),
+        Map.get(state, :selection_focus) == :max_agents,
+        Map.get(state, :max_agents_alert?) == true,
         inner_width
       ),
       eol(),
@@ -207,19 +220,18 @@ defmodule Aiur.AgentList.Renderer do
     ]
   end
 
-  defp agents_row(kind, count, max, inner_width)
+  defp agents_row(kind, count, max, focused?, alert?, inner_width)
        when is_integer(count) and is_integer(max) and max > 0 do
     kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
-    value = "#{kind_value} (#{count}/#{max})"
-    metadata_row_iolist("Agents:", value, @ansi_cyan, inner_width)
+    agents_row_iolist(kind_value, count, max, focused?, alert?, inner_width)
   end
 
-  defp agents_row(kind, count, _max, inner_width) when is_integer(count) do
+  defp agents_row(kind, count, _max, _focused?, _alert?, inner_width) when is_integer(count) do
     kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
     metadata_row_iolist("Agents:", "#{kind_value} (#{count})", @ansi_cyan, inner_width)
   end
 
-  defp agents_row(_kind, _count, _max, inner_width),
+  defp agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
     do: metadata_row_iolist("Agents:", "n/a", @ansi_gray, inner_width)
 
   defp project_row(nil, inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
@@ -244,6 +256,42 @@ defmodule Aiur.AgentList.Renderer do
     [prefix, bold_label, " ", colored_value, pad]
   end
 
+  defp agents_row_iolist(kind, count, max, focused?, alert?, inner_width) do
+    label = "Agents:"
+    prefix = "│ "
+    bold_label = @ansi_bold <> label <> @ansi_reset
+    max_text = if focused?, do: "[#{max}]", else: to_string(max)
+    affordance = if focused?, do: "  ← →", else: ""
+    plain = "#{prefix}#{label} #{kind} (#{count}/#{max_text})#{affordance}"
+    pad = padding_for(plain, inner_width)
+
+    max_style =
+      cond do
+        alert? -> @ansi_red <> @ansi_reverse
+        focused? -> @ansi_reverse
+        true -> @ansi_cyan
+      end
+
+    [
+      prefix,
+      bold_label,
+      " ",
+      @ansi_cyan,
+      kind,
+      " (",
+      Integer.to_string(count),
+      "/",
+      max_style,
+      max_text,
+      @ansi_reset,
+      @ansi_cyan,
+      ")",
+      affordance,
+      @ansi_reset,
+      pad
+    ]
+  end
+
   defp separator_row(inner_width) do
     [pad_with_ansi(@ansi_gray, "├" <> String.duplicate("─", max(inner_width - 1, 0)), inner_width)]
   end
@@ -253,7 +301,7 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp footer_row(inner_width) do
-    text = "  ↑/↓ select   enter/space open   ? help   q quit"
+    text = "  ↑/↓ select   enter open   space pause/resume   ←/→ max   ? help   q quit"
     pad_with_ansi(@ansi_dim, text, inner_width)
   end
 
@@ -281,18 +329,18 @@ defmodule Aiur.AgentList.Renderer do
     pad_with_ansi(@ansi_gray, body, inner_width)
   end
 
-  defp render_rows([], _idx, inner_width, _layout) do
+  defp render_rows([], _idx, _selection_focus, inner_width, _layout) do
     [
       pad_with_ansi(@ansi_dim, "│   (no agents running)", inner_width),
       eol()
     ]
   end
 
-  defp render_rows(summaries, idx, inner_width, layout) do
+  defp render_rows(summaries, idx, selection_focus, inner_width, layout) do
     summaries
     |> Enum.with_index()
     |> Enum.map(fn {summary, row_idx} ->
-      [render_row(summary, row_idx == idx, inner_width, layout), eol()]
+      [render_row(summary, selection_focus == :agents and row_idx == idx, inner_width, layout), eol()]
     end)
   end
 

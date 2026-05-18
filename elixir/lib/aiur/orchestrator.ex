@@ -43,6 +43,7 @@ defmodule Aiur.Orchestrator do
     @type t :: %__MODULE__{
             poll_interval_ms: integer() | nil,
             max_concurrent_agents: integer() | nil,
+            session_max_concurrent_agents: integer() | nil,
             next_poll_due_at_ms: integer() | nil,
             poll_check_in_progress: boolean() | nil,
             tick_timer_ref: reference() | nil,
@@ -64,6 +65,7 @@ defmodule Aiur.Orchestrator do
     defstruct [
       :poll_interval_ms,
       :max_concurrent_agents,
+      :session_max_concurrent_agents,
       :next_poll_due_at_ms,
       :poll_check_in_progress,
       :tick_timer_ref,
@@ -271,7 +273,9 @@ defmodule Aiur.Orchestrator do
 
         maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
 
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        notify_dashboard(state)
+        {:noreply, state}
     end
   end
 
@@ -887,8 +891,8 @@ defmodule Aiur.Orchestrator do
     normalized_state = normalize_issue_state(issue_state)
 
     Enum.count(running, fn
-      {_id, %{issue: %Issue{state: state_name}}} ->
-        normalize_issue_state(state_name) == normalized_state
+      {_id, %{issue: %Issue{state: state_name}} = entry} ->
+        normalize_issue_state(state_name) == normalized_state and active_running_entry?(entry)
 
       _ ->
         false
@@ -1411,7 +1415,7 @@ defmodule Aiur.Orchestrator do
 
   defp running_worker_host_count(running, worker_host) when is_map(running) and is_binary(worker_host) do
     Enum.count(running, fn
-      {_issue_id, %{worker_host: ^worker_host}} -> true
+      {_issue_id, %{worker_host: ^worker_host} = entry} -> active_running_entry?(entry)
       _ -> false
     end)
   end
@@ -1460,12 +1464,56 @@ defmodule Aiur.Orchestrator do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
   end
 
+  defp active_running_count(running) when is_map(running) do
+    Enum.count(running, fn
+      {_issue_id, entry} -> active_running_entry?(entry)
+    end)
+  end
+
+  defp active_running_count(_running), do: 0
+
+  defp paused_running_count(running) when is_map(running) do
+    Enum.count(running, fn
+      {_issue_id, entry} -> paused_running_entry?(entry)
+    end)
+  end
+
+  defp paused_running_count(_running), do: 0
+
+  defp active_running_entry?(entry) when is_map(entry), do: not paused_running_entry?(entry)
+  defp active_running_entry?(_entry), do: false
+
+  defp paused_running_entry?(entry) when is_map(entry) do
+    (get_in(entry, [:control, :status]) || :working) == :paused
+  end
+
+  defp paused_running_entry?(_entry), do: false
+
+  defp max_concurrent_agent_limit(%State{} = state) do
+    cond do
+      is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
+        state.session_max_concurrent_agents
+
+      is_integer(state.max_concurrent_agents) and state.max_concurrent_agents > 0 ->
+        state.max_concurrent_agents
+
+      true ->
+        Config.settings!().agent.max_concurrent_agents
+    end
+  end
+
+  defp max_concurrent_agent_status(%State{} = state) do
+    %{
+      active: active_running_count(state.running),
+      paused: paused_running_count(state.running),
+      configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
+      max: max_concurrent_agent_limit(state),
+      session_override?: is_integer(state.session_max_concurrent_agents)
+    }
+  end
+
   defp available_slots(%State{} = state) do
-    max(
-      (state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents) -
-        map_size(state.running),
-      0
-    )
+    max(max_concurrent_agent_limit(state) - active_running_count(state.running), 0)
   end
 
   @spec request_refresh() :: map() | :unavailable
@@ -1508,6 +1556,50 @@ defmodule Aiur.Orchestrator do
   def pause_agent(server, issue_identifier) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:pause_agent, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  def resume_agent(issue_identifier), do: resume_agent(__MODULE__, issue_identifier)
+
+  @spec resume_agent(GenServer.server(), String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  def resume_agent(server, issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:resume_agent, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec max_concurrent_agents() :: map() | :unavailable
+  def max_concurrent_agents, do: max_concurrent_agents(__MODULE__)
+
+  @spec max_concurrent_agents(GenServer.server()) :: map() | :unavailable
+  def max_concurrent_agents(server) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, :max_concurrent_agents, 5_000)
+    else
+      :unavailable
+    end
+  catch
+    :exit, _ -> :unavailable
+  end
+
+  @spec adjust_max_concurrent_agents(integer()) :: {:ok, map()} | {:error, term()}
+  def adjust_max_concurrent_agents(delta), do: adjust_max_concurrent_agents(__MODULE__, delta)
+
+  @spec adjust_max_concurrent_agents(GenServer.server(), integer()) :: {:ok, map()} | {:error, term()}
+  def adjust_max_concurrent_agents(server, delta) when is_integer(delta) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:adjust_max_concurrent_agents, delta}, 5_000)
     else
       {:error, :unavailable}
     end
@@ -1777,6 +1869,34 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:resume_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    {reply, state} = resume_issue(state, issue_identifier)
+    notify_dashboard(state)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:resume_agent, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call(:max_concurrent_agents, _from, state) do
+    {:reply, max_concurrent_agent_status(state), state}
+  end
+
+  def handle_call({:adjust_max_concurrent_agents, delta}, _from, state) when is_integer(delta) do
+    current = max_concurrent_agent_limit(state)
+    next = max(current + delta, 1)
+    active = active_running_count(state.running)
+
+    if next < active do
+      {:reply, {:error, :below_active_count}, state}
+    else
+      state = %{state | session_max_concurrent_agents: next}
+      notify_dashboard(state)
+      {:reply, {:ok, max_concurrent_agent_status(state)}, state}
+    end
+  end
+
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) when is_binary(issue_identifier) do
     {queue_store, item} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
     state = %{state | queue_store: queue_store}
@@ -2004,6 +2124,98 @@ defmodule Aiur.Orchestrator do
 
   defp notify_running_queue_update(_running_entry, _item), do: :ok
 
+  defp resume_issue(%State{} = state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      running_entry when is_map(running_entry) ->
+        if paused_running_entry?(running_entry) do
+          resume_paused_issue(state, running_entry)
+        else
+          {{:ok, :resumed}, state}
+        end
+
+      nil ->
+        resume_queued_issue(state, issue_identifier)
+    end
+  end
+
+  defp resume_paused_issue(%State{} = state, running_entry) do
+    cond do
+      available_slots(state) <= 0 ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      not state_slots_available?(Map.get(running_entry, :issue), state.running) ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      not resume_worker_slot_available?(state, Map.get(running_entry, :worker_host)) ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      true ->
+        send_resume_control_message(state, running_entry)
+    end
+  end
+
+  defp send_resume_control_message(%State{} = state, running_entry) do
+    case send_running_control_message(state, Map.get(running_entry, :identifier), fn request_id ->
+           {:resume_agent, request_id}
+         end) do
+      {:ok, _request_id} ->
+        issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+        state = put_running_control_status(state, issue_id, :working)
+        {{:ok, :resumed}, state}
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
+  end
+
+  defp resume_queued_issue(%State{} = state, issue_identifier) do
+    issue =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.find(fn
+        %Issue{identifier: ^issue_identifier} -> true
+        _ -> false
+      end)
+
+    cond do
+      is_nil(issue) ->
+        {{:error, :no_running_agent}, state}
+
+      available_slots(state) <= 0 ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      not should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set()) ->
+        {{:error, :not_resumable}, state}
+
+      true ->
+        next_state = dispatch_issue(state, issue)
+
+        if MapSet.member?(next_state.claimed, issue.id) do
+          {{:ok, :started}, next_state}
+        else
+          {{:error, :dispatch_failed}, next_state}
+        end
+    end
+  end
+
+  defp put_running_control_status(%State{} = state, issue_id, status)
+       when is_binary(issue_id) and status in [:paused, :working] do
+    update_in(state.running, fn running ->
+      case Map.get(running, issue_id) do
+        nil -> running
+        entry -> Map.put(running, issue_id, put_in(entry, [:control, :status], status))
+      end
+    end)
+  end
+
+  defp put_running_control_status(%State{} = state, _issue_id, _status), do: state
+
+  defp resume_worker_slot_available?(%State{} = state, worker_host) when is_binary(worker_host) do
+    worker_host_slots_available?(state, worker_host)
+  end
+
+  defp resume_worker_slot_available?(%State{}, _worker_host), do: true
+
   defp queue_depth_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
     state.queue_store
     |> AgentQueueStore.list_pending(issue_identifier)
@@ -2219,7 +2431,7 @@ defmodule Aiur.Orchestrator do
   defp sync_todo_capacity_alert(%State{} = state, issues) when is_list(issues) do
     todo_issues = routable_todo_issues(issues)
 
-    over_capacity? = length(todo_issues) > Config.max_concurrent_agents()
+    over_capacity? = length(todo_issues) > max_concurrent_agent_limit(state)
 
     cond do
       over_capacity? and not state.todo_over_capacity_alert_active ->

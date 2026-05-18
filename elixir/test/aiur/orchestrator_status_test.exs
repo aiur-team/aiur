@@ -5,6 +5,26 @@ defmodule Aiur.OrchestratorStatusTest do
 
   defp normalize(event), do: CodexCodingAgent.normalize_event(event)
 
+  defp running_entry(issue_id, identifier, status, pid \\ self(), worker_host \\ nil) do
+    %{
+      pid: pid,
+      ref: make_ref(),
+      identifier: identifier,
+      issue: %Issue{id: issue_id, identifier: identifier, state: "In Progress"},
+      worker_host: worker_host,
+      control: %{
+        can_interrupt: true,
+        safe_checkpoints: [:notification],
+        status: status
+      },
+      session_id: "thread-#{identifier}",
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
+      started_at: DateTime.utc_now()
+    }
+  end
+
   test "snapshot returns :timeout when snapshot server is unresponsive" do
     server_name = Module.concat(__MODULE__, :UnresponsiveSnapshotServer)
     parent = self()
@@ -23,6 +43,145 @@ defmodule Aiur.OrchestratorStatusTest do
     assert Orchestrator.snapshot(server_name, 10) == :timeout
 
     send(pid, :stop)
+  end
+
+  test "session max status counts active agents separately from paused agents" do
+    orchestrator_name = Module.concat(__MODULE__, :SessionMaxStatusOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working),
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused)
+          }
+      }
+    end)
+
+    assert %{
+             active: 1,
+             paused: 1,
+             configured: 10,
+             max: 2,
+             session_override?: true
+           } = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+    assert {:ok, %{max: 1, active: 1, paused: 1, session_override?: true}} =
+             Orchestrator.adjust_max_concurrent_agents(orchestrator_name, -1)
+  end
+
+  test "session max cannot be decreased below current active agents" do
+    orchestrator_name = Module.concat(__MODULE__, :SessionMaxBelowActiveOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-a" => running_entry("issue-a", "MT-A", :working),
+            "issue-b" => running_entry("issue-b", "MT-B", :working)
+          }
+      }
+    end)
+
+    assert {:error, :below_active_count} =
+             Orchestrator.adjust_max_concurrent_agents(orchestrator_name, -1)
+
+    assert %{max: 2, active: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
+  test "resuming a paused agent is blocked when active capacity is full" do
+    orchestrator_name = Module.concat(__MODULE__, :ResumeCapacityBlockedOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{
+            "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working),
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused)
+          }
+      }
+    end)
+
+    assert {:error, :max_concurrent_agents_reached} =
+             Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
+
+    refute_receive {:resume_agent, _request_id}, 100
+  end
+
+  test "resuming a paused agent sends resume control and consumes active capacity" do
+    orchestrator_name = Module.concat(__MODULE__, :ResumePausedOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working, parent),
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+          }
+      }
+    end)
+
+    assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
+    assert_receive {:resume_agent, request_id} when is_integer(request_id), 500
+    assert %{active: 2, paused: 0, max: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
+  test "resuming a paused ssh agent is blocked when its worker host is full" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["worker-a", "worker-b"],
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :ResumePausedWorkerHostBlockedOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 3,
+          running: %{
+            "issue-active-a" => running_entry("issue-active-a", "MT-ACTIVE-A", :working, parent, "worker-a"),
+            "issue-active-b" => running_entry("issue-active-b", "MT-ACTIVE-B", :working, parent, "worker-b"),
+            "issue-paused-a" => running_entry("issue-paused-a", "MT-PAUSED-A", :paused, parent, "worker-a")
+          }
+      }
+    end)
+
+    assert {:error, :max_concurrent_agents_reached} =
+             Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED-A")
+
+    refute_receive {:resume_agent, _request_id}, 100
+    assert %{active: 2, paused: 1, max: 3} = Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
   test "orchestrator snapshot reflects last codex update and session id" do
