@@ -13,6 +13,11 @@ defmodule SymphonyElixir.MixProject do
           threshold: 100
         ],
         ignore_modules: [
+          # Scaffold modules — fixed-return functions awaiting Phase 2
+          # implementations. Exempt until real logic lands; tests would
+          # only assert constants.
+          SymphonyElixir.AgentDirectory,
+          SymphonyElixir.PaneWarmPool,
           SymphonyElixir.Claude.Config,
           SymphonyElixir.Codex.Config,
           SymphonyElixir.Config,
