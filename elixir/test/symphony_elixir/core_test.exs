@@ -936,7 +936,9 @@ defmodule SymphonyElixir.CoreTest do
       ]
     }
 
-    assert PromptBuilder.build_prompt(issue) == "Ticket MT-701"
+    # `PromptBuilder` prepends shared-agent-instructions; assert on
+    # the rendered tail rather than equality.
+    assert String.ends_with?(PromptBuilder.build_prompt(issue), "Ticket MT-701")
   end
 
   test "prompt builder uses strict variable rendering" do
@@ -1091,7 +1093,10 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt == "Retry #2"
+    # `PromptBuilder` prepends a shared-agent-instructions block when
+    # the file is present at `prompts/shared-agent-instructions.md`,
+    # so we assert on the rendered tail rather than equality.
+    assert String.ends_with?(prompt, "Retry #2")
   end
 
   test "agent runner keeps workspace after successful codex run" do
