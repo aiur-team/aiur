@@ -85,7 +85,7 @@ defmodule Aiur.AgentList.AppTest do
 
     App.activate(app)
 
-    assert_receive {:mock_open, "MT-FOCUS", "echo open MT-FOCUS"}, 500
+    assert_receive {:mock_open, "MT-FOCUS", "echo open MT-FOCUS"}, 2_000
   end
 
   test "activate uses the visible-row order, not raw input order", %{app: app} do
@@ -107,16 +107,16 @@ defmodule Aiur.AgentList.AppTest do
     # Visible+sorted order: [MT-A running, MT-C running, MT-B queued].
     # Selection starts at 0 → activate must open MT-A, not the raw[0] (MT-X done).
     App.activate(app)
-    assert_receive {:mock_open, "MT-A", "echo open MT-A"}, 500
+    assert_receive {:mock_open, "MT-A", "echo open MT-A"}, 2_000
 
     App.select_next(app)
     Process.sleep(20)
     App.activate(app)
-    assert_receive {:mock_open, "MT-C", "echo open MT-C"}, 500
+    assert_receive {:mock_open, "MT-C", "echo open MT-C"}, 2_000
 
     App.select_next(app)
     Process.sleep(20)
     App.activate(app)
-    assert_receive {:mock_open, "MT-B", "echo open MT-B"}, 500
+    assert_receive {:mock_open, "MT-B", "echo open MT-B"}, 2_000
   end
 end

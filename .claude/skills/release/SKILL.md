@@ -38,11 +38,11 @@ git tag -l "VERSION"
 
 ### 3. Bump Version in mix.exs
 
-Update `elixir/mix.exs` version field to match the new version (without `v` prefix). This is the single source of truth — CLI, Codex, and Claude coding agents all read from it via `Mix.Project.config()[:version]`.
+Update `mix.exs` version field to match the new version (without `v` prefix). This is the single source of truth — CLI, Codex, and Claude coding agents all read from it via `Mix.Project.config()[:version]`.
 
 Rebuild escript and verify:
 ```bash
-cd elixir && mix escript.build && ./bin/aiur --version
+mix escript.build && ./bin/aiur --version
 ```
 
 Commit the version bump before tagging.

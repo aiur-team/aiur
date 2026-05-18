@@ -9,9 +9,6 @@ on:
 jobs:
   make-all:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: elixir
 
     steps:
       - name: Checkout
@@ -22,14 +19,13 @@ jobs:
         with:
           install: true
           cache: true
-          working_directory: elixir
 
       - name: Cache deps and build
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            elixir/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+            deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-mix-
 

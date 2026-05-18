@@ -26,7 +26,7 @@ description:
 ## Steps
 
 1. Identify current branch and confirm remote state.
-2. Run local validation (`make -C elixir all`) before pushing.
+2. Run local validation (`make all`) before pushing.
 3. Push branch to `origin` with upstream tracking if needed, using whatever
    remote URL is already configured.
 4. If push is not clean/rejected:
@@ -62,7 +62,7 @@ description:
 branch=$(git branch --show-current)
 
 # Minimal validation gate
-make -C elixir all
+make all
 
 # Initial push: respect the current origin remote.
 git push -u origin HEAD
@@ -101,7 +101,7 @@ fi
 
 tmp_pr_body=$(mktemp)
 gh pr view --json body -q .body > "$tmp_pr_body"
-(cd elixir && mix pr_body.check --file "$tmp_pr_body")
+mix pr_body.check --file "$tmp_pr_body"
 rm -f "$tmp_pr_body"
 
 # Show PR URL for the reply

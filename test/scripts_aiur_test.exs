@@ -1,7 +1,7 @@
 defmodule ScriptsAiurTest do
   use ExUnit.Case, async: true
 
-  @script Path.expand("../../scripts/aiur", __DIR__)
+  @script Path.expand("../scripts/aiur", __DIR__)
 
   test "prints help without starting anything" do
     ctx = test_context()
@@ -45,8 +45,8 @@ defmodule ScriptsAiurTest do
     """)
 
     assert {output, 0} = run_aiur(ctx, ["actions"])
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
-    assert output =~ "PWD=#{Path.join(ctx.actions_repo, "elixir")}"
+    assert output =~ "PKILL:-f #{ctx.actions_repo}/WORKFLOW.actions.md"
+    assert output =~ "PWD=#{ctx.actions_repo}"
     assert output =~ "MISE:exec -- ./bin/aiur --logs-root #{ctx.logs_root}/actions --port 4101"
     assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.actions.md"
   end
@@ -55,7 +55,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["aiur"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{ctx.repo_root}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
@@ -66,7 +66,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["actions"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{ctx.repo_root}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
@@ -110,7 +110,7 @@ defmodule ScriptsAiurTest do
 
     assert {output, 0} = run_aiur(ctx, [])
     refute output =~ "SYSTEMCTL:--user restart"
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{ctx.repo_root}"
 
     assert output =~
              "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
@@ -120,7 +120,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["run"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{ctx.repo_root}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
@@ -131,7 +131,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["custom/WORKFLOW.md"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{ctx.repo_root}"
     assert output =~ "./custom/WORKFLOW.md"
   end
 
@@ -140,7 +140,7 @@ defmodule ScriptsAiurTest do
     workflow = Path.join(ctx.actions_repo, "WORKFLOW.custom.md")
 
     assert {output, 0} = run_aiur(ctx, [workflow])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{ctx.repo_root}"
     assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails #{workflow}"
   end
 
@@ -156,9 +156,9 @@ defmodule ScriptsAiurTest do
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
-    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "elixir")}/local-workflows/WORKFLOW.aiur.local.md"
+    assert output =~ "PKILL:-f #{ctx.repo_root}/local-workflows/WORKFLOW.aiur.local.md"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*local-workflows/WORKFLOW.aiur.local.md"
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f #{ctx.actions_repo}/WORKFLOW.actions.md"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*WORKFLOW.actions.md"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
@@ -176,7 +176,7 @@ defmodule ScriptsAiurTest do
     command_log = command_log(ctx)
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f #{ctx.actions_repo}/WORKFLOW.actions.md"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*WORKFLOW.actions.md"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
@@ -201,7 +201,7 @@ defmodule ScriptsAiurTest do
 
   test "auto-rebuilds bin/aiur when missing" do
     ctx = test_context()
-    # The repo_root/elixir dir is empty by default — bin/aiur does not
+    # The repo root is empty by default — bin/aiur does not
     # exist, so ensure_built should call `mix escript.build` via fake mise.
     assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
 
@@ -216,7 +216,7 @@ defmodule ScriptsAiurTest do
     # ~/.local/bin/aiur → ../github.com/its-everdred/aiur/scripts/aiur),
     # BASH_SOURCE points to the symlink. Without symlink resolution,
     # script_dir = ~/.local/bin and repo_root falls back to ~/.local,
-    # so `cd $repo_root/elixir` fails with "No such file or directory".
+    # so `cd $repo_root` fails with "No such file or directory".
     ctx = test_context()
     real_repo = Path.expand("../..", @script)
 
@@ -244,13 +244,15 @@ defmodule ScriptsAiurTest do
           {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
           {"AIUR_OS_OVERRIDE", "Linux"},
           {"AIUR_SKIP_BUILD", "1"},
-          {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
+          {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+          {"HOME", ctx.home_dir},
+          {"TMUX", ""}
         ],
         stderr_to_stdout: true
       )
 
     assert status == 0
-    assert output =~ "PWD=#{Path.join(real_repo, "elixir")}"
+    assert output =~ "PWD=#{real_repo}"
     refute output =~ "No such file or directory"
   end
 
@@ -347,16 +349,18 @@ defmodule ScriptsAiurTest do
     logs_root = Path.join(root, "logs")
     command_log = Path.join(root, "commands.log")
     bg_state_dir = Path.join(root, "bg-state")
+    home_dir = Path.join(root, "home")
 
     # System.unique_integer resets per VM, so stale tmp dirs from prior
     # `mix test` runs can collide. Clear before setting up.
     File.rm_rf!(root)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(root) end)
 
-    File.mkdir_p!(Path.join(repo_root, "elixir"))
-    File.mkdir_p!(Path.join(actions_repo, "elixir"))
+    File.mkdir_p!(repo_root)
+    File.mkdir_p!(actions_repo)
     File.mkdir_p!(bin_dir)
     File.mkdir_p!(logs_root)
+    File.mkdir_p!(home_dir)
 
     fake_mise = Path.join(bin_dir, "mise")
     fake_systemctl = Path.join(bin_dir, "systemctl")
@@ -438,6 +442,7 @@ defmodule ScriptsAiurTest do
       logs_root: logs_root,
       command_log: command_log,
       bg_state_dir: bg_state_dir,
+      home_dir: home_dir,
       fake_mise: fake_mise,
       fake_systemctl: fake_systemctl,
       fake_pkill: fake_pkill,
@@ -469,7 +474,9 @@ defmodule ScriptsAiurTest do
         {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
         {"AIUR_OS_OVERRIDE", os_override},
         {"AIUR_SKIP_BUILD", skip_build},
-        {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
+        {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+        {"HOME", ctx.home_dir},
+        {"TMUX", ""}
       ],
       stderr_to_stdout: true
     )

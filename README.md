@@ -1,55 +1,121 @@
 # Aiur
 
-Aiur turns project work into isolated, autonomous implementation runs so teams can manage work
-instead of supervising individual coding sessions.
-
-[![Aiur demo video preview](.github/media/aiur-demo-poster.jpg)](.github/media/aiur-demo.mp4)
-
-_In this [demo video](.github/media/aiur-demo.mp4), Aiur monitors a tracker board for work
-and starts isolated implementation runs for selected tasks. Each run produces proof of work such as
-CI status, PR review feedback, complexity analysis, and walkthrough videos. When accepted, Aiur
-lands the PR safely. Engineers do not need to supervise individual coding sessions; they can manage
-the work at a higher level._
+Aiur runs autonomous coding agents against the work in your tracker, lands the resulting
+PRs, and lets you watch and chat with each agent in real time.
 
 > [!WARNING]
-> Aiur is a low-key engineering preview for testing in trusted environments.
+> Aiur is prototype software intended for evaluation only and is presented as-is.
 
-## Additional Capabilities
+## How it works
 
-- **Claude support:** Agents can run on claude as well as codex.
-- **Github issues:** In addition to Linear, agents can watch and move Github issues.
-- **Tracker adapters:** configure tracker backends for board- or issue-based queues, including
-  label-based state machines where the tracker supports them.
-- **Implementation adapters:** configure implementation backends through Aiur's app-server
-  protocol.
-- **Live run logs:** each workspace writes `logs/agent.md` and `logs/agent.ndjson`; the dashboard
-  can open those logs in a live-updating modal while a run is active.
-- **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
-  configured host/port for private operational access.
-- **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing
-  behavior consistent across runs without making those workflows part of Aiur's core model.
-- **Optional alert sounds:** users can edit the checked-in `alerts.yaml` file, where each alert
-  defines its `name`, `message`, and optional `sound` clips in one place.
+1. **Polls a tracker** (Linear, GitHub Issues, or in-memory) for candidate work.
+2. **Creates an isolated workspace** per selected item and clones your repo into it.
+3. **Launches a coding agent** (Codex or Claude) inside the workspace with your `WORKFLOW.md`
+   prompt and YAML config.
+4. **Drives the run** through repeated turns until the item reaches a terminal state
+   (`Done`, `Closed`, `Cancelled`, `Duplicate`), then cleans up the workspace.
 
-See [elixir/README.md](elixir/README.md#configuration) for the supported `WORKFLOW.md` options and
-adapter examples.
+Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets you open
+any agent in its own pane, and send messages directly into a running session. A LiveView
+dashboard at `/` covers the same surface for browser-based operators.
 
-## Running Aiur
+## Quickstart
 
-Aiur works best in codebases with clear setup instructions, automated validation, and workflow
-conventions that autonomous implementation runs can follow.
+```bash
+git clone https://github.com/its-everdred/aiur
+cd aiur
+mise install
+mise exec -- mix setup
+mise exec -- mix build
+cp examples/workflows/linear-codex.md WORKFLOW.md
+# Edit WORKFLOW.md for your tracker, repo, credentials, and workspace.
+mise exec -- ./bin/aiur ./WORKFLOW.md
+```
 
-See [elixir/README.md](elixir/README.md) for setup, configuration, and the `aiur` command
-reference (foreground, background, and `stop` modes on Linux and macOS).
+[mise](https://mise.jdx.dev/) is the recommended runtime manager — `mise.toml` pins
+versions for you.
 
----
+## Workflows
 
-## Upstream
+A `WORKFLOW.md` file has YAML front matter for adapters, credentials, and run policy,
+plus a Markdown body used as the prompt template. Supported adapters:
 
-Aiur is a derivative work of OpenAI's Symphony, distributed under the Apache License 2.0.
-Aiur is independent and is not affiliated with or endorsed by OpenAI. See [NOTICE](NOTICE)
-for full attribution.
+- **Trackers**: `linear`, `github`, `memory`
+- **Agents**: `codex`, `claude`
+
+Copy one of the starter workflows and edit it for your project:
+
+- [examples/workflows/linear-codex.md](examples/workflows/linear-codex.md)
+- [examples/workflows/github-codex.md](examples/workflows/github-codex.md)
+- [examples/workflows/github-claude.md](examples/workflows/github-claude.md)
+
+If `WORKFLOW.md` is missing or has invalid YAML at startup, Aiur won't boot. If a later
+reload fails, Aiur keeps running with the last known good workflow and logs the error
+until the file is fixed.
+
+## Operating with `aiur`
+
+`scripts/aiur` wraps `./bin/aiur` with named profiles, foreground/background modes, and
+a `stop` verb. It autodetects Linux (systemd `--user`) vs macOS (`nohup` + PID file).
+Put `scripts/` on your `PATH`:
+
+```bash
+export PATH="$PWD/scripts:$PATH"
+aiur list
+```
+
+| Command | What it does |
+|---|---|
+| `aiur` | Default profile, foreground, local-only bind |
+| `aiur run <profile>` | Named profile, foreground |
+| `aiur --bg [profile\|all]` | Background mode |
+| `aiur stop [profile\|all]` | Stop foreground processes and background services |
+| `aiur list` | Show configured profiles |
+| `aiur build` | Rebuild `bin/aiur` |
+| `aiur <path-to-WORKFLOW.md>` | Ad-hoc workflow |
+
+Profiles live at `~/.config/aiur/aiur.profiles` (six pipe-separated fields per line:
+`name|root|workflow|port|logs_root|service`). Environment overrides come from
+`~/.config/aiur-dashboard.env`, `.env`, and `.env.local` in that order. `.env*` are
+gitignored at the repo root.
+
+By default `aiur` injects `--host 127.0.0.1` so the dashboard stays local. Pass `--host`
+explicitly to opt out.
+
+## Dashboard
+
+When `server.port` (or CLI `--port`) is set, Aiur exposes:
+
+- LiveView dashboard at `/` — active agents, logs, per-agent chat modal
+- JSON API under `/api/v1/*` for operational debugging
+
+## Configuration notes
+
+- Path values support `~` for the home directory and `$VAR` for environment substitution.
+- Codex defaults to safer policies when omitted (`approval_policy` rejects unprompted
+  approvals, `thread_sandbox` is `workspace-write`).
+- `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
+  invocation when a turn completes but the issue is still active. Default: `20`.
+- Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
+- Optional local alert sounds: see `alerts.yaml` at the repo root.
+
+## Testing
+
+```bash
+make all
+```
+
+`make e2e` runs a live end-to-end test against real Linear + Codex; it creates and tears
+down disposable resources and requires `LINEAR_API_KEY`.
+
+## Project layout
+
+- `lib/` — application code
+- `test/` — ExUnit suite
+- `scripts/aiur` — operator wrapper
+- `examples/workflows/` — starter workflow files
+- `WORKFLOW.md` — local workflow contract for in-repo runs
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

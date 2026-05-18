@@ -1,21 +1,28 @@
 # Operating Notes
 
 Context for engineers and coding agents working in this repository. Setup
-lives in [`elixir/README.md`](elixir/README.md); this file captures the
-operational practices that aren't in the main README.
+lives in [`README.md`](README.md); this file captures the operational
+practices and codebase-specific conventions that aren't in the main README.
 
 ## Layout
 
-- `elixir/WORKFLOW.md` — generic template. Customize it for the project you
-  point Aiur at.
-- `elixir/examples/workflows/` — portable example workflows (Linear+Codex,
+- `WORKFLOW.md` — generic template. Customize it for the project you point
+  Aiur at.
+- `examples/workflows/` — portable example workflows (Linear+Codex,
   GitHub+Codex, GitHub+Claude). Copy one when starting fresh.
-- `elixir/local-workflows/` — machine-local operational workflows that are
-  checked in but are **not** portable defaults. Used by the built-in `aiur`
-  profiles.
+- `local-workflows/` — machine-local operational workflows that are checked in
+  but are **not** portable defaults. Used by the built-in `aiur` profiles.
+- `lib/` — application code.
+- `test/` — ExUnit suite.
 - `scripts/aiur` — thin wrapper around `bin/aiur`. Auto-detects OS
   (systemd on Linux, `nohup`+PID on macOS) and rebuilds the escript when
   sources are newer than the binary. See the README for the command surface.
+
+## Environment
+
+- Elixir: `1.19.x` (OTP 28) via `mise`.
+- Install deps: `mix setup`.
+- Main quality gate: `make all` (format check, lint, coverage, dialyzer).
 
 ## Running
 
@@ -75,6 +82,65 @@ workspace. Two practices that matter:
 Prefer HTTPS remotes over SSH for workflow git operations — SSH agent
 forwarding is fragile under service-account contexts and `gh auth setup-git`
 makes HTTPS Just Work.
+
+## Codebase-Specific Conventions
+
+- Runtime config is loaded from `WORKFLOW.md` front matter via
+  `Aiur.Workflow` and `Aiur.Config`.
+- Keep the implementation aligned with [`SPEC.md`](SPEC.md) where practical.
+  - The implementation may be a superset of the spec.
+  - The implementation must not conflict with the spec.
+  - If implementation changes meaningfully alter the intended behavior, update
+    the spec in the same change where practical so the spec stays current.
+- Prefer adding config access through `Aiur.Config` instead of ad-hoc env
+  reads.
+- Workspace safety is critical:
+  - Never run Codex turn cwd in the source repo.
+  - Workspaces must stay under configured workspace root.
+- Orchestrator behavior is stateful and concurrency-sensitive; preserve retry,
+  reconciliation, and cleanup semantics.
+- Follow `docs/logging.md` for logging conventions and required issue/session
+  context fields.
+
+## Tests and Validation
+
+Run targeted tests while iterating, then run full gates before handoff.
+
+```bash
+make all
+```
+
+Required rules:
+
+- Public functions (`def`) in `lib/` must have an adjacent `@spec`.
+- `defp` specs are optional.
+- `@impl` callback implementations are exempt from local `@spec`
+  requirement.
+- Keep changes narrowly scoped; avoid unrelated refactors.
+- Follow existing module/style patterns in `lib/aiur/*`.
+
+Validation command:
+
+```bash
+mix specs.check
+```
+
+## PR Requirements
+
+- PR body must follow `.github/pull_request_template.md` exactly.
+- Validate PR body locally when needed:
+
+```bash
+mix pr_body.check --file /path/to/pr_body.md
+```
+
+## Docs Update Policy
+
+If behavior/config changes, update docs in the same PR:
+
+- `README.md` for project concept, setup, and run instructions.
+- `WORKFLOW.md` for workflow/config contract changes.
+- Relevant files under `docs/` for operational behavior.
 
 ## Auth
 

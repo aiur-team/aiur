@@ -9,7 +9,7 @@ defmodule Aiur.Alerts do
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue}
   alias AiurWeb.ObservabilityPubSub
 
-  @alerts_path Path.expand("../../../alerts.yaml", __DIR__)
+  @alerts_path Path.expand("../../alerts.yaml", __DIR__)
   @system_scopes ["task.", "agent.", "chat."]
 
   @type definition :: %{

@@ -12,10 +12,7 @@ defmodule Mix.Tasks.PrBody.Check do
       mix pr_body.check --file /path/to/pr_body.md
   """
 
-  @template_paths [
-    ".github/pull_request_template.md",
-    "../.github/pull_request_template.md"
-  ]
+  @template_paths [".github/pull_request_template.md"]
 
   @impl Mix.Task
   def run(args) do

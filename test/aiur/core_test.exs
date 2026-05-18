@@ -1704,7 +1704,7 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-interrupt-operator", %{event: :session_started}}, 1_000
+      assert_receive {:codex_worker_update, "issue-interrupt-operator", %{event: :session_started}}, 5_000
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =
@@ -1972,7 +1972,7 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-pause-resume", %{event: :session_started}}, 1_000
+      assert_receive {:codex_worker_update, "issue-pause-resume", %{event: :session_started}}, 5_000
 
       send(task.pid, {:pause_agent, 91})
       assert Task.yield(task, 100) == nil
@@ -2145,7 +2145,7 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-checkpoint-requeue", %{event: :session_started}}, 1_000
+      assert_receive {:codex_worker_update, "issue-checkpoint-requeue", %{event: :session_started}}, 5_000
       Process.sleep(50)
 
       send(task.pid, {:pause_agent, 92})

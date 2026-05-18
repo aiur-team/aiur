@@ -237,9 +237,9 @@ trim() {
   printf '%s' "$value"
 }
 
-profile_elixir_dir() {
+profile_project_dir() {
   local profile="$1"
-  printf '%s/elixir' "$(profile_value aiur_root "$profile")"
+  profile_value aiur_root "$profile"
 }
 
 profile_workflow_arg() {
@@ -300,8 +300,8 @@ require_mise() {
 }
 
 ensure_built() {
-  local elixir_dir="$1"
-  local aiur_bin="$elixir_dir/bin/aiur"
+  local project_dir="$1"
+  local aiur_bin="$project_dir/bin/aiur"
 
   # AIUR_SKIP_BUILD lets the test fixture short-circuit this without faking
   # `mix escript.build` invocations on top of every other stubbed binary.
@@ -310,24 +310,24 @@ ensure_built() {
   fi
 
   if [ ! -x "$aiur_bin" ]; then
-    build_aiur "$elixir_dir"
+    build_aiur "$project_dir"
     return
   fi
 
   # If any source file is newer than the escript, rebuild. `-quit` stops after
   # the first hit; output is discarded — we only care about the exit signal.
-  if [ -n "$(find "$elixir_dir/lib" "$elixir_dir/mix.exs" "$elixir_dir/mix.lock" \
+  if [ -n "$(find "$project_dir/lib" "$project_dir/mix.exs" "$project_dir/mix.lock" \
               -newer "$aiur_bin" -print -quit 2>/dev/null)" ]; then
-    build_aiur "$elixir_dir"
+    build_aiur "$project_dir"
   fi
 }
 
 build_aiur() {
-  local elixir_dir="$1"
+  local project_dir="$1"
 
   require_mise
   echo "aiur: rebuilding bin/aiur…" >&2
-  (cd "$elixir_dir" && "$mise_bin" exec -- mix escript.build) >&2
+  (cd "$project_dir" && "$mise_bin" exec -- mix escript.build) >&2
 }
 
 source_env_files() {
@@ -453,7 +453,7 @@ stop_bg_pidfile() {
 
 stop_profile() {
   local profile="$1"
-  local elixir_dir
+  local project_dir
   local workflow
   local service
   local logs_root
@@ -461,7 +461,7 @@ stop_profile() {
 
   require_profile "$profile"
 
-  elixir_dir="$(profile_elixir_dir "$profile")"
+  project_dir="$(profile_project_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
   service="$(profile_value service "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
@@ -482,8 +482,8 @@ stop_profile() {
     "$pkill_bin" -f "$workflow" 2>/dev/null || true
     "$pkill_bin" -f "bin/aiur .*--interactive.*$workflow" 2>/dev/null || true
   else
-    "$pkill_bin" -f "$elixir_dir/${workflow#./}" 2>/dev/null || true
-    "$pkill_bin" -f "$elixir_dir/$workflow" 2>/dev/null || true
+    "$pkill_bin" -f "$project_dir/${workflow#./}" 2>/dev/null || true
+    "$pkill_bin" -f "$project_dir/$workflow" 2>/dev/null || true
     "$pkill_bin" -f "bin/aiur .*--interactive.*${workflow#./}" 2>/dev/null || true
     "$pkill_bin" -f "bin/aiur .*--interactive.*$workflow" 2>/dev/null || true
   fi
@@ -496,7 +496,7 @@ stop_profile() {
     "$pkill_bin" -f "bin/aiur .*--interactive.*--port $port" 2>/dev/null || true
   fi
 
-  "$pkill_bin" -f "$elixir_dir.*bin/aiur" 2>/dev/null || true
+  "$pkill_bin" -f "$project_dir.*bin/aiur" 2>/dev/null || true
 }
 
 stop_all() {
@@ -507,7 +507,7 @@ stop_all() {
 
 start_bg_nohup() {
   local profile="$1"
-  local elixir_dir
+  local project_dir
   local workflow
   local port
   local logs_root
@@ -516,13 +516,13 @@ start_bg_nohup() {
   local log_file
   local args=()
 
-  elixir_dir="$(profile_elixir_dir "$profile")"
+  project_dir="$(profile_project_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
   port="$(profile_value port "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
   service="$(profile_value service "$profile")"
 
-  ensure_built "$elixir_dir"
+  ensure_built "$project_dir"
 
   ensure_bg_state_dir
   pid_file="$(bg_pid_file "$service")"
@@ -531,7 +531,7 @@ start_bg_nohup() {
   stop_bg_pidfile "$service"
 
   (
-    cd "$elixir_dir"
+    cd "$project_dir"
 
     source_env_files
 
@@ -623,7 +623,7 @@ restart_background_except_profile() {
 
 run_foreground() {
   local profile="$1"
-  local elixir_dir
+  local project_dir
   local workflow
   local port
   local logs_root
@@ -632,14 +632,14 @@ run_foreground() {
   require_profile "$profile"
   stop_profile "$profile"
 
-  elixir_dir="$(profile_elixir_dir "$profile")"
+  project_dir="$(profile_project_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
   port="$(profile_value port "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
 
-  ensure_built "$elixir_dir"
+  ensure_built "$project_dir"
 
-  cd "$elixir_dir"
+  cd "$project_dir"
 
   source_env_files
   ensure_aiur_state_dir
@@ -663,7 +663,7 @@ run_foreground() {
 
   aiur_args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
 
-  run_in_tmux "$profile" "$elixir_dir" "${aiur_args[@]}"
+  run_in_tmux "$profile" "$project_dir" "${aiur_args[@]}"
 }
 
 die() {
@@ -698,7 +698,7 @@ resolve_aiur_tmux_conf() {
 
 run_in_tmux() {
   local profile="$1"
-  local elixir_dir="$2"
+  local project_dir="$2"
   shift 2
 
   local session socket conf
@@ -716,18 +716,18 @@ run_in_tmux() {
   export AIUR_TMUX_SESSION="$session"
   export AIUR_TMUX_SOCKET="$socket"
   export AIUR_TMUX_CONF="$conf"
-  export AIUR_BIN="$elixir_dir/bin/aiur"
+  export AIUR_BIN="$project_dir/bin/aiur"
   export AIUR_MISE_BIN="$mise_bin"
 
   # Resolve where the BEAM will write its log file. The Elixir CLI sets
   # `:log_file` to `<logs_root>/log/aiur.log` when `--logs-root` is
   # passed (LogFile.default_log_file/1); otherwise the file lives at
-  # `<elixir_dir>/log/aiur.log`.
+  # `<project_dir>/log/aiur.log`.
   local log_path
   if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
     log_path="${AIUR_LOGS_ROOT}/log/aiur.log"
   else
-    log_path="$elixir_dir/log/aiur.log"
+    log_path="$project_dir/log/aiur.log"
   fi
 
   if [ "$debug_mode" -eq 1 ]; then
@@ -741,9 +741,9 @@ run_in_tmux() {
   fi
 
   # Build the inner command as a single string for tmux to exec inside its
-  # pane. We change into the elixir dir and call mise with the supplied args.
+  # pane. We change into the project dir and call mise with the supplied args.
   local inner_cmd
-  printf -v inner_cmd 'cd %q && exec %q' "$elixir_dir" "$mise_bin"
+  printf -v inner_cmd 'cd %q && exec %q' "$project_dir" "$mise_bin"
 
   local arg
   for arg in "$@"; do
@@ -770,17 +770,17 @@ if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
   log_profile="${1:-default}"
 
   if profile_exists "$log_profile"; then
-    log_elixir_dir="$(profile_elixir_dir "$log_profile")"
+    log_project_dir="$(profile_project_dir "$log_profile")"
     log_logs_root="$(profile_value logs_root "$log_profile")"
   else
-    log_elixir_dir="$repo_root/elixir"
+    log_project_dir="$repo_root"
     log_logs_root=""
   fi
 
   if [ -n "$log_logs_root" ]; then
     log_dir="$log_logs_root/log"
   else
-    log_dir="$log_elixir_dir/log"
+    log_dir="$log_project_dir/log"
   fi
 
   if [ -n "$log_issue_id" ]; then
@@ -824,7 +824,7 @@ case "${1:-}" in
     exit 0
     ;;
   build)
-    build_aiur "$repo_root/elixir"
+    build_aiur "$repo_root"
     exit 0
     ;;
   --bg)
