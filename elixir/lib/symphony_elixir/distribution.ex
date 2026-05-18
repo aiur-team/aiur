@@ -18,13 +18,20 @@ defmodule SymphonyElixir.Distribution do
   @type result :: :ok | {:error, :not_distributed | :epmd_not_local}
 
   @spec start!() :: result()
-  def start! do
-    monitor_hidden_nodes()
-  end
+  def start!, do: do_monitor_hidden_nodes(&:net_kernel.monitor_nodes/2)
+
+  @doc false
+  @spec start!((boolean(), keyword() -> :ok)) :: result()
+  def start!(monitor_fn) when is_function(monitor_fn, 2),
+    do: do_monitor_hidden_nodes(monitor_fn)
 
   @spec node_name() :: atom() | nil
-  def node_name do
-    case Node.self() do
+  def node_name, do: node_name(&Node.self/0)
+
+  @doc false
+  @spec node_name((-> atom())) :: atom() | nil
+  def node_name(node_self_fn) when is_function(node_self_fn, 0) do
+    case node_self_fn.() do
       :nonode@nohost -> nil
       name -> name
     end
@@ -36,8 +43,8 @@ defmodule SymphonyElixir.Distribution do
   @spec hidden_pane_nodes() :: [node()]
   def hidden_pane_nodes, do: Node.list(:hidden)
 
-  defp monitor_hidden_nodes do
-    :net_kernel.monitor_nodes(true, node_type: :hidden)
+  defp do_monitor_hidden_nodes(monitor_fn) do
+    monitor_fn.(true, node_type: :hidden)
     :ok
   rescue
     error ->
