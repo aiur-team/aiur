@@ -98,4 +98,51 @@ defmodule SymphonyElixir.Tmux.ProtocolTest do
              ]
     end
   end
+
+  describe "parse/2 with malformed input" do
+    test "treats a malformed %begin header as an unknown notification" do
+      {_state, events} = Protocol.parse(Protocol.new_state(), "%begin not-a-time\n")
+      assert events == [{:unknown_notification, "%begin not-a-time"}]
+    end
+
+    test "treats a %begin header whose cmd_num is non-numeric as unknown" do
+      {_state, events} = Protocol.parse(Protocol.new_state(), "%begin 1 cmd-x 0\n")
+      assert events == [{:unknown_notification, "%begin 1 cmd-x 0"}]
+    end
+
+    test "drops free-text lines that appear outside any active response" do
+      # Lines that don't begin with `%` are ignored entirely (no
+      # events emitted) when no `%begin` is in flight.
+      {_state, events} = Protocol.parse(Protocol.new_state(), "stray text\n")
+      assert events == []
+    end
+
+    test "emits an unknown_notification when %end's cmd_num doesn't match the open response" do
+      # `%begin 1 7 0` opens cmd 7. A subsequent `%end 1 99 0` would
+      # close the response but with a different cmd_num — treated as
+      # unknown so the caller can log the inconsistency.
+      {_state, events} = Protocol.parse(Protocol.new_state(), "%begin 1 7 0\n%end 1 99 0\n")
+      assert events == [{:unknown_notification, "%end 1 99 0"}]
+    end
+
+    test "emits an unknown_notification when %end is malformed" do
+      {_state, events} = Protocol.parse(Protocol.new_state(), "%begin 1 7 0\n%end garbage\n")
+      assert events == [{:unknown_notification, "%end garbage"}]
+    end
+
+    test "parses %window-pane-changed with a missing second arg as unknown" do
+      {_state, events} = Protocol.parse(Protocol.new_state(), "%window-pane-changed @1\n")
+      assert events == [{:unknown_notification, "%window-pane-changed @1"}]
+    end
+
+    test "parses %session-changed with a missing second arg as unknown" do
+      {_state, events} = Protocol.parse(Protocol.new_state(), "%session-changed $1\n")
+      assert events == [{:unknown_notification, "%session-changed $1"}]
+    end
+
+    test "parses %output with a missing data field as unknown" do
+      {_state, events} = Protocol.parse(Protocol.new_state(), "%output %1\n")
+      assert events == [{:unknown_notification, "%output %1"}]
+    end
+  end
 end
