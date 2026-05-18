@@ -22,7 +22,7 @@ defmodule Aiur.AgentEvents do
   (intro, errors, status); `:command` is a shell/tool command the agent
   issues; `:alert` is an operator-facing notification.
   """
-  @type role :: :user | :assistant | :system | :command | :alert
+  @type role :: :user | :assistant | :system | :command | :alert | :diff
 
   @typedoc "One line of an agent conversation transcript."
   @type transcript_event :: %{
@@ -81,6 +81,7 @@ defmodule Aiur.AgentEvents do
     * `sys`   — `:system`    — external context (intro, errors)
     * `cmd`   — `:command`   — commands the agent runs
     * `alert` — `:alert`     — operator-facing notifications
+    * `diff`  — `:diff`      — file edits made by the agent
   """
   @spec tag_name(role()) :: String.t()
   def tag_name(:assistant), do: "agent"
@@ -88,6 +89,7 @@ defmodule Aiur.AgentEvents do
   def tag_name(:system), do: "sys"
   def tag_name(:command), do: "cmd"
   def tag_name(:alert), do: "alert"
+  def tag_name(:diff), do: "diff"
 
   @doc """
   Bracketed display form of a tag — `"[agent]"`, `"[usr]"`, etc.
@@ -97,7 +99,7 @@ defmodule Aiur.AgentEvents do
 
   @spec transcript_event(role(), String.t(), keyword()) :: transcript_event()
   def transcript_event(role, body, opts \\ [])
-      when role in [:user, :assistant, :system, :command, :alert] and is_binary(body) do
+      when role in [:user, :assistant, :system, :command, :alert, :diff] and is_binary(body) do
     %{
       role: role,
       body: body,

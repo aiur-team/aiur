@@ -66,6 +66,111 @@ defmodule AiurPane.ViewportTest do
     assert raw =~ "$ ls\e[0m"
   end
 
+  test "renders diff events as compact update blocks" do
+    diff = """
+    diff --git a/elixir/lib/example.ex b/elixir/lib/example.ex
+    index 1111111..2222222 100644
+    --- a/elixir/lib/example.ex
+    +++ b/elixir/lib/example.ex
+    @@ -108,4 +108,4 @@
+     def unchanged
+    -  def old_name, do: :old
+    +  def new_name, do: :new
+     end
+    """
+
+    event = AgentEvents.transcript_event(:diff, diff)
+    {frame, _cursor} = Viewport.render(base_state(transcript: [event], columns: 90, rows: 20))
+
+    raw = IO.iodata_to_binary(frame)
+    text = visible(raw)
+
+    assert text =~ "Update(elixir/lib/example.ex)"
+    assert text =~ "Added 1 lines, removed 1 lines"
+    assert text =~ "108  def unchanged"
+    assert text =~ "109 -  def old_name, do: :old"
+    assert text =~ "109 +  def new_name, do: :new"
+    assert raw =~ "\e[48;5;52m"
+    assert raw =~ "\e[48;5;22m"
+  end
+
+  test "renders create and delete diff blocks from multi-file diffs" do
+    diff = """
+    diff --git a/new.txt b/new.txt
+    new file mode 100644
+    index 0000000..1111111
+    --- /dev/null
+    +++ b/new.txt
+    @@ -0,0 +1,2 @@
+    +one
+    +two
+    diff --git a/old.txt b/old.txt
+    deleted file mode 100644
+    index 1111111..0000000
+    --- a/old.txt
+    +++ /dev/null
+    @@ -1,2 +0,0 @@
+    -gone
+    -done
+    """
+
+    event = AgentEvents.transcript_event(:diff, diff)
+    {frame, _cursor} = Viewport.render(base_state(transcript: [event], columns: 80, rows: 30))
+    text = IO.iodata_to_binary(frame) |> visible()
+
+    assert text =~ "Create(new.txt)"
+    assert text =~ "Added 2 lines, removed 0 lines"
+    assert text =~ "Delete(old.txt)"
+    assert text =~ "Added 0 lines, removed 2 lines"
+  end
+
+  test "truncates long diff blocks" do
+    added_lines =
+      1..30
+      |> Enum.map_join("\n", fn index -> "+line #{index}" end)
+
+    diff = """
+    diff --git a/long.txt b/long.txt
+    index 1111111..2222222 100644
+    --- a/long.txt
+    +++ b/long.txt
+    @@ -1,0 +1,30 @@
+    #{added_lines}
+    """
+
+    event = AgentEvents.transcript_event(:diff, diff)
+    {frame, _cursor} = Viewport.render(base_state(transcript: [event], columns: 70, rows: 40))
+    text = IO.iodata_to_binary(frame) |> visible()
+
+    assert text =~ "... (6 more lines)"
+    assert text =~ "Added 30 lines, removed 0 lines"
+  end
+
+  test "diff events do not reset assistant tag coalescing" do
+    transcript = [
+      AgentEvents.transcript_event(:assistant, "before"),
+      AgentEvents.transcript_event(
+        :diff,
+        """
+        diff --git a/a.txt b/a.txt
+        --- a/a.txt
+        +++ b/a.txt
+        @@ -1 +1 @@
+        -a
+        +b
+        """
+      ),
+      AgentEvents.transcript_event(:assistant, "after")
+    ]
+
+    {frame, _cursor} = Viewport.render(base_state(transcript: transcript, columns: 80, rows: 24))
+    text = IO.iodata_to_binary(frame) |> visible()
+
+    assert text =~ "before"
+    assert text =~ "after"
+    assert length(Regex.scan(~r/ agent /, text)) == 1
+  end
+
   test "leaves regular agent text un-styled" do
     event = AgentEvents.transcript_event(:assistant, "hello")
     {frame, _cursor} = Viewport.render(base_state(transcript: [event]))

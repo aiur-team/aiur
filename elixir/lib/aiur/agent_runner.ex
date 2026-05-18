@@ -84,10 +84,15 @@ defmodule Aiur.AgentRunner do
 
   defp maybe_broadcast_transcript(_issue, _message), do: :ok
 
-  defp transcript_event_from(message) when is_map(message) do
+  @doc false
+  @spec transcript_event_from(map()) :: {:ok, AgentEvents.transcript_event()} | :skip
+  def transcript_event_from(message) when is_map(message) do
     cond do
       text = assistant_message_from_codex(message) ->
         {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message))}
+
+      diff = diff_from_codex(message) ->
+        {:ok, AgentEvents.transcript_event(:diff, diff, timestamp: timestamp_for(message))}
 
       summary = system_activity_from_codex(message) ->
         {:ok, AgentEvents.transcript_event(:command, summary, timestamp: timestamp_for(message))}
@@ -106,6 +111,17 @@ defmodule Aiur.AgentRunner do
          "agentMessage" <- get(item, :type),
          text when is_binary(text) and text != "" <- get(item, :text) do
       text
+    else
+      _ -> nil
+    end
+  end
+
+  defp diff_from_codex(message) do
+    with "turn/diff/updated" <- notification_method(message),
+         params when is_map(params) <- notification_params(message),
+         diff when is_binary(diff) <- get(params, :diff),
+         true <- String.trim(diff) != "" do
+      diff
     else
       _ -> nil
     end
@@ -171,9 +187,16 @@ defmodule Aiur.AgentRunner do
   end
 
   defp notification_item(message) do
+    case notification_params(message) do
+      params when is_map(params) -> get(params, :item)
+      _ -> nil
+    end
+  end
+
+  defp notification_params(message) do
     with payload when is_map(payload) <- get(message, :payload),
          params when is_map(params) <- get(payload, :params) do
-      get(params, :item)
+      params
     else
       _ -> nil
     end

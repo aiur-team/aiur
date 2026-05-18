@@ -72,6 +72,7 @@ defmodule Aiur.AgentEventsTest do
       assert AgentEvents.tag_name(:system) == "sys"
       assert AgentEvents.tag_name(:command) == "cmd"
       assert AgentEvents.tag_name(:alert) == "alert"
+      assert AgentEvents.tag_name(:diff) == "diff"
     end
 
     test "tag_display brackets the short tag" do

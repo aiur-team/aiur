@@ -33,6 +33,8 @@ defmodule AiurPane.Viewport do
   @ansi_cyan IO.ANSI.cyan()
   @ansi_input_bg "\e[48;5;236m"
   @ansi_input_fg "\e[38;5;255m"
+  @ansi_diff_add_bg "\e[48;5;22m"
+  @ansi_diff_delete_bg "\e[48;5;52m"
 
   # Per-role tag styling: a colored background block carrying the role
   # name so the reader can scan the column at a glance. The text inside
@@ -77,6 +79,7 @@ defmodule AiurPane.Viewport do
   # this we truncate from the start of the buffer (keeping the cursor and
   # tail visible) rather than letting it swallow the transcript.
   @max_input_rows 6
+  @max_diff_body_rows 24
 
   @spec render(state()) :: {iodata(), {pos_integer(), pos_integer()}}
   def render(%{transcript: transcript, composer: composer, columns: cols, rows: rows} = state) do
@@ -176,7 +179,7 @@ defmodule AiurPane.Viewport do
           case role do
             # Commands are sub-actions of the agent; preserve the prior
             # speaker so the next agent message stays tagless.
-            :command -> prev_speaker
+            role when role in [:command, :diff] -> prev_speaker
             other -> other
           end
 
@@ -184,6 +187,17 @@ defmodule AiurPane.Viewport do
       end)
 
     Enum.reverse(prepared)
+  end
+
+  defp render_event_rows(%{role: :diff} = event, inner_width, _show_tag?) do
+    event
+    |> Map.get(:body, "")
+    |> to_string()
+    |> parse_unified_diff()
+    |> case do
+      [] -> render_raw_diff_rows(Map.get(event, :body, ""), inner_width)
+      files -> Enum.flat_map(files, &render_diff_file_rows(&1, inner_width))
+    end
   end
 
   defp render_event_rows(%{role: :command} = event, inner_width, _show_tag?) do
@@ -324,6 +338,7 @@ defmodule AiurPane.Viewport do
   defp bg_for(:system), do: @bg_system
   defp bg_for(:command), do: @bg_command
   defp bg_for(:alert), do: @bg_alert
+  defp bg_for(:diff), do: @bg_command
   defp bg_for(_other), do: @bg_system
 
   defp build_tag(role, bg) do
@@ -357,6 +372,190 @@ defmodule AiurPane.Viewport do
     |> Enum.chunk_every(max(width, 1))
     |> Enum.map(&Enum.join/1)
   end
+
+  # ---------- diff rendering ------------------------------------------------
+
+  defp parse_unified_diff(diff) do
+    diff
+    |> String.split("\n", trim: false)
+    |> Enum.reduce({[], nil}, fn line, {files, current} ->
+      cond do
+        String.starts_with?(line, "diff --git ") ->
+          {push_diff_file(files, current), %{lines: [line]}}
+
+        is_nil(current) ->
+          {files, nil}
+
+        true ->
+          {files, %{current | lines: [line | current.lines]}}
+      end
+    end)
+    |> then(fn {files, current} -> push_diff_file(files, current) end)
+    |> Enum.reverse()
+    |> Enum.map(fn %{lines: lines} -> build_diff_file(Enum.reverse(lines)) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp push_diff_file(files, nil), do: files
+  defp push_diff_file(files, %{lines: []}), do: files
+  defp push_diff_file(files, file), do: [file | files]
+
+  defp build_diff_file(lines) do
+    old_path = diff_marker_path(lines, "--- ")
+    new_path = diff_marker_path(lines, "+++ ")
+    path = display_diff_path(old_path, new_path)
+
+    if is_nil(path) do
+      nil
+    else
+      rows = diff_hunk_rows(lines)
+
+      %{
+        action: diff_action(old_path, new_path),
+        path: path,
+        added: Enum.count(rows, &(&1.kind == :add)),
+        removed: Enum.count(rows, &(&1.kind == :delete)),
+        rows: rows
+      }
+    end
+  end
+
+  defp diff_marker_path(lines, marker) do
+    lines
+    |> Enum.find(&String.starts_with?(&1, marker))
+    |> case do
+      nil -> nil
+      line -> line |> String.replace_prefix(marker, "") |> String.split("\t") |> hd() |> normalize_diff_path()
+    end
+  end
+
+  defp normalize_diff_path("/dev/null"), do: "/dev/null"
+  defp normalize_diff_path("a/" <> path), do: path
+  defp normalize_diff_path("b/" <> path), do: path
+  defp normalize_diff_path(path), do: path
+
+  defp display_diff_path("/dev/null", new_path) when is_binary(new_path), do: new_path
+  defp display_diff_path(old_path, "/dev/null") when is_binary(old_path), do: old_path
+  defp display_diff_path(_old_path, new_path) when is_binary(new_path), do: new_path
+  defp display_diff_path(old_path, _new_path) when is_binary(old_path), do: old_path
+  defp display_diff_path(_old_path, _new_path), do: nil
+
+  defp diff_action("/dev/null", _new_path), do: "Create"
+  defp diff_action(_old_path, "/dev/null"), do: "Delete"
+  defp diff_action(_old_path, _new_path), do: "Update"
+
+  defp diff_hunk_rows(lines) do
+    lines
+    |> Enum.reduce(%{in_hunk?: false, old_line: 0, new_line: 0, rows: []}, &collect_diff_hunk_row/2)
+    |> Map.fetch!(:rows)
+    |> Enum.reverse()
+  end
+
+  defp collect_diff_hunk_row("@@ " <> _ = line, state) do
+    case Regex.run(~r/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/, line) do
+      [_match, old_line, new_line] ->
+        %{state | in_hunk?: true, old_line: String.to_integer(old_line), new_line: String.to_integer(new_line)}
+
+      _ ->
+        state
+    end
+  end
+
+  defp collect_diff_hunk_row(line, %{in_hunk?: true} = state) do
+    cond do
+      String.starts_with?(line, "+") and not String.starts_with?(line, "+++") ->
+        row = %{kind: :add, number: state.new_line, marker: "+", text: String.replace_prefix(line, "+", "")}
+        %{state | new_line: state.new_line + 1, rows: [row | state.rows]}
+
+      String.starts_with?(line, "-") and not String.starts_with?(line, "---") ->
+        row = %{kind: :delete, number: state.old_line, marker: "-", text: String.replace_prefix(line, "-", "")}
+        %{state | old_line: state.old_line + 1, rows: [row | state.rows]}
+
+      String.starts_with?(line, " ") ->
+        row = %{kind: :context, number: state.old_line, marker: " ", text: String.replace_prefix(line, " ", "")}
+
+        %{
+          state
+          | old_line: state.old_line + 1,
+            new_line: state.new_line + 1,
+            rows: [row | state.rows]
+        }
+
+      String.starts_with?(line, "\\ No newline at end of file") ->
+        state
+
+      true ->
+        state
+    end
+  end
+
+  defp collect_diff_hunk_row(_line, state), do: state
+
+  defp render_diff_file_rows(%{rows: rows} = file, inner_width) do
+    number_width = diff_number_width(rows)
+    {visible_rows, omitted_count} = split_visible_diff_rows(rows)
+
+    body_rows =
+      visible_rows
+      |> Enum.map(&format_diff_hunk_row(&1, number_width))
+      |> Enum.map(&render_diff_text_row(&1.text, &1.kind, inner_width))
+
+    omitted_rows =
+      if omitted_count > 0 do
+        [render_diff_text_row("    ... (#{omitted_count} more lines)", :summary, inner_width)]
+      else
+        []
+      end
+
+    [
+      render_diff_text_row("#{file.action}(#{file.path})", :header, inner_width),
+      render_diff_text_row("  \u23bf  Added #{file.added} lines, removed #{file.removed} lines", :summary, inner_width)
+      | body_rows ++ omitted_rows
+    ]
+  end
+
+  defp diff_number_width([]), do: 1
+
+  defp diff_number_width(rows) do
+    rows
+    |> Enum.map(& &1.number)
+    |> Enum.max()
+    |> Integer.to_string()
+    |> String.length()
+  end
+
+  defp split_visible_diff_rows(rows) do
+    shown = Enum.take(rows, @max_diff_body_rows)
+    {shown, max(length(rows) - length(shown), 0)}
+  end
+
+  defp format_diff_hunk_row(row, number_width) do
+    number = row.number |> Integer.to_string() |> String.pad_leading(number_width)
+    %{kind: row.kind, text: "    #{number} #{row.marker}#{row.text}"}
+  end
+
+  defp render_raw_diff_rows(diff, inner_width) do
+    diff
+    |> to_string()
+    |> String.split("\n")
+    |> Enum.take(@max_diff_body_rows)
+    |> Enum.map(&render_diff_text_row(&1, :summary, inner_width))
+  end
+
+  defp render_diff_text_row(text, kind, inner_width) do
+    text = truncate_with_ellipsis(text, inner_width)
+    pad = String.duplicate(" ", max(inner_width - header_visual_width(text), 0))
+
+    case diff_row_style(kind) do
+      "" -> [text, pad]
+      style -> [style, text, @ansi_reset, pad]
+    end
+  end
+
+  defp diff_row_style(:add), do: @ansi_diff_add_bg
+  defp diff_row_style(:delete), do: @ansi_diff_delete_bg
+  defp diff_row_style(:summary), do: @body_command
+  defp diff_row_style(_kind), do: ""
 
   defp header_line(identifier, title, work_state, inner_width) do
     # Format: "<state-circle> <identifier> - <title>" truncated with an
