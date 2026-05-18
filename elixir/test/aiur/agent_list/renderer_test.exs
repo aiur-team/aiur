@@ -57,7 +57,15 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "Agents: n/a"
     assert out =~ "Project: n/a"
     assert out =~ "Dashboard: n/a"
-    assert out =~ "🔄 n/a"
+    assert out =~ "🔄 in 0s"
+    refute out =~ "🔄 n/a"
+  end
+
+  test "renders empty refresh labels as in 0s" do
+    out = render(base_state(%{refresh_label: ""})) |> visible()
+
+    assert out =~ "🔄 in 0s"
+    refute out =~ "🔄 n/a"
   end
 
   test "shows agent count and max in the Agents row" do
