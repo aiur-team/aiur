@@ -61,13 +61,24 @@ defmodule SymphonyElixir.Application do
   @impl true
   def stop(_state), do: :ok
 
-  defp maybe_start_distribution do
-    case SymphonyElixir.Distribution.start!() do
+  @doc """
+  Run the distribution bring-up step and log the outcome. Public so
+  tests can inject a stub `distribution_module` and exercise both
+  success and failure branches without needing the actual BEAM to be
+  distributed in the test environment.
+  """
+  @spec start_distribution(module()) :: :ok
+  def start_distribution(distribution_module \\ SymphonyElixir.Distribution) do
+    case distribution_module.start!() do
       :ok ->
-        Logger.info("Distribution active as #{inspect(SymphonyElixir.Distribution.node_name())}")
+        Logger.info("Distribution active as #{inspect(distribution_module.node_name())}")
 
       {:error, reason} ->
         Logger.debug("Distribution not active: #{inspect(reason)}; pane subcommand will not connect")
     end
+
+    :ok
   end
+
+  defp maybe_start_distribution, do: start_distribution()
 end
