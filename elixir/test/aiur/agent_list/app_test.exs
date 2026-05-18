@@ -87,4 +87,36 @@ defmodule Aiur.AgentList.AppTest do
 
     assert_receive {:mock_open, "MT-FOCUS", "echo open MT-FOCUS"}, 500
   end
+
+  test "activate uses the visible-row order, not raw input order", %{app: app} do
+    # Regression: the renderer filters out terminal-state agents and sorts
+    # running-first then by identifier before drawing. If the :activate
+    # handler indexes the unfiltered/unsorted list, visual row N opens the
+    # wrong agent — observed as "opens the agent 2 rows below" in the wild.
+    done = Map.put(AgentEvents.agent_summary("MT-X", :running, 0), :tag, "agent:done")
+
+    AgentPubSub.broadcast_running_change([
+      done,
+      AgentEvents.agent_summary("MT-C", :running, 0),
+      AgentEvents.agent_summary("MT-B", :queued, 0),
+      AgentEvents.agent_summary("MT-A", :running, 0)
+    ])
+
+    Process.sleep(50)
+
+    # Visible+sorted order: [MT-A running, MT-C running, MT-B queued].
+    # Selection starts at 0 → activate must open MT-A, not the raw[0] (MT-X done).
+    App.activate(app)
+    assert_receive {:mock_open, "MT-A", "echo open MT-A"}, 500
+
+    App.select_next(app)
+    Process.sleep(20)
+    App.activate(app)
+    assert_receive {:mock_open, "MT-C", "echo open MT-C"}, 500
+
+    App.select_next(app)
+    Process.sleep(20)
+    App.activate(app)
+    assert_receive {:mock_open, "MT-B", "echo open MT-B"}, 500
+  end
 end

@@ -49,11 +49,9 @@ defmodule Aiur.AgentList.Renderer do
     if Map.get(state, :help_visible?, false) do
       render_help(inner_width, rows, state)
     else
-      summaries =
-        state
-        |> Map.get(:summaries, [])
-        |> filter_visible_summaries()
-        |> sort_summaries()
+      # Summaries arrive pre-filtered and pre-sorted from Aiur.AgentList.App
+      # so that the visual row order matches the index used by :activate.
+      summaries = Map.get(state, :summaries, [])
 
       layout = compute_layout(summaries, inner_width)
 
@@ -349,32 +347,6 @@ defmodule Aiur.AgentList.Renderer do
   #
   # The grey is intentional: a ticket carrying an `agent:*` label
   # without an active slot reads as "waiting" at a glance.
-  # Drop cancelled/canceled tickets from the visible list — terminal
-  # state with no further conversation. Done tickets are also hidden
-  # for now (talking to a done agent has no listener); revisit if we
-  # add a "reopen / continue" flow later.
-  defp filter_visible_summaries(summaries) do
-    Enum.reject(summaries, fn s ->
-      tag = Map.get(s, :tag)
-      tag in ["agent:cancelled", "agent:canceled", "agent:done"]
-    end)
-  end
-
-  # Running first, then queued; each group sorted by identifier ascending
-  # so the row order stays stable across refreshes.
-  defp sort_summaries(summaries) do
-    Enum.sort_by(summaries, fn s ->
-      bucket =
-        case Map.get(s, :status) do
-          :running -> 0
-          :queued -> 1
-          _ -> 2
-        end
-
-      {bucket, to_string(Map.get(s, :identifier) || "")}
-    end)
-  end
-
   defp summary_emoji(%{status: :queued}), do: "⚫"
 
   defp summary_emoji(%{status: :running} = summary) do
@@ -515,16 +487,11 @@ defmodule Aiur.AgentList.Renderer do
   # rest" below the last rendered row so old content doesn't linger
   # when the agent list shrinks). Fixed rows: title, agents, project,
   # dashboard, separator, table header, table separator, bottom border,
-  # footer = 9. Body rows must reflect the *visible* summaries — i.e.
-  # after `filter_visible_summaries/1` — otherwise hidden tickets
-  # inflate the count and leave a stale footer row on screen.
+  # footer = 9. Body rows come straight from state.summaries since
+  # Aiur.AgentList.App now pre-filters the list before passing it in.
   defp lines_emitted(state) do
-    visible =
-      state
-      |> Map.get(:summaries, [])
-      |> filter_visible_summaries()
-
-    body_rows = if visible == [], do: 1, else: length(visible)
+    summaries = Map.get(state, :summaries, [])
+    body_rows = if summaries == [], do: 1, else: length(summaries)
     9 + body_rows
   end
 
