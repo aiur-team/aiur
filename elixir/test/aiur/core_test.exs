@@ -18,6 +18,8 @@ defmodule Aiur.CoreTest do
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
     assert config.tracker.assignee == nil
+    assert config.max_vertical_panes == 3
+    assert Config.max_vertical_panes() == 3
     assert config.agent.max_turns == 20
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
@@ -31,6 +33,14 @@ defmodule Aiur.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: 45_000)
     assert Config.settings!().polling.interval_ms == 45_000
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_vertical_panes: 4)
+    assert Config.settings!().max_vertical_panes == 4
+    assert Config.max_vertical_panes() == 4
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_vertical_panes: 0)
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "max_vertical_panes"
 
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()

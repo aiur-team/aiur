@@ -111,6 +111,7 @@ defmodule Aiur.TestSupport do
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
           tracker_repo: nil,
           tracker_label_prefix: nil,
+          max_vertical_panes: 3,
           agent_kind: "codex",
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
@@ -146,6 +147,7 @@ defmodule Aiur.TestSupport do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     agent_kind = Keyword.get(config, :agent_kind)
+    max_vertical_panes = Keyword.get(config, :max_vertical_panes)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
     workspace_root = Keyword.get(config, :workspace_root)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
@@ -186,6 +188,7 @@ defmodule Aiur.TestSupport do
       [
         "---",
         tracker_backend_yaml(tracker_kind, config),
+        "max_vertical_panes: #{yaml_value(max_vertical_panes)}",
         "tracker:",
         "  kind: #{yaml_value(tracker_kind)}",
         "  active_states: #{yaml_value(tracker_active_states)}",

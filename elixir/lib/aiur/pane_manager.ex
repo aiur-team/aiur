@@ -1,10 +1,11 @@
 defmodule Aiur.PaneManager do
   @moduledoc """
   Owns the mapping from `agent_identifier` to its tmux pane id and
-  drives the 5-slot conversation-pane cycle around the persistent
-  agent-list pane.
+  drives the conversation-pane cycle around the persistent agent-list
+  pane.
 
-  Layout (tickets 1-5 each open a fresh slot; tickets 6+ cycle):
+  With `max_vertical_panes: 3`, tickets 1-5 each open a fresh slot and
+  tickets 6+ cycle:
 
       +----------+----------+----------+
       | agent    | slot 1   | slot 2   |
@@ -35,13 +36,13 @@ defmodule Aiur.PaneManager do
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
 
-  @num_slots 5
-
   defstruct identifier_to_pane: %{},
             pane_to_identifier: %{},
             pane_to_slot: %{},
-            slot_panes: %{1 => nil, 2 => nil, 3 => nil, 4 => nil, 5 => nil},
+            slot_panes: %{},
             cycle_index: 0,
+            max_vertical_panes: 3,
+            slot_count: 5,
             agent_list_pane: nil,
             tmux: nil
 
@@ -75,6 +76,10 @@ defmodule Aiur.PaneManager do
   def init(opts) do
     tmux = Keyword.get(opts, :tmux, Tmux)
     agent_list_pane = Keyword.get(opts, :agent_list_pane, System.get_env("TMUX_PANE"))
+    max_vertical_panes = Keyword.get(opts, :max_vertical_panes, Aiur.Config.max_vertical_panes())
+    slot_count = slot_count(max_vertical_panes)
+
+    Logger.info("PaneManager init agent_list_pane=#{inspect(agent_list_pane)} max_vertical_panes=#{max_vertical_panes} slot_count=#{slot_count}")
 
     case Tmux.subscribe_events(tmux) do
       :ok -> :ok
@@ -83,7 +88,14 @@ defmodule Aiur.PaneManager do
 
     :net_kernel.monitor_nodes(true, node_type: :hidden)
 
-    {:ok, %__MODULE__{tmux: tmux, agent_list_pane: agent_list_pane}}
+    {:ok,
+     %__MODULE__{
+       tmux: tmux,
+       agent_list_pane: agent_list_pane,
+       max_vertical_panes: max_vertical_panes,
+       slot_count: slot_count,
+       slot_panes: empty_slot_panes(slot_count)
+     }}
   end
 
   @impl true
@@ -149,10 +161,12 @@ defmodule Aiur.PaneManager do
   end
 
   defp advance_cycle(%__MODULE__{} = state) do
-    %{state | cycle_index: rem(state.cycle_index + 1, @num_slots)}
+    %{state | cycle_index: rem(state.cycle_index + 1, state.slot_count)}
   end
 
   defp open_in_slot(state, slot, identifier, wrapped) do
+    Logger.info("PaneManager opening identifier=#{identifier} into slot=#{slot} agent_list_pane=#{inspect(state.agent_list_pane)}")
+
     case Map.get(state.slot_panes, slot) do
       nil ->
         create_pane_for_slot(state, slot, identifier, wrapped)
@@ -180,7 +194,7 @@ defmodule Aiur.PaneManager do
   end
 
   defp create_pane_for_slot(state, slot, identifier, wrapped) do
-    case try_split_chain(state, slot_anchor_chain(slot), wrapped) do
+    case try_split_chain(state, slot_anchor_chain(state, slot), wrapped) do
       {:ok, pane_id} ->
         new_state = record_slot_pane(state, slot, pane_id, identifier)
         {:ok, pane_id, new_state}
@@ -207,19 +221,50 @@ defmodule Aiur.PaneManager do
 
   defp anchor_pane_id(state, :agent_list), do: state.agent_list_pane
 
-  defp anchor_pane_id(state, slot) when slot in 1..@num_slots,
-    do: Map.get(state.slot_panes, slot)
+  defp anchor_pane_id(state, slot) when is_integer(slot), do: Map.get(state.slot_panes, slot)
 
-  # Recipe table: each slot's anchor chain. The first tuple is the
-  # canonical position; subsequent tuples are fallbacks used when the
-  # primary anchor pane is gone (closed by the user).
-  defp slot_anchor_chain(1), do: [{:agent_list, :horizontal, 67}]
-  defp slot_anchor_chain(2), do: [{1, :horizontal, 50}, {:agent_list, :horizontal, 67}]
-  defp slot_anchor_chain(3), do: [{:agent_list, :vertical, 50}]
-  defp slot_anchor_chain(4), do: [{1, :vertical, 50}, {:agent_list, :vertical, 50}]
+  # Generated recipe table. Top-row slots are created left-to-right by
+  # repeatedly splitting the right-side pane horizontally. Bottom-row
+  # slots are created by splitting the top pane in the same column
+  # vertically; if that pane is gone, the chain walks left until the
+  # agent-list pane, which should be the last always-live anchor.
+  defp slot_anchor_chain(%__MODULE__{max_vertical_panes: 1}, 1), do: [{:agent_list, :vertical, 50}]
 
-  defp slot_anchor_chain(5),
-    do: [{2, :vertical, 50}, {1, :vertical, 50}, {:agent_list, :vertical, 50}]
+  defp slot_anchor_chain(%__MODULE__{max_vertical_panes: columns}, slot)
+       when slot < columns do
+    previous_top_slots =
+      descending_slots(slot - 1)
+      |> Enum.map(fn anchor_slot ->
+        {anchor_slot, :horizontal, horizontal_split_percent(columns, anchor_slot + 1)}
+      end)
+
+    previous_top_slots ++ [{:agent_list, :horizontal, horizontal_split_percent(columns, 1)}]
+  end
+
+  defp slot_anchor_chain(%__MODULE__{max_vertical_panes: columns}, slot) do
+    column = slot - columns + 1
+
+    top_slot_fallbacks =
+      descending_slots(column - 1)
+      |> Enum.map(fn anchor_slot -> {anchor_slot, :vertical, 50} end)
+
+    top_slot_fallbacks ++ [{:agent_list, :vertical, 50}]
+  end
+
+  defp descending_slots(last_slot) when last_slot < 1, do: []
+  defp descending_slots(last_slot), do: last_slot..1//-1
+
+  defp horizontal_split_percent(columns, top_slot) do
+    remaining_columns = columns - top_slot
+
+    round(remaining_columns * 100 / (remaining_columns + 1))
+  end
+
+  defp slot_count(max_vertical_panes), do: max_vertical_panes * 2 - 1
+
+  defp empty_slot_panes(slot_count) do
+    Map.new(1..slot_count, fn slot -> {slot, nil} end)
+  end
 
   # State bookkeeping --------------------------------------------------------
 
