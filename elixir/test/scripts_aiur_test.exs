@@ -290,13 +290,71 @@ defmodule ScriptsAiurTest do
 
   test "auto-rebuilds bin/aiur when missing" do
     ctx = test_context()
-    # The repo_root/elixir dir is empty by default — bin/aiur does not
-    # exist, so ensure_built should call `mix escript.build` via fake mise.
+    write_mix_lock!(ctx, ["jason"])
+
+    # The repo_root/elixir dir has no deps, _build, or bin/aiur, so
+    # ensure_built should fetch deps, compile, then build the escript.
     assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
 
+    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "MISE:exec -- mix deps.get"
+    assert output =~ "MISE:exec -- mix compile"
     assert output =~ "aiur: rebuilding bin/aiur"
     assert output =~ "MISE:exec -- mix escript.build"
     # The real Aiur invocation still runs after the rebuild step.
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "fetches dependencies when a locked dep directory is missing" do
+    ctx = test_context()
+    elixir_dir = Path.join(ctx.repo_root, "elixir")
+
+    write_mix_lock!(ctx, ["jason", "ecto"])
+    File.mkdir_p!(Path.join(elixir_dir, "_build"))
+    File.mkdir_p!(Path.join(elixir_dir, "deps/jason"))
+    File.mkdir_p!(Path.join(elixir_dir, "bin"))
+    write_executable!(Path.join(elixir_dir, "bin/aiur"), "#!/usr/bin/env bash\n")
+
+    assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
+
+    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "MISE:exec -- mix deps.get"
+    assert output =~ "MISE:exec -- mix compile"
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "build command fetches dependencies before rebuilding" do
+    ctx = test_context()
+    write_mix_lock!(ctx, ["jason"])
+
+    assert {output, 0} = run_aiur(ctx, ["build"], skip_build: false)
+
+    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "MISE:exec -- mix deps.get"
+    assert output =~ "MISE:exec -- mix compile"
+    assert output =~ "aiur: rebuilding bin/aiur"
+    assert output =~ "MISE:exec -- mix escript.build"
+    refute output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "skips dependency bootstrap when build and locked deps exist" do
+    ctx = test_context()
+    elixir_dir = Path.join(ctx.repo_root, "elixir")
+
+    write_mix_lock!(ctx, ["jason", "ecto"])
+    File.mkdir_p!(Path.join(elixir_dir, "_build"))
+    File.mkdir_p!(Path.join(elixir_dir, "deps/jason"))
+    File.mkdir_p!(Path.join(elixir_dir, "deps/ecto"))
+    File.mkdir_p!(Path.join(elixir_dir, "bin"))
+    aiur_bin = Path.join(elixir_dir, "bin/aiur")
+    write_executable!(aiur_bin, "#!/usr/bin/env bash\n")
+    File.touch!(aiur_bin, {{2099, 1, 1}, {0, 0, 0}})
+
+    assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
+
+    refute output =~ "MISE:exec -- mix deps.get"
+    refute output =~ "MISE:exec -- mix compile"
+    refute output =~ "MISE:exec -- mix escript.build"
     assert output =~ "MISE:exec -- ./bin/aiur"
   end
 
@@ -433,6 +491,7 @@ defmodule ScriptsAiurTest do
     root = Path.join(System.tmp_dir!(), "aiur-script-test-#{System.unique_integer([:positive])}")
     repo_root = Path.join(root, "aiur")
     actions_repo = Path.join(root, "actions")
+    home_dir = Path.join(root, "home")
     bin_dir = Path.join(root, "bin")
     config_file = Path.join(root, "aiur.profiles")
     logs_root = Path.join(root, "logs")
@@ -447,6 +506,7 @@ defmodule ScriptsAiurTest do
 
     File.mkdir_p!(Path.join(repo_root, "elixir"))
     File.mkdir_p!(Path.join(actions_repo, "elixir"))
+    File.mkdir_p!(Path.join(home_dir, ".config/aiur"))
     File.mkdir_p!(bin_dir)
     File.mkdir_p!(logs_root)
     File.mkdir_p!(bg_state_dir)
@@ -549,6 +609,7 @@ defmodule ScriptsAiurTest do
     %{
       repo_root: repo_root,
       actions_repo: actions_repo,
+      home_dir: home_dir,
       config_file: config_file,
       logs_root: logs_root,
       command_log: command_log,
@@ -566,6 +627,14 @@ defmodule ScriptsAiurTest do
 
   defp write_profiles!(ctx, body) do
     File.write!(ctx.config_file, body)
+  end
+
+  defp write_mix_lock!(ctx, deps) do
+    entries =
+      deps
+      |> Enum.map_join("\n", fn dep -> ~s(  "#{dep}": {:hex, :#{dep}, "1.0.0"},) end)
+
+    File.write!(Path.join([ctx.repo_root, "elixir", "mix.lock"]), "%{\n#{entries}\n}\n")
   end
 
   defp run_aiur(ctx, args, opts \\ []) do

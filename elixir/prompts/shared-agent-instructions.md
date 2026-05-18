@@ -32,9 +32,13 @@ Branch off the latest `main` and run this loop:
 4. Lint (with autofix)
 5. Commit using short, 3–7 word messages
 6. Push
+7. **Open the PR as a draft** (not ready for review yet)
+8. **Self-review the draft PR with `ce-code-review`** against the diff you just pushed
+9. Implement any issues `ce-code-review` surfaces (commit + push the fixes)
+10. If you still believe the work is complete and correct, **mark the PR ready for review** and add the `agent:human-review` label
 
-Once finished, open a PR and **await user review before merging**. Do not self-merge.
+Do **not** self-merge. Always await user review after marking the PR ready.
 
 ### Manual CLI verification before opening a PR
 
-Before opening the PR, run the CLI locally and manually exercise all new functionality end-to-end. If the CLI fails to run, debug and fix the issues — do not skip verification or give up. Only open the PR once the requested functionality is confirmed working in the CLI.
+Before opening the draft PR, run the CLI locally and manually exercise all new functionality end-to-end. If the CLI fails to run, debug and fix the issues — do not skip verification or give up. Only open the draft PR once the requested functionality is confirmed working in the CLI.

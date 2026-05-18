@@ -442,6 +442,8 @@ ensure_built() {
     return 0
   fi
 
+  ensure_elixir_deps "$elixir_dir"
+
   if [ ! -x "$aiur_bin" ]; then
     build_aiur "$elixir_dir"
     return
@@ -453,6 +455,38 @@ ensure_built() {
               -newer "$aiur_bin" -print -quit 2>/dev/null)" ]; then
     build_aiur "$elixir_dir"
   fi
+}
+
+ensure_elixir_deps() {
+  local elixir_dir="$1"
+
+  if ! elixir_deps_ready "$elixir_dir"; then
+    require_mise
+    echo "aiur: fetching and compiling Hex dependencies…" >&2
+    (cd "$elixir_dir" && "$mise_bin" exec -- mix deps.get && "$mise_bin" exec -- mix compile) >&2
+  fi
+}
+
+elixir_deps_ready() {
+  local elixir_dir="$1"
+  local deps_dir="$elixir_dir/deps"
+  local dep
+
+  if [ ! -d "$elixir_dir/_build" ] || [ ! -d "$deps_dir" ]; then
+    return 1
+  fi
+
+  if [ ! -f "$elixir_dir/mix.lock" ]; then
+    return 0
+  fi
+
+  while IFS= read -r dep; do
+    if [ -n "$dep" ] && [ ! -d "$deps_dir/$dep" ]; then
+      return 1
+    fi
+  done < <(sed -n 's/^  "\([^"]*\)":.*/\1/p' "$elixir_dir/mix.lock")
+
+  return 0
 }
 
 build_aiur() {
@@ -1003,6 +1037,7 @@ case "${1:-}" in
     exit 0
     ;;
   build)
+    ensure_elixir_deps "$repo_root/elixir"
     build_aiur "$repo_root/elixir"
     exit 0
     ;;
