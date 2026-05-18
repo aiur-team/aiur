@@ -58,9 +58,8 @@ defmodule Aiur.OsTest do
   end
 
   defp write_script!(body) do
-    root = Path.join(System.tmp_dir!(), "os-test-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "os-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     path = Path.join(root, "fake-stty")
-    File.rm_rf!(root)
     File.mkdir_p!(root)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(root) end)
     File.write!(path, "#!/bin/sh\n" <> body)
