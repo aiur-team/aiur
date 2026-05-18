@@ -187,8 +187,8 @@ defmodule Aiur.AgentList.Renderer do
     [@ansi_bold, title, @ansi_reset, pad, @ansi_cyan, refresh, @ansi_reset]
   end
 
-  defp refresh_chip(nil), do: "🔄 n/a"
-  defp refresh_chip(""), do: "🔄 n/a"
+  defp refresh_chip(nil), do: "🔄 in 0s"
+  defp refresh_chip(""), do: "🔄 in 0s"
   defp refresh_chip(label) when is_binary(label), do: "🔄 in " <> label
 
   defp metadata_rows(state, inner_width) do
