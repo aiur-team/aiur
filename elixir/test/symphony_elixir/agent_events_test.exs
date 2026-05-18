@@ -64,4 +64,44 @@ defmodule SymphonyElixir.AgentEventsTest do
       assert AgentEvents.status_topic() == "agents:status"
     end
   end
+
+  describe "tag_name/1 and tag_display/1" do
+    test "maps every role to its canonical short tag" do
+      assert AgentEvents.tag_name(:assistant) == "agent"
+      assert AgentEvents.tag_name(:user) == "user"
+      assert AgentEvents.tag_name(:system) == "sys"
+      assert AgentEvents.tag_name(:command) == "cmd"
+      assert AgentEvents.tag_name(:alert) == "alert"
+    end
+
+    test "tag_display brackets the short tag" do
+      assert AgentEvents.tag_display(:assistant) == "[agent]"
+      assert AgentEvents.tag_display(:alert) == "[alert]"
+    end
+  end
+
+  describe "agent_summary/4" do
+    test "merges extras and filters nil values" do
+      summary =
+        AgentEvents.agent_summary("MT-2", :running, 0, %{
+          tag: "agent:in-progress",
+          title: "Demo",
+          runtime_seconds: 30,
+          turn_count: nil,
+          work_state: :working
+        })
+
+      assert summary == %{
+               identifier: "MT-2",
+               status: :running,
+               alert_count: 0,
+               tag: "agent:in-progress",
+               title: "Demo",
+               runtime_seconds: 30,
+               work_state: :working
+             }
+
+      refute Map.has_key?(summary, :turn_count)
+    end
+  end
 end
