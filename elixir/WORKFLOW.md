@@ -29,7 +29,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  max_concurrent_agents: 7
+  max_concurrent_agents: 10
   max_turns: 3
 codex:
   command: codex app-server
