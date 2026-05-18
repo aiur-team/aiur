@@ -168,13 +168,11 @@ defmodule SymphonyElixir.Alerts do
     end
   end
 
-  defp map_value(map, key) do
-    case key do
-      "message" -> Map.get(map, "message") || Map.get(map, :message)
-      "sound" -> Map.get(map, "sound") || Map.get(map, :sound)
-      _ -> Map.get(map, key)
-    end
-  end
+  # Currently invoked only with the literal keys `"message"` and
+  # `"sound"`; the extra fallback clause that existed previously was
+  # unreachable so we keep this strict for clarity.
+  defp map_value(map, "message"), do: Map.get(map, "message") || Map.get(map, :message)
+  defp map_value(map, "sound"), do: Map.get(map, "sound") || Map.get(map, :sound)
 
   defp normalize_sounds(nil), do: []
   defp normalize_sounds(sound) when is_binary(sound), do: [sound]
@@ -231,11 +229,24 @@ defmodule SymphonyElixir.Alerts do
     Mix.env() == :test and not Keyword.has_key?(opts, :player)
   end
 
-  defp default_player("http://" <> _url), do: :ok
-  defp default_player("https://" <> _url), do: :ok
+  # Public (but undocumented) so tests can exercise the URL / missing-
+  # binary / missing-file branches without round-tripping through
+  # `maybe_play_sound`'s `test_env_without_player_override?/1`
+  # short-circuit. The 2-arity form takes an injectable
+  # `find_executable_fn` so tests can simulate a system on which
+  # `afplay` is available.
+  @doc false
+  @spec default_player(String.t()) :: :ok | {:ok, pid()}
+  def default_player(sound), do: default_player(sound, &System.find_executable/1)
 
-  defp default_player(sound) when is_binary(sound) do
-    executable = System.find_executable("afplay")
+  @doc false
+  @spec default_player(String.t(), (String.t() -> String.t() | nil)) :: :ok | {:ok, pid()}
+  def default_player("http://" <> _url, _find_executable_fn), do: :ok
+  def default_player("https://" <> _url, _find_executable_fn), do: :ok
+
+  def default_player(sound, find_executable_fn)
+      when is_binary(sound) and is_function(find_executable_fn, 1) do
+    executable = find_executable_fn.("afplay")
 
     cond do
       is_nil(executable) -> :ok
@@ -246,17 +257,23 @@ defmodule SymphonyElixir.Alerts do
 
   defp resolve_workspace(%Issue{identifier: identifier}), do: resolve_workspace(identifier)
 
-  defp resolve_workspace(identifier) when is_binary(identifier) do
-    workspace =
-      Config.workspace_root()
-      |> Path.join(safe_identifier(identifier))
+  defp resolve_workspace(identifier) when is_binary(identifier),
+    do: resolve_workspace_for(identifier, &Config.workspace_root/0)
+
+  defp resolve_workspace(_issue), do: nil
+
+  # Public (but undocumented) so a test can inject a `workspace_root_fn`
+  # that raises, exercising the rescue branch deterministically.
+  @doc false
+  @spec resolve_workspace_for(String.t(), (-> String.t())) :: String.t() | nil
+  def resolve_workspace_for(identifier, workspace_root_fn)
+      when is_binary(identifier) and is_function(workspace_root_fn, 0) do
+    workspace = Path.join(workspace_root_fn.(), safe_identifier(identifier))
 
     if File.dir?(workspace), do: workspace, else: nil
   rescue
     _error -> nil
   end
-
-  defp resolve_workspace(_issue), do: nil
 
   defp safe_identifier(identifier) do
     String.replace(identifier, ~r/[^a-zA-Z0-9._-]/, "_")
