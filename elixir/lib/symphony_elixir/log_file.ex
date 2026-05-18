@@ -1,14 +1,21 @@
 defmodule SymphonyElixir.LogFile do
   @moduledoc """
-  Configures OTP's built-in rotating disk log handler for application logs.
+  Configures OTP's built-in file logger handler for application logs.
+
+  Writes to a single file (`log/symphony.log` by default, or
+  `<logs-root>/log/symphony.log` when `--logs-root` is passed). The handler
+  is `:logger_std_h` with `type: :file`, so `tail -F` works directly.
+
+  No rotation. For a developer/operator CLI this is the right call: the
+  rotation slots produced by `:logger_disk_log_h` made the file hard to
+  follow live, and disk fill is a foot-gun to be managed externally if it
+  ever becomes a concern.
   """
 
   require Logger
 
-  @handler_id :symphony_disk_log
+  @handler_id :symphony_file_log
   @default_log_relative_path "log/symphony.log"
-  @default_max_bytes 10 * 1024 * 1024
-  @default_max_files 5
 
   @spec default_log_file() :: Path.t()
   def default_log_file do
@@ -23,28 +30,77 @@ defmodule SymphonyElixir.LogFile do
   @spec configure() :: :ok
   def configure do
     log_file = Application.get_env(:symphony_elixir, :log_file, default_log_file())
-    max_bytes = Application.get_env(:symphony_elixir, :log_file_max_bytes, @default_max_bytes)
-    max_files = Application.get_env(:symphony_elixir, :log_file_max_files, @default_max_files)
 
-    setup_disk_handler(log_file, max_bytes, max_files)
+    setup_file_handler(log_file)
+    configure_level()
   end
 
-  defp setup_disk_handler(log_file, max_bytes, max_files) do
+  @doc """
+  Reads `SYMPHONY_DEBUG` from the environment and sets the global Logger
+  level to `:debug` when truthy. Otherwise leaves the level untouched.
+
+  Truthy values: `"1"`, `"true"`, `"yes"` (case-insensitive). Anything
+  else is treated as falsy.
+
+  Called by `configure/0` during application start and by
+  `SymphonyPane.CLI.main/1` during pane bootstrap so both BEAMs see the
+  same flag.
+  """
+  @spec configure_level() :: :ok
+  def configure_level do
+    if debug_enabled?() do
+      Logger.configure(level: :debug)
+    end
+
+    :ok
+  end
+
+  defp debug_enabled? do
+    case System.get_env("SYMPHONY_DEBUG") do
+      value when is_binary(value) ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes"]
+
+      _ ->
+        false
+    end
+  end
+
+  defp setup_file_handler(log_file) do
     expanded_path = Path.expand(log_file)
     :ok = File.mkdir_p(Path.dirname(expanded_path))
     :ok = remove_existing_handler()
+    :ok = remove_legacy_wrap_files(expanded_path)
 
-    case :logger.add_handler(
-           @handler_id,
-           :logger_disk_log_h,
-           disk_log_handler_config(expanded_path, max_bytes, max_files)
-         ) do
+    case :logger.add_handler(@handler_id, :logger_std_h, file_handler_config(expanded_path)) do
       :ok ->
         remove_default_console_handler()
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to configure rotating log file handler: #{inspect(reason)}")
+        Logger.warning("Failed to configure file log handler: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  # Old runs that used the disk_log/wrap handler leave behind `.idx`, `.siz`,
+  # and `.N` slot files alongside the now-empty `symphony.log`. Remove them
+  # so the directory listing is unambiguous when the user tails the file.
+  defp remove_legacy_wrap_files(path) do
+    base = Path.basename(path)
+    dir = Path.dirname(path)
+
+    case File.ls(dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(fn entry ->
+          entry == base <> ".idx" or entry == base <> ".siz" or
+            String.match?(entry, ~r/^#{Regex.escape(base)}\.\d+$/)
+        end)
+        |> Enum.each(fn entry -> File.rm(Path.join(dir, entry)) end)
+
+        :ok
+
+      _ ->
         :ok
     end
   end
@@ -65,15 +121,16 @@ defmodule SymphonyElixir.LogFile do
     end
   end
 
-  defp disk_log_handler_config(path, max_bytes, max_files) do
+  defp file_handler_config(path) do
     %{
       level: :all,
       formatter: {:logger_formatter, %{single_line: true}},
       config: %{
         file: String.to_charlist(path),
-        type: :wrap,
-        max_no_bytes: max_bytes,
-        max_no_files: max_files
+        type: :file,
+        # Sync to disk frequently so `tail -F` sees output without the
+        # default ~1s buffer.
+        filesync_repeat_interval: 200
       }
     }
   end

@@ -4,7 +4,21 @@ defmodule SymphonyElixir.AgentRunner do
   """
 
   require Logger
-  alias SymphonyElixir.{AgentEventLog, Alerts, CodingAgent, Config, Issue, PromptBuilder, Tracker, Workspace}
+
+  alias SymphonyElixir.{
+    AgentEventLog,
+    AgentEvents,
+    AgentPubSub,
+    Alerts,
+    CodingAgent,
+    Config,
+    Issue,
+    IssueLog,
+    PromptBuilder,
+    Tracker,
+    Workspace
+  }
+
   alias SymphonyElixir.Codex.DynamicTool
 
   @type worker_host :: String.t() | nil
@@ -13,6 +27,11 @@ defmodule SymphonyElixir.AgentRunner do
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
+
+    # Make sure a per-issue file writer is running so this session's
+    # transcript and alert events land in <repo>.<issue>.log alongside any
+    # earlier session's output.
+    maybe_attach_issue_log(issue)
 
     Logger.info("Starting agent run for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
 
@@ -50,7 +69,168 @@ defmodule SymphonyElixir.AgentRunner do
     fn message ->
       message = CodingAgent.normalize_event(message)
       AgentEventLog.write(workspace, worker_host, message)
+      maybe_broadcast_transcript(issue, message)
       send_codex_update(recipient, issue, message)
+    end
+  end
+
+  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message)
+       when is_binary(identifier) do
+    case transcript_event_from(message) do
+      {:ok, event} -> AgentPubSub.broadcast_transcript(identifier, event)
+      :skip -> :ok
+    end
+  end
+
+  defp maybe_broadcast_transcript(_issue, _message), do: :ok
+
+  defp transcript_event_from(message) when is_map(message) do
+    cond do
+      text = assistant_message_from_codex(message) ->
+        {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message))}
+
+      summary = system_activity_from_codex(message) ->
+        {:ok, AgentEvents.transcript_event(:command, summary, timestamp: timestamp_for(message))}
+
+      true ->
+        legacy_transcript_event(message)
+    end
+  end
+
+  # Codex's `notification` events wrap the actual method inside `payload`.
+  # `item/completed` with an `item.type == "agentMessage"` is the canonical
+  # "agent finished a chunk of natural-language output" signal.
+  defp assistant_message_from_codex(message) do
+    with method when method in ["item/completed"] <- notification_method(message),
+         item when is_map(item) <- notification_item(message),
+         "agentMessage" <- get(item, :type),
+         text when is_binary(text) and text != "" <- get(item, :text) do
+      text
+    else
+      _ -> nil
+    end
+  end
+
+  # Surface a compact summary of agent activity (commands run, tool calls)
+  # so the conversation pane shows what the agent is doing between user
+  # input and the next final-answer message. Returns a binary or nil.
+  defp system_activity_from_codex(message) do
+    method = notification_method(message)
+    item = notification_item(message)
+    item_type = if is_map(item), do: get(item, :type), else: nil
+
+    activity_label(method, item_type, item)
+  end
+
+  defp activity_label("item/started", "commandExecution", item),
+    do: command_started_label(item)
+
+  defp activity_label("item/completed", "commandExecution", item),
+    do: command_completed_label(item)
+
+  defp activity_label(_method, _item_type, _item), do: nil
+
+  defp command_started_label(item) do
+    case command_label(item) do
+      label when is_binary(label) and label != "" -> "$ " <> label
+      _ -> nil
+    end
+  end
+
+  defp command_completed_label(item) do
+    label = command_label(item)
+    exit_code = get(item, :exitCode)
+
+    cond do
+      not (is_binary(label) and label != "") -> nil
+      is_integer(exit_code) -> "$ #{label} [exit=#{exit_code}]"
+      true -> "$ #{label} [done]"
+    end
+  end
+
+  defp command_label(item) do
+    case command_actions_label(get(item, :commandActions)) do
+      label when is_binary(label) and label != "" -> label
+      _ -> get(item, :command)
+    end
+  end
+
+  defp command_actions_label([first | _]) when is_map(first), do: get(first, :command)
+  defp command_actions_label(_), do: nil
+
+  defp notification_method(message) do
+    # The `event` discriminator on a codex notification may be either the
+    # string "notification" or the atom :notification depending on how the
+    # JSON was decoded. Skip the gate entirely and just look for
+    # `payload.method` — every codex notification has it, and no other
+    # event shape uses that nested key.
+    case get(message, :payload) do
+      payload when is_map(payload) -> get(payload, :method)
+      _ -> nil
+    end
+  end
+
+  defp notification_item(message) do
+    with payload when is_map(payload) <- get(message, :payload),
+         params when is_map(params) <- get(payload, :params) do
+      get(params, :item)
+    else
+      _ -> nil
+    end
+  end
+
+  defp legacy_transcript_event(message) do
+    role = role_for_event(message)
+    body = body_for_event(message)
+
+    cond do
+      is_nil(role) -> :skip
+      is_nil(body) -> :skip
+      body == "" -> :skip
+      true -> {:ok, AgentEvents.transcript_event(role, body, timestamp: timestamp_for(message))}
+    end
+  end
+
+  defp role_for_event(message) do
+    case event_kind(message) do
+      kind when kind in ["agent_message", "assistant_message", "task_finished", "task_complete"] ->
+        :assistant
+
+      kind when kind in ["user_message", "operator_message"] ->
+        :user
+
+      _ ->
+        nil
+    end
+  end
+
+  defp event_kind(message) do
+    case get(message, :event) do
+      nil -> nil
+      atom when is_atom(atom) -> Atom.to_string(atom)
+      other -> to_string(other)
+    end
+  end
+
+  defp body_for_event(message) do
+    get(message, :last_message) ||
+      get(message, :body) ||
+      nil
+  end
+
+  # Look up `key` in `map` using both atom and binary forms so we tolerate
+  # either shape (`%{event: "..."}` or `%{"event" => "..."}`) — codex events
+  # arrive as string-keyed JSON, while internal messages stay atom-keyed.
+  defp get(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp get(_map, _key), do: nil
+
+  defp timestamp_for(message) do
+    case Map.get(message, :timestamp) || Map.get(message, "timestamp") do
+      %DateTime{} = ts -> ts
+      _ -> DateTime.utc_now()
     end
   end
 
@@ -471,6 +651,14 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
+
+  defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier),
+    do: IssueLog.attach(identifier)
+
+  defp maybe_attach_issue_log(%{identifier: identifier}) when is_binary(identifier),
+    do: IssueLog.attach(identifier)
+
+  defp maybe_attach_issue_log(_), do: :ok
 
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     state_name

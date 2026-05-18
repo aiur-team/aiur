@@ -33,6 +33,8 @@ defmodule SymphonyElixir.CLI do
         }
 
   @spec main([String.t()]) :: no_return()
+  def main(["conversation" | rest]), do: SymphonyPane.CLI.main(rest)
+
   def main(args) do
     case evaluate(args) do
       :ok ->
