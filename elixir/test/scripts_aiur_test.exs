@@ -223,7 +223,8 @@ defmodule ScriptsAiurTest do
     command_log = await_command_log(ctx, "NOHUP:")
     assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
     assert command_log =~ "--port 4099"
-    refute command_log =~ "SYSTEMCTL:"
+    assert command_log =~ "SYSTEMCTL:--user stop aiur-actions"
+    refute command_log =~ "SYSTEMCTL:--user restart aiur-actions"
   end
 
   test "auto-increments a busy configured profile port" do
