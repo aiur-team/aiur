@@ -632,6 +632,110 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "workspace before_run seeds warm cache from configured bootstrap image" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-bootstrap-image-#{System.unique_integer([:positive])}"
+      )
+
+    previous_path = System.get_env("PATH")
+    previous_trace = System.get_env("AIUR_TEST_DOCKER_TRACE")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("AIUR_TEST_DOCKER_TRACE", previous_trace)
+    end)
+
+    try do
+      fake_bin = Path.join(test_root, "bin")
+      workspace_root = Path.join(test_root, "workspaces")
+      trace_file = Path.join(test_root, "docker.trace")
+
+      File.mkdir_p!(fake_bin)
+      write_fake_docker!(Path.join(fake_bin, "docker"))
+
+      System.put_env("PATH", fake_bin <> ":" <> (previous_path || ""))
+      System.put_env("AIUR_TEST_DOCKER_TRACE", trace_file)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        workspace_bootstrap_image: "ghcr.io/its-everdred/aiur:latest",
+        workspace_bootstrap_image_pull: true,
+        hook_before_run: "echo before > before-run.log"
+      )
+
+      assert Config.settings!().workspace.bootstrap_image == "ghcr.io/its-everdred/aiur:latest"
+      assert Config.workspace_bootstrap_image() == "ghcr.io/its-everdred/aiur:latest"
+      assert Config.workspace_bootstrap_image_pull?()
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MT-IMAGE")
+      assert :ok = Workspace.run_before_run_hook(workspace, "MT-IMAGE")
+
+      assert File.read!(Path.join(workspace, "before-run.log")) == "before\n"
+      assert File.read!(Path.join([workspace, "deps", "from-image.txt"])) == "warm deps\n"
+      assert File.read!(Path.join([workspace, "_build", "from-image.txt"])) == "warm build\n"
+
+      trace = File.read!(trace_file)
+      assert trace =~ "ARGV:pull ghcr.io/its-everdred/aiur:latest"
+      assert trace =~ "ARGV:run --rm --user"
+      assert trace =~ "--volume #{workspace}:/workspace"
+      assert trace =~ "ghcr.io/its-everdred/aiur:latest"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "workspace bootstrap image keeps existing warm cache directories" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-bootstrap-image-existing-#{System.unique_integer([:positive])}"
+      )
+
+    previous_path = System.get_env("PATH")
+    previous_trace = System.get_env("AIUR_TEST_DOCKER_TRACE")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("AIUR_TEST_DOCKER_TRACE", previous_trace)
+    end)
+
+    try do
+      fake_bin = Path.join(test_root, "bin")
+      workspace_root = Path.join(test_root, "workspaces")
+      trace_file = Path.join(test_root, "docker.trace")
+
+      File.mkdir_p!(fake_bin)
+      write_fake_docker!(Path.join(fake_bin, "docker"))
+
+      System.put_env("PATH", fake_bin <> ":" <> (previous_path || ""))
+      System.put_env("AIUR_TEST_DOCKER_TRACE", trace_file)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        workspace_bootstrap_image: "ghcr.io/its-everdred/aiur:latest"
+      )
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MT-IMAGE-EXISTING")
+      File.mkdir_p!(Path.join(workspace, "deps"))
+      File.mkdir_p!(Path.join(workspace, "_build"))
+      File.write!(Path.join([workspace, "deps", "from-image.txt"]), "existing deps\n")
+      File.write!(Path.join([workspace, "_build", "from-image.txt"]), "existing build\n")
+
+      assert :ok = Workspace.run_before_run_hook(workspace, "MT-IMAGE-EXISTING")
+
+      assert File.read!(Path.join([workspace, "deps", "from-image.txt"])) == "existing deps\n"
+      assert File.read!(Path.join([workspace, "_build", "from-image.txt"])) == "existing build\n"
+
+      trace = File.read!(trace_file)
+      refute trace =~ "ARGV:pull"
+      assert trace =~ "ARGV:run --rm --user"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace remove continues when before_remove hook fails" do
     test_root =
       Path.join(
@@ -742,6 +846,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.tracker.api_key == nil
     assert config.tracker.project_slug == nil
     assert config.workspace.root == Path.join(System.tmp_dir!(), "aiur_workspaces")
+    assert config.workspace.bootstrap_image == nil
+    refute config.workspace.bootstrap_image_pull
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
     assert config.codex.command == "codex app-server"
@@ -858,6 +964,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: "")
     assert :ok = Config.validate!()
     assert Config.settings!().codex.thread_sandbox == ""
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_bootstrap_image: "")
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "workspace.bootstrap_image"
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_turn_sandbox_policy: "bad")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
@@ -1302,5 +1412,48 @@ defmodule Aiur.WorkspaceAndConfigTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  defp write_fake_docker!(path) do
+    File.write!(path, """
+    #!/bin/sh
+    trace_file="${AIUR_TEST_DOCKER_TRACE:-/tmp/aiur-fake-docker.trace}"
+    printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+
+    if [ "$1" = "pull" ]; then
+      exit 0
+    fi
+
+    mount=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --volume)
+          mount="$2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+
+    workspace="${mount%:/workspace}"
+
+    if [ -n "$workspace" ]; then
+      if [ ! -e "$workspace/deps" ]; then
+        mkdir -p "$workspace/deps"
+        printf 'warm deps\\n' > "$workspace/deps/from-image.txt"
+      fi
+
+      if [ ! -e "$workspace/_build" ]; then
+        mkdir -p "$workspace/_build"
+        printf 'warm build\\n' > "$workspace/_build/from-image.txt"
+      fi
+    fi
+
+    exit 0
+    """)
+
+    File.chmod!(path, 0o755)
   end
 end

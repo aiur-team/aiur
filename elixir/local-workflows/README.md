@@ -8,4 +8,5 @@ these local files only when you intentionally want the same repository, account,
 service assumptions.
 
 - `WORKFLOW.actions.local.md`: GitHub Issues plus Codex workflow for the local actions fork setup.
-- `WORKFLOW.aiur.local.md`: GitHub Issues plus Codex workflow for this Aiur repository.
+- `WORKFLOW.aiur.local.md`: GitHub Issues plus Codex workflow for this Aiur repository,
+  including the GHCR warm bootstrap image for `deps/` and `_build/`.

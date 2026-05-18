@@ -7,6 +7,7 @@ defmodule Aiur.Workspace do
   alias Aiur.{Config, PathSafety, SSH}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
+  @warm_cache_paths ["deps", "_build"]
 
   @type worker_host :: String.t() | nil
 
@@ -167,6 +168,13 @@ defmodule Aiur.Workspace do
           :ok | {:error, term()}
   def run_before_run_hook(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
     issue_context = issue_context(issue_or_identifier)
+
+    with :ok <- run_configured_before_run_hook(workspace, issue_context, worker_host) do
+      maybe_seed_from_bootstrap_image(workspace, issue_context, worker_host)
+    end
+  end
+
+  defp run_configured_before_run_hook(workspace, issue_context, worker_host) do
     hooks = Config.settings!().hooks
 
     case hooks.before_run do
@@ -176,6 +184,99 @@ defmodule Aiur.Workspace do
       command ->
         run_hook(command, workspace, issue_context, "before_run", worker_host)
     end
+  end
+
+  defp maybe_seed_from_bootstrap_image(workspace, issue_context, worker_host) do
+    case Config.workspace_bootstrap_image() do
+      image when is_binary(image) ->
+        seed_from_bootstrap_image(
+          workspace,
+          issue_context,
+          image,
+          Config.workspace_bootstrap_image_pull?(),
+          worker_host
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp seed_from_bootstrap_image(workspace, issue_context, image, pull?, nil) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+
+    Logger.info("Seeding workspace from bootstrap image #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local image=#{image}")
+
+    task =
+      Task.async(fn ->
+        System.cmd("sh", ["-c", bootstrap_image_script(workspace, image, pull?)],
+          cd: workspace,
+          stderr_to_stdout: true
+        )
+      end)
+
+    case Task.yield(task, timeout_ms) do
+      {:ok, cmd_result} ->
+        handle_hook_command_result(cmd_result, workspace, issue_context, "bootstrap_image")
+
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+
+        Logger.warning("Workspace bootstrap image timed out #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
+
+        {:error, {:workspace_hook_timeout, "bootstrap_image", timeout_ms}}
+    end
+  end
+
+  defp seed_from_bootstrap_image(workspace, issue_context, image, pull?, worker_host)
+       when is_binary(worker_host) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+
+    Logger.info("Seeding workspace from bootstrap image #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host} image=#{image}")
+
+    case run_remote_command(worker_host, bootstrap_image_script(workspace, image, pull?), timeout_ms) do
+      {:ok, cmd_result} ->
+        handle_hook_command_result(cmd_result, workspace, issue_context, "bootstrap_image")
+
+      {:error, {:workspace_hook_timeout, "remote_command", ^timeout_ms}} ->
+        {:error, {:workspace_hook_timeout, "bootstrap_image", timeout_ms}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp bootstrap_image_script(workspace, image, pull?) do
+    [
+      "set -eu",
+      remote_shell_assign("workspace", workspace),
+      pull? && "docker pull #{shell_escape(image)}",
+      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{shell_escape(image)} -lc #{shell_escape(bootstrap_image_copy_script())}"
+    ]
+    |> Enum.reject(&(&1 in [nil, false, ""]))
+    |> Enum.join("\n")
+  end
+
+  defp bootstrap_image_copy_script do
+    paths = Enum.map_join(@warm_cache_paths, " ", &shell_escape/1)
+
+    """
+    set -eu
+    for path in #{paths}; do
+      source="/opt/aiur/elixir/$path"
+      target="/workspace/$path"
+
+      if [ -e "$target" ]; then
+        printf 'aiur warm bootstrap: keep existing %s\\n' "$path"
+      elif [ -e "$source" ]; then
+        cp -R "$source" "$target"
+        printf 'aiur warm bootstrap: seeded %s\\n' "$path"
+      else
+        printf 'aiur warm bootstrap: missing %s in image\\n' "$source" >&2
+        exit 66
+      fi
+    done
+    """
   end
 
   @spec run_after_run_hook(Path.t(), map() | String.t() | nil, worker_host()) :: :ok

@@ -104,6 +104,16 @@ defmodule Aiur.Config do
     settings!().workspace.root
   end
 
+  @spec workspace_bootstrap_image() :: String.t() | nil
+  def workspace_bootstrap_image do
+    settings!().workspace.bootstrap_image
+  end
+
+  @spec workspace_bootstrap_image_pull?() :: boolean()
+  def workspace_bootstrap_image_pull? do
+    settings!().workspace.bootstrap_image_pull
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks

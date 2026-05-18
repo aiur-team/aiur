@@ -97,6 +97,9 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
+- Set `workspace.bootstrap_image` to a prebuilt Aiur image to seed missing `deps/`
+  and `_build/` directories from the image after `hooks.before_run` completes. Set
+  `workspace.bootstrap_image_pull: true` when using a mutable tag such as `latest`.
 - Optional local alert sounds: see `alerts.yaml` at the repo root.
 
 ## Testing

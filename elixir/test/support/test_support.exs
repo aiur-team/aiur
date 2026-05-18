@@ -114,6 +114,8 @@ defmodule Aiur.TestSupport do
           agent_kind: "codex",
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
+          workspace_bootstrap_image: nil,
+          workspace_bootstrap_image_pull: false,
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
@@ -148,6 +150,8 @@ defmodule Aiur.TestSupport do
     agent_kind = Keyword.get(config, :agent_kind)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
     workspace_root = Keyword.get(config, :workspace_root)
+    workspace_bootstrap_image = Keyword.get(config, :workspace_bootstrap_image)
+    workspace_bootstrap_image_pull = Keyword.get(config, :workspace_bootstrap_image_pull)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
     worker_max_concurrent_agents_per_host = Keyword.get(config, :worker_max_concurrent_agents_per_host)
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
@@ -192,8 +196,7 @@ defmodule Aiur.TestSupport do
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "polling:",
         "  interval_ms: #{yaml_value(poll_interval_ms)}",
-        "workspace:",
-        "  root: #{yaml_value(workspace_root)}",
+        workspace_yaml(workspace_root, workspace_bootstrap_image, workspace_bootstrap_image_pull),
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         "agent:",
         "  kind: #{yaml_value(agent_kind)}",
@@ -248,6 +251,25 @@ defmodule Aiur.TestSupport do
   defp tracker_backend_yaml("memory", _config), do: "memory: {}"
   defp tracker_backend_yaml(nil, _config), do: nil
   defp tracker_backend_yaml(_kind, _config), do: nil
+
+  defp workspace_yaml(root, nil, false) do
+    [
+      "workspace:",
+      "  root: #{yaml_value(root)}"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp workspace_yaml(root, bootstrap_image, bootstrap_image_pull) do
+    [
+      "workspace:",
+      "  root: #{yaml_value(root)}",
+      bootstrap_image && "  bootstrap_image: #{yaml_value(bootstrap_image)}",
+      "  bootstrap_image_pull: #{yaml_value(bootstrap_image_pull)}"
+    ]
+    |> Enum.reject(&(&1 in [nil, false]))
+    |> Enum.join("\n")
+  end
 
   defp agent_backend_yaml("codex", config) do
     command = Keyword.get(config, :command)

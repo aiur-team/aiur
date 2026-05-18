@@ -21,6 +21,8 @@ server:
   port: 4000
 workspace:
   root: ~/code/aiur-workspaces
+  bootstrap_image: null
+  bootstrap_image_pull: false
 hooks:
   after_create: |
     git clone "$AIUR_REPOSITORY_URL" .

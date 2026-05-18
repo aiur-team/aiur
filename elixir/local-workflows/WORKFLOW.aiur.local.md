@@ -21,6 +21,8 @@ server:
   port: 4000
 workspace:
   root: ~/code/aiur-workspaces
+  bootstrap_image: ghcr.io/its-everdred/aiur:latest
+  bootstrap_image_pull: true
 hooks:
   after_create: |
     git clone https://github.com/its-everdred/aiur.git .
