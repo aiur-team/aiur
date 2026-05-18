@@ -44,8 +44,14 @@ defmodule SymphonyElixir.PaneRPC do
   end
 
   @spec attach_conversation(AgentEvents.agent_identifier()) :: :ok | {:error, term()}
-  def attach_conversation(identifier) when is_binary(identifier) do
-    case SymphonyElixir.Conversations.attach(identifier) do
+  def attach_conversation(identifier) when is_binary(identifier),
+    do: attach_conversation(identifier, SymphonyElixir.Conversations)
+
+  @doc false
+  @spec attach_conversation(AgentEvents.agent_identifier(), module()) :: :ok | {:error, term()}
+  def attach_conversation(identifier, conversations)
+      when is_binary(identifier) and is_atom(conversations) do
+    case conversations.attach(identifier) do
       {:ok, _ref} -> :ok
       error -> error
     end
