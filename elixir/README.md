@@ -25,15 +25,16 @@ dashboard at `/` covers the same surface for browser-based operators.
 git clone https://github.com/its-everdred/aiur
 cd aiur
 mise install
-mise exec -- mix setup
-mise exec -- mix build
-cp examples/workflows/linear-codex.md WORKFLOW.md
-# Edit WORKFLOW.md for your tracker, repo, credentials, and workspace.
-mise exec -- ./bin/aiur ./WORKFLOW.md
+cp elixir/examples/workflows/linear-codex.md elixir/WORKFLOW.md
+# Edit elixir/WORKFLOW.md for your tracker, repo, credentials, and workspace.
+export PATH="$PWD/scripts:$PATH"
+aiur ./WORKFLOW.md
 ```
 
 [mise](https://mise.jdx.dev/) is the recommended runtime manager — `mise.toml` pins
-versions for you.
+versions for you. On first run, the `aiur` wrapper fetches Hex dependencies,
+compiles the Elixir app, and builds `bin/aiur`; later runs only rebuild when
+sources change.
 
 ## Workflows
 
@@ -57,6 +58,8 @@ until the file is fixed.
 
 `scripts/aiur` wraps `./bin/aiur` with named profiles, foreground/background modes, and
 a `stop` verb. It autodetects Linux (systemd `--user`) vs macOS (`nohup` + PID file).
+On a fresh clone it also runs `mix deps.get`, `mix compile`, and `mix escript.build`
+before launching Aiur.
 Put `scripts/` on your `PATH`:
 
 ```bash
