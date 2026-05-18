@@ -1,4 +1,9 @@
 defmodule SymphonyPane.CLI do
+  # `wait_for_shutdown/1` blocks indefinitely on a `:DOWN` message and
+  # then halts the BEAM; dialyzer flags it as no_return because it
+  # never returns to a caller, but that's the intended behavior.
+  @dialyzer {:no_return, wait_for_shutdown: 1}
+
   @moduledoc """
   Entry point for the conversation-pane subcommand.
 

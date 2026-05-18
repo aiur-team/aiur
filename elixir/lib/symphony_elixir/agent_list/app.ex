@@ -25,6 +25,12 @@ defmodule SymphonyElixir.AgentList.App do
   alias SymphonyElixir.AgentList.Renderer
   alias SymphonyElixir.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
 
+  # `init/1` and `render/1` go through GenServer-side and IO callbacks
+  # whose return shapes dialyzer can't fully trace; the warnings are
+  # spurious false positives. Suppress at module scope.
+  @dialyzer {:no_return, init: 1, render: 1}
+  @dialyzer {:nowarn_function, render: 1}
+
   @refresh_tick_ms 1_000
   # Geometry-watch interval. Far faster than the refresh tick so that
   # tmux resizes (caused by another pane opening/closing in the same
