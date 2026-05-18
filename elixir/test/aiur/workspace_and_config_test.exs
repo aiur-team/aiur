@@ -1,9 +1,9 @@
 defmodule Aiur.WorkspaceAndConfigTest do
   use Aiur.TestSupport
-  alias Ecto.Changeset
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Codex, StringOrMap}
   alias Aiur.Linear.Client
+  alias Ecto.Changeset
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =

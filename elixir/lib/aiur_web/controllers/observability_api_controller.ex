@@ -5,9 +5,9 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
-  alias Plug.Conn
   alias Aiur.Orchestrator
   alias AiurWeb.{Endpoint, Presenter}
+  alias Plug.Conn
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
