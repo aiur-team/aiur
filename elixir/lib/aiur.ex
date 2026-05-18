@@ -45,6 +45,8 @@ defmodule Aiur.Application do
         {Phoenix.PubSub, name: Aiur.PubSub},
         {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
         {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
+        {Registry, keys: :unique, name: Aiur.IssueSummaryLog.Registry},
+        {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueSummaryLog.Supervisor},
         {Task.Supervisor, name: Aiur.TaskSupervisor},
         Aiur.WorkflowStore,
         Aiur.Orchestrator,

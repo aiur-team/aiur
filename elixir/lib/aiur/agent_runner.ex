@@ -14,6 +14,7 @@ defmodule Aiur.AgentRunner do
     Config,
     Issue,
     IssueLog,
+    IssueSummaryLog,
     PromptBuilder,
     Tracker,
     Workspace
@@ -28,10 +29,10 @@ defmodule Aiur.AgentRunner do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
 
-    # Make sure a per-issue file writer is running so this session's
-    # transcript and alert events land in <repo>.<issue>.log alongside any
+    # Make sure per-issue file writers are running so this session's
+    # transcript, alert, and progress-summary events land alongside any
     # earlier session's output.
-    maybe_attach_issue_log(issue)
+    maybe_attach_issue_logs(issue)
 
     Logger.info("Starting agent run for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
 
@@ -652,13 +653,18 @@ defmodule Aiur.AgentRunner do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier),
-    do: IssueLog.attach(identifier)
+  defp maybe_attach_issue_logs(%Issue{identifier: identifier}) when is_binary(identifier),
+    do: attach_issue_logs(identifier)
 
-  defp maybe_attach_issue_log(%{identifier: identifier}) when is_binary(identifier),
-    do: IssueLog.attach(identifier)
+  defp maybe_attach_issue_logs(%{identifier: identifier}) when is_binary(identifier),
+    do: attach_issue_logs(identifier)
 
-  defp maybe_attach_issue_log(_), do: :ok
+  defp maybe_attach_issue_logs(_), do: :ok
+
+  defp attach_issue_logs(identifier) do
+    :ok = IssueLog.attach(identifier)
+    IssueSummaryLog.attach(identifier)
+  end
 
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     state_name

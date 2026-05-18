@@ -62,6 +62,7 @@ defmodule Aiur.MixProject do
           Aiur.Conversations,
           Aiur.IssueContext,
           Aiur.IssueLog,
+          Aiur.IssueSummaryLog,
           Aiur.PaneManager,
           Aiur.Tmux,
           AiurPane.CLI,
