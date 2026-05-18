@@ -11,16 +11,16 @@ github:
   repo: your-org/your-repo
   label_prefix: agent
 workspace:
-  root: ~/code/symphony-workspaces
+  root: ~/code/aiur-workspaces
 hooks:
   after_create: |
-    git clone "$SYMPHONY_REPOSITORY_URL" .
+    git clone "$AIUR_REPOSITORY_URL" .
 agent:
   kind: claude
   max_concurrent_agents: 5
   max_turns: 20
 claude:
-  command: symphony-claude
+  command: aiur-claude
 ---
 
 You are working on GitHub issue `{{ issue.identifier }}`.

@@ -1,5 +1,5 @@
 ```text
-╭─ SYMPHONY STATUS
+╭─ AIUR STATUS
 │ Agents: codex (2/10)                                   │ Project: project
 │ Runtime: 91m 58s                                       │ Next refresh: n/a
 ├─ Running

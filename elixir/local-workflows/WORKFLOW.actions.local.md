@@ -20,12 +20,12 @@ server:
   host: 100.101.178.116
   port: 4001
 workspace:
-  root: ~/code/symphony-workspaces
+  root: ~/code/aiur-workspaces
 hooks:
   after_create: |
     git clone https://github.com/ethereum-optimism/actions.git .
     issue_id="$(basename "$PWD")"
-    git checkout -b "symphony/${issue_id}" origin/main
+    git checkout -b "aiur/${issue_id}" origin/main
     cp -a .git .git-writable
     printf '\n.git-writable/\n' >> .git/info/exclude
   before_run: |
@@ -33,7 +33,7 @@ hooks:
       find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
       git clone https://github.com/ethereum-optimism/actions.git .
       issue_id="$(basename "$PWD")"
-      git checkout -b "symphony/${issue_id}" origin/main
+      git checkout -b "aiur/${issue_id}" origin/main
     fi
     if [ ! -d .git-writable ]; then
       cp -a .git .git-writable
@@ -51,7 +51,7 @@ codex:
   turn_sandbox_policy:
     type: workspaceWrite
     writableRoots:
-      - ~/code/symphony-workspaces
+      - ~/code/aiur-workspaces
     networkAccess: true
 ---
 
@@ -135,7 +135,7 @@ If the issue is already `in-progress`, `rework`, or `merging`, or if this worksp
    git merge origin/main
    ```
 
-7. Create or reuse a branch named `symphony/<issue-number>-short-title`.
+7. Create or reuse a branch named `aiur/<issue-number>-short-title`.
 8. Implement the smallest correct change for the issue.
 9. Run validation appropriate to the changed files. If the issue specifies tests, run those exactly.
 10. Commit with a short, concrete message.

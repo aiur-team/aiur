@@ -1,6 +1,6 @@
 # Logging Best Practices
 
-This guide defines logging conventions for Symphony so Codex can diagnose failures quickly.
+This guide defines logging conventions for Aiur so Codex can diagnose failures quickly.
 
 ## Goals
 

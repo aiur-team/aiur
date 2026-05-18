@@ -1,4 +1,4 @@
-\e[1m╭─ SYMPHONY STATUS\e[0m
+\e[1m╭─ AIUR STATUS\e[0m
 \e[1m│ Agents: \e[0m\e[36mcodex\e[0m\e[90m \e[0m\e[90m(0\e[0m\e[90m/\e[0m\e[90m10)\e[0m                                   \e[90m│\e[0m \e[1mProject: \e[0m\e[36mproject\e[0m
 \e[1m│ Runtime: \e[0m\e[35m0m 0s\e[0m                                         \e[90m│\e[0m \e[1mNext refresh: \e[0m\e[90mn/a\e[0m
 \e[1m├─ Running: \e[0m\e[36mhttp://127.0.0.1:4000/\e[0m

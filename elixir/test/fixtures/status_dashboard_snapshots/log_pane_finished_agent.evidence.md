@@ -1,5 +1,5 @@
 ```text
-╭─ SYMPHONY STATUS
+╭─ AIUR STATUS
 │ Agents: codex (0/10)                                   │ Project: project
 │ Runtime: 0m 0s                                         │ Next refresh: n/a
 ├─ Running
@@ -12,7 +12,7 @@
 │
 │   URL: —
 │
-│   [22:46:39] symphony · Issue prompt
+│   [22:46:39] aiur · Issue prompt
 │       Fix the login flow
 │       
 │       Users cannot log in

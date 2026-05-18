@@ -8,4 +8,4 @@ these local files only when you intentionally want the same repository, account,
 service assumptions.
 
 - `WORKFLOW.actions.local.md`: GitHub Issues plus Codex workflow for the local actions fork setup.
-- `WORKFLOW.symphony.local.md`: GitHub Issues plus Codex workflow for this Symphony repository.
+- `WORKFLOW.aiur.local.md`: GitHub Issues plus Codex workflow for this Aiur repository.

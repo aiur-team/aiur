@@ -1,4 +1,4 @@
-defmodule SymphonyElixir.TestSupport do
+defmodule Aiur.TestSupport do
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -6,33 +6,33 @@ defmodule SymphonyElixir.TestSupport do
       use ExUnit.Case
       import ExUnit.CaptureLog
 
-      alias SymphonyElixir.AgentRunner
-      alias SymphonyElixir.CLI
-      alias SymphonyElixir.Codex.CodingAgent, as: AppServer
-      alias SymphonyElixir.Config
-      alias SymphonyElixir.HttpServer
-      alias SymphonyElixir.Issue
-      alias SymphonyElixir.Linear.Client
-      alias SymphonyElixir.Orchestrator
-      alias SymphonyElixir.PromptBuilder
-      alias SymphonyElixir.StatusDashboard
-      alias SymphonyElixir.Tracker
-      alias SymphonyElixir.Workflow
-      alias SymphonyElixir.WorkflowStore
-      alias SymphonyElixir.Workspace
+      alias Aiur.AgentRunner
+      alias Aiur.CLI
+      alias Aiur.Codex.CodingAgent, as: AppServer
+      alias Aiur.Config
+      alias Aiur.HttpServer
+      alias Aiur.Issue
+      alias Aiur.Linear.Client
+      alias Aiur.Orchestrator
+      alias Aiur.PromptBuilder
+      alias Aiur.StatusDashboard
+      alias Aiur.Tracker
+      alias Aiur.Workflow
+      alias Aiur.WorkflowStore
+      alias Aiur.Workspace
 
       # Backend config aliases for tests
-      alias SymphonyElixir.Codex.Config, as: CodexConfig
-      alias SymphonyElixir.Linear.Config, as: LinearConfig
+      alias Aiur.Codex.Config, as: CodexConfig
+      alias Aiur.Linear.Config, as: LinearConfig
 
-      import SymphonyElixir.TestSupport,
+      import Aiur.TestSupport,
         only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
 
       setup do
         workflow_base =
           Path.join(
             System.tmp_dir!(),
-            "symphony-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"
+            "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"
           )
 
         workflow_root =
@@ -45,14 +45,14 @@ defmodule SymphonyElixir.TestSupport do
         workflow_file = Path.join(workflow_root, "WORKFLOW.md")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
-        if Process.whereis(SymphonyElixir.WorkflowStore), do: SymphonyElixir.WorkflowStore.force_reload()
+        if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
         stop_default_http_server()
 
         on_exit(fn ->
-          Application.delete_env(:symphony_elixir, :workflow_file_path)
-          Application.delete_env(:symphony_elixir, :server_port_override)
-          Application.delete_env(:symphony_elixir, :memory_tracker_issues)
-          Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
+          Application.delete_env(:aiur, :workflow_file_path)
+          Application.delete_env(:aiur, :server_port_override)
+          Application.delete_env(:aiur, :memory_tracker_issues)
+          Application.delete_env(:aiur, :memory_tracker_recipient)
           File.rm_rf(workflow_root)
         end)
 
@@ -65,9 +65,9 @@ defmodule SymphonyElixir.TestSupport do
     workflow = workflow_content(overrides)
     File.write!(path, workflow)
 
-    if Process.whereis(SymphonyElixir.WorkflowStore) do
+    if Process.whereis(Aiur.WorkflowStore) do
       try do
-        SymphonyElixir.WorkflowStore.force_reload()
+        Aiur.WorkflowStore.force_reload()
       catch
         :exit, _reason -> :ok
       end
@@ -80,12 +80,12 @@ defmodule SymphonyElixir.TestSupport do
   def restore_env(key, value), do: System.put_env(key, value)
 
   def stop_default_http_server do
-    case Enum.find(Supervisor.which_children(SymphonyElixir.Supervisor), fn
-           {SymphonyElixir.HttpServer, _pid, _type, _modules} -> true
+    case Enum.find(Supervisor.which_children(Aiur.Supervisor), fn
+           {Aiur.HttpServer, _pid, _type, _modules} -> true
            _child -> false
          end) do
-      {SymphonyElixir.HttpServer, pid, _type, _modules} when is_pid(pid) ->
-        :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.HttpServer)
+      {Aiur.HttpServer, pid, _type, _modules} when is_pid(pid) ->
+        :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.HttpServer)
 
         if Process.alive?(pid) do
           Process.exit(pid, :normal)
@@ -113,7 +113,7 @@ defmodule SymphonyElixir.TestSupport do
           tracker_label_prefix: nil,
           agent_kind: "codex",
           poll_interval_ms: 30_000,
-          workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
+          workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,

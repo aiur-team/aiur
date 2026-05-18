@@ -14,10 +14,10 @@ linear:
   api_key: $LINEAR_API_KEY
   project_slug: your-project-slug
 workspace:
-  root: ~/code/symphony-workspaces
+  root: ~/code/aiur-workspaces
 hooks:
   after_create: |
-    git clone "$SYMPHONY_REPOSITORY_URL" .
+    git clone "$AIUR_REPOSITORY_URL" .
   before_remove: |
     git status --short
 agent:

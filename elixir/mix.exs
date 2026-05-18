@@ -1,9 +1,9 @@
-defmodule SymphonyElixir.MixProject do
+defmodule Aiur.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :symphony_elixir,
+      app: :aiur,
       version: "0.1.1",
       elixir: "~> 1.19",
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
@@ -16,58 +16,58 @@ defmodule SymphonyElixir.MixProject do
           # Scaffold modules — fixed-return functions awaiting Phase 2
           # implementations. Exempt until real logic lands; tests would
           # only assert constants.
-          SymphonyElixir.AgentDirectory,
-          SymphonyElixir.PaneWarmPool,
-          SymphonyElixir.Claude.Config,
-          SymphonyElixir.Codex.Config,
-          SymphonyElixir.Config,
-          SymphonyElixir.GitHub.Config,
-          SymphonyElixir.Linear.Client,
-          SymphonyElixir.Linear.Config,
-          SymphonyElixir.Memory.Config,
-          SymphonyElixir.PromptBuilder,
-          SymphonyElixir.SpecsCheck,
-          SymphonyElixir.Orchestrator,
-          SymphonyElixir.Orchestrator.State,
-          SymphonyElixir.AgentRunner,
-          SymphonyElixir.CLI,
-          SymphonyElixir.CodingAgent,
-          SymphonyElixir.Claude.CodingAgent,
-          SymphonyElixir.Claude.EventHumanizer,
-          SymphonyElixir.Codex.CodingAgent,
-          SymphonyElixir.Codex.DynamicTool,
-          SymphonyElixir.Codex.EventHumanizer,
-          SymphonyElixir.EventHumanizer,
-          SymphonyElixir.GitHub.Client,
-          SymphonyElixir.GitHub.Tracker,
-          SymphonyElixir.Linear.Tracker,
-          SymphonyElixir.EventHumanizerHelpers,
-          SymphonyElixir.HttpServer,
-          SymphonyElixir.LogFile,
-          SymphonyElixir.Workspace,
-          SymphonyElixirWeb.DashboardLive,
-          SymphonyElixirWeb.Endpoint,
-          SymphonyElixirWeb.ErrorHTML,
-          SymphonyElixirWeb.ErrorJSON,
-          SymphonyElixirWeb.Layouts,
-          SymphonyElixirWeb.ObservabilityApiController,
-          SymphonyElixirWeb.Presenter,
-          SymphonyElixirWeb.StaticAssetController,
-          SymphonyElixirWeb.StaticAssets,
-          SymphonyElixirWeb.Router,
-          SymphonyElixirWeb.Router.Helpers,
-          SymphonyElixir.AgentList.App,
-          SymphonyElixir.AgentList.Input,
-          SymphonyElixir.AgentList.Renderer,
-          SymphonyElixir.Conversations,
-          SymphonyElixir.IssueContext,
-          SymphonyElixir.IssueLog,
-          SymphonyElixir.PaneManager,
-          SymphonyElixir.Tmux,
-          SymphonyPane.CLI,
-          SymphonyPane.Composer,
-          SymphonyPane.Conversation,
-          SymphonyPane.Viewport
+          Aiur.AgentDirectory,
+          Aiur.PaneWarmPool,
+          Aiur.Claude.Config,
+          Aiur.Codex.Config,
+          Aiur.Config,
+          Aiur.GitHub.Config,
+          Aiur.Linear.Client,
+          Aiur.Linear.Config,
+          Aiur.Memory.Config,
+          Aiur.PromptBuilder,
+          Aiur.SpecsCheck,
+          Aiur.Orchestrator,
+          Aiur.Orchestrator.State,
+          Aiur.AgentRunner,
+          Aiur.CLI,
+          Aiur.CodingAgent,
+          Aiur.Claude.CodingAgent,
+          Aiur.Claude.EventHumanizer,
+          Aiur.Codex.CodingAgent,
+          Aiur.Codex.DynamicTool,
+          Aiur.Codex.EventHumanizer,
+          Aiur.EventHumanizer,
+          Aiur.GitHub.Client,
+          Aiur.GitHub.Tracker,
+          Aiur.Linear.Tracker,
+          Aiur.EventHumanizerHelpers,
+          Aiur.HttpServer,
+          Aiur.LogFile,
+          Aiur.Workspace,
+          AiurWeb.DashboardLive,
+          AiurWeb.Endpoint,
+          AiurWeb.ErrorHTML,
+          AiurWeb.ErrorJSON,
+          AiurWeb.Layouts,
+          AiurWeb.ObservabilityApiController,
+          AiurWeb.Presenter,
+          AiurWeb.StaticAssetController,
+          AiurWeb.StaticAssets,
+          AiurWeb.Router,
+          AiurWeb.Router.Helpers,
+          Aiur.AgentList.App,
+          Aiur.AgentList.Input,
+          Aiur.AgentList.Renderer,
+          Aiur.Conversations,
+          Aiur.IssueContext,
+          Aiur.IssueLog,
+          Aiur.PaneManager,
+          Aiur.Tmux,
+          AiurPane.CLI,
+          AiurPane.Composer,
+          AiurPane.Conversation,
+          AiurPane.Viewport
         ]
       ],
       test_ignore_filters: [
@@ -86,7 +86,7 @@ defmodule SymphonyElixir.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      mod: {SymphonyElixir.Application, []},
+      mod: {Aiur.Application, []},
       extra_applications: [:logger]
     ]
   end
@@ -122,9 +122,9 @@ defmodule SymphonyElixir.MixProject do
   defp escript do
     [
       app: nil,
-      main_module: SymphonyElixir.CLI,
-      name: "symphony",
-      path: "bin/symphony"
+      main_module: Aiur.CLI,
+      name: "aiur",
+      path: "bin/aiur"
     ]
   end
 end

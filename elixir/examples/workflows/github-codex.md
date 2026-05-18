@@ -20,12 +20,12 @@ server:
   host: 127.0.0.1
   port: 4000
 workspace:
-  root: ~/code/symphony-workspaces
+  root: ~/code/aiur-workspaces
 hooks:
   after_create: |
-    git clone "$SYMPHONY_REPOSITORY_URL" .
+    git clone "$AIUR_REPOSITORY_URL" .
     issue_id="$(basename "$PWD")"
-    git checkout -b "symphony/${issue_id}" origin/main
+    git checkout -b "aiur/${issue_id}" origin/main
   before_remove: |
     git status --short
 agent:

@@ -1,11 +1,11 @@
 ---
 name: release
-description: "Release a new version of Symphony: bump version in mix.exs, create git tag, push to origin, create GitHub Release, and trigger Homebrew formula auto-update. Use when the user says /release, 'release a new version', 'bump version', 'create a release', or 'tag a new version'."
+description: "Release a new version of Aiur: bump version in mix.exs, create git tag, push to origin, create GitHub Release, and trigger Homebrew formula auto-update. Use when the user says /release, 'release a new version', 'bump version', 'create a release', or 'tag a new version'."
 ---
 
 # Release Workflow
 
-Tag, release, and publish a new version of Symphony. Pushing a tag triggers the `bump-homebrew` GitHub Action which auto-updates the `sapsaldog/homebrew-symphony` tap formula.
+Tag, release, and publish a new version of Aiur. Pushing a tag triggers the `bump-homebrew` GitHub Action which auto-updates the `sapsaldog/homebrew-aiur` tap formula.
 
 ## Procedure
 
@@ -42,7 +42,7 @@ Update `elixir/mix.exs` version field to match the new version (without `v` pref
 
 Rebuild escript and verify:
 ```bash
-cd elixir && mix escript.build && ./bin/symphony --version
+cd elixir && mix escript.build && ./bin/aiur --version
 ```
 
 Commit the version bump before tagging.
@@ -57,24 +57,24 @@ git push origin VERSION
 ### 5. Create GitHub Release
 
 ```bash
-gh release create VERSION --generate-notes --title "VERSION" --repo sapsaldog/symphony
+gh release create VERSION --generate-notes --title "VERSION" --repo sapsaldog/aiur
 ```
 
-Note: `--repo` flag is needed because upstream remote points to openai/symphony.
+Note: `--repo` flag is needed because upstream remote points to openai/aiur.
 
 ### 6. Summary
 
 After completion, show:
 - Tag pushed: `VERSION`
 - GitHub Release URL
-- GitHub Actions link: `https://github.com/sapsaldog/symphony/actions/workflows/bump-homebrew.yml`
-- Homebrew tap: `sapsaldog/homebrew-symphony` auto-updated
+- GitHub Actions link: `https://github.com/sapsaldog/aiur/actions/workflows/bump-homebrew.yml`
+- Homebrew tap: `sapsaldog/homebrew-aiur` auto-updated
 
 ### Re-release (same version)
 
 If a tag already exists and needs to be recreated:
 ```bash
-gh release delete VERSION --repo sapsaldog/symphony --yes
+gh release delete VERSION --repo sapsaldog/aiur --yes
 git tag -d VERSION
 git push origin :refs/tags/VERSION
 # Then proceed from step 4

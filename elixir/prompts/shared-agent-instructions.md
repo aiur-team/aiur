@@ -1,10 +1,10 @@
 ## Shared Agent Instructions
 
-- Symphony supports custom alert emission through an `emit_alert` function.
+- Aiur supports custom alert emission through an `emit_alert` function.
 - When using `emit_alert`, always send exactly:
   - `name`
   - `message`
-- Never emit Symphony-owned system alerts from the agent. The system owns:
+- Never emit Aiur-owned system alerts from the agent. The system owns:
   - `task.*`
   - `agent.*`
   - `chat.*`

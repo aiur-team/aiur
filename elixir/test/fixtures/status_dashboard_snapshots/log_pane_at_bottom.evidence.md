@@ -1,5 +1,5 @@
 ```text
-╭─ SYMPHONY STATUS
+╭─ AIUR STATUS
 │ Agents: codex (1/10)                                   │ Project: project
 │ Runtime: 0m 30s                                        │ Next refresh: n/a
 ├─ Running
@@ -10,9 +10,9 @@
 │
 ├─ Agent log: MT-001 - Fix the login flow (in-progress)
 │
-│   URL: https://github.com/its-everdred/symphony/issues/0
+│   URL: https://github.com/its-everdred/aiur/issues/0
 │
-│   [22:46:39] symphony · Issue prompt
+│   [22:46:39] aiur · Issue prompt
 │       Fix the login flow
 │       
 │       Users cannot log in

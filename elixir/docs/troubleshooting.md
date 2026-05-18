@@ -1,12 +1,12 @@
 # Troubleshooting Guide
 
-A guide to common issues encountered during Symphony setup and how to resolve them.
+A guide to common issues encountered during Aiur setup and how to resolve them.
 
 ## Environment Variables & Authentication
 
 ### GitHub Token (`GITHUB_TOKEN`)
 
-Symphony uses the GitHub Issues API to fetch issues, update labels, and post comments.
+Aiur uses the GitHub Issues API to fetch issues, update labels, and post comments.
 The `GITHUB_TOKEN` environment variable must be set.
 
 **Required scopes:**
@@ -34,7 +34,7 @@ export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 **Symptoms & Diagnosis:**
 
-If the token is missing or has insufficient permissions, Symphony will start but produce repeated errors during polling:
+If the token is missing or has insufficient permissions, Aiur will start but produce repeated errors during polling:
 
 ```
 error: GitHub token missing - set GITHUB_TOKEN env var
@@ -143,17 +143,17 @@ or the issue data contains invalid bytes.
 
 ### Claude Backend
 
-`symphony-claude` must be installed:
+`aiur-claude` must be installed:
 
 ```bash
-brew install symphony-claude
+brew install aiur-claude
 ```
 
 WORKFLOW.md configuration:
 
 ```yaml
 claude:
-  command: symphony-claude
+  command: aiur-claude
 ```
 
 ### Codex Backend
@@ -191,13 +191,13 @@ hooks:
 
 ## GitHub Issues Label Setup
 
-Symphony manages issue state using labels with the `symphony:` prefix.
+Aiur manages issue state using labels with the `aiur:` prefix.
 The following labels must be created in the repository beforehand:
 
-- `symphony:todo` - Waiting to be worked on
-- `symphony:in-progress` - Currently being worked on
-- `symphony:done` - Completed (issue is automatically closed)
-- `symphony:cancelled` - Cancelled (issue is automatically closed)
+- `aiur:todo` - Waiting to be worked on
+- `aiur:in-progress` - Currently being worked on
+- `aiur:done` - Completed (issue is automatically closed)
+- `aiur:cancelled` - Cancelled (issue is automatically closed)
 
 If you changed the `label_prefix`, create labels with the corresponding prefix.
 
@@ -207,19 +207,19 @@ Check the log files when diagnosing issues:
 
 ```bash
 # Default log location
-tail -f log/symphony.log
+tail -f log/aiur.log
 
 # Custom log path
-symphony --logs-root /path/to/logs WORKFLOW.md
+aiur --logs-root /path/to/logs WORKFLOW.md
 ```
 
 ## FAQ
 
-### Symphony starts but doesn't fetch any issues
+### Aiur starts but doesn't fetch any issues
 
 1. Verify that `GITHUB_TOKEN` or `LINEAR_API_KEY` is set
 2. Verify that `github.repo` is in `owner/repo` format
-3. Check that the repository has issues with the `symphony:todo` or `symphony:in-progress` label
+3. Check that the repository has issues with the `aiur:todo` or `aiur:in-progress` label
 4. Confirm the token has access to the target repository
 
 ### The agent keeps retrying in a loop
@@ -227,14 +227,14 @@ symphony --logs-root /path/to/logs WORKFLOW.md
 Check the error messages in the logs. Common causes:
 - Incorrect variable names in the prompt template (see "Undefined Variable Error" above)
 - WORKFLOW.md encoding issues (see "JSON Encoding Error" above)
-- `symphony-claude` or `codex` command not found in PATH
+- `aiur-claude` or `codex` command not found in PATH
 
 ### Can't access the observability dashboard
 
 The dashboard is enabled by specifying a port with the `--port` option:
 
 ```bash
-symphony --port 4000 WORKFLOW.md
+aiur --port 4000 WORKFLOW.md
 ```
 
 Then access it at `http://127.0.0.1:4000`.

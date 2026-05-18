@@ -27,12 +27,12 @@ jobs:
           SHA256: ${{ steps.sha.outputs.sha256 }}
           REPO: ${{ github.repository }}
         run: |
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/sapsaldog/homebrew-symphony.git" tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/sapsaldog/homebrew-aiur.git" tap
           cd tap
-          sed -i "s|url \".*\"|url \"https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz\"|" Formula/symphony.rb
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/symphony.rb
+          sed -i "s|url \".*\"|url \"https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz\"|" Formula/aiur.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/aiur.rb
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/symphony.rb
-          git commit -m "Bump symphony to ${TAG}"
+          git add Formula/aiur.rb
+          git commit -m "Bump aiur to ${TAG}"
           git push

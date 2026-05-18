@@ -7,31 +7,31 @@ operational practices that aren't in the main README.
 ## Layout
 
 - `elixir/WORKFLOW.md` — generic template. Customize it for the project you
-  point Symphony at.
+  point Aiur at.
 - `elixir/examples/workflows/` — portable example workflows (Linear+Codex,
   GitHub+Codex, GitHub+Claude). Copy one when starting fresh.
 - `elixir/local-workflows/` — machine-local operational workflows that are
-  checked in but are **not** portable defaults. Used by the built-in `agents`
+  checked in but are **not** portable defaults. Used by the built-in `aiur`
   profiles.
-- `scripts/agents` — thin wrapper around `bin/symphony`. Auto-detects OS
+- `scripts/aiur` — thin wrapper around `bin/aiur`. Auto-detects OS
   (systemd on Linux, `nohup`+PID on macOS) and rebuilds the escript when
   sources are newer than the binary. See the README for the command surface.
 
 ## Running
 
-`agents` is the entry point for everything. Don't `mise exec -- mix …` by
+`aiur` is the entry point for everything. Don't `mise exec -- mix …` by
 hand unless something is broken.
 
 ```text
-agents                       # default profile, foreground, local-only bind
-agents <profile>             # named profile, foreground
-agents --bg [profile|all]    # background mode
-agents stop [profile|all]    # stop tracked services + foreground processes
-agents build                 # explicit rebuild of bin/symphony
-agents --host …              # opt out of the local-only --host injection
+aiur                       # default profile, foreground, local-only bind
+aiur <profile>             # named profile, foreground
+aiur --bg [profile|all]    # background mode
+aiur stop [profile|all]    # stop tracked services + foreground processes
+aiur build                 # explicit rebuild of bin/aiur
+aiur --host …              # opt out of the local-only --host injection
 ```
 
-`agents` injects `--host 127.0.0.1` unless you pass `--host` somewhere in
+`aiur` injects `--host 127.0.0.1` unless you pass `--host` somewhere in
 the args. Pass `--host` when you want to expose the dashboard over the
 network (e.g. Tailscale, LAN).
 
@@ -58,7 +58,7 @@ the previous run already finished.
 The GitHub tracker emits states as label slugs (`todo`, `in-progress`,
 `human-review`, `rework`, `merging`, `done`), not their display names.
 Configuring `active_states:` with display names (`"In Progress"`) makes
-Symphony treat the issue as non-active and stop the worker. Always use the
+Aiur treat the issue as non-active and stop the worker. Always use the
 slug form in workflow YAML.
 
 ## Workflow bootstrap and `.git-writable`
@@ -78,11 +78,11 @@ makes HTTPS Just Work.
 
 ## Auth
 
-The dashboard reads `SYMPHONY_DASHBOARD_USERNAME` / `SYMPHONY_DASHBOARD_PASSWORD`
+The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
 from the environment. Set them empty (or unset) to disable basic auth
 locally. Source these from a gitignored file — `.env`, `.env.local`, or
-`~/.config/symphony-dashboard.env` are all loaded automatically by
-`scripts/agents` if present.
+`~/.config/aiur-dashboard.env` are all loaded automatically by
+`scripts/aiur` if present.
 
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
@@ -106,7 +106,7 @@ Do not commit:
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
 
-## Sibling: `symphony-claude`
+## Sibling: `aiur-claude`
 
 Claude support is provided by a sibling repository (a Node-based JSON-RPC
 2.0 app server that adapts Claude Code to the Codex app-server protocol).

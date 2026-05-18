@@ -1,4 +1,4 @@
-# Symphony Elixir
+# Aiur Elixir
 
 This directory contains the Elixir agent orchestration service that polls Linear, creates per-issue workspaces, and runs Codex in app-server mode.
 
@@ -11,13 +11,13 @@ This directory contains the Elixir agent orchestration service that polls Linear
 
 ## Codebase-Specific Conventions
 
-- Runtime config is loaded from `WORKFLOW.md` front matter via `SymphonyElixir.Workflow` and `SymphonyElixir.Config`.
+- Runtime config is loaded from `WORKFLOW.md` front matter via `Aiur.Workflow` and `Aiur.Config`.
 - Keep the implementation aligned with [`../SPEC.md`](../SPEC.md) where practical.
   - The implementation may be a superset of the spec.
   - The implementation must not conflict with the spec.
   - If implementation changes meaningfully alter the intended behavior, update the spec in the same
     change where practical so the spec stays current.
-- Prefer adding config access through `SymphonyElixir.Config` instead of ad-hoc env reads.
+- Prefer adding config access through `Aiur.Config` instead of ad-hoc env reads.
 - Workspace safety is critical:
   - Never run Codex turn cwd in source repo.
   - Workspaces must stay under configured workspace root.
@@ -38,7 +38,7 @@ make all
 - `defp` specs are optional.
 - `@impl` callback implementations are exempt from local `@spec` requirement.
 - Keep changes narrowly scoped; avoid unrelated refactors.
-- Follow existing module/style patterns in `lib/symphony_elixir/*`.
+- Follow existing module/style patterns in `lib/aiur/*`.
 
 Validation command:
 

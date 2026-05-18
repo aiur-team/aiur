@@ -1,6 +1,6 @@
 # Codex Token Accounting
 
-This document explains how Codex reports token usage through the app-server protocol and how Symphony should account for it.
+This document explains how Codex reports token usage through the app-server protocol and how Aiur should account for it.
 
 It is based on the current Codex source in `codex-rs`, especially:
 
@@ -59,7 +59,7 @@ These events can carry:
 - `info.last_token_usage`
 - `info.model_context_window`
 
-Symphony sees these events wrapped inside the app-server message stream.
+Aiur sees these events wrapped inside the app-server message stream.
 
 Meaning:
 
@@ -200,9 +200,9 @@ Codex also has logic that can "fill to context window", which sets:
 
 So `total_tokens` can reflect context-window normalization behavior, not just a raw upstream token report.
 
-For Symphony, `model_context_window` should be displayed or logged separately from spend.
+For Aiur, `model_context_window` should be displayed or logged separately from spend.
 
-## Recommended Accounting Strategy For Symphony
+## Recommended Accounting Strategy For Aiur
 
 Track usage per active Codex thread.
 
@@ -246,14 +246,14 @@ Do not treat generic `params.usage` as equivalent to a cumulative thread total u
 
 If you misclassify a per-turn `usage` payload as an absolute thread total, later turns can appear to stall because a smaller per-turn number is compared against a larger cumulative baseline.
 
-## What Symphony Should And Should Not Do
+## What Aiur Should And Should Not Do
 
 ### Do
 
 - Prefer `thread/tokenUsage/updated` for live reporting.
 - Treat `tokenUsage.total` as authoritative for thread totals.
 - Key accounting by `thread_id`, not just issue id.
-- Expect one thread to span multiple turns when Symphony reuses a live Codex thread.
+- Expect one thread to span multiple turns when Aiur reuses a live Codex thread.
 
 ### Do not
 
@@ -262,7 +262,7 @@ If you misclassify a per-turn `usage` payload as an absolute thread total, later
 - Do not add turn-completed `usage` on top of already-counted live thread totals unless you can prove it represents missing spend.
 - Do not reset accounting just because a new turn starts on the same thread.
 
-## Practical Interpretation For Symphony Logs
+## Practical Interpretation For Aiur Logs
 
 When reading raw app-server events:
 
@@ -280,17 +280,17 @@ Codex itself consistently prefers cumulative totals when it needs durable state:
 - the state extractor stores `info.total_token_usage.total_tokens`
 - the exec event processor caches the last `total_token_usage` and uses that on turn completion
 
-That is a strong signal for Symphony:
+That is a strong signal for Aiur:
 
 - use absolute totals as the main accounting surface
 - ignore last/delta values for totals
 
-## Recommended Symphony Documentation Contract
+## Recommended Aiur Documentation Contract
 
-If Symphony documents token reporting externally, the contract should be:
+If Aiur documents token reporting externally, the contract should be:
 
 - Live token totals come from Codex thread-scoped cumulative usage.
-- Incremental usage may also be emitted, but Symphony does not use it for totals.
+- Incremental usage may also be emitted, but Aiur does not use it for totals.
 - Turn-completed usage is event-specific and should not be assumed to be a fresh additive increment.
 - Reporting is thread-based, and multiple turns can occur on one thread.
 
