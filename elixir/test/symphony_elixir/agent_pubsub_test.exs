@@ -50,4 +50,28 @@ defmodule SymphonyElixir.AgentPubSubTest do
       assert_receive {:status_changed, %{identifier: "MT-1", status: :paused}}
     end
   end
+
+  describe "broadcast when PubSub registry is absent" do
+    # Exercises the `Process.whereis(@pubsub) == nil` branch in
+    # `do_broadcast/2`: producers must NOT crash if the PubSub
+    # registry isn't running (early boot, test teardown, etc).
+    test "swallows the broadcast and returns :ok" do
+      pubsub_name = SymphonyElixir.PubSub
+      pid = Process.whereis(pubsub_name)
+
+      try do
+        # Re-register the name to something innocuous so the lookup
+        # returns nil for the real PubSub. We unregister the current
+        # process to detach the original pid from the name.
+        true = Process.unregister(pubsub_name)
+        assert is_nil(Process.whereis(pubsub_name))
+
+        assert :ok = AgentPubSub.broadcast_status_change("MT-1", :working)
+      after
+        if is_pid(pid) and Process.alive?(pid) and is_nil(Process.whereis(pubsub_name)) do
+          Process.register(pid, pubsub_name)
+        end
+      end
+    end
+  end
 end
