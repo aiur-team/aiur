@@ -4,3 +4,4 @@ AGENTS.local.md
 .env
 .env.local
 .env.*.local
+.env.swp
