@@ -135,7 +135,12 @@ defmodule Aiur.AlertsTest do
         send(pid, {:worker_control_state, "issue-5", :paused})
         Process.sleep(25)
         send(pid, {:worker_control_state, "issue-5", :working})
-        log = File.read!(log_path)
+
+        log =
+          case File.read(log_path) do
+            {:ok, contents} -> contents
+            {:error, _reason} -> ""
+          end
 
         String.contains?(log, "\"name\":\"agent.paused\"") and
           String.contains?(log, "\"name\":\"agent.unpaused\"")

@@ -116,6 +116,49 @@ defmodule ScriptsAiurTest do
              "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
   end
 
+  test "no-arg invocation attaches to an existing default session" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} = run_aiur(ctx, [], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    assert output =~ "aiur: attaching to existing default session"
+    assert command_log =~ "TMUX:-L #{aiur_tmux_socket()} -f "
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "attach -t #{session}"
+    refute command_log =~ "new-session"
+    refute command_log =~ "PKILL:"
+    refute output =~ "MISE:"
+  end
+
+  test "profile invocation attaches to an existing profile session" do
+    ctx = test_context()
+    session = aiur_tmux_session("actions")
+
+    assert {output, 0} = run_aiur(ctx, ["actions"], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    assert output =~ "aiur: attaching to existing actions session"
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "attach -t #{session}"
+    refute command_log =~ "new-session"
+    refute output =~ "MISE:"
+  end
+
+  test "--fresh starts a new foreground session even when one exists" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} = run_aiur(ctx, ["--fresh"], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    refute output =~ "aiur: attaching to existing"
+    assert command_log =~ "kill-session -t #{session}"
+    assert command_log =~ "new-session -d -s #{session}"
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
   test "run starts the default profile in the foreground" do
     ctx = test_context()
 
@@ -244,7 +287,9 @@ defmodule ScriptsAiurTest do
           {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
           {"AIUR_OS_OVERRIDE", "Linux"},
           {"AIUR_SKIP_BUILD", "1"},
-          {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
+          {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+          {"HOME", ctx.home},
+          {"TMUX", ""}
         ],
         stderr_to_stdout: true
       )
@@ -347,6 +392,7 @@ defmodule ScriptsAiurTest do
     logs_root = Path.join(root, "logs")
     command_log = Path.join(root, "commands.log")
     bg_state_dir = Path.join(root, "bg-state")
+    home = Path.join(root, "home")
 
     # System.unique_integer resets per VM, so stale tmp dirs from prior
     # `mix test` runs can collide. Clear before setting up.
@@ -357,6 +403,7 @@ defmodule ScriptsAiurTest do
     File.mkdir_p!(Path.join(actions_repo, "elixir"))
     File.mkdir_p!(bin_dir)
     File.mkdir_p!(logs_root)
+    File.mkdir_p!(home)
 
     fake_mise = Path.join(bin_dir, "mise")
     fake_systemctl = Path.join(bin_dir, "systemctl")
@@ -416,8 +463,11 @@ defmodule ScriptsAiurTest do
         printf 'tmux 3.5a\\n'
         ;;
       has-session)
-        # Always report no existing session in tests.
-        exit 1
+        if [ "${AIUR_TEST_TMUX_HAS_SESSION:-0}" = "1" ]; then
+          exit 0
+        else
+          exit 1
+        fi
         ;;
       new-session)
         # Run the inner command synchronously so the assertions that look
@@ -438,6 +488,7 @@ defmodule ScriptsAiurTest do
       logs_root: logs_root,
       command_log: command_log,
       bg_state_dir: bg_state_dir,
+      home: home,
       fake_mise: fake_mise,
       fake_systemctl: fake_systemctl,
       fake_pkill: fake_pkill,
@@ -454,6 +505,7 @@ defmodule ScriptsAiurTest do
   defp run_aiur(ctx, args, opts \\ []) do
     os_override = Keyword.get(opts, :os, "Linux")
     skip_build = if Keyword.get(opts, :skip_build, true), do: "1", else: "0"
+    tmux_has_session = if Keyword.get(opts, :tmux_has_session, false), do: "1", else: "0"
 
     System.cmd("bash", [@script | args],
       env: [
@@ -469,7 +521,10 @@ defmodule ScriptsAiurTest do
         {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
         {"AIUR_OS_OVERRIDE", os_override},
         {"AIUR_SKIP_BUILD", skip_build},
-        {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
+        {"AIUR_TEST_TMUX_HAS_SESSION", tmux_has_session},
+        {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+        {"HOME", ctx.home},
+        {"TMUX", ""}
       ],
       stderr_to_stdout: true
     )
@@ -485,6 +540,14 @@ defmodule ScriptsAiurTest do
     |> String.split(pattern)
     |> length()
     |> Kernel.-(1)
+  end
+
+  defp aiur_tmux_session(profile) do
+    "aiur-#{System.get_env("USER") || "user"}-#{profile}"
+  end
+
+  defp aiur_tmux_socket do
+    "aiur-#{System.get_env("USER") || "user"}"
   end
 
   defp command_log(ctx) do
