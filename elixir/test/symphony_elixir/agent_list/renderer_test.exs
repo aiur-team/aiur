@@ -156,8 +156,23 @@ defmodule SymphonyElixir.AgentList.RendererTest do
 
   test "skips the screen clear escape so frames do not flash" do
     raw = render(base_state())
+    # `\e[2J` is full-screen clear (causes flicker); `\e[J` is
+    # clear-from-cursor-to-end (no flicker). We use the latter.
     refute raw =~ "\e[2J"
     assert raw =~ "\e[H"
+  end
+
+  test "clears every row below the last rendered content (no stale-footer bug)" do
+    # A frame that renders fewer rows must leave the rows below it
+    # blank. We assert the trailing escape sequence positions the
+    # cursor exactly one row below the last content row and emits
+    # `\e[J` to clear the rest of the screen.
+    raw = render(base_state(%{rows: 30}))
+
+    # Cursor home at the start.
+    assert raw =~ "\e[H"
+    # Some `\e[<N>;1H` cursor reset followed by `\e[J` clear-to-end.
+    assert raw =~ ~r/\e\[\d+;1H\e\[J/
   end
 
   test "reserves the final terminal column to avoid autowrap" do
