@@ -32,7 +32,7 @@ defmodule SymphonyElixir.PaneManager do
 
   alias SymphonyElixir.{AgentEvents, AgentPubSub, Tmux}
 
-  @type agent_id :: AgentEvents.agent_agent_id()
+  @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
 
   @num_slots 5
