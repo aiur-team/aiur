@@ -269,8 +269,7 @@ defmodule AiurPane.Conversation do
   end
 
   defp send_error_message(:max_concurrent_agents_reached),
-    do:
-      "Agent is paused and no slots are free — pause another agent or raise the cap (←/→ from the agent list)."
+    do: "Agent is paused and no slots are free — pause another agent or raise the cap (←/→ from the agent list)."
 
   defp send_error_message(:no_running_agent),
     do: "Agent is not running — start it from the agent list (space) first."

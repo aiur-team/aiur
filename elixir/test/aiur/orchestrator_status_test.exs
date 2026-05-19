@@ -222,6 +222,7 @@ defmodule Aiur.OrchestratorStatusTest do
     refute Map.get(resumed_entry, :paused_at)
     # started_at should be shifted forward by ~5s (the pause duration).
     shift_seconds = DateTime.diff(resumed_entry.started_at, started_at, :second)
+
     assert shift_seconds in 4..6,
            "expected started_at shifted by ~5s, got #{shift_seconds}s"
   end
