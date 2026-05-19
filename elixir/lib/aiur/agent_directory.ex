@@ -14,7 +14,24 @@ defmodule Aiur.AgentDirectory do
   alias Aiur.AgentEvents
 
   @spec list_agents() :: [AgentEvents.agent_summary()]
-  def list_agents, do: []
+  def list_agents do
+    case Aiur.Orchestrator.snapshot() do
+      %{running: running} when is_list(running) ->
+        Enum.map(running, fn entry ->
+          AgentEvents.agent_summary(Map.get(entry, :identifier, ""), :running, 0, %{
+            tag: Map.get(entry, :tag),
+            title: Map.get(entry, :title),
+            runtime_seconds: Map.get(entry, :runtime_seconds),
+            turn_count: Map.get(entry, :turn_count),
+            work_state: Map.get(entry, :work_state) || :working
+          })
+        end)
+        |> Enum.reject(fn %{identifier: identifier} -> identifier == "" end)
+
+      _ ->
+        []
+    end
+  end
 
   @spec get_transcript_tail(AgentEvents.agent_identifier(), non_neg_integer()) ::
           [AgentEvents.transcript_event()]

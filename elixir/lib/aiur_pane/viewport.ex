@@ -23,7 +23,8 @@ defmodule AiurPane.Viewport do
           required(:columns) => pos_integer(),
           required(:rows) => pos_integer(),
           optional(:title) => String.t() | nil,
-          optional(:work_state) => atom() | String.t() | nil
+          optional(:work_state) => atom() | String.t() | nil,
+          optional(:agent_present?) => boolean()
         }
 
   @prompt "> "
@@ -89,7 +90,10 @@ defmodule AiurPane.Viewport do
 
     title = Map.get(state, :title)
     work_state = Map.get(state, :work_state, :working)
-    transcript_lines = transcript_iolist(state.identifier, title, work_state, transcript, transcript_rows, inner_width)
+    agent_present? = Map.get(state, :agent_present?, true)
+
+    transcript_lines =
+      transcript_iolist(state.identifier, title, work_state, agent_present?, transcript, transcript_rows, inner_width)
 
     frame = [
       "\e[H",
@@ -108,8 +112,8 @@ defmodule AiurPane.Viewport do
 
   # ---------- transcript ----------------------------------------------------
 
-  defp transcript_iolist(identifier, title, work_state, events, transcript_rows, inner_width) do
-    header_line = header_line(identifier, title, work_state, inner_width)
+  defp transcript_iolist(identifier, title, work_state, agent_present?, events, transcript_rows, inner_width) do
+    header_line = header_line(identifier, title, work_state, agent_present?, inner_width)
 
     body_budget = max(transcript_rows - 1, 0)
     blank = blank_line(inner_width)
@@ -358,7 +362,7 @@ defmodule AiurPane.Viewport do
     |> Enum.map(&Enum.join/1)
   end
 
-  defp header_line(identifier, title, work_state, inner_width) do
+  defp header_line(identifier, title, work_state, agent_present?, inner_width) do
     # Format: "<state-circle> <identifier> - <title>" truncated with an
     # ellipsis if it would exceed the pane width. The state circle is
     # the same palette as the agent-list (`🟢` working, `🟡` paused,
@@ -376,7 +380,7 @@ defmodule AiurPane.Viewport do
           base
       end
 
-    truncated = truncate_with_ellipsis(text, inner_width)
+    truncated = header_text(text, agent_present?, inner_width)
     # Pad by *visual* width — the emoji counts as 2 terminal cols, so
     # `String.length`-based padding would leave the trailing column
     # blank and break the bottom border on resize.
@@ -387,9 +391,29 @@ defmodule AiurPane.Viewport do
 
   defp header_state_emoji(work_state), do: Aiur.AgentEvents.state_emoji(work_state)
 
+  defp header_text(text, true, inner_width), do: truncate_with_ellipsis(text, inner_width)
+
+  defp header_text(text, false, inner_width) do
+    marker = "[no agent]"
+    marker_width = header_visual_width(marker)
+
+    if inner_width <= marker_width do
+      truncate_with_ellipsis(marker, inner_width)
+    else
+      text_width = inner_width - marker_width - 1
+      left = truncate_with_ellipsis(text, text_width)
+      left_width = header_visual_width(left)
+      pad_width = max(inner_width - left_width - marker_width, 0)
+
+      left <> String.duplicate(" ", pad_width) <> marker
+    end
+  end
+
   # Hard-truncate to fit the row, appending an ellipsis when content
   # is cut. Counts an emoji as 2 visible columns so the truncation
   # math matches what the terminal will actually paint.
+  defp truncate_with_ellipsis(_text, inner_width) when inner_width <= 0, do: ""
+
   defp truncate_with_ellipsis(text, inner_width) do
     if header_visual_width(text) <= inner_width do
       text
