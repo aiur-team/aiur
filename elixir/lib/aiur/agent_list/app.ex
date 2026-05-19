@@ -78,6 +78,7 @@ defmodule Aiur.AgentList.App do
     GenServer.cast(server, {:adjust_max_concurrent_agents, delta})
   end
 
+  @spec quit() :: no_return()
   @spec quit(GenServer.server()) :: no_return()
   def quit(_server \\ __MODULE__) do
     # q is a global "shut aiur down" keybind, equivalent to Ctrl-C. The
@@ -255,8 +256,6 @@ defmodule Aiur.AgentList.App do
     schedule_max_agents_alert_clear()
     %{state | max_agents_alert?: true}
   end
-
-  defp handle_resume_result(state, _result), do: state
 
   defp handle_max_adjust_result(state, {:ok, _status}), do: state
 
