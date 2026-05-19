@@ -112,7 +112,11 @@ defmodule Aiur.AgentList.AppTest do
            ]
   end
 
-  test "select_next wraps and select_previous above first focuses max control", %{app: app} do
+  test "navigation forms one continuous ring across agents and the max chip", %{app: app} do
+    # Both ↑ from the first row AND ↓ from the last row should land
+    # on the max-agents chip. Previously ↓ from the last row wrapped
+    # straight back to the first row, which broke the "continuous list"
+    # expectation: the operator could only reach the chip by going up.
     send_running_change(app, [
       AgentEvents.agent_summary("MT-A", :running, 0),
       AgentEvents.agent_summary("MT-B", :running, 0)
@@ -121,20 +125,30 @@ defmodule Aiur.AgentList.AppTest do
     wait_until(fn -> length(App.snapshot(app).summaries) == 2 end)
     :sys.replace_state(GenServer.whereis(app), &%{&1 | selection_focus: :agents, selection_index: 0})
 
+    # First → last
     App.select_next(app)
     wait_until(fn -> App.snapshot(app).selection_index == 1 end)
     assert App.snapshot(app).selection_index == 1
+    assert App.snapshot(app).selection_focus == :agents
 
+    # Last → max chip (new behavior; no more silent wrap)
     App.select_next(app)
-    wait_until(fn -> App.snapshot(app).selection_index == 0 end)
+    wait_until(fn -> App.snapshot(app).selection_focus == :max_agents end)
+    assert App.snapshot(app).selection_focus == :max_agents
+
+    # Max chip → first
+    App.select_next(app)
+    wait_until(fn -> App.snapshot(app).selection_focus == :agents and App.snapshot(app).selection_index == 0 end)
     assert App.snapshot(app).selection_index == 0
 
+    # First → max chip (symmetric)
     App.select_previous(app)
     wait_until(fn -> App.snapshot(app).selection_focus == :max_agents end)
-    assert App.snapshot(app).selection_index == 0
+    assert App.snapshot(app).selection_focus == :max_agents
 
+    # Max chip → last
     App.select_previous(app)
-    wait_until(fn -> App.snapshot(app).selection_index == 1 end)
+    wait_until(fn -> App.snapshot(app).selection_focus == :agents and App.snapshot(app).selection_index == 1 end)
     assert App.snapshot(app).selection_focus == :agents
   end
 
