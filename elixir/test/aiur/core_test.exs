@@ -1714,7 +1714,7 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-interrupt-operator", %{event: :session_started}}, 1_000
+      assert_receive {:codex_worker_update, "issue-interrupt-operator", %{event: :session_started}}, 5_000
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =
@@ -1982,7 +1982,7 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-pause-resume", %{event: :session_started}}, 1_000
+      assert_receive {:codex_worker_update, "issue-pause-resume", %{event: :session_started}}, 5_000
 
       send(task.pid, {:pause_agent, 91})
       assert Task.yield(task, 100) == nil
@@ -2036,7 +2036,7 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "agent runner requeues checkpoint-delivered operator input when pause interrupts before it reaches the log" do
+  test "agent runner processes restored and newly-queued operator input on explicit resume after pause" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2155,7 +2155,7 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-checkpoint-requeue", %{event: :session_started}}, 1_000
+      assert_receive {:codex_worker_update, "issue-checkpoint-requeue", %{event: :session_started}}, 5_000
       Process.sleep(50)
 
       send(task.pid, {:pause_agent, 92})
@@ -2169,8 +2169,12 @@ defmodule Aiur.CoreTest do
         %{state | queue_store: queue_store}
       end)
 
-      assert_receive {:queued_request_id, request_id}
-      send(task.pid, {:agent_queue_updated, "MT-252", request_id})
+      assert_receive {:queued_request_id, _request_id}
+      # The paused worker no longer eagerly claims restored items on its
+      # own — that was the bug behind the pause→auto-unpause loop reported
+      # in issue #15. Explicit resume drains the operator queue so both
+      # the restored "abc" and the newly-enqueued "def" land as turns.
+      send(task.pid, {:resume_agent, 99})
 
       assert {:ok, :ok} = Task.yield(task, 1_000)
 

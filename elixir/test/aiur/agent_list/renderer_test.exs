@@ -87,6 +87,37 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "claude (2/5)"
   end
 
+  test "focused max display highlights editable value and shows arrow affordances" do
+    out =
+      render(
+        base_state(%{
+          agent_kind: "codex",
+          agent_count: 1,
+          max_agents: 2,
+          selection_focus: :max_agents
+        })
+      )
+      |> visible()
+
+    assert out =~ "codex (1/[2])"
+    assert out =~ "← →"
+  end
+
+  test "max alert applies terminal highlight styling" do
+    raw =
+      render(
+        base_state(%{
+          agent_kind: "codex",
+          agent_count: 2,
+          max_agents: 2,
+          max_agents_alert?: true
+        })
+      )
+
+    assert raw =~ IO.ANSI.red()
+    assert raw =~ IO.ANSI.reverse()
+  end
+
   test "renders the agent table header columns" do
     out =
       render(base_state(%{summaries: [%{identifier: "MT-1", status: :running, alert_count: 0}]}))
@@ -115,6 +146,28 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "▶ MT-2"
   end
 
+  test "does not mark an agent row when the max control is focused" do
+    summaries = [
+      %{identifier: "MT-1", status: :running, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          selection_index: 0,
+          selection_focus: :max_agents,
+          agent_kind: "codex",
+          agent_count: 1,
+          max_agents: 2
+        })
+      )
+      |> visible()
+
+    assert out =~ "codex (1/[2])"
+    refute out =~ "▶ MT-1"
+  end
+
   test "renders state with a colored circle emoji" do
     summaries = [
       %{
@@ -127,9 +180,31 @@ defmodule Aiur.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    # Paused agent state surfaces as a yellow circle (🟡 in the state
+    # Paused agent state surfaces as a pause glyph (⏸️ in the state
     # column). Working agents would render as 🟢.
-    assert out =~ "🟡"
+    assert out =~ "⏸️"
+  end
+
+  test "working agents render the same green emoji as the conversation pane header" do
+    # Regression: the agent list used to render the tag color (e.g. 🟡
+    # for `agent:todo`) for an actively working agent, while the
+    # conversation pane header showed 🟢 for the same agent. Both now
+    # route through `Aiur.AgentEvents.state_emoji/1` so an in-progress
+    # agent is green everywhere — independent of the tracker label.
+    summaries = [
+      %{
+        identifier: "MT-WORK",
+        status: :running,
+        alert_count: 0,
+        tag: "agent:todo",
+        work_state: :working
+      }
+    ]
+
+    out = render(base_state(%{summaries: summaries})) |> visible()
+
+    assert out =~ "🟢"
+    refute out =~ "🟡"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do

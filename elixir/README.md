@@ -19,6 +19,12 @@ Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets
 any agent in its own pane, and send messages directly into a running session. A LiveView
 dashboard at `/` covers the same surface for browser-based operators.
 
+In the CLI agent list, `Enter` opens the selected agent conversation pane and `Space`
+pauses or resumes execution for the selected agent. Navigate above the first agent row
+to focus the active-agent limit, then use `Left` / `Right` to decrease or increase the
+session-only maximum. The workflow file remains unchanged; restarting Aiur reloads the
+configured limit.
+
 ## Quickstart
 
 ```bash
@@ -112,6 +118,8 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   approvals, `thread_sandbox` is `workspace-write`).
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
+- `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
+  and can keep their panes open without consuming an active slot.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
 - Optional local alert sounds: see `alerts.yaml` at the repo root.
 

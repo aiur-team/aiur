@@ -155,7 +155,9 @@ Options:
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
-  space, enter, or i   open the selected agent conversation
+  enter                open the selected agent conversation
+  space                pause/resume the selected agent
+  left/right           adjust the session max active-agent count
   enter                send the typed message
   alt-enter            insert a newline while typing
   esc or ctrl-c        return from conversation to agent selection

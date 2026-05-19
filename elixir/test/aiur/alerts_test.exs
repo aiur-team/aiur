@@ -135,10 +135,84 @@ defmodule Aiur.AlertsTest do
         send(pid, {:worker_control_state, "issue-5", :paused})
         Process.sleep(25)
         send(pid, {:worker_control_state, "issue-5", :working})
-        log = File.read!(log_path)
 
-        String.contains?(log, "\"name\":\"agent.paused\"") and
-          String.contains?(log, "\"name\":\"agent.unpaused\"")
+        if File.exists?(log_path) do
+          log = File.read!(log_path)
+
+          String.contains?(log, "\"name\":\"agent.paused\"") and
+            String.contains?(log, "\"name\":\"agent.unpaused\"")
+        else
+          false
+        end
+      end,
+      20
+    )
+  end
+
+  test "operator-initiated resume emits an agent.unpaused alert at the orchestrator sync-flip" do
+    # Regression: `send_resume_control_message/2` sync-flips control.status
+    # from :paused to :working before the worker's `:worker_control_state`
+    # confirmation comes back. The later confirmation sees previous_status
+    # already :working and emits no transition alert — so the orchestrator
+    # must emit the unpause alert itself at the sync-flip point.
+    workspace_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-resume-sync-#{System.unique_integer([:positive])}")
+
+    workspace = Path.join(workspace_root, "MT-RESUME-SYNC")
+    File.mkdir_p!(workspace)
+
+    on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    orchestrator_name = Module.concat(__MODULE__, :ResumeSyncAlertOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-resume-sync" => %{
+              pid: self(),
+              ref: make_ref(),
+              identifier: "MT-RESUME-SYNC",
+              issue: %Issue{
+                id: "issue-resume-sync",
+                identifier: "MT-RESUME-SYNC",
+                state: "In Progress",
+                title: "Resume sync"
+              },
+              workspace_path: workspace,
+              worker_host: nil,
+              control: %{can_interrupt: true, safe_checkpoints: [], status: :paused},
+              started_at: DateTime.utc_now()
+            }
+          }
+      }
+    end)
+
+    log_path = Path.join(workspace, "logs/agent.ndjson")
+
+    assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "MT-RESUME-SYNC")
+
+    # Confirmation arrives after the sync-flip but the alert has
+    # already been emitted; the duplicate confirmation must not double-fire.
+    send(pid, {:worker_control_state, "issue-resume-sync", :working})
+
+    assert_eventually(
+      fn ->
+        if File.exists?(log_path) do
+          log = File.read!(log_path)
+          unpaused_count = String.split(log, "\"name\":\"agent.unpaused\"") |> length()
+          # exactly one unpause alert recorded (split count is N+1 occurrences)
+          unpaused_count == 2
+        else
+          false
+        end
       end,
       20
     )

@@ -5,13 +5,18 @@ defmodule AiurPane.ViewportTest do
   alias AiurPane.{Composer, Viewport}
 
   defp base_state(opts) do
-    %{
+    state = %{
       identifier: Keyword.get(opts, :identifier, "MT-V"),
       transcript: Keyword.get(opts, :transcript, []),
       composer: Keyword.get(opts, :composer, Composer.new()),
       columns: Keyword.get(opts, :columns, 40),
       rows: Keyword.get(opts, :rows, 8)
     }
+
+    opts
+    |> Keyword.take([:title, :work_state, :agent_present?])
+    |> Map.new()
+    |> then(&Map.merge(state, &1))
   end
 
   defp visible(text) do
@@ -24,6 +29,27 @@ defmodule AiurPane.ViewportTest do
     # Header format: "🟢 MT-VIS" (default work_state circle + id).
     assert text =~ "MT-VIS"
     assert text =~ "🟢"
+  end
+
+  test "right-aligns no-agent marker in the transcript header" do
+    {frame, _cursor} =
+      Viewport.render(
+        base_state(
+          identifier: "MT-11",
+          title: "Test agent",
+          agent_present?: false,
+          work_state: :idle,
+          columns: 42
+        )
+      )
+
+    raw = IO.iodata_to_binary(frame)
+    text = visible(raw)
+    header = text |> String.split("\r\n") |> List.first()
+
+    assert header =~ "⚫ MT-11 - Test agent"
+    assert String.ends_with?(header, " no agent ")
+    assert raw =~ "\e[41m\e[37m no agent \e[0m"
   end
 
   test "renders user and agent events with tag prefixes" do
