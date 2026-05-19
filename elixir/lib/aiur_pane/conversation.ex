@@ -99,12 +99,26 @@ defmodule AiurPane.Conversation do
   end
 
   @impl true
-  def terminate(_reason, %{restore?: true}) do
+  def terminate(reason, %{restore?: true} = state) do
+    log_conversation_close(reason, state)
     restore_terminal()
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  def terminate(reason, state) do
+    log_conversation_close(reason, state)
+    :ok
+  end
+
+  defp log_conversation_close(reason, state) do
+    identifier =
+      case state do
+        %{identifier: id} when is_binary(id) -> id
+        _ -> "unknown"
+      end
+
+    Logger.info("[user-action] conversation_pane_closed identifier=#{identifier} reason=#{inspect(reason)}")
+  end
 
   @impl true
   # Bare `\e` arrives when the reader saw an ESC that wasn't followed by

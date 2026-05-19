@@ -147,6 +147,7 @@ defmodule Aiur.AgentList.App do
     if state.selection_focus == :agents do
       case Enum.at(state.summaries, state.selection_index) do
         %{identifier: identifier} ->
+          Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
           command = "#{state.command_template} #{identifier}"
           # Routes through the agent-native facade so external consumers
           # (MCP bridge, automation agents) drive conversations the same
@@ -283,14 +284,17 @@ defmodule Aiur.AgentList.App do
 
   defp toggle_agent_pause(%{identifier: identifier, status: :running} = summary, state) do
     if paused_summary?(summary) do
+      Logger.info("[user-action] resume_agent identifier=#{identifier} source=agent_list")
       handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
     else
+      Logger.info("[user-action] pause_agent identifier=#{identifier} source=agent_list")
       _ = Orchestrator.pause_agent(state.orchestrator, identifier)
       state
     end
   end
 
   defp toggle_agent_pause(%{identifier: identifier, status: :queued}, state) do
+    Logger.info("[user-action] start_queued_agent identifier=#{identifier} source=agent_list")
     handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
   end
 

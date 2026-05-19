@@ -109,6 +109,7 @@ defmodule Aiur.PaneManager do
   def handle_call({:close, identifier}, _from, state) do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, pane_id} ->
+        Logger.info("[user-action] close_conversation identifier=#{identifier} pane_id=#{pane_id}")
         _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
         {:reply, :ok, forget_pane_by_identifier(state, pane_id)}
 
