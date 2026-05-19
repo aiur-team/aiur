@@ -416,6 +416,12 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec dispatch_candidate_for_test(Issue.t(), term()) :: boolean()
+  def dispatch_candidate_for_test(%Issue{} = issue, %State{} = state) do
+    dispatch_candidate?(issue, state, active_state_set(), terminal_state_set())
+  end
+
+  @doc false
   @spec revalidate_issue_for_dispatch_for_test(Issue.t(), ([String.t()] -> term())) ::
           {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
   def revalidate_issue_for_dispatch_for_test(%Issue{} = issue, issue_fetcher)
@@ -862,7 +868,19 @@ defmodule Aiur.Orchestrator do
   defp issue_created_at_sort_key(%Issue{}), do: 9_223_372_036_854_775_807
   defp issue_created_at_sort_key(_issue), do: 9_223_372_036_854_775_807
 
-  defp should_dispatch_issue?(
+  defp should_dispatch_issue?(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
+    dispatch_candidate?(issue, state, active_states, terminal_states) and
+      available_slots(state) > 0
+  end
+
+  defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
+
+  # All dispatch preconditions except the global active+paused slot reservation.
+  # Polling layers `available_slots > 0` on top of this to honor paused-agent
+  # slot holds; manual start paths (e.g., space on a queued ticket) instead
+  # gate on `active < max` so the operator can claim a free slot even when a
+  # parallel paused agent is parked in the running map.
+  defp dispatch_candidate?(
          %Issue{} = issue,
          %State{running: running, claimed: claimed} = state,
          active_states,
@@ -872,12 +890,9 @@ defmodule Aiur.Orchestrator do
       !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
-      available_slots(state) > 0 and
       state_slots_available?(issue, running) and
       worker_slots_available?(state)
   end
-
-  defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
 
   defp state_slots_available?(%Issue{state: issue_state}, running) when is_map(running) do
     limit = Config.max_concurrent_agents_for_state(issue_state)
@@ -2189,10 +2204,13 @@ defmodule Aiur.Orchestrator do
       is_nil(issue) ->
         {{:error, :no_running_agent}, state}
 
-      available_slots(state) <= 0 ->
+      # Manual start (operator pressed space on a queued ticket): paused
+      # agents are excluded from the cap so the operator can fill a free
+      # active slot even when a paused agent is parked in `running`.
+      active_running_count(state.running) >= max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 
-      not should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set()) ->
+      not dispatch_candidate?(issue, state, active_state_set(), terminal_state_set()) ->
         {{:error, :not_resumable}, state}
 
       true ->

@@ -558,6 +558,60 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
+  test "polling does not auto-dispatch when a paused agent reserves the only slot" do
+    paused_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: "MT-PAUSED",
+      issue: %Issue{id: "issue-paused", identifier: "MT-PAUSED", state: "In Progress"},
+      worker_host: nil,
+      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
+      session_id: "thread-MT-PAUSED",
+      started_at: DateTime.utc_now()
+    }
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 1,
+      running: %{"issue-paused" => paused_entry},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
+
+    refute Orchestrator.should_dispatch_issue_for_test(queued, state)
+  end
+
+  test "manual start is eligible when paused holds the slot but active count is below max" do
+    # The operator pressing space on a queued ticket bypasses the
+    # paused-reserves-slot rule: paused agents do not count against the
+    # active cap, so a free slot stays manually claimable. The polling
+    # path stays blocked by the prior test.
+    paused_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: "MT-PAUSED",
+      issue: %Issue{id: "issue-paused", identifier: "MT-PAUSED", state: "In Progress"},
+      worker_host: nil,
+      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
+      session_id: "thread-MT-PAUSED",
+      started_at: DateTime.utc_now()
+    }
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 1,
+      running: %{"issue-paused" => paused_entry},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
+
+    assert Orchestrator.dispatch_candidate_for_test(queued, state)
+  end
+
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
     stale_issue = %Issue{
       id: "blocked-2",
