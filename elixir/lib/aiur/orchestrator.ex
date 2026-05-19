@@ -269,7 +269,9 @@ defmodule Aiur.Orchestrator do
         previous_status = get_in(running_entry, [:control, :status]) || :working
 
         updated_running_entry =
-          put_in(running_entry, [:control, :status], status)
+          running_entry
+          |> put_in([:control, :status], status)
+          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
 
         maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
 
@@ -1296,7 +1298,7 @@ defmodule Aiur.Orchestrator do
             AgentEvents.agent_summary(identifier, :running, 0, %{
               tag: tag,
               title: title,
-              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working
             })
@@ -1320,7 +1322,7 @@ defmodule Aiur.Orchestrator do
             AgentEvents.agent_summary(identifier, :running, 0, %{
               tag: issue_tag(Map.get(entry, :issue)),
               title: get_in(entry, [:issue, Access.key(:title)]),
-              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working
             })
@@ -2221,7 +2223,9 @@ defmodule Aiur.Orchestrator do
       {:ok, _request_id} ->
         issue_id = get_in(running_entry, [:issue, Access.key(:id)])
         previous_status = get_in(running_entry, [:control, :status]) || :working
+        now = DateTime.utc_now()
         state = put_running_control_status(state, issue_id, :working)
+        state = update_in(state.running, &thaw_pause_clock(&1, issue_id, previous_status, now))
         # Sync-flip happens here so the cap accounting stays consistent.
         # That means the worker's later `:worker_control_state :working`
         # confirmation finds previous_status already :working and emits
@@ -2234,6 +2238,43 @@ defmodule Aiur.Orchestrator do
         {error, state}
     end
   end
+
+  # Freeze the runtime clock while the agent is paused and shift
+  # `started_at` forward on resume so `now - started_at` excludes the
+  # paused interval. The age column in the agent list (and any other
+  # consumer of `running_seconds/2`) stops advancing while paused.
+  defp apply_pause_runtime_clock(entry, :working, :paused, now) when is_map(entry) do
+    Map.put(entry, :paused_at, now)
+  end
+
+  defp apply_pause_runtime_clock(entry, :paused, :working, now) when is_map(entry) do
+    shift_started_at_by_pause(entry, now)
+  end
+
+  defp apply_pause_runtime_clock(entry, _previous, _next, _now), do: entry
+
+  defp thaw_pause_clock(running, issue_id, previous_status, now) when is_map(running) do
+    case Map.get(running, issue_id) do
+      nil -> running
+      entry -> Map.put(running, issue_id, shift_started_at_by_pause_if(entry, previous_status, now))
+    end
+  end
+
+  defp shift_started_at_by_pause_if(entry, :paused, now), do: shift_started_at_by_pause(entry, now)
+  defp shift_started_at_by_pause_if(entry, _previous, _now), do: entry
+
+  defp shift_started_at_by_pause(%{paused_at: %DateTime{} = paused_at} = entry, %DateTime{} = now) do
+    paused_for = max(0, DateTime.diff(now, paused_at, :second))
+
+    entry
+    |> Map.update(:started_at, nil, fn
+      %DateTime{} = started_at -> DateTime.add(started_at, paused_for, :second)
+      other -> other
+    end)
+    |> Map.put(:paused_at, nil)
+  end
+
+  defp shift_started_at_by_pause(entry, _now), do: entry
 
   defp resume_queued_issue(%State{} = state, issue_identifier) do
     issue =
@@ -2894,6 +2935,22 @@ defmodule Aiur.Orchestrator do
   end
 
   defp running_seconds(_started_at, _now), do: 0
+
+  # Wall-clock seconds the agent has spent *actively working*. If the
+  # entry is currently paused, the clock is frozen at the moment of
+  # pause; on resume `shift_started_at_by_pause/2` shifts `started_at`
+  # forward so any future delta excludes the paused interval.
+  defp effective_runtime_seconds(entry, %DateTime{} = now) when is_map(entry) do
+    case {Map.get(entry, :started_at), Map.get(entry, :paused_at)} do
+      {%DateTime{} = started_at, %DateTime{} = paused_at} ->
+        running_seconds(started_at, paused_at)
+
+      {started_at, _} ->
+        running_seconds(started_at, now)
+    end
+  end
+
+  defp effective_runtime_seconds(_entry, _now), do: 0
 
   defp integer_like(value) when is_integer(value) and value >= 0, do: value
 

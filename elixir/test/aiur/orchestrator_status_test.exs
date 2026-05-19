@@ -151,6 +151,81 @@ defmodule Aiur.OrchestratorStatusTest do
     assert %{active: 2, paused: 0, max: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
+  test "pause freezes started_at clock — paused_at is captured, started_at unchanged" do
+    orchestrator_name = Module.concat(__MODULE__, :PauseClockFreezeOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-clock" => %{
+              pid: self(),
+              ref: make_ref(),
+              identifier: "MT-CLOCK",
+              issue: %Issue{id: "issue-clock", identifier: "MT-CLOCK", state: "In Progress"},
+              control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
+              session_id: "thread-MT-CLOCK",
+              started_at: started_at
+            }
+          }
+      }
+    end)
+
+    send(pid, {:worker_control_state, "issue-clock", :paused})
+    Process.sleep(20)
+
+    paused_entry = :sys.get_state(pid).running["issue-clock"]
+    assert %DateTime{} = paused_entry[:paused_at]
+    assert paused_entry[:started_at] == started_at
+  end
+
+  test "resume shifts started_at forward by the paused interval so the age column excludes the pause" do
+    orchestrator_name = Module.concat(__MODULE__, :PauseClockShiftOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+    paused_at = DateTime.add(DateTime.utc_now(), -5, :second)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-shift" => %{
+              pid: self(),
+              ref: make_ref(),
+              identifier: "MT-SHIFT",
+              issue: %Issue{id: "issue-shift", identifier: "MT-SHIFT", state: "In Progress"},
+              control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
+              session_id: "thread-MT-SHIFT",
+              started_at: started_at,
+              paused_at: paused_at
+            }
+          }
+      }
+    end)
+
+    send(pid, {:worker_control_state, "issue-shift", :working})
+    Process.sleep(20)
+
+    resumed_entry = :sys.get_state(pid).running["issue-shift"]
+    refute Map.get(resumed_entry, :paused_at)
+    # started_at should be shifted forward by ~5s (the pause duration).
+    shift_seconds = DateTime.diff(resumed_entry.started_at, started_at, :second)
+    assert shift_seconds in 4..6,
+           "expected started_at shifted by ~5s, got #{shift_seconds}s"
+  end
+
   test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
     orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
