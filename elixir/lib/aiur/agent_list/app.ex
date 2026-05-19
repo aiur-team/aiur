@@ -78,8 +78,16 @@ defmodule Aiur.AgentList.App do
     GenServer.cast(server, {:adjust_max_concurrent_agents, delta})
   end
 
-  @spec quit(GenServer.server()) :: :ok
-  def quit(server \\ __MODULE__), do: GenServer.cast(server, :quit)
+  @spec quit(GenServer.server()) :: no_return()
+  def quit(_server \\ __MODULE__) do
+    # q is a global "shut aiur down" keybind, equivalent to Ctrl-C. The
+    # earlier implementation cast :quit to this GenServer, but it was
+    # supervised with restart: :permanent so the supervisor immediately
+    # restarted it — the operator saw the list flash empty for a beat
+    # and then re-populate from PubSub instead of actually quitting.
+    Logger.info("[user-action] quit source=agent_list")
+    System.halt(0)
+  end
 
   @spec toggle_help(GenServer.server()) :: :ok
   def toggle_help(server \\ __MODULE__), do: GenServer.cast(server, :toggle_help)
@@ -179,10 +187,6 @@ defmodule Aiur.AgentList.App do
     state = handle_max_adjust_result(state, result)
     render(state)
     {:noreply, state}
-  end
-
-  def handle_cast(:quit, state) do
-    {:stop, :normal, state}
   end
 
   def handle_cast(:toggle_help, state) do
