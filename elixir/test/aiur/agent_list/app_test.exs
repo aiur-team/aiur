@@ -196,6 +196,26 @@ defmodule Aiur.AgentList.AppTest do
     assert App.snapshot(app).max_agents_alert?
   end
 
+  test "any resume failure rings the bell — not just :max_concurrent_agents_reached", %{
+    app: app,
+    orchestrator: orchestrator
+  } do
+    # Regression: only the two slot-cap errors used to surface; reasons
+    # like :not_resumable, :dispatch_failed, :no_running_agent, or the
+    # new :agent_paused were swallowed silently — leaving the operator
+    # wondering whether the key even registered.
+    GenServer.cast(orchestrator, {:set_resume_result, {:error, :not_resumable}})
+
+    send_running_change(app, [AgentEvents.agent_summary("MT-QUEUED", :queued, 0)])
+    Process.sleep(50)
+
+    App.toggle_pause(app)
+
+    assert_receive {:mock_resume, "MT-QUEUED"}, 500
+    assert_receive {:rendered, "\a"}, 500
+    assert App.snapshot(app).max_agents_alert?
+  end
+
   test "enter opens a paused agent without resuming it", %{app: app} do
     send_running_change(app, [
       Map.put(AgentEvents.agent_summary("MT-PAUSED", :running, 0), :work_state, :paused)
@@ -225,17 +245,22 @@ defmodule Aiur.AgentList.AppTest do
     assert App.snapshot(app).selection_index == 0
   end
 
-  test "left and right adjust the focused max control", %{app: app} do
+  test "left and right adjust max control regardless of selection focus", %{app: app} do
+    # Regression: the keypress used to be gated on `selection_focus == :max_agents`,
+    # so ←/→ was silently swallowed when an agent row was selected. The
+    # operator perceived the bump as not taking effect. The cast now always
+    # fires; selection focus is only a visual affordance.
     send_running_change(app, [AgentEvents.agent_summary("MT-A", :running, 0)])
     Process.sleep(50)
 
-    App.select_previous(app)
-    Process.sleep(20)
-    App.adjust_max_concurrent_agents(app, -1)
-    App.adjust_max_concurrent_agents(app, 1)
+    # Focus an agent row, not the max chip.
+    assert App.snapshot(app).selection_focus == :agents
 
-    assert_receive {:mock_adjust_max, -1}, 500
+    App.adjust_max_concurrent_agents(app, 1)
+    App.adjust_max_concurrent_agents(app, -1)
+
     assert_receive {:mock_adjust_max, 1}, 500
+    assert_receive {:mock_adjust_max, -1}, 500
   end
 
   test "activate uses the visible-row order, not raw input order", %{app: app} do

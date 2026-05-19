@@ -168,13 +168,11 @@ defmodule Aiur.AgentList.App do
   end
 
   def handle_cast({:adjust_max_concurrent_agents, delta}, state) do
-    state =
-      if state.selection_focus == :max_agents do
-        handle_max_adjust_result(state, Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta))
-      else
-        state
-      end
-
+    # ←/→ adjusts the session max regardless of current selection focus —
+    # the keybind is global so the operator does not have to navigate to
+    # the max chip first. Focus-gating silently swallowed the keypress
+    # and made the cap feel un-editable from the agent list.
+    state = handle_max_adjust_result(state, Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta))
     render(state)
     {:noreply, state}
   end
@@ -239,8 +237,12 @@ defmodule Aiur.AgentList.App do
 
   defp handle_resume_result(state, {:ok, _}), do: state
 
-  defp handle_resume_result(state, {:error, reason})
-       when reason in [:max_concurrent_agents_reached, :below_active_count] do
+  # Any resume_agent / start_queued failure rings the bell and flashes
+  # the max chip. Previously only :max_concurrent_agents_reached and
+  # :below_active_count surfaced — every other reason (no_running_agent,
+  # not_resumable, dispatch_failed, agent_paused) was swallowed silently,
+  # which is what made the cap feel like it wasn't being applied.
+  defp handle_resume_result(state, {:error, _reason}) do
     ring_bell(state)
     schedule_max_agents_alert_clear()
     %{state | max_agents_alert?: true}
