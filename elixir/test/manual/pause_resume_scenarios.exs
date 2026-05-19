@@ -302,6 +302,65 @@ PR.assert_match(attempt_after_bump, "manual start succeeds after max bump", fn
   _ -> false
 end)
 
+# ============================================================================
+# Scenario 3 — bumping the session max past the workflow value must clear the
+# per-state cap so a 3rd manual start succeeds (regression for the “2/5 but
+# turning on a 3rd just flashes red” issue).
+# ============================================================================
+PR.banner("Scenario 3: per-state cap honors the session-bumped max")
+
+worker_a = PR.spawn_worker_pid()
+worker_b = PR.spawn_worker_pid()
+
+queued_issue_c = %Issue{
+  id: "issue-queued-c",
+  identifier: "MT-QC",
+  title: "Queued C",
+  state: "Todo",
+  labels: ["agent:todo"]
+}
+
+issue_a_in_progress = %Issue{issue_active | id: "issue-a", identifier: "MT-A"}
+issue_b_in_progress = %Issue{issue_active | id: "issue-b", identifier: "MT-B"}
+
+Application.put_env(:aiur, :memory_tracker_issues, [
+  issue_a_in_progress,
+  issue_b_in_progress,
+  queued_issue_c
+])
+
+:sys.replace_state(pid, fn state ->
+  %{
+    state
+    | session_max_concurrent_agents: 5,
+      running: %{
+        "issue-a" => PR.running_entry(issue_a_in_progress, :working, worker_a),
+        "issue-b" => PR.running_entry(issue_b_in_progress, :working, worker_b)
+      },
+      claimed: MapSet.new(["issue-a", "issue-b"]),
+      last_polled_issues: %{
+        "issue-a" => issue_a_in_progress,
+        "issue-b" => issue_b_in_progress,
+        "issue-queued-c" => queued_issue_c
+      }
+  }
+end)
+
+status_c = Orchestrator.max_concurrent_agents(orchestrator_name)
+IO.inspect(status_c, label: "  baseline status (workflow max=1, session=5)")
+
+PR.assert_match(status_c, "session max overrides workflow max", fn s ->
+  s.active == 2 and s.max == 5
+end)
+
+start_c = Orchestrator.resume_agent(orchestrator_name, "MT-QC")
+IO.inspect(start_c, label: "  manual start of 3rd agent")
+
+PR.assert_match(start_c, "3rd manual start succeeds after bumping past workflow max", fn
+  {:ok, :started} -> true
+  _ -> false
+end)
+
 Process.exit(pid, :normal)
 
 case PR.failures() do

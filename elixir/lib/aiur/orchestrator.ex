@@ -890,17 +890,28 @@ defmodule Aiur.Orchestrator do
       !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
-      state_slots_available?(issue, running) and
+      state_slots_available?(issue, state) and
       worker_slots_available?(state)
   end
 
-  defp state_slots_available?(%Issue{state: issue_state}, running) when is_map(running) do
-    limit = Config.max_concurrent_agents_for_state(issue_state)
-    used = running_issue_count_for_state(running, issue_state)
+  defp state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
+    limit = effective_state_limit(issue_state, state)
+    used = running_issue_count_for_state(state.running, issue_state)
     limit > used
   end
 
-  defp state_slots_available?(_issue, _running), do: false
+  defp state_slots_available?(_issue, _state), do: false
+
+  # Per-state cap honors explicit overrides in
+  # `agent.max_concurrent_agents_by_state` first, then falls back to the
+  # *session-aware* global limit. Without this, bumping the global cap at
+  # runtime (←/→ in the agent list) had no effect on dispatch eligibility
+  # because the per-state default was pinned to the workflow file value.
+  defp effective_state_limit(issue_state, %State{} = state) do
+    config = Config.settings!()
+    normalized = normalize_issue_state(issue_state)
+    Map.get(config.agent.max_concurrent_agents_by_state, normalized, max_concurrent_agent_limit(state))
+  end
 
   defp running_issue_count_for_state(running, issue_state) when is_map(running) do
     normalized_state = normalize_issue_state(issue_state)
@@ -2192,7 +2203,7 @@ defmodule Aiur.Orchestrator do
       active_running_count(state.running) >= max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 
-      not state_slots_available?(Map.get(running_entry, :issue), state.running) ->
+      not state_slots_available?(Map.get(running_entry, :issue), state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 
       not resume_worker_slot_available?(state, Map.get(running_entry, :worker_host)) ->
@@ -2542,7 +2553,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
-    available_slots(state) > 0 and state_slots_available?(issue, state.running)
+    available_slots(state) > 0 and state_slots_available?(issue, state)
   end
 
   defp apply_agent_token_delta(
