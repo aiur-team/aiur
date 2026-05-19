@@ -24,7 +24,12 @@ defmodule AiurPane.CLI do
   @spec main([String.t()]) :: no_return()
   def main([identifier | _rest]) when is_binary(identifier) and identifier != "" do
     _ = Application.ensure_all_started(:logger)
-    _ = Aiur.LogFile.configure_level()
+    # Route the pane BEAM's logs to the shared file and detach the
+    # default console handler. Without this, every Logger.debug at
+    # bootstrap flashes on stdout for a beat before the conversation
+    # pane enters raw mode and clears the screen — visible noise that
+    # belongs in `log/aiur.log`, not on the operator's terminal.
+    _ = Aiur.LogFile.configure()
     _ = Application.ensure_all_started(:phoenix_pubsub)
     _ = Application.ensure_started(:aiur_pubsub_pane)
 
