@@ -130,7 +130,7 @@ defmodule Aiur.AgentList.Renderer do
        [
          "🟢  agent running, label is agent:in-progress",
          "🟡  agent running, label is agent:todo (queued for codex)",
-         "🟡  agent paused (label override)",
+         "⏸️  agent paused (label override)",
          "🟣  agent running, label is agent:human-review",
          "🟠  agent running, label is agent:rework",
          "🔵  agent running, label is agent:merging",
@@ -389,7 +389,7 @@ defmodule Aiur.AgentList.Renderer do
   #   running + agent:human-review → 🟣 purple
   #   running + agent:rework       → 🟠 orange
   #   running + agent:merging      → 🔵 blue
-  #   running + paused (any tag)   → 🟡 yellow (override)
+  #   running + paused (any tag)   → ⏸️ pause  (override)
   #   running + error (any tag)    → 🔴 red    (override)
   #   queued  (any tag, no slot)   → ⚫ grey
   #
@@ -399,8 +399,8 @@ defmodule Aiur.AgentList.Renderer do
 
   defp summary_emoji(%{status: :running} = summary) do
     case Map.get(summary, :work_state) do
-      :paused -> "🟡"
-      "paused" -> "🟡"
+      :paused -> "⏸️"
+      "paused" -> "⏸️"
       :error -> "🔴"
       _ -> tag_color_emoji(Map.get(summary, :tag))
     end

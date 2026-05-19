@@ -172,9 +172,9 @@ defmodule Aiur.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    # Paused agent state surfaces as a yellow circle (🟡 in the state
+    # Paused agent state surfaces as a pause glyph (⏸️ in the state
     # column). Working agents would render as 🟢.
-    assert out =~ "🟡"
+    assert out =~ "⏸️"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do
