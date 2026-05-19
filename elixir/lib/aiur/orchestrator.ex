@@ -2022,14 +2022,40 @@ defmodule Aiur.Orchestrator do
         {{:error, :no_running_agent}, state}
 
       running_entry ->
+        enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback)
+    end
+  end
+
+  # Chatting with a paused agent auto-resumes it — but only if a slot is
+  # free. Routing through `resume_paused_issue/2` reuses the same
+  # active-cap and per-state slot gates as the explicit space-key resume,
+  # so we can't push active over max no matter which entry point the
+  # operator uses. If no slot is free, the cap error propagates and the
+  # conversation pane surfaces it.
+  defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback) do
+    if paused_running_entry?(running_entry) do
+      enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback)
+    else
+      do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, delivery_policy, fallback)
+    end
+  end
+
+  defp enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback) do
+    case resume_paused_issue(state, running_entry) do
+      {{:ok, :resumed}, next_state} ->
+        resumed_entry = find_running_by_identifier(next_state.running, issue_identifier)
+
         do_enqueue_running_operator_message(
-          state,
-          running_entry,
+          next_state,
+          resumed_entry,
           issue_identifier,
           text,
           delivery_policy,
           fallback
         )
+
+      {{:error, _reason} = error, next_state} ->
+        {error, next_state}
     end
   end
 

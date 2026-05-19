@@ -247,12 +247,21 @@ defmodule AiurPane.Conversation do
         {:noreply, new_state}
 
       {:error, reason} ->
-        system = AgentEvents.transcript_event(:system, "send failed: #{inspect(reason)}")
+        system = AgentEvents.transcript_event(:system, send_error_message(reason))
         new_state = %{state | composer: new_composer, transcript: state.transcript ++ [system]}
         render(new_state)
         {:noreply, new_state}
     end
   end
+
+  defp send_error_message(:max_concurrent_agents_reached),
+    do:
+      "Agent is paused and no slots are free — pause another agent or raise the cap (←/→ from the agent list)."
+
+  defp send_error_message(:no_running_agent),
+    do: "Agent is not running — start it from the agent list (space) first."
+
+  defp send_error_message(reason), do: "send failed: #{inspect(reason)}"
 
   defp connect_to_aiur(node) when is_atom(node) do
     case Node.connect(node) do
