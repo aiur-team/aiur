@@ -2220,7 +2220,14 @@ defmodule Aiur.Orchestrator do
          end) do
       {:ok, _request_id} ->
         issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+        previous_status = get_in(running_entry, [:control, :status]) || :working
         state = put_running_control_status(state, issue_id, :working)
+        # Sync-flip happens here so the cap accounting stays consistent.
+        # That means the worker's later `:worker_control_state :working`
+        # confirmation finds previous_status already :working and emits
+        # no transition alert — so emit the unpause alert ourselves now.
+        updated_entry = Map.get(state.running, issue_id, running_entry)
+        maybe_emit_agent_control_alert(previous_status, :working, updated_entry)
         {{:ok, :resumed}, state}
 
       {:error, _reason} = error ->
