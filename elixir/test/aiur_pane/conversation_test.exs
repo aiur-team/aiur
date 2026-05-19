@@ -161,7 +161,8 @@ defmodule AiurPane.ConversationTest do
     send(pid, {:running_changed, []})
 
     assert_receive {:frame, frame}, 500
-    assert visible(frame) =~ "[no agent]"
+    assert visible(frame) =~ " no agent "
+    assert frame =~ "\e[41m\e[37m no agent \e[0m"
 
     state = :sys.get_state(pid)
     assert state.agent_present? == false

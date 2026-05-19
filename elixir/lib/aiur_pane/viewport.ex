@@ -380,32 +380,39 @@ defmodule AiurPane.Viewport do
           base
       end
 
-    truncated = header_text(text, agent_present?, inner_width)
+    {header, header_width} = header_text(text, agent_present?, inner_width)
     # Pad by *visual* width — the emoji counts as 2 terminal cols, so
     # `String.length`-based padding would leave the trailing column
     # blank and break the bottom border on resize.
-    pad_width = max(inner_width - header_visual_width(truncated), 0)
+    pad_width = max(inner_width - header_width, 0)
     pad = String.duplicate(" ", pad_width)
-    [@ansi_bold, @ansi_cyan, truncated, @ansi_reset, pad]
+    [header, pad]
   end
 
   defp header_state_emoji(work_state), do: Aiur.AgentEvents.state_emoji(work_state)
 
-  defp header_text(text, true, inner_width), do: truncate_with_ellipsis(text, inner_width)
+  defp header_text(text, true, inner_width) do
+    truncated = truncate_with_ellipsis(text, inner_width)
+    {[@ansi_bold, @ansi_cyan, truncated, @ansi_reset], header_visual_width(truncated)}
+  end
 
   defp header_text(text, false, inner_width) do
-    marker = "[no agent]"
+    marker = " no agent "
     marker_width = header_visual_width(marker)
 
     if inner_width <= marker_width do
-      truncate_with_ellipsis(marker, inner_width)
+      truncated_marker = truncate_with_ellipsis(marker, inner_width)
+      {[@bg_alert, truncated_marker, @ansi_reset], header_visual_width(truncated_marker)}
     else
       text_width = inner_width - marker_width - 1
       left = truncate_with_ellipsis(text, text_width)
       left_width = header_visual_width(left)
       pad_width = max(inner_width - left_width - marker_width, 0)
 
-      left <> String.duplicate(" ", pad_width) <> marker
+      {
+        [@ansi_bold, @ansi_cyan, left, @ansi_reset, String.duplicate(" ", pad_width), @bg_alert, marker, @ansi_reset],
+        left_width + pad_width + marker_width
+      }
     end
   end
 

@@ -43,11 +43,13 @@ defmodule AiurPane.ViewportTest do
         )
       )
 
-    text = IO.iodata_to_binary(frame) |> visible()
+    raw = IO.iodata_to_binary(frame)
+    text = visible(raw)
     header = text |> String.split("\r\n") |> List.first()
 
     assert header =~ "⚫ MT-11 - Test agent"
-    assert String.ends_with?(header, "[no agent]")
+    assert String.ends_with?(header, " no agent ")
+    assert raw =~ "\e[41m\e[37m no agent \e[0m"
   end
 
   test "renders user and agent events with tag prefixes" do
