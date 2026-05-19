@@ -442,7 +442,39 @@ defmodule Aiur.AgentRunner do
     end
   end
 
+  # Paused state. Wait for an explicit wake signal — a new
+  # `:agent_queue_updated` broadcast from the orchestrator, or a
+  # `:resume_agent` control message — before touching the operator
+  # queue. Eagerly claiming on entry was a foot-gun: when the operator
+  # paused mid-turn, `restore_delivered_queue_items/2` put the in-flight
+  # item back in the queue, and the very next entry to this function
+  # would re-claim and re-resume in a tight loop that no amount of
+  # repeat pause-key presses could escape.
   defp wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+    receive do
+      {:agent_queue_updated, issue_identifier, _item_id} when issue_identifier == issue.identifier ->
+        try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
+      {:agent_queue_updated, issue_identifier, _item_id, _interrupt_requested}
+      when issue_identifier == issue.identifier ->
+        try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
+        send_control_state(codex_update_recipient, issue, :paused)
+        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
+      {:resume_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{request_id}")
+        send_control_state(codex_update_recipient, issue, :working)
+        # An explicit resume drains the operator queue so restored items
+        # land in the same turn instead of being deferred until the next
+        # checkpoint of an initial-prompt turn.
+        claim_and_run_or_continue(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+    end
+  end
+
+  defp try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
     case claim_next_operator_item(orchestrator, issue.identifier) do
       {:ok, item} ->
         Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{item.id}")
@@ -450,24 +482,17 @@ defmodule Aiur.AgentRunner do
         run_operator_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
 
       :empty ->
-        receive do
-          {:agent_queue_updated, issue_identifier, _item_id} when issue_identifier == issue.identifier ->
-            wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+    end
+  end
 
-          {:agent_queue_updated, issue_identifier, _item_id, _interrupt_requested}
-          when issue_identifier == issue.identifier ->
-            wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+  defp claim_and_run_or_continue(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+    case claim_next_operator_item(orchestrator, issue.identifier) do
+      {:ok, item} ->
+        run_operator_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
 
-          {:pause_agent, request_id} when is_integer(request_id) ->
-            Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
-            send_control_state(codex_update_recipient, issue, :paused)
-            wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
-
-          {:resume_agent, request_id} when is_integer(request_id) ->
-            Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{request_id}")
-            send_control_state(codex_update_recipient, issue, :working)
-            :ok
-        end
+      :empty ->
+        :ok
     end
   end
 
