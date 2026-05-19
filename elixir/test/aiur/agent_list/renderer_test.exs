@@ -177,6 +177,28 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "⏸️"
   end
 
+  test "working agents render the same green emoji as the conversation pane header" do
+    # Regression: the agent list used to render the tag color (e.g. 🟡
+    # for `agent:todo`) for an actively working agent, while the
+    # conversation pane header showed 🟢 for the same agent. Both now
+    # route through `Aiur.AgentEvents.state_emoji/1` so an in-progress
+    # agent is green everywhere — independent of the tracker label.
+    summaries = [
+      %{
+        identifier: "MT-WORK",
+        status: :running,
+        alert_count: 0,
+        tag: "agent:todo",
+        work_state: :working
+      }
+    ]
+
+    out = render(base_state(%{summaries: summaries})) |> visible()
+
+    assert out =~ "🟢"
+    refute out =~ "🟡"
+  end
+
   test "renders an age column from runtime_seconds and turn_count" do
     summaries = [
       %{

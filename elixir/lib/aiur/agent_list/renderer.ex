@@ -127,14 +127,11 @@ defmodule Aiur.AgentList.Renderer do
        ]},
       {"State circle",
        [
-         "🟢  agent running, label is agent:in-progress",
-         "🟡  agent running, label is agent:todo (queued for codex)",
-         "⏸️  agent paused (label override)",
-         "🟣  agent running, label is agent:human-review",
-         "🟠  agent running, label is agent:rework",
-         "🔵  agent running, label is agent:merging",
+         "🟢  agent actively working",
+         "⏸️  agent paused by operator",
          "🔴  agent in error state",
-         "⚫  agent:* label present but no Aiur slot allocated yet"
+         "🏁  agent fully finished",
+         "⚫  agent waiting (queued, idle, or label only)"
        ]},
       {"Tips",
        [
@@ -382,46 +379,21 @@ defmodule Aiur.AgentList.Renderer do
 
   # The state column reflects both the workflow tag *and* whether a
   # Aiur agent slot is currently running this ticket:
+  # State emoji is driven by the worker's live `work_state` so the agent
+  # list paints the same status the conversation pane shows in its
+  # header. Both surfaces share `AgentEvents.state_emoji/1`.
   #
-  #   running + agent:todo         → 🟡 yellow
-  #   running + agent:in-progress  → 🟢 green
-  #   running + agent:human-review → 🟣 purple
-  #   running + agent:rework       → 🟠 orange
-  #   running + agent:merging      → 🔵 blue
-  #   running + paused (any tag)   → ⏸️ pause  (override)
-  #   running + error (any tag)    → 🔴 red    (override)
-  #   queued  (any tag, no slot)   → ⚫ grey
-  #
-  # The grey is intentional: a ticket carrying an `agent:*` label
-  # without an active slot reads as "waiting" at a glance.
+  #   running + :working           → 🟢 green   (actively working)
+  #   running + :paused            → ⏸️  pause  (paused by operator)
+  #   running + :error             → 🔴 red     (agent reported error)
+  #   queued  (no slot allocated)  → ⚫ grey
   defp summary_emoji(%{status: :queued}), do: "⚫"
 
   defp summary_emoji(%{status: :running} = summary) do
-    case Map.get(summary, :work_state) do
-      :paused -> "⏸️"
-      "paused" -> "⏸️"
-      :error -> "🔴"
-      _ -> tag_color_emoji(Map.get(summary, :tag))
-    end
+    AgentEvents.state_emoji(Map.get(summary, :work_state))
   end
 
   defp summary_emoji(_), do: "⚫"
-
-  defp tag_color_emoji(nil), do: "⚫"
-  defp tag_color_emoji(""), do: "⚫"
-
-  defp tag_color_emoji(tag) when is_binary(tag) do
-    case String.replace_prefix(tag, "agent:", "") do
-      "todo" -> "🟡"
-      "in-progress" -> "🟢"
-      "human-review" -> "🟣"
-      "rework" -> "🟠"
-      "merging" -> "🔵"
-      _ -> "⚫"
-    end
-  end
-
-  defp tag_color_emoji(_), do: "⚫"
 
   defp emoji_cell(glyph, width) do
     # `glyph` is a single grapheme that renders as 2 terminal columns.

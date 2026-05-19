@@ -137,6 +137,31 @@ defmodule Aiur.AgentEvents do
     Map.merge(base, Enum.reject(extras, fn {_k, v} -> is_nil(v) end) |> Map.new())
   end
 
+  @doc """
+  Canonical emoji for a worker's `work_state`. Shared by every
+  surface that paints agent status — the agent-list pane, the
+  conversation pane header, and (in future) the web dashboard. If a
+  surface needs a different glyph for the same state it should still
+  branch off this function so a state-rename is a one-line change.
+
+  Mapping:
+    * `:working` — `🟢` actively working
+    * `:paused`  — `⏸️` paused by the operator
+    * `:error`   — `🔴` agent reported an error
+    * `:done`    — `🏁` agent has fully finished
+    * anything else (queued, idle, unknown) — `⚫` no live work state
+  """
+  @spec state_emoji(atom() | String.t() | nil) :: String.t()
+  def state_emoji(:working), do: "🟢"
+  def state_emoji("working"), do: "🟢"
+  def state_emoji(:paused), do: "⏸️"
+  def state_emoji("paused"), do: "⏸️"
+  def state_emoji(:error), do: "🔴"
+  def state_emoji("error"), do: "🔴"
+  def state_emoji(:done), do: "🏁"
+  def state_emoji("done"), do: "🏁"
+  def state_emoji(_), do: "⚫"
+
   @spec agent_topic(agent_identifier()) :: String.t()
   def agent_topic(identifier) when is_binary(identifier), do: "agent:" <> identifier
 

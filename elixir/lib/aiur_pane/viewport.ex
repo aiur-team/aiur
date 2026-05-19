@@ -385,12 +385,7 @@ defmodule AiurPane.Viewport do
     [@ansi_bold, @ansi_cyan, truncated, @ansi_reset, pad]
   end
 
-  defp header_state_emoji(:working), do: "🟢"
-  defp header_state_emoji("working"), do: "🟢"
-  defp header_state_emoji(:paused), do: "🟡"
-  defp header_state_emoji("paused"), do: "🟡"
-  defp header_state_emoji(:error), do: "🔴"
-  defp header_state_emoji(_), do: "⚫"
+  defp header_state_emoji(work_state), do: Aiur.AgentEvents.state_emoji(work_state)
 
   # Hard-truncate to fit the row, appending an ellipsis when content
   # is cut. Counts an emoji as 2 visible columns so the truncation
