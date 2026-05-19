@@ -1512,8 +1512,13 @@ defmodule Aiur.Orchestrator do
     }
   end
 
+  # Paused agents keep their slot reserved: a deliberate pause should not
+  # free capacity for the polling loop to auto-claim the next agent:todo
+  # ticket. Resuming a paused agent reuses the held slot via
+  # `resume_paused_issue/2`, which bypasses this check.
   defp available_slots(%State{} = state) do
-    max(max_concurrent_agent_limit(state) - active_running_count(state.running), 0)
+    used = active_running_count(state.running) + paused_running_count(state.running)
+    max(max_concurrent_agent_limit(state) - used, 0)
   end
 
   @spec request_refresh() :: map() | :unavailable
@@ -2140,7 +2145,10 @@ defmodule Aiur.Orchestrator do
 
   defp resume_paused_issue(%State{} = state, running_entry) do
     cond do
-      available_slots(state) <= 0 ->
+      # The paused agent already holds a slot, so the limit only blocks
+      # resume if the *active* count is already at the cap (which can
+      # happen if `max` was lowered while the agent was paused).
+      active_running_count(state.running) >= max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 
       not state_slots_available?(Map.get(running_entry, :issue), state.running) ->

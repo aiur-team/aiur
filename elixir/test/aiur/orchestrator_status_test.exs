@@ -151,6 +151,32 @@ defmodule Aiur.OrchestratorStatusTest do
     assert %{active: 2, paused: 0, max: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
+  test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
+    orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    # max=1, no active, 1 paused: the paused agent already owns the slot,
+    # so resume should succeed even though `available_slots` is 0.
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+          }
+      }
+    end)
+
+    assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
+    assert_receive {:resume_agent, request_id} when is_integer(request_id), 500
+    assert %{active: 1, paused: 0, max: 1} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
   test "resuming a paused ssh agent is blocked when its worker host is full" do
     write_workflow_file!(Workflow.workflow_file_path(),
       worker_ssh_hosts: ["worker-a", "worker-b"],

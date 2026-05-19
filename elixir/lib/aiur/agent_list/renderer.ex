@@ -122,7 +122,6 @@ defmodule Aiur.AgentList.Renderer do
          "↓ / j        select next",
          "enter        open conversation for selected agent",
          "space        pause/resume selected agent",
-         "left/right   decrease/increase focused active-agent max",
          "?            toggle this help screen",
          "q            quit the agent list"
        ]},
@@ -301,7 +300,7 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp footer_row(inner_width) do
-    text = "  ↑/↓ select   enter open   space pause/resume   ←/→ max   ? help   q quit"
+    text = "  ↑/↓ select   enter open   space pause/resume   ? help   q quit"
     pad_with_ansi(@ansi_dim, text, inner_width)
   end
 
