@@ -80,6 +80,25 @@ defmodule Aiur.AgentEventsTest do
     end
   end
 
+  describe "state_emoji/1" do
+    test "maps every known work_state (atom + string) to its canonical glyph" do
+      assert AgentEvents.state_emoji(:working) == "🟢"
+      assert AgentEvents.state_emoji("working") == "🟢"
+      assert AgentEvents.state_emoji(:paused) == "⏸️"
+      assert AgentEvents.state_emoji("paused") == "⏸️"
+      assert AgentEvents.state_emoji(:error) == "🔴"
+      assert AgentEvents.state_emoji("error") == "🔴"
+      assert AgentEvents.state_emoji(:done) == "🏁"
+      assert AgentEvents.state_emoji("done") == "🏁"
+    end
+
+    test "falls back to ⚫ for unknown / nil / queued-style values" do
+      assert AgentEvents.state_emoji(nil) == "⚫"
+      assert AgentEvents.state_emoji(:idle) == "⚫"
+      assert AgentEvents.state_emoji("unknown") == "⚫"
+    end
+  end
+
   describe "agent_summary/4" do
     test "merges extras and filters nil values" do
       summary =
