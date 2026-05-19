@@ -173,7 +173,10 @@ defmodule Aiur.AgentList.App do
     # the keybind is global so the operator does not have to navigate to
     # the max chip first. Focus-gating silently swallowed the keypress
     # and made the cap feel un-editable from the agent list.
-    state = handle_max_adjust_result(state, Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta))
+    Logger.info("[user-action] adjust_max delta=#{delta} source=agent_list")
+    result = Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta)
+    Logger.info("[user-action] adjust_max result=#{inspect(result)}")
+    state = handle_max_adjust_result(state, result)
     render(state)
     {:noreply, state}
   end
