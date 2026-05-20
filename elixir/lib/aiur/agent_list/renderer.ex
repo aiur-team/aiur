@@ -23,6 +23,11 @@ defmodule Aiur.AgentList.Renderer do
   @min_age_width 4
   @min_title_width 6
 
+  # Width of the gap between the ID and AGE columns. Wide enough to
+  # center the open-pane glyph (`<space><glyph><space>`) so it doesn't
+  # crowd either neighbouring column.
+  @id_age_gap_width 3
+
   # Single-grapheme circle that sits in the gap between the ID and AGE
   # columns to signal that an agent has an open conversation pane.
   # Picked from Geometric Shapes (U+25CF) so monospace fonts render it
@@ -336,7 +341,7 @@ defmodule Aiur.AgentList.Renderer do
     body = [
       "│   ",
       cell("ID", layout.id_width),
-      "  ",
+      String.duplicate(" ", @id_age_gap_width),
       cell("AGE", layout.age_width),
       "  ",
       cell("", @state_cell_width),
@@ -348,7 +353,8 @@ defmodule Aiur.AgentList.Renderer do
 
   defp table_separator_row(inner_width, layout) do
     width =
-      layout.id_width + 2 + layout.age_width + 2 + @state_cell_width + layout.title_width
+      layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
+        layout.title_width
 
     body = "│   " <> String.duplicate("─", max(min(width, inner_width - 4), 0))
     pad_with_ansi(@ansi_gray, body, inner_width)
@@ -410,22 +416,23 @@ defmodule Aiur.AgentList.Renderer do
     ]
 
     plain_visual =
-      4 + 2 + layout.id_width + 2 + layout.age_width + 2 + @state_cell_width +
+      4 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
         layout.title_width
 
     pad = String.duplicate(" ", max(inner_width - plain_visual, 0))
     [body, pad]
   end
 
-  # 2-cell separator between ID and AGE columns. Renders as `" ●"` when
-  # the identifier has an open pane, `"  "` otherwise — keeps the column
-  # width stable so the AGE column never shifts. Wrapped in green ANSI
-  # when active so the dot stands out from the surrounding dim text.
+  # 3-cell separator between ID and AGE columns. Renders as `" ● "` when
+  # the identifier has an open pane (glyph centered in the gap), `"   "`
+  # otherwise — keeps the column width stable so the AGE column never
+  # shifts. Glyph is plain (terminal-default white) so it pops against
+  # the surrounding dim text without re-using the green status palette.
   defp open_pane_marker(id_str, open_pane_ids) do
     if MapSet.member?(open_pane_ids, id_str) do
-      [" ", IO.ANSI.green(), @open_pane_glyph, @ansi_reset]
+      [" ", @open_pane_glyph, " "]
     else
-      "  "
+      String.duplicate(" ", @id_age_gap_width)
     end
   end
 
@@ -488,9 +495,9 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_id_width)
 
-    # `│ ` (2) + marker (2) + id + `  ` (2) + age + `  ` (2) + state +
+    # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) + state +
     # title
-    fixed_non_id_overhead = 2 + 2 + 2 + age_width + 2 + @state_cell_width
+    fixed_non_id_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width
 
     # Cap id so the row never bleeds past `inner_width` — title still
     # gets at least @min_title_width regardless of identifier length.
