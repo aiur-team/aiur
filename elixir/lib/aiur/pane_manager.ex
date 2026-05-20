@@ -1,30 +1,49 @@
 defmodule Aiur.PaneManager do
   @moduledoc """
-  Owns the mapping from `agent_identifier` to its tmux pane id and
-  drives the conversation-pane cycle around the persistent agent-list
-  pane.
+  Owns the mapping from `agent_identifier` to its tmux pane id and drives
+  the conversation-pane grid around the persistent agent-list pane.
 
-  With `max_vertical_panes: 3`, tickets 1-5 each open a fresh slot and
-  tickets 6+ cycle:
+  ## Layout model
+
+  Every open / respawn / close routes through `Aiur.PaneManager.Layout`,
+  which produces an explicit `tmux select-layout <string>` for the
+  current window dimensions and slot occupancy. This sidesteps tmux's
+  default auto-layout behaviour (and any `after-split-window` hooks) so
+  the operator sees a deterministic grid regardless of which pane tmux
+  happened to split from.
+
+  With `max_vertical_panes: 3`, the fully-populated grid is:
 
       +----------+----------+----------+
       | agent    | slot 1   | slot 2   |
-      | list     | (top mid)| (top R)  |
+      | list     |          |          |
       +----------+----------+----------+
       | slot 3   | slot 4   | slot 5   |
-      | (bot L)  | (bot mid)| (bot R)  |
       +----------+----------+----------+
 
-  Each slot has a deterministic split recipe anchored to either the
-  agent-list pane or a previously-created slot pane. When the cycle
-  pointer lands on a slot whose pane is alive, the running command is
-  replaced via `respawn-pane`; when the slot's pane is gone (closed,
-  crashed, or never created), the slot is recreated via the split
-  recipe, falling back to a broader anchor when the primary anchor
-  pane is also missing.
+  Empty slots collapse: row siblings expand evenly to fill the freed
+  width. An entirely empty bottom row makes the top row span full height.
 
-  Consumes tmux notifications via `Aiur.Tmux.subscribe_events/1`
-  and treats `%pane-died` (and, when distribution is in play, `:nodedown`)
+  ## Slot cycling
+
+  `cycle_index` advances by 1 after every successful open. When the
+  pointer lands on a slot whose pane is alive, the running command is
+  replaced via `respawn-pane` and the pane id is preserved. When the
+  pointer lands on an empty slot, a fresh pane is created via
+  `split-window` (anchored to the agent-list pane — position is set by
+  the layout string we apply right after).
+
+  ## Anchor pane
+
+  `agent_list_pane` is resolved at init time from
+  `Aiur.Tmux.resolve_self_pane/1` (which validates `$TMUX_PANE` against
+  the tmux server). If resolution fails, `init/1` refuses to start with
+  `{:stop, :no_agent_list_pane}` rather than silently falling through to
+  a broken anchor — that silent fallback was the root cause of the
+  regression issue #34 tracks.
+
+  Consumes tmux notifications via `Aiur.Tmux.subscribe_events/1` and
+  treats `%pane-died` (and, when distribution is in play, `:nodedown`)
   as authoritative pane-closed signals.
   """
 
@@ -32,6 +51,7 @@ defmodule Aiur.PaneManager do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, Tmux}
+  alias Aiur.PaneManager.Layout
 
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
@@ -44,6 +64,7 @@ defmodule Aiur.PaneManager do
             max_vertical_panes: 3,
             slot_count: 5,
             agent_list_pane: nil,
+            window_target: nil,
             tmux: nil
 
   # Public API ----------------------------------------------------------------
@@ -75,36 +96,47 @@ defmodule Aiur.PaneManager do
   @impl true
   def init(opts) do
     tmux = Keyword.get(opts, :tmux, Tmux)
-    agent_list_pane = Keyword.get(opts, :agent_list_pane, System.get_env("TMUX_PANE"))
     max_vertical_panes = Keyword.get(opts, :max_vertical_panes, Aiur.Config.max_vertical_panes())
     slot_count = slot_count(max_vertical_panes)
 
-    Logger.info("PaneManager init agent_list_pane=#{inspect(agent_list_pane)} max_vertical_panes=#{max_vertical_panes} slot_count=#{slot_count}")
+    with {:ok, agent_list_pane} <- resolve_agent_list_pane(opts, tmux),
+         {:ok, window_target} <- resolve_window_target(opts, tmux, agent_list_pane) do
+      Logger.info(
+        "PaneManager init agent_list_pane=#{agent_list_pane} window=#{window_target} " <>
+          "max_vertical_panes=#{max_vertical_panes} slot_count=#{slot_count}"
+      )
 
-    case Tmux.subscribe_events(tmux) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
+      case Tmux.subscribe_events(tmux) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
+      end
+
+      :net_kernel.monitor_nodes(true, node_type: :hidden)
+
+      {:ok,
+       %__MODULE__{
+         tmux: tmux,
+         agent_list_pane: agent_list_pane,
+         window_target: window_target,
+         max_vertical_panes: max_vertical_panes,
+         slot_count: slot_count,
+         slot_panes: empty_slot_panes(slot_count)
+       }}
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "PaneManager: cannot resolve agent-list pane (#{inspect(reason)}). " <>
+            "Aiur must run inside a tmux pane started by scripts/aiur. Refusing to start."
+        )
+
+        {:stop, :no_agent_list_pane}
     end
-
-    :net_kernel.monitor_nodes(true, node_type: :hidden)
-
-    {:ok,
-     %__MODULE__{
-       tmux: tmux,
-       agent_list_pane: agent_list_pane,
-       max_vertical_panes: max_vertical_panes,
-       slot_count: slot_count,
-       slot_panes: empty_slot_panes(slot_count)
-     }}
   end
 
   @impl true
   def handle_call({:open, identifier, command_to_run}, _from, state) do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, existing_pane} ->
-        # Identifier already mapped to a live (cached) pane. Verify
-        # the pane still exists; if it's been killed externally, fall
-        # through to allocating a fresh slot.
         case Tmux.command(state.tmux, "select-pane -t #{existing_pane}") do
           {:ok, _} ->
             {:reply, {:ok, existing_pane}, state}
@@ -123,7 +155,9 @@ defmodule Aiur.PaneManager do
       {:ok, pane_id} ->
         Logger.info("[user-action] close_conversation identifier=#{identifier} pane_id=#{pane_id}")
         _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
-        {:reply, :ok, forget_pane_by_identifier(state, pane_id)}
+        new_state = forget_pane_by_identifier(state, pane_id)
+        _ = apply_layout(new_state)
+        {:reply, :ok, new_state}
 
       :error ->
         {:reply, {:error, :not_open}, state}
@@ -143,6 +177,35 @@ defmodule Aiur.PaneManager do
   def handle_info({:tmux_event, _event}, state), do: {:noreply, state}
   def handle_info(_other, state), do: {:noreply, state}
 
+  # Anchor / window discovery ------------------------------------------------
+
+  defp resolve_agent_list_pane(opts, tmux) do
+    cond do
+      pane = Keyword.get(opts, :agent_list_pane) ->
+        {:ok, pane}
+
+      pane = env_pane() ->
+        {:ok, pane}
+
+      true ->
+        Tmux.resolve_self_pane(tmux)
+    end
+  end
+
+  defp env_pane do
+    case System.get_env("TMUX_PANE") do
+      pane when is_binary(pane) and pane != "" -> pane
+      _ -> nil
+    end
+  end
+
+  defp resolve_window_target(opts, tmux, agent_list_pane) do
+    case Keyword.get(opts, :window_target) do
+      target when is_binary(target) and target != "" -> {:ok, target}
+      _ -> Tmux.window_for(tmux, agent_list_pane)
+    end
+  end
+
   # Slot allocation ----------------------------------------------------------
 
   defp do_open(state, identifier, command_to_run) do
@@ -152,6 +215,7 @@ defmodule Aiur.PaneManager do
     case open_in_slot(state, slot, identifier, wrapped) do
       {:ok, pane_id, new_state} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+        _ = apply_layout(new_state)
         {:reply, {:ok, pane_id}, advance_cycle(new_state)}
 
       {:error, reason} ->
@@ -166,7 +230,10 @@ defmodule Aiur.PaneManager do
   end
 
   defp open_in_slot(state, slot, identifier, wrapped) do
-    Logger.info("PaneManager opening identifier=#{identifier} into slot=#{slot} agent_list_pane=#{inspect(state.agent_list_pane)}")
+    Logger.info(
+      "PaneManager opening identifier=#{identifier} into slot=#{slot} " <>
+        "agent_list_pane=#{state.agent_list_pane}"
+    )
 
     case Map.get(state.slot_panes, slot) do
       nil ->
@@ -188,14 +255,17 @@ defmodule Aiur.PaneManager do
         {:ok, existing_pane, new_state}
 
       {:error, _} ->
-        # The cached pane id is stale (tmux killed it under us). Forget
-        # the dead pane and create a fresh one in this slot.
+        # Cached pane id is stale (tmux killed it under us). Forget it
+        # and create a fresh pane in this slot.
         create_pane_for_slot(forget_dead_slot(state, slot), slot, identifier, wrapped)
     end
   end
 
   defp create_pane_for_slot(state, slot, identifier, wrapped) do
-    case try_split_chain(state, slot_anchor_chain(state, slot), wrapped) do
+    # Split anchor is always the agent-list pane. Position is irrelevant
+    # — the layout string applied after the open will reposition every
+    # pane in the window. Direction and percent are arbitrary defaults.
+    case Tmux.split_pane(state.tmux, state.agent_list_pane, :horizontal, 50, wrapped) do
       {:ok, pane_id} ->
         new_state = record_slot_pane(state, slot, pane_id, identifier)
         {:ok, pane_id, new_state}
@@ -205,60 +275,29 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  defp try_split_chain(_state, [], _wrapped), do: {:error, :no_live_anchor}
+  # Layout application -------------------------------------------------------
 
-  defp try_split_chain(state, [{anchor, direction, percent} | rest], wrapped) do
-    case anchor_pane_id(state, anchor) do
-      nil ->
-        try_split_chain(state, rest, wrapped)
-
-      target_pane ->
-        case Tmux.split_pane(state.tmux, target_pane, direction, percent, wrapped) do
-          {:ok, new_id} -> {:ok, new_id}
-          {:error, _} -> try_split_chain(state, rest, wrapped)
-        end
+  defp apply_layout(state) do
+    with {:ok, {w, h}} <- Tmux.window_size(state.tmux, state.agent_list_pane),
+         layout_string =
+           Layout.build(
+             w,
+             h,
+             state.max_vertical_panes,
+             state.agent_list_pane,
+             slot_panes_list(state)
+           ),
+         :ok <- Tmux.select_layout(state.tmux, state.window_target, layout_string) do
+      :ok
+    else
+      {:error, reason} = err ->
+        Logger.warning("PaneManager: layout apply failed: #{inspect(reason)}")
+        err
     end
   end
 
-  defp anchor_pane_id(state, :agent_list), do: state.agent_list_pane
-
-  defp anchor_pane_id(state, slot) when is_integer(slot), do: Map.get(state.slot_panes, slot)
-
-  # Generated recipe table. Top-row slots are created left-to-right by
-  # repeatedly splitting the right-side pane horizontally. Bottom-row
-  # slots are created by splitting the top pane in the same column
-  # vertically; if that pane is gone, the chain walks left until the
-  # agent-list pane, which should be the last always-live anchor.
-  defp slot_anchor_chain(%__MODULE__{max_vertical_panes: 1}, 1), do: [{:agent_list, :vertical, 50}]
-
-  defp slot_anchor_chain(%__MODULE__{max_vertical_panes: columns}, slot)
-       when slot < columns do
-    previous_top_slots =
-      descending_slots(slot - 1)
-      |> Enum.map(fn anchor_slot ->
-        {anchor_slot, :horizontal, horizontal_split_percent(columns, anchor_slot + 1)}
-      end)
-
-    previous_top_slots ++ [{:agent_list, :horizontal, horizontal_split_percent(columns, 1)}]
-  end
-
-  defp slot_anchor_chain(%__MODULE__{max_vertical_panes: columns}, slot) do
-    column = slot - columns + 1
-
-    top_slot_fallbacks =
-      descending_slots(column - 1)
-      |> Enum.map(fn anchor_slot -> {anchor_slot, :vertical, 50} end)
-
-    top_slot_fallbacks ++ [{:agent_list, :vertical, 50}]
-  end
-
-  defp descending_slots(last_slot) when last_slot < 1, do: []
-  defp descending_slots(last_slot), do: last_slot..1//-1
-
-  defp horizontal_split_percent(columns, top_slot) do
-    remaining_columns = columns - top_slot
-
-    round(remaining_columns * 100 / (remaining_columns + 1))
+  defp slot_panes_list(%__MODULE__{} = state) do
+    for slot <- 1..state.slot_count, do: Map.get(state.slot_panes, slot)
   end
 
   defp slot_count(max_vertical_panes), do: max_vertical_panes * 2 - 1
@@ -324,12 +363,16 @@ defmodule Aiur.PaneManager do
     case Map.fetch(state.pane_to_identifier, pane_id) do
       {:ok, identifier} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_closed)
-        forget_pane_by_identifier(state, pane_id)
+        new_state = forget_pane_by_identifier(state, pane_id)
+        _ = apply_layout(new_state)
+        new_state
 
       :error ->
         # Unknown pane (could be the agent-list pane itself, or a
         # transient probe). Still clear any stale slot mapping.
-        forget_pane_by_identifier(state, pane_id)
+        new_state = forget_pane_by_identifier(state, pane_id)
+        _ = apply_layout(new_state)
+        new_state
     end
   end
 
