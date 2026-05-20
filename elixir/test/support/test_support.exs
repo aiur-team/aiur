@@ -138,6 +138,11 @@ defmodule Aiur.TestSupport do
           observability_render_interval_ms: 16,
           server_port: nil,
           server_host: nil,
+          opencode_command: "opencode",
+          opencode_bridge_port: 4097,
+          opencode_bridge_host: "127.0.0.1",
+          opencode_serve_args: [],
+          opencode_model_prefix: "aiur",
           prompt: @workflow_prompt
         ],
         overrides
@@ -169,6 +174,11 @@ defmodule Aiur.TestSupport do
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
+    opencode_command = Keyword.get(config, :opencode_command)
+    opencode_bridge_port = Keyword.get(config, :opencode_bridge_port)
+    opencode_bridge_host = Keyword.get(config, :opencode_bridge_host)
+    opencode_serve_args = Keyword.get(config, :opencode_serve_args)
+    opencode_model_prefix = Keyword.get(config, :opencode_model_prefix)
     prompt = Keyword.get(config, :prompt)
 
     config =
@@ -211,6 +221,7 @@ defmodule Aiur.TestSupport do
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
+        opencode_yaml(opencode_command, opencode_bridge_port, opencode_bridge_host, opencode_serve_args, opencode_model_prefix),
         "---",
         prompt
       ]
@@ -251,6 +262,18 @@ defmodule Aiur.TestSupport do
   defp tracker_backend_yaml("memory", _config), do: "memory: {}"
   defp tracker_backend_yaml(nil, _config), do: nil
   defp tracker_backend_yaml(_kind, _config), do: nil
+
+  defp opencode_yaml(command, bridge_port, bridge_host, serve_args, model_prefix) do
+    [
+      "opencode:",
+      "  command: #{yaml_value(command)}",
+      "  bridge_port: #{yaml_value(bridge_port)}",
+      "  bridge_host: #{yaml_value(bridge_host)}",
+      "  serve_args: #{yaml_value(serve_args)}",
+      "  model_prefix: #{yaml_value(model_prefix)}"
+    ]
+    |> Enum.join("\n")
+  end
 
   defp agent_backend_yaml("codex", config) do
     command = Keyword.get(config, :command)
