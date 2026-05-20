@@ -17,8 +17,6 @@ defmodule Aiur.Tmux do
   use GenServer
   require Logger
 
-  alias Aiur.AgentEvents
-
   @default_session_env "AIUR_TMUX_SESSION"
   @default_session_fallback "aiur"
 
@@ -44,16 +42,6 @@ defmodule Aiur.Tmux do
     GenServer.call(server, {:subscribe, self()})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
-  end
-
-  @spec spawn_pane_for(GenServer.server(), AgentEvents.agent_identifier(), String.t()) ::
-          {:ok, String.t()} | {:error, term()}
-  def spawn_pane_for(server \\ __MODULE__, identifier, command_to_run)
-      when is_binary(identifier) and is_binary(command_to_run) do
-    GenServer.call(server, {:spawn_pane, identifier, command_to_run}, 10_000)
-  catch
-    :exit, {:noproc, _} -> {:error, :no_tmux}
-    :exit, {:timeout, _} -> {:error, :timeout}
   end
 
   @doc """
@@ -90,6 +78,68 @@ defmodule Aiur.Tmux do
   @spec session(GenServer.server()) :: String.t()
   def session(server \\ __MODULE__), do: GenServer.call(server, :session)
 
+  @doc """
+  Resolve the pane id of the BEAM's own tmux pane via `tmux
+  display-message`, validating that `$TMUX_PANE` (set by tmux when it
+  launched the pane's shell) points to a live pane on the configured
+  server. Returns `{:ok, pane_id}` or `{:error, reason}`.
+
+  Used by `Aiur.PaneManager` at startup to anchor the conversation
+  layout. Refusing to start when this fails is preferable to silently
+  losing the anchor and watching every conversation pane fall back to
+  the legacy "split rightmost" path — that mode was the root cause of
+  the regression issue #34 tracks.
+  """
+  @spec resolve_self_pane(GenServer.server()) :: {:ok, String.t()} | {:error, term()}
+  def resolve_self_pane(server \\ __MODULE__) do
+    GenServer.call(server, :resolve_self_pane, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Apply a tmux layout string to the named window. The string is the
+  same format as `tmux list-windows -F '\#{window_layout}'` returns,
+  including the 4-char hex checksum prefix.
+  """
+  @spec select_layout(GenServer.server(), String.t(), String.t()) ::
+          :ok | {:error, term()}
+  def select_layout(server \\ __MODULE__, window_target, layout_string)
+      when is_binary(window_target) and is_binary(layout_string) do
+    GenServer.call(server, {:select_layout, window_target, layout_string}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Return the pixel-cell dimensions of the window containing `pane_id`,
+  as `{:ok, {width, height}}`. Used by the layout-string builder.
+  """
+  @spec window_size(GenServer.server(), String.t()) ::
+          {:ok, {pos_integer(), pos_integer()}} | {:error, term()}
+  def window_size(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:window_size, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Return the tmux window target (`session:window-index`) containing
+  `pane_id`. The window-id format is stable across pane rearrangements,
+  so the result is safe to cache.
+  """
+  @spec window_for(GenServer.server(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def window_for(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:window_for, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   # GenServer callbacks -------------------------------------------------------
 
   @impl true
@@ -109,26 +159,6 @@ defmodule Aiur.Tmux do
   @impl true
   def handle_call({:command, cmd}, _from, state) do
     {:reply, run_command(state, cmd), state}
-  end
-
-  def handle_call({:spawn_pane, identifier, command_to_run}, _from, state) do
-    target = "#{state.session}:.{right}"
-
-    args = ["split-window", "-t", target, "-h", "-P", "-F", "\#{pane_id}", command_to_run]
-
-    case run_args(state, args) do
-      {:ok, [pane_id | _]} ->
-        new_id = String.trim(pane_id)
-        _ = run_args(state, ["select-pane", "-t", new_id])
-        {:reply, {:ok, new_id}, state}
-
-      {:ok, []} ->
-        {:reply, {:error, :no_pane_id}, state}
-
-      {:error, _} = err ->
-        Logger.warning("Tmux split-window for #{identifier} failed: #{inspect(err)}")
-        {:reply, err, state}
-    end
   end
 
   def handle_call({:split_pane, target_pane, direction, percent, command_to_run}, _from, state) do
@@ -159,6 +189,77 @@ defmodule Aiur.Tmux do
       {:error, _} = err ->
         Logger.warning("Tmux split-window failed for target=#{target_pane}: #{inspect(err)}")
         {:reply, err, state}
+    end
+  end
+
+  def handle_call(:resolve_self_pane, _from, state) do
+    env_pane = System.get_env("TMUX_PANE")
+
+    reply =
+      if is_binary(env_pane) and env_pane != "" do
+        case run_args(state, ["display-message", "-p", "-t", env_pane, "\#{pane_id}"]) do
+          {:ok, [id | _]} ->
+            {:ok, String.trim(id)}
+
+          {:ok, []} ->
+            {:error, :no_pane_id}
+
+          {:error, _} = err ->
+            err
+        end
+      else
+        {:error, :no_tmux_pane_env}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:select_layout, window_target, layout_string}, _from, state) do
+    args = ["select-layout", "-t", window_target, layout_string]
+
+    case run_args(state, args) do
+      {:ok, _} ->
+        {:reply, :ok, state}
+
+      {:error, _} = err ->
+        Logger.warning("Tmux select-layout failed for window=#{window_target}: #{inspect(err)}")
+        {:reply, err, state}
+    end
+  end
+
+  def handle_call({:window_size, pane_id}, _from, state) do
+    case run_args(state, [
+           "display-message",
+           "-p",
+           "-t",
+           pane_id,
+           "\#{window_width}x\#{window_height}"
+         ]) do
+      {:ok, [dims | _]} ->
+        case parse_dims(dims) do
+          {:ok, _} = ok -> {:reply, ok, state}
+          err -> {:reply, err, state}
+        end
+
+      {:ok, []} ->
+        {:reply, {:error, :no_dims}, state}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
+  def handle_call({:window_for, pane_id}, _from, state) do
+    case run_args(state, [
+           "display-message",
+           "-p",
+           "-t",
+           pane_id,
+           "\#{session_name}:\#{window_index}"
+         ]) do
+      {:ok, [target | _]} -> {:reply, {:ok, String.trim(target)}, state}
+      {:ok, []} -> {:reply, {:error, :no_window}, state}
+      {:error, _} = err -> {:reply, err, state}
     end
   end
 
@@ -236,6 +337,22 @@ defmodule Aiur.Tmux do
     case System.get_env("AIUR_TMUX_SOCKET") do
       socket when is_binary(socket) and socket != "" -> ["-L", socket | args]
       _ -> args
+    end
+  end
+
+  defp parse_dims(text) do
+    case String.split(String.trim(text), "x", parts: 2) do
+      [w_str, h_str] ->
+        with {w, ""} <- Integer.parse(w_str),
+             {h, ""} <- Integer.parse(h_str),
+             true <- w > 0 and h > 0 do
+          {:ok, {w, h}}
+        else
+          _ -> {:error, {:bad_dims, text}}
+        end
+
+      _ ->
+        {:error, {:bad_dims, text}}
     end
   end
 
