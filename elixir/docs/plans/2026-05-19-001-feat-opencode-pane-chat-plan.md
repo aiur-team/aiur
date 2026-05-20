@@ -1,7 +1,7 @@
 ---
 title: feat: Replace conversation pane with opencode chat surface
 type: feat
-status: active
+status: completed
 date: 2026-05-19
 origin: elixir/docs/opencode-pane-brainstorm.md
 revised: 2026-05-20

@@ -1,5 +1,8 @@
 # opencode Pane Brainstorm
 
+> Landed: the implementation plan for this brainstorm is
+> `elixir/docs/plans/2026-05-19-001-feat-opencode-pane-chat-plan.md`.
+
 Issue: https://github.com/its-everdred/aiur/issues/60
 Status: research only. No implementation commitment.
 Last expanded: 2026-05-19

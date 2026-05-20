@@ -16,10 +16,10 @@ PRs, and lets you watch and chat with each agent in real time.
    (`Done`, `Closed`, `Cancelled`, `Duplicate`), then cleans up the workspace.
 
 Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets you open
-any agent in its own pane, and send messages directly into a running session. A LiveView
-dashboard at `/` covers the same surface for browser-based operators.
+any agent in an opencode-backed chat pane, and send messages directly into a running
+session. A LiveView dashboard at `/` covers the same surface for browser-based operators.
 
-In the CLI agent list, `Enter` opens the selected agent conversation pane and `Space`
+In the CLI agent list, `Enter` opens the selected agent opencode pane and `Space`
 pauses or resumes execution for the selected agent. Navigate above the first agent row
 to focus the active-agent limit, then use `Left` / `Right` to decrease or increase the
 session-only maximum. The workflow file remains unchanged; restarting Aiur reloads the
@@ -41,6 +41,10 @@ aiur ./WORKFLOW.md
 versions for you. On first run, the `aiur` wrapper fetches Hex dependencies,
 compiles the Elixir app, and builds `bin/aiur`; later runs only rebuild when
 sources change.
+
+Install [opencode](https://opencode.ai) separately for CLI chat panes. Aiur starts
+`opencode serve` lazily per pane and routes its OpenAI-compatible provider calls
+back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`.
 
 ## Workflows
 
