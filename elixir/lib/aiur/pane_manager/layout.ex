@@ -12,11 +12,22 @@ defmodule Aiur.PaneManager.Layout do
 
   Given `max_vertical_panes = columns`:
 
+  In `:horizontal` orientation (the default, suited to wide monitors):
+
     * top row holds `[agent_list, slot 1, slot 2, ..., slot (columns - 1)]`
     * bottom row holds `[slot columns, ..., slot (2*columns - 1)]`
 
-  Empty slots collapse: the row's remaining panes split the row width
-  evenly. An entirely empty bottom row makes the top row span full height.
+  In `:vertical` orientation (rotated 90° for phones / portrait monitors):
+
+    * left column holds `[agent_list, slot 1, ..., slot (columns - 1)]`
+      stacked top-to-bottom
+    * right column holds `[slot columns, ..., slot (2*columns - 1)]`
+      stacked top-to-bottom
+
+  Slot numbering and capacity are identical in both orientations — only
+  the visual axis differs. Empty slots collapse: the row/column's
+  remaining panes split the available extent evenly. An entirely empty
+  secondary group makes the primary group span the full dimension.
 
   ## Format
 
@@ -34,6 +45,8 @@ defmodule Aiur.PaneManager.Layout do
 
   @type pane_id :: String.t()
 
+  @type orientation :: :horizontal | :vertical
+
   @doc """
   Build the layout string for the current window dimensions and slot
   occupancy.
@@ -46,36 +59,53 @@ defmodule Aiur.PaneManager.Layout do
     * `slot_panes` — list of length `2 * columns - 1`; each entry is the
       pane id occupying that slot or `nil` when the slot is empty. Slot
       numbering matches `PaneManager` (1-indexed in docs, 0-indexed here).
+    * `orientation` — `:horizontal` (default) lays the grid out as two
+      rows; `:vertical` rotates it 90° into two columns, suited to
+      portrait monitors and phone clients.
   """
   @spec build(
           pos_integer(),
           pos_integer(),
           pos_integer(),
           pane_id(),
-          [pane_id() | nil]
+          [pane_id() | nil],
+          orientation()
         ) :: String.t()
-  def build(width, height, columns, agent_list_pane, slot_panes)
+  def build(width, height, columns, agent_list_pane, slot_panes, orientation \\ :horizontal)
       when is_integer(width) and width > 0 and is_integer(height) and height > 0 and
              is_integer(columns) and columns > 0 and is_binary(agent_list_pane) and
-             is_list(slot_panes) do
-    top_capacity = columns - 1
-    top_row_panes = [agent_list_pane | Enum.take(slot_panes, top_capacity)]
-    bottom_row_panes = Enum.drop(slot_panes, top_capacity)
+             is_list(slot_panes) and orientation in [:horizontal, :vertical] do
+    primary_capacity = columns - 1
+    primary_panes = [agent_list_pane | Enum.take(slot_panes, primary_capacity)]
+    secondary_panes = Enum.drop(slot_panes, primary_capacity)
 
-    top_alive = Enum.reject(top_row_panes, &is_nil/1)
-    bottom_alive = Enum.reject(bottom_row_panes, &is_nil/1)
+    primary_alive = Enum.reject(primary_panes, &is_nil/1)
+    secondary_alive = Enum.reject(secondary_panes, &is_nil/1)
 
-    body =
-      if bottom_alive == [] do
-        render_row(width, height, 0, 0, top_alive)
-      else
-        {top_h, bottom_h} = split_dim(height)
-        top_row = render_row(width, top_h, 0, 0, top_alive)
-        bottom_row = render_row(width, bottom_h, 0, top_h + 1, bottom_alive)
-        "#{width}x#{height},0,0[#{top_row},#{bottom_row}]"
-      end
-
+    body = render_body(orientation, width, height, primary_alive, secondary_alive)
     "#{checksum_hex(body)},#{body}"
+  end
+
+  defp render_body(:horizontal, width, height, primary_alive, []) do
+    render_row(width, height, 0, 0, primary_alive)
+  end
+
+  defp render_body(:horizontal, width, height, primary_alive, secondary_alive) do
+    {top_h, bottom_h} = split_dim(height)
+    top_row = render_row(width, top_h, 0, 0, primary_alive)
+    bottom_row = render_row(width, bottom_h, 0, top_h + 1, secondary_alive)
+    "#{width}x#{height},0,0[#{top_row},#{bottom_row}]"
+  end
+
+  defp render_body(:vertical, width, height, primary_alive, []) do
+    render_column(width, height, 0, 0, primary_alive)
+  end
+
+  defp render_body(:vertical, width, height, primary_alive, secondary_alive) do
+    {left_w, right_w} = split_dim(width)
+    left_col = render_column(left_w, height, 0, 0, primary_alive)
+    right_col = render_column(right_w, height, left_w + 1, 0, secondary_alive)
+    "#{width}x#{height},0,0{#{left_col},#{right_col}}"
   end
 
   # Single-pane row: leaf cell, no braces.
@@ -85,7 +115,7 @@ defmodule Aiur.PaneManager.Layout do
 
   # Multi-pane row: horizontal arrangement, panes side by side.
   defp render_row(w, h, x, y, panes) do
-    cells = cells_with_widths(panes, w)
+    cells = even_dims(panes, w)
 
     rendered =
       cells
@@ -98,21 +128,41 @@ defmodule Aiur.PaneManager.Layout do
     "#{w}x#{h},#{x},#{y}{#{Enum.join(rendered, ",")}}"
   end
 
-  # tmux's pane-divider math: N panes in width W consume (N - 1) cells of
-  # dividers, leaving (W - N + 1) for the panes themselves. The remainder
-  # after an even split goes to the leftmost / topmost panes (matches
-  # `select-layout even-horizontal`'s rounding).
-  defp cells_with_widths(panes, total_w) do
+  # Single-pane column: leaf cell, no brackets.
+  defp render_column(w, h, x, y, [single]) do
+    "#{w}x#{h},#{x},#{y},#{pane_numeric(single)}"
+  end
+
+  # Multi-pane column: vertical stack, panes top-to-bottom.
+  defp render_column(w, h, x, y, panes) do
+    cells = even_dims(panes, h)
+
+    rendered =
+      cells
+      |> Enum.map_reduce(0, fn {pane, cell_h}, y_offset ->
+        cell = "#{w}x#{cell_h},#{x},#{y + y_offset},#{pane_numeric(pane)}"
+        {cell, y_offset + cell_h + 1}
+      end)
+      |> elem(0)
+
+    "#{w}x#{h},#{x},#{y}[#{Enum.join(rendered, ",")}]"
+  end
+
+  # tmux's pane-divider math: N panes in extent E consume (N - 1) cells
+  # of dividers, leaving (E - N + 1) for the panes themselves. The
+  # remainder after an even split goes to the leftmost / topmost panes
+  # (matches `select-layout even-*`'s rounding).
+  defp even_dims(panes, total) do
     n = length(panes)
-    inner = total_w - (n - 1)
+    inner = total - (n - 1)
     base = div(inner, n)
     remainder = rem(inner, n)
 
     panes
     |> Enum.with_index()
     |> Enum.map(fn {pane, idx} ->
-      width = base + if idx < remainder, do: 1, else: 0
-      {pane, width}
+      dim = base + if idx < remainder, do: 1, else: 0
+      {pane, dim}
     end)
   end
 
