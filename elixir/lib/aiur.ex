@@ -44,11 +44,15 @@ defmodule Aiur.Application do
       [
         {Phoenix.PubSub, name: Aiur.PubSub},
         {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
+        {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
         {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
         {Task.Supervisor, name: Aiur.TaskSupervisor},
         Aiur.WorkflowStore,
         Aiur.Orchestrator,
-        Aiur.HttpServer
+        Aiur.HttpServer,
+        Aiur.Opencode.TokenRegistry,
+        Aiur.Opencode.PaneSupervisor,
+        Aiur.Opencode.BridgeSupervisor
       ] ++ cli_children
 
     Supervisor.start_link(

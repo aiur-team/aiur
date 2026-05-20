@@ -22,7 +22,8 @@ defmodule Aiur.AgentQueue do
         interrupt_requested: interrupt_requested,
         fallback: Keyword.get(opts, :fallback)
       },
-      causal_refs: Keyword.get(opts, :causal_refs, [])
+      causal_refs: Keyword.get(opts, :causal_refs, []),
+      turn_id: Keyword.get(opts, :turn_id)
     }
   end
 

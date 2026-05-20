@@ -51,6 +51,13 @@ defmodule Aiur.AgentPubSub do
     do_broadcast(AgentEvents.status_topic(), {:status_changed, %{identifier: identifier, status: status}})
   end
 
+  @spec broadcast_turn_event(AgentEvents.agent_identifier(), atom(), map()) :: :ok
+  def broadcast_turn_event(identifier, event_tag, payload)
+      when is_binary(identifier) and event_tag in [:turn_completed, :turn_failed, :turn_cancelled, :turn_input_required] and
+             is_map(payload) do
+    do_broadcast(AgentEvents.agent_topic(identifier), {:turn_event, identifier, event_tag, payload})
+  end
+
   defp do_broadcast(topic, message) do
     case Process.whereis(@pubsub) do
       pid when is_pid(pid) ->
