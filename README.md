@@ -1,4 +1,4 @@
-# Aiur
+# AIUR - AI Unit Runtime
 
 Aiur turns project work into isolated, autonomous implementation runs so teams can manage work
 instead of supervising individual coding sessions.
