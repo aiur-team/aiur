@@ -258,6 +258,42 @@ defmodule Aiur.AgentList.RendererTest do
     assert raw =~ ~r/\e\[\d+;1H\e\[J/
   end
 
+  test "footer shows v layout inline when terminal is wide enough" do
+    out = render(base_state(%{columns: 100})) |> visible()
+
+    assert out =~ "v layout"
+    assert out =~ "? help"
+    # All keybinds live on a single row when width allows.
+    assert out =~ ~r/v layout\s+\? help\s+q quit/
+  end
+
+  test "footer wraps v layout to a second row when width is tight" do
+    # 70-col terminal fits the original keybinds but not the version
+    # that also includes "v layout". The primary row keeps the original
+    # keybinds; "v layout" wraps below.
+    out = render(base_state(%{columns: 70})) |> visible()
+    lines = String.split(out, ["\r\n", "\n"])
+
+    primary_index =
+      Enum.find_index(lines, fn line ->
+        line =~ "↑/↓ select" and line =~ "? help"
+      end)
+
+    assert primary_index, "expected primary keybind row to render"
+    secondary = Enum.at(lines, primary_index + 1) || ""
+    assert secondary =~ "v layout"
+    refute Enum.at(lines, primary_index) =~ "v layout"
+  end
+
+  test "help overlay documents the v layout keybind" do
+    out =
+      render(base_state(%{help_visible?: true, columns: 100}))
+      |> visible()
+
+    assert out =~ "v"
+    assert out =~ "toggle pane layout"
+  end
+
   test "reserves the final terminal column to avoid autowrap" do
     long_id = String.duplicate("X", 200)
     summaries = [%{identifier: long_id, status: :running, alert_count: 0}]

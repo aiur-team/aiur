@@ -78,9 +78,9 @@ defmodule Aiur.AgentList.Renderer do
         ),
         bottom_border(inner_width),
         eol(),
-        footer_row(inner_width),
+        footer_iodata(inner_width),
         eol(),
-        clear_remaining(rows, lines_emitted(state))
+        clear_remaining(rows, lines_emitted(state, inner_width))
       ]
     end
   end
@@ -122,6 +122,7 @@ defmodule Aiur.AgentList.Renderer do
          "↓ / j        select next",
          "enter        open conversation for selected agent",
          "space        pause/resume selected agent",
+         "v            toggle pane layout (horizontal ↔ vertical)",
          "?            toggle this help screen",
          "q            quit the agent list"
        ]},
@@ -296,9 +297,29 @@ defmodule Aiur.AgentList.Renderer do
     [pad_with_ansi(@ansi_gray, "╰" <> String.duplicate("─", max(inner_width - 1, 0)), inner_width)]
   end
 
-  defp footer_row(inner_width) do
-    text = "  ↑/↓ select   enter open   space pause/resume   ? help   q quit"
-    pad_with_ansi(@ansi_dim, text, inner_width)
+  # Footer keybinds. `v layout` rides on the primary row when there's
+  # room, otherwise wraps to a second row so we don't truncate the more
+  # frequently used keybinds (select/open/pause/help/quit).
+  defp footer_iodata(inner_width) do
+    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+
+    if visual_width(full) <= inner_width do
+      pad_with_ansi(@ansi_dim, full, inner_width)
+    else
+      primary = "  ↑/↓ select   enter open   space pause/resume   ? help   q quit"
+      secondary = "  v layout"
+
+      [
+        pad_with_ansi(@ansi_dim, primary, inner_width),
+        eol(),
+        pad_with_ansi(@ansi_dim, secondary, inner_width)
+      ]
+    end
+  end
+
+  defp footer_line_count(inner_width) do
+    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+    if visual_width(full) <= inner_width, do: 1, else: 2
   end
 
   # ---------- table ----------------------------------------------------------
@@ -505,13 +526,14 @@ defmodule Aiur.AgentList.Renderer do
   # Approximate count of rows the frame will draw (used for "blank the
   # rest" below the last rendered row so old content doesn't linger
   # when the agent list shrinks). Fixed rows: title, agents, project,
-  # dashboard, separator, table header, table separator, bottom border,
-  # footer = 9. Body rows come straight from state.summaries since
-  # Aiur.AgentList.App now pre-filters the list before passing it in.
-  defp lines_emitted(state) do
+  # dashboard, separator, table header, table separator, bottom border
+  # = 8. Footer is 1 or 2 rows depending on width. Body rows come
+  # straight from state.summaries since `Aiur.AgentList.App` now
+  # pre-filters the list before passing it in.
+  defp lines_emitted(state, inner_width) do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
-    9 + body_rows
+    8 + footer_line_count(inner_width) + body_rows
   end
 
   defp clear_remaining(rows, lines_drawn) do

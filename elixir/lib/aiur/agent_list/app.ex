@@ -93,6 +93,10 @@ defmodule Aiur.AgentList.App do
   @spec toggle_help(GenServer.server()) :: :ok
   def toggle_help(server \\ __MODULE__), do: GenServer.cast(server, :toggle_help)
 
+  @spec toggle_layout_orientation(GenServer.server()) :: :ok
+  def toggle_layout_orientation(server \\ __MODULE__),
+    do: GenServer.cast(server, :toggle_layout_orientation)
+
   @spec snapshot(GenServer.server()) :: state()
   def snapshot(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
@@ -194,6 +198,18 @@ defmodule Aiur.AgentList.App do
     new_state = %{state | help_visible?: not Map.get(state, :help_visible?, false)}
     render(new_state)
     {:noreply, new_state}
+  end
+
+  def handle_cast(:toggle_layout_orientation, state) do
+    case safe_call(fn -> PaneManager.toggle_orientation(state.pane_manager) end) do
+      {:ok, orientation} ->
+        Logger.info("[user-action] toggle_layout orientation=#{orientation} source=agent_list")
+
+      _ ->
+        :ok
+    end
+
+    {:noreply, state}
   end
 
   @impl true
