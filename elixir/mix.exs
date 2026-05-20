@@ -17,7 +17,6 @@ defmodule Aiur.MixProject do
           # implementations. Exempt until real logic lands; tests would
           # only assert constants.
           Aiur.AgentDirectory,
-          Aiur.PaneWarmPool,
           Aiur.Claude.Config,
           Aiur.Codex.Config,
           Aiur.Config,
@@ -64,10 +63,17 @@ defmodule Aiur.MixProject do
           Aiur.IssueLog,
           Aiur.PaneManager,
           Aiur.Tmux,
-          AiurPane.CLI,
-          AiurPane.Composer,
-          AiurPane.Conversation,
-          AiurPane.Viewport
+          Aiur.Opencode.ApiClient,
+          Aiur.Opencode.Bridge,
+          Aiur.Opencode.BridgeSupervisor,
+          Aiur.Opencode.ChatCompletions,
+          Aiur.Opencode.Config,
+          Aiur.Opencode.EventConsumer,
+          Aiur.Opencode.PaneSession,
+          Aiur.Opencode.PaneSupervisor,
+          Aiur.Opencode.Server,
+          Aiur.Opencode.TranscriptRelay,
+          Aiur.Opencode.WorkspaceSetup
         ]
       ],
       test_ignore_filters: [

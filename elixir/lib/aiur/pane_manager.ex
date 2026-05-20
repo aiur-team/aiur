@@ -247,7 +247,7 @@ defmodule Aiur.PaneManager do
   # Slot allocation ----------------------------------------------------------
 
   defp do_open(state, identifier, command_to_run) do
-    wrapped = wrap_with_unique_node(command_to_run, identifier)
+    wrapped = command_for_pane(command_to_run, identifier)
     slot = state.cycle_index + 1
 
     case open_in_slot(state, slot, identifier, wrapped) do
@@ -261,6 +261,19 @@ defmodule Aiur.PaneManager do
 
         {:reply, {:error, reason}, state}
     end
+  end
+
+  defp command_for_pane("__aiur_opencode__ " <> _rest, identifier) do
+    workspace = Path.join(Aiur.Config.workspace_root(), Aiur.Opencode.Config.safe_identifier(identifier))
+
+    case Aiur.Opencode.PaneSession.start(identifier, workspace) do
+      {:ok, %{attach_command: command}} -> command
+      {:error, reason} -> "printf %s #{Aiur.Opencode.Protocol.shell_escape("opencode pane failed: #{inspect(reason)}")}; sleep 15"
+    end
+  end
+
+  defp command_for_pane(command_to_run, identifier) do
+    wrap_with_unique_node(command_to_run, identifier)
   end
 
   defp advance_cycle(%__MODULE__{} = state) do

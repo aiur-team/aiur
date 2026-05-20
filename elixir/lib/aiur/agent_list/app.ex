@@ -9,8 +9,8 @@ defmodule Aiur.AgentList.App do
   `Aiur.AgentList.Renderer`.
 
   On activate (enter), calls
-  `Aiur.PaneManager.open_conversation/3` with the configured
-  command template (typically `bin/aiur conversation <id>`).
+  `Aiur.PaneManager.open_conversation/3` with the configured command
+  template. The default opens an opencode-backed pane session.
 
   Accepts these test seams:
     * `:write_fun` — function called with the rendered iodata (defaults to `IO.write/1`).
@@ -18,7 +18,7 @@ defmodule Aiur.AgentList.App do
     * `:orchestrator` — name of the Orchestrator GenServer.
     * `:subscribe?` — subscribe to agent PubSub topics (defaults to `true`).
     * `:command_template` — string with `~s` placeholder filled by the
-      selected identifier. Defaults to `bin/aiur conversation`.
+      selected identifier. Defaults to the opencode pane sentinel.
   """
 
   use GenServer
@@ -527,13 +527,6 @@ defmodule Aiur.AgentList.App do
   end
 
   defp default_command_template do
-    bin = System.get_env("AIUR_BIN") || "./bin/aiur"
-    mise = System.get_env("AIUR_MISE_BIN")
-
-    if is_binary(mise) and mise != "" do
-      ~s(#{mise} exec -- #{bin} conversation)
-    else
-      "#{bin} conversation"
-    end
+    "__aiur_opencode__"
   end
 end

@@ -1,7 +1,7 @@
 defmodule Aiur.IssueLog do
   @moduledoc """
   Per-issue file writer that captures the same transcript + alert stream
-  the conversation pane shows. One GenServer per active issue; it
+  the opencode pane shows. One GenServer per active issue; it
   subscribes to the agent's PubSub topic on startup and appends every
   event to `<logs-root>/log/<repo>.<issue>.log`.
 

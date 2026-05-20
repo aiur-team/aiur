@@ -1,7 +1,7 @@
 defmodule Aiur.IssueContext do
   @moduledoc """
   Builds a compact, human-readable summary of an issue for the
-  conversation pane's "intro" system message. The pane renders this once
+  opencode pane's "intro" system message. The pane renders this once
   at open time so the operator knows what the agent is working on
   without having to switch to GitHub/Linear.
 
@@ -36,7 +36,7 @@ defmodule Aiur.IssueContext do
 
   @doc """
   Renders a multi-line system message body from a summary. Used by the
-  conversation pane to prepend an intro line to the transcript.
+  opencode pane to prepend an intro line to the transcript.
   """
   @spec to_message(summary()) :: String.t()
   def to_message(%{identifier: identifier} = summary) do

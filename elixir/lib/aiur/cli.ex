@@ -32,9 +32,7 @@ defmodule Aiur.CLI do
           ensure_all_started: (-> ensure_started_result())
         }
 
-  @spec main([String.t()]) :: no_return()
-  def main(["conversation" | rest]), do: AiurPane.CLI.main(rest)
-
+  @spec main([String.t()]) :: :ok | no_return()
   def main(args) do
     case evaluate(args) do
       :ok ->

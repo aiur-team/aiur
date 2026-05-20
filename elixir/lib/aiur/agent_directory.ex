@@ -3,12 +3,10 @@ defmodule Aiur.AgentDirectory do
   Read-side MCP-shaped primitives for agents.
 
   Each function is an atomic read against orchestrator state. A future MCP
-  bridge exposes these verbatim as tool surfaces; the in-process pane
-  subcommand calls them via `Aiur.PaneRPC`.
+  bridge can expose these verbatim as tool surfaces.
 
   Scaffold: the function signatures are the public contract. Implementations
-  delegate to `Aiur.Orchestrator.snapshot/0` and the on-disk log
-  reader when the agent-list and conversation panes land.
+  delegate to `Aiur.Orchestrator.snapshot/0` and the on-disk log reader.
   """
 
   alias Aiur.AgentEvents
