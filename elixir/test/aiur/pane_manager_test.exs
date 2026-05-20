@@ -43,7 +43,7 @@ defmodule Aiur.PaneManagerTest do
       {:tmux_mock_out, "split-window " <> _ = cmd} ->
         assert cmd =~ "-t %1", "expected split anchored on agent-list pane, got #{inspect(cmd)}"
         assert cmd =~ ~r/(^|\s)-h(\s|$)/, "expected -h, got #{inspect(cmd)}"
-        assert cmd =~ ~r/(^|\s)-p 50(\s|$)/, "expected -p 50, got #{inspect(cmd)}"
+        assert cmd =~ ~r/(^|\s)-l 50%(\s|$)/, "expected -l 50%, got #{inspect(cmd)}"
 
         send(
           GenServer.whereis(tmux),

@@ -164,13 +164,16 @@ defmodule Aiur.Tmux do
   def handle_call({:split_pane, target_pane, direction, percent, command_to_run}, _from, state) do
     direction_flag = if direction == :horizontal, do: "-h", else: "-v"
 
+    # `-l N%` is the modern way to size the new pane; tmux 3.5+ tightened
+    # parsing of the deprecated `-p N` form and returns "size missing" on
+    # detached sessions when the percentage flag isn't paired with a `-l`.
     args = [
       "split-window",
       "-t",
       target_pane,
       direction_flag,
-      "-p",
-      Integer.to_string(percent),
+      "-l",
+      "#{percent}%",
       "-P",
       "-F",
       "\#{pane_id}",
