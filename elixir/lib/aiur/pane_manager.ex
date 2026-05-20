@@ -65,7 +65,10 @@ defmodule Aiur.PaneManager do
             slot_count: 5,
             agent_list_pane: nil,
             window_target: nil,
+            orientation: :horizontal,
             tmux: nil
+
+  @type orientation :: :horizontal | :vertical
 
   # Public API ----------------------------------------------------------------
 
@@ -91,6 +94,23 @@ defmodule Aiur.PaneManager do
     GenServer.call(server, :list)
   end
 
+  @spec orientation(GenServer.server()) :: orientation()
+  def orientation(server \\ __MODULE__) do
+    GenServer.call(server, :orientation)
+  end
+
+  @doc """
+  Flip the grid between `:horizontal` (default — anchor sits in the top
+  row) and `:vertical` (anchor sits at the top of the left column, slots
+  stack downward, then continue in a second column). Re-applies the
+  layout immediately so the operator sees the rotated grid without
+  waiting for the next open/close.
+  """
+  @spec toggle_orientation(GenServer.server()) :: {:ok, orientation()}
+  def toggle_orientation(server \\ __MODULE__) do
+    GenServer.call(server, :toggle_orientation)
+  end
+
   # GenServer callbacks -------------------------------------------------------
 
   @impl true
@@ -98,12 +118,14 @@ defmodule Aiur.PaneManager do
     tmux = Keyword.get(opts, :tmux, Tmux)
     max_vertical_panes = Keyword.get(opts, :max_vertical_panes, Aiur.Config.max_vertical_panes())
     slot_count = slot_count(max_vertical_panes)
+    orientation = Keyword.get(opts, :orientation, :horizontal)
 
     with {:ok, agent_list_pane} <- resolve_agent_list_pane(opts, tmux),
          {:ok, window_target} <- resolve_window_target(opts, tmux, agent_list_pane) do
       Logger.info(
         "PaneManager init agent_list_pane=#{agent_list_pane} window=#{window_target} " <>
-          "max_vertical_panes=#{max_vertical_panes} slot_count=#{slot_count}"
+          "max_vertical_panes=#{max_vertical_panes} slot_count=#{slot_count} " <>
+          "orientation=#{orientation}"
       )
 
       case Tmux.subscribe_events(tmux) do
@@ -120,7 +142,8 @@ defmodule Aiur.PaneManager do
          window_target: window_target,
          max_vertical_panes: max_vertical_panes,
          slot_count: slot_count,
-         slot_panes: empty_slot_panes(slot_count)
+         slot_panes: empty_slot_panes(slot_count),
+         orientation: orientation
        }}
     else
       {:error, reason} ->
@@ -165,6 +188,21 @@ defmodule Aiur.PaneManager do
   end
 
   def handle_call(:list, _from, state), do: {:reply, state.identifier_to_pane, state}
+
+  def handle_call(:orientation, _from, state), do: {:reply, state.orientation, state}
+
+  def handle_call(:toggle_orientation, _from, state) do
+    new_orientation =
+      case state.orientation do
+        :horizontal -> :vertical
+        :vertical -> :horizontal
+      end
+
+    Logger.info("[user-action] toggle_orientation #{state.orientation} -> #{new_orientation}")
+    new_state = %{state | orientation: new_orientation}
+    _ = apply_layout(new_state)
+    {:reply, {:ok, new_orientation}, new_state}
+  end
 
   @impl true
   def handle_info({:tmux_event, {:notification, :pane_died, pane_id}}, state) do
@@ -285,7 +323,8 @@ defmodule Aiur.PaneManager do
              h,
              state.max_vertical_panes,
              state.agent_list_pane,
-             slot_panes_list(state)
+             slot_panes_list(state),
+             state.orientation
            ),
          :ok <- Tmux.select_layout(state.tmux, state.window_target, layout_string) do
       :ok

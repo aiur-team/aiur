@@ -232,4 +232,18 @@ defmodule Aiur.PaneManagerTest do
     assert Map.get(panes, "MT-8") == "%10"
     refute Map.has_key?(panes, "MT-1")
   end
+
+  test "toggle_orientation flips state and re-applies the layout", %{tmux: tmux, pm: pm} do
+    assert PaneManager.orientation(pm) == :horizontal
+
+    toggle_task = Task.async(fn -> PaneManager.toggle_orientation(pm) end)
+    drain_layout_apply(tmux)
+    assert {:ok, :vertical} = Task.await(toggle_task, 1_000)
+    assert PaneManager.orientation(pm) == :vertical
+
+    flip_back = Task.async(fn -> PaneManager.toggle_orientation(pm) end)
+    drain_layout_apply(tmux)
+    assert {:ok, :horizontal} = Task.await(flip_back, 1_000)
+    assert PaneManager.orientation(pm) == :horizontal
+  end
 end
