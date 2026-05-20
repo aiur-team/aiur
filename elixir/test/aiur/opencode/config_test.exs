@@ -48,4 +48,11 @@ defmodule Aiur.Opencode.ConfigTest do
     assert {:error, message} = Config.validate!()
     assert message =~ "opencode.command"
   end
+
+  test "Aiur.Config.validate! surfaces missing opencode executable" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), opencode_command: "definitely-not-opencode")
+
+    assert {:error, message} = Aiur.Config.validate!()
+    assert message =~ "opencode.command"
+  end
 end
