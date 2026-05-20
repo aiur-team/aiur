@@ -63,11 +63,13 @@ defmodule AiurPane.Conversation do
     _ = AgentPubSub.subscribe_running()
 
     {initial_transcript, initial_title} = fetch_initial_transcript(aiur_node, identifier)
+    initial_agent = fetch_initial_agent(aiur_node, identifier)
 
     state = %{
       identifier: identifier,
-      title: initial_title,
-      work_state: :working,
+      title: initial_agent.title || initial_title,
+      work_state: initial_agent.work_state,
+      agent_present?: initial_agent.agent_present?,
       transcript: initial_transcript,
       composer: Composer.new(),
       columns: cols,
@@ -99,12 +101,26 @@ defmodule AiurPane.Conversation do
   end
 
   @impl true
-  def terminate(_reason, %{restore?: true}) do
+  def terminate(reason, %{restore?: true} = state) do
+    log_conversation_close(reason, state)
     restore_terminal()
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  def terminate(reason, state) do
+    log_conversation_close(reason, state)
+    :ok
+  end
+
+  defp log_conversation_close(reason, state) do
+    identifier =
+      case state do
+        %{identifier: id} when is_binary(id) -> id
+        _ -> "unknown"
+      end
+
+    Logger.info("[user-action] conversation_pane_closed identifier=#{identifier} reason=#{inspect(reason)}")
+  end
 
   @impl true
   # Bare `\e` arrives when the reader saw an ESC that wasn't followed by
@@ -174,21 +190,23 @@ defmodule AiurPane.Conversation do
   def handle_info({:running_changed, summaries}, state) do
     # Find this issue's summary in the broadcast and pull out
     # `work_state` + `title` so the header reflects the live state.
-    # When the agent isn't in the running set (just finished), keep
-    # whatever we last knew — the header should not flicker to
-    # `:working` and back.
+    # When the agent isn't in the running set, keep the title but mark
+    # the pane explicitly so the operator can tell before typing.
     case Enum.find(summaries, fn s -> Map.get(s, :identifier) == state.identifier end) do
       nil ->
-        {:noreply, state}
+        new_state = %{state | agent_present?: false, work_state: :idle}
+        render(new_state)
+        {:noreply, new_state}
 
       summary ->
+        agent_present? = Map.get(summary, :status) == :running
         new_work_state = Map.get(summary, :work_state, state.work_state)
         new_title = Map.get(summary, :title) || state.title
 
-        if new_work_state == state.work_state and new_title == state.title do
+        if new_work_state == state.work_state and new_title == state.title and agent_present? == state.agent_present? do
           {:noreply, state}
         else
-          new_state = %{state | work_state: new_work_state, title: new_title}
+          new_state = %{state | work_state: new_work_state, title: new_title, agent_present?: agent_present?}
           render(new_state)
           {:noreply, new_state}
         end
@@ -247,12 +265,20 @@ defmodule AiurPane.Conversation do
         {:noreply, new_state}
 
       {:error, reason} ->
-        system = AgentEvents.transcript_event(:system, "send failed: #{inspect(reason)}")
+        system = AgentEvents.transcript_event(:system, send_error_message(reason))
         new_state = %{state | composer: new_composer, transcript: state.transcript ++ [system]}
         render(new_state)
         {:noreply, new_state}
     end
   end
+
+  defp send_error_message(:max_concurrent_agents_reached),
+    do: "Agent is paused and no slots are free — pause another agent or raise the cap (←/→ from the agent list)."
+
+  defp send_error_message(:no_running_agent),
+    do: "Agent is not running — start it from the agent list (space) first."
+
+  defp send_error_message(reason), do: "send failed: #{inspect(reason)}"
 
   defp connect_to_aiur(node) when is_atom(node) do
     case Node.connect(node) do
@@ -306,6 +332,7 @@ defmodule AiurPane.Conversation do
       Viewport.render(%{
         identifier: state.identifier,
         title: Map.get(state, :title),
+        agent_present?: Map.get(state, :agent_present?, true),
         work_state: Map.get(state, :work_state, :working),
         transcript: state.transcript,
         composer: state.composer,
@@ -429,6 +456,37 @@ defmodule AiurPane.Conversation do
         Logger.warning("Conversation.fetch_initial_transcript unexpected identifier=#{identifier} result=#{inspect(other)}")
 
         {[], nil}
+    end
+  end
+
+  defp fetch_initial_agent(nil, _identifier), do: %{agent_present?: true, work_state: :working, title: nil}
+
+  defp fetch_initial_agent(node, identifier) when is_atom(node) do
+    case :rpc.call(node, Aiur.PaneRPC, :snapshot, [], 2_000) do
+      summaries when is_list(summaries) ->
+        initial_agent_from_summaries(summaries, identifier)
+
+      {:badrpc, reason} ->
+        Logger.warning("Conversation.fetch_initial_agent badrpc identifier=#{identifier} reason=#{inspect(reason)}")
+        %{agent_present?: true, work_state: :working, title: nil}
+
+      other ->
+        Logger.warning("Conversation.fetch_initial_agent unexpected identifier=#{identifier} result=#{inspect(other)}")
+        %{agent_present?: true, work_state: :working, title: nil}
+    end
+  end
+
+  defp initial_agent_from_summaries(summaries, identifier) do
+    case Enum.find(summaries, fn s -> Map.get(s, :identifier) == identifier end) do
+      nil ->
+        %{agent_present?: false, work_state: :idle, title: nil}
+
+      summary ->
+        %{
+          agent_present?: Map.get(summary, :status) == :running,
+          work_state: Map.get(summary, :work_state, :working),
+          title: Map.get(summary, :title)
+        }
     end
   end
 

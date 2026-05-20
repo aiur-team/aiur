@@ -154,6 +154,21 @@ defmodule AiurPane.ConversationTest do
     assert Enum.any?(state.transcript, fn e -> e.body == "hello via pubsub" end)
   end
 
+  test "marks the header when the running summary no longer includes the agent" do
+    identifier = "MT-NOAGENT-#{System.unique_integer([:positive])}"
+    pid = start_pane(identifier)
+
+    send(pid, {:running_changed, []})
+
+    assert_receive {:frame, frame}, 500
+    assert visible(frame) =~ " no agent "
+    assert frame =~ "\e[41m\e[37m no agent \e[0m"
+
+    state = :sys.get_state(pid)
+    assert state.agent_present? == false
+    assert state.work_state == :idle
+  end
+
   test "submit success: composer clears with no local echo; broadcast renders user line" do
     identifier = "MT-SUBMIT-#{System.unique_integer([:positive])}"
     pid = start_pane(identifier)

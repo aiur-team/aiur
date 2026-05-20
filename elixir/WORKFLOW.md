@@ -16,6 +16,7 @@ github:
   label_prefix: agent
 polling:
   interval_ms: 30000
+max_vertical_panes: 3
 server:
   host: 127.0.0.1
   port: 4000

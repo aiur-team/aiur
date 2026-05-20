@@ -5,6 +5,26 @@ defmodule Aiur.OrchestratorStatusTest do
 
   defp normalize(event), do: CodexCodingAgent.normalize_event(event)
 
+  defp running_entry(issue_id, identifier, status, pid \\ self(), worker_host \\ nil) do
+    %{
+      pid: pid,
+      ref: make_ref(),
+      identifier: identifier,
+      issue: %Issue{id: issue_id, identifier: identifier, state: "In Progress"},
+      worker_host: worker_host,
+      control: %{
+        can_interrupt: true,
+        safe_checkpoints: [:notification],
+        status: status
+      },
+      session_id: "thread-#{identifier}",
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
+      started_at: DateTime.utc_now()
+    }
+  end
+
   test "snapshot returns :timeout when snapshot server is unresponsive" do
     server_name = Module.concat(__MODULE__, :UnresponsiveSnapshotServer)
     parent = self()
@@ -23,6 +43,247 @@ defmodule Aiur.OrchestratorStatusTest do
     assert Orchestrator.snapshot(server_name, 10) == :timeout
 
     send(pid, :stop)
+  end
+
+  test "session max status counts active agents separately from paused agents" do
+    orchestrator_name = Module.concat(__MODULE__, :SessionMaxStatusOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working),
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused)
+          }
+      }
+    end)
+
+    assert %{
+             active: 1,
+             paused: 1,
+             configured: 10,
+             max: 2,
+             session_override?: true
+           } = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+    assert {:ok, %{max: 1, active: 1, paused: 1, session_override?: true}} =
+             Orchestrator.adjust_max_concurrent_agents(orchestrator_name, -1)
+  end
+
+  test "session max cannot be decreased below current active agents" do
+    orchestrator_name = Module.concat(__MODULE__, :SessionMaxBelowActiveOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-a" => running_entry("issue-a", "MT-A", :working),
+            "issue-b" => running_entry("issue-b", "MT-B", :working)
+          }
+      }
+    end)
+
+    assert {:error, :below_active_count} =
+             Orchestrator.adjust_max_concurrent_agents(orchestrator_name, -1)
+
+    assert %{max: 2, active: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
+  test "resuming a paused agent is blocked when active capacity is full" do
+    orchestrator_name = Module.concat(__MODULE__, :ResumeCapacityBlockedOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{
+            "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working),
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused)
+          }
+      }
+    end)
+
+    assert {:error, :max_concurrent_agents_reached} =
+             Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
+
+    refute_receive {:resume_agent, _request_id}, 100
+  end
+
+  test "resuming a paused agent sends resume control and consumes active capacity" do
+    orchestrator_name = Module.concat(__MODULE__, :ResumePausedOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working, parent),
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+          }
+      }
+    end)
+
+    assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
+    assert_receive {:resume_agent, request_id} when is_integer(request_id), 500
+    assert %{active: 2, paused: 0, max: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
+  test "pause freezes started_at clock — paused_at is captured, started_at unchanged" do
+    orchestrator_name = Module.concat(__MODULE__, :PauseClockFreezeOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-clock" => %{
+              pid: self(),
+              ref: make_ref(),
+              identifier: "MT-CLOCK",
+              issue: %Issue{id: "issue-clock", identifier: "MT-CLOCK", state: "In Progress"},
+              control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
+              session_id: "thread-MT-CLOCK",
+              started_at: started_at
+            }
+          }
+      }
+    end)
+
+    send(pid, {:worker_control_state, "issue-clock", :paused})
+    Process.sleep(20)
+
+    paused_entry = :sys.get_state(pid).running["issue-clock"]
+    assert %DateTime{} = paused_entry[:paused_at]
+    assert paused_entry[:started_at] == started_at
+  end
+
+  test "resume shifts started_at forward by the paused interval so the age column excludes the pause" do
+    orchestrator_name = Module.concat(__MODULE__, :PauseClockShiftOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+    paused_at = DateTime.add(DateTime.utc_now(), -5, :second)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-shift" => %{
+              pid: self(),
+              ref: make_ref(),
+              identifier: "MT-SHIFT",
+              issue: %Issue{id: "issue-shift", identifier: "MT-SHIFT", state: "In Progress"},
+              control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
+              session_id: "thread-MT-SHIFT",
+              started_at: started_at,
+              paused_at: paused_at
+            }
+          }
+      }
+    end)
+
+    send(pid, {:worker_control_state, "issue-shift", :working})
+    Process.sleep(20)
+
+    resumed_entry = :sys.get_state(pid).running["issue-shift"]
+    refute Map.get(resumed_entry, :paused_at)
+    # started_at should be shifted forward by ~5s (the pause duration).
+    shift_seconds = DateTime.diff(resumed_entry.started_at, started_at, :second)
+
+    assert shift_seconds in 4..6,
+           "expected started_at shifted by ~5s, got #{shift_seconds}s"
+  end
+
+  test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
+    orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    # max=1, no active, 1 paused: the paused agent already owns the slot,
+    # so resume should succeed even though `available_slots` is 0.
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+          }
+      }
+    end)
+
+    assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
+    assert_receive {:resume_agent, request_id} when is_integer(request_id), 500
+    assert %{active: 1, paused: 0, max: 1} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
+  test "resuming a paused ssh agent is blocked when its worker host is full" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["worker-a", "worker-b"],
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :ResumePausedWorkerHostBlockedOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 3,
+          running: %{
+            "issue-active-a" => running_entry("issue-active-a", "MT-ACTIVE-A", :working, parent, "worker-a"),
+            "issue-active-b" => running_entry("issue-active-b", "MT-ACTIVE-B", :working, parent, "worker-b"),
+            "issue-paused-a" => running_entry("issue-paused-a", "MT-PAUSED-A", :paused, parent, "worker-a")
+          }
+      }
+    end)
+
+    assert {:error, :max_concurrent_agents_reached} =
+             Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED-A")
+
+    refute_receive {:resume_agent, _request_id}, 100
+    assert %{active: 2, paused: 1, max: 3} = Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
   test "orchestrator snapshot reflects last codex update and session id" do
@@ -986,6 +1247,81 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert {:error, :no_running_agent} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+  end
+
+  test "chat-send to a paused agent auto-resumes it when a slot is free" do
+    orchestrator_name = Module.concat(__MODULE__, :ChatPausedAutoResumeOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    # max=2, no active agents, 1 paused — there's a free slot, so chatting
+    # with the paused agent auto-resumes and enqueues the message instead
+    # of erroring. Mirrors the behavior of pressing space on the paused
+    # row from the agent list.
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+          }
+      }
+    end)
+
+    assert {:ok, request_id} =
+             Orchestrator.send_operator_message(
+               orchestrator_name,
+               "MT-PAUSED",
+               %{kind: :text, body: "hi"}
+             )
+
+    assert is_integer(request_id)
+    assert_receive {:resume_agent, _resume_request_id}, 500
+
+    status = Orchestrator.max_concurrent_agents(orchestrator_name)
+    assert status.active == 1
+    assert status.paused == 0
+  end
+
+  test "chat-send to a paused agent errors when no slot is free" do
+    orchestrator_name = Module.concat(__MODULE__, :ChatPausedNoCapacityOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    # max=1, 1 active, 1 paused — no free slot. Chat-send to the paused
+    # agent must refuse rather than silently flip it to :working and push
+    # active over max. The operator must explicitly free capacity first.
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 1,
+          running: %{
+            "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working, parent),
+            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+          }
+      }
+    end)
+
+    assert {:error, :max_concurrent_agents_reached} =
+             Orchestrator.send_operator_message(
+               orchestrator_name,
+               "MT-PAUSED",
+               %{kind: :text, body: "hi"}
+             )
+
+    refute_receive {:resume_agent, _request_id}, 100
+
+    status = Orchestrator.max_concurrent_agents(orchestrator_name)
+    assert status.active == 1
+    assert status.paused == 1
   end
 
   test "orchestrator can claim only operator queue items without consuming coordination events" do
