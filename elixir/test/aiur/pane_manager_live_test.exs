@@ -200,6 +200,78 @@ defmodule Aiur.PaneManagerLiveTest do
   end
 
   @tag skip: @tmux_skip_reason
+  test "toggle_orientation round-trips horizontal → vertical → horizontal", %{
+    socket: socket,
+    window_target: window_target,
+    anchor_pane: anchor_pane,
+    pm: pm
+  } do
+    for n <- 1..3 do
+      {:ok, _} = PaneManager.open_conversation(pm, "MT-#{n}", @placeholder_cmd)
+    end
+
+    horizontal_layout = list_panes(socket, window_target)
+    assert PaneManager.orientation(pm) == :horizontal
+
+    # The horizontal layout puts the anchor on the top row sharing space
+    # with at least one conversation pane (slot 1 on the right).
+    horiz_anchor = Map.fetch!(horizontal_layout, anchor_pane)
+
+    horiz_same_row =
+      horizontal_layout
+      |> Map.values()
+      |> Enum.filter(fn p -> p.top == horiz_anchor.top end)
+
+    assert match?([_, _ | _], horiz_same_row),
+           "expected anchor to share its row in horizontal mode " <>
+             "(layout=#{inspect(horizontal_layout)})"
+
+    # Flip to vertical: anchor should now share its column with another
+    # pane stacked directly below it.
+    assert {:ok, :vertical} = PaneManager.toggle_orientation(pm)
+    assert PaneManager.orientation(pm) == :vertical
+
+    vertical_layout = list_panes(socket, window_target)
+    vert_anchor = Map.fetch!(vertical_layout, anchor_pane)
+
+    below_anchor =
+      vertical_layout
+      |> Map.values()
+      |> Enum.filter(fn p -> p.left == vert_anchor.left and p.top > vert_anchor.top end)
+
+    assert below_anchor != [],
+           "expected at least one pane directly below the anchor in vertical mode " <>
+             "(layout=#{inspect(vertical_layout)})"
+
+    # Flip back to horizontal: must produce a layout structurally
+    # equivalent to the original (anchor at top-left, sharing the top
+    # row with conversation panes, no panes below it in the same column
+    # until at least one row break).
+    assert {:ok, :horizontal} = PaneManager.toggle_orientation(pm)
+    assert PaneManager.orientation(pm) == :horizontal
+
+    restored = list_panes(socket, window_target)
+    restored_anchor = Map.fetch!(restored, anchor_pane)
+
+    assert restored_anchor.left == 0,
+           "expected anchor at left=0 after round-trip, got #{restored_anchor.left} " <>
+             "(layout=#{inspect(restored)})"
+
+    assert restored_anchor.top == 0,
+           "expected anchor at top=0 after round-trip, got #{restored_anchor.top} " <>
+             "(layout=#{inspect(restored)})"
+
+    restored_same_row =
+      restored
+      |> Map.values()
+      |> Enum.filter(fn p -> p.top == restored_anchor.top end)
+
+    assert match?([_, _ | _], restored_same_row),
+           "expected anchor to share its row again after toggle back to horizontal " <>
+             "(layout=#{inspect(restored)})"
+  end
+
+  @tag skip: @tmux_skip_reason
   test "closing a conversation removes its pane", %{
     socket: socket,
     window_target: window_target,
