@@ -126,7 +126,8 @@ defmodule Aiur.AgentList.App do
       write_fun: write_fun,
       pane_manager: pane_manager,
       orchestrator: orchestrator,
-      command_template: command_template
+      command_template: command_template,
+      open_pane_ids: initial_open_pane_ids(pane_manager)
     }
 
     schedule_refresh_tick()
@@ -220,6 +221,20 @@ defmodule Aiur.AgentList.App do
     summaries = visible_summaries(summaries)
     selection_focus = if state.summaries == [] and summaries != [], do: :agents, else: state.selection_focus
     new_state = clamp_selection(%{state | summaries: summaries, selection_focus: selection_focus})
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:status_changed, %{identifier: id, status: :pane_opened}}, state)
+      when is_binary(id) do
+    new_state = %{state | open_pane_ids: MapSet.put(state.open_pane_ids, id)}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:status_changed, %{identifier: id, status: :pane_closed}}, state)
+      when is_binary(id) do
+    new_state = %{state | open_pane_ids: MapSet.delete(state.open_pane_ids, id)}
     render(new_state)
     {:noreply, new_state}
   end
@@ -406,6 +421,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:agent_kind, agent_kind())
       |> Map.put(:agent_count, active_agent_count(state.summaries))
       |> Map.put(:max_agents, max_agents(state.orchestrator))
+      |> Map.put(:open_pane_ids, state.open_pane_ids)
 
     state.write_fun.(Renderer.render(render_state))
     :ok
@@ -502,6 +518,13 @@ defmodule Aiur.AgentList.App do
   end
 
   defp parse_int(_value, default), do: default
+
+  defp initial_open_pane_ids(pane_manager) do
+    case safe_call(fn -> PaneManager.list_open_panes(pane_manager) end) do
+      panes when is_map(panes) -> panes |> Map.keys() |> MapSet.new()
+      _ -> MapSet.new()
+    end
+  end
 
   defp default_command_template do
     bin = System.get_env("AIUR_BIN") || "./bin/aiur"

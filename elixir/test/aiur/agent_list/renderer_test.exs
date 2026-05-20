@@ -258,6 +258,38 @@ defmodule Aiur.AgentList.RendererTest do
     assert raw =~ ~r/\e\[\d+;1H\e\[J/
   end
 
+  test "renders the open-pane circle next to ids that have a live pane" do
+    summaries = [
+      %{identifier: "MT-1", status: :running, alert_count: 0},
+      %{identifier: "MT-2", status: :running, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          open_pane_ids: MapSet.new(["MT-1"])
+        })
+      )
+      |> visible()
+
+    # MT-1 line carries the circle, MT-2 line does not.
+    lines = String.split(out, ["\r\n", "\n"])
+
+    mt1_line = Enum.find(lines, fn line -> line =~ "MT-1" end)
+    mt2_line = Enum.find(lines, fn line -> line =~ "MT-2" end)
+
+    assert mt1_line =~ "●"
+    refute mt2_line =~ "●"
+  end
+
+  test "open-pane circle defaults off when no open_pane_ids are passed" do
+    summaries = [%{identifier: "MT-X", status: :running, alert_count: 0}]
+    out = render(base_state(%{summaries: summaries})) |> visible()
+
+    refute out =~ "●"
+  end
+
   test "footer shows v layout inline when terminal is wide enough" do
     out = render(base_state(%{columns: 100})) |> visible()
 

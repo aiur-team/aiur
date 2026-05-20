@@ -23,6 +23,13 @@ defmodule Aiur.AgentList.Renderer do
   @min_age_width 4
   @min_title_width 6
 
+  # Single-grapheme circle that sits in the gap between the ID and AGE
+  # columns to signal that an agent has an open conversation pane.
+  # Picked from Geometric Shapes (U+25CF) so monospace fonts render it
+  # as 1 terminal column — same family as the ▶ selection marker, and
+  # not an emoji (no variation-selector surprises).
+  @open_pane_glyph "●"
+
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
@@ -74,7 +81,8 @@ defmodule Aiur.AgentList.Renderer do
           Map.get(state, :selection_index, 0),
           Map.get(state, :selection_focus, :agents),
           inner_width,
-          layout
+          layout,
+          Map.get(state, :open_pane_ids, MapSet.new())
         ),
         bottom_border(inner_width),
         eol(),
@@ -346,22 +354,31 @@ defmodule Aiur.AgentList.Renderer do
     pad_with_ansi(@ansi_gray, body, inner_width)
   end
 
-  defp render_rows([], _idx, _selection_focus, inner_width, _layout) do
+  defp render_rows([], _idx, _selection_focus, inner_width, _layout, _open_pane_ids) do
     [
       pad_with_ansi(@ansi_dim, "│   (no agents running)", inner_width),
       eol()
     ]
   end
 
-  defp render_rows(summaries, idx, selection_focus, inner_width, layout) do
+  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids) do
     summaries
     |> Enum.with_index()
     |> Enum.map(fn {summary, row_idx} ->
-      [render_row(summary, selection_focus == :agents and row_idx == idx, inner_width, layout), eol()]
+      [
+        render_row(
+          summary,
+          selection_focus == :agents and row_idx == idx,
+          inner_width,
+          layout,
+          open_pane_ids
+        ),
+        eol()
+      ]
     end)
   end
 
-  defp render_row(summary, selected?, inner_width, layout) do
+  defp render_row(summary, selected?, inner_width, layout, open_pane_ids) do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
     title = Map.get(summary, :title) || ""
@@ -371,17 +388,19 @@ defmodule Aiur.AgentList.Renderer do
     age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary), @state_cell_width)
     title_cell = cell(title, layout.title_width)
+    open_marker = open_pane_marker(id_str, open_pane_ids)
 
-    # Order: marker, ID, AGE, state-circle, TITLE. The state circle
-    # (🟢 / 🟡 / 🔴) is the one signal we keep next to the title —
-    # the workflow-tag emoji was redundant with the title text.
+    # Order: marker, ID, open-pane indicator, AGE, state-circle, TITLE.
+    # The single-glyph circle sits in the gap between ID and AGE so the
+    # operator can tell at a glance which agents already own a
+    # conversation pane in the grid.
     body = [
       "│ ",
       marker,
       @ansi_cyan,
       id_cell,
       @ansi_reset,
-      "  ",
+      open_marker,
       @ansi_dim,
       age_cell,
       @ansi_reset,
@@ -396,6 +415,18 @@ defmodule Aiur.AgentList.Renderer do
 
     pad = String.duplicate(" ", max(inner_width - plain_visual, 0))
     [body, pad]
+  end
+
+  # 2-cell separator between ID and AGE columns. Renders as `" ●"` when
+  # the identifier has an open pane, `"  "` otherwise — keeps the column
+  # width stable so the AGE column never shifts. Wrapped in green ANSI
+  # when active so the dot stands out from the surrounding dim text.
+  defp open_pane_marker(id_str, open_pane_ids) do
+    if MapSet.member?(open_pane_ids, id_str) do
+      [" ", IO.ANSI.green(), @open_pane_glyph, @ansi_reset]
+    else
+      "  "
+    end
   end
 
   # The state column reflects both the workflow tag *and* whether a

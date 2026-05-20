@@ -18,6 +18,13 @@ defmodule Aiur.AgentList.AppTest do
       send(parent, {:mock_open, identifier, command})
       {:reply, {:ok, "%999"}, parent}
     end
+
+    # App.init queries this to seed the open-pane indicator set.
+    def handle_call(:list, _from, parent), do: {:reply, %{}, parent}
+
+    # App.toggle_layout_orientation calls through PaneManager.
+    def handle_call(:toggle_orientation, _from, parent),
+      do: {:reply, {:ok, :vertical}, parent}
   end
 
   defmodule MockOrchestrator do
