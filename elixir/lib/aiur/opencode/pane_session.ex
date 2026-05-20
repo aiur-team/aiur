@@ -13,8 +13,8 @@ defmodule Aiur.Opencode.PaneSession do
     child = {__MODULE__, %{identifier: identifier, workspace: workspace}}
 
     case DynamicSupervisor.start_child(PaneSupervisor, child) do
-      {:ok, pid} -> await_ready(pid)
-      {:error, {:already_started, pid}} -> await_ready(pid)
+      {:ok, pid} -> safe_await_ready(pid)
+      {:error, {:already_started, pid}} -> safe_await_ready(pid)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -24,6 +24,13 @@ defmodule Aiur.Opencode.PaneSession do
 
   @spec await_ready(pid()) :: {:ok, map()} | {:error, term()}
   def await_ready(pid), do: GenServer.call(pid, :await_ready, 30_000)
+
+  # Caller runs inside PaneManager's call handler; an exit here crashes PaneManager and panes stop opening.
+  defp safe_await_ready(pid) do
+    await_ready(pid)
+  catch
+    :exit, reason -> {:error, reason}
+  end
 
   @impl true
   def init(%{identifier: identifier, workspace: workspace}) do
