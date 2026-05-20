@@ -162,6 +162,15 @@ defmodule Aiur.PaneManager.LayoutTest do
       assert out == "#{hex4(Layout.checksum(expected_body))},#{expected_body}"
     end
 
+    test "pane ids without the leading % render verbatim" do
+      # Defensive fallback for the rare future case where Tmux returns
+      # an id that doesn't start with `%` (e.g., a numeric tmux global
+      # pane id from a non-default format string).
+      out = Layout.build(80, 24, 3, "abc", [nil, nil, nil, nil, nil], :vertical)
+
+      assert out =~ ~r/80x24,0,0,abc$/
+    end
+
     test "default orientation is :horizontal (backward compatible)" do
       horizontal = Layout.build(80, 24, 3, "%1", ["%10", nil, nil, nil, nil])
       explicit = Layout.build(80, 24, 3, "%1", ["%10", nil, nil, nil, nil], :horizontal)
