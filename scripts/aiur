@@ -753,8 +753,12 @@ restart_one_background_service() {
       start_bg_nohup "$profile"
       ;;
     *)
-      "$systemctl_bin" --user restart "$service"
-      "$systemctl_bin" --user status "$service" --no-pager
+      if command -v "$systemctl_bin" >/dev/null 2>&1 && "$systemctl_bin" --user restart "$service"; then
+        "$systemctl_bin" --user status "$service" --no-pager || true
+      else
+        echo "aiur: $service systemd service unavailable; starting with nohup background runner" >&2
+        start_bg_nohup "$profile"
+      fi
       ;;
   esac
 }

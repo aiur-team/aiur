@@ -87,6 +87,24 @@ defmodule ScriptsAiurTest do
     refute output =~ "restart aiur\n"
   end
 
+  test "falls back to nohup when a Linux background service is missing" do
+    ctx = test_context()
+
+    assert {output, 0} =
+             run_aiur(ctx, ["--bg"], env: [{"AIUR_TEST_SYSTEMCTL_RESTART_FAIL", "1"}])
+
+    command_log = await_command_log(ctx, "NOHUP:")
+
+    assert output =~
+             "aiur: aiur systemd service unavailable; starting with nohup background runner"
+
+    assert output =~ "aiur started in background"
+    assert command_log =~ "SYSTEMCTL:--user restart aiur\n"
+    assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
+    assert command_log =~ "--host 127.0.0.1"
+    assert command_log =~ "./local-workflows/WORKFLOW.aiur.local.md"
+  end
+
   test "restarts every configured background profile once per service" do
     ctx = test_context()
 
@@ -598,6 +616,11 @@ defmodule ScriptsAiurTest do
     write_executable!(fake_systemctl, """
     #!/usr/bin/env bash
     printf 'SYSTEMCTL:%s\\n' "$*" | tee -a "$AIUR_TEST_COMMAND_LOG"
+
+    if [ "${1:-}" = "--user" ] && [ "${2:-}" = "restart" ] && [ "${AIUR_TEST_SYSTEMCTL_RESTART_FAIL:-0}" = "1" ]; then
+      printf 'Failed to restart %s.service: Unit %s.service not found.\\n' "${3:-}" "${3:-}" >&2
+      exit 5
+    fi
 
     if [ "${1:-}" = "--user" ] && [ "${2:-}" = "is-active" ]; then
       if [ "${AIUR_TEST_SYSTEMCTL_ACTIVE:-0}" = "1" ]; then
