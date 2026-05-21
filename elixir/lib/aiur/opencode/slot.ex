@@ -478,7 +478,7 @@ defmodule Aiur.Opencode.Slot do
   # new models map includes a previously-unknown identifier. Stores
   # `{from, identifier}` in `pending_select`; once the rebuild reaches
   # `:ready` again, `handle_continue(:spawn_attach, ...)` drains it.
-  defp schedule_serve_rebuild(state, {_from, _identifier} = pending) do
+  defp schedule_serve_rebuild(state, {_from, identifier} = pending) do
     # Tear down the existing serve + pane. Bump generation + delete
     # the old token so the bridge can't accept stale auth from a
     # still-running opencode process after we replace it.
@@ -492,6 +492,13 @@ defmodule Aiur.Opencode.Slot do
     # and the next mailbox dispatch re-enters via :rebuild_now → start_serve.
     send(self(), :rebuild_now)
 
+    # Add JUST the missing identifier to the known set — incremental,
+    # not "every active agent in the orchestrator". Previously-attached
+    # identifiers stay in the set so future selects for them hit the
+    # warm path. This is what makes R4 (manual attach in same pane)
+    # work cheaply after the first attach.
+    next_known = MapSet.put(state.known_identifiers, identifier)
+
     %{
       state
       | status: :booting,
@@ -500,7 +507,7 @@ defmodule Aiur.Opencode.Slot do
         token: nil,
         pane_id: nil,
         generation: state.generation + 1,
-        known_identifiers: MapSet.new(),
+        known_identifiers: next_known,
         pending_select: pending,
         active_identifier: nil,
         active_session_id: nil,
