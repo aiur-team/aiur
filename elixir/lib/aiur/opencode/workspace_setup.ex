@@ -52,6 +52,48 @@ defmodule Aiur.Opencode.WorkspaceSetup do
     )
   end
 
+  @doc """
+  Materialize a per-slot workspace with `opencode.json` declaring every
+  currently-active agent as a model. The slot worker registers the
+  returned token against `slot_index` + `generation` in
+  `Aiur.Opencode.TokenRegistry`.
+
+  This is the slot-bound replacement for the legacy `materialize_prewarm/2`.
+  """
+  @spec materialize_slot(Path.t(), String.t(), [String.t()], pos_integer(), pos_integer()) ::
+          {:ok, String.t()} | {:error, term()}
+  def materialize_slot(workspace, bridge_url, agent_identifiers, slot_index, generation)
+      when is_binary(workspace) and is_binary(bridge_url) and is_list(agent_identifiers) and
+             is_integer(slot_index) and is_integer(generation) do
+    token = generate_token()
+
+    config =
+      Protocol.opencode_json(%{
+        bridge_url: bridge_url,
+        bridge_token: token,
+        identifier: "_slot-#{slot_index}",
+        model_prefix: Config.model_prefix(),
+        opencode_os_pid: nil,
+        extra_identifiers: agent_identifiers
+      })
+
+    tui = Protocol.tui_json()
+    theme = Protocol.aiur_theme_json()
+
+    with :ok <- File.mkdir_p(Path.join(workspace, ".opencode/themes")),
+         :ok <-
+           File.write(Path.join(workspace, "opencode.json"), Jason.encode!(config, pretty: true)),
+         :ok <- File.write(Path.join(workspace, "tui.json"), Jason.encode!(tui, pretty: true)),
+         :ok <-
+           File.write(
+             Path.join(workspace, ".opencode/themes/aiur.json"),
+             Jason.encode!(theme, pretty: true)
+           ) do
+      TokenRegistry.put(token, slot_index, generation)
+      {:ok, token}
+    end
+  end
+
   defp do_materialize(workspace, identifier, bridge_url, token, opencode_os_pid, extra_identifiers \\ []) do
     config =
       Protocol.opencode_json(%{
