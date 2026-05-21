@@ -31,7 +31,14 @@ defmodule Aiur.Opencode.ProtocolTest do
     assert get_in(config, ["provider", "aiur", "options", "apiKey"]) == "secret"
     refute inspect(config) =~ "anthropic"
     refute Map.has_key?(config["provider"], "openai")
-    assert get_in(config, ["aiur_metadata", "opencode_os_pid"]) == nil
+    refute Map.has_key?(config, "aiur_metadata")
+  end
+
+  test "aiur_metadata returns the reap-path sidecar shape" do
+    assert Protocol.aiur_metadata(%{identifier: "MT-1", opencode_os_pid: 4242}) == %{
+             "identifier" => "MT-1",
+             "opencode_os_pid" => 4242
+           }
   end
 
   test "serve and attach commands are shell escaped" do

@@ -91,11 +91,16 @@ defmodule Aiur.Opencode.Protocol do
         "edit" => "deny",
         "bash" => "deny",
         "webfetch" => "deny"
-      },
-      "aiur_metadata" => %{
-        "identifier" => identifier,
-        "opencode_os_pid" => Map.get(attrs, :opencode_os_pid)
       }
+    }
+  end
+
+  # opencode.json has `additionalProperties: false`; reap-path metadata lives in a sidecar file instead.
+  @spec aiur_metadata(map()) :: map()
+  def aiur_metadata(%{identifier: identifier} = attrs) do
+    %{
+      "identifier" => identifier,
+      "opencode_os_pid" => Map.get(attrs, :opencode_os_pid)
     }
   end
 
