@@ -58,13 +58,9 @@ defmodule Aiur.Opencode.PaneSession do
          {:ok, server} <- Server.start_link(%{identifier: state.identifier, workspace: state.workspace}),
          {:ok, base_url, _os_pid} <- Server.await_ready(server),
          {:ok, session} <- ApiClient.create_session(base_url, state.identifier),
-         session_id when is_binary(session_id) <- session_id_from(session),
-         {:ok, _relay} <-
-           Aiur.Opencode.TranscriptRelay.start_link(%{
-             identifier: state.identifier,
-             base_url: base_url,
-             session_id: session_id
-           }) do
+         session_id when is_binary(session_id) <- session_id_from(session) do
+      # Per-identifier transcript writing now lives in `Aiur.Opencode.SessionWriter`,
+      # spawned via `SessionWriterRegistry.ensure/2` from the PaneManager open path.
       attach_command = Protocol.attach_command(base_url, session_id)
       Logger.info("opencode_pane ready issue_identifier=#{state.identifier} session_id=#{session_id}")
       {:noreply, %{state | server: server, base_url: base_url, session_id: session_id, token: token, attach_command: attach_command}}

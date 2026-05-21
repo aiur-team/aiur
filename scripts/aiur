@@ -912,7 +912,6 @@ run_in_tmux() {
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="$elixir_dir/bin/aiur"
   export AIUR_MISE_BIN="$mise_bin"
-  export AIUR_PANE_LOADING_BIN="$script_dir/aiur-pane-loading"
   local startup_capture
   startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
   trap 'rm -f "$startup_capture"' EXIT
