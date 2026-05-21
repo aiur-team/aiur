@@ -674,6 +674,14 @@ stop_profile() {
   fi
 
   "$pkill_bin" -f "$elixir_dir.*bin/aiur" 2>/dev/null || true
+
+  # The OTP release replaces `bin/aiur` with `beam.smp ... -name
+  # aiur-orangekid@<host>`. The escript-era patterns above no longer
+  # match — target the release's BEAM by its `-name` flag and its
+  # `_build/<env>/rel/aiur` root path so stale BEAMs from prior runs
+  # cannot squat the distribution name or the bridge port.
+  "$pkill_bin" -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true
+  "$pkill_bin" -f "beam.smp.*-name aiur-orangekid" 2>/dev/null || true
 }
 
 stop_all() {
