@@ -164,7 +164,15 @@ defmodule Aiur.Opencode.Slot do
   @impl true
   def handle_continue(:start_serve, state) do
     bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
-    agent_ids = active_agent_identifiers()
+
+    # opencode-serve reads opencode.json once at startup and never
+    # reloads. If the slot materializes its workspace BEFORE the
+    # orchestrator has enumerated active agents, the models map only
+    # declares the slot's sentinel identifier (`_slot-N`) and any
+    # subsequent agent open hits `Model not found: aiur/issue-X`.
+    # Wait briefly for the orchestrator to populate; cap so a truly
+    # empty workflow doesn't block boot forever.
+    agent_ids = wait_for_active_identifiers(state.slot_index)
 
     with :ok <- File.mkdir_p(state.workspace_path),
          {:ok, token} <-
@@ -295,13 +303,17 @@ defmodule Aiur.Opencode.Slot do
       when is_binary(pane_id) do
     # Detect external pane death (user pressed Ctrl+C inside opencode,
     # opencode-attach exited, tmux destroyed the pane). `Aiur.Tmux`
-    # exposes no live event stream, so we poll. `display-message -t`
-    # returns an error if the pane no longer exists.
-    case Tmux.command(Tmux, "display-message -p -t #{pane_id} \#{pane_id}") do
-      {:ok, _} ->
+    # exposes no live event stream, so we poll. tmux's `display-message
+    # -t <dead-pane>` silently routes to the active pane and returns
+    # the OTHER pane's id, or an empty list — exit 0 either way. We
+    # must compare the returned id against our recorded pane_id.
+    result = Tmux.command(Tmux, "display-message -p -t #{pane_id} \#{pane_id}")
+
+    case result do
+      {:ok, [^pane_id | _]} ->
         {:noreply, schedule_poll(state)}
 
-      {:error, _reason} ->
+      _ ->
         Logger.info(
           "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id}"
         )
@@ -448,6 +460,42 @@ defmodule Aiur.Opencode.Slot do
     Aiur.Orchestrator.list_active_identifiers()
   rescue
     _ -> []
+  end
+
+  # Poll `list_active_identifiers/0` for up to ~6 s so the slot's
+  # opencode.json declares every currently-active agent identifier on
+  # FIRST boot. opencode-serve does not hot-reload the models map, so
+  # missing a single agent here means the bridge rejects it with
+  # `Model not found` until aiur is restarted.
+  #
+  # Cap and proceed-empty so a workflow with genuinely zero agents
+  # doesn't wedge boot.
+  @wait_max_attempts 30
+  @wait_interval_ms 200
+
+  defp wait_for_active_identifiers(slot_index, attempts \\ @wait_max_attempts)
+
+  defp wait_for_active_identifiers(slot_index, 0) do
+    Logger.info(
+      "opencode_slot phase=wait_agents_timeout elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index}"
+    )
+
+    active_agent_identifiers()
+  end
+
+  defp wait_for_active_identifiers(slot_index, attempts) do
+    case active_agent_identifiers() do
+      [] ->
+        Process.sleep(@wait_interval_ms)
+        wait_for_active_identifiers(slot_index, attempts - 1)
+
+      ids when is_list(ids) ->
+        Logger.info(
+          "opencode_slot phase=agents_ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} agent_count=#{length(ids)}"
+        )
+
+        ids
+    end
   end
 
   defp workspace_path_for(slot_index) do
