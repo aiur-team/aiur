@@ -133,8 +133,8 @@ defmodule Aiur.Tmux do
   selection so the user keeps looking at the visible window. Preserves
   PID and pane id — verified equivalent to `join-pane` in tmux 3.5a.
 
-  Used by `Aiur.PaneManager` close path and by `Aiur.Opencode.AttachQueue`
-  background attaches.
+  Used by `Aiur.PaneManager` close path and by `Aiur.Opencode.Slot`
+  workers when their attached pane goes hidden.
   """
   @spec move_pane_hidden(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
   def move_pane_hidden(server \\ __MODULE__, source_pane, target_window)

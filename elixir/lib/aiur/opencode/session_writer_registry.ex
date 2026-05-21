@@ -10,7 +10,7 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   The session id lives in the registry value alongside the writer pid.
   """
 
-  alias Aiur.Opencode.{ApiClient, Config, PersistentPane, Protocol, SessionSupervisor, SessionWriter, TokenRegistry}
+  alias Aiur.Opencode.{ApiClient, Config, SessionSupervisor, SessionWriter}
 
   @registry __MODULE__.Registry
 
@@ -39,54 +39,13 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
 
   @doc """
   Look up the session + writer for `identifier`, or return `:not_found`.
-  Returns the legacy `%{session_id, writer_pid}` shape so existing callers
-  (`PaneManager`, `ChatCompletions`) keep working unchanged.
   """
   @spec lookup(String.t()) :: {:ok, %{session_id: String.t(), writer_pid: pid()}} | :not_found
   def lookup(identifier) when is_binary(identifier) do
     case Registry.lookup(@registry, identifier) do
-      [{pid, %PersistentPane{} = pane}] when is_pid(pid) ->
+      [{pid, session_id}] when is_pid(pid) and is_binary(session_id) ->
         if Process.alive?(pid) do
-          {:ok, %{session_id: pane.session_id, writer_pid: pid}}
-        else
-          :not_found
-        end
-
-      _ ->
-        :not_found
-    end
-  end
-
-  @doc """
-  Look up the full `PersistentPane` struct for `identifier`. PaneManager
-  and AttachQueue use this to read pane_id and status.
-  """
-  @spec get_pane(String.t()) :: {:ok, PersistentPane.t()} | :not_found
-  def get_pane(identifier) when is_binary(identifier) do
-    case Registry.lookup(@registry, identifier) do
-      [{pid, %PersistentPane{} = pane}] when is_pid(pid) ->
-        if Process.alive?(pid), do: {:ok, pane}, else: :not_found
-
-      _ ->
-        :not_found
-    end
-  end
-
-  @doc """
-  Update the `PersistentPane` value for `identifier` via `fun`. The
-  caller passes a function `(PersistentPane.t() -> PersistentPane.t())`
-  that returns the new struct. Returns `{:ok, new_pane}` or `:not_found`.
-
-  Delegates through `SessionWriter.update_pane/2` because Registry
-  values can only be mutated from inside the owner process.
-  """
-  @spec update_pane(String.t(), (PersistentPane.t() -> PersistentPane.t())) ::
-          {:ok, PersistentPane.t()} | :not_found
-  def update_pane(identifier, fun) when is_binary(identifier) and is_function(fun, 1) do
-    case Registry.lookup(@registry, identifier) do
-      [{pid, %PersistentPane{}}] when is_pid(pid) ->
-        if Process.alive?(pid) do
-          SessionWriter.update_pane(pid, fun)
+          {:ok, %{session_id: session_id, writer_pid: pid}}
         else
           :not_found
         end
@@ -104,8 +63,8 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   @spec all() :: [%{identifier: String.t(), session_id: String.t(), writer_pid: pid()}]
   def all do
     Registry.select(@registry, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
-    |> Enum.map(fn {identifier, pid, %PersistentPane{} = pane} ->
-      %{identifier: identifier, session_id: pane.session_id, writer_pid: pid}
+    |> Enum.map(fn {identifier, pid, session_id} ->
+      %{identifier: identifier, session_id: session_id, writer_pid: pid}
     end)
   end
 
@@ -148,12 +107,11 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
     directory = workspace_for(identifier)
     _ = File.mkdir_p(directory)
 
-    # Regenerate opencode.json so stale fields (e.g. `aiur_metadata`
-    # from older aiur versions) don't trip opencode's strict schema
-    # validation. We do this *before* POST /session because opencode
-    # reads the workspace's config the moment a session is created.
-    :ok = regenerate_workspace_config(directory, identifier)
-
+    # Per-agent workspace dirs serve as opencode's `directory=` for
+    # session creation only (file picker / sidebar). They no longer
+    # need a per-agent opencode.json — the slot's workspace owns the
+    # provider config, and the slot's models map already declares this
+    # identifier (see `WorkspaceSetup.materialize_slot/5`).
     opts = [
       model: %{providerID: "aiur", id: "issue-#{safe_id}"},
       directory: directory
@@ -165,47 +123,6 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
       {:ok, %{"session" => %{"id" => id}}} when is_binary(id) -> {:ok, id}
       {:ok, other} -> {:error, {:unexpected_response, other}}
       {:error, _reason} = err -> err
-    end
-  end
-
-  defp regenerate_workspace_config(workspace, identifier) do
-    bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
-    token = 32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
-
-    config =
-      Protocol.opencode_json(%{
-        bridge_url: bridge_url,
-        bridge_token: token,
-        identifier: identifier,
-        model_prefix: Config.model_prefix(),
-        opencode_os_pid: nil
-      })
-
-    tui = Protocol.tui_json()
-    theme = Protocol.aiur_theme_json()
-
-    with :ok <- File.mkdir_p(Path.join(workspace, ".opencode/themes")),
-         :ok <-
-           File.write(Path.join(workspace, "opencode.json"), Jason.encode!(config, pretty: true)),
-         :ok <- File.write(Path.join(workspace, "tui.json"), Jason.encode!(tui, pretty: true)),
-         :ok <-
-           File.write(
-             Path.join(workspace, ".opencode/themes/aiur.json"),
-             Jason.encode!(theme, pretty: true)
-           ) do
-      # Legacy path — `regenerate_workspace_config` is scheduled for
-      # deletion in U9. Use sentinel slot 0 / generation 1 until then.
-      TokenRegistry.put(token, 0, 1)
-      :ok
-    else
-      {:error, reason} ->
-        require Logger
-
-        Logger.warning(
-          "opencode_session_writer_registry workspace_config_failed identifier=#{identifier} reason=#{inspect(reason)}"
-        )
-
-        :ok
     end
   end
 

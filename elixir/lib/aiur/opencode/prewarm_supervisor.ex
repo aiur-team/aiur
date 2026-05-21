@@ -1,11 +1,14 @@
 defmodule Aiur.Opencode.PrewarmSupervisor do
   @moduledoc """
-  Groups the boot-time pre-warm processes:
-  - `Aiur.Opencode.WarmServer` — neutral-cwd `opencode serve` instance
-  - `Aiur.Opencode.HiddenWindow` — owns the hidden tmux window where
-    every background `opencode attach` pane lives
-  - `Aiur.Opencode.AttachQueue` — enumerates agents and runs
-    `AgentAttach` per identifier into the hidden window
+  Groups the slot-bound pre-warm processes:
+
+  - `Aiur.Opencode.HiddenWindow` — creates the hidden tmux window once
+    at boot. Every slot's opencode-attach pane lives in here when not
+    visible.
+  - `Aiur.Opencode.SlotSupervisor` — `DynamicSupervisor` that spawns
+    `Aiur.Opencode.Slot` workers per slot index.
+  - `Aiur.Opencode.SlotPolicy` — chain pre-warm orchestrator; starts
+    slot 1 at init, then slot N+1 once slot N broadcasts `:slot_ready`.
 
   The per-identifier writer machinery (`SessionWriterRegistry.Registry`
   + `SessionSupervisor`) sits at top-level in `Aiur.Application`, not
@@ -21,9 +24,9 @@ defmodule Aiur.Opencode.PrewarmSupervisor do
   def init(_opts) do
     Supervisor.init(
       [
-        Aiur.Opencode.WarmServer,
         Aiur.Opencode.HiddenWindow,
-        Aiur.Opencode.AttachQueue
+        Aiur.Opencode.SlotSupervisor,
+        Aiur.Opencode.SlotPolicy
       ],
       strategy: :one_for_one
     )

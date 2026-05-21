@@ -1,20 +1,15 @@
 defmodule Aiur.Opencode.HiddenWindow do
   @moduledoc """
-  Owns the lifetime of the hidden tmux window where all background
-  `opencode attach` panes live until the user opens them.
+  Owns the lifetime of the hidden tmux window where all `opencode attach`
+  slot panes live when they are not currently visible.
 
-  At boot, listens for `Aiur.Opencode.WarmServer`'s `:warm_server_ready`
-  broadcast, then creates the window once with a no-op keep-alive pane
-  (`sleep infinity`) so the window survives even when no agent panes
-  are attached yet.
+  Created once at boot (no external dependency) with a no-op keep-alive
+  pane (`sleep infinity`) so the window survives even when no slot
+  panes are attached yet. Slot workers call `Tmux.split_pane/6` against
+  the keep-alive pane (with `silent: true`) to spawn their hidden attach.
 
-  Other modules:
-  - `Aiur.Opencode.AgentAttach` reads `window_name/0` to target the
-    window when spawning per-agent opencode-attach panes.
-  - `Aiur.Tmux.move_pane_hidden/2` and `move_pane_visible/2` use the
-    name as the target/source for visibility swaps.
-
-  Idempotent: a restart finds the window already there and reuses it.
+  Idempotent: a supervisor restart finds the window already there and
+  reuses it.
   """
 
   use GenServer
@@ -23,7 +18,6 @@ defmodule Aiur.Opencode.HiddenWindow do
   alias Aiur.Opencode.Config
   alias Aiur.Tmux
 
-  @ready_topic "opencode:warm"
   @window_name "aiur-hidden"
   @keep_alive_cmd "sleep infinity"
 
@@ -37,12 +31,8 @@ defmodule Aiur.Opencode.HiddenWindow do
   def window_name, do: @window_name
 
   @doc """
-  Synchronously ensure the hidden window exists. Returns `:ok` once it
-  has been created by the GenServer's boot path, or `{:error, reason}`
-  if the GenServer is unreachable or window creation fails.
-
-  Used by `Aiur.Opencode.AttachQueue.init` before processing identifiers
-  so the queue never races the window-creation step.
+  Synchronously ensure the hidden window exists. Returns `:ok` if the
+  window is up, otherwise `{:error, reason}`.
   """
   @spec ensure(timeout()) :: :ok | {:error, term()}
   def ensure(timeout \\ 10_000) do
@@ -71,13 +61,13 @@ defmodule Aiur.Opencode.HiddenWindow do
     if Config.prewarm_disabled?() do
       :ignore
     else
-      :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, @ready_topic)
-      {:ok, %__MODULE__{status: :waiting, window_name: @window_name}}
+      state = %__MODULE__{status: :waiting, window_name: @window_name}
+      {:ok, state, {:continue, :create_window}}
     end
   end
 
   @impl true
-  def handle_info({:warm_server_ready, _base_url}, %{status: :waiting} = state) do
+  def handle_continue(:create_window, state) do
     case Tmux.new_hidden_window(state.window_name, @keep_alive_cmd) do
       {:ok, pane_id} ->
         Logger.info(
@@ -95,7 +85,7 @@ defmodule Aiur.Opencode.HiddenWindow do
     end
   end
 
-  def handle_info({:warm_server_ready, _base_url}, state), do: {:noreply, state}
+  @impl true
   def handle_info(_other, state), do: {:noreply, state}
 
   @impl true

@@ -50,6 +50,7 @@ defmodule Aiur.Opencode.Slot do
     HiddenWindow,
     Protocol,
     Server,
+    SessionGC,
     SessionWriter,
     SessionWriterRegistry,
     SlotRegistry,
@@ -220,6 +221,13 @@ defmodule Aiur.Opencode.Slot do
       )
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
+
+      # First slot to reach :ready runs boot-time GC. Recovers from any
+      # prior aiur run that crashed before its shutdown could reap
+      # sessions (kill -9, BEAM panic, OOM). Lifted from WarmServer.
+      if state.slot_index == 1 do
+        Task.start(fn -> SessionGC.run(state.base_url) end)
+      end
 
       {:noreply, %{state | status: :ready, pane_id: pane_id}}
     else

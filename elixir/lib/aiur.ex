@@ -106,7 +106,7 @@ defmodule Aiur.Application do
   # SIGHUP defaults to ignored on most VMs; we explicitly opt it into the
   # same graceful path so a terminal-close kills opencode sessions too.
   # Layer 2 (the bash trap in `scripts/aiur`) backstops these. Layer 3 is
-  # boot-time GC in `WarmServer` for uncatchable signals (SIGKILL, OOM).
+  # boot-time GC in `Aiur.Opencode.SessionGC` for uncatchable signals (SIGKILL, OOM).
   defp install_signal_handlers do
     try do
       :ok = :os.set_signal(:sighup, :handle)
