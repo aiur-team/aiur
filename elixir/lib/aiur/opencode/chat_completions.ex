@@ -1,6 +1,8 @@
 defmodule Aiur.Opencode.ChatCompletions do
   @moduledoc false
 
+  require Logger
+
   alias Aiur.{AgentChat, AgentPubSub}
   alias Aiur.Opencode.Config
 
@@ -156,12 +158,19 @@ defmodule Aiur.Opencode.ChatCompletions do
     regex = ~r/\A#{prefix}\/issue-([A-Za-z0-9._-]+)\z/
 
     case Regex.run(regex, model) do
-      [_match, identifier] -> {:ok, identifier}
-      _ -> {:error, :invalid_model}
+      [_match, identifier] ->
+        {:ok, identifier}
+
+      _ ->
+        Logger.warning("opencode_bridge invalid_model received_model=#{inspect(model)}")
+        {:error, :invalid_model}
     end
   end
 
-  defp identifier_from_model(_), do: {:error, :invalid_model}
+  defp identifier_from_model(model) do
+    Logger.warning("opencode_bridge invalid_model received_model=#{inspect(model)}")
+    {:error, :invalid_model}
+  end
 
   defp last_user_text(%{"messages" => messages}) when is_list(messages) do
     messages
