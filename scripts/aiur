@@ -437,22 +437,26 @@ require_mise() {
 ensure_built() {
   local elixir_dir="$1"
   local aiur_bin="$elixir_dir/bin/aiur"
+  local release_dir="$elixir_dir/_build/dev/rel/aiur"
 
   # AIUR_SKIP_BUILD lets the test fixture short-circuit this without faking
-  # `mix escript.build` invocations on top of every other stubbed binary.
+  # `mix release` invocations on top of every other stubbed binary.
   if [ "${AIUR_SKIP_BUILD:-0}" = "1" ]; then
     return 0
   fi
 
   ensure_elixir_deps "$elixir_dir"
 
-  if [ ! -x "$aiur_bin" ]; then
+  # No shim or no assembled release? Always rebuild.
+  if [ ! -x "$aiur_bin" ] || [ ! -x "$release_dir/bin/aiur" ]; then
     build_aiur "$elixir_dir"
     return
   fi
 
-  # If any source file is newer than the escript, rebuild. `-quit` stops after
-  # the first hit; output is discarded — we only care about the exit signal.
+  # If any source file is newer than the shim, rebuild. `-quit` stops
+  # after the first hit; output is discarded — we only care about the
+  # exit signal. mix.exs counts too, since releases vs escripts is a
+  # mix-config-level decision.
   if [ -n "$(find "$elixir_dir/lib" "$elixir_dir/mix.exs" "$elixir_dir/mix.lock" \
               -newer "$aiur_bin" -print -quit 2>/dev/null)" ]; then
     build_aiur "$elixir_dir"
@@ -495,8 +499,12 @@ build_aiur() {
   local elixir_dir="$1"
 
   require_mise
-  echo "aiur: rebuilding bin/aiur…" >&2
-  (cd "$elixir_dir" && "$mise_bin" exec -- mix escript.build) >&2
+  echo "aiur: rebuilding bin/aiur (release)…" >&2
+  # `mix release --overwrite` ships priv/ directories on disk so NIFs
+  # (e.g. exqlite/priv/sqlite3_nif.so) load correctly — escript zips
+  # cannot host NIFs. The post-assemble step in mix.exs writes a thin
+  # shim at bin/aiur that delegates into the release.
+  (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) >&2
 }
 
 source_env_files() {
@@ -927,8 +935,14 @@ run_in_tmux() {
   __aiur_cleanup() {
     local exit_code=$?
     local sessions_file="${AIUR_SESSION_TMPFILE:-}"
+    # `startup_capture` was declared `local` inside this function's caller,
+    # so by the time the EXIT trap fires it has gone out of scope. Use
+    # safe expansion so `set -u` doesn't blow up before the real reaping.
+    local capture="${startup_capture:-}"
 
-    rm -f "$startup_capture" 2>/dev/null || true
+    if [ -n "$capture" ]; then
+      rm -f "$capture" 2>/dev/null || true
+    fi
 
     if [ -n "$sessions_file" ] && [ -s "$sessions_file" ]; then
       echo "aiur: reaping opencode sessions from $sessions_file" >&2
@@ -936,7 +950,6 @@ run_in_tmux() {
       local id
       while IFS= read -r id; do
         [ -n "$id" ] || continue
-        # Best-effort delete; ignore failures (BEAM may have already reaped).
         "$mise_bin" exec -- opencode session delete "$id" >/dev/null 2>&1 &
       done < "$sessions_file"
 

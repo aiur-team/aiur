@@ -47,6 +47,34 @@ defmodule Aiur.CLI do
     end
   end
 
+  @doc """
+  Read CLI argv from the file named by `AIUR_ARGV_FILE`, one argument
+  per line. The release-mode shim writes argv to a tempfile so quoting
+  survives the `bin/aiur eval` round-trip — `System.argv()` is empty
+  under `eval` mode, so we cannot rely on it.
+
+  Returns `[]` when no file is set, so existing escript callers that
+  pass argv directly to `main/1` keep working unchanged.
+  """
+  @spec argv_from_file() :: [String.t()]
+  def argv_from_file do
+    case System.get_env("AIUR_ARGV_FILE") do
+      path when is_binary(path) and path != "" ->
+        case File.read(path) do
+          {:ok, body} ->
+            body
+            |> String.split("\n", trim: false)
+            |> Enum.reject(&(&1 == ""))
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
+    end
+  end
+
   @spec evaluate([String.t()], deps()) :: :ok | {:version, String.t()} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do

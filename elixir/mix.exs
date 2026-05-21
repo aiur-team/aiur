@@ -89,6 +89,7 @@ defmodule Aiur.MixProject do
       dialyzer: [
         plt_add_apps: [:mix]
       ],
+      releases: releases(),
       escript: escript(),
       aliases: aliases(),
       deps: deps()
@@ -127,17 +128,70 @@ defmodule Aiur.MixProject do
   defp aliases do
     [
       setup: ["deps.get"],
-      build: ["escript.build"],
+      build: ["release", "--overwrite"],
       lint: ["specs.check", "credo --strict"]
     ]
   end
 
+  # OTP release for `bin/aiur`. Releases (unlike escripts) ship priv
+  # directories on disk so NIFs like `exqlite/priv/sqlite3_nif.so` load
+  # correctly. The post-assemble step writes a small wrapper at the
+  # project root's `bin/aiur` so `scripts/aiur` can keep invoking
+  # `./bin/aiur <args>` unchanged.
+  defp releases do
+    [
+      aiur: [
+        applications: [aiur: :permanent],
+        include_executables_for: [:unix],
+        steps: [:assemble, &Aiur.MixProject.copy_cli_launcher/1]
+      ]
+    ]
+  end
+
+  # The escript build is retained as a fallback path that does not
+  # ship NIFs. It is not produced by `mix aliases build` anymore.
   defp escript do
     [
       app: nil,
       main_module: Aiur.CLI,
       name: "aiur",
-      path: "bin/aiur"
+      path: "bin/aiur.escript"
     ]
+  end
+
+  @doc """
+  Post-assemble step. Writes a thin `bin/aiur` shim at project root that
+  delegates into the assembled release. Args after the shim become
+  arguments to `Aiur.CLI.main/1` — the release boots all apps via
+  `bin/aiur start` first (with deps + NIFs on disk), and the shim's
+  wrapper passes the original CLI argv through a temp file so quoting
+  survives intact.
+  """
+  def copy_cli_launcher(release) do
+    project_root = File.cwd!()
+    wrapper_path = Path.join([project_root, "bin", "aiur"])
+    File.mkdir_p!(Path.join(project_root, "bin"))
+    release_bin = Path.join(release.path, "bin/aiur")
+
+    contents = """
+    #!/usr/bin/env bash
+    # Thin shim around the OTP release at #{release.path}.
+    # Passes args to Aiur.CLI.main/1 via an argv file so quoting survives.
+    # Releases ship priv/ on disk, so exqlite + other NIFs load correctly.
+    set -euo pipefail
+    argv_file="$(mktemp "${TMPDIR:-/tmp}/aiur-argv.XXXXXX")"
+    trap 'rm -f "$argv_file"' EXIT
+    : >"$argv_file"
+    for arg in "$@"; do
+      printf '%s\\n' "$arg" >>"$argv_file"
+    done
+    export AIUR_ARGV_FILE="$argv_file"
+    exec "#{release_bin}" eval "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    """
+
+    File.write!(wrapper_path, contents)
+    File.chmod!(wrapper_path, 0o755)
+
+    release
   end
 end
