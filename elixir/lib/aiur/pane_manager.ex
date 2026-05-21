@@ -264,7 +264,10 @@ defmodule Aiur.PaneManager do
   end
 
   defp command_for_pane("__aiur_opencode__ " <> _rest, identifier) do
-    workspace = Path.join(Aiur.Config.workspace_root(), Aiur.Opencode.Config.safe_identifier(identifier))
+    workspace =
+      Aiur.Config.workspace_root()
+      |> Path.expand()
+      |> Path.join(Aiur.Opencode.Config.safe_identifier(identifier))
 
     case Aiur.Opencode.PaneSession.start(identifier, workspace) do
       {:ok, %{attach_command: command}} -> command
