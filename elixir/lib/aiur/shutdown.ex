@@ -8,7 +8,7 @@ defmodule Aiur.Shutdown do
     1. `SessionWriterRegistry.delete_all/1` — walks the registry, calls
        `ApiClient.delete_session/2` per entry, then terminates each writer.
     2. `Supervisor.stop(Aiur.Supervisor, :normal, 5_000)` — orderly OTP
-       shutdown. `WarmAttach.terminate/2` and `WarmServer.terminate/2`
+       shutdown. `HiddenWindow.terminate/2` and `WarmServer.terminate/2`
        close their resources here.
     3. `System.halt(code)`.
 

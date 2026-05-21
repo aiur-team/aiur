@@ -77,7 +77,6 @@ defmodule Aiur.MixProject do
           Aiur.Opencode.SessionSupervisor,
           Aiur.Opencode.SessionWriter,
           Aiur.Opencode.SessionWriterRegistry,
-          Aiur.Opencode.WarmAttach,
           Aiur.Opencode.WarmServer,
           Aiur.Opencode.WorkspaceSetup,
           Aiur.Shutdown

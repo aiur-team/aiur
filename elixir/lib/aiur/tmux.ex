@@ -79,8 +79,9 @@ defmodule Aiur.Tmux do
   Create a new tmux window detached from the current view and run
   `command_to_run` inside it. Returns the pane id of the new pane.
 
-  Used by `Aiur.Opencode.WarmAttach` to pre-launch `opencode attach`
-  out of sight; `join_pane/3` moves it into the visible window later.
+  Used by `Aiur.Opencode.HiddenWindow` to create the persistent hidden
+  warm window at boot; `move_pane_visible/2` later promotes background
+  panes from this window into the visible agents window.
   """
   @spec new_hidden_window(GenServer.server(), String.t(), String.t()) ::
           {:ok, String.t()} | {:error, term()}

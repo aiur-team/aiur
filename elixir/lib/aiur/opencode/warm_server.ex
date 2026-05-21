@@ -3,7 +3,8 @@ defmodule Aiur.Opencode.WarmServer do
   Owns the pre-warmed `opencode serve` Aiur spawns at boot in a neutral
   workspace. Eating the ~3-4 s serve startup off the user's critical
   path is half the perceived-latency win for first agent open; the
-  attach-side warm-up lives in `Aiur.Opencode.WarmAttach`.
+  per-agent attach-side work lives in `Aiur.Opencode.AttachQueue` +
+  `Aiur.Opencode.AgentAttach`.
 
   After the serve is ready, runs boot-time GC against opencode's session
   list: any session whose model is Aiur-owned but whose title doesn't
