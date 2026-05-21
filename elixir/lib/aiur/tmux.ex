@@ -76,6 +76,37 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Create a new tmux window detached from the current view and run
+  `command_to_run` inside it. Returns the pane id of the new pane.
+
+  Used by `Aiur.Opencode.WarmAttach` to pre-launch `opencode attach`
+  out of sight; `join_pane/3` moves it into the visible window later.
+  """
+  @spec new_hidden_window(GenServer.server(), String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def new_hidden_window(server \\ __MODULE__, window_name, command_to_run)
+      when is_binary(window_name) and is_binary(command_to_run) do
+    GenServer.call(server, {:new_hidden_window, window_name, command_to_run}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Move `source_pane` into `target_window`. Preserves the running
+  process and the pane id — verified against tmux 3.5a on aiur's
+  isolated socket.
+  """
+  @spec join_pane(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def join_pane(server \\ __MODULE__, source_pane, target_window)
+      when is_binary(source_pane) and is_binary(target_window) do
+    GenServer.call(server, {:join_pane, source_pane, target_window}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Send `text` to `pane_id` as a single literal keystroke buffer (tmux's
   `send-keys -l`). Bypasses the string-split parsing in `command/3` which
   would mangle whitespace and quote characters.
@@ -293,6 +324,27 @@ defmodule Aiur.Tmux do
 
   def handle_call({:send_keys_literal, pane_id, text}, _from, state) do
     case run_args(state, ["send-keys", "-t", pane_id, "-l", text]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:new_hidden_window, window_name, command_to_run}, _from, state) do
+    # `-d` keeps the new window in the background; `-P -F #{pane_id}` makes
+    # tmux print the pane id so we can target it later for `join-pane`.
+    args = ["new-window", "-d", "-n", window_name, "-P", "-F", "\#{pane_id}", command_to_run]
+
+    case run_args(state, args) do
+      {:ok, [pane_id | _]} -> {:reply, {:ok, String.trim(pane_id)}, state}
+      {:ok, []} -> {:reply, {:error, :no_pane_id}, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:join_pane, source_pane, target_window}, _from, state) do
+    # `-h` makes the joined pane a horizontal split next to the existing
+    # panes in the target window; layout reflow happens on the caller side.
+    case run_args(state, ["join-pane", "-s", source_pane, "-t", target_window, "-h"]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end
