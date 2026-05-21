@@ -101,5 +101,45 @@ defmodule Aiur.Opencode.Config do
     end
   end
 
+  @doc """
+  Path used as the cwd of the warm `opencode serve`. Defaults to
+  `~/.local/share/aiur/opencode-warm`. Override via the workflow's
+  `opencode.prewarm_workspace` setting.
+  """
+  @spec prewarm_workspace() :: String.t()
+  def prewarm_workspace do
+    case section_value("prewarm_workspace") do
+      value when is_binary(value) ->
+        value = String.trim(value)
+
+        if value == "" do
+          default_prewarm_workspace()
+        else
+          Path.expand(value)
+        end
+
+      _ ->
+        default_prewarm_workspace()
+    end
+  end
+
+  defp default_prewarm_workspace do
+    Path.join([System.user_home!() || "/tmp", ".local/share/aiur/opencode-warm"])
+  end
+
+  @doc """
+  Returns true when pre-warm should be skipped — workflow override or
+  `AIUR_PREWARM_DISABLED=1` env var. Lets users opt out without code
+  changes (e.g. on tmux <3.0 where `join-pane` semantics may differ).
+  """
+  @spec prewarm_disabled?() :: boolean()
+  def prewarm_disabled? do
+    cond do
+      section_value("prewarm_disabled") == true -> true
+      System.get_env("AIUR_PREWARM_DISABLED") in ["1", "true", "yes"] -> true
+      true -> false
+    end
+  end
+
   defp section_value(key), do: Map.get(Aiur.Config.section("opencode"), key)
 end

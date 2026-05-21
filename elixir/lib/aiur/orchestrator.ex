@@ -1742,6 +1742,24 @@ defmodule Aiur.Orchestrator do
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
   @doc """
+  Returns the identifiers Aiur currently knows are running. Used by
+  `Aiur.Opencode.WarmServer` at boot-time GC to decide which leftover
+  opencode sessions belong to live agents vs ungraceful prior exits.
+  """
+  @spec list_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
+  def list_active_identifiers(server \\ __MODULE__, timeout \\ 1_000) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, :list_active_identifiers, timeout)
+      catch
+        :exit, _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  @doc """
   Lightweight read of the polling clock so UI surfaces (the agent-list
   pane) can render a "Next refresh: Ns" countdown without doing a full
   `snapshot/0` every tick. Returns `%{checking?: boolean, next_poll_in_ms: integer | nil}`,
@@ -1788,6 +1806,16 @@ defmodule Aiur.Orchestrator do
     }
 
     {:reply, reply, state}
+  end
+
+  def handle_call(:list_active_identifiers, _from, state) do
+    identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
+      |> Enum.reject(&is_nil/1)
+
+    {:reply, identifiers, state}
   end
 
   def handle_call(:snapshot, _from, state) do
