@@ -288,10 +288,6 @@ defmodule Aiur.PaneManager do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
       case Aiur.Opencode.PaneSession.start(identifier, workspace) do
         {:ok, %{attach_command: command}} ->
-          # Signal the loading script to exit; it will leave behind any
-          # type-ahead the user typed in the fake input box.
-          _ = File.write(Path.join(workspace, ".aiur-pane-ready"), "1")
-
           case Tmux.respawn_pane(tmux, pane_id, command) do
             :ok ->
               Logger.info("opencode_pane respawn_complete identifier=#{identifier} pane_id=#{pane_id}")
@@ -303,7 +299,6 @@ defmodule Aiur.PaneManager do
 
         {:error, reason} ->
           Logger.warning("opencode_pane start_failed_async identifier=#{identifier} reason=#{inspect(reason)}")
-          _ = File.write(Path.join(workspace, ".aiur-pane-ready"), "1")
           msg = "opencode pane failed: #{inspect(reason)}"
           escaped = Aiur.Opencode.Protocol.shell_escape(msg)
           _ = Tmux.respawn_pane(tmux, pane_id, "printf %s #{escaped}; sleep 15")
@@ -315,14 +310,19 @@ defmodule Aiur.PaneManager do
 
   defp async_attach_opencode(_command, _identifier, _pane_id, _tmux), do: :ok
 
-  # Wait briefly for opencode to draw its TUI, then replay the type-ahead via
-  # `tmux send-keys`. opencode handles literal typed chars the same way as if
-  # the user had typed them.
+  # Wait for opencode's TUI to draw its input box before replaying type-ahead
+  # via `tmux send-keys`. opencode 1.15 doesn't expose a "ready-for-input" signal,
+  # so we poll the pane content for the "Build" footer string that opencode
+  # paints once the TUI is fully rendered. Falls through after 10 s to avoid
+  # hanging on UI changes.
   defp replay_typeahead(workspace, pane_id, tmux) do
     typeahead_path = Path.join(workspace, ".aiur-typeahead")
 
     case File.read(typeahead_path) do
       {:ok, content} when byte_size(content) > 0 ->
+        wait_for_opencode_input(tmux, pane_id, 50)
+        # opencode paints its footer before the input handler is wired up;
+        # a short post-detection buffer keeps the first chars from being lost.
         Process.sleep(1_500)
         send_chunks = Aiur.Opencode.Protocol.shell_escape(content)
         _ = Tmux.command(tmux, "send-keys -t #{pane_id} -l #{send_chunks}")
@@ -330,6 +330,24 @@ defmodule Aiur.PaneManager do
 
       _ ->
         :ok
+    end
+  end
+
+  defp wait_for_opencode_input(_tmux, _pane_id, 0), do: :timeout
+
+  defp wait_for_opencode_input(tmux, pane_id, attempts_left) do
+    case Tmux.command(tmux, "capture-pane -t #{pane_id} -p") do
+      {:ok, output} when is_binary(output) ->
+        if String.contains?(output, "Build") and String.contains?(output, "tab agents") do
+          :ok
+        else
+          Process.sleep(100)
+          wait_for_opencode_input(tmux, pane_id, attempts_left - 1)
+        end
+
+      _ ->
+        Process.sleep(100)
+        wait_for_opencode_input(tmux, pane_id, attempts_left - 1)
     end
   end
 

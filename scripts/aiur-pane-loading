@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 # Static loading layout shown while opencode boots. Renders a mock of opencode's
 # chrome with the issue identifier and a fake input box. Captures any keystrokes
-# the user types into a type-ahead buffer; PaneSession reads that buffer and
-# replays it into the real opencode pane after attach.
+# the user types into a type-ahead buffer; PaneManager.replay_typeahead/3 reads
+# that buffer and replays it into the real opencode pane after attach.
 #
 # Args:
-#   $1  workspace directory (used to locate the ready-signal + typeahead files)
+#   $1  workspace directory (used to locate the typeahead file)
 #   $2  issue identifier
 #   $3  issue title (may be empty)
 #
 # Lifecycle:
-#   * Renders the layout, captures input into `$workspace/.aiur-typeahead` until
-#     `$workspace/.aiur-pane-ready` appears, then exits 0.
-#   * `tmux respawn-pane` from PaneManager replaces this process with
-#     `opencode attach …`, preserving the same pane id.
+#   * Renders the layout, captures input into `$workspace/.aiur-typeahead`, and
+#     loops forever. `tmux respawn-pane -k` from PaneManager kills this process
+#     and replaces it with `opencode attach …` (preserving the same pane id).
 
 set -u
 
@@ -21,7 +20,6 @@ workspace=${1:?workspace required}
 identifier=${2:?identifier required}
 title=${3:-}
 
-ready_signal="$workspace/.aiur-pane-ready"
 typeahead="$workspace/.aiur-typeahead"
 
 rm -f "$typeahead"
@@ -82,9 +80,11 @@ trap cleanup EXIT INT TERM
 input=""
 draw_box "$input"
 
-# Poll for the ready signal while non-blockingly reading single keystrokes.
+# Read keystrokes until `tmux respawn-pane -k` kills this process from above.
+# A self-exit would race the respawn: the script could exit (=> pane closes)
+# before tmux runs respawn-pane, leaving nothing to replace.
 # `read -r -s -n 1 -t 0.05` waits up to 50ms for one char so we don't busy-loop.
-while [ ! -f "$ready_signal" ]; do
+while true; do
   if IFS= read -r -s -n 1 -t 0.05 ch; then
     if [ -n "$ch" ]; then
       case "$ch" in
@@ -107,5 +107,3 @@ while [ ! -f "$ready_signal" ]; do
     fi
   fi
 done
-
-exit 0
