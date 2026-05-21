@@ -79,9 +79,14 @@ defmodule Aiur.Opencode.Protocol do
             "baseURL" => bridge_url <> "/v1",
             "apiKey" => bridge_token
           },
+          # Display name is identifier-agnostic. The model identifier
+          # itself still encodes the agent via `issue-<safe_id>` (used by
+          # the bridge to route chat-completion requests), but the
+          # human-visible string in opencode's TUI chrome never carries
+          # internal markers like `_warm` or `_placeholder`.
           "models" => %{
             "issue-#{safe_id}" => %{
-              "name" => "Aiur #{identifier}"
+              "name" => "Aiur"
             }
           }
         }
