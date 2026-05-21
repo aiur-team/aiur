@@ -6,11 +6,64 @@ defmodule Aiur.Opencode.ApiClient do
   @receive_timeout 30_000
 
   @spec create_session(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def create_session(base_url, title), do: request(:post, base_url, "/session", json: %{title: title})
+  def create_session(base_url, title), do: create_session(base_url, title, [])
+
+  @doc """
+  Create a session with optional `:model` map and `:directory` string.
+
+  `:directory` becomes a `?directory=` query parameter on the URL — opencode
+  honours this to override the session's stored cwd (verified live; the
+  field is not in the OpenAPI request-body schema, only the query).
+  `:model` (e.g. `%{providerID: "aiur", id: "issue-13"}`) goes in the body.
+  """
+  @spec create_session(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_session(base_url, title, opts) when is_list(opts) do
+    body = %{title: title}
+
+    body =
+      case Keyword.get(opts, :model) do
+        nil -> body
+        model -> Map.put(body, :model, model)
+      end
+
+    path =
+      case Keyword.get(opts, :directory) do
+        nil -> "/session"
+        dir when is_binary(dir) -> "/session?directory=" <> URI.encode_www_form(dir)
+      end
+
+    request(:post, base_url, path, json: body)
+  end
 
   @spec post_message(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def post_message(base_url, session_id, payload),
     do: request(:post, base_url, "/session/#{session_id}/message", json: payload)
+
+  @spec select_session(String.t(), String.t()) :: :ok | {:error, term()}
+  def select_session(base_url, session_id) when is_binary(session_id) do
+    case request(:post, base_url, "/tui/select-session", json: %{sessionID: session_id}) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  @spec delete_session(String.t(), String.t()) :: :ok | {:error, term()}
+  def delete_session(base_url, session_id) when is_binary(session_id) do
+    case request(:delete, base_url, "/session/#{session_id}") do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  @spec list_sessions(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_sessions(base_url) do
+    case request(:get, base_url, "/session") do
+      {:ok, list} when is_list(list) -> {:ok, list}
+      {:ok, %{"body" => list}} when is_list(list) -> {:ok, list}
+      {:ok, other} -> {:error, {:unexpected_body, other}}
+      error -> error
+    end
+  end
 
   @spec show_toast(String.t(), String.t(), String.t(), String.t() | atom()) :: {:ok, map()} | {:error, term()}
   def show_toast(base_url, title, message, variant),
