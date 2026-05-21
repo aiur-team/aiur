@@ -36,6 +36,25 @@ defmodule Aiur.Opencode.SessionWriter do
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
+  @doc """
+  Block until the writer has finished replaying on-disk history into
+  opencode's SQLite. Returns `:ok` once the boot continuation has run.
+
+  The barrier works because `replay_history/1` runs **synchronously**
+  inside `handle_continue(:boot, ...)` and the GenServer mailbox is
+  strictly FIFO — any `handle_call` arriving after the registry's
+  `ensure/2` returns is queued behind the boot continuation. If
+  `replay_history/1` is ever made async (Tasks, `send(self(), …)`,
+  etc.), this barrier must be revisited.
+  """
+  @spec await_replay(GenServer.server(), timeout()) :: :ok | {:error, term()}
+  def await_replay(server, timeout \\ 5_000) do
+    GenServer.call(server, :await_replay, timeout)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_writer}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -67,6 +86,9 @@ defmodule Aiur.Opencode.SessionWriter do
     root_msg_id = replay_history(state)
     {:noreply, %{state | root_msg_id: root_msg_id}}
   end
+
+  @impl true
+  def handle_call(:await_replay, _from, state), do: {:reply, :ok, state}
 
   @impl true
   def handle_info({:transcript_event, %{role: :user}}, state), do: {:noreply, state}
