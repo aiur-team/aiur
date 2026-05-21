@@ -69,4 +69,27 @@ defmodule Aiur.Opencode.BridgeTest do
     refute conn.status == 400
     assert conn.status == 401
   end
+
+  test "chat completions short-circuits placeholder model with an empty SSE stream" do
+    # The pre-warmed placeholder session uses model "aiur/placeholder"; opencode
+    # might emit a stray completion call against it. We respond 200 + [DONE] so
+    # opencode doesn't surface an error toast.
+    for model <- ["aiur/placeholder", "placeholder"] do
+      conn =
+        :post
+        |> conn(
+          "/v1/chat/completions",
+          Jason.encode!(%{
+            model: model,
+            messages: [%{role: "user", content: "anything"}],
+            stream: true
+          })
+        )
+        |> put_req_header("content-type", "application/json")
+        |> Bridge.call(@opts)
+
+      assert conn.status == 200, "expected 200 for placeholder model #{inspect(model)}"
+      assert conn.resp_body =~ "[DONE]"
+    end
+  end
 end

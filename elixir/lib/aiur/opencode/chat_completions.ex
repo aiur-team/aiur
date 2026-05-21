@@ -4,26 +4,59 @@ defmodule Aiur.Opencode.ChatCompletions do
   require Logger
 
   alias Aiur.{AgentChat, AgentPubSub}
-  alias Aiur.Opencode.Config
+  alias Aiur.Opencode.{Config, Db}
+
+  @stream_marker_prefix "__aiur_stream__:"
+  @stream_marker_regex ~r/\A__aiur_stream__:(msg_[A-Z0-9]+)\z/
 
   @max_body_bytes 65_536
   @watchdog_ms 600_000
 
   @spec handle(map(), Plug.Conn.t()) :: Plug.Conn.t()
   def handle(body, conn) do
-    with {:ok, identifier} <- identifier_from_model(Map.get(body, "model")),
-         {:ok, text} <- last_user_text(body),
-         {:ok, sanitized} <- validate_body(text),
-         {:ok, conn} <- maybe_authorized(conn, identifier) do
-      if Map.get(body, "stream", true) do
-        stream_turn(conn, identifier, sanitized)
-      else
-        non_stream_turn(conn, identifier, sanitized)
-      end
-    else
-      {:error, :unauthorized} -> json(conn, 401, auth_failed_body())
-      {:error, :body_too_large} -> json(conn, 400, %{error: "body too large"})
-      {:error, reason} -> json(conn, 400, %{error: inspect(reason)})
+    case identifier_from_model(Map.get(body, "model")) do
+      {:ok, identifier} ->
+        handle_identified(body, conn, identifier)
+
+      {:error, :placeholder_session} ->
+        # Stray call against the warm placeholder session. Return an empty
+        # SSE stream so opencode doesn't render an error toast.
+        empty_stream(conn)
+
+      {:error, reason} ->
+        json(conn, 400, %{error: inspect(reason)})
+    end
+  end
+
+  defp handle_identified(body, conn, identifier) do
+    text = last_user_text(body)
+
+    case text do
+      {:ok, @stream_marker_prefix <> _ = marker} ->
+        case Regex.run(@stream_marker_regex, marker) do
+          [_, message_id] ->
+            replay_message_as_stream(conn, identifier, message_id)
+
+          _ ->
+            json(conn, 400, %{error: "invalid stream marker"})
+        end
+
+      {:ok, raw_text} ->
+        with {:ok, sanitized} <- validate_body(raw_text),
+             {:ok, conn} <- maybe_authorized(conn, identifier) do
+          if Map.get(body, "stream", true) do
+            stream_turn(conn, identifier, sanitized)
+          else
+            non_stream_turn(conn, identifier, sanitized)
+          end
+        else
+          {:error, :unauthorized} -> json(conn, 401, auth_failed_body())
+          {:error, :body_too_large} -> json(conn, 400, %{error: "body too large"})
+          {:error, reason} -> json(conn, 400, %{error: inspect(reason)})
+        end
+
+      {:error, reason} ->
+        json(conn, 400, %{error: inspect(reason)})
     end
   end
 
@@ -155,24 +188,89 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp delta(content), do: %{content: content}
 
   defp identifier_from_model(model) when is_binary(model) do
-    # opencode sends just `issue-<id>` to the provider's chat-completions endpoint;
-    # the `aiur/` provider routing has already happened. Accept both shapes.
-    prefix = Regex.escape(Config.model_prefix())
-    regex = ~r/\A(?:#{prefix}\/)?issue-([A-Za-z0-9._-]+)\z/
+    cond do
+      placeholder_model?(model) ->
+        {:error, :placeholder_session}
 
-    case Regex.run(regex, model) do
-      [_match, identifier] ->
-        {:ok, identifier}
+      true ->
+        # opencode sends just `issue-<id>` to the provider's chat-completions endpoint;
+        # the `aiur/` provider routing has already happened. Accept both shapes.
+        prefix = Regex.escape(Config.model_prefix())
+        regex = ~r/\A(?:#{prefix}\/)?issue-([A-Za-z0-9._-]+)\z/
 
-      _ ->
-        Logger.warning("opencode_bridge invalid_model received_model=#{inspect(model)}")
-        {:error, :invalid_model}
+        case Regex.run(regex, model) do
+          [_match, identifier] ->
+            {:ok, identifier}
+
+          _ ->
+            Logger.warning("opencode_bridge invalid_model received_model=#{inspect(model)}")
+            {:error, :invalid_model}
+        end
     end
   end
 
   defp identifier_from_model(model) do
     Logger.warning("opencode_bridge invalid_model received_model=#{inspect(model)}")
     {:error, :invalid_model}
+  end
+
+  defp placeholder_model?(model) do
+    prefix = Config.model_prefix()
+    model == "placeholder" or model == "#{prefix}/placeholder"
+  end
+
+  defp empty_stream(conn) do
+    conn =
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
+      |> Plug.Conn.send_chunked(200)
+
+    {:ok, conn} = Plug.Conn.chunk(conn, "data: [DONE]\n\n")
+    conn
+  end
+
+  # Synthetic-marker round-trip: `SessionWriter` writes assistant rows
+  # directly into opencode's SQLite, then POSTs a synthetic user message
+  # carrying `__aiur_stream__:<msg_id>`. opencode triggers a chat-completion
+  # call here; we read the just-written rows back and stream them as
+  # assistant deltas so the attached TUI renders them in real time.
+  defp replay_message_as_stream(conn, identifier, message_id) do
+    completion_id = "chatcmpl-" <> random_id()
+
+    conn =
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
+      |> Plug.Conn.send_chunked(200)
+
+    session_id =
+      case Aiur.Opencode.SessionWriterRegistry.lookup(identifier) do
+        {:ok, %{session_id: sid}} -> sid
+        _ -> nil
+      end
+
+    case session_id && Db.fetch_message_with_parts(session_id, message_id) do
+      {:ok, %{parts: parts}} ->
+        conn =
+          Enum.reduce(parts, conn, fn part, acc ->
+            case part do
+              %{"type" => "text", "text" => text} when is_binary(text) and text != "" ->
+                chunk(acc, completion_id, text, nil)
+
+              _ ->
+                acc
+            end
+          end)
+
+        chunk(conn, completion_id, nil, "stop")
+
+      _ ->
+        Logger.warning(
+          "opencode_bridge stream_replay message_not_found identifier=#{identifier} message_id=#{message_id}"
+        )
+
+        conn = chunk(conn, completion_id, "**system:** message not found", nil)
+        chunk(conn, completion_id, nil, "stop")
+    end
   end
 
   defp last_user_text(%{"messages" => messages}) when is_list(messages) do
