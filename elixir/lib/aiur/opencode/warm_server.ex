@@ -74,7 +74,9 @@ defmodule Aiur.Opencode.WarmServer do
     with {:ok, token} <- WorkspaceSetup.materialize_prewarm(workspace, bridge_url),
          {:ok, server} <- Server.start_link(%{identifier: "_warm", workspace: workspace}),
          {:ok, base_url, _os_pid} <- Server.await_ready(server) do
-      Logger.info("opencode_warm_server phase=ready base_url=#{base_url}")
+      Logger.info(
+        "opencode_warm_server phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} base_url=#{base_url}"
+      )
 
       gc_leftover_sessions(base_url)
 

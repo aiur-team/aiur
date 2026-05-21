@@ -157,7 +157,7 @@ defmodule Aiur.Opencode.SessionWriter do
       end)
 
     Logger.info(
-      "opencode_session_writer phase=ready identifier=#{state.identifier} session_id=#{state.session_id} replayed=#{replayed}"
+      "opencode_session_writer phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{state.identifier} session_id=#{state.session_id} replayed=#{replayed}"
     )
 
     root_msg_id

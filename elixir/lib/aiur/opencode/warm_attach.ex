@@ -94,7 +94,7 @@ defmodule Aiur.Opencode.WarmAttach do
          attach_cmd = Protocol.attach_command(state.base_url, session_id),
          {:ok, pane_id} <- Tmux.new_hidden_window(state.hidden_window_name, attach_cmd) do
       Logger.info(
-        "opencode_warm_attach phase=ready pane_id=#{pane_id} session_id=#{session_id} base_url=#{state.base_url}"
+        "opencode_warm_attach phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} pane_id=#{pane_id} session_id=#{session_id} base_url=#{state.base_url}"
       )
 
       {:noreply,

@@ -133,6 +133,11 @@ defmodule Aiur.AgentList.App do
     schedule_refresh_tick()
     schedule_geometry_tick()
     render(state)
+
+    Logger.info(
+      "aiur_agent_list phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} agents=#{length(state.summaries)}"
+    )
+
     {:ok, state}
   end
 
