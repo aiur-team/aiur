@@ -56,8 +56,7 @@ defmodule Aiur.Opencode.PaneSession do
 
     with {:ok, _} <- WorkspaceSetup.materialize(state.workspace, state.identifier, bridge_url, token),
          {:ok, server} <- Server.start_link(%{identifier: state.identifier, workspace: state.workspace}),
-         {:ok, base_url, os_pid} <- Server.await_ready(server),
-         {:ok, _} <- WorkspaceSetup.materialize(state.workspace, state.identifier, bridge_url, token, os_pid),
+         {:ok, base_url, _os_pid} <- Server.await_ready(server),
          {:ok, session} <- ApiClient.create_session(base_url, state.identifier),
          session_id when is_binary(session_id) <- session_id_from(session),
          {:ok, _relay} <-
