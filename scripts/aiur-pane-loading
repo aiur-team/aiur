@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Static loading layout shown while opencode boots. Renders a mock of opencode's
+# chrome with the issue identifier and a fake input box. Captures any keystrokes
+# the user types into a type-ahead buffer; PaneSession reads that buffer and
+# replays it into the real opencode pane after attach.
+#
+# Args:
+#   $1  workspace directory (used to locate the ready-signal + typeahead files)
+#   $2  issue identifier
+#   $3  issue title (may be empty)
+#
+# Lifecycle:
+#   * Renders the layout, captures input into `$workspace/.aiur-typeahead` until
+#     `$workspace/.aiur-pane-ready` appears, then exits 0.
+#   * `tmux respawn-pane` from PaneManager replaces this process with
+#     `opencode attach …`, preserving the same pane id.
+
+set -u
+
+workspace=${1:?workspace required}
+identifier=${2:?identifier required}
+title=${3:-}
+
+ready_signal="$workspace/.aiur-pane-ready"
+typeahead="$workspace/.aiur-typeahead"
+
+rm -f "$typeahead"
+: >"$typeahead"
+
+# `\033[?25l` hides the terminal cursor while we render the static layout.
+# `\033[?1049h` switches to the alternate screen buffer (like vim) so we don't
+# scroll the user's tmux scrollback. We *don't* switch back — `tmux respawn-pane
+# -k` kills this process and the new `opencode attach` will set up its own
+# rendering.
+printf '\033[?1049h\033[?25l\033[2J\033[H'
+
+cols=${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}
+rows=${LINES:-$(tput lines 2>/dev/null || echo 24)}
+
+draw_box() {
+  local input="$1"
+  printf '\033[H'   # cursor home
+  printf '\033[2J'  # clear
+
+  # Top accent line + chat-message-style block.
+  printf '  \033[36m┃\033[0m\n'
+  printf '  \033[36m┃\033[0m  \033[1mIssue %s\033[0m' "$identifier"
+  if [ -n "$title" ]; then
+    printf ' — %s' "$title"
+  fi
+  printf '\n'
+  printf '  \033[36m┃\033[0m\n'
+  printf '  \033[36m┃\033[0m  \033[2mStarting opencode session…\033[0m\n'
+  printf '  \033[36m┃\033[0m\n'
+
+  # Move cursor to the bottom rows for the input box.
+  printf '\033[%d;1H' "$((rows - 2))"
+  # Build a separator the width of the pane
+  printf '\033[2m'
+  printf '─%.0s' $(seq 1 "$cols")
+  printf '\033[0m\n'
+  printf '\033[%d;1H' "$((rows - 1))"
+  printf '\033[36m> \033[0m'
+  if [ -n "$input" ]; then
+    printf '%s' "$input"
+  else
+    printf '\033[2mType to start composing your first message…\033[0m'
+  fi
+  printf '\n'
+  printf '\033[%d;1H' "$rows"
+  printf '\033[2m  ↳ The real opencode TUI will replace this view in a moment.\033[0m'
+
+  # Park the cursor at the end of the input
+  printf '\033[%d;%dH' "$((rows - 1))" "$((3 + ${#input}))"
+}
+
+cleanup() {
+  printf '\033[?25h'  # show cursor
+}
+trap cleanup EXIT INT TERM
+
+input=""
+draw_box "$input"
+
+# Poll for the ready signal while non-blockingly reading single keystrokes.
+# `read -r -s -n 1 -t 0.05` waits up to 50ms for one char so we don't busy-loop.
+while [ ! -f "$ready_signal" ]; do
+  if IFS= read -r -s -n 1 -t 0.05 ch; then
+    if [ -n "$ch" ]; then
+      case "$ch" in
+        $'\x7f' | $'\b')
+          # backspace
+          input=${input%?}
+          printf '%s' "$input" >"$typeahead"
+          ;;
+        $'\n' | $'\r')
+          # Enter while loading - just buffer it as newline; opencode submits on Enter
+          input+=$'\n'
+          printf '%s' "$input" >"$typeahead"
+          ;;
+        *)
+          input+="$ch"
+          printf '%s' "$input" >"$typeahead"
+          ;;
+      esac
+      draw_box "$input"
+    fi
+  fi
+done
+
+exit 0

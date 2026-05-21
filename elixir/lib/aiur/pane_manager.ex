@@ -77,11 +77,11 @@ defmodule Aiur.PaneManager do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @spec open_conversation(GenServer.server(), agent_id(), String.t()) ::
+  @spec open_conversation(GenServer.server(), agent_id(), String.t(), keyword()) ::
           {:ok, pane_id()} | {:error, term()}
-  def open_conversation(server \\ __MODULE__, identifier, command_to_run)
-      when is_binary(identifier) and is_binary(command_to_run) do
-    GenServer.call(server, {:open, identifier, command_to_run})
+  def open_conversation(server \\ __MODULE__, identifier, command_to_run, opts \\ [])
+      when is_binary(identifier) and is_binary(command_to_run) and is_list(opts) do
+    GenServer.call(server, {:open, identifier, command_to_run, opts})
   end
 
   @spec close_conversation(GenServer.server(), agent_id()) :: :ok | {:error, term()}
@@ -157,7 +157,7 @@ defmodule Aiur.PaneManager do
   end
 
   @impl true
-  def handle_call({:open, identifier, command_to_run}, _from, state) do
+  def handle_call({:open, identifier, command_to_run, opts}, _from, state) do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, existing_pane} ->
         case Tmux.command(state.tmux, "select-pane -t #{existing_pane}") do
@@ -165,11 +165,11 @@ defmodule Aiur.PaneManager do
             {:reply, {:ok, existing_pane}, state}
 
           {:error, _reason} ->
-            do_open(forget_pane_by_identifier(state, existing_pane), identifier, command_to_run)
+            do_open(forget_pane_by_identifier(state, existing_pane), identifier, command_to_run, opts)
         end
 
       :error ->
-        do_open(state, identifier, command_to_run)
+        do_open(state, identifier, command_to_run, opts)
     end
   end
 
@@ -246,8 +246,8 @@ defmodule Aiur.PaneManager do
 
   # Slot allocation ----------------------------------------------------------
 
-  defp do_open(state, identifier, command_to_run) do
-    wrapped = command_for_pane(command_to_run, identifier)
+  defp do_open(state, identifier, command_to_run, opts) do
+    wrapped = command_for_pane(command_to_run, identifier, opts)
     slot = state.cycle_index + 1
 
     case open_in_slot(state, slot, identifier, wrapped) do
@@ -264,13 +264,21 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  # Pane appears immediately with a styled placeholder; PaneSession boots in a Task
-  # and `tmux respawn-pane`s in the real `opencode attach` command when ready.
-  defp command_for_pane("__aiur_opencode__ " <> _rest, _identifier) do
-    "printf '\\033[1;36mStarting opencode...\\033[0m\\n'; sleep infinity"
+  # Pane appears immediately with a styled placeholder (ticket info + fake input box).
+  # PaneSession boots in a Task and `tmux respawn-pane`s in the real `opencode attach`
+  # command when ready. Type-ahead captured by the loading script is replayed via
+  # `tmux send-keys` after the real opencode TUI takes over.
+  defp command_for_pane("__aiur_opencode__ " <> _rest, identifier, opts) do
+    workspace = opencode_workspace_for(identifier)
+    title = opts |> Keyword.get(:title) |> to_string()
+    loading_bin = System.get_env("AIUR_PANE_LOADING_BIN") || "aiur-pane-loading"
+
+    [loading_bin, workspace, identifier, title]
+    |> Enum.map(&Aiur.Opencode.Protocol.shell_escape/1)
+    |> Enum.join(" ")
   end
 
-  defp command_for_pane(command_to_run, identifier) do
+  defp command_for_pane(command_to_run, identifier, _opts) do
     wrap_with_unique_node(command_to_run, identifier)
   end
 
@@ -280,9 +288,14 @@ defmodule Aiur.PaneManager do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
       case Aiur.Opencode.PaneSession.start(identifier, workspace) do
         {:ok, %{attach_command: command}} ->
+          # Signal the loading script to exit; it will leave behind any
+          # type-ahead the user typed in the fake input box.
+          _ = File.write(Path.join(workspace, ".aiur-pane-ready"), "1")
+
           case Tmux.respawn_pane(tmux, pane_id, command) do
             :ok ->
               Logger.info("opencode_pane respawn_complete identifier=#{identifier} pane_id=#{pane_id}")
+              replay_typeahead(workspace, pane_id, tmux)
 
             {:error, reason} ->
               Logger.warning("opencode_pane respawn_failed identifier=#{identifier} reason=#{inspect(reason)}")
@@ -290,6 +303,7 @@ defmodule Aiur.PaneManager do
 
         {:error, reason} ->
           Logger.warning("opencode_pane start_failed_async identifier=#{identifier} reason=#{inspect(reason)}")
+          _ = File.write(Path.join(workspace, ".aiur-pane-ready"), "1")
           msg = "opencode pane failed: #{inspect(reason)}"
           escaped = Aiur.Opencode.Protocol.shell_escape(msg)
           _ = Tmux.respawn_pane(tmux, pane_id, "printf %s #{escaped}; sleep 15")
@@ -300,6 +314,24 @@ defmodule Aiur.PaneManager do
   end
 
   defp async_attach_opencode(_command, _identifier, _pane_id, _tmux), do: :ok
+
+  # Wait briefly for opencode to draw its TUI, then replay the type-ahead via
+  # `tmux send-keys`. opencode handles literal typed chars the same way as if
+  # the user had typed them.
+  defp replay_typeahead(workspace, pane_id, tmux) do
+    typeahead_path = Path.join(workspace, ".aiur-typeahead")
+
+    case File.read(typeahead_path) do
+      {:ok, content} when byte_size(content) > 0 ->
+        Process.sleep(1_500)
+        send_chunks = Aiur.Opencode.Protocol.shell_escape(content)
+        _ = Tmux.command(tmux, "send-keys -t #{pane_id} -l #{send_chunks}")
+        _ = File.rm(typeahead_path)
+
+      _ ->
+        :ok
+    end
+  end
 
   defp opencode_workspace_for(identifier) do
     Aiur.Config.workspace_root()

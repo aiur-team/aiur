@@ -160,13 +160,19 @@ defmodule Aiur.AgentList.App do
   def handle_cast(:activate, state) do
     if state.selection_focus == :agents do
       case Enum.at(state.summaries, state.selection_index) do
-        %{identifier: identifier} ->
+        %{identifier: identifier} = summary ->
           Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
           command = "#{state.command_template} #{identifier}"
           # Routes through the agent-native facade so external consumers
           # (MCP bridge, automation agents) drive conversations the same
           # way the CLI does.
-          _ = PaneManager.open_conversation(state.pane_manager, identifier, command)
+          _ =
+            PaneManager.open_conversation(
+              state.pane_manager,
+              identifier,
+              command,
+              title: Map.get(summary, :title)
+            )
 
         _ ->
           :ok

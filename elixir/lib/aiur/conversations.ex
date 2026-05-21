@@ -56,9 +56,10 @@ defmodule Aiur.Conversations do
   def open(identifier, opts \\ []) when is_binary(identifier) do
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
     command = Keyword.get(opts, :command, default_command(identifier))
+    pane_opts = Keyword.take(opts, [:title])
 
     with {:ok, ref} <- attach(identifier),
-         {:ok, pane_id} <- PaneManager.open_conversation(pane_manager, identifier, command) do
+         {:ok, pane_id} <- PaneManager.open_conversation(pane_manager, identifier, command, pane_opts) do
       {:ok, Map.put(ref, :pane_id, pane_id)}
     end
   end

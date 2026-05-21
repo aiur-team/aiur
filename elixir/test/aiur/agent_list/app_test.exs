@@ -10,11 +10,11 @@ defmodule Aiur.AgentList.AppTest do
     def start_link(parent), do: GenServer.start_link(__MODULE__, parent)
     def init(parent), do: {:ok, parent}
 
-    def open_conversation(pid, identifier, command) do
-      GenServer.call(pid, {:open, identifier, command})
+    def open_conversation(pid, identifier, command, opts \\ []) do
+      GenServer.call(pid, {:open, identifier, command, opts})
     end
 
-    def handle_call({:open, identifier, command}, _from, parent) do
+    def handle_call({:open, identifier, command, _opts}, _from, parent) do
       send(parent, {:mock_open, identifier, command})
       {:reply, {:ok, "%999"}, parent}
     end
