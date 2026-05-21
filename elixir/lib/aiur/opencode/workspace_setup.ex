@@ -16,8 +16,11 @@ defmodule Aiur.Opencode.WorkspaceSetup do
         opencode_os_pid: opencode_os_pid
       })
 
+    tui = Protocol.tui_json()
+
     with :ok <- File.mkdir_p(Path.join(workspace, ".opencode")),
-         :ok <- File.write(Path.join(workspace, "opencode.json"), Jason.encode!(config, pretty: true)) do
+         :ok <- File.write(Path.join(workspace, "opencode.json"), Jason.encode!(config, pretty: true)),
+         :ok <- File.write(Path.join(workspace, "tui.json"), Jason.encode!(tui, pretty: true)) do
       TokenRegistry.put(token, Config.safe_identifier(identifier))
       {:ok, token}
     end

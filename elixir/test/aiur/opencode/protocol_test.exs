@@ -41,6 +41,13 @@ defmodule Aiur.Opencode.ProtocolTest do
            }
   end
 
+  test "tui_json selects the none theme so the terminal background shows through" do
+    assert Protocol.tui_json() == %{
+             "$schema" => "https://opencode.ai/tui.json",
+             "theme" => "none"
+           }
+  end
+
   test "serve and attach commands are shell escaped" do
     assert Protocol.serve_command(1234, "127.0.0.1", ["--flag"]) =~ "serve --port 1234 --hostname 127.0.0.1 --flag"
     assert Protocol.attach_command("http://127.0.0.1:1234", "session one") =~ "'session one'"

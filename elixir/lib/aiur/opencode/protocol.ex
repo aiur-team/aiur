@@ -95,6 +95,15 @@ defmodule Aiur.Opencode.Protocol do
     }
   end
 
+  # `none` skips opencode's theme painting so the host terminal's background and palette show through.
+  @spec tui_json() :: map()
+  def tui_json do
+    %{
+      "$schema" => "https://opencode.ai/tui.json",
+      "theme" => "none"
+    }
+  end
+
   # opencode.json has `additionalProperties: false`; reap-path metadata lives in a sidecar file instead.
   @spec aiur_metadata(map()) :: map()
   def aiur_metadata(%{identifier: identifier} = attrs) do
