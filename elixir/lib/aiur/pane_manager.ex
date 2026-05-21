@@ -247,106 +247,125 @@ defmodule Aiur.PaneManager do
   # Slot allocation ----------------------------------------------------------
 
   defp do_open(state, identifier, command_to_run, opts) do
-    wrapped = command_for_pane(command_to_run, identifier, opts)
+    case command_to_run do
+      "__aiur_opencode__ " <> _ -> open_opencode_pane(state, identifier, opts)
+      _ -> open_generic_pane(state, identifier, command_to_run)
+    end
+  end
+
+  # Non-opencode commands (rare today; mostly the bare `echo ...` test paths)
+  # still go through the classic "split + wrap with unique BEAM node" flow.
+  defp open_generic_pane(state, identifier, command_to_run) do
+    wrapped = wrap_with_unique_node(command_to_run, identifier)
     slot = state.cycle_index + 1
 
     case open_in_slot(state, slot, identifier, wrapped) do
       {:ok, pane_id, new_state} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
         _ = apply_layout(new_state)
-        :ok = async_attach_opencode(command_to_run, identifier, pane_id, new_state.tmux)
         {:reply, {:ok, pane_id}, advance_cycle(new_state)}
 
       {:error, reason} ->
-        Logger.warning("PaneManager.open identifier=#{identifier} slot=#{slot} failed: #{inspect(reason)}")
+        Logger.warning(
+          "PaneManager.open identifier=#{identifier} slot=#{slot} failed: #{inspect(reason)}"
+        )
 
         {:reply, {:error, reason}, state}
     end
   end
 
-  # Pane appears immediately with a styled placeholder (ticket info + fake input box).
-  # PaneSession boots in a Task and `tmux respawn-pane`s in the real `opencode attach`
-  # command when ready. Type-ahead captured by the loading script is replayed via
-  # `tmux send-keys` after the real opencode TUI takes over.
-  defp command_for_pane("__aiur_opencode__ " <> _rest, identifier, opts) do
+  # opencode panes: try the warm hand-off path; fall back to cold attach if
+  # the pre-warm subsystem isn't ready (or is disabled). The session writer
+  # runs in both paths so history replay + live updates work regardless.
+  defp open_opencode_pane(state, identifier, _opts) do
     workspace = opencode_workspace_for(identifier)
-    title = opts |> Keyword.get(:title) |> to_string()
-    loading_bin = System.get_env("AIUR_PANE_LOADING_BIN") || "aiur-pane-loading"
+    _ = File.mkdir_p(workspace)
 
-    [loading_bin, workspace, identifier, title]
-    |> Enum.map(&Aiur.Opencode.Protocol.shell_escape/1)
-    |> Enum.join(" ")
-  end
-
-  defp command_for_pane(command_to_run, identifier, _opts) do
-    wrap_with_unique_node(command_to_run, identifier)
-  end
-
-  defp async_attach_opencode("__aiur_opencode__ " <> _rest, identifier, pane_id, tmux) do
-    workspace = opencode_workspace_for(identifier)
-
-    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-      case Aiur.Opencode.PaneSession.start(identifier, workspace) do
-        {:ok, %{attach_command: command}} ->
-          case Tmux.respawn_pane(tmux, pane_id, command) do
-            :ok ->
-              Logger.info("opencode_pane respawn_complete identifier=#{identifier} pane_id=#{pane_id}")
-              replay_typeahead(workspace, pane_id, tmux)
-
-            {:error, reason} ->
-              Logger.warning("opencode_pane respawn_failed identifier=#{identifier} reason=#{inspect(reason)}")
-          end
-
-        {:error, reason} ->
-          Logger.warning("opencode_pane start_failed_async identifier=#{identifier} reason=#{inspect(reason)}")
-          msg = "opencode pane failed: #{inspect(reason)}"
-          escaped = Aiur.Opencode.Protocol.shell_escape(msg)
-          _ = Tmux.respawn_pane(tmux, pane_id, "printf %s #{escaped}; sleep 15")
-      end
-    end)
-
-    :ok
-  end
-
-  defp async_attach_opencode(_command, _identifier, _pane_id, _tmux), do: :ok
-
-  # Wait for opencode's TUI to draw its input box before replaying type-ahead
-  # via `tmux send-keys`. opencode 1.15 doesn't expose a "ready-for-input" signal,
-  # so we poll the pane content for the "Build" footer string that opencode
-  # paints once the TUI is fully rendered. Falls through after 10 s to avoid
-  # hanging on UI changes.
-  defp replay_typeahead(workspace, pane_id, tmux) do
-    typeahead_path = Path.join(workspace, ".aiur-typeahead")
-
-    case File.read(typeahead_path) do
-      {:ok, content} when byte_size(content) > 0 ->
-        wait_for_opencode_input(tmux, pane_id, 50)
-        # opencode paints its footer before the input handler is wired up;
-        # a short post-detection buffer keeps the first chars from being lost.
-        Process.sleep(1_500)
-        _ = Tmux.send_keys_literal(tmux, pane_id, content)
-        _ = File.rm(typeahead_path)
+    case Aiur.Opencode.WarmAttach.status() do
+      :ready_with_placeholder ->
+        warm_hand_off(state, identifier, workspace)
 
       _ ->
-        :ok
+        cold_attach(state, identifier, workspace)
     end
   end
 
-  defp wait_for_opencode_input(_tmux, _pane_id, 0), do: :timeout
+  defp warm_hand_off(state, identifier, _workspace) do
+    base_url = Aiur.Opencode.WarmServer.base_url()
+    slot = state.cycle_index + 1
 
-  defp wait_for_opencode_input(tmux, pane_id, attempts_left) do
-    case Tmux.command(tmux, "capture-pane -t #{pane_id} -p") do
-      {:ok, output} when is_binary(output) ->
-        if String.contains?(output, "Build") and String.contains?(output, "tab agents") do
-          :ok
-        else
-          Process.sleep(100)
-          wait_for_opencode_input(tmux, pane_id, attempts_left - 1)
+    with true <- is_binary(base_url) or {:error, :warm_server_not_ready},
+         {:ok, %{session_id: session_id}} <-
+           Aiur.Opencode.SessionWriterRegistry.ensure(identifier, base_url),
+         {:ok, %{pane_id: pane_id}} <-
+           Aiur.Opencode.WarmAttach.take_over(identifier, session_id, state.window_target) do
+      new_state = record_slot_pane(state, slot, pane_id, identifier)
+      AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+      _ = apply_layout(new_state)
+
+      Logger.info(
+        "opencode_pane warm_attach_complete identifier=#{identifier} pane_id=#{pane_id} session_id=#{session_id}"
+      )
+
+      {:reply, {:ok, pane_id}, advance_cycle(new_state)}
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "opencode_pane warm_attach_failed identifier=#{identifier} reason=#{inspect(reason)} — falling back to cold"
+        )
+
+        cold_attach(state, identifier, opencode_workspace_for(identifier))
+
+      false ->
+        Logger.warning(
+          "opencode_pane warm_server_not_ready identifier=#{identifier} — falling back to cold"
+        )
+
+        cold_attach(state, identifier, opencode_workspace_for(identifier))
+    end
+  end
+
+  defp cold_attach(state, identifier, workspace) do
+    slot = state.cycle_index + 1
+
+    case Aiur.Opencode.PaneSession.start(identifier, workspace) do
+      {:ok, %{attach_command: attach_command, attach_url: base_url, session_id: session_id}} ->
+        _ = Aiur.Opencode.SessionWriterRegistry.ensure(identifier, base_url)
+        # Replace the per-pane Server's session with the writer's session in
+        # state if needed — for now they coexist; the cold-path PaneSession's
+        # own session is used by `opencode attach`.
+        _ = session_id
+
+        case open_in_slot(state, slot, identifier, attach_command) do
+          {:ok, pane_id, new_state} ->
+            AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+            _ = apply_layout(new_state)
+            {:reply, {:ok, pane_id}, advance_cycle(new_state)}
+
+          {:error, reason} = err ->
+            Logger.warning(
+              "opencode_pane cold_split_failed identifier=#{identifier} reason=#{inspect(reason)}"
+            )
+
+            {:reply, err, state}
         end
 
-      _ ->
-        Process.sleep(100)
-        wait_for_opencode_input(tmux, pane_id, attempts_left - 1)
+      {:error, reason} ->
+        Logger.warning(
+          "opencode_pane cold_start_failed identifier=#{identifier} reason=#{inspect(reason)}"
+        )
+
+        msg = "opencode pane failed: #{inspect(reason)}"
+        escaped = Aiur.Opencode.Protocol.shell_escape(msg)
+        fallback_cmd = "printf %s #{escaped}; sleep 15"
+
+        case open_in_slot(state, slot, identifier, fallback_cmd) do
+          {:ok, pane_id, new_state} ->
+            {:reply, {:ok, pane_id}, advance_cycle(new_state)}
+
+          {:error, _} = err ->
+            {:reply, err, state}
+        end
     end
   end
 
