@@ -74,7 +74,16 @@ defmodule Aiur.Opencode.Slot do
             pane_id: nil,
             active_identifier: nil,
             active_session_id: nil,
-            poll_ref: nil
+            poll_ref: nil,
+            # Identifiers declared in this slot's `opencode.json` models
+            # map at the time `materialize_slot/5` ran. opencode-serve
+            # does not hot-reload this file; any identifier NOT in this
+            # set will fail with `Model not found: aiur/issue-X. Did you
+            # mean: issue-Y, ...` from the bridge. When `Slot.select/2`
+            # sees a miss it triggers a transparent serve restart with
+            # the freshest `list_active_identifiers/0` before proceeding.
+            known_identifiers: MapSet.new(),
+            pending_select: nil
 
   @type status :: :booting | :serve_starting | :attach_spawning | :ready | :active | :failed
 
@@ -198,7 +207,8 @@ defmodule Aiur.Opencode.Slot do
         | status: :attach_spawning,
           server_pid: server_pid,
           base_url: base_url,
-          token: token
+          token: token,
+          known_identifiers: MapSet.new(agent_ids)
       }
 
       {:noreply, new_state, {:continue, :spawn_attach}}
@@ -237,7 +247,8 @@ defmodule Aiur.Opencode.Slot do
         Task.start(fn -> SessionGC.run(state.base_url) end)
       end
 
-      {:noreply, %{state | status: :ready, pane_id: pane_id}}
+      ready_state = %{state | status: :ready, pane_id: pane_id}
+      {:noreply, drain_pending_select(ready_state)}
     else
       error ->
         Logger.warning(
@@ -249,15 +260,30 @@ defmodule Aiur.Opencode.Slot do
   end
 
   @impl true
-  def handle_call({:select, identifier}, _from, %{status: status} = state)
+  def handle_call({:select, identifier}, from, %{status: status} = state)
       when status in [:ready, :active] do
-    case do_select(identifier, state) do
-      {:ok, _session_id, new_state} ->
-        broadcast_session_changed(new_state.slot_index, identifier)
-        {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
+    if identifier_known?(state, identifier) do
+      case do_select(identifier, state) do
+        {:ok, _session_id, new_state} ->
+          broadcast_session_changed(new_state.slot_index, identifier)
+          {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
 
-      {:error, _} = err ->
-        {:reply, err, state}
+        {:error, _} = err ->
+          {:reply, err, state}
+      end
+    else
+      # opencode-serve doesn't hot-reload opencode.json, so an identifier
+      # that wasn't active when this slot booted will fail with
+      # `Model not found`. Rebuild the slot's serve transparently with
+      # the freshest agent list, THEN retry the select. The user pays
+      # a one-time ~5s pause on this open; subsequent opens of any
+      # identifier known to the new map are warm.
+      Logger.info(
+        "opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}"
+      )
+
+      pending = {from, identifier}
+      {:noreply, schedule_serve_rebuild(state, pending)}
     end
   end
 
@@ -344,6 +370,12 @@ defmodule Aiur.Opencode.Slot do
     {:noreply, %{state | poll_ref: nil}}
   end
 
+  def handle_info(:rebuild_now, state) do
+    # Triggered by `schedule_serve_rebuild/2` to re-enter the boot path.
+    # State has already been reset; just kick the start_serve continuation.
+    {:noreply, state, {:continue, :start_serve}}
+  end
+
   def handle_info({:EXIT, pid, reason}, %{server_pid: pid} = state) do
     Logger.warning(
       "opencode_slot phase=serve_exit elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(reason)}"
@@ -369,7 +401,7 @@ defmodule Aiur.Opencode.Slot do
       {:ok, %{session_id: session_id, writer_pid: writer_pid}} ->
         :ok = SessionWriter.await_replay(writer_pid, 10_000)
 
-        case ApiClient.select_session(state.base_url, session_id) do
+        case select_session_with_retry(state.base_url, session_id, 5) do
           :ok ->
             _ = safely_nudge_tui(state.base_url, session_id, identifier)
 
@@ -394,6 +426,23 @@ defmodule Aiur.Opencode.Slot do
     end
   end
 
+  # `POST /tui/select-session` only succeeds when opencode-attach has
+  # completed its WebSocket handshake with the serve. Immediately after
+  # a slot rebuild the attach is spawning but may not be connected yet,
+  # so retry with a brief backoff (capped at ~1.5s total).
+  defp select_session_with_retry(_base_url, _session_id, 0), do: {:error, :tui_not_ready}
+
+  defp select_session_with_retry(base_url, session_id, attempts) do
+    case ApiClient.select_session(base_url, session_id) do
+      :ok ->
+        :ok
+
+      {:error, _reason} ->
+        Process.sleep(300)
+        select_session_with_retry(base_url, session_id, attempts - 1)
+    end
+  end
+
   defp safely_nudge_tui(base_url, session_id, identifier) do
     marker = "__aiur_stream__:nudge:#{System.unique_integer([:positive])}"
     payload = %{parts: [Protocol.text_part_data(marker, synthetic: true)]}
@@ -409,6 +458,63 @@ defmodule Aiur.Opencode.Slot do
 
         :ok
     end
+  end
+
+  defp identifier_known?(%{known_identifiers: known}, identifier) do
+    MapSet.member?(known, identifier)
+  end
+
+  # Called on transition to `:ready`. If a `:select` GenServer call was
+  # deferred because the identifier wasn't in this slot's models map,
+  # complete it now: run `do_select`, broadcast the visibility event,
+  # and reply to the original caller. Returns the new state.
+  defp drain_pending_select(%{pending_select: nil} = state), do: state
+
+  defp drain_pending_select(%{pending_select: {from, identifier}} = state) do
+    case do_select(identifier, state) do
+      {:ok, _session_id, new_state} ->
+        broadcast_session_changed(new_state.slot_index, identifier)
+        GenServer.reply(from, {:ok, new_state.pane_id})
+        schedule_poll(%{new_state | pending_select: nil})
+
+      {:error, _} = err ->
+        GenServer.reply(from, err)
+        %{state | pending_select: nil}
+    end
+  end
+
+  # Rebuild the slot's opencode-serve + workspace + attach pane so the
+  # new models map includes a previously-unknown identifier. Stores
+  # `{from, identifier}` in `pending_select`; once the rebuild reaches
+  # `:ready` again, `handle_continue(:spawn_attach, ...)` drains it.
+  defp schedule_serve_rebuild(state, {_from, _identifier} = pending) do
+    # Tear down the existing serve + pane. Bump generation + delete
+    # the old token so the bridge can't accept stale auth from a
+    # still-running opencode process after we replace it.
+    if is_pid(state.server_pid) and Process.alive?(state.server_pid) do
+      _ = GenServer.stop(state.server_pid, :normal, 1_000)
+    end
+
+    if is_binary(state.token), do: TokenRegistry.delete(state.token)
+
+    # Kick the rebuild via a self-message so we can return :noreply now
+    # and the next mailbox dispatch re-enters via :rebuild_now → start_serve.
+    send(self(), :rebuild_now)
+
+    %{
+      state
+      | status: :booting,
+        server_pid: nil,
+        base_url: nil,
+        token: nil,
+        pane_id: nil,
+        generation: state.generation + 1,
+        known_identifiers: MapSet.new(),
+        pending_select: pending,
+        active_identifier: nil,
+        active_session_id: nil,
+        poll_ref: cancel_poll(state.poll_ref)
+    }
   end
 
   defp broadcast_session_changed(slot_index, identifier_or_nil) do
