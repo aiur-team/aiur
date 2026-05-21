@@ -308,9 +308,13 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
-  defp maybe_authorized(conn, identifier) do
+  defp maybe_authorized(conn, _identifier) do
+    # Token validity is independent of identifier; the identifier comes
+    # from the request body's `model` field via `identifier_from_model/1`
+    # and routes the request, while the bearer just authorizes "this is
+    # a live aiur workspace."
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
-         true <- Aiur.Opencode.TokenRegistry.valid?(token, identifier) do
+         true <- Aiur.Opencode.TokenRegistry.valid?(token) do
       {:ok, conn}
     else
       _ -> {:error, :unauthorized}

@@ -70,7 +70,10 @@ defmodule Aiur.Opencode.WorkspaceSetup do
          :ok <- File.write(Path.join(workspace, "opencode.json"), Jason.encode!(config, pretty: true)),
          :ok <- File.write(Path.join(workspace, "tui.json"), Jason.encode!(tui, pretty: true)),
          :ok <- File.write(Path.join(workspace, ".opencode/themes/aiur.json"), Jason.encode!(theme, pretty: true)) do
-      TokenRegistry.put(token, Config.safe_identifier(identifier))
+      # Legacy callers (WarmServer, PaneSession) use slot 0 / generation 1
+      # — they are scheduled for deletion in U9 of the slot-bound plan.
+      # Real slot workers use their slot index + generation counter.
+      TokenRegistry.put(token, 0, 1)
       {:ok, token}
     end
   end

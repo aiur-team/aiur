@@ -193,7 +193,9 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
              Path.join(workspace, ".opencode/themes/aiur.json"),
              Jason.encode!(theme, pretty: true)
            ) do
-      TokenRegistry.put(token, Config.safe_identifier(identifier))
+      # Legacy path — `regenerate_workspace_config` is scheduled for
+      # deletion in U9. Use sentinel slot 0 / generation 1 until then.
+      TokenRegistry.put(token, 0, 1)
       :ok
     else
       {:error, reason} ->

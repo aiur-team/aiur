@@ -83,7 +83,7 @@ defmodule Aiur.Opencode.PaneSession do
 
   @impl true
   def terminate(_reason, state) do
-    if is_binary(state.token), do: TokenRegistry.delete(state.token, Config.safe_identifier(state.identifier))
+    if is_binary(state.token), do: TokenRegistry.delete(state.token)
     if is_pid(state.server), do: GenServer.stop(state.server)
     :ok
   end
