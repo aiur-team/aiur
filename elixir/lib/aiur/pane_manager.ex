@@ -67,9 +67,30 @@ defmodule Aiur.PaneManager do
             agent_list_pane: nil,
             window_target: nil,
             orientation: :horizontal,
-            tmux: nil
+            tmux: nil,
+            # FIFO queue of pending opens waiting on a `:slot_ready`
+            # broadcast. Each entry is `{identifier, from, timer_ref}`.
+            # The queue drains 1 entry per `:slot_ready` event in v1 —
+            # multi-drain optimization deferred until measured need.
+            open_queue: :queue.new(),
+            # identifier => timer_ref, so a duplicate-open request can
+            # detect the existing queued entry and refuse it without
+            # walking the queue.
+            open_queue_timers: %{},
+            # Tracks the most-recently-opened or -attached chat pane.
+            # Drives the `a` "attach to focused pane" keybind in
+            # `AgentList` (U6). Reset to nil when the corresponding
+            # slot signals `:slot_session_changed` with a nil identifier.
+            last_attached_pane_id: nil
 
   @type orientation :: :horizontal | :vertical
+
+  # How long a queued open will wait for a slot to become `:ready` before
+  # we reply `{:error, :no_ready_slot}` to the caller. Generous because
+  # chain pre-warm sets the lower bound (slot N takes ~5 s after N-1
+  # broadcasts ready); a stalled chain still completes within this window
+  # in any realistic configuration.
+  @open_queue_timeout_ms 60_000
 
   # Public API ----------------------------------------------------------------
 
@@ -133,6 +154,11 @@ defmodule Aiur.PaneManager do
         :ok -> :ok
         {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
       end
+
+      # Listen for slot lifecycle so the open queue can drain when new
+      # slots reach `:ready` and so `last_attached_pane_id` can be
+      # cleared when its slot's session is deselected.
+      :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.Slot.slots_topic())
 
       :net_kernel.monitor_nodes(true, node_type: :hidden)
 
@@ -214,11 +240,96 @@ defmodule Aiur.PaneManager do
     {:noreply, handle_pane_closed(state, pane_id)}
   end
 
+  def handle_info({:slot_ready, _slot_index}, state) do
+    {:noreply, drain_open_queue(state)}
+  end
+
+  def handle_info({:slot_session_changed, _slot_index, nil}, state) do
+    # A slot's session was deselected — clear `last_attached_pane_id`
+    # if it pointed at that slot's pane so the `a` keybind doesn't
+    # try to attach to a dead pane.
+    case Map.get(state.pane_to_slot, state.last_attached_pane_id) do
+      nil -> {:noreply, state}
+      _slot -> {:noreply, %{state | last_attached_pane_id: nil}}
+    end
+  end
+
+  def handle_info({:slot_session_changed, _slot_index, _identifier}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:open_queue_timeout, identifier}, state) do
+    case Map.fetch(state.open_queue_timers, identifier) do
+      :error ->
+        # Already drained — timer fired after the entry was dequeued
+        # but before the timer could be cancelled cleanly. No-op.
+        {:noreply, state}
+
+      {:ok, _timer_ref} ->
+        # Walk the queue once to find this identifier and pluck it.
+        {entries, dropped_from} =
+          state.open_queue
+          |> :queue.to_list()
+          |> Enum.reduce({[], nil}, fn
+            {^identifier, from, _ref}, {acc, nil} -> {acc, from}
+            other, {acc, dropped} -> {[other | acc], dropped}
+          end)
+
+        case dropped_from do
+          nil ->
+            {:noreply, state}
+
+          from ->
+            new_queue = :queue.from_list(Enum.reverse(entries))
+            new_timers = Map.delete(state.open_queue_timers, identifier)
+
+            Logger.warning(
+              "aiur_pane_manager phase=open_queue_timeout elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} timeout_ms=#{@open_queue_timeout_ms}"
+            )
+
+            GenServer.reply(from, {:error, :no_ready_slot})
+            {:noreply, %{state | open_queue: new_queue, open_queue_timers: new_timers}}
+        end
+    end
+  end
+
   def handle_info({:nodedown, _node}, state), do: {:noreply, state}
   def handle_info({:nodeup, _node, _info}, state), do: {:noreply, state}
   def handle_info({:nodeup, _node}, state), do: {:noreply, state}
   def handle_info({:tmux_event, _event}, state), do: {:noreply, state}
   def handle_info(_other, state), do: {:noreply, state}
+
+  # Pop the next queued open (if any) and try to attach it to a ready
+  # slot. If no slot is ready, leave the entry queued and wait for the
+  # next `:slot_ready` broadcast. v1: drains 1 entry per broadcast.
+  defp drain_open_queue(state) do
+    case :queue.out(state.open_queue) do
+      {:empty, _} ->
+        state
+
+      {{:value, {identifier, from, timer_ref}}, rest} ->
+        case SlotSupervisor.acquire_slot() do
+          {slot_index, slot_pid} when is_integer(slot_index) ->
+            _ = Process.cancel_timer(timer_ref)
+            new_timers = Map.delete(state.open_queue_timers, identifier)
+            new_state = %{state | open_queue: rest, open_queue_timers: new_timers}
+
+            Logger.info(
+              "aiur_pane_manager phase=open_queue_drained elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} queue_depth=#{:queue.len(rest)}"
+            )
+
+            case attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from) do
+              {:noreply, after_state} -> after_state
+              {:reply, _result, after_state} -> after_state
+            end
+
+          {:error, :no_ready_slot} ->
+            # Race: another open just took the newly-ready slot. Leave
+            # the entry queued; the next `:slot_ready` will retry.
+            state
+        end
+    end
+  end
 
   # Anchor / window discovery ------------------------------------------------
 
@@ -337,100 +448,88 @@ defmodule Aiur.PaneManager do
   # `Slot.select/2` + `Tmux.move_pane_visible/2`. If no slot is :ready
   # (chain pre-warm hasn't reached one yet), fall back to the legacy
   # cold-attach path so the user never sees an error.
-  defp open_opencode_pane(state, identifier, _opts, _from) do
-    started_at = System.monotonic_time(:millisecond)
-
+  defp open_opencode_pane(state, identifier, _opts, from) do
     case SlotSupervisor.acquire_slot() do
       {slot_index, slot_pid} when is_integer(slot_index) ->
-        case Slot.select(slot_pid, identifier) do
-          {:ok, pane_id} ->
-            case Tmux.move_pane_visible(state.tmux, pane_id, state.window_target) do
-              :ok ->
-                new_state = record_slot_pane(state, slot_index, pane_id, identifier)
-                _ = apply_layout(new_state)
-                AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-
-                Logger.info(
-                  "aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{System.monotonic_time(:millisecond) - started_at} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
-                )
-
-                {:reply, {:ok, pane_id}, new_state}
-
-              {:error, reason} ->
-                Logger.warning(
-                  "aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
-                )
-
-                _ = Slot.deselect(slot_pid)
-                {:reply, {:error, reason}, state}
-            end
-
-          {:error, reason} ->
-            Logger.warning(
-              "aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
-            )
-
-            workspace = opencode_workspace_for(identifier)
-            _ = File.mkdir_p(workspace)
-            cold_attach(state, identifier, workspace, nil)
-        end
+        attach_identifier_to_slot(state, identifier, slot_index, slot_pid)
 
       {:error, :no_ready_slot} ->
-        Logger.info(
-          "aiur_pane_manager phase=open_cold_fallback elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} reason=no_ready_slot"
-        )
-
-        workspace = opencode_workspace_for(identifier)
-        _ = File.mkdir_p(workspace)
-        cold_attach(state, identifier, workspace, nil)
+        enqueue_open(state, identifier, from)
     end
   end
 
-  defp cold_attach(state, identifier, workspace, _from) do
-    slot = state.cycle_index + 1
+  # Drive a ready slot through select + tmux move + state record. Single
+  # success/error reply path — returns `{:reply, ...}` or `{:noreply, ...}`
+  # the way `handle_call({:open, ...})` expects when given an explicit
+  # `from` of `nil` (the queue-drain case re-replies via `GenServer.reply`).
+  defp attach_identifier_to_slot(state, identifier, slot_index, slot_pid, from \\ nil) do
+    started_at = System.monotonic_time(:millisecond)
 
-    case Aiur.Opencode.PaneSession.start(identifier, workspace) do
-      {:ok, %{attach_command: attach_command, attach_url: base_url, session_id: session_id}} ->
-        _ = Aiur.Opencode.SessionWriterRegistry.ensure(identifier, base_url)
-        _ = session_id
+    case Slot.select(slot_pid, identifier) do
+      {:ok, pane_id} ->
+        case Tmux.move_pane_visible(state.tmux, pane_id, state.window_target) do
+          :ok ->
+            new_state =
+              state
+              |> record_slot_pane(slot_index, pane_id, identifier)
+              |> Map.put(:last_attached_pane_id, pane_id)
 
-        case open_in_slot(state, slot, identifier, attach_command) do
-          {:ok, pane_id, new_state} ->
-            AgentPubSub.broadcast_status_change(identifier, :pane_opened)
             _ = apply_layout(new_state)
-            {:reply, {:ok, pane_id}, advance_cycle(new_state)}
+            AgentPubSub.broadcast_status_change(identifier, :pane_opened)
 
-          {:error, reason} = err ->
-            Logger.warning(
-              "opencode_pane cold_split_failed identifier=#{identifier} reason=#{inspect(reason)}"
+            Logger.info(
+              "aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{System.monotonic_time(:millisecond) - started_at} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
             )
 
-            {:reply, err, state}
+            reply_or_noreply({:ok, pane_id}, from, new_state)
+
+          {:error, reason} ->
+            Logger.warning(
+              "aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
+            )
+
+            _ = Slot.deselect(slot_pid)
+            reply_or_noreply({:error, reason}, from, state)
         end
 
       {:error, reason} ->
         Logger.warning(
-          "opencode_pane cold_start_failed identifier=#{identifier} reason=#{inspect(reason)}"
+          "aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
         )
 
-        msg = "opencode pane failed: #{inspect(reason)}"
-        escaped = Aiur.Opencode.Protocol.shell_escape(msg)
-        fallback_cmd = "printf %s #{escaped}; sleep 15"
-
-        case open_in_slot(state, slot, identifier, fallback_cmd) do
-          {:ok, pane_id, new_state} ->
-            {:reply, {:ok, pane_id}, advance_cycle(new_state)}
-
-          {:error, _} = err ->
-            {:reply, err, state}
-        end
+        reply_or_noreply({:error, reason}, from, state)
     end
   end
 
-  defp opencode_workspace_for(identifier) do
-    Aiur.Config.workspace_root()
-    |> Path.expand()
-    |> Path.join(Aiur.Opencode.Config.safe_identifier(identifier))
+  defp reply_or_noreply(result, nil = _from, new_state), do: {:reply, result, new_state}
+
+  defp reply_or_noreply(result, from, new_state) do
+    GenServer.reply(from, result)
+    {:noreply, new_state}
+  end
+
+  defp enqueue_open(state, identifier, from) do
+    case Map.has_key?(state.open_queue_timers, identifier) do
+      true ->
+        # Duplicate open while a previous one for the same identifier is
+        # still queued. Refuse rather than coalesce — simpler to reason
+        # about, and the original caller will still eventually receive
+        # a reply (success or :no_ready_slot timeout).
+        {:reply, {:error, :already_queued}, state}
+
+      false ->
+        timer_ref = Process.send_after(self(), {:open_queue_timeout, identifier}, @open_queue_timeout_ms)
+        new_queue = :queue.in({identifier, from, timer_ref}, state.open_queue)
+        new_timers = Map.put(state.open_queue_timers, identifier, timer_ref)
+
+        new_state = %{state | open_queue: new_queue, open_queue_timers: new_timers}
+
+        Logger.info(
+          "aiur_pane_manager phase=open_queued elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} queue_depth=#{:queue.len(new_queue)}"
+        )
+
+        {:noreply, new_state}
+    end
   end
 
   defp advance_cycle(%__MODULE__{} = state) do
