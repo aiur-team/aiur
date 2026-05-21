@@ -84,8 +84,9 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp send_operator(identifier, text, turn_id) do
+    # Chat UX expects messages to interrupt the active turn; `:checkpoint` queues until a safe boundary.
     AgentChat.send(identifier, text,
-      delivery_policy: :checkpoint,
+      delivery_policy: :interrupt,
       fallback: :queue_next,
       turn_id: turn_id
     )
