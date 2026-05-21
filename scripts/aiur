@@ -677,11 +677,21 @@ stop_profile() {
 
   # The OTP release replaces `bin/aiur` with `beam.smp ... -name
   # aiur-orangekid@<host>`. The escript-era patterns above no longer
-  # match — target the release's BEAM by its `-name` flag and its
-  # `_build/<env>/rel/aiur` root path so stale BEAMs from prior runs
-  # cannot squat the distribution name or the bridge port.
-  "$pkill_bin" -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true
-  "$pkill_bin" -f "beam.smp.*-name aiur-orangekid" 2>/dev/null || true
+  # match — target the release's BEAM by the erts/bin path that only
+  # the release would launch from. `pkill -f` matches against the
+  # whole command line, which would also match THIS very bash process
+  # if we use the obvious `-name aiur-orangekid` string here. Avoid
+  # self-kill by enumerating PIDs first (filtering out `bash`/`pkill`)
+  # and signalling them directly.
+  for pid in $(pgrep -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
+    [ "$pid" = "$$" ] && continue
+    pid_comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+    case "$pid_comm" in
+      beam.smp)
+        "$kill_bin" -TERM "$pid" 2>/dev/null || true
+        ;;
+    esac
+  done
 }
 
 stop_all() {

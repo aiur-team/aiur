@@ -71,6 +71,11 @@ defmodule Aiur.AgentList.Renderer do
       layout = compute_layout(summaries, inner_width)
 
       [
+        # Hide the terminal cursor for every render — without this the
+        # cursor flashes around the pane as we redraw each row, which
+        # reads as visual jitter to the user. `\e[?25l` is DECTCEM hide.
+        # Restored on shutdown by Aiur.AgentList.Input.terminate/2.
+        "\e[?25l",
         "\e[H",
         title_row(inner_width, Map.get(state, :refresh_label)),
         eol(),
