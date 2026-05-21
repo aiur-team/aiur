@@ -43,7 +43,7 @@ defmodule Aiur.CLI do
 
       {:error, message} ->
         IO.puts(:stderr, message)
-        System.halt(1)
+        Aiur.Shutdown.shutdown(1)
     end
   end
 
@@ -229,7 +229,7 @@ defmodule Aiur.CLI do
     case Process.whereis(Aiur.Supervisor) do
       nil ->
         IO.puts(:stderr, "Aiur supervisor is not running")
-        System.halt(1)
+        Aiur.Shutdown.shutdown(1)
 
       pid ->
         ref = Process.monitor(pid)
@@ -237,8 +237,8 @@ defmodule Aiur.CLI do
         receive do
           {:DOWN, ^ref, :process, ^pid, reason} ->
             case reason do
-              :normal -> System.halt(0)
-              _ -> System.halt(1)
+              :normal -> Aiur.Shutdown.shutdown(0)
+              _ -> Aiur.Shutdown.shutdown(1)
             end
         end
     end

@@ -87,7 +87,7 @@ defmodule Aiur.AgentList.App do
     # restarted it — the operator saw the list flash empty for a beat
     # and then re-populate from PubSub instead of actually quitting.
     Logger.info("[user-action] quit source=agent_list")
-    System.halt(0)
+    Aiur.Shutdown.shutdown(0)
   end
 
   @spec toggle_help(GenServer.server()) :: :ok

@@ -66,7 +66,13 @@ defmodule Aiur.Application do
   end
 
   @impl true
-  def stop(_state), do: :ok
+  def stop(_state) do
+    # SIGTERM / `:init.stop` path — OTP shuts down before `Aiur.Shutdown.shutdown/2`
+    # would normally run, so make sure opencode sessions are still reaped.
+    # `delete_all/1` is idempotent so re-entry from the `q`-key path is safe.
+    Aiur.Shutdown.cleanup()
+    :ok
+  end
 
   @doc """
   Run the distribution bring-up step and log the outcome. Public so
