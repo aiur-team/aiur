@@ -206,7 +206,7 @@ defmodule Aiur.Opencode.Slot do
 
   def handle_continue(:spawn_attach, state) do
     with {:ok, keep_alive_pane} <- hidden_window_target(),
-         attach_cmd = Protocol.attach_command(state.base_url, nil),
+         attach_cmd = Protocol.attach_command(state.base_url),
          {:ok, pane_id} <-
            Tmux.split_pane(
              Tmux,

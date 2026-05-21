@@ -359,8 +359,21 @@ defmodule Aiur.Opencode.Protocol do
   end
 
   @spec attach_command(String.t(), String.t()) :: String.t()
-  def attach_command(url, session_id) do
+  def attach_command(url, session_id) when is_binary(session_id) do
     [Config.command(), "attach", url, "--session", session_id]
+    |> Enum.map(&shell_escape/1)
+    |> Enum.join(" ")
+  end
+
+  @doc """
+  Build an `opencode attach <url>` command without a `--session` arg.
+  Used by slot workers when the opencode-attach process should start
+  in the hidden window with no session selected; the slot calls
+  `/tui/select-session` later when a user opens that slot's pane.
+  """
+  @spec attach_command(String.t()) :: String.t()
+  def attach_command(url) do
+    [Config.command(), "attach", url]
     |> Enum.map(&shell_escape/1)
     |> Enum.join(" ")
   end
