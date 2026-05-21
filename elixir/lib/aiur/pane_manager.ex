@@ -254,6 +254,7 @@ defmodule Aiur.PaneManager do
       {:ok, pane_id, new_state} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
         _ = apply_layout(new_state)
+        :ok = async_attach_opencode(command_to_run, identifier, pane_id, new_state.tmux)
         {:reply, {:ok, pane_id}, advance_cycle(new_state)}
 
       {:error, reason} ->
@@ -263,20 +264,47 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  defp command_for_pane("__aiur_opencode__ " <> _rest, identifier) do
-    workspace =
-      Aiur.Config.workspace_root()
-      |> Path.expand()
-      |> Path.join(Aiur.Opencode.Config.safe_identifier(identifier))
-
-    case Aiur.Opencode.PaneSession.start(identifier, workspace) do
-      {:ok, %{attach_command: command}} -> command
-      {:error, reason} -> "printf %s #{Aiur.Opencode.Protocol.shell_escape("opencode pane failed: #{inspect(reason)}")}; sleep 15"
-    end
+  # Pane appears immediately with a styled placeholder; PaneSession boots in a Task
+  # and `tmux respawn-pane`s in the real `opencode attach` command when ready.
+  defp command_for_pane("__aiur_opencode__ " <> _rest, _identifier) do
+    "printf '\\033[1;36mStarting opencode...\\033[0m\\n'; sleep infinity"
   end
 
   defp command_for_pane(command_to_run, identifier) do
     wrap_with_unique_node(command_to_run, identifier)
+  end
+
+  defp async_attach_opencode("__aiur_opencode__ " <> _rest, identifier, pane_id, tmux) do
+    workspace = opencode_workspace_for(identifier)
+
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+      case Aiur.Opencode.PaneSession.start(identifier, workspace) do
+        {:ok, %{attach_command: command}} ->
+          case Tmux.respawn_pane(tmux, pane_id, command) do
+            :ok ->
+              Logger.info("opencode_pane respawn_complete identifier=#{identifier} pane_id=#{pane_id}")
+
+            {:error, reason} ->
+              Logger.warning("opencode_pane respawn_failed identifier=#{identifier} reason=#{inspect(reason)}")
+          end
+
+        {:error, reason} ->
+          Logger.warning("opencode_pane start_failed_async identifier=#{identifier} reason=#{inspect(reason)}")
+          msg = "opencode pane failed: #{inspect(reason)}"
+          escaped = Aiur.Opencode.Protocol.shell_escape(msg)
+          _ = Tmux.respawn_pane(tmux, pane_id, "printf %s #{escaped}; sleep 15")
+      end
+    end)
+
+    :ok
+  end
+
+  defp async_attach_opencode(_command, _identifier, _pane_id, _tmux), do: :ok
+
+  defp opencode_workspace_for(identifier) do
+    Aiur.Config.workspace_root()
+    |> Path.expand()
+    |> Path.join(Aiur.Opencode.Config.safe_identifier(identifier))
   end
 
   defp advance_cycle(%__MODULE__{} = state) do
