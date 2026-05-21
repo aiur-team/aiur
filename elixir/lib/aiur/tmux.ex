@@ -107,6 +107,38 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Move `source_pane` into a hidden `target_window` without stealing
+  focus. tmux's `move-pane -d` flag detaches the move from the active
+  selection so the user keeps looking at the visible window. Preserves
+  PID and pane id — verified equivalent to `join-pane` in tmux 3.5a.
+
+  Used by `Aiur.PaneManager` close path and by `Aiur.Opencode.AttachQueue`
+  background attaches.
+  """
+  @spec move_pane_hidden(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def move_pane_hidden(server \\ __MODULE__, source_pane, target_window)
+      when is_binary(source_pane) and is_binary(target_window) do
+    GenServer.call(server, {:move_pane_hidden, source_pane, target_window}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Move `source_pane` into the visible `target_window`, splitting
+  horizontally next to existing panes. Caller is responsible for any
+  follow-up layout reflow.
+  """
+  @spec move_pane_visible(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def move_pane_visible(server \\ __MODULE__, source_pane, target_window)
+      when is_binary(source_pane) and is_binary(target_window) do
+    GenServer.call(server, {:move_pane_visible, source_pane, target_window}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Send `text` to `pane_id` as a single literal keystroke buffer (tmux's
   `send-keys -l`). Bypasses the string-split parsing in `command/3` which
   would mangle whitespace and quote characters.
@@ -345,6 +377,22 @@ defmodule Aiur.Tmux do
     # `-h` makes the joined pane a horizontal split next to the existing
     # panes in the target window; layout reflow happens on the caller side.
     case run_args(state, ["join-pane", "-s", source_pane, "-t", target_window, "-h"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:move_pane_hidden, source_pane, target_window}, _from, state) do
+    # `-d` detaches the move from the active selection (no focus shift).
+    # `-h` keeps tmux happy when the destination window has existing panes.
+    case run_args(state, ["move-pane", "-d", "-s", source_pane, "-t", target_window, "-h"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:move_pane_visible, source_pane, target_window}, _from, state) do
+    case run_args(state, ["move-pane", "-s", source_pane, "-t", target_window, "-h"]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end
