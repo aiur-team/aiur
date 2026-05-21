@@ -49,4 +49,24 @@ defmodule Aiur.Opencode.BridgeTest do
     assert conn.status == 400
     assert Jason.decode!(conn.resp_body)["error"] =~ "invalid_model"
   end
+
+  test "chat completions accepts the bare `issue-X` model opencode actually sends" do
+    # opencode strips the `aiur/` provider prefix before posting to the provider's endpoint
+    conn =
+      :post
+      |> conn(
+        "/v1/chat/completions",
+        Jason.encode!(%{
+          model: "issue-MT-1",
+          messages: [%{role: "user", content: "hello"}],
+          stream: true
+        })
+      )
+      |> put_req_header("content-type", "application/json")
+      |> Bridge.call(@opts)
+
+    # Not 400 :invalid_model — should reach the auth gate next
+    refute conn.status == 400
+    assert conn.status == 401
+  end
 end

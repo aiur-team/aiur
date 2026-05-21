@@ -154,8 +154,10 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp delta(content), do: %{content: content}
 
   defp identifier_from_model(model) when is_binary(model) do
+    # opencode sends just `issue-<id>` to the provider's chat-completions endpoint;
+    # the `aiur/` provider routing has already happened. Accept both shapes.
     prefix = Regex.escape(Config.model_prefix())
-    regex = ~r/\A#{prefix}\/issue-([A-Za-z0-9._-]+)\z/
+    regex = ~r/\A(?:#{prefix}\/)?issue-([A-Za-z0-9._-]+)\z/
 
     case Regex.run(regex, model) do
       [_match, identifier] ->
