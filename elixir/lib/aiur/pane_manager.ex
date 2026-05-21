@@ -57,6 +57,12 @@ defmodule Aiur.PaneManager do
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
 
+  # Hard cap on how long the visible-open path will park while waiting
+  # for AttachQueue's :pane_priority_attached event. Beyond this the
+  # parked call is replied with {:error, :open_priority_timeout} so the
+  # AgentList GenServer can keep handling keypresses.
+  @open_priority_timeout_ms 7_000
+
   defstruct identifier_to_pane: %{},
             pane_to_identifier: %{},
             pane_to_slot: %{},
@@ -236,11 +242,10 @@ defmodule Aiur.PaneManager do
   def handle_info({:pane_priority_attached, identifier}, state) do
     case Map.pop(state.pending_opens, identifier) do
       {nil, _} ->
-        # No parked open — could be a stale event after we already moved
-        # the pane via another path. No-op.
         {:noreply, state}
 
-      {from, pending_opens} ->
+      {{from, timer_ref}, pending_opens} ->
+        _ = Process.cancel_timer(timer_ref)
         new_state = %{state | pending_opens: pending_opens}
 
         case SessionWriterRegistry.get_pane(identifier) do
@@ -263,8 +268,6 @@ defmodule Aiur.PaneManager do
   end
 
   def handle_info({:pane_attached, _identifier}, state) do
-    # Background attach completed without a priority request — nothing to do
-    # in PaneManager; the pane will be promoted when the user opens it.
     {:noreply, state}
   end
 
@@ -277,8 +280,24 @@ defmodule Aiur.PaneManager do
 
         {:noreply, state}
 
-      {from, pending_opens} ->
+      {{from, timer_ref}, pending_opens} ->
+        _ = Process.cancel_timer(timer_ref)
         GenServer.reply(from, {:error, reason})
+        {:noreply, %{state | pending_opens: pending_opens}}
+    end
+  end
+
+  def handle_info({:open_priority_timeout, identifier}, state) do
+    case Map.pop(state.pending_opens, identifier) do
+      {nil, _} ->
+        {:noreply, state}
+
+      {{from, _timer_ref}, pending_opens} ->
+        Logger.warning(
+          "aiur_pane_manager phase=open_priority_timeout elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} timeout_ms=#{@open_priority_timeout_ms}"
+        )
+
+        GenServer.reply(from, {:error, :open_priority_timeout})
         {:noreply, %{state | pending_opens: pending_opens}}
     end
   end
@@ -415,22 +434,21 @@ defmodule Aiur.PaneManager do
         {:reply, {:ok, pane_id}, state}
 
       _ ->
-        # Pane is :attaching, :pending, or not yet known. Ask AttachQueue
-        # for priority; reply will land on the :pane_priority_attached event.
+        # No persistent-pane ready. Two scenarios:
+        #   (a) Background attach hasn't created this agent's pane yet.
+        #   (b) Warm subsystem isn't running at all.
+        # Either way, fall back to cold attach IMMEDIATELY so the user
+        # is never blocked waiting for an async background step. Tell
+        # AttachQueue about the user-priority intent so it skips this
+        # identifier on the next background round (we already have a
+        # visible pane after cold_attach finishes).
+        _ = AttachQueue.cancel(identifier)
+
         Logger.info(
-          "aiur_pane_manager phase=open_priority_park elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier}"
+          "aiur_pane_manager phase=open_cold_fallback elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier}"
         )
 
-        state = ensure_attach_topic_subscription(state)
-        {:ok, _result} = AttachQueue.request_priority(identifier)
-
-        # If the warm path isn't available at all, fall back to the legacy
-        # cold path so non-pre-warmed runs still work.
-        if AttachQueue.snapshot().base_url == nil do
-          cold_attach(state, identifier, workspace, from)
-        else
-          {:noreply, %{state | pending_opens: Map.put(state.pending_opens, identifier, from)}}
-        end
+        cold_attach(state, identifier, workspace, from)
     end
   end
 
@@ -470,12 +488,11 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  defp ensure_attach_topic_subscription(%{attach_topic_subscribed?: true} = state), do: state
-
-  defp ensure_attach_topic_subscription(state) do
-    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, AttachQueue.attach_topic())
-    %{state | attach_topic_subscribed?: true}
-  end
+  # ensure_attach_topic_subscription/1 was used by the parked-open path.
+  # That path is gone — cold_attach is the immediate fallback now — so
+  # PaneManager no longer subscribes to the attach topic. The pending_opens
+  # / attach_topic_subscribed? fields stay on the struct for the historical
+  # `:pane_priority_attached` handler (no-op when pending_opens is empty).
 
   defp cold_attach(state, identifier, workspace, _from) do
     slot = state.cycle_index + 1
