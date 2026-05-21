@@ -23,7 +23,9 @@ defmodule Aiur.Application do
 
   @impl true
   def start(_type, _args) do
+    :ok = Aiur.Boot.mark()
     :ok = Aiur.LogFile.configure()
+    Logger.info("aiur_boot phase=start elapsed_ms=0")
     maybe_start_distribution()
 
     interactive_cli? = Application.get_env(:aiur, :interactive_cli, false)
