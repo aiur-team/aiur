@@ -135,6 +135,10 @@ defmodule Aiur.AgentList.Input do
   end
 
   defp restore_terminal do
+    # `\e[?25h` (DECTCEM show) un-does the cursor hide that the
+    # renderer emits on every frame. Without this, the user's terminal
+    # is left with an invisible cursor after `aiur` quits.
+    IO.write("\e[?25h")
     Os.stty(["sane"])
   rescue
     _ -> :ok
