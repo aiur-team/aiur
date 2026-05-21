@@ -65,6 +65,8 @@ defmodule Aiur.OsTest do
       )
 
     path = Path.join(root, "fake-stty")
+    File.rm_rf!(root)
+    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(root) end)
     File.mkdir_p!(root)
     File.write!(path, "#!/bin/sh\n" <> body)
     File.chmod!(path, 0o755)

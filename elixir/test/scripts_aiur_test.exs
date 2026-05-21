@@ -87,6 +87,24 @@ defmodule ScriptsAiurTest do
     refute output =~ "restart aiur\n"
   end
 
+  test "falls back to nohup when a Linux background service is missing" do
+    ctx = test_context()
+
+    assert {output, 0} =
+             run_aiur(ctx, ["--bg"], env: [{"AIUR_TEST_SYSTEMCTL_RESTART_FAIL", "1"}])
+
+    command_log = await_command_log(ctx, "NOHUP:")
+
+    assert output =~
+             "aiur: aiur systemd service unavailable; starting with nohup background runner"
+
+    assert output =~ "aiur started in background"
+    assert command_log =~ "SYSTEMCTL:--user restart aiur\n"
+    assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
+    assert command_log =~ "--host 127.0.0.1"
+    assert command_log =~ "./local-workflows/WORKFLOW.aiur.local.md"
+  end
+
   test "restarts every configured background profile once per service" do
     ctx = test_context()
 
@@ -114,6 +132,69 @@ defmodule ScriptsAiurTest do
 
     assert output =~
              "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
+  end
+
+  test "no-arg invocation attaches to an existing default session" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} = run_aiur(ctx, [], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    assert output =~ "aiur: attaching to existing default session"
+    assert command_log =~ "TMUX:-L #{aiur_tmux_socket()} -f "
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "attach -t #{session}"
+    refute command_log =~ "new-session"
+    refute command_log =~ "PKILL:"
+    refute output =~ "MISE:"
+  end
+
+  test "profile invocation attaches to an existing profile session" do
+    ctx = test_context()
+    session = aiur_tmux_session("actions")
+
+    assert {output, 0} = run_aiur(ctx, ["actions"], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    assert output =~ "aiur: attaching to existing actions session"
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "attach -t #{session}"
+    refute command_log =~ "new-session"
+    refute output =~ "MISE:"
+  end
+
+  test "--fresh starts a new foreground session even when one exists" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} = run_aiur(ctx, ["--fresh"], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    refute output =~ "aiur: attaching to existing"
+    assert command_log =~ "kill-session -t #{session}"
+    assert command_log =~ "new-session -d -s #{session}"
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "no-arg invocation replaces background service when no tmux session exists" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} =
+             run_aiur(ctx, [], env: [{"AIUR_TEST_SYSTEMCTL_ACTIVE", "1"}])
+
+    command_log = command_log(ctx)
+
+    assert output =~
+             "aiur: no attachable default tmux session found; replacing background aiur with a foreground session"
+
+    assert command_log =~ "SYSTEMCTL:--user is-active --quiet aiur\n"
+    assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "new-session -d -s #{session}"
+    assert command_log =~ "attach -t #{session}"
+    assert output =~ "MISE:exec -- ./bin/aiur"
   end
 
   test "run starts the default profile in the foreground" do
@@ -497,7 +578,6 @@ defmodule ScriptsAiurTest do
     logs_root = Path.join(root, "logs")
     command_log = Path.join(root, "commands.log")
     bg_state_dir = Path.join(root, "bg-state")
-    home_dir = Path.join(root, "home")
 
     # System.unique_integer resets per VM, so stale tmp dirs from prior
     # `mix test` runs can collide. Clear before setting up.
@@ -536,6 +616,19 @@ defmodule ScriptsAiurTest do
     write_executable!(fake_systemctl, """
     #!/usr/bin/env bash
     printf 'SYSTEMCTL:%s\\n' "$*" | tee -a "$AIUR_TEST_COMMAND_LOG"
+
+    if [ "${1:-}" = "--user" ] && [ "${2:-}" = "restart" ] && [ "${AIUR_TEST_SYSTEMCTL_RESTART_FAIL:-0}" = "1" ]; then
+      printf 'Failed to restart %s.service: Unit %s.service not found.\\n' "${3:-}" "${3:-}" >&2
+      exit 5
+    fi
+
+    if [ "${1:-}" = "--user" ] && [ "${2:-}" = "is-active" ]; then
+      if [ "${AIUR_TEST_SYSTEMCTL_ACTIVE:-0}" = "1" ]; then
+        exit 0
+      else
+        exit 3
+      fi
+    fi
     """)
 
     write_executable!(fake_pkill, """
@@ -614,7 +707,6 @@ defmodule ScriptsAiurTest do
       logs_root: logs_root,
       command_log: command_log,
       bg_state_dir: bg_state_dir,
-      home_dir: home_dir,
       fake_mise: fake_mise,
       fake_systemctl: fake_systemctl,
       fake_pkill: fake_pkill,
@@ -641,6 +733,12 @@ defmodule ScriptsAiurTest do
     os_override = Keyword.get(opts, :os, "Linux")
     skip_build = if Keyword.get(opts, :skip_build, true), do: "1", else: "0"
     extra_env = Keyword.get(opts, :env, [])
+    tmux_state = Path.join(ctx.bg_state_dir, "tmux-state")
+
+    if Keyword.get(opts, :tmux_has_session, false) do
+      File.mkdir_p!(ctx.bg_state_dir)
+      File.write!(tmux_state, "")
+    end
 
     System.cmd("bash", [@script | args],
       env:
@@ -658,7 +756,7 @@ defmodule ScriptsAiurTest do
           {"AIUR_OS_OVERRIDE", os_override},
           {"AIUR_SKIP_BUILD", skip_build},
           {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
-          {"AIUR_TEST_TMUX_STATE", Path.join(ctx.bg_state_dir, "tmux-state")},
+          {"AIUR_TEST_TMUX_STATE", tmux_state},
           {"AIUR_STARTUP_GRACE_TICKS", "1"},
           {"AIUR_STARTUP_GRACE_SLEEP", "0"},
           {"AIUR_PORT_CHECK_BIN", ctx.fake_port_check},
@@ -679,6 +777,14 @@ defmodule ScriptsAiurTest do
     |> String.split(pattern)
     |> length()
     |> Kernel.-(1)
+  end
+
+  defp aiur_tmux_session(profile) do
+    "aiur-#{System.get_env("USER") || "user"}-#{profile}"
+  end
+
+  defp aiur_tmux_socket do
+    "aiur-#{System.get_env("USER") || "user"}"
   end
 
   defp command_log(ctx) do

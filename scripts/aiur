@@ -31,6 +31,7 @@ aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 expose_host=0
 debug_mode=0
 logs_mode=0
+fresh_mode=0
 log_issue_id=""
 port_override=""
 filtered_args=()
@@ -58,6 +59,9 @@ for arg in "$@"; do
       ;;
     --logs)
       logs_mode=1
+      ;;
+    --fresh | --new)
+      fresh_mode=1
       ;;
     --log)
       expect_log_value=1
@@ -128,11 +132,11 @@ declare -a profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: aiur [list|stop [profile|all]|--bg [profile|all]|run [profile]|profile|<workflow-path>]
+Usage: aiur [list|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
 
-Without args, restart the other configured services and run the default profile in the foreground.
+Without args, attach to an existing default session or run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
-With a profile name, run that profile's workflow in the foreground.
+With a profile name, attach to its existing session or run that profile's workflow in the foreground.
 With --bg, restart background services only and return. Defaults to the default profile.
 With all, restart the other configured services and run the default profile in the foreground.
 With stop, stop a profile, every profile, or ad hoc foreground Aiur processes.
@@ -143,6 +147,8 @@ Options:
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
                        Useful in a separate terminal alongside `aiur --debug`.
+  --fresh, --new       start a fresh foreground session even if an
+                       existing Aiur tmux session is available to attach.
   --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
                        Aiur.IssueLog writes for an active
                        conversation pane. Does not start agents.
@@ -747,8 +753,12 @@ restart_one_background_service() {
       start_bg_nohup "$profile"
       ;;
     *)
-      "$systemctl_bin" --user restart "$service"
-      "$systemctl_bin" --user status "$service" --no-pager
+      if command -v "$systemctl_bin" >/dev/null 2>&1 && "$systemctl_bin" --user restart "$service"; then
+        "$systemctl_bin" --user status "$service" --no-pager || true
+      else
+        echo "aiur: $service systemd service unavailable; starting with nohup background runner" >&2
+        start_bg_nohup "$profile"
+      fi
       ;;
   esac
 }
@@ -799,6 +809,31 @@ restart_background_except_profile() {
   done
 }
 
+background_running() {
+  local profile="$1"
+  local service
+  service="$(profile_value service "$profile")"
+
+  if [ -z "$service" ]; then
+    return 1
+  fi
+
+  case "$aiur_os" in
+    Darwin*)
+      local pid_file
+      pid_file="$(bg_pid_file "$service")"
+      [ -f "$pid_file" ]
+      ;;
+    *)
+      if command -v "$systemctl_bin" >/dev/null 2>&1; then
+        "$systemctl_bin" --user is-active --quiet "$service" >/dev/null 2>&1
+      else
+        return 1
+      fi
+      ;;
+  esac
+}
+
 run_foreground() {
   local profile="$1"
   local elixir_dir
@@ -842,6 +877,25 @@ run_foreground() {
   aiur_args+=(--interactive --i-understand-that-this-will-be-running-without-the-usual-guardrails "$workflow")
 
   run_in_tmux "$profile" "$elixir_dir" "${aiur_args[@]}"
+}
+
+run_or_attach_foreground() {
+  local profile="$1"
+  local service
+
+  require_profile "$profile"
+
+  if [ "$fresh_mode" -eq 0 ] && attach_existing_tmux_session "$profile"; then
+    return
+  fi
+
+  service="$(profile_value service "$profile")"
+
+  if [ "$fresh_mode" -eq 0 ] && background_running "$profile"; then
+    echo "aiur: no attachable $profile tmux session found; replacing background $service with a foreground session" >&2
+  fi
+
+  run_foreground "$profile"
 }
 
 die() {
@@ -972,6 +1026,28 @@ run_in_tmux() {
   exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
 }
 
+attach_existing_tmux_session() {
+  local profile="$1"
+  local session socket conf
+
+  session="$(aiur_tmux_session_name "$profile")"
+  socket="$(aiur_tmux_socket_name)"
+  conf="$(resolve_aiur_tmux_conf)"
+
+  if [ ! -f "$conf" ]; then
+    die "tmux conf not found at $conf"
+  fi
+
+  check_tmux || die "tmux >= 3.3 is required; install tmux before running aiur"
+
+  if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    echo "aiur: attaching to existing $profile session" >&2
+    exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
+  fi
+
+  return 1
+}
+
 run_ad_hoc_workflow() {
   local workflow="$1"
 
@@ -1069,12 +1145,12 @@ case "${1:-}" in
     exit 0
     ;;
   "" | default)
-    run_foreground "default"
+    run_or_attach_foreground "default"
     ;;
   *.md | /*)
     run_ad_hoc_workflow "$1"
     ;;
   *)
-    run_foreground "$1"
+    run_or_attach_foreground "$1"
     ;;
 esac

@@ -75,8 +75,10 @@ aiur list
 
 | Command | What it does |
 |---|---|
-| `aiur` | Default profile, foreground, local-only bind |
-| `aiur run <profile>` | Named profile, foreground |
+| `aiur` | Attach to the default profile's existing tmux session, or start it in the foreground with a local-only bind |
+| `aiur <profile>` | Attach to the profile's existing tmux session, or start it in the foreground |
+| `aiur --fresh [profile]` | Start a fresh foreground session even when a tmux session already exists |
+| `aiur run <profile>` | Named profile, fresh foreground session |
 | `aiur --bg [profile\|all]` | Background mode |
 | `aiur stop [profile\|all]` | Stop foreground processes and background services |
 | `aiur list` | Show configured profiles |
