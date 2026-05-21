@@ -174,4 +174,7 @@ defmodule Aiur.AgentEvents do
 
   @spec status_topic() :: String.t()
   def status_topic, do: "agents:status"
+
+  @spec poll_state_topic() :: String.t()
+  def poll_state_topic, do: "orchestrator:poll_state"
 end

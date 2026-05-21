@@ -29,6 +29,31 @@ defmodule Aiur.AgentPubSub do
   @spec subscribe_status() :: :ok | {:error, term()}
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
 
+  @spec subscribe_poll_state() :: :ok | {:error, term()}
+  def subscribe_poll_state,
+    do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.poll_state_topic())
+
+  @doc """
+  Broadcast the orchestrator's polling state.
+
+  `checking?` is true while the orchestrator is mid-dispatch (fetching
+  candidate issues, syncing tracker state, etc.). `next_poll_due_at_ms`
+  is an absolute `System.system_time(:millisecond)` timestamp when the
+  next poll cycle will begin, or `nil` while a cycle is in progress.
+
+  AgentList consumes this so its 1 Hz countdown render does NOT need to
+  GenServer.call into the orchestrator on every tick — that call was
+  blocking the agent-list mailbox for several seconds during each poll
+  cycle, freezing arrow keys until the cycle completed.
+  """
+  @spec broadcast_poll_state(%{
+          checking?: boolean(),
+          next_poll_due_at_ms: integer() | nil
+        }) :: :ok
+  def broadcast_poll_state(%{checking?: _, next_poll_due_at_ms: _} = payload) do
+    do_broadcast(AgentEvents.poll_state_topic(), {:poll_state_changed, payload})
+  end
+
   @spec broadcast_transcript(AgentEvents.agent_identifier(), AgentEvents.transcript_event()) :: :ok
   def broadcast_transcript(identifier, %{role: _, body: _, timestamp: _} = event)
       when is_binary(identifier) do

@@ -113,6 +113,7 @@ defmodule Aiur.AgentList.App do
     if Keyword.get(opts, :subscribe?, true) do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
+      AgentPubSub.subscribe_poll_state()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.Slot.slots_topic())
     end
 
@@ -132,7 +133,12 @@ defmodule Aiur.AgentList.App do
       # Updated on `:slot_session_changed` PubSub events from Slot workers.
       # This is the single source of truth for the agent-list circle
       # indicator — the legacy `open_pane_ids` (historical opens) is gone.
-      visible_sessions: %{}
+      visible_sessions: %{},
+      # Cached orchestrator polling state — updated only on PubSub
+      # `:poll_state_changed` broadcasts so the 1 Hz render tick never
+      # has to GenServer.call into the orchestrator (which blocks for
+      # seconds while it does HTTP polls).
+      poll_state: %{checking?: false, next_poll_due_at_ms: nil}
     }
 
     schedule_refresh_tick()
@@ -261,6 +267,10 @@ defmodule Aiur.AgentList.App do
   end
 
   def handle_info({:slot_ready, _slot_index}, state), do: {:noreply, state}
+
+  def handle_info({:poll_state_changed, payload}, state) do
+    {:noreply, %{state | poll_state: payload}}
+  end
 
   def handle_info({:alert, %{}}, state), do: {:noreply, state}
 
@@ -438,7 +448,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:rows, rows)
       |> Map.put(:project_label, project_label())
       |> Map.put(:dashboard_url, dashboard_url())
-      |> Map.put(:refresh_label, refresh_label())
+      |> Map.put(:refresh_label, refresh_label_from_state(state))
       |> Map.put(:agent_kind, agent_kind())
       |> Map.put(:agent_count, active_agent_count(state.summaries))
       |> Map.put(:max_agents, max_agents(state.orchestrator))
@@ -467,22 +477,27 @@ defmodule Aiur.AgentList.App do
     end
   end
 
-  defp refresh_label do
-    case safe_call(fn -> Orchestrator.poll_status() end) do
-      %{checking?: true} ->
-        # The "in-progress" state collapses to the same `0s` label as
-        # the final-second countdown — they read the same to the
-        # operator and the unified label is calmer to look at.
-        "0s"
-
-      %{next_poll_in_ms: ms} when is_integer(ms) ->
-        seconds = div(max(ms, 0) + 999, 1000)
-        "#{seconds}s"
-
-      _ ->
-        nil
-    end
+  # Compute the countdown label from cached state — no GenServer.call.
+  # The orchestrator broadcasts `:poll_state_changed` whenever its
+  # mailbox-blocking poll cycle starts or finishes; in between, this
+  # function just subtracts wall time from the cached due-at stamp.
+  defp refresh_label_from_state(%{poll_state: %{checking?: true}}) do
+    # In-progress collapses to "0s" — same calm reading the legacy
+    # path produced via the orchestrator's `checking?` flag.
+    "0s"
   end
+
+  defp refresh_label_from_state(%{poll_state: %{next_poll_due_at_ms: due_at}})
+       when is_integer(due_at) do
+    # The orchestrator stamps `next_poll_due_at_ms` with
+    # `System.monotonic_time(:millisecond)`, so we must read against the
+    # same base. Using `System.system_time/1` would give garbage.
+    ms = due_at - System.monotonic_time(:millisecond)
+    seconds = div(max(ms, 0) + 999, 1000)
+    "#{seconds}s"
+  end
+
+  defp refresh_label_from_state(_state), do: nil
 
   defp agent_kind do
     case safe_call(fn -> Config.agent_kind() end) do

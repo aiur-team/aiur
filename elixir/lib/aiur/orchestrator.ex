@@ -1268,6 +1268,11 @@ defmodule Aiur.Orchestrator do
     |> running_summaries()
     |> AgentPubSub.broadcast_running_change()
 
+    AgentPubSub.broadcast_poll_state(%{
+      checking?: state.poll_check_in_progress == true,
+      next_poll_due_at_ms: state.next_poll_due_at_ms
+    })
+
     ObservabilityPubSub.broadcast_update()
   end
 
