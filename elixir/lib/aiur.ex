@@ -33,6 +33,7 @@ defmodule Aiur.Application do
         [
           Aiur.Tmux,
           Aiur.PaneManager,
+          Aiur.Opencode.PrewarmSupervisor,
           Aiur.AgentList.App,
           Aiur.AgentList.Input
         ]
