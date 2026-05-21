@@ -177,6 +177,168 @@ defmodule Aiur.Opencode.Protocol do
     }
   end
 
+  # ---------------------------------------------------------------- SQLite row JSON
+  #
+  # Builders for the `message.data` and `part.data` JSON columns in
+  # opencode's SQLite store. Shapes verified against opencode 1.15.6 — see
+  # `elixir/docs/notes/opencode-row-shapes-1.15.6.md`.
+  #
+  # The `id`, `session_id`, and `message_id` fields the OpenAPI schema
+  # demands are NOT stored in `data` — they live in SQL columns. These
+  # builders return only the JSON-encoded payload.
+
+  @doc """
+  Synthetic user message row used as the parent of replayed assistant
+  messages and as the synthetic-stream marker carrier for live updates.
+
+  `opts[:marker]` switches between the two shapes:
+    * `:replay_root` (default) — invisible parent for history replay.
+    * `{:stream, message_id}` — synthetic user message whose text part
+      carries the `__aiur_stream__:<msg_id>` marker for the bridge to
+      recognise and stream back as an assistant reply.
+  """
+  @spec user_message_data(String.t(), keyword()) :: map()
+  def user_message_data(identifier, opts \\ []) when is_binary(identifier) do
+    now_ms = System.os_time(:millisecond)
+    safe_id = Config.safe_identifier(identifier)
+
+    %{
+      "role" => "user",
+      "time" => %{"created" => now_ms},
+      "agent" => "build",
+      "model" => %{"providerID" => "aiur", "modelID" => "issue-#{safe_id}"},
+      "summary" => %{"diffs" => []}
+    }
+    |> maybe_put_marker(opts[:marker])
+  end
+
+  defp maybe_put_marker(map, nil), do: map
+  defp maybe_put_marker(map, :replay_root), do: map
+  defp maybe_put_marker(map, {:stream, _msg_id}), do: map
+
+  @doc """
+  Assistant message row JSON. Required fields per
+  opencode's `AssistantMessage` schema:
+
+    * `role: "assistant"`
+    * `parentID` — must match `^msg`
+    * `modelID`, `providerID` (`aiur` for our rows)
+    * `mode`, `agent` — both `"build"` for normal flows
+    * `path` — opencode sidebar uses these
+    * `cost`, `tokens` — zeros for Aiur-injected rows
+    * `time: {created, completed}`
+    * `finish` — `"stop"` or `"tool-calls"`
+
+  `attrs` keys: `identifier`, `parent_id`, `cwd`, optional `finish`.
+  """
+  @spec assistant_message_data(map()) :: map()
+  def assistant_message_data(%{identifier: identifier, parent_id: parent_id} = attrs) do
+    now_ms = System.os_time(:millisecond)
+    safe_id = Config.safe_identifier(identifier)
+    cwd = Map.get(attrs, :cwd, "/")
+    finish = Map.get(attrs, :finish, "stop")
+
+    %{
+      "parentID" => parent_id,
+      "role" => "assistant",
+      "mode" => "build",
+      "agent" => "build",
+      "path" => %{"cwd" => cwd, "root" => "/"},
+      "cost" => 0,
+      "tokens" => %{
+        "total" => 0,
+        "input" => 0,
+        "output" => 0,
+        "reasoning" => 0,
+        "cache" => %{"write" => 0, "read" => 0}
+      },
+      "modelID" => "issue-#{safe_id}",
+      "providerID" => "aiur",
+      "time" => %{"created" => now_ms, "completed" => now_ms},
+      "finish" => finish
+    }
+  end
+
+  @doc """
+  Plain text part data. `opts[:synthetic]` marks the part synthetic so
+  opencode's TUI styles it differently (or hides it, depending on theme).
+  """
+  @spec text_part_data(String.t(), keyword()) :: map()
+  def text_part_data(text, opts \\ []) when is_binary(text) do
+    base = %{"type" => "text", "text" => text}
+
+    if Keyword.get(opts, :synthetic, false) do
+      Map.put(base, "synthetic", true)
+    else
+      base
+    end
+  end
+
+  @doc """
+  Tool part data — represents a single completed tool call + result.
+  Use for command transcript events (bash invocations + output).
+
+  `opts` keys: `tool` (default `"bash"`), `input` (map), `output`
+  (string), `title` (string), `call_id`.
+  """
+  @spec tool_part_data(keyword()) :: map()
+  def tool_part_data(opts) when is_list(opts) do
+    now_ms = System.os_time(:millisecond)
+
+    %{
+      "type" => "tool",
+      "tool" => Keyword.get(opts, :tool, "bash"),
+      "callID" => Keyword.get(opts, :call_id, "call_synthetic"),
+      "state" => %{
+        "status" => "completed",
+        "input" => Keyword.get(opts, :input, %{}),
+        "output" => Keyword.get(opts, :output, ""),
+        "metadata" => Keyword.get(opts, :metadata, %{}),
+        "title" => Keyword.get(opts, :title, ""),
+        "time" => %{"start" => now_ms, "end" => now_ms}
+      }
+    }
+  end
+
+  @doc """
+  Step-start part — opencode wraps each assistant turn with a step-start
+  and a step-finish marker. Required for the assistant message's
+  rendering to match a real codex turn.
+  """
+  @spec step_start_part_data() :: map()
+  def step_start_part_data, do: %{"type" => "step-start"}
+
+  @doc """
+  Step-finish part — paired with `step_start_part_data/0`. `reason`
+  defaults to `"stop"`; pass `"tool-calls"` when the assistant message
+  also contains a tool part.
+  """
+  @spec step_finish_part_data(keyword()) :: map()
+  def step_finish_part_data(opts \\ []) do
+    %{
+      "type" => "step-finish",
+      "reason" => Keyword.get(opts, :reason, "stop"),
+      "cost" => 0,
+      "tokens" => %{
+        "total" => 0,
+        "input" => 0,
+        "output" => 0,
+        "reasoning" => 0,
+        "cache" => %{"write" => 0, "read" => 0}
+      }
+    }
+  end
+
+  @doc """
+  Predicate used by Aiur to identify the opencode sessions it owns —
+  matches on `model.providerID == "aiur"`. Drives both shutdown cleanup
+  and boot-time GC of leftover sessions from prior crashes.
+  """
+  @spec aiur_owned?(map() | nil) :: boolean()
+  def aiur_owned?(%{"providerID" => "aiur"}), do: true
+  def aiur_owned?(%{providerID: "aiur"}), do: true
+  def aiur_owned?(_), do: false
+
   @spec serve_command(non_neg_integer(), String.t(), [String.t()]) :: String.t()
   def serve_command(port, host, extra_args \\ []) do
     ([Config.command(), "serve", "--port", to_string(port), "--hostname", host] ++ extra_args)
