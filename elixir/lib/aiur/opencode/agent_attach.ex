@@ -80,8 +80,13 @@ defmodule Aiur.Opencode.AgentAttach do
              |> PersistentPane.with_status(:hidden)
            end),
          :ok <- ApiClient.select_session(base_url, session_id),
-         _ <- log_phase(identifier, "tui_selected", started_at, session_id: session_id),
-         :ok <- nudge_tui(base_url, session_id) do
+         _ <- log_phase(identifier, "tui_selected", started_at, session_id: session_id) do
+      # `nudge_tui` is best-effort. opencode may 500 here under load or
+      # transient conditions; the pane is already attached + history is
+      # in SQLite, so a missing nudge only delays the first refresh
+      # until the next real event arrives.
+      _ = safely_nudge_tui(base_url, session_id, identifier)
+
       {:ok, final_pane} = SessionWriterRegistry.get_pane(identifier)
       log_phase(identifier, "ready", started_at, session_id: session_id, pane_id: pane_id)
       {:ok, final_pane}
@@ -128,13 +133,20 @@ defmodule Aiur.Opencode.AgentAttach do
     end
   end
 
-  defp nudge_tui(base_url, session_id) do
+  defp safely_nudge_tui(base_url, session_id, identifier) do
     marker = "__aiur_stream__:nudge:#{System.unique_integer([:positive])}"
     payload = %{parts: [Protocol.text_part_data(marker, synthetic: true)]}
 
     case ApiClient.post_message(base_url, session_id, payload) do
-      {:ok, _} -> :ok
-      {:error, _reason} = err -> err
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "opencode_agent_attach phase=nudge_failed identifier=#{identifier} session_id=#{session_id} reason=#{inspect(reason)}"
+        )
+
+        :ok
     end
   end
 

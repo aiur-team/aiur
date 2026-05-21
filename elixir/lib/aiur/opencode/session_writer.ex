@@ -37,6 +37,20 @@ defmodule Aiur.Opencode.SessionWriter do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   @doc """
+  Update the writer's registered `PersistentPane` value. `Registry.update_value/3`
+  requires the caller process to own the key, so callers outside the
+  writer (AgentAttach, PaneManager) route the update through this
+  GenServer.call which then performs the update from inside the writer.
+  """
+  @spec update_pane(GenServer.server(), (PersistentPane.t() -> PersistentPane.t())) ::
+          {:ok, PersistentPane.t()} | :not_found
+  def update_pane(server, fun) when is_function(fun, 1) do
+    GenServer.call(server, {:update_pane, fun}, 5_000)
+  catch
+    :exit, _ -> :not_found
+  end
+
+  @doc """
   Block until the writer has finished replaying on-disk history into
   opencode's SQLite. Returns `:ok` once the boot continuation has run.
 
@@ -109,6 +123,26 @@ defmodule Aiur.Opencode.SessionWriter do
 
   @impl true
   def handle_call(:await_replay, _from, state), do: {:reply, :ok, state}
+
+  def handle_call({:update_pane, fun}, _from, state) do
+    # Called from the writer's own process so Registry.update_value
+    # can mutate the value (Registry only lets the owner update).
+    case Registry.lookup(Aiur.Opencode.SessionWriterRegistry.Registry, state.identifier) do
+      [{_pid, %PersistentPane{} = pane}] ->
+        new_pane = fun.(pane)
+
+        Registry.update_value(
+          Aiur.Opencode.SessionWriterRegistry.Registry,
+          state.identifier,
+          fn _ -> new_pane end
+        )
+
+        {:reply, {:ok, new_pane}, state}
+
+      _ ->
+        {:reply, :not_found, state}
+    end
+  end
 
   @impl true
   def handle_info({:transcript_event, %{role: :user}}, state), do: {:noreply, state}
