@@ -379,16 +379,28 @@ defmodule Aiur.AgentRunner do
 
     case continue_with_issue?(issue, issue_state_fetcher) do
       {:continue, refreshed_issue} when turn_number < max_turns ->
+        Logger.info(
+          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns} reason=turn_completed"
+        )
+
         Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
         continue_issue_turn(%{turn_context | issue: refreshed_issue, turn_number: turn_number + 1}, app_session)
 
       {:continue, refreshed_issue} ->
+        Logger.info(
+          "aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}"
+        )
+
         Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
 
         :ok
 
-      {:done, _refreshed_issue} ->
+      {:done, refreshed_issue} ->
+        Logger.info(
+          "aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive"
+        )
+
         :ok
 
       {:error, reason} ->
@@ -413,15 +425,27 @@ defmodule Aiur.AgentRunner do
            ) do
       case continue_with_issue?(issue, turn_context.issue_state_fetcher) do
         {:continue, refreshed_issue} when turn_context.turn_number < turn_context.max_turns ->
+          Logger.info(
+            "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{turn_context.max_turns} reason=resume"
+          )
+
           continue_issue_turn(
             %{turn_context | issue: refreshed_issue, turn_number: turn_context.turn_number + 1},
             app_session
           )
 
-        {:continue, _refreshed_issue} ->
+        {:continue, refreshed_issue} ->
+          Logger.info(
+            "aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume"
+          )
+
           :ok
 
-        {:done, _refreshed_issue} ->
+        {:done, refreshed_issue} ->
+          Logger.info(
+            "aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume_inactive"
+          )
+
           :ok
 
         {:error, reason} ->
