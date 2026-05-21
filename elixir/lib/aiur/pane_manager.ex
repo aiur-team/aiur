@@ -324,8 +324,7 @@ defmodule Aiur.PaneManager do
         # opencode paints its footer before the input handler is wired up;
         # a short post-detection buffer keeps the first chars from being lost.
         Process.sleep(1_500)
-        send_chunks = Aiur.Opencode.Protocol.shell_escape(content)
-        _ = Tmux.command(tmux, "send-keys -t #{pane_id} -l #{send_chunks}")
+        _ = Tmux.send_keys_literal(tmux, pane_id, content)
         _ = File.rm(typeahead_path)
 
       _ ->

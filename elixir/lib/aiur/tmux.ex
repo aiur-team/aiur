@@ -75,6 +75,20 @@ defmodule Aiur.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  Send `text` to `pane_id` as a single literal keystroke buffer (tmux's
+  `send-keys -l`). Bypasses the string-split parsing in `command/3` which
+  would mangle whitespace and quote characters.
+  """
+  @spec send_keys_literal(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def send_keys_literal(server \\ __MODULE__, pane_id, text)
+      when is_binary(pane_id) and is_binary(text) do
+    GenServer.call(server, {:send_keys_literal, pane_id, text})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @spec session(GenServer.server()) :: String.t()
   def session(server \\ __MODULE__), do: GenServer.call(server, :session)
 
@@ -272,6 +286,13 @@ defmodule Aiur.Tmux do
     args = ["respawn-pane", "-k", "-t", pane_id, command_to_run]
 
     case run_args(state, args) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:send_keys_literal, pane_id, text}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "-l", text]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end
