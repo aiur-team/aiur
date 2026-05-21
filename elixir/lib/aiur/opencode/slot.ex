@@ -291,13 +291,39 @@ defmodule Aiur.Opencode.Slot do
   end
 
   @impl true
-  def handle_info(:poll_session, %{status: :active} = state) do
-    # U10 will probe a real opencode endpoint here and compare against
-    # `state.active_session_id`. Until then this is a no-op tick that
-    # keeps the timer alive — Aiur-initiated changes are broadcast
-    # directly from `do_select/2`, so the user-facing R3.2 behavior
-    # already works for the common case.
-    {:noreply, schedule_poll(state)}
+  def handle_info(:poll_session, %{status: :active, pane_id: pane_id} = state)
+      when is_binary(pane_id) do
+    # Detect external pane death (user pressed Ctrl+C inside opencode,
+    # opencode-attach exited, tmux destroyed the pane). `Aiur.Tmux`
+    # exposes no live event stream, so we poll. `display-message -t`
+    # returns an error if the pane no longer exists.
+    case Tmux.command(Tmux, "display-message -p -t #{pane_id} \#{pane_id}") do
+      {:ok, _} ->
+        {:noreply, schedule_poll(state)}
+
+      {:error, _reason} ->
+        Logger.info(
+          "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id}"
+        )
+
+        # AgentList must drop the circle immediately — no `Slot.deselect`
+        # call from PaneManager since the pane vanished without going
+        # through `close_conversation`.
+        broadcast_session_changed(state.slot_index, nil)
+
+        # opencode-serve is still alive; respawn just the attach pane
+        # (cheap, ~50ms) so the slot is reusable for the next open.
+        new_state = %{
+          state
+          | status: :attach_spawning,
+            pane_id: nil,
+            active_identifier: nil,
+            active_session_id: nil,
+            poll_ref: nil
+        }
+
+        {:noreply, new_state, {:continue, :spawn_attach}}
+    end
   end
 
   def handle_info(:poll_session, state) do
