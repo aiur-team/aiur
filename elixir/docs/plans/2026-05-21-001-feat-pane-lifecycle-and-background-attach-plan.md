@@ -113,6 +113,15 @@ Six issues from the first interactive run of the pre-warm feature (see origin):
 
 - **Tmux primitive: `move-pane -d`.** Replaces the existing `join-pane` for visible↔hidden moves. The `-d` flag means "do not select" — the pane reattaches in the target window without stealing focus. Bidirectional, idempotent, preserves PID and PTY (verified via tmux docs and yesterday's spike).
 
+- **Structured logging contract (cross-cutting, all units).** Manual CLI verification (U11) depends on grep-able state-transition logs. Every new subsystem MUST emit one log line per state transition using the format `<subsystem> phase=<state> [key=value ...]`. Existing subsystems already follow this (`opencode_warm_server phase=ready`, `opencode_session_writer phase=ready`). New subsystems extend it:
+  - `opencode_hidden_window phase=ready|create_failed window=<name>`
+  - `opencode_agent_attach phase=session_created|writer_started|tmux_spawned|replay_complete|tui_selected|ready identifier=<id> session_id=<id> pane_id=<id>`
+  - `opencode_attach_queue phase=enqueued|inflight_start|inflight_done|priority_jump|cancel identifier=<id>`
+  - `aiur_pane_manager phase=open_warm|open_hidden|open_priority|close_hide|close_cancel identifier=<id> pane_id=<id>`
+  - `aiur_autonomous_loop phase=recheck|recurse|wait identifier=<id> issue=<id>`
+  - `aiur_shutdown phase=cleanup|delete_session|supervisor_stop session_id=<id>`
+  Every phase line should be `Logger.info` (or `:debug` for high-frequency lines like per-row writes). Use these as the verification primitives in U11.
+
 - **No new top-level Registry.** The persistent-pane state extends `SessionWriterRegistry`'s value map (already keyed by identifier) with an additional struct field for tmux pane ID and attach status. Avoids parallel registries that could drift.
 
 ---
