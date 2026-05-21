@@ -403,7 +403,16 @@ defmodule Aiur.Opencode.Slot do
 
         case select_session_with_retry(state.base_url, session_id, 5) do
           :ok ->
-            _ = safely_nudge_tui(state.base_url, session_id, identifier)
+            # No synthetic nudge here. The old AgentAttach path POSTed a
+            # `__aiur_stream__:nudge:<N>` user turn to force the TUI to
+            # refresh after history-replay; the bridge used to 400 that
+            # request (visible as a toast). With the bridge now accepting
+            # nudge markers as empty SSE streams, opencode COMMITS the
+            # nudge as a user turn with no assistant reply and jumps the
+            # view to that empty turn — masking the actual history we
+            # just replayed. `/tui/select-session` alone is sufficient:
+            # opencode loads SQLite-resident rows for the selected
+            # session id on its own.
 
             Logger.info(
               "opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}"
@@ -440,23 +449,6 @@ defmodule Aiur.Opencode.Slot do
       {:error, _reason} ->
         Process.sleep(300)
         select_session_with_retry(base_url, session_id, attempts - 1)
-    end
-  end
-
-  defp safely_nudge_tui(base_url, session_id, identifier) do
-    marker = "__aiur_stream__:nudge:#{System.unique_integer([:positive])}"
-    payload = %{parts: [Protocol.text_part_data(marker, synthetic: true)]}
-
-    case ApiClient.post_message(base_url, session_id, payload) do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "opencode_slot phase=nudge_failed identifier=#{identifier} session_id=#{session_id} reason=#{inspect(reason)}"
-        )
-
-        :ok
     end
   end
 
