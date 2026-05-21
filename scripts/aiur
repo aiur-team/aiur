@@ -963,8 +963,6 @@ run_in_tmux() {
     fi
 
     if [ -n "$sessions_file" ] && [ -s "$sessions_file" ]; then
-      echo "aiur: reaping opencode sessions from $sessions_file" >&2
-
       local id
       while IFS= read -r id; do
         [ -n "$id" ] || continue
@@ -1037,7 +1035,10 @@ run_in_tmux() {
   # we run tmux as a child and propagate its exit status after cleanup.
   rm -f "$startup_capture"
 
-  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
+  # tmux prints `[server exited]` to stderr when the inner session dies
+  # (i.e. the user quits aiur via `q`). It is unhelpful noise on quit;
+  # the BEAM has already cleanly shut down by this point. Filter it.
+  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
   local tmux_status=$?
 
   # Trap fires on `exit` below — let it reap sessions before we leave.
