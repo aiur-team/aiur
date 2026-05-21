@@ -1,8 +1,12 @@
 defmodule Aiur.Opencode.PrewarmSupervisor do
   @moduledoc """
-  Groups the boot-time pre-warm processes: `Aiur.Opencode.WarmServer`
-  (the neutral-cwd `opencode serve`) and `Aiur.Opencode.WarmAttach`
-  (the hidden tmux window holding `opencode attach`).
+  Groups the boot-time pre-warm processes:
+  - `Aiur.Opencode.WarmServer` — neutral-cwd `opencode serve` instance
+  - `Aiur.Opencode.HiddenWindow` — owns the hidden tmux window where
+    every background `opencode attach` pane lives
+  - `Aiur.Opencode.WarmAttach` — legacy one-shot first-open path
+    (retained until U6 moves PaneManager fully onto the AttachQueue
+    flow; will be deleted once that lands)
 
   The per-identifier writer machinery (`SessionWriterRegistry.Registry`
   + `SessionSupervisor`) sits at top-level in `Aiur.Application`, not
@@ -20,6 +24,7 @@ defmodule Aiur.Opencode.PrewarmSupervisor do
     Supervisor.init(
       [
         Aiur.Opencode.WarmServer,
+        Aiur.Opencode.HiddenWindow,
         Aiur.Opencode.WarmAttach
       ],
       strategy: :one_for_one
