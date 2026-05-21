@@ -92,7 +92,7 @@ defmodule Aiur.AgentList.Renderer do
           Map.get(state, :selection_focus, :agents),
           inner_width,
           layout,
-          Map.get(state, :open_pane_ids, MapSet.new())
+          visible_identifiers(state)
         ),
         bottom_border(inner_width),
         eol(),
@@ -433,6 +433,24 @@ defmodule Aiur.AgentList.Renderer do
   # otherwise — keeps the column width stable so the AGE column never
   # shifts. Glyph is plain (terminal-default white) so it pops against
   # the surrounding dim text without re-using the green status palette.
+  # The circle in front of an identifier indicates "this agent's session
+  # is currently visible somewhere in the conversation grid." We union
+  # two sources so the indicator stays correct in both the slot-bound
+  # path (`visible_sessions` from Slot workers) and any legacy/test
+  # path that still relies on `open_pane_ids`.
+  defp visible_identifiers(state) do
+    legacy = Map.get(state, :open_pane_ids, MapSet.new())
+
+    slot_set =
+      state
+      |> Map.get(:visible_sessions, %{})
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    MapSet.union(legacy, slot_set)
+  end
+
   defp open_pane_marker(id_str, open_pane_ids) do
     if MapSet.member?(open_pane_ids, id_str) do
       [" ", @open_pane_glyph, " "]

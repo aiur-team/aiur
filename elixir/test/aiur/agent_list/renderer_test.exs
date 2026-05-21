@@ -5,7 +5,7 @@ defmodule Aiur.AgentList.RendererTest do
 
   defp render(state), do: IO.iodata_to_binary(Renderer.render(state))
 
-  defp visible(text), do: Regex.replace(~r/\e\[[0-9;]*[A-Za-z]/, text, "")
+  defp visible(text), do: Regex.replace(~r/\e\[[?0-9;]*[A-Za-z]/, text, "")
 
   defp base_state(overrides \\ %{}) do
     Map.merge(

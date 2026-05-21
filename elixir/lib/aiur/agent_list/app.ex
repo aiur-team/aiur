@@ -113,6 +113,7 @@ defmodule Aiur.AgentList.App do
     if Keyword.get(opts, :subscribe?, true) do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.Slot.slots_topic())
     end
 
     state = %{
@@ -127,6 +128,13 @@ defmodule Aiur.AgentList.App do
       pane_manager: pane_manager,
       orchestrator: orchestrator,
       command_template: command_template,
+      # slot_index → currently-visible identifier (nil = slot idle).
+      # Updated on `:slot_session_changed` PubSub events from Slot workers.
+      visible_sessions: %{},
+      # Legacy field, retained so the renderer's `open_pane_marker` still
+      # has a fallback when running without slots (e.g. in tests). The
+      # circle is shown when an identifier is in `open_pane_ids` OR is
+      # the value of any entry in `visible_sessions`.
       open_pane_ids: initial_open_pane_ids(pane_manager)
     }
 
@@ -251,6 +259,21 @@ defmodule Aiur.AgentList.App do
   end
 
   def handle_info({:status_changed, _}, state), do: {:noreply, state}
+
+  def handle_info({:slot_session_changed, slot_index, identifier}, state)
+      when is_integer(slot_index) do
+    new_visible =
+      case identifier do
+        nil -> Map.delete(state.visible_sessions, slot_index)
+        id when is_binary(id) -> Map.put(state.visible_sessions, slot_index, id)
+      end
+
+    new_state = %{state | visible_sessions: new_visible}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:slot_ready, _slot_index}, state), do: {:noreply, state}
 
   def handle_info({:alert, %{}}, state), do: {:noreply, state}
 
