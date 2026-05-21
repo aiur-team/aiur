@@ -51,17 +51,11 @@ defmodule Aiur.PaneManager do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, Boot, Tmux}
-  alias Aiur.Opencode.{AttachQueue, HiddenWindow, PersistentPane, SessionWriterRegistry}
+  alias Aiur.Opencode.{HiddenWindow, Slot, SlotRegistry, SlotSupervisor}
   alias Aiur.PaneManager.Layout
 
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
-
-  # Hard cap on how long the visible-open path will park while waiting
-  # for AttachQueue's :pane_priority_attached event. Beyond this the
-  # parked call is replied with {:error, :open_priority_timeout} so the
-  # AgentList GenServer can keep handling keypresses.
-  @open_priority_timeout_ms 7_000
 
   defstruct identifier_to_pane: %{},
             pane_to_identifier: %{},
@@ -73,12 +67,7 @@ defmodule Aiur.PaneManager do
             agent_list_pane: nil,
             window_target: nil,
             orientation: :horizontal,
-            tmux: nil,
-            # identifier => GenServer.from() — opencode opens parked while
-            # AttachQueue finishes a background attach. Replied on the
-            # `:pane_priority_attached` PubSub event from the queue.
-            pending_opens: %{},
-            attach_topic_subscribed?: false
+            tmux: nil
 
   @type orientation :: :horizontal | :vertical
 
@@ -199,21 +188,7 @@ defmodule Aiur.PaneManager do
         close_opencode_or_generic(state, identifier, pane_id)
 
       :error ->
-        # Visible state has no record. If the identifier is mid-attach in
-        # AttachQueue, treat close as cancel — the resulting pane will land
-        # in :hidden and won't be promoted to visible.
-        case SessionWriterRegistry.get_pane(identifier) do
-          {:ok, %{status: status}} when status in [:attaching, :pending] ->
-            Logger.info(
-              "aiur_pane_manager phase=close_cancel elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} status=#{status}"
-            )
-
-            :ok = AttachQueue.cancel(identifier)
-            {:reply, :ok, state}
-
-          _ ->
-            {:reply, {:error, :not_open}, state}
-        end
+        {:reply, {:error, :not_open}, state}
     end
   end
 
@@ -237,69 +212,6 @@ defmodule Aiur.PaneManager do
   @impl true
   def handle_info({:tmux_event, {:notification, :pane_died, pane_id}}, state) do
     {:noreply, handle_pane_closed(state, pane_id)}
-  end
-
-  def handle_info({:pane_priority_attached, identifier}, state) do
-    case Map.pop(state.pending_opens, identifier) do
-      {nil, _} ->
-        {:noreply, state}
-
-      {{from, timer_ref}, pending_opens} ->
-        _ = Process.cancel_timer(timer_ref)
-        new_state = %{state | pending_opens: pending_opens}
-
-        case SessionWriterRegistry.get_pane(identifier) do
-          {:ok, %PersistentPane{pane_id: pane_id}} when is_binary(pane_id) ->
-            case promote_hidden_to_visible(new_state, identifier, pane_id, nil) do
-              {:noreply, promoted_state} ->
-                GenServer.reply(from, {:ok, pane_id})
-                {:noreply, promoted_state}
-
-              {:reply, reply, promoted_state} ->
-                GenServer.reply(from, reply)
-                {:noreply, promoted_state}
-            end
-
-          _ ->
-            GenServer.reply(from, {:error, :pane_not_ready})
-            {:noreply, new_state}
-        end
-    end
-  end
-
-  def handle_info({:pane_attached, _identifier}, state) do
-    {:noreply, state}
-  end
-
-  def handle_info({:pane_attach_failed, identifier, reason}, state) do
-    case Map.pop(state.pending_opens, identifier) do
-      {nil, _} ->
-        Logger.warning(
-          "aiur_pane_manager phase=open_attach_failed identifier=#{identifier} reason=#{inspect(reason)}"
-        )
-
-        {:noreply, state}
-
-      {{from, timer_ref}, pending_opens} ->
-        _ = Process.cancel_timer(timer_ref)
-        GenServer.reply(from, {:error, reason})
-        {:noreply, %{state | pending_opens: pending_opens}}
-    end
-  end
-
-  def handle_info({:open_priority_timeout, identifier}, state) do
-    case Map.pop(state.pending_opens, identifier) do
-      {nil, _} ->
-        {:noreply, state}
-
-      {{from, _timer_ref}, pending_opens} ->
-        Logger.warning(
-          "aiur_pane_manager phase=open_priority_timeout elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} timeout_ms=#{@open_priority_timeout_ms}"
-        )
-
-        GenServer.reply(from, {:error, :open_priority_timeout})
-        {:noreply, %{state | pending_opens: pending_opens}}
-    end
   end
 
   def handle_info({:nodedown, _node}, state), do: {:noreply, state}
@@ -347,46 +259,55 @@ defmodule Aiur.PaneManager do
   end
 
   defp close_opencode_or_generic(state, identifier, pane_id) do
-    case SessionWriterRegistry.get_pane(identifier) do
-      {:ok, %{pane_id: ^pane_id}} ->
-        # opencode pane — hide, don't destroy.
+    # If this pane is currently owned by a slot worker, hide it (move to
+    # the hidden warm window) and deselect the slot so the slot can
+    # accept the next agent. Otherwise it's a generic pane — kill it.
+    case slot_for_pane(state, pane_id) do
+      {:ok, slot_index, slot_pid} ->
         hidden_window = HiddenWindow.window_name()
 
         case Tmux.move_pane_hidden(state.tmux, pane_id, hidden_window) do
           :ok ->
-            _ =
-              SessionWriterRegistry.update_pane(identifier, fn pane ->
-                PersistentPane.with_status(pane, :hidden)
-              end)
-
+            :ok = Slot.deselect(slot_pid)
             new_state = forget_pane_by_identifier(state, pane_id)
             _ = apply_layout(new_state)
 
             Logger.info(
-              "aiur_pane_manager phase=close_hide elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} pane_id=#{pane_id}"
+              "aiur_pane_manager phase=close_hide elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
             )
 
             {:reply, :ok, new_state}
 
           {:error, reason} ->
             Logger.warning(
-              "aiur_pane_manager phase=close_hide_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)}"
+              "aiur_pane_manager phase=close_hide_failed identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id} reason=#{inspect(reason)}"
             )
 
-            # Fall back to kill so the user's close intent isn't silently lost.
-            _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
-            new_state = forget_pane_by_identifier(state, pane_id)
-            _ = apply_layout(new_state)
-            {:reply, :ok, new_state}
+            # Fallback: tell the slot to deselect so it isn't wedged, and
+            # leave the pane in place — user can retry close.
+            _ = Slot.deselect(slot_pid)
+            {:reply, :ok, state}
         end
 
-      _ ->
-        # Generic (non-opencode) pane — original kill behavior.
+      :not_found ->
+        # Generic (non-opencode) pane — kill behavior.
         _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
         new_state = forget_pane_by_identifier(state, pane_id)
         _ = apply_layout(new_state)
         {:reply, :ok, new_state}
     end
+  end
+
+  # Resolve which slot worker (if any) owns the given pane_id. Looks up
+  # every alive slot in SlotRegistry and asks for its snapshot.
+  defp slot_for_pane(_state, pane_id) do
+    SlotRegistry.all()
+    |> Enum.find_value(:not_found, fn {slot_index, slot_pid} ->
+      case Slot.snapshot(slot_pid) do
+        %{pane_id: ^pane_id} -> {:ok, slot_index, slot_pid}
+        _ -> nil
+      end
+    end)
   end
 
   # Non-opencode commands (rare today; mostly the bare `echo ...` test paths)
@@ -410,89 +331,60 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  # opencode panes use the persistent pane model: AttachQueue keeps every
-  # agent's opencode-attach process alive in the hidden warm window;
-  # opening a pane is a `tmux move-pane` from hidden to visible, closing
-  # is the inverse. If the agent's pane isn't attached yet, we ask the
-  # queue to prioritize this identifier and park the open call until the
-  # `:pane_priority_attached` PubSub event arrives.
-  defp open_opencode_pane(state, identifier, _opts, from) do
-    workspace = opencode_workspace_for(identifier)
-    _ = File.mkdir_p(workspace)
-
-    case SessionWriterRegistry.get_pane(identifier) do
-      {:ok, %PersistentPane{status: :hidden, pane_id: pane_id}}
-      when is_binary(pane_id) ->
-        promote_hidden_to_visible(state, identifier, pane_id, from)
-
-      {:ok, %PersistentPane{status: :visible, pane_id: pane_id}}
-      when is_binary(pane_id) ->
-        Logger.info(
-          "aiur_pane_manager phase=open_already_visible_registry elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} pane_id=#{pane_id}"
-        )
-
-        {:reply, {:ok, pane_id}, state}
-
-      _ ->
-        # No persistent-pane ready. Two scenarios:
-        #   (a) Background attach hasn't created this agent's pane yet.
-        #   (b) Warm subsystem isn't running at all.
-        # Either way, fall back to cold attach IMMEDIATELY so the user
-        # is never blocked waiting for an async background step. Tell
-        # AttachQueue about the user-priority intent so it skips this
-        # identifier on the next background round (we already have a
-        # visible pane after cold_attach finishes).
-        _ = AttachQueue.cancel(identifier)
-
-        Logger.info(
-          "aiur_pane_manager phase=open_cold_fallback elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier}"
-        )
-
-        cold_attach(state, identifier, workspace, from)
-    end
-  end
-
-  defp promote_hidden_to_visible(state, identifier, pane_id, from) do
-    slot = state.cycle_index + 1
+  # opencode panes use the slot-bound model: each pane slot owns its own
+  # opencode-serve + opencode-attach process for the lifetime of the
+  # aiur run. Opening a pane = `SlotSupervisor.acquire_slot/0` +
+  # `Slot.select/2` + `Tmux.move_pane_visible/2`. If no slot is :ready
+  # (chain pre-warm hasn't reached one yet), fall back to the legacy
+  # cold-attach path so the user never sees an error.
+  defp open_opencode_pane(state, identifier, _opts, _from) do
     started_at = System.monotonic_time(:millisecond)
 
-    case Tmux.move_pane_visible(state.tmux, pane_id, state.window_target) do
-      :ok ->
-        _ =
-          SessionWriterRegistry.update_pane(identifier, fn pane ->
-            PersistentPane.with_status(pane, :visible)
-          end)
+    case SlotSupervisor.acquire_slot() do
+      {slot_index, slot_pid} when is_integer(slot_index) ->
+        case Slot.select(slot_pid, identifier) do
+          {:ok, pane_id} ->
+            case Tmux.move_pane_visible(state.tmux, pane_id, state.window_target) do
+              :ok ->
+                new_state = record_slot_pane(state, slot_index, pane_id, identifier)
+                _ = apply_layout(new_state)
+                AgentPubSub.broadcast_status_change(identifier, :pane_opened)
 
-        new_state = record_slot_pane(state, slot, pane_id, identifier)
-        _ = apply_layout(new_state)
-        AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+                Logger.info(
+                  "aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{System.monotonic_time(:millisecond) - started_at} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
+                )
 
+                {:reply, {:ok, pane_id}, new_state}
+
+              {:error, reason} ->
+                Logger.warning(
+                  "aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
+                )
+
+                _ = Slot.deselect(slot_pid)
+                {:reply, {:error, reason}, state}
+            end
+
+          {:error, reason} ->
+            Logger.warning(
+              "aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
+            )
+
+            workspace = opencode_workspace_for(identifier)
+            _ = File.mkdir_p(workspace)
+            cold_attach(state, identifier, workspace, nil)
+        end
+
+      {:error, :no_ready_slot} ->
         Logger.info(
-          "aiur_pane_manager phase=open_hidden_promoted elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{System.monotonic_time(:millisecond) - started_at} identifier=#{identifier} pane_id=#{pane_id}"
+          "aiur_pane_manager phase=open_cold_fallback elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} reason=no_ready_slot"
         )
 
-        case from do
-          nil -> {:noreply, advance_cycle(new_state)}
-          _ -> {:reply, {:ok, pane_id}, advance_cycle(new_state)}
-        end
-
-      {:error, reason} ->
-        Logger.warning(
-          "aiur_pane_manager phase=open_hidden_promote_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)}"
-        )
-
-        case from do
-          nil -> {:noreply, state}
-          _ -> {:reply, {:error, reason}, state}
-        end
+        workspace = opencode_workspace_for(identifier)
+        _ = File.mkdir_p(workspace)
+        cold_attach(state, identifier, workspace, nil)
     end
   end
-
-  # ensure_attach_topic_subscription/1 was used by the parked-open path.
-  # That path is gone — cold_attach is the immediate fallback now — so
-  # PaneManager no longer subscribes to the attach topic. The pending_opens
-  # / attach_topic_subscribed? fields stay on the struct for the historical
-  # `:pane_priority_attached` handler (no-op when pending_opens is empty).
 
   defp cold_attach(state, identifier, workspace, _from) do
     slot = state.cycle_index + 1
