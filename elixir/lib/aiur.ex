@@ -26,6 +26,7 @@ defmodule Aiur.Application do
     :ok = Aiur.Boot.mark()
     :ok = Aiur.LogFile.configure()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
+    install_signal_handlers()
     maybe_start_distribution()
 
     interactive_cli? = Application.get_env(:aiur, :interactive_cli, false)
@@ -96,4 +97,25 @@ defmodule Aiur.Application do
   end
 
   defp maybe_start_distribution, do: start_distribution()
+
+  # BEAM-level signal routing. The Erlang VM's default handlers already do
+  # what we want for catchable signals:
+  #   SIGINT  -> `init:stop()` -> Application.stop/1 -> Aiur.Shutdown.cleanup
+  #   SIGTERM -> `init:stop()` -> same path
+  # SIGHUP defaults to ignored on most VMs; we explicitly opt it into the
+  # same graceful path so a terminal-close kills opencode sessions too.
+  # Layer 2 (the bash trap in `scripts/aiur`) backstops these. Layer 3 is
+  # boot-time GC in `WarmServer` for uncatchable signals (SIGKILL, OOM).
+  defp install_signal_handlers do
+    try do
+      :ok = :os.set_signal(:sighup, :handle)
+    catch
+      kind, reason ->
+        Logger.warning(
+          "aiur_signal phase=sighup_install_failed kind=#{kind} reason=#{inspect(reason)}"
+        )
+    end
+
+    :ok
+  end
 end
