@@ -17,10 +17,12 @@ defmodule Aiur.Opencode.WorkspaceSetup do
       })
 
     tui = Protocol.tui_json()
+    theme = Protocol.aiur_theme_json()
 
-    with :ok <- File.mkdir_p(Path.join(workspace, ".opencode")),
+    with :ok <- File.mkdir_p(Path.join(workspace, ".opencode/themes")),
          :ok <- File.write(Path.join(workspace, "opencode.json"), Jason.encode!(config, pretty: true)),
-         :ok <- File.write(Path.join(workspace, "tui.json"), Jason.encode!(tui, pretty: true)) do
+         :ok <- File.write(Path.join(workspace, "tui.json"), Jason.encode!(tui, pretty: true)),
+         :ok <- File.write(Path.join(workspace, ".opencode/themes/aiur.json"), Jason.encode!(theme, pretty: true)) do
       TokenRegistry.put(token, Config.safe_identifier(identifier))
       {:ok, token}
     end

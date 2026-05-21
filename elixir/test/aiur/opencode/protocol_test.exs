@@ -41,11 +41,20 @@ defmodule Aiur.Opencode.ProtocolTest do
            }
   end
 
-  test "tui_json selects the none theme so the terminal background shows through" do
+  test "tui_json selects the custom aiur theme so the terminal background shows through" do
     assert Protocol.tui_json() == %{
              "$schema" => "https://opencode.ai/tui.json",
-             "theme" => "none"
+             "theme" => "aiur"
            }
+  end
+
+  test "aiur_theme_json keeps every background surface as `none`" do
+    theme = Protocol.aiur_theme_json()
+    backgrounds = ~w(background backgroundPanel backgroundElement diffAddedBg diffRemovedBg diffContextBg diffAddedLineNumberBg diffRemovedLineNumberBg)
+
+    for key <- backgrounds do
+      assert get_in(theme, ["theme", key]) == "none", "expected #{key} to be \"none\""
+    end
   end
 
   test "serve and attach commands are shell escaped" do

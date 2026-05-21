@@ -95,12 +95,76 @@ defmodule Aiur.Opencode.Protocol do
     }
   end
 
-  # `none` skips opencode's theme painting so the host terminal's background and palette show through.
+  # Aiur ships a custom theme that explicitly sets every background to "none" — the built-in
+  # "none" theme still paints message-box surfaces. The matching theme JSON lives in
+  # `<workspace>/.opencode/themes/aiur.json` (see `WorkspaceSetup`).
   @spec tui_json() :: map()
   def tui_json do
     %{
       "$schema" => "https://opencode.ai/tui.json",
-      "theme" => "none"
+      "theme" => "aiur"
+    }
+  end
+
+  # Custom theme: every `*Bg` / background-* key set to "none" so the host terminal's
+  # background and palette show through; distinct accent colors so user vs agent reads
+  # apart even without a panel fill.
+  @spec aiur_theme_json() :: map()
+  def aiur_theme_json do
+    %{
+      "$schema" => "https://opencode.ai/theme.json",
+      "theme" => %{
+        "primary" => %{"dark" => 14, "light" => 6},
+        "secondary" => %{"dark" => 13, "light" => 5},
+        "accent" => %{"dark" => 11, "light" => 3},
+        "error" => %{"dark" => 9, "light" => 1},
+        "warning" => %{"dark" => 11, "light" => 3},
+        "success" => %{"dark" => 10, "light" => 2},
+        "info" => %{"dark" => 12, "light" => 4},
+        "text" => "none",
+        "textMuted" => %{"dark" => 8, "light" => 7},
+        "background" => "none",
+        "backgroundPanel" => "none",
+        "backgroundElement" => "none",
+        "border" => %{"dark" => 8, "light" => 7},
+        "borderActive" => %{"dark" => 14, "light" => 6},
+        "borderSubtle" => %{"dark" => 8, "light" => 7},
+        "diffAdded" => %{"dark" => 10, "light" => 2},
+        "diffRemoved" => %{"dark" => 9, "light" => 1},
+        "diffContext" => "none",
+        "diffHunkHeader" => %{"dark" => 14, "light" => 6},
+        "diffHighlightAdded" => %{"dark" => 10, "light" => 2},
+        "diffHighlightRemoved" => %{"dark" => 9, "light" => 1},
+        "diffAddedBg" => "none",
+        "diffRemovedBg" => "none",
+        "diffContextBg" => "none",
+        "diffLineNumber" => %{"dark" => 8, "light" => 7},
+        "diffAddedLineNumberBg" => "none",
+        "diffRemovedLineNumberBg" => "none",
+        "markdownText" => "none",
+        "markdownHeading" => %{"dark" => 14, "light" => 6},
+        "markdownLink" => %{"dark" => 12, "light" => 4},
+        "markdownLinkText" => %{"dark" => 14, "light" => 6},
+        "markdownCode" => %{"dark" => 10, "light" => 2},
+        "markdownBlockQuote" => %{"dark" => 8, "light" => 7},
+        "markdownEmph" => %{"dark" => 13, "light" => 5},
+        "markdownStrong" => %{"dark" => 11, "light" => 3},
+        "markdownHorizontalRule" => %{"dark" => 8, "light" => 7},
+        "markdownListItem" => %{"dark" => 14, "light" => 6},
+        "markdownListEnumeration" => %{"dark" => 12, "light" => 4},
+        "markdownImage" => %{"dark" => 12, "light" => 4},
+        "markdownImageText" => %{"dark" => 14, "light" => 6},
+        "markdownCodeBlock" => "none",
+        "syntaxComment" => %{"dark" => 8, "light" => 7},
+        "syntaxKeyword" => %{"dark" => 13, "light" => 5},
+        "syntaxFunction" => %{"dark" => 12, "light" => 4},
+        "syntaxVariable" => %{"dark" => 14, "light" => 6},
+        "syntaxString" => %{"dark" => 10, "light" => 2},
+        "syntaxNumber" => %{"dark" => 11, "light" => 3},
+        "syntaxType" => %{"dark" => 14, "light" => 6},
+        "syntaxOperator" => %{"dark" => 13, "light" => 5},
+        "syntaxPunctuation" => "none"
+      }
     }
   end
 
