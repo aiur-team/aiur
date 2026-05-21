@@ -25,7 +25,8 @@ defmodule Aiur.Opencode.PrewarmSupervisor do
       [
         Aiur.Opencode.WarmServer,
         Aiur.Opencode.HiddenWindow,
-        Aiur.Opencode.WarmAttach
+        Aiur.Opencode.WarmAttach,
+        Aiur.Opencode.AttachQueue
       ],
       strategy: :one_for_one
     )
