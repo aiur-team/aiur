@@ -89,5 +89,17 @@ defmodule Aiur.Opencode.Config do
     String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")
   end
 
+  @spec db_path() :: String.t() | nil
+  def db_path do
+    case section_value("db_path") do
+      value when is_binary(value) ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      _ ->
+        nil
+    end
+  end
+
   defp section_value(key), do: Map.get(Aiur.Config.section("opencode"), key)
 end

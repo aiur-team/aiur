@@ -68,12 +68,20 @@ defmodule Aiur.MixProject do
           Aiur.Opencode.BridgeSupervisor,
           Aiur.Opencode.ChatCompletions,
           Aiur.Opencode.Config,
+          Aiur.Opencode.Db,
           Aiur.Opencode.EventConsumer,
           Aiur.Opencode.PaneSession,
           Aiur.Opencode.PaneSupervisor,
+          Aiur.Opencode.PrewarmSupervisor,
           Aiur.Opencode.Server,
+          Aiur.Opencode.SessionSupervisor,
+          Aiur.Opencode.SessionWriter,
+          Aiur.Opencode.SessionWriterRegistry,
           Aiur.Opencode.TranscriptRelay,
-          Aiur.Opencode.WorkspaceSetup
+          Aiur.Opencode.WarmAttach,
+          Aiur.Opencode.WarmServer,
+          Aiur.Opencode.WorkspaceSetup,
+          Aiur.Shutdown
         ]
       ],
       test_ignore_filters: [
@@ -111,6 +119,7 @@ defmodule Aiur.MixProject do
       {:yaml_elixir, "~> 2.12"},
       {:solid, "~> 1.2"},
       {:ecto, "~> 3.13"},
+      {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
