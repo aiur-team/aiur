@@ -130,12 +130,9 @@ defmodule Aiur.AgentList.App do
       command_template: command_template,
       # slot_index → currently-visible identifier (nil = slot idle).
       # Updated on `:slot_session_changed` PubSub events from Slot workers.
-      visible_sessions: %{},
-      # Legacy field, retained so the renderer's `open_pane_marker` still
-      # has a fallback when running without slots (e.g. in tests). The
-      # circle is shown when an identifier is in `open_pane_ids` OR is
-      # the value of any entry in `visible_sessions`.
-      open_pane_ids: initial_open_pane_ids(pane_manager)
+      # This is the single source of truth for the agent-list circle
+      # indicator — the legacy `open_pane_ids` (historical opens) is gone.
+      visible_sessions: %{}
     }
 
     schedule_refresh_tick()
@@ -244,20 +241,10 @@ defmodule Aiur.AgentList.App do
     {:noreply, new_state}
   end
 
-  def handle_info({:status_changed, %{identifier: id, status: :pane_opened}}, state)
-      when is_binary(id) do
-    new_state = %{state | open_pane_ids: MapSet.put(state.open_pane_ids, id)}
-    render(new_state)
-    {:noreply, new_state}
-  end
-
-  def handle_info({:status_changed, %{identifier: id, status: :pane_closed}}, state)
-      when is_binary(id) do
-    new_state = %{state | open_pane_ids: MapSet.delete(state.open_pane_ids, id)}
-    render(new_state)
-    {:noreply, new_state}
-  end
-
+  # The agent-list circle indicator no longer tracks "pane has ever
+  # been opened" — it tracks "session is currently visible in some
+  # slot", updated via `:slot_session_changed` below. Any other
+  # `:status_changed` event is informational and not rendered.
   def handle_info({:status_changed, _}, state), do: {:noreply, state}
 
   def handle_info({:slot_session_changed, slot_index, identifier}, state)
@@ -455,7 +442,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:agent_kind, agent_kind())
       |> Map.put(:agent_count, active_agent_count(state.summaries))
       |> Map.put(:max_agents, max_agents(state.orchestrator))
-      |> Map.put(:open_pane_ids, state.open_pane_ids)
+      |> Map.put(:visible_sessions, state.visible_sessions)
 
     state.write_fun.(Renderer.render(render_state))
     :ok
@@ -552,13 +539,6 @@ defmodule Aiur.AgentList.App do
   end
 
   defp parse_int(_value, default), do: default
-
-  defp initial_open_pane_ids(pane_manager) do
-    case safe_call(fn -> PaneManager.list_open_panes(pane_manager) end) do
-      panes when is_map(panes) -> panes |> Map.keys() |> MapSet.new()
-      _ -> MapSet.new()
-    end
-  end
 
   defp default_command_template do
     "__aiur_opencode__"

@@ -268,7 +268,7 @@ defmodule Aiur.AgentList.RendererTest do
       render(
         base_state(%{
           summaries: summaries,
-          open_pane_ids: MapSet.new(["MT-1"])
+          visible_sessions: %{1 => "MT-1"}
         })
       )
       |> visible()
@@ -283,7 +283,7 @@ defmodule Aiur.AgentList.RendererTest do
     refute mt2_line =~ "●"
   end
 
-  test "open-pane circle defaults off when no open_pane_ids are passed" do
+  test "open-pane circle defaults off when no visible_sessions are passed" do
     summaries = [%{identifier: "MT-X", status: :running, alert_count: 0}]
     out = render(base_state(%{summaries: summaries})) |> visible()
 
