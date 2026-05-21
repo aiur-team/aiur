@@ -111,6 +111,26 @@ defmodule Aiur.PaneManager do
     GenServer.call(server, {:close, identifier})
   end
 
+  @doc """
+  Attach `identifier` to the slot owning `state.last_attached_pane_id`.
+  The slot rebuilds its serve with the new identifier (via the
+  existing `Slot.select/2` rebuild path) and the pane stays in the
+  same tmux location.
+
+  Returns `{:error, :no_focused_pane}` when no chat pane has been
+  opened yet — caller (AgentList) falls through to `open_conversation`.
+
+  Timeout matches the open-queue timeout's upper bound so the call
+  sees the queue's reply rather than its own timeout, in case the
+  slot rebuild takes longer than expected.
+  """
+  @spec attach_conversation(GenServer.server(), agent_id(), String.t(), keyword()) ::
+          {:ok, pane_id()} | {:error, term()}
+  def attach_conversation(server \\ __MODULE__, identifier, command_to_run, opts \\ [])
+      when is_binary(identifier) and is_binary(command_to_run) and is_list(opts) do
+    GenServer.call(server, {:attach, identifier, command_to_run, opts}, 65_000)
+  end
+
   @spec list_open_panes(GenServer.server()) :: %{optional(agent_id()) => pane_id()}
   def list_open_panes(server \\ __MODULE__) do
     GenServer.call(server, :list)
@@ -201,6 +221,25 @@ defmodule Aiur.PaneManager do
 
       :error ->
         do_open(state, identifier, command_to_run, opts, from)
+    end
+  end
+
+  def handle_call({:attach, identifier, _command, _opts}, from, state) do
+    cond do
+      Map.has_key?(state.identifier_to_pane, identifier) ->
+        # Identifier already visible somewhere — refocus existing pane
+        # instead of re-attaching. Mirrors the open path's idempotence.
+        existing_pane = Map.fetch!(state.identifier_to_pane, identifier)
+        _ = Tmux.command(state.tmux, "select-pane -t #{existing_pane}")
+        {:reply, {:ok, existing_pane}, %{state | last_attached_pane_id: existing_pane}}
+
+      is_nil(state.last_attached_pane_id) ->
+        # No pane has been opened yet — caller (AgentList) falls through
+        # to open_conversation per R4.2.
+        {:reply, {:error, :no_focused_pane}, state}
+
+      true ->
+        attach_to_focused_pane(state, identifier, from)
     end
   end
 
@@ -498,6 +537,41 @@ defmodule Aiur.PaneManager do
         )
 
         reply_or_noreply({:error, reason}, from, state)
+    end
+  end
+
+  # Rebind the focused pane's slot to a new agent identifier. The slot's
+  # `Slot.select/2` triggers the incremental rebuild path (U3) for any
+  # identifier not already in the slot's known set, so the user can
+  # cycle the same pane through many agents without spawning new tmux
+  # panes. The previously-shown agent's SessionWriter stays alive
+  # (identifier-keyed in `SessionWriterRegistry`); the user can attach
+  # it back any time.
+  defp attach_to_focused_pane(state, identifier, from) do
+    pane_id = state.last_attached_pane_id
+
+    case Map.fetch(state.pane_to_slot, pane_id) do
+      :error ->
+        # last_attached_pane_id points at a pane PaneManager no longer
+        # tracks (closed, died). Clear the pointer and fall through.
+        new_state = %{state | last_attached_pane_id: nil}
+        {:reply, {:error, :no_focused_pane}, new_state}
+
+      {:ok, slot_index} ->
+        case Aiur.Opencode.SlotRegistry.lookup(slot_index) do
+          {:ok, slot_pid} ->
+            # The slot rebuild will spawn a NEW attach pane (the
+            # identifier_miss path stops the serve + respawns attach).
+            # The OLD visible pane must be killed BEFORE the new pane
+            # arrives or we'll end up with two visible chat panes.
+            _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
+            new_state = forget_pane_by_identifier(state, pane_id)
+            attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from)
+
+          :not_found ->
+            new_state = %{state | last_attached_pane_id: nil}
+            {:reply, {:error, :no_focused_pane}, new_state}
+        end
     end
   end
 

@@ -98,6 +98,7 @@ defmodule Aiur.AgentList.Input do
   defp dispatch(" ", target, _input_fun), do: App.toggle_pause(target)
   defp dispatch("k", target, _input_fun), do: App.select_previous(target)
   defp dispatch("j", target, _input_fun), do: App.select_next(target)
+  defp dispatch("a", target, _input_fun), do: App.attach_selected(target)
   defp dispatch("v", target, _input_fun), do: App.toggle_layout_orientation(target)
   defp dispatch("?", target, _input_fun), do: App.toggle_help(target)
   defp dispatch("q", target, _input_fun), do: App.quit(target)

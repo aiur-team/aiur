@@ -69,6 +69,15 @@ defmodule Aiur.AgentList.App do
   @spec activate(GenServer.server()) :: :ok
   def activate(server \\ __MODULE__), do: GenServer.cast(server, :activate)
 
+  @doc """
+  Attach the currently-selected agent to the most-recently-focused chat
+  pane (the same slot rebuilds with the new identifier). When no pane
+  is currently focused, falls through to `activate/1` (open in a new
+  slot). Triggered by the `a` keybind in `input.ex`.
+  """
+  @spec attach_selected(GenServer.server()) :: :ok
+  def attach_selected(server \\ __MODULE__), do: GenServer.cast(server, :attach_selected)
+
   @spec toggle_pause(GenServer.server()) :: :ok
   def toggle_pause(server \\ __MODULE__), do: GenServer.cast(server, :toggle_pause)
 
@@ -194,6 +203,46 @@ defmodule Aiur.AgentList.App do
               command,
               title: Map.get(summary, :title)
             )
+
+        _ ->
+          :ok
+      end
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:attach_selected, state) do
+    if state.selection_focus == :agents do
+      case Enum.at(state.summaries, state.selection_index) do
+        %{identifier: identifier} = summary ->
+          Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
+          command = "#{state.command_template} #{identifier}"
+
+          # Attempt attach-to-focused-pane first. If no pane is currently
+          # focused, PaneManager returns `:no_focused_pane` and we fall
+          # through to a normal open (per R4.2).
+          case PaneManager.attach_conversation(
+                 state.pane_manager,
+                 identifier,
+                 command,
+                 title: Map.get(summary, :title)
+               ) do
+            {:ok, _pane_id} ->
+              :ok
+
+            {:error, :no_focused_pane} ->
+              _ =
+                PaneManager.open_conversation(
+                  state.pane_manager,
+                  identifier,
+                  command,
+                  title: Map.get(summary, :title)
+                )
+
+            {:error, _other} ->
+              :ok
+          end
 
         _ ->
           :ok
