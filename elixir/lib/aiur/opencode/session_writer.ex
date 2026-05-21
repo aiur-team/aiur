@@ -69,6 +69,8 @@ defmodule Aiur.Opencode.SessionWriter do
            pane
          ) do
       {:ok, _} ->
+        :ok = append_session_to_tempfile(session_id)
+
         state = %__MODULE__{
           identifier: identifier,
           session_id: session_id,
@@ -79,6 +81,22 @@ defmodule Aiur.Opencode.SessionWriter do
 
       {:error, {:already_registered, _pid}} ->
         :ignore
+    end
+  end
+
+  # Append the new opencode session id to `$AIUR_SESSION_TMPFILE` so the
+  # bash trap in `scripts/aiur` can reap it if Aiur exits abruptly (parent
+  # terminal close, BEAM panic) — the layer-2 cleanup. Layer 1 is
+  # `Aiur.Shutdown.cleanup/1` (graceful exit), layer 3 is `WarmServer`'s
+  # boot-time GC (SIGKILL recovery).
+  defp append_session_to_tempfile(session_id) do
+    case System.get_env("AIUR_SESSION_TMPFILE") do
+      path when is_binary(path) and path != "" ->
+        _ = File.write(path, "#{session_id}\n", [:append])
+        :ok
+
+      _ ->
+        :ok
     end
   end
 

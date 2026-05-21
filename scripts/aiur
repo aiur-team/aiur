@@ -914,7 +914,40 @@ run_in_tmux() {
   export AIUR_MISE_BIN="$mise_bin"
   local startup_capture
   startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
-  trap 'rm -f "$startup_capture"' EXIT
+
+  # Session-id sidecar file. SessionWriter writes one opencode session id
+  # per line into this file as it creates them; the trap below reaps every
+  # id on exit (incl. parent-bash exit, Ctrl+C, terminal close, panic).
+  # This is the layer-2 cleanup defense — the BEAM-side Aiur.Shutdown is
+  # layer 1, and WarmServer's boot-time GC is layer 3 (SIGKILL recovery).
+  local session_tmpfile_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+  export AIUR_SESSION_TMPFILE="${session_tmpfile_root}/aiur-${$}-sessions"
+  : > "$AIUR_SESSION_TMPFILE"
+
+  __aiur_cleanup() {
+    local exit_code=$?
+    local sessions_file="${AIUR_SESSION_TMPFILE:-}"
+
+    rm -f "$startup_capture" 2>/dev/null || true
+
+    if [ -n "$sessions_file" ] && [ -s "$sessions_file" ]; then
+      echo "aiur: reaping opencode sessions from $sessions_file" >&2
+
+      local id
+      while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        # Best-effort delete; ignore failures (BEAM may have already reaped).
+        "$mise_bin" exec -- opencode session delete "$id" >/dev/null 2>&1 &
+      done < "$sessions_file"
+
+      wait 2>/dev/null || true
+      rm -f "$sessions_file" 2>/dev/null || true
+    fi
+
+    return $exit_code
+  }
+
+  trap '__aiur_cleanup' EXIT INT TERM HUP
 
   # Resolve where the BEAM will write its log file. The Elixir CLI sets
   # `:log_file` to `<logs_root>/log/aiur.log` when `--logs-root` is
@@ -967,9 +1000,17 @@ run_in_tmux() {
     sleep "$grace_sleep"
   done
 
-  # In the foreground, the user attaches to the session normally.
+  # In the foreground, the user attaches to the session normally. We do
+  # NOT `exec` into tmux — replacing the bash process would tear down our
+  # EXIT/INT/TERM/HUP trap before it could run the session reaper. Instead
+  # we run tmux as a child and propagate its exit status after cleanup.
   rm -f "$startup_capture"
-  exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
+
+  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
+  local tmux_status=$?
+
+  # Trap fires on `exit` below — let it reap sessions before we leave.
+  exit $tmux_status
 }
 
 run_ad_hoc_workflow() {

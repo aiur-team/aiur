@@ -31,7 +31,25 @@ defmodule Aiur.Shutdown do
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
     safely(fn -> Aiur.Opencode.SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
+    safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")
     :ok
+  end
+
+  # On graceful exit the BEAM has already deleted every session via
+  # `SessionWriterRegistry.delete_all/1`, so the bash trap's reaper
+  # should find an empty file and no-op. Truncating (not deleting) lets
+  # the trap's `[ -s "$file" ]` check correctly see "nothing to do" while
+  # keeping the file in place for any in-flight `File.write` from a
+  # late-spawning writer (defensive).
+  defp truncate_session_tempfile do
+    case System.get_env("AIUR_SESSION_TMPFILE") do
+      path when is_binary(path) and path != "" ->
+        _ = File.write(path, "")
+        :ok
+
+      _ ->
+        :ok
+    end
   end
 
   @doc """
