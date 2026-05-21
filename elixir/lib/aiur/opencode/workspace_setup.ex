@@ -25,17 +25,42 @@ defmodule Aiur.Opencode.WorkspaceSetup do
   def materialize_prewarm(workspace, bridge_url)
       when is_binary(workspace) and is_binary(bridge_url) do
     token = generate_token()
-    do_materialize(workspace, @prewarm_identifier, bridge_url, token, nil)
+    do_materialize(workspace, @prewarm_identifier, bridge_url, token, nil, [])
   end
 
-  defp do_materialize(workspace, identifier, bridge_url, token, opencode_os_pid) do
+  @doc """
+  Rewrite the warm workspace's opencode.json so it declares every
+  identifier in `agent_identifiers` as a valid model. Without this,
+  opencode's TUI shows `Model not found: aiur/issue-<id>. Did you mean:
+  issue-_warm?` in the chat pane — both broken UX and a `_warm` leak
+  (R6 violation). Called by `Aiur.Opencode.AttachQueue` whenever it
+  enqueues a new identifier.
+  """
+  @spec rematerialize_prewarm(Path.t(), String.t(), [String.t()]) ::
+          {:ok, String.t()} | {:error, term()}
+  def rematerialize_prewarm(workspace, bridge_url, agent_identifiers)
+      when is_binary(workspace) and is_binary(bridge_url) and is_list(agent_identifiers) do
+    token = generate_token()
+
+    do_materialize(
+      workspace,
+      @prewarm_identifier,
+      bridge_url,
+      token,
+      nil,
+      agent_identifiers
+    )
+  end
+
+  defp do_materialize(workspace, identifier, bridge_url, token, opencode_os_pid, extra_identifiers \\ []) do
     config =
       Protocol.opencode_json(%{
         bridge_url: bridge_url,
         bridge_token: token,
         identifier: identifier,
         model_prefix: Config.model_prefix(),
-        opencode_os_pid: opencode_os_pid
+        opencode_os_pid: opencode_os_pid,
+        extra_identifiers: extra_identifiers
       })
 
     tui = Protocol.tui_json()

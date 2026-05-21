@@ -69,6 +69,22 @@ defmodule Aiur.Opencode.Protocol do
     safe_id = Config.safe_identifier(identifier)
     model_prefix = Map.get(attrs, :model_prefix, Config.model_prefix())
 
+    # `:extra_identifiers` lets the caller declare additional agent
+    # identifiers in the same provider config. opencode's TUI shows
+    # `Model not found: <id>. Did you mean: <other_id>?` when a session's
+    # model isn't declared — and that error LEAKS the warm-server's
+    # `_warm` identifier into the visible chat pane (R6 violation). To
+    # avoid that, the warm-server's opencode.json must declare every
+    # agent identifier whose session will ever attach to it.
+    extra = Map.get(attrs, :extra_identifiers, [])
+
+    all_ids =
+      [safe_id | Enum.map(extra, &Config.safe_identifier/1)]
+      |> Enum.uniq()
+
+    models =
+      Map.new(all_ids, fn id -> {"issue-#{id}", %{"name" => "Aiur"}} end)
+
     %{
       "$schema" => "https://opencode.ai/config.json",
       "provider" => %{
@@ -79,16 +95,7 @@ defmodule Aiur.Opencode.Protocol do
             "baseURL" => bridge_url <> "/v1",
             "apiKey" => bridge_token
           },
-          # Display name is identifier-agnostic. The model identifier
-          # itself still encodes the agent via `issue-<safe_id>` (used by
-          # the bridge to route chat-completion requests), but the
-          # human-visible string in opencode's TUI chrome never carries
-          # internal markers like `_warm` or `_placeholder`.
-          "models" => %{
-            "issue-#{safe_id}" => %{
-              "name" => "Aiur"
-            }
-          }
+          "models" => models
         }
       },
       "model" => "#{model_prefix}/issue-#{safe_id}",

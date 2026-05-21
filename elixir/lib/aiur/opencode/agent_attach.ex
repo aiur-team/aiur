@@ -67,7 +67,7 @@ defmodule Aiur.Opencode.AgentAttach do
          {:ok, target_pane} <- target_pane_for_hidden_window(),
          attach_cmd = Protocol.attach_command(base_url, session_id),
          {:ok, pane_id} <-
-           Tmux.split_pane(target_pane, :horizontal, @hidden_split_percent, attach_cmd),
+           Tmux.split_pane(Tmux, target_pane, :horizontal, @hidden_split_percent, attach_cmd, silent: true),
          _ <-
            log_phase(identifier, "tmux_spawned", started_at,
              session_id: session_id,

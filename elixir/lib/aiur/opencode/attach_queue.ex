@@ -38,7 +38,7 @@ defmodule Aiur.Opencode.AttachQueue do
   require Logger
 
   alias Aiur.{AgentEvents, Boot}
-  alias Aiur.Opencode.{AgentAttach, Config, HiddenWindow}
+  alias Aiur.Opencode.{AgentAttach, Config, HiddenWindow, WorkspaceSetup}
 
   @warm_topic "opencode:warm"
   @attach_topic "opencode:attach"
@@ -136,6 +136,10 @@ defmodule Aiur.Opencode.AttachQueue do
 
     new_state = %{state | base_url: base_url}
     new_state = maybe_seed_from_directory(new_state)
+    # Force a rematerialize regardless of whether do_enqueue saw new ids
+    # — agents that arrived BEFORE warm_server_ready were enqueued with
+    # state.base_url = nil and skipped the per-enqueue rematerialize.
+    _ = maybe_rematerialize_warm(new_state, new_state.seen)
     {:noreply, maybe_start_next(new_state)}
   end
 
@@ -306,8 +310,24 @@ defmodule Aiur.Opencode.AttachQueue do
           "opencode_attach_queue phase=enqueued elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} prepend=#{Keyword.get(opts, :prepend, false)} pending_count=#{length(pending)}"
         )
 
-        %{state | pending: pending, seen: MapSet.put(state.seen, identifier)}
+        new_seen = MapSet.put(state.seen, identifier)
+        _ = maybe_rematerialize_warm(state, new_seen)
+        %{state | pending: pending, seen: new_seen}
     end
+  end
+
+  # Refresh the warm workspace's opencode.json so its provider models
+  # map declares every agent identifier we know about. Prevents
+  # opencode's `Model not found: aiur/issue-<X>. Did you mean: issue-
+  # _warm?` error in the chat pane (R6 leak + broken chat UX).
+  defp maybe_rematerialize_warm(%{base_url: nil}, _seen), do: :ok
+
+  defp maybe_rematerialize_warm(_state, seen) do
+    workspace = Config.prewarm_workspace()
+    bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
+    ids = MapSet.to_list(seen)
+    _ = WorkspaceSetup.rematerialize_prewarm(workspace, bridge_url, ids)
+    :ok
   end
 
   defp maybe_seed_from_directory(state) do

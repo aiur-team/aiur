@@ -72,7 +72,20 @@ defmodule Aiur.Opencode.WarmServer do
     _ = File.mkdir_p(workspace)
     bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
 
-    with {:ok, token} <- WorkspaceSetup.materialize_prewarm(workspace, bridge_url),
+    # Seed the warm workspace's opencode.json with every agent identifier
+    # currently known to the orchestrator. opencode-serve reads
+    # opencode.json once at startup, so any per-agent model declared
+    # AFTER this point would be missing from the provider's models map
+    # and trigger `Model not found: aiur/issue-<X>. Did you mean:
+    # issue-_warm?` errors in the chat pane (R6 leak).
+    extra_ids =
+      Aiur.AgentDirectory.list_agents()
+      |> Enum.map(& &1.identifier)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 == ""))
+
+    with {:ok, token} <-
+           WorkspaceSetup.rematerialize_prewarm(workspace, bridge_url, extra_ids),
          {:ok, server} <- Server.start_link(%{identifier: "_warm", workspace: workspace}),
          {:ok, base_url, _os_pid} <- Server.await_ready(server) do
       Logger.info(

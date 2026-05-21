@@ -49,13 +49,33 @@ defmodule Aiur.Tmux do
   Direction is `:horizontal` (new pane to the right) or `:vertical`
   (new pane below); `percent` sets the new pane's size as a percentage
   of the target pane.
+
+  Options:
+  - `:silent` (default `false`) — when `true`, do NOT call `select-pane`
+    after the split. `select-pane` switches tmux's active window to the
+    one containing the new pane, which is harmful when splitting into
+    a hidden window because it drags the attached client there.
   """
-  @spec split_pane(GenServer.server(), String.t(), :horizontal | :vertical, pos_integer(), String.t()) ::
+  @spec split_pane(
+          GenServer.server(),
+          String.t(),
+          :horizontal | :vertical,
+          pos_integer(),
+          String.t(),
+          keyword()
+        ) ::
           {:ok, String.t()} | {:error, term()}
-  def split_pane(server \\ __MODULE__, target_pane_id, direction, percent, command_to_run)
+  def split_pane(server \\ __MODULE__, target_pane_id, direction, percent, command_to_run, opts \\ [])
       when is_binary(target_pane_id) and direction in [:horizontal, :vertical] and
-             is_integer(percent) and percent > 0 and percent < 100 and is_binary(command_to_run) do
-    GenServer.call(server, {:split_pane, target_pane_id, direction, percent, command_to_run}, 10_000)
+             is_integer(percent) and percent > 0 and percent < 100 and is_binary(command_to_run) and
+             is_list(opts) do
+    silent? = Keyword.get(opts, :silent, false)
+
+    GenServer.call(
+      server,
+      {:split_pane, target_pane_id, direction, percent, command_to_run, silent?},
+      10_000
+    )
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -239,29 +259,27 @@ defmodule Aiur.Tmux do
     {:reply, run_command(state, cmd), state}
   end
 
-  def handle_call({:split_pane, target_pane, direction, percent, command_to_run}, _from, state) do
+  def handle_call({:split_pane, target_pane, direction, percent, command_to_run, silent?}, _from, state) do
     direction_flag = if direction == :horizontal, do: "-h", else: "-v"
 
     # `-l N%` is the modern way to size the new pane; tmux 3.5+ tightened
     # parsing of the deprecated `-p N` form and returns "size missing" on
     # detached sessions when the percentage flag isn't paired with a `-l`.
-    args = [
-      "split-window",
-      "-t",
-      target_pane,
-      direction_flag,
-      "-l",
-      "#{percent}%",
-      "-P",
-      "-F",
-      "\#{pane_id}",
-      command_to_run
-    ]
+    # `-d` keeps the active pane selection where it is, so a split into
+    # a hidden window does not drag the attached client there.
+    base_args =
+      if silent? do
+        ["split-window", "-d", "-t", target_pane, direction_flag, "-l", "#{percent}%"]
+      else
+        ["split-window", "-t", target_pane, direction_flag, "-l", "#{percent}%"]
+      end
+
+    args = base_args ++ ["-P", "-F", "\#{pane_id}", command_to_run]
 
     case run_args(state, args) do
       {:ok, [pane_id | _]} ->
         new_id = String.trim(pane_id)
-        _ = run_args(state, ["select-pane", "-t", new_id])
+        unless silent?, do: run_args(state, ["select-pane", "-t", new_id])
         {:reply, {:ok, new_id}, state}
 
       {:ok, []} ->
