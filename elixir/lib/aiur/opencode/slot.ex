@@ -174,14 +174,13 @@ defmodule Aiur.Opencode.Slot do
   def handle_continue(:start_serve, state) do
     bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
 
-    # opencode-serve reads opencode.json once at startup and never
-    # reloads. If the slot materializes its workspace BEFORE the
-    # orchestrator has enumerated active agents, the models map only
-    # declares the slot's sentinel identifier (`_slot-N`) and any
-    # subsequent agent open hits `Model not found: aiur/issue-X`.
-    # Wait briefly for the orchestrator to populate; cap so a truly
-    # empty workflow doesn't block boot forever.
-    agent_ids = wait_for_active_identifiers(state.slot_index)
+    # Slot's models map grows incrementally — boot with whatever's in
+    # `state.known_identifiers` (empty on first boot; carries previous
+    # entries on serve rebuild for identifier_miss). No wait for
+    # `Aiur.Orchestrator.list_active_identifiers/0` — slots are useful
+    # without knowing about any agent, and grow on demand when
+    # `Slot.select/2` is called with a missing identifier (U3 rebuild).
+    agent_ids = MapSet.to_list(state.known_identifiers)
 
     with :ok <- File.mkdir_p(state.workspace_path),
          {:ok, token} <-
@@ -550,49 +549,6 @@ defmodule Aiur.Opencode.Slot do
 
       :disabled ->
         {:error, :hidden_window_disabled}
-    end
-  end
-
-  defp active_agent_identifiers do
-    # Mirror WarmServer's source-of-truth.
-    Aiur.Orchestrator.list_active_identifiers()
-  rescue
-    _ -> []
-  end
-
-  # Poll `list_active_identifiers/0` for up to ~6 s so the slot's
-  # opencode.json declares every currently-active agent identifier on
-  # FIRST boot. opencode-serve does not hot-reload the models map, so
-  # missing a single agent here means the bridge rejects it with
-  # `Model not found` until aiur is restarted.
-  #
-  # Cap and proceed-empty so a workflow with genuinely zero agents
-  # doesn't wedge boot.
-  @wait_max_attempts 30
-  @wait_interval_ms 200
-
-  defp wait_for_active_identifiers(slot_index, attempts \\ @wait_max_attempts)
-
-  defp wait_for_active_identifiers(slot_index, 0) do
-    Logger.info(
-      "opencode_slot phase=wait_agents_timeout elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index}"
-    )
-
-    active_agent_identifiers()
-  end
-
-  defp wait_for_active_identifiers(slot_index, attempts) do
-    case active_agent_identifiers() do
-      [] ->
-        Process.sleep(@wait_interval_ms)
-        wait_for_active_identifiers(slot_index, attempts - 1)
-
-      ids when is_list(ids) ->
-        Logger.info(
-          "opencode_slot phase=agents_ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} agent_count=#{length(ids)}"
-        )
-
-        ids
     end
   end
 
