@@ -34,6 +34,28 @@ defmodule Aiur.Opencode.ProtocolTest do
     refute Map.has_key?(config, "aiur_metadata")
   end
 
+  test "opencode_json model name uses the identifier so chat chrome reads `aiur · issue-X`" do
+    config =
+      Protocol.opencode_json(%{
+        bridge_url: "http://127.0.0.1:4097",
+        bridge_token: "secret",
+        identifier: "_slot-1",
+        opencode_os_pid: nil,
+        extra_identifiers: ["13", "7"]
+      })
+
+    models = get_in(config, ["provider", "aiur", "models"])
+
+    # Model NAME must equal the model KEY (the identifier), so opencode
+    # renders `aiur · issue-13` instead of `Aiur · Aiur`.
+    for {key, %{"name" => name}} <- models do
+      assert key == name, "model #{inspect(key)} should have name=#{inspect(key)} but had name=#{inspect(name)}"
+    end
+
+    # Identifier set is the union (slot sentinel + extras), de-duplicated.
+    assert Enum.sort(Map.keys(models)) == Enum.sort(["issue-_slot-1", "issue-13", "issue-7"])
+  end
+
   test "aiur_metadata returns the reap-path sidecar shape" do
     assert Protocol.aiur_metadata(%{identifier: "MT-1", opencode_os_pid: 4242}) == %{
              "identifier" => "MT-1",

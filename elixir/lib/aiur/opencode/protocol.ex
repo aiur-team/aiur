@@ -82,8 +82,14 @@ defmodule Aiur.Opencode.Protocol do
       [safe_id | Enum.map(extra, &Config.safe_identifier/1)]
       |> Enum.uniq()
 
+    # Model name MUST match the identifier so opencode's chat chrome
+    # reads `aiur · issue-13` instead of `Aiur · Aiur`. The provider
+    # name (line below) stays as the human-facing label.
     models =
-      Map.new(all_ids, fn id -> {"issue-#{id}", %{"name" => "Aiur"}} end)
+      Map.new(all_ids, fn id ->
+        model_key = "issue-#{id}"
+        {model_key, %{"name" => model_key}}
+      end)
 
     %{
       "$schema" => "https://opencode.ai/config.json",
