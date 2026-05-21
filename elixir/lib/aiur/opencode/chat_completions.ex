@@ -8,6 +8,12 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   @stream_marker_prefix "__aiur_stream__:"
   @stream_marker_regex ~r/\A__aiur_stream__:(msg_[A-Z0-9]+)\z/
+  # Nudge markers ("__aiur_stream__:nudge:<N>") are sent by Slot workers
+  # to force opencode-attach to re-render after a select. They aren't
+  # tied to a specific message id; the bridge just returns an empty
+  # SSE stream so opencode treats the turn as a no-op rather than
+  # rendering a "Bad Request: invalid stream marker" toast.
+  @nudge_marker_regex ~r/\A__aiur_stream__:nudge:/
 
   @max_body_bytes 65_536
   @watchdog_ms 600_000
@@ -33,11 +39,18 @@ defmodule Aiur.Opencode.ChatCompletions do
 
     case text do
       {:ok, @stream_marker_prefix <> _ = marker} ->
-        case Regex.run(@stream_marker_regex, marker) do
-          [_, message_id] ->
+        cond do
+          Regex.match?(@nudge_marker_regex, marker) ->
+            # Refresh-only nudge — slot sent this to force a TUI redraw.
+            # Reply with an empty SSE stream so opencode commits no rows
+            # and renders no toast.
+            empty_stream(conn)
+
+          match = Regex.run(@stream_marker_regex, marker) ->
+            [_, message_id] = match
             replay_message_as_stream(conn, identifier, message_id)
 
-          _ ->
+          true ->
             json(conn, 400, %{error: "invalid stream marker"})
         end
 

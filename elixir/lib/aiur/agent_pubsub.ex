@@ -48,7 +48,8 @@ defmodule Aiur.AgentPubSub do
   """
   @spec broadcast_poll_state(%{
           checking?: boolean(),
-          next_poll_due_at_ms: integer() | nil
+          next_poll_due_at_ms: integer() | nil,
+          max_concurrent_agents: integer() | nil
         }) :: :ok
   def broadcast_poll_state(%{checking?: _, next_poll_due_at_ms: _} = payload) do
     do_broadcast(AgentEvents.poll_state_topic(), {:poll_state_changed, payload})

@@ -1270,7 +1270,8 @@ defmodule Aiur.Orchestrator do
 
     AgentPubSub.broadcast_poll_state(%{
       checking?: state.poll_check_in_progress == true,
-      next_poll_due_at_ms: state.next_poll_due_at_ms
+      next_poll_due_at_ms: state.next_poll_due_at_ms,
+      max_concurrent_agents: state.max_concurrent_agents
     })
 
     ObservabilityPubSub.broadcast_update()

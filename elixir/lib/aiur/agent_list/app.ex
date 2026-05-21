@@ -137,8 +137,13 @@ defmodule Aiur.AgentList.App do
       # Cached orchestrator polling state — updated only on PubSub
       # `:poll_state_changed` broadcasts so the 1 Hz render tick never
       # has to GenServer.call into the orchestrator (which blocks for
-      # seconds while it does HTTP polls).
-      poll_state: %{checking?: false, next_poll_due_at_ms: nil}
+      # seconds while it does HTTP polls). `max_concurrent_agents` is
+      # also carried here so the render never has to query for it.
+      poll_state: %{
+        checking?: false,
+        next_poll_due_at_ms: nil,
+        max_concurrent_agents: nil
+      }
     }
 
     schedule_refresh_tick()
@@ -451,7 +456,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:refresh_label, refresh_label_from_state(state))
       |> Map.put(:agent_kind, agent_kind())
       |> Map.put(:agent_count, active_agent_count(state.summaries))
-      |> Map.put(:max_agents, max_agents(state.orchestrator))
+      |> Map.put(:max_agents, max_agents_from_state(state))
       |> Map.put(:visible_sessions, state.visible_sessions)
 
     state.write_fun.(Renderer.render(render_state))
@@ -513,13 +518,20 @@ defmodule Aiur.AgentList.App do
     end)
   end
 
-  defp max_agents(orchestrator) do
-    case safe_call(fn -> Orchestrator.max_concurrent_agents(orchestrator) end) do
-      %{max: n} when is_integer(n) and n > 0 -> n
-      n when is_integer(n) and n > 0 -> n
-      _ -> nil
-    end
-  end
+  # Read from the cached poll_state payload. The orchestrator publishes
+  # `max_concurrent_agents` in every `:poll_state_changed` broadcast, so
+  # render avoids the 5 s `Orchestrator.max_concurrent_agents/0` GenServer.call
+  # that previously froze arrow-key input during poll cycles.
+  defp max_agents_from_state(%{poll_state: %{max_concurrent_agents: n}})
+       when is_integer(n) and n > 0, do: n
+
+  defp max_agents_from_state(_state), do: nil
+
+  # Note: the previous `max_agents/1` private helper called
+  # `Orchestrator.max_concurrent_agents` synchronously and blocked the
+  # render tick for up to 5 s during poll cycles. It was replaced by
+  # `max_agents_from_state/1` (cache + broadcast). Do NOT reintroduce a
+  # blocking call here without also updating the broadcast path.
 
   defp safe_call(fun) do
     fun.()
