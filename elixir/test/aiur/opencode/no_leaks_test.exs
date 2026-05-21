@@ -1,45 +1,40 @@
 defmodule Aiur.Opencode.NoLeaksTest do
   @moduledoc """
-  Regression: the strings `_warm` and `_placeholder` MUST never appear
-  in any user-visible field of opencode model display config
-  (`Protocol.opencode_json/1`) regardless of the identifier used to
-  bootstrap it. Origin: 2026-05-21 brainstorm R6.
+  Regression coverage for the model display name in
+  `Protocol.opencode_json/1`. Two contracts:
+
+  1. Model display name MUST equal the model key (the identifier). This
+     is what makes opencode's chat chrome read `aiur · issue-13` instead
+     of `Aiur · Aiur`. Origin: 2026-05-21 R1 (pane-attach-queue plan).
+  2. The string `Aiur` (the legacy hardcoded display name) MUST NOT
+     appear as the value of any model `name` field. Catches a regression
+     where a literal `"Aiur"` is reintroduced anywhere in the models map.
   """
 
   use ExUnit.Case, async: true
 
   alias Aiur.Opencode.Protocol
 
-  @leaky_substrings ["_warm", "_placeholder", "Aiur _warm", "Aiur _placeholder"]
-
   describe "opencode_json/1" do
-    test "model display name does not contain identifier-derived markers" do
-      # Even when the identifier itself is `_warm`, the model display
-      # `name` field MUST be clean. The model `id` keeps `issue-_warm`
-      # for the bridge's routing, but human-visible chrome is identifier-free.
+    test "model display name equals the model key (identifier)" do
       config =
         Protocol.opencode_json(%{
           bridge_url: "http://127.0.0.1:4097",
           bridge_token: "secret",
-          identifier: "_warm",
-          opencode_os_pid: nil
+          identifier: "_slot-1",
+          opencode_os_pid: nil,
+          extra_identifiers: ["issue-13", "issue-7"]
         })
 
-      model_entry =
-        get_in(config, ["provider", "aiur", "models", "issue-_warm"])
+      models = get_in(config, ["provider", "aiur", "models"])
 
-      assert is_map(model_entry)
-
-      for leak <- @leaky_substrings do
-        refute Map.get(model_entry, "name") == leak,
-               "model display name leaked #{inspect(leak)}: #{inspect(model_entry)}"
+      for {key, %{"name" => name}} <- models do
+        assert key == name,
+               "model key #{inspect(key)} should have name=#{inspect(key)} but had name=#{inspect(name)}"
       end
-
-      # Affirmative: it should always be the clean "Aiur" string.
-      assert Map.get(model_entry, "name") == "Aiur"
     end
 
-    test "agent identifier never bleeds into model display name" do
+    test "literal `Aiur` never appears as a model display name" do
       config =
         Protocol.opencode_json(%{
           bridge_url: "http://127.0.0.1:4097",
@@ -48,7 +43,13 @@ defmodule Aiur.Opencode.NoLeaksTest do
           opencode_os_pid: nil
         })
 
-      assert get_in(config, ["provider", "aiur", "models", "issue-issue-42", "name"]) == "Aiur"
+      names =
+        config
+        |> get_in(["provider", "aiur", "models"])
+        |> Map.values()
+        |> Enum.map(& &1["name"])
+
+      refute "Aiur" in names, "regression: hardcoded `Aiur` model name reintroduced: #{inspect(names)}"
     end
   end
 end

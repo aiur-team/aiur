@@ -12,7 +12,7 @@ defmodule Aiur.Opencode.Server do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   @spec await_ready(pid(), timeout()) :: {:ok, String.t(), non_neg_integer() | nil} | {:error, term()}
-  # opencode's first-time SQLite migration can take longer than 10s on cold machines; align with PaneSession's 30s budget.
+  # opencode's first-time SQLite migration can take longer than 10s on cold machines; 30s budget.
   def await_ready(pid, timeout \\ 30_000), do: GenServer.call(pid, :await_ready, timeout)
 
   @impl true
