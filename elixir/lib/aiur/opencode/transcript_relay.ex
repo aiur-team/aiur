@@ -24,16 +24,15 @@ defmodule Aiur.Opencode.TranscriptRelay do
     {:ok, state}
   end
 
+  # Live transcript events are streamed back as `assistant` deltas on the chat-completion SSE
+  # connection (see `Aiur.Opencode.ChatCompletions.stream_loop/4`). Re-posting them here as
+  # POST /session/<id>/message would echo every agent reply as a *user* message (the only role
+  # the message-input endpoint supports) and trigger a recursive /v1/chat/completions call.
   @impl true
-  def handle_info({:transcript_event, %{role: :user}}, state), do: {:noreply, state}
-
-  def handle_info({:transcript_event, event}, state) do
-    publish_event(state, event)
-    {:noreply, state}
-  end
+  def handle_info({:transcript_event, _event}, state), do: {:noreply, state}
 
   def handle_info({:alert, %{message: message}}, state) do
-    _ = ApiClient.post_message(state.base_url, state.session_id, Protocol.alert_message_part(message))
+    _ = ApiClient.post_message(state.base_url, state.session_id, alert_part(message))
     _ = ApiClient.show_toast(state.base_url, "Aiur", message, :warning)
     {:noreply, state}
   end
@@ -41,22 +40,36 @@ defmodule Aiur.Opencode.TranscriptRelay do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp replay_history(state) do
-    state.identifier
-    |> IssueLog.history(500)
-    |> Enum.each(&publish_event(state, &1))
+    events =
+      case IssueLog.history(state.identifier, 500) do
+        [] -> IssueLog.disk_history(state.identifier, 500)
+        list -> list
+      end
+
+    body =
+      events
+      |> Enum.map(&format_history/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n\n")
+
+    if body != "" do
+      payload =
+        Protocol.user_message_part("**Prior session history (Aiur):**\n\n" <> body)
+        |> Map.put("noReply", true)
+
+      _ = ApiClient.post_message(state.base_url, state.session_id, payload)
+    end
   end
 
-  defp publish_event(state, %{role: :assistant, body: body}),
-    do: ApiClient.post_message(state.base_url, state.session_id, Protocol.assistant_text_message(body))
+  defp format_history(%{role: :assistant, body: body}), do: "🤖 **Agent:** #{body}"
+  defp format_history(%{role: :user, body: body}), do: "💬 **You:** #{body}"
+  defp format_history(%{role: :command, body: body}), do: "```\n$ #{body}\n```"
+  defp format_history(%{role: :system, body: body}), do: "_(system: #{body})_"
+  defp format_history(%{role: :alert, body: body}), do: "⚠️ **Alert:** #{body}"
+  defp format_history(_event), do: nil
 
-  defp publish_event(state, %{role: :command, body: body}),
-    do: ApiClient.post_message(state.base_url, state.session_id, Protocol.assistant_command_message(body, ""))
-
-  defp publish_event(state, %{role: :system, body: body}),
-    do: ApiClient.post_message(state.base_url, state.session_id, Protocol.system_message_part(body))
-
-  defp publish_event(state, %{role: :alert, body: body}),
-    do: ApiClient.post_message(state.base_url, state.session_id, Protocol.alert_message_part(body))
-
-  defp publish_event(_state, _event), do: :ok
+  defp alert_part(body) do
+    Protocol.user_message_part("⚠️ **Aiur alert:** #{body}")
+    |> Map.put("noReply", true)
+  end
 end
