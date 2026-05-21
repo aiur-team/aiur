@@ -10,7 +10,7 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   The session id lives in the registry value alongside the writer pid.
   """
 
-  alias Aiur.Opencode.{ApiClient, SessionSupervisor, SessionWriter}
+  alias Aiur.Opencode.{ApiClient, PersistentPane, SessionSupervisor, SessionWriter}
 
   @registry __MODULE__.Registry
 
@@ -39,13 +39,56 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
 
   @doc """
   Look up the session + writer for `identifier`, or return `:not_found`.
+  Returns the legacy `%{session_id, writer_pid}` shape so existing callers
+  (`PaneManager`, `ChatCompletions`) keep working unchanged.
   """
   @spec lookup(String.t()) :: {:ok, %{session_id: String.t(), writer_pid: pid()}} | :not_found
   def lookup(identifier) when is_binary(identifier) do
     case Registry.lookup(@registry, identifier) do
-      [{pid, session_id}] when is_pid(pid) ->
+      [{pid, %PersistentPane{} = pane}] when is_pid(pid) ->
         if Process.alive?(pid) do
-          {:ok, %{session_id: session_id, writer_pid: pid}}
+          {:ok, %{session_id: pane.session_id, writer_pid: pid}}
+        else
+          :not_found
+        end
+
+      _ ->
+        :not_found
+    end
+  end
+
+  @doc """
+  Look up the full `PersistentPane` struct for `identifier`. PaneManager
+  and AttachQueue use this to read pane_id and status.
+  """
+  @spec get_pane(String.t()) :: {:ok, PersistentPane.t()} | :not_found
+  def get_pane(identifier) when is_binary(identifier) do
+    case Registry.lookup(@registry, identifier) do
+      [{pid, %PersistentPane{} = pane}] when is_pid(pid) ->
+        if Process.alive?(pid), do: {:ok, pane}, else: :not_found
+
+      _ ->
+        :not_found
+    end
+  end
+
+  @doc """
+  Update the `PersistentPane` value for `identifier` via `fun`. The
+  caller passes a function `(PersistentPane.t() -> PersistentPane.t())`
+  that returns the new struct. Returns `{:ok, new_pane}` or `:not_found`.
+  """
+  @spec update_pane(String.t(), (PersistentPane.t() -> PersistentPane.t())) ::
+          {:ok, PersistentPane.t()} | :not_found
+  def update_pane(identifier, fun) when is_binary(identifier) and is_function(fun, 1) do
+    case Registry.lookup(@registry, identifier) do
+      [{pid, %PersistentPane{} = pane}] when is_pid(pid) ->
+        if Process.alive?(pid) do
+          new_pane = fun.(pane)
+
+          {_new_value, _old_value} =
+            Registry.update_value(@registry, identifier, fn _ -> new_pane end)
+
+          {:ok, new_pane}
         else
           :not_found
         end
@@ -63,8 +106,8 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   @spec all() :: [%{identifier: String.t(), session_id: String.t(), writer_pid: pid()}]
   def all do
     Registry.select(@registry, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
-    |> Enum.map(fn {identifier, pid, session_id} ->
-      %{identifier: identifier, session_id: session_id, writer_pid: pid}
+    |> Enum.map(fn {identifier, pid, %PersistentPane{} = pane} ->
+      %{identifier: identifier, session_id: pane.session_id, writer_pid: pid}
     end)
   end
 

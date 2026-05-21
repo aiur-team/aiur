@@ -20,7 +20,7 @@ defmodule Aiur.Opencode.SessionWriter do
   require Logger
 
   alias Aiur.{AgentPubSub, IssueLog}
-  alias Aiur.Opencode.{ApiClient, Db, Protocol}
+  alias Aiur.Opencode.{ApiClient, Db, PersistentPane, Protocol}
 
   defstruct [:identifier, :session_id, :base_url, :root_msg_id]
 
@@ -61,10 +61,12 @@ defmodule Aiur.Opencode.SessionWriter do
     identifier = Map.fetch!(opts, :identifier)
     session_id = Map.fetch!(opts, :session_id)
 
+    pane = PersistentPane.new(identifier, session_id)
+
     case Registry.register(
            Aiur.Opencode.SessionWriterRegistry.Registry,
            identifier,
-           session_id
+           pane
          ) do
       {:ok, _} ->
         state = %__MODULE__{
