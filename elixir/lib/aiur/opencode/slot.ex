@@ -182,6 +182,17 @@ defmodule Aiur.Opencode.Slot do
     # `Slot.select/2` is called with a missing identifier (U3 rebuild).
     agent_ids = MapSet.to_list(state.known_identifiers)
 
+    # On rebuild, set the slot's top-level `model` field (which drives
+    # opencode-attach's status bar) to the identifier that triggered
+    # the rebuild — so the user sees `Build · issue-10` instead of the
+    # slot sentinel. On initial boot (pending_select is nil), let
+    # materialize_slot fall back to the sentinel.
+    display_opt =
+      case state.pending_select do
+        {_from, identifier} -> [display_identifier: identifier]
+        _ -> []
+      end
+
     with :ok <- File.mkdir_p(state.workspace_path),
          {:ok, token} <-
            WorkspaceSetup.materialize_slot(
@@ -189,7 +200,8 @@ defmodule Aiur.Opencode.Slot do
              bridge_url,
              agent_ids,
              state.slot_index,
-             state.generation
+             state.generation,
+             display_opt
            ),
          {:ok, server_pid} <-
            Server.start_link(%{

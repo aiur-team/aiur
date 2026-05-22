@@ -22,21 +22,50 @@ defmodule Aiur.Opencode.WorkspaceSetup do
   selected an agent for it yet. Subsequent `Slot.select/2` calls grow
   the models map incrementally via the rebuild path.
   """
-  @spec materialize_slot(Path.t(), String.t(), [String.t()], pos_integer(), pos_integer()) ::
+  @spec materialize_slot(
+          Path.t(),
+          String.t(),
+          [String.t()],
+          pos_integer(),
+          pos_integer(),
+          keyword()
+        ) ::
           {:ok, String.t()} | {:error, term()}
-  def materialize_slot(workspace, bridge_url, agent_identifiers, slot_index, generation)
+  def materialize_slot(workspace, bridge_url, agent_identifiers, slot_index, generation, opts \\ [])
       when is_binary(workspace) and is_binary(bridge_url) and is_list(agent_identifiers) and
-             is_integer(slot_index) and is_integer(generation) do
+             is_integer(slot_index) and is_integer(generation) and is_list(opts) do
     token = generate_token()
+
+    # The slot's `opencode.json` carries a TOP-LEVEL `"model"` field
+    # that opencode-attach renders in its chat chrome (the status bar
+    # reads `Build · <model.name>`). Default the chrome to the
+    # most-recently-attached agent identifier when one is provided
+    # via `display_identifier` opt — otherwise use the slot sentinel.
+    sentinel = "_slot-#{slot_index}"
+
+    primary_identifier =
+      case Keyword.get(opts, :display_identifier) do
+        nil -> sentinel
+        id when is_binary(id) -> id
+      end
+
+    # Build the agent_identifiers list so:
+    #   - sentinel is ALWAYS available as a fallback model
+    #   - primary_identifier shows first in the chrome
+    #   - all previously-attached identifiers stay in the models map
+    extras =
+      [sentinel | agent_identifiers]
+      |> Enum.reject(fn id -> id == primary_identifier end)
+      |> Enum.uniq()
 
     config =
       Protocol.opencode_json(%{
         bridge_url: bridge_url,
         bridge_token: token,
-        identifier: "_slot-#{slot_index}",
+        identifier: primary_identifier,
         model_prefix: Config.model_prefix(),
         opencode_os_pid: nil,
-        extra_identifiers: agent_identifiers
+        extra_identifiers: extras
       })
 
     tui = Protocol.tui_json()
