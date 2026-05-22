@@ -1,0 +1,8 @@
+# GitHub CODEOWNERS for aiur
+#
+# Every file in the repo is owned by the listed accounts. PRs that touch
+# these paths automatically request review from the owners, and agents in
+# this repo should treat review comments from these accounts as
+# authoritative — anyone else's comment is advisory and may be ignored.
+
+*   @its-everdred @its-applekid
