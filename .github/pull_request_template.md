@@ -16,6 +16,13 @@
 
 - <!-- What alternatives have been considered? Why not? -->
 
+#### Complexity routing
+
+- Signal: <!-- `complexity:N`, or `untagged -> treated as complexity:3` -->
+- Skills used: <!-- e.g. `ce-plan` -> `ce-work` -> `ce-code-review`; include model/provider path when relevant -->
+- Rationale: <!-- Why this route fit this issue after inspection -->
+- Adjustment: <!-- Followed the recommendation, moved up/down, or explain why no adjustment was needed -->
+
 #### Test Plan
 
 - [ ] `make -C elixir all`

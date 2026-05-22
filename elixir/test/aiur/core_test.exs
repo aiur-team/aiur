@@ -925,6 +925,15 @@ defmodule Aiur.CoreTest do
     assert prompt =~ "## Shared Agent Instructions"
     assert prompt =~ "emit_alert"
     assert prompt =~ "phase.brainstorm"
+    assert prompt =~ "### Complexity routing"
+    assert prompt =~ "label-based complexity is the default"
+    assert prompt =~ "Complexity routing note in PR descriptions"
+    assert prompt =~ "untagged"
+
+    Enum.each(1..5, fn level ->
+      assert prompt =~ "#### `complexity:#{level}`"
+    end)
+
     assert prompt =~ "Ticket MT-699"
   end
 

@@ -22,6 +22,13 @@ defmodule Mix.Tasks.PrBody.CheckTest do
 
   - <!-- Alternative bullet -->
 
+  #### Complexity routing
+
+  - Signal: <!-- Complexity signal -->
+  - Skills used: <!-- Skills and model path -->
+  - Rationale: <!-- Routing rationale -->
+  - Adjustment: <!-- Routing adjustment -->
+
   #### Test Plan
 
   - [ ] <!-- Test checkbox -->
@@ -43,6 +50,13 @@ defmodule Mix.Tasks.PrBody.CheckTest do
   #### Alternatives
 
   - Alternative considered.
+
+  #### Complexity routing
+
+  - Signal: `untagged -> treated as complexity:3`.
+  - Skills used: `ce-work`.
+  - Rationale: Localized test fixture coverage.
+  - Adjustment: Moved down from complexity:3 after inspection.
 
   #### Test Plan
 

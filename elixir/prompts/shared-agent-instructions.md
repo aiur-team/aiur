@@ -56,9 +56,11 @@ Keep the current PR focused on the originally-scoped change.
 
 ### Complexity routing
 
-Every issue in this repo carries one of `complexity:1` through `complexity:5` as a label. **Treat the label as a starting hypothesis, and the skills below as suggestions, not mandates.** The issue creator wrote the label before reading the code — once you've read the issue, the linked context, and the actual implementation surface, you almost always have more information than they did. If your read of the work disagrees with the label, adjust freely: drop steps that are overhead for what you're actually shipping, add steps the label undersold. Document the disagreement in the PR routing note so the next reader sees why.
+When a GitHub issue has one of `complexity:1` through `complexity:5` as a label, use it as the portable baseline signal for model choice, agent choice, and Compound Engineering skill flow. **Treat the label as a starting hypothesis, and the skills below as suggestions, not mandates.** The issue creator wrote the label before reading the code — once you've read the issue, the linked context, and the actual implementation surface, you almost always have more information than they did. If your read of the work disagrees with the label, adjust freely: drop steps that are overhead for what you're actually shipping, add steps the label undersold. Document the disagreement in the PR routing note so the next reader sees why.
 
-If the issue has no complexity label, treat it as `complexity:3` until evidence says otherwise.
+If the issue has no complexity label, treat it as `complexity:3` until evidence says otherwise. Existing workflows without complexity labels should continue normally; do not block or fail just because the label is absent.
+
+GitHub Projects numeric fields such as `points` or `complexity` may become a secondary signal in some repositories, but label-based complexity is the default because labels work on ordinary GitHub issues without Projects setup.
 
 #### `complexity:1` — trivial, one-shot
 
