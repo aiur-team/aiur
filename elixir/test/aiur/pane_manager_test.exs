@@ -41,16 +41,30 @@ defmodule Aiur.PaneManagerTest do
   defp respond_split(tmux, new_pane_id) do
     receive do
       {:tmux_mock_out, "split-window " <> _ = cmd} ->
-        assert cmd =~ "-t %1", "expected split anchored on agent-list pane, got #{inspect(cmd)}"
-        assert cmd =~ ~r/(^|\s)-h(\s|$)/, "expected -h, got #{inspect(cmd)}"
-        assert cmd =~ ~r/(^|\s)-l 50%(\s|$)/, "expected -l 50%, got #{inspect(cmd)}"
-
-        send(
-          GenServer.whereis(tmux),
-          {:tmux_mock_data, "%begin 1 1 0\n#{new_pane_id}\n%end 1 1 0\n"}
-        )
+        respond_to_split_command(tmux, cmd, new_pane_id)
     after
       1_000 -> flunk("expected split-window")
+    end
+  end
+
+  defp respond_to_split_command(tmux, cmd, new_pane_id) do
+    assert cmd =~ "-t %1", "expected split anchored on agent-list pane, got #{inspect(cmd)}"
+    assert cmd =~ ~r/(^|\s)-h(\s|$)/, "expected -h, got #{inspect(cmd)}"
+    assert cmd =~ ~r/(^|\s)-l 50%(\s|$)/, "expected -l 50%, got #{inspect(cmd)}"
+
+    send(
+      GenServer.whereis(tmux),
+      {:tmux_mock_data, "%begin 1 1 0\n#{new_pane_id}\n%end 1 1 0\n"}
+    )
+  end
+
+  defp drain_reconcile_if_requested(tmux, live_panes) do
+    receive do
+      {:tmux_mock_out, "list-panes -t test:0 -F \#{pane_id}"} ->
+        body = Enum.join(live_panes, "\n")
+        send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}\n%end 1 1 0\n"})
+    after
+      20 -> :ok
     end
   end
 
@@ -90,15 +104,18 @@ defmodule Aiur.PaneManagerTest do
     end
 
     receive do
-      {:tmux_mock_out, "select-layout -t test:0 " <> _} ->
+      {:tmux_mock_out, "select-layout -t test:0 " <> layout} ->
         send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 6 0\n%end 1 6 0\n"})
+        "select-layout -t test:0 " <> layout
     after
       1_000 -> flunk("expected select-layout")
     end
   end
 
   defp open_in_slot(pm, tmux, identifier, new_pane_id) do
+    live_panes = ["%1" | Map.values(PaneManager.list_open_panes(pm))]
     task = Task.async(fn -> PaneManager.open_conversation(pm, identifier, "echo " <> identifier) end)
+    drain_reconcile_if_requested(tmux, live_panes)
     respond_split(tmux, new_pane_id)
     drain_focus(tmux, new_pane_id)
     drain_layout_apply(tmux)
@@ -106,10 +123,22 @@ defmodule Aiur.PaneManagerTest do
   end
 
   defp open_via_respawn(pm, tmux, identifier, pane_id) do
+    live_panes = ["%1" | Map.values(PaneManager.list_open_panes(pm))]
     task = Task.async(fn -> PaneManager.open_conversation(pm, identifier, "echo " <> identifier) end)
+    drain_reconcile_if_requested(tmux, live_panes)
     respond_respawn(tmux, pane_id)
     drain_layout_apply(tmux)
     assert {:ok, ^pane_id} = Task.await(task, 1_000)
+  end
+
+  defp open_placeholder(pm, tmux, identifier, new_pane_id, live_panes) do
+    task = Task.async(fn -> PaneManager.open_conversation(pm, identifier, "__aiur_opencode__ #{identifier}") end)
+    drain_reconcile_if_requested(tmux, live_panes)
+    respond_split(tmux, new_pane_id)
+    drain_focus(tmux, new_pane_id)
+    layout_cmd = drain_layout_apply(tmux)
+    assert {:ok, ^new_pane_id} = Task.await(task, 1_000)
+    layout_cmd
   end
 
   test "first open splits the agent-list pane and applies layout", %{tmux: tmux, pm: pm} do
@@ -175,6 +204,7 @@ defmodule Aiur.PaneManagerTest do
     # Second open probes select-pane; the cached pane is still alive
     # so the manager short-circuits and returns it without splitting.
     second = Task.async(fn -> PaneManager.open_conversation(pm, "MT-1", "echo hi") end)
+    drain_reconcile_if_requested(tmux, ["%1", "%10"])
     drain_focus(tmux, "%10")
     assert {:ok, "%10"} = Task.await(second, 1_000)
   end
@@ -212,6 +242,32 @@ defmodule Aiur.PaneManagerTest do
     panes = PaneManager.list_open_panes(pm)
     assert Map.get(panes, "MT-6") == "%15"
     refute Map.has_key?(panes, "MT-1")
+  end
+
+  test "stale placeholder is reconciled before the next placeholder open", %{tmux: tmux, pm: pm} do
+    first_layout = open_placeholder(pm, tmux, "MT-1", "%10", ["%1"])
+    assert first_layout =~ ~r/select-layout -t test:0 [0-9a-f]{4},80x24,0,0\{40x24,0,0,1,39x24,41,0,10\}/
+
+    second_layout = open_placeholder(pm, tmux, "MT-2", "%11", ["%1"])
+
+    assert second_layout =~ ~r/select-layout -t test:0 [0-9a-f]{4},80x24,0,0\{40x24,0,0,1,39x24,41,0,11\}/,
+           "expected stale placeholder %10 to be dropped before laying out %11, got #{second_layout}"
+  end
+
+  test "placeholder open reuses a stale middle visual slot", %{tmux: tmux, pm: pm} do
+    open_placeholder(pm, tmux, "MT-1", "%10", ["%1"])
+    open_placeholder(pm, tmux, "MT-2", "%11", ["%1", "%10"])
+    open_placeholder(pm, tmux, "MT-3", "%12", ["%1", "%10", "%11"])
+
+    layout = open_placeholder(pm, tmux, "MT-4", "%13", ["%1", "%10", "%12"])
+
+    assert layout =~ "[", "expected a two-row layout after three live placeholders, got #{layout}"
+
+    assert layout =~ ~r/\{[^}]*,10,[^}]*,13\}/,
+           "expected new placeholder %13 to occupy the freed top-row slot, got #{layout}"
+
+    assert layout =~ ~r/,13,12/,
+           "expected existing bottom-row placeholder %12 to stay in the bottom row, got #{layout}"
   end
 
   test "four configured columns produce seven slots before cycling" do

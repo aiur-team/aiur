@@ -353,6 +353,8 @@ defmodule Aiur.Opencode.Slot do
     }
 
     broadcast_session_changed(state.slot_index, nil)
+    Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
+    Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
     Logger.info("opencode_slot phase=deselect elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index}")
 

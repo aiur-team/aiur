@@ -238,6 +238,21 @@ defmodule Aiur.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  Return pane ids currently visible in `window_target`.
+
+  PaneManager uses this as the authoritative source before opening a
+  chat pane so stale state from externally closed panes does not distort
+  the next layout pass.
+  """
+  @spec list_panes(GenServer.server(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_panes(server \\ __MODULE__, window_target) when is_binary(window_target) do
+    GenServer.call(server, {:list_panes, window_target}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   # GenServer callbacks -------------------------------------------------------
 
   @impl true
@@ -359,6 +374,16 @@ defmodule Aiur.Tmux do
       {:ok, [target | _]} -> {:reply, {:ok, String.trim(target)}, state}
       {:ok, []} -> {:reply, {:error, :no_window}, state}
       {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:list_panes, window_target}, _from, state) do
+    case run_args(state, ["list-panes", "-t", window_target, "-F", "\#{pane_id}"]) do
+      {:ok, pane_ids} ->
+        {:reply, {:ok, Enum.map(pane_ids, &String.trim/1)}, state}
+
+      {:error, _} = err ->
+        {:reply, err, state}
     end
   end
 
