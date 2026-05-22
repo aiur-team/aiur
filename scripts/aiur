@@ -1004,7 +1004,18 @@ run_in_tmux() {
   export AIUR_SESSION_TMPFILE="${session_tmpfile_root}/aiur-${$}-sessions"
   : > "$AIUR_SESSION_TMPFILE"
 
+  # Idempotency + signal-isolation guard. Without this, Ctrl+C during a
+  # foreground run fires both the INT trap and (later) the EXIT trap,
+  # each re-entering this function. When the second call lands while
+  # bash is mid-unwind of the first, bash prints:
+  #     pop_var_context: head of shell_variables not a function context
+  # because its function-call stack is in an invalid state. Marking the
+  # function as "ran" on first entry makes re-entry a cheap no-op.
+  __aiur_cleanup_ran=0
   __aiur_cleanup() {
+    [ "${__aiur_cleanup_ran:-0}" = 1 ] && return 0
+    __aiur_cleanup_ran=1
+
     local exit_code=$?
     local sessions_file="${AIUR_SESSION_TMPFILE:-}"
     # `startup_capture` was declared `local` inside this function's caller,
@@ -1089,7 +1100,16 @@ run_in_tmux() {
     return $exit_code
   }
 
-  trap '__aiur_cleanup' EXIT INT TERM HUP
+  # Separate EXIT from the signal traps. The signal handlers clear all
+  # traps before re-killing the script with the original signal — that
+  # gives bash a clean call-stack state for the EXIT trap to run the
+  # cleanup once. Without the trap clear + re-kill pattern, signal +
+  # EXIT can interleave inside bash's function-unwind and produce the
+  # `pop_var_context` error.
+  trap '__aiur_cleanup' EXIT
+  trap 'trap - EXIT INT TERM HUP; __aiur_cleanup; exit 130' INT
+  trap 'trap - EXIT INT TERM HUP; __aiur_cleanup; exit 143' TERM
+  trap 'trap - EXIT INT TERM HUP; __aiur_cleanup; exit 129' HUP
 
   # Resolve where the BEAM will write its log file. The Elixir CLI sets
   # `:log_file` to `<logs_root>/log/aiur.log` when `--logs-root` is

@@ -55,24 +55,39 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              "__aiur_cleanup MUST SIGKILL stragglers after the SIGTERM grace period — otherwise a wedged BEAM leaks port 4000 forever"
     end
 
-    test "trap binds __aiur_cleanup to EXIT INT TERM HUP" do
+    test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
       source = File.read!(@scripts_aiur)
 
-      assert source =~ ~r/trap '__aiur_cleanup' EXIT INT TERM HUP/,
-             """
-             The cleanup trap MUST cover all four shutdown signals.
-             EXIT alone misses kill -9 of children; SIGINT alone misses
-             SIGHUP (terminal close); etc.
-             """
+      # EXIT keeps its own bare-handler trap; signal traps clear the
+      # other traps first and call cleanup directly, so the EXIT
+      # handler doesn't fire a second time after the signal-triggered
+      # exit. Without that split, Ctrl+C reproduces the bash error
+      # `pop_var_context: head of shell_variables not a function context`.
+      assert source =~ ~r/trap '__aiur_cleanup' EXIT\b/,
+             "EXIT trap must register __aiur_cleanup on its own."
+
+      for signal <- ["INT", "TERM", "HUP"] do
+        assert source =~ ~r/trap '[^']*__aiur_cleanup[^']*' #{signal}\b/,
+               """
+               The #{signal} trap MUST call __aiur_cleanup (with the EXIT
+               trap cleared first so cleanup runs exactly once). All four
+               signals — EXIT/INT/TERM/HUP — must invoke cleanup so we
+               cover terminal close, kill -9, SIGHUP-on-parent-exit, etc.
+               """
+      end
     end
   end
 
   # Pull the __aiur_cleanup function body out of scripts/aiur for source
   # asserts. Stops at the next top-level function or trap line.
   defp extract_cleanup_block(source) do
+    # Match the function body, then any trailing comment block (the
+    # signal-isolation explanatory comments live between `}` and the
+    # `trap` line). `[^\n]*` instead of `.*` so non-ASCII characters
+    # in comments (em-dashes, smart quotes) don't confuse the matcher.
     [_, block] =
       Regex.run(
-        ~r/__aiur_cleanup\(\) \{(.+?)\n  \}\n\n  trap /s,
+        ~r/__aiur_cleanup\(\) \{(.+?)\n  \}\n(?:\n  #[^\n]*)*\n  trap /us,
         source,
         capture: :all
       )
