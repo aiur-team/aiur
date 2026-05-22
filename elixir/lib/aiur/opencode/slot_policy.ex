@@ -50,22 +50,40 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:noreply, state}
   end
 
-  def handle_info(:start_first_slot, state) do
-    case SlotSupervisor.start_slot(1) do
-      {:ok, _pid} ->
-        Logger.info(
-          "opencode_slot_policy phase=chain_start elapsed_ms=#{Boot.elapsed_ms()} slot=1"
-        )
+  def handle_info(:start_first_slot, %{target_count: target} = state) do
+    # Spawn ALL slots in parallel instead of waiting for slot N to be
+    # :ready before starting slot N+1. Each slot's pre-warm is
+    # independent (different ports, different workspaces); serial
+    # chaining was costing ~5 s per additional slot for no reason.
+    #
+    # Wall time was: 5 slots * ~6 s each = ~30 s for the chain.
+    # New wall time: ~7 s (one opencode-serve startup, in parallel).
+    Aiur.Perf.event(:slot_chain_parallel_start, target_count: target)
 
-        {:noreply, %{state | highest_started: 1}}
+    Logger.info(
+      "opencode_slot_policy phase=chain_start_parallel elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target}"
+    )
 
-      {:error, reason} ->
-        Logger.warning(
-          "opencode_slot_policy phase=chain_start_failed elapsed_ms=#{Boot.elapsed_ms()} slot=1 reason=#{inspect(reason)}"
-        )
+    started =
+      Enum.reduce(1..target, 0, fn slot_index, acc ->
+        case SlotSupervisor.start_slot(slot_index) do
+          {:ok, _pid} ->
+            acc + 1
 
-        {:noreply, state}
-    end
+          {:error, reason} ->
+            Logger.warning(
+              "opencode_slot_policy phase=chain_start_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}"
+            )
+
+            acc
+        end
+      end)
+
+    Logger.info(
+      "opencode_slot_policy phase=chain_started elapsed_ms=#{Boot.elapsed_ms()} started=#{started} target=#{target}"
+    )
+
+    {:noreply, %{state | highest_started: target}}
   end
 
   def handle_info(
@@ -77,35 +95,19 @@ defmodule Aiur.Opencode.SlotPolicy do
       Logger.info(
         "opencode_slot_policy phase=chain_complete elapsed_ms=#{Boot.elapsed_ms()} slots=#{target}"
       )
+
+      Aiur.Perf.event(:slot_chain_complete, slots: target)
     end
 
     _ = highest
     {:noreply, state}
   end
 
-  def handle_info({:slot_ready, n}, %{highest_started: highest} = state) when n < highest do
-    # Stale event for a slot we've already advanced past — no-op.
+  def handle_info({:slot_ready, _n}, state) do
+    # In parallel mode, every slot was started up-front so no further
+    # advance work is needed when one becomes ready. The :chain_complete
+    # event fires when the last (== target_count) slot reports ready.
     {:noreply, state}
-  end
-
-  def handle_info({:slot_ready, n}, state) do
-    next = n + 1
-
-    case SlotSupervisor.start_slot(next) do
-      {:ok, _pid} ->
-        Logger.info(
-          "opencode_slot_policy phase=chain_advance elapsed_ms=#{Boot.elapsed_ms()} slot=#{next}"
-        )
-
-        {:noreply, %{state | highest_started: next}}
-
-      {:error, reason} ->
-        Logger.warning(
-          "opencode_slot_policy phase=chain_advance_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{next} reason=#{inspect(reason)}"
-        )
-
-        {:noreply, state}
-    end
   end
 
   def handle_info({:slot_session_changed, _slot_index, _identifier}, state), do: {:noreply, state}
