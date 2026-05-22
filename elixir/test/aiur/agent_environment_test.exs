@@ -36,4 +36,9 @@ defmodule Aiur.AgentEnvironmentTest do
 
     assert output == "OTHER_COOKIE=keep\n"
   end
+
+  test "scrub_shell_command preserves caller exec choice" do
+    refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
+    assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
+  end
 end

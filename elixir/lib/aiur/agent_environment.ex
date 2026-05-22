@@ -11,9 +11,10 @@ defmodule Aiur.AgentEnvironment do
     name in @erlang_distribution_env_names or Regex.match?(@aiur_distribution_env_pattern, name)
   end
 
-  @spec scrub_shell_command(String.t()) :: String.t()
-  def scrub_shell_command(command) when is_binary(command) do
-    "#{scrub_shell_prefix()}; #{command}"
+  @spec scrub_shell_command(String.t(), keyword()) :: String.t()
+  def scrub_shell_command(command, opts \\ []) when is_binary(command) do
+    exec_prefix = if Keyword.get(opts, :exec, false), do: "exec ", else: ""
+    "#{scrub_shell_prefix()}; #{exec_prefix}#{command}"
   end
 
   @spec scrub_shell_prefix() :: String.t()

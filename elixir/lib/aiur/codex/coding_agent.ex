@@ -264,7 +264,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp remote_launch_command(workspace) do
-    ["cd #{shell_escape(workspace)}", AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command())]
+    ["cd #{shell_escape(workspace)}", AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command(), exec: true)]
     |> Enum.join(" && ")
   end
 
