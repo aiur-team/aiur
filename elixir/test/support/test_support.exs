@@ -111,6 +111,7 @@ defmodule Aiur.TestSupport do
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
           tracker_repo: nil,
           tracker_label_prefix: nil,
+          max_vertical_panes: 3,
           agent_kind: "codex",
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
@@ -139,6 +140,11 @@ defmodule Aiur.TestSupport do
           observability_render_interval_ms: 16,
           server_port: nil,
           server_host: nil,
+          opencode_command: "opencode",
+          opencode_bridge_port: 4097,
+          opencode_bridge_host: "127.0.0.1",
+          opencode_serve_args: [],
+          opencode_model_prefix: "aiur",
           prompt: @workflow_prompt
         ],
         overrides
@@ -148,6 +154,7 @@ defmodule Aiur.TestSupport do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     agent_kind = Keyword.get(config, :agent_kind)
+    max_vertical_panes = Keyword.get(config, :max_vertical_panes)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
     workspace_root = Keyword.get(config, :workspace_root)
     workspace_bootstrap_image = Keyword.get(config, :workspace_bootstrap_image)
@@ -171,6 +178,11 @@ defmodule Aiur.TestSupport do
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
+    opencode_command = Keyword.get(config, :opencode_command)
+    opencode_bridge_port = Keyword.get(config, :opencode_bridge_port)
+    opencode_bridge_host = Keyword.get(config, :opencode_bridge_host)
+    opencode_serve_args = Keyword.get(config, :opencode_serve_args)
+    opencode_model_prefix = Keyword.get(config, :opencode_model_prefix)
     prompt = Keyword.get(config, :prompt)
 
     config =
@@ -190,6 +202,7 @@ defmodule Aiur.TestSupport do
       [
         "---",
         tracker_backend_yaml(tracker_kind, config),
+        "max_vertical_panes: #{yaml_value(max_vertical_panes)}",
         "tracker:",
         "  kind: #{yaml_value(tracker_kind)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
@@ -211,6 +224,13 @@ defmodule Aiur.TestSupport do
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
+        opencode_yaml(
+          opencode_command,
+          opencode_bridge_port,
+          opencode_bridge_host,
+          opencode_serve_args,
+          opencode_model_prefix
+        ),
         "---",
         prompt
       ]
@@ -268,6 +288,18 @@ defmodule Aiur.TestSupport do
       "  bootstrap_image_pull: #{yaml_value(bootstrap_image_pull)}"
     ]
     |> Enum.reject(&(&1 in [nil, false]))
+    |> Enum.join("\n")
+  end
+
+  defp opencode_yaml(command, bridge_port, bridge_host, serve_args, model_prefix) do
+    [
+      "opencode:",
+      "  command: #{yaml_value(command)}",
+      "  bridge_port: #{yaml_value(bridge_port)}",
+      "  bridge_host: #{yaml_value(bridge_host)}",
+      "  serve_args: #{yaml_value(serve_args)}",
+      "  model_prefix: #{yaml_value(model_prefix)}"
+    ]
     |> Enum.join("\n")
   end
 

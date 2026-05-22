@@ -107,6 +107,9 @@ Important boundary:
 7. `Status Surface` (OPTIONAL)
    - Presents human-readable runtime status (for example terminal output, dashboard, or other
      operator-facing view).
+   - An implementation MAY use a third-party terminal chat UI as a status/input surface. In the
+     Elixir implementation, opencode is used only as the pane chat frontend; Aiur remains the
+     orchestrator and agent runtime owner, and `logs/agent.ndjson` remains the canonical transcript.
 
 8. `Logging`
    - Emits structured runtime logs to one or more configured sinks.

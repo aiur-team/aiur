@@ -5,7 +5,7 @@ defmodule Aiur.AgentList.RendererTest do
 
   defp render(state), do: IO.iodata_to_binary(Renderer.render(state))
 
-  defp visible(text), do: Regex.replace(~r/\e\[[0-9;]*[A-Za-z]/, text, "")
+  defp visible(text), do: Regex.replace(~r/\e\[[?0-9;]*[A-Za-z]/, text, "")
 
   defp base_state(overrides \\ %{}) do
     Map.merge(
@@ -57,7 +57,15 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "Agents: n/a"
     assert out =~ "Project: n/a"
     assert out =~ "Dashboard: n/a"
-    assert out =~ "🔄 n/a"
+    assert out =~ "🔄 in 0s"
+    refute out =~ "🔄 n/a"
+  end
+
+  test "renders empty refresh labels as in 0s" do
+    out = render(base_state(%{refresh_label: ""})) |> visible()
+
+    assert out =~ "🔄 in 0s"
+    refute out =~ "🔄 n/a"
   end
 
   test "shows agent count and max in the Agents row" do
@@ -77,6 +85,37 @@ defmodule Aiur.AgentList.RendererTest do
 
     assert out =~ "Agents:"
     assert out =~ "claude (2/5)"
+  end
+
+  test "focused max display highlights editable value and shows arrow affordances" do
+    out =
+      render(
+        base_state(%{
+          agent_kind: "codex",
+          agent_count: 1,
+          max_agents: 2,
+          selection_focus: :max_agents
+        })
+      )
+      |> visible()
+
+    assert out =~ "codex (1/[2])"
+    assert out =~ "← →"
+  end
+
+  test "max alert applies terminal highlight styling" do
+    raw =
+      render(
+        base_state(%{
+          agent_kind: "codex",
+          agent_count: 2,
+          max_agents: 2,
+          max_agents_alert?: true
+        })
+      )
+
+    assert raw =~ IO.ANSI.red()
+    assert raw =~ IO.ANSI.reverse()
   end
 
   test "renders the agent table header columns" do
@@ -107,6 +146,28 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "▶ MT-2"
   end
 
+  test "does not mark an agent row when the max control is focused" do
+    summaries = [
+      %{identifier: "MT-1", status: :running, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          selection_index: 0,
+          selection_focus: :max_agents,
+          agent_kind: "codex",
+          agent_count: 1,
+          max_agents: 2
+        })
+      )
+      |> visible()
+
+    assert out =~ "codex (1/[2])"
+    refute out =~ "▶ MT-1"
+  end
+
   test "renders state with a colored circle emoji" do
     summaries = [
       %{
@@ -119,9 +180,31 @@ defmodule Aiur.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    # Paused agent state surfaces as a yellow circle (🟡 in the state
+    # Paused agent state surfaces as a pause glyph (⏸️ in the state
     # column). Working agents would render as 🟢.
-    assert out =~ "🟡"
+    assert out =~ "⏸️"
+  end
+
+  test "working agents render the same green emoji as the conversation pane header" do
+    # Regression: the agent list used to render the tag color (e.g. 🟡
+    # for `agent:todo`) for an actively working agent, while the
+    # conversation pane header showed 🟢 for the same agent. Both now
+    # route through `Aiur.AgentEvents.state_emoji/1` so an in-progress
+    # agent is green everywhere — independent of the tracker label.
+    summaries = [
+      %{
+        identifier: "MT-WORK",
+        status: :running,
+        alert_count: 0,
+        tag: "agent:todo",
+        work_state: :working
+      }
+    ]
+
+    out = render(base_state(%{summaries: summaries})) |> visible()
+
+    assert out =~ "🟢"
+    refute out =~ "🟡"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do
@@ -173,6 +256,74 @@ defmodule Aiur.AgentList.RendererTest do
     assert raw =~ "\e[H"
     # Some `\e[<N>;1H` cursor reset followed by `\e[J` clear-to-end.
     assert raw =~ ~r/\e\[\d+;1H\e\[J/
+  end
+
+  test "renders the open-pane circle next to ids that have a live pane" do
+    summaries = [
+      %{identifier: "MT-1", status: :running, alert_count: 0},
+      %{identifier: "MT-2", status: :running, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          visible_sessions: %{1 => "MT-1"}
+        })
+      )
+      |> visible()
+
+    # MT-1 line carries the circle, MT-2 line does not.
+    lines = String.split(out, ["\r\n", "\n"])
+
+    mt1_line = Enum.find(lines, fn line -> line =~ "MT-1" end)
+    mt2_line = Enum.find(lines, fn line -> line =~ "MT-2" end)
+
+    assert mt1_line =~ "●"
+    refute mt2_line =~ "●"
+  end
+
+  test "open-pane circle defaults off when no visible_sessions are passed" do
+    summaries = [%{identifier: "MT-X", status: :running, alert_count: 0}]
+    out = render(base_state(%{summaries: summaries})) |> visible()
+
+    refute out =~ "●"
+  end
+
+  test "footer shows v layout inline when terminal is wide enough" do
+    out = render(base_state(%{columns: 100})) |> visible()
+
+    assert out =~ "v layout"
+    assert out =~ "? help"
+    # All keybinds live on a single row when width allows.
+    assert out =~ ~r/v layout\s+\? help\s+q quit/
+  end
+
+  test "footer wraps v layout to a second row when width is tight" do
+    # 70-col terminal fits the original keybinds but not the version
+    # that also includes "v layout". The primary row keeps the original
+    # keybinds; "v layout" wraps below.
+    out = render(base_state(%{columns: 70})) |> visible()
+    lines = String.split(out, ["\r\n", "\n"])
+
+    primary_index =
+      Enum.find_index(lines, fn line ->
+        line =~ "↑/↓ select" and line =~ "? help"
+      end)
+
+    assert primary_index, "expected primary keybind row to render"
+    secondary = Enum.at(lines, primary_index + 1) || ""
+    assert secondary =~ "v layout"
+    refute Enum.at(lines, primary_index) =~ "v layout"
+  end
+
+  test "help overlay documents the v layout keybind" do
+    out =
+      render(base_state(%{help_visible?: true, columns: 100}))
+      |> visible()
+
+    assert out =~ "v"
+    assert out =~ "toggle pane layout"
   end
 
   test "reserves the final terminal column to avoid autowrap" do

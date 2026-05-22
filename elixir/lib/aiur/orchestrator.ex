@@ -43,6 +43,7 @@ defmodule Aiur.Orchestrator do
     @type t :: %__MODULE__{
             poll_interval_ms: integer() | nil,
             max_concurrent_agents: integer() | nil,
+            session_max_concurrent_agents: integer() | nil,
             next_poll_due_at_ms: integer() | nil,
             poll_check_in_progress: boolean() | nil,
             tick_timer_ref: reference() | nil,
@@ -64,6 +65,7 @@ defmodule Aiur.Orchestrator do
     defstruct [
       :poll_interval_ms,
       :max_concurrent_agents,
+      :session_max_concurrent_agents,
       :next_poll_due_at_ms,
       :poll_check_in_progress,
       :tick_timer_ref,
@@ -267,11 +269,15 @@ defmodule Aiur.Orchestrator do
         previous_status = get_in(running_entry, [:control, :status]) || :working
 
         updated_running_entry =
-          put_in(running_entry, [:control, :status], status)
+          running_entry
+          |> put_in([:control, :status], status)
+          |> apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
 
         maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
 
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+        state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        notify_dashboard(state)
+        {:noreply, state}
     end
   end
 
@@ -409,6 +415,12 @@ defmodule Aiur.Orchestrator do
   @spec should_dispatch_issue_for_test(Issue.t(), term()) :: boolean()
   def should_dispatch_issue_for_test(%Issue{} = issue, %State{} = state) do
     should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
+  end
+
+  @doc false
+  @spec dispatch_candidate_for_test(Issue.t(), term()) :: boolean()
+  def dispatch_candidate_for_test(%Issue{} = issue, %State{} = state) do
+    dispatch_candidate?(issue, state, active_state_set(), terminal_state_set())
   end
 
   @doc false
@@ -858,7 +870,19 @@ defmodule Aiur.Orchestrator do
   defp issue_created_at_sort_key(%Issue{}), do: 9_223_372_036_854_775_807
   defp issue_created_at_sort_key(_issue), do: 9_223_372_036_854_775_807
 
-  defp should_dispatch_issue?(
+  defp should_dispatch_issue?(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
+    dispatch_candidate?(issue, state, active_states, terminal_states) and
+      available_slots(state) > 0
+  end
+
+  defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
+
+  # All dispatch preconditions except the global active+paused slot reservation.
+  # Polling layers `available_slots > 0` on top of this to honor paused-agent
+  # slot holds; manual start paths (e.g., space on a queued ticket) instead
+  # gate on `active < max` so the operator can claim a free slot even when a
+  # parallel paused agent is parked in the running map.
+  defp dispatch_candidate?(
          %Issue{} = issue,
          %State{running: running, claimed: claimed} = state,
          active_states,
@@ -868,27 +892,35 @@ defmodule Aiur.Orchestrator do
       !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
-      available_slots(state) > 0 and
-      state_slots_available?(issue, running) and
+      state_slots_available?(issue, state) and
       worker_slots_available?(state)
   end
 
-  defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
-
-  defp state_slots_available?(%Issue{state: issue_state}, running) when is_map(running) do
-    limit = Config.max_concurrent_agents_for_state(issue_state)
-    used = running_issue_count_for_state(running, issue_state)
+  defp state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
+    limit = effective_state_limit(issue_state, state)
+    used = running_issue_count_for_state(state.running, issue_state)
     limit > used
   end
 
-  defp state_slots_available?(_issue, _running), do: false
+  defp state_slots_available?(_issue, _state), do: false
+
+  # Per-state cap honors explicit overrides in
+  # `agent.max_concurrent_agents_by_state` first, then falls back to the
+  # *session-aware* global limit. Without this, bumping the global cap at
+  # runtime (←/→ in the agent list) had no effect on dispatch eligibility
+  # because the per-state default was pinned to the workflow file value.
+  defp effective_state_limit(issue_state, %State{} = state) do
+    config = Config.settings!()
+    normalized = normalize_issue_state(issue_state)
+    Map.get(config.agent.max_concurrent_agents_by_state, normalized, max_concurrent_agent_limit(state))
+  end
 
   defp running_issue_count_for_state(running, issue_state) when is_map(running) do
     normalized_state = normalize_issue_state(issue_state)
 
     Enum.count(running, fn
-      {_id, %{issue: %Issue{state: state_name}}} ->
-        normalize_issue_state(state_name) == normalized_state
+      {_id, %{issue: %Issue{state: state_name}} = entry} ->
+        normalize_issue_state(state_name) == normalized_state and active_running_entry?(entry)
 
       _ ->
         false
@@ -1236,6 +1268,12 @@ defmodule Aiur.Orchestrator do
     |> running_summaries()
     |> AgentPubSub.broadcast_running_change()
 
+    AgentPubSub.broadcast_poll_state(%{
+      checking?: state.poll_check_in_progress == true,
+      next_poll_due_at_ms: state.next_poll_due_at_ms,
+      max_concurrent_agents: state.max_concurrent_agents
+    })
+
     ObservabilityPubSub.broadcast_update()
   end
 
@@ -1266,7 +1304,7 @@ defmodule Aiur.Orchestrator do
             AgentEvents.agent_summary(identifier, :running, 0, %{
               tag: tag,
               title: title,
-              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working
             })
@@ -1290,7 +1328,7 @@ defmodule Aiur.Orchestrator do
             AgentEvents.agent_summary(identifier, :running, 0, %{
               tag: issue_tag(Map.get(entry, :issue)),
               title: get_in(entry, [:issue, Access.key(:title)]),
-              runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+              runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working
             })
@@ -1411,7 +1449,7 @@ defmodule Aiur.Orchestrator do
 
   defp running_worker_host_count(running, worker_host) when is_map(running) and is_binary(worker_host) do
     Enum.count(running, fn
-      {_issue_id, %{worker_host: ^worker_host}} -> true
+      {_issue_id, %{worker_host: ^worker_host} = entry} -> active_running_entry?(entry)
       _ -> false
     end)
   end
@@ -1460,12 +1498,61 @@ defmodule Aiur.Orchestrator do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
   end
 
+  defp active_running_count(running) when is_map(running) do
+    Enum.count(running, fn
+      {_issue_id, entry} -> active_running_entry?(entry)
+    end)
+  end
+
+  defp active_running_count(_running), do: 0
+
+  defp paused_running_count(running) when is_map(running) do
+    Enum.count(running, fn
+      {_issue_id, entry} -> paused_running_entry?(entry)
+    end)
+  end
+
+  defp paused_running_count(_running), do: 0
+
+  defp active_running_entry?(entry) when is_map(entry), do: not paused_running_entry?(entry)
+  defp active_running_entry?(_entry), do: false
+
+  defp paused_running_entry?(entry) when is_map(entry) do
+    (get_in(entry, [:control, :status]) || :working) == :paused
+  end
+
+  defp paused_running_entry?(_entry), do: false
+
+  defp max_concurrent_agent_limit(%State{} = state) do
+    cond do
+      is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
+        state.session_max_concurrent_agents
+
+      is_integer(state.max_concurrent_agents) and state.max_concurrent_agents > 0 ->
+        state.max_concurrent_agents
+
+      true ->
+        Config.settings!().agent.max_concurrent_agents
+    end
+  end
+
+  defp max_concurrent_agent_status(%State{} = state) do
+    %{
+      active: active_running_count(state.running),
+      paused: paused_running_count(state.running),
+      configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
+      max: max_concurrent_agent_limit(state),
+      session_override?: is_integer(state.session_max_concurrent_agents)
+    }
+  end
+
+  # Paused agents keep their slot reserved: a deliberate pause should not
+  # free capacity for the polling loop to auto-claim the next agent:todo
+  # ticket. Resuming a paused agent reuses the held slot via
+  # `resume_paused_issue/2`, which bypasses this check.
   defp available_slots(%State{} = state) do
-    max(
-      (state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents) -
-        map_size(state.running),
-      0
-    )
+    used = active_running_count(state.running) + paused_running_count(state.running)
+    max(max_concurrent_agent_limit(state) - used, 0)
   end
 
   @spec request_refresh() :: map() | :unavailable
@@ -1508,6 +1595,50 @@ defmodule Aiur.Orchestrator do
   def pause_agent(server, issue_identifier) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:pause_agent, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  def resume_agent(issue_identifier), do: resume_agent(__MODULE__, issue_identifier)
+
+  @spec resume_agent(GenServer.server(), String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  def resume_agent(server, issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:resume_agent, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec max_concurrent_agents() :: map() | :unavailable
+  def max_concurrent_agents, do: max_concurrent_agents(__MODULE__)
+
+  @spec max_concurrent_agents(GenServer.server()) :: map() | :unavailable
+  def max_concurrent_agents(server) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, :max_concurrent_agents, 5_000)
+    else
+      :unavailable
+    end
+  catch
+    :exit, _ -> :unavailable
+  end
+
+  @spec adjust_max_concurrent_agents(integer()) :: {:ok, map()} | {:error, term()}
+  def adjust_max_concurrent_agents(delta), do: adjust_max_concurrent_agents(__MODULE__, delta)
+
+  @spec adjust_max_concurrent_agents(GenServer.server(), integer()) :: {:ok, map()} | {:error, term()}
+  def adjust_max_concurrent_agents(server, delta) when is_integer(delta) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:adjust_max_concurrent_agents, delta}, 5_000)
     else
       {:error, :unavailable}
     end
@@ -1617,6 +1748,24 @@ defmodule Aiur.Orchestrator do
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
   @doc """
+  Returns the identifiers Aiur currently knows are running. Used by
+  `Aiur.Opencode.WarmServer` at boot-time GC to decide which leftover
+  opencode sessions belong to live agents vs ungraceful prior exits.
+  """
+  @spec list_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
+  def list_active_identifiers(server \\ __MODULE__, timeout \\ 1_000) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, :list_active_identifiers, timeout)
+      catch
+        :exit, _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  @doc """
   Lightweight read of the polling clock so UI surfaces (the agent-list
   pane) can render a "Next refresh: Ns" countdown without doing a full
   `snapshot/0` every tick. Returns `%{checking?: boolean, next_poll_in_ms: integer | nil}`,
@@ -1663,6 +1812,16 @@ defmodule Aiur.Orchestrator do
     }
 
     {:reply, reply, state}
+  end
+
+  def handle_call(:list_active_identifiers, _from, state) do
+    identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
+      |> Enum.reject(&is_nil/1)
+
+    {:reply, identifiers, state}
   end
 
   def handle_call(:snapshot, _from, state) do
@@ -1777,6 +1936,34 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:resume_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    {reply, state} = resume_issue(state, issue_identifier)
+    notify_dashboard(state)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:resume_agent, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call(:max_concurrent_agents, _from, state) do
+    {:reply, max_concurrent_agent_status(state), state}
+  end
+
+  def handle_call({:adjust_max_concurrent_agents, delta}, _from, state) when is_integer(delta) do
+    current = max_concurrent_agent_limit(state)
+    next = max(current + delta, 1)
+    active = active_running_count(state.running)
+
+    if next < active do
+      {:reply, {:error, :below_active_count}, state}
+    else
+      state = %{state | session_max_concurrent_agents: next}
+      notify_dashboard(state)
+      {:reply, {:ok, max_concurrent_agent_status(state)}, state}
+    end
+  end
+
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) when is_binary(issue_identifier) do
     {queue_store, item} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
     state = %{state | queue_store: queue_store}
@@ -1866,30 +2053,66 @@ defmodule Aiur.Orchestrator do
   defp enqueue_operator_message(state, issue_identifier, body, payload) do
     delivery_policy = Map.get(payload, :delivery_policy, :checkpoint)
     fallback = Map.get(payload, :fallback)
+    turn_id = Map.get(payload, :turn_id)
 
     case validate_operator_message(body) do
       {:ok, text} ->
-        enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback)
+        enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback, turn_id)
 
       {:error, _reason} = error ->
         {error, state}
     end
   end
 
-  defp enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback) do
+  defp enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback, turn_id) do
     case find_running_by_identifier(state.running, issue_identifier) do
       nil ->
         {{:error, :no_running_agent}, state}
 
       running_entry ->
+        enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+    end
+  end
+
+  # Chatting with a paused agent auto-resumes it — but only if a slot is
+  # free. Routing through `resume_paused_issue/2` reuses the same
+  # active-cap and per-state slot gates as the explicit space-key resume,
+  # so we can't push active over max no matter which entry point the
+  # operator uses. If no slot is free, the cap error propagates and the
+  # conversation pane surfaces it.
+  defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
+    if paused_running_entry?(running_entry) do
+      enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+    else
+      do_enqueue_running_operator_message(
+        state,
+        running_entry,
+        issue_identifier,
+        text,
+        delivery_policy,
+        fallback,
+        turn_id
+      )
+    end
+  end
+
+  defp enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
+    case resume_paused_issue(state, running_entry) do
+      {{:ok, :resumed}, next_state} ->
+        resumed_entry = find_running_by_identifier(next_state.running, issue_identifier)
+
         do_enqueue_running_operator_message(
-          state,
-          running_entry,
+          next_state,
+          resumed_entry,
           issue_identifier,
           text,
           delivery_policy,
-          fallback
+          fallback,
+          turn_id
         )
+
+      {{:error, _reason} = error, next_state} ->
+        {error, next_state}
     end
   end
 
@@ -1899,14 +2122,15 @@ defmodule Aiur.Orchestrator do
          issue_identifier,
          text,
          delivery_policy,
-         fallback
+         fallback,
+         turn_id
        ) do
     capabilities = issue_control_capabilities(state, issue_identifier)
 
     case normalize_delivery_request(delivery_policy, fallback, capabilities) do
       {:ok, queue_opts} ->
         {queue_store, item} =
-          AgentQueue.operator_message(issue_identifier, text, queue_opts)
+          AgentQueue.operator_message(issue_identifier, text, Keyword.put(queue_opts, :turn_id, turn_id))
           |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
         # NOTE: previously we emitted a `chat.send` alert here for every
@@ -2003,6 +2227,150 @@ defmodule Aiur.Orchestrator do
   end
 
   defp notify_running_queue_update(_running_entry, _item), do: :ok
+
+  defp resume_issue(%State{} = state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      running_entry when is_map(running_entry) ->
+        if paused_running_entry?(running_entry) do
+          resume_paused_issue(state, running_entry)
+        else
+          {{:ok, :resumed}, state}
+        end
+
+      nil ->
+        resume_queued_issue(state, issue_identifier)
+    end
+  end
+
+  defp resume_paused_issue(%State{} = state, running_entry) do
+    cond do
+      # The paused agent already holds a slot, so the limit only blocks
+      # resume if the *active* count is already at the cap (which can
+      # happen if `max` was lowered while the agent was paused).
+      active_running_count(state.running) >= max_concurrent_agent_limit(state) ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      not state_slots_available?(Map.get(running_entry, :issue), state) ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      not resume_worker_slot_available?(state, Map.get(running_entry, :worker_host)) ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      true ->
+        send_resume_control_message(state, running_entry)
+    end
+  end
+
+  defp send_resume_control_message(%State{} = state, running_entry) do
+    case send_running_control_message(state, Map.get(running_entry, :identifier), fn request_id ->
+           {:resume_agent, request_id}
+         end) do
+      {:ok, _request_id} ->
+        issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+        previous_status = get_in(running_entry, [:control, :status]) || :working
+        now = DateTime.utc_now()
+        state = put_running_control_status(state, issue_id, :working)
+        state = update_in(state.running, &thaw_pause_clock(&1, issue_id, previous_status, now))
+        # Sync-flip happens here so the cap accounting stays consistent.
+        # That means the worker's later `:worker_control_state :working`
+        # confirmation finds previous_status already :working and emits
+        # no transition alert — so emit the unpause alert ourselves now.
+        updated_entry = Map.get(state.running, issue_id, running_entry)
+        maybe_emit_agent_control_alert(previous_status, :working, updated_entry)
+        {{:ok, :resumed}, state}
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
+  end
+
+  # Freeze the runtime clock while the agent is paused and shift
+  # `started_at` forward on resume so `now - started_at` excludes the
+  # paused interval. The age column in the agent list (and any other
+  # consumer of `running_seconds/2`) stops advancing while paused.
+  defp apply_pause_runtime_clock(entry, :working, :paused, now) when is_map(entry) do
+    Map.put(entry, :paused_at, now)
+  end
+
+  defp apply_pause_runtime_clock(entry, :paused, :working, now) when is_map(entry) do
+    shift_started_at_by_pause(entry, now)
+  end
+
+  defp apply_pause_runtime_clock(entry, _previous, _next, _now), do: entry
+
+  defp thaw_pause_clock(running, issue_id, previous_status, now) when is_map(running) do
+    case Map.get(running, issue_id) do
+      nil -> running
+      entry -> Map.put(running, issue_id, shift_started_at_by_pause_if(entry, previous_status, now))
+    end
+  end
+
+  defp shift_started_at_by_pause_if(entry, :paused, now), do: shift_started_at_by_pause(entry, now)
+  defp shift_started_at_by_pause_if(entry, _previous, _now), do: entry
+
+  defp shift_started_at_by_pause(%{paused_at: %DateTime{} = paused_at} = entry, %DateTime{} = now) do
+    paused_for = max(0, DateTime.diff(now, paused_at, :second))
+
+    entry
+    |> Map.update(:started_at, nil, fn
+      %DateTime{} = started_at -> DateTime.add(started_at, paused_for, :second)
+      other -> other
+    end)
+    |> Map.put(:paused_at, nil)
+  end
+
+  defp shift_started_at_by_pause(entry, _now), do: entry
+
+  defp resume_queued_issue(%State{} = state, issue_identifier) do
+    issue =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.find(fn
+        %Issue{identifier: ^issue_identifier} -> true
+        _ -> false
+      end)
+
+    cond do
+      is_nil(issue) ->
+        {{:error, :no_running_agent}, state}
+
+      # Manual start (operator pressed space on a queued ticket): paused
+      # agents are excluded from the cap so the operator can fill a free
+      # active slot even when a paused agent is parked in `running`.
+      active_running_count(state.running) >= max_concurrent_agent_limit(state) ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      not dispatch_candidate?(issue, state, active_state_set(), terminal_state_set()) ->
+        {{:error, :not_resumable}, state}
+
+      true ->
+        next_state = dispatch_issue(state, issue)
+
+        if MapSet.member?(next_state.claimed, issue.id) do
+          {{:ok, :started}, next_state}
+        else
+          {{:error, :dispatch_failed}, next_state}
+        end
+    end
+  end
+
+  defp put_running_control_status(%State{} = state, issue_id, status)
+       when is_binary(issue_id) and status in [:paused, :working] do
+    update_in(state.running, fn running ->
+      case Map.get(running, issue_id) do
+        nil -> running
+        entry -> Map.put(running, issue_id, put_in(entry, [:control, :status], status))
+      end
+    end)
+  end
+
+  defp put_running_control_status(%State{} = state, _issue_id, _status), do: state
+
+  defp resume_worker_slot_available?(%State{} = state, worker_host) when is_binary(worker_host) do
+    worker_host_slots_available?(state, worker_host)
+  end
+
+  defp resume_worker_slot_available?(%State{}, _worker_host), do: true
 
   defp queue_depth_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
     state.queue_store
@@ -2219,7 +2587,7 @@ defmodule Aiur.Orchestrator do
   defp sync_todo_capacity_alert(%State{} = state, issues) when is_list(issues) do
     todo_issues = routable_todo_issues(issues)
 
-    over_capacity? = length(todo_issues) > Config.max_concurrent_agents()
+    over_capacity? = length(todo_issues) > max_concurrent_agent_limit(state)
 
     cond do
       over_capacity? and not state.todo_over_capacity_alert_active ->
@@ -2278,7 +2646,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
-    available_slots(state) > 0 and state_slots_available?(issue, state.running)
+    available_slots(state) > 0 and state_slots_available?(issue, state)
   end
 
   defp apply_agent_token_delta(
@@ -2612,6 +2980,22 @@ defmodule Aiur.Orchestrator do
   end
 
   defp running_seconds(_started_at, _now), do: 0
+
+  # Wall-clock seconds the agent has spent *actively working*. If the
+  # entry is currently paused, the clock is frozen at the moment of
+  # pause; on resume `shift_started_at_by_pause/2` shifts `started_at`
+  # forward so any future delta excludes the paused interval.
+  defp effective_runtime_seconds(entry, %DateTime{} = now) when is_map(entry) do
+    case {Map.get(entry, :started_at), Map.get(entry, :paused_at)} do
+      {%DateTime{} = started_at, %DateTime{} = paused_at} ->
+        running_seconds(started_at, paused_at)
+
+      {started_at, _} ->
+        running_seconds(started_at, now)
+    end
+  end
+
+  defp effective_runtime_seconds(_entry, _now), do: 0
 
   defp integer_like(value) when is_integer(value) and value >= 0, do: value
 

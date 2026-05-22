@@ -3,18 +3,33 @@ defmodule Aiur.AgentDirectory do
   Read-side MCP-shaped primitives for agents.
 
   Each function is an atomic read against orchestrator state. A future MCP
-  bridge exposes these verbatim as tool surfaces; the in-process pane
-  subcommand calls them via `Aiur.PaneRPC`.
+  bridge can expose these verbatim as tool surfaces.
 
   Scaffold: the function signatures are the public contract. Implementations
-  delegate to `Aiur.Orchestrator.snapshot/0` and the on-disk log
-  reader when the agent-list and conversation panes land.
+  delegate to `Aiur.Orchestrator.snapshot/0` and the on-disk log reader.
   """
 
   alias Aiur.AgentEvents
 
   @spec list_agents() :: [AgentEvents.agent_summary()]
-  def list_agents, do: []
+  def list_agents do
+    case Aiur.Orchestrator.snapshot() do
+      %{running: running} when is_list(running) ->
+        Enum.map(running, fn entry ->
+          AgentEvents.agent_summary(Map.get(entry, :identifier, ""), :running, 0, %{
+            tag: Map.get(entry, :tag),
+            title: Map.get(entry, :title),
+            runtime_seconds: Map.get(entry, :runtime_seconds),
+            turn_count: Map.get(entry, :turn_count),
+            work_state: Map.get(entry, :work_state) || :working
+          })
+        end)
+        |> Enum.reject(fn %{identifier: identifier} -> identifier == "" end)
+
+      _ ->
+        []
+    end
+  end
 
   @spec get_transcript_tail(AgentEvents.agent_identifier(), non_neg_integer()) ::
           [AgentEvents.transcript_event()]

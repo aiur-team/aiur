@@ -23,21 +23,37 @@ defmodule Aiur.AgentList.Renderer do
   @min_age_width 4
   @min_title_width 6
 
+  # Width of the gap between the ID and AGE columns. Wide enough to
+  # center the open-pane glyph (`<space><glyph><space>`) so it doesn't
+  # crowd either neighbouring column.
+  @id_age_gap_width 3
+
+  # Single-grapheme circle that sits in the gap between the ID and AGE
+  # columns to signal that an agent has an open conversation pane.
+  # Picked from Geometric Shapes (U+25CF) so monospace fonts render it
+  # as 1 terminal column — same family as the ▶ selection marker, and
+  # not an emoji (no variation-selector surprises).
+  @open_pane_glyph "●"
+  @warm_pane_glyph "⚡"
+
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
   @ansi_dim IO.ANSI.faint()
   @ansi_cyan IO.ANSI.cyan()
   @ansi_gray IO.ANSI.light_black()
+  @ansi_red IO.ANSI.red()
+  @ansi_reverse IO.ANSI.reverse()
 
   @type state :: %{
-          summaries: [AgentEvents.agent_summary()],
-          selection_index: non_neg_integer(),
-          columns: pos_integer(),
-          rows: pos_integer(),
-          project_label: String.t() | nil,
-          dashboard_url: String.t() | nil,
-          refresh_label: String.t() | nil
+          required(:summaries) => [AgentEvents.agent_summary()],
+          required(:selection_index) => non_neg_integer(),
+          optional(:selection_focus) => :agents | :max_agents,
+          required(:columns) => pos_integer(),
+          required(:rows) => pos_integer(),
+          required(:project_label) => String.t() | nil,
+          required(:dashboard_url) => String.t() | nil,
+          required(:refresh_label) => String.t() | nil
         }
 
   @spec render(state()) :: iodata()
@@ -55,7 +71,14 @@ defmodule Aiur.AgentList.Renderer do
 
       layout = compute_layout(summaries, inner_width)
 
+      debug_footer = debug_perf_footer(state, inner_width)
+
       [
+        # Hide the terminal cursor for every render — without this the
+        # cursor flashes around the pane as we redraw each row, which
+        # reads as visual jitter to the user. `\e[?25l` is DECTCEM hide.
+        # Restored on shutdown by Aiur.AgentList.Input.terminate/2.
+        "\e[?25l",
         "\e[H",
         title_row(inner_width, Map.get(state, :refresh_label)),
         eol(),
@@ -66,12 +89,24 @@ defmodule Aiur.AgentList.Renderer do
         eol(),
         table_separator_row(inner_width, layout),
         eol(),
-        render_rows(summaries, Map.get(state, :selection_index, 0), inner_width, layout),
+        render_rows(
+          summaries,
+          Map.get(state, :selection_index, 0),
+          Map.get(state, :selection_focus, :agents),
+          inner_width,
+          layout,
+          visible_identifiers(state),
+          Map.get(state, :warm_identifiers, MapSet.new())
+        ),
         bottom_border(inner_width),
         eol(),
-        footer_row(inner_width),
+        footer_iodata(inner_width),
         eol(),
-        clear_remaining(rows, lines_emitted(state))
+        debug_footer,
+        clear_remaining(
+          rows,
+          lines_emitted(state, inner_width) + debug_footer_line_count(state)
+        )
       ]
     end
   end
@@ -111,20 +146,19 @@ defmodule Aiur.AgentList.Renderer do
        [
          "↑ / k        select previous",
          "↓ / j        select next",
-         "enter, space open conversation for selected agent",
+         "enter        open conversation for selected agent",
+         "space        pause/resume selected agent",
+         "v            toggle pane layout (horizontal ↔ vertical)",
          "?            toggle this help screen",
          "q            quit the agent list"
        ]},
       {"State circle",
        [
-         "🟢  agent running, label is agent:in-progress",
-         "🟡  agent running, label is agent:todo (queued for codex)",
-         "🟡  agent paused (label override)",
-         "🟣  agent running, label is agent:human-review",
-         "🟠  agent running, label is agent:rework",
-         "🔵  agent running, label is agent:merging",
+         "🟢  agent actively working",
+         "⏸️  agent paused by operator",
          "🔴  agent in error state",
-         "⚫  agent:* label present but no Aiur slot allocated yet"
+         "🏁  agent fully finished",
+         "⚫  agent waiting (queued, idle, or label only)"
        ]},
       {"Tips",
        [
@@ -187,8 +221,8 @@ defmodule Aiur.AgentList.Renderer do
     [@ansi_bold, title, @ansi_reset, pad, @ansi_cyan, refresh, @ansi_reset]
   end
 
-  defp refresh_chip(nil), do: "🔄 n/a"
-  defp refresh_chip(""), do: "🔄 n/a"
+  defp refresh_chip(nil), do: "🔄 in 0s"
+  defp refresh_chip(""), do: "🔄 in 0s"
   defp refresh_chip(label) when is_binary(label), do: "🔄 in " <> label
 
   defp metadata_rows(state, inner_width) do
@@ -197,6 +231,8 @@ defmodule Aiur.AgentList.Renderer do
         Map.get(state, :agent_kind),
         Map.get(state, :agent_count),
         Map.get(state, :max_agents),
+        Map.get(state, :selection_focus) == :max_agents,
+        Map.get(state, :max_agents_alert?) == true,
         inner_width
       ),
       eol(),
@@ -207,19 +243,18 @@ defmodule Aiur.AgentList.Renderer do
     ]
   end
 
-  defp agents_row(kind, count, max, inner_width)
+  defp agents_row(kind, count, max, focused?, alert?, inner_width)
        when is_integer(count) and is_integer(max) and max > 0 do
     kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
-    value = "#{kind_value} (#{count}/#{max})"
-    metadata_row_iolist("Agents:", value, @ansi_cyan, inner_width)
+    agents_row_iolist(kind_value, count, max, focused?, alert?, inner_width)
   end
 
-  defp agents_row(kind, count, _max, inner_width) when is_integer(count) do
+  defp agents_row(kind, count, _max, _focused?, _alert?, inner_width) when is_integer(count) do
     kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
     metadata_row_iolist("Agents:", "#{kind_value} (#{count})", @ansi_cyan, inner_width)
   end
 
-  defp agents_row(_kind, _count, _max, inner_width),
+  defp agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
     do: metadata_row_iolist("Agents:", "n/a", @ansi_gray, inner_width)
 
   defp project_row(nil, inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
@@ -244,6 +279,42 @@ defmodule Aiur.AgentList.Renderer do
     [prefix, bold_label, " ", colored_value, pad]
   end
 
+  defp agents_row_iolist(kind, count, max, focused?, alert?, inner_width) do
+    label = "Agents:"
+    prefix = "│ "
+    bold_label = @ansi_bold <> label <> @ansi_reset
+    max_text = if focused?, do: "[#{max}]", else: to_string(max)
+    affordance = if focused?, do: "  ← →", else: ""
+    plain = "#{prefix}#{label} #{kind} (#{count}/#{max_text})#{affordance}"
+    pad = padding_for(plain, inner_width)
+
+    max_style =
+      cond do
+        alert? -> @ansi_red <> @ansi_reverse
+        focused? -> @ansi_reverse
+        true -> @ansi_cyan
+      end
+
+    [
+      prefix,
+      bold_label,
+      " ",
+      @ansi_cyan,
+      kind,
+      " (",
+      Integer.to_string(count),
+      "/",
+      max_style,
+      max_text,
+      @ansi_reset,
+      @ansi_cyan,
+      ")",
+      affordance,
+      @ansi_reset,
+      pad
+    ]
+  end
+
   defp separator_row(inner_width) do
     [pad_with_ansi(@ansi_gray, "├" <> String.duplicate("─", max(inner_width - 1, 0)), inner_width)]
   end
@@ -252,9 +323,29 @@ defmodule Aiur.AgentList.Renderer do
     [pad_with_ansi(@ansi_gray, "╰" <> String.duplicate("─", max(inner_width - 1, 0)), inner_width)]
   end
 
-  defp footer_row(inner_width) do
-    text = "  ↑/↓ select   enter/space open   ? help   q quit"
-    pad_with_ansi(@ansi_dim, text, inner_width)
+  # Footer keybinds. `v layout` rides on the primary row when there's
+  # room, otherwise wraps to a second row so we don't truncate the more
+  # frequently used keybinds (select/open/pause/help/quit).
+  defp footer_iodata(inner_width) do
+    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+
+    if visual_width(full) <= inner_width do
+      pad_with_ansi(@ansi_dim, full, inner_width)
+    else
+      primary = "  ↑/↓ select   enter open   space pause/resume   ? help   q quit"
+      secondary = "  v layout"
+
+      [
+        pad_with_ansi(@ansi_dim, primary, inner_width),
+        eol(),
+        pad_with_ansi(@ansi_dim, secondary, inner_width)
+      ]
+    end
+  end
+
+  defp footer_line_count(inner_width) do
+    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+    if visual_width(full) <= inner_width, do: 1, else: 2
   end
 
   # ---------- table ----------------------------------------------------------
@@ -263,7 +354,7 @@ defmodule Aiur.AgentList.Renderer do
     body = [
       "│   ",
       cell("ID", layout.id_width),
-      "  ",
+      String.duplicate(" ", @id_age_gap_width),
       cell("AGE", layout.age_width),
       "  ",
       cell("", @state_cell_width),
@@ -275,28 +366,39 @@ defmodule Aiur.AgentList.Renderer do
 
   defp table_separator_row(inner_width, layout) do
     width =
-      layout.id_width + 2 + layout.age_width + 2 + @state_cell_width + layout.title_width
+      layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
+        layout.title_width
 
     body = "│   " <> String.duplicate("─", max(min(width, inner_width - 4), 0))
     pad_with_ansi(@ansi_gray, body, inner_width)
   end
 
-  defp render_rows([], _idx, inner_width, _layout) do
+  defp render_rows([], _idx, _selection_focus, inner_width, _layout, _open_pane_ids, _warm_ids) do
     [
       pad_with_ansi(@ansi_dim, "│   (no agents running)", inner_width),
       eol()
     ]
   end
 
-  defp render_rows(summaries, idx, inner_width, layout) do
+  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids, warm_ids) do
     summaries
     |> Enum.with_index()
     |> Enum.map(fn {summary, row_idx} ->
-      [render_row(summary, row_idx == idx, inner_width, layout), eol()]
+      [
+        render_row(
+          summary,
+          selection_focus == :agents and row_idx == idx,
+          inner_width,
+          layout,
+          open_pane_ids,
+          warm_ids
+        ),
+        eol()
+      ]
     end)
   end
 
-  defp render_row(summary, selected?, inner_width, layout) do
+  defp render_row(summary, selected?, inner_width, layout, open_pane_ids, warm_ids \\ MapSet.new()) do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
     title = Map.get(summary, :title) || ""
@@ -306,17 +408,24 @@ defmodule Aiur.AgentList.Renderer do
     age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary), @state_cell_width)
     title_cell = cell(title, layout.title_width)
+    # Single 3-cell marker in the ID-AGE gap. Precedence:
+    #   ● (open pane) > ⚡ (warm pre-attach ready) > blank
+    # Open and warm are mutually exclusive in practice — once the
+    # warm pane is moved visible AttachPool drops it from the warm
+    # set and PaneManager records it in visible_sessions.
+    open_marker = id_age_gap_marker(id_str, open_pane_ids, warm_ids)
 
-    # Order: marker, ID, AGE, state-circle, TITLE. The state circle
-    # (🟢 / 🟡 / 🔴) is the one signal we keep next to the title —
-    # the workflow-tag emoji was redundant with the title text.
+    # Order: marker, ID, open-pane indicator, AGE, state-circle, TITLE.
+    # The single-glyph circle sits in the gap between ID and AGE so the
+    # operator can tell at a glance which agents already own a
+    # conversation pane in the grid.
     body = [
       "│ ",
       marker,
       @ansi_cyan,
       id_cell,
       @ansi_reset,
-      "  ",
+      open_marker,
       @ansi_dim,
       age_cell,
       @ansi_reset,
@@ -326,55 +435,89 @@ defmodule Aiur.AgentList.Renderer do
     ]
 
     plain_visual =
-      4 + 2 + layout.id_width + 2 + layout.age_width + 2 + @state_cell_width +
+      4 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
         layout.title_width
 
     pad = String.duplicate(" ", max(inner_width - plain_visual, 0))
     [body, pad]
   end
 
+  # 3-cell separator between ID and AGE columns. Renders as `" ● "` when
+  # the identifier has an open pane (glyph centered in the gap), `"   "`
+  # otherwise — keeps the column width stable so the AGE column never
+  # shifts. Glyph is plain (terminal-default white) so it pops against
+  # the surrounding dim text without re-using the green status palette.
+  # The circle in front of an identifier indicates "this agent's session
+  # is currently visible somewhere in the conversation grid." Source:
+  # the `visible_sessions` map populated by AgentList.App from Slot
+  # workers' `:slot_session_changed` PubSub broadcasts.
+  defp visible_identifiers(state) do
+    raw =
+      state
+      |> Map.get(:visible_sessions, %{})
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    # `visible_sessions` is populated from :slot_session_changed which
+    # fires during AttachPool's warming — long before any pane is
+    # actually visible to the user. Subtract warming + warm identifiers
+    # so ● only marks rows whose pane is truly on screen.
+    warming = Map.get(state, :warming_identifiers, MapSet.new())
+    warm = Map.get(state, :warm_identifiers, MapSet.new())
+
+    raw
+    |> MapSet.difference(warming)
+    |> MapSet.difference(warm)
+  end
+
+  defp open_pane_marker(id_str, open_pane_ids) do
+    if MapSet.member?(open_pane_ids, id_str) do
+      [" ", @open_pane_glyph, " "]
+    else
+      String.duplicate(" ", @id_age_gap_width)
+    end
+  end
+
+  # 3-cell marker between ID and AGE. Precedence:
+  #   ⚡ (warm pre-attach ready) > ● (open and visible) > blank
+  # `warm` wins because the slot's broadcast of :slot_session_changed
+  # fires during AttachPool's pre-warm — visible_identifiers/1 strips
+  # warming/warm ids from visible_sessions so ● only marks truly
+  # visible panes.
+  defp id_age_gap_marker(id_str, open_pane_ids, warm_ids) do
+    cond do
+      MapSet.member?(warm_ids, id_str) ->
+        # ⚡ (U+26A1) is East Asian Width=Narrow but typically renders
+        # 2 cols in modern terminals. Pad with trailing space to match
+        # ●'s 3-col cell width regardless of how the terminal sizes it.
+        [" ", IO.ANSI.yellow(), @warm_pane_glyph, IO.ANSI.reset(), " "]
+
+      MapSet.member?(open_pane_ids, id_str) ->
+        [" ", @open_pane_glyph, " "]
+
+      true ->
+        String.duplicate(" ", @id_age_gap_width)
+    end
+  end
+
   # The state column reflects both the workflow tag *and* whether a
   # Aiur agent slot is currently running this ticket:
+  # State emoji is driven by the worker's live `work_state` so the agent
+  # list paints the same status the conversation pane shows in its
+  # header. Both surfaces share `AgentEvents.state_emoji/1`.
   #
-  #   running + agent:todo         → 🟡 yellow
-  #   running + agent:in-progress  → 🟢 green
-  #   running + agent:human-review → 🟣 purple
-  #   running + agent:rework       → 🟠 orange
-  #   running + agent:merging      → 🔵 blue
-  #   running + paused (any tag)   → 🟡 yellow (override)
-  #   running + error (any tag)    → 🔴 red    (override)
-  #   queued  (any tag, no slot)   → ⚫ grey
-  #
-  # The grey is intentional: a ticket carrying an `agent:*` label
-  # without an active slot reads as "waiting" at a glance.
+  #   running + :working           → 🟢 green   (actively working)
+  #   running + :paused            → ⏸️  pause  (paused by operator)
+  #   running + :error             → 🔴 red     (agent reported error)
+  #   queued  (no slot allocated)  → ⚫ grey
   defp summary_emoji(%{status: :queued}), do: "⚫"
 
   defp summary_emoji(%{status: :running} = summary) do
-    case Map.get(summary, :work_state) do
-      :paused -> "🟡"
-      "paused" -> "🟡"
-      :error -> "🔴"
-      _ -> tag_color_emoji(Map.get(summary, :tag))
-    end
+    AgentEvents.state_emoji(Map.get(summary, :work_state))
   end
 
   defp summary_emoji(_), do: "⚫"
-
-  defp tag_color_emoji(nil), do: "⚫"
-  defp tag_color_emoji(""), do: "⚫"
-
-  defp tag_color_emoji(tag) when is_binary(tag) do
-    case String.replace_prefix(tag, "agent:", "") do
-      "todo" -> "🟡"
-      "in-progress" -> "🟢"
-      "human-review" -> "🟣"
-      "rework" -> "🟠"
-      "merging" -> "🔵"
-      _ -> "⚫"
-    end
-  end
-
-  defp tag_color_emoji(_), do: "⚫"
 
   defp emoji_cell(glyph, width) do
     # `glyph` is a single grapheme that renders as 2 terminal columns.
@@ -417,9 +560,9 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_id_width)
 
-    # `│ ` (2) + marker (2) + id + `  ` (2) + age + `  ` (2) + state +
+    # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) + state +
     # title
-    fixed_non_id_overhead = 2 + 2 + 2 + age_width + 2 + @state_cell_width
+    fixed_non_id_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width
 
     # Cap id so the row never bleeds past `inner_width` — title still
     # gets at least @min_title_width regardless of identifier length.
@@ -486,13 +629,72 @@ defmodule Aiur.AgentList.Renderer do
   # Approximate count of rows the frame will draw (used for "blank the
   # rest" below the last rendered row so old content doesn't linger
   # when the agent list shrinks). Fixed rows: title, agents, project,
-  # dashboard, separator, table header, table separator, bottom border,
-  # footer = 9. Body rows come straight from state.summaries since
-  # Aiur.AgentList.App now pre-filters the list before passing it in.
-  defp lines_emitted(state) do
+  # dashboard, separator, table header, table separator, bottom border
+  # = 8. Footer is 1 or 2 rows depending on width. Body rows come
+  # straight from state.summaries since `Aiur.AgentList.App` now
+  # pre-filters the list before passing it in.
+  defp lines_emitted(state, inner_width) do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
-    9 + body_rows
+    8 + footer_line_count(inner_width) + body_rows
+  end
+
+  # --- Debug perf footer ---------------------------------------------
+  # When AIUR_DEBUG=1, the agent list shows a fixed 3-row footer with
+  # the three milestones the user actually cares about:
+  #   1. agent list ready       (boot -> agent_list rendered)
+  #   2. chat pane visible      (Enter -> placeholder pane on screen)
+  #   3. opencode render        (Enter -> opencode-attach painted convo)
+  #
+  # Each row shows the last measured value or `…` while we wait.
+
+  defp debug_perf_footer(state, inner_width) do
+    if Map.get(state, :debug_mode?, false) do
+      summary = Map.get(state, :perf_summary, %{})
+
+      [
+        debug_footer_heading(inner_width),
+        eol(),
+        debug_footer_row("agent list ready", Map.get(summary, :agent_list_ready_ms), inner_width),
+        eol(),
+        debug_footer_row("chat pane visible", Map.get(summary, :chat_pane_visible_ms), inner_width),
+        eol(),
+        debug_footer_row("opencode render  ", Map.get(summary, :opencode_render_ms), inner_width),
+        eol()
+      ]
+    else
+      []
+    end
+  end
+
+  defp debug_footer_line_count(state) do
+    if Map.get(state, :debug_mode?, false), do: 4, else: 0
+  end
+
+  defp debug_footer_heading(inner_width) do
+    label = "  perf — AIUR_DEBUG"
+    pad = max(inner_width - String.length(label), 0)
+    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  defp debug_footer_row(label, value_ms, inner_width) do
+    value_str =
+      case value_ms do
+        nil -> "…"
+        ms when ms < 1_000 -> "#{ms} ms"
+        ms -> :io_lib.format("~.2fs", [ms / 1000]) |> IO.iodata_to_binary()
+      end
+
+    text = "  #{label}  #{value_str}"
+
+    truncated =
+      if String.length(text) > inner_width do
+        String.slice(text, 0, inner_width)
+      else
+        text <> String.duplicate(" ", max(inner_width - String.length(text), 0))
+      end
+
+    [IO.ANSI.faint(), truncated, IO.ANSI.reset()]
   end
 
   defp clear_remaining(rows, lines_drawn) do

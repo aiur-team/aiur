@@ -51,4 +51,58 @@ defmodule Aiur.TmuxTest do
   test "session/1 returns the configured session name", %{name: name} do
     assert "test" = Tmux.session(name)
   end
+
+  test "move_pane_hidden/3 issues move-pane -d -h to the hidden target", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.move_pane_hidden(name, "%42", "_aiur_warm")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "move-pane -d -s %42 -t _aiur_warm -h"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+    assert :ok = Task.await(task, 1_000)
+  end
+
+  test "move_pane_visible/3 issues move-pane -s -t -h (no -d) to the visible target", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.move_pane_visible(name, "%42", "agents")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "move-pane -s %42 -t agents -h"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+    assert :ok = Task.await(task, 1_000)
+  end
+
+  test "move_pane_hidden/3 surfaces tmux errors as {:error, _}", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.move_pane_hidden(name, "%bogus", "_aiur_warm")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, _}, 1_000
+
+    send(
+      GenServer.whereis(name),
+      {:tmux_mock_data, "%begin 1 1 0\ncan't find pane: %bogus\n%error 1 1 0\n"}
+    )
+
+    assert {:error, _} = Task.await(task, 1_000)
+  end
 end

@@ -18,6 +18,12 @@ This directory contains the Elixir agent orchestration service that polls Linear
   - If implementation changes meaningfully alter the intended behavior, update the spec in the same
     change where practical so the spec stays current.
 - Prefer adding config access through `Aiur.Config` instead of ad-hoc env reads.
+- The interactive tmux chat pane runs opencode. Aiur owns the bridge boundary in
+  `Aiur.Opencode.*`; opencode-specific config and wire shapes belong in
+  `Aiur.Opencode.Protocol`. opencode stores a secondary copy of pane transcripts
+  under its user data directory, so apply the same retention expectations as
+  `logs/agent.ndjson`. If Aiur restarts while a pane is open, close and reopen
+  the pane so opencode receives a fresh bearer token.
 - Workspace safety is critical:
   - Never run Codex turn cwd in source repo.
   - Workspaces must stay under configured workspace root.

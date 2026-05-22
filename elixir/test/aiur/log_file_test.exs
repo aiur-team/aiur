@@ -11,6 +11,73 @@ defmodule Aiur.LogFileTest do
     assert LogFile.default_log_file("/tmp/aiur-logs") == "/tmp/aiur-logs/log/aiur.log"
   end
 
+  describe "configure/0" do
+    setup do
+      # Snapshot + restore: this test reshapes the global :logger
+      # config and other tests in the suite assume the application's
+      # default handlers stay in place.
+      original_default =
+        case :logger.get_handler_config(:default) do
+          {:ok, config} -> {:installed, config}
+          {:error, _} -> :absent
+        end
+
+      original_aiur =
+        case :logger.get_handler_config(:aiur_file_log) do
+          {:ok, config} -> {:installed, config}
+          {:error, _} -> :absent
+        end
+
+      original_env = Application.get_env(:aiur, :log_file)
+
+      tmp_root = Path.join(System.tmp_dir!(), "aiur-logfile-test-#{System.unique_integer([:positive])}")
+      log_file = Path.join(tmp_root, "log/aiur.log")
+      Application.put_env(:aiur, :log_file, log_file)
+
+      on_exit(fn ->
+        :logger.remove_handler(:aiur_file_log)
+
+        case original_aiur do
+          {:installed, %{module: module} = config} ->
+            :logger.add_handler(:aiur_file_log, module, Map.drop(config, [:id]))
+
+          :absent ->
+            :ok
+        end
+
+        case original_default do
+          {:installed, %{module: module} = config} ->
+            _ = :logger.remove_handler(:default)
+            :logger.add_handler(:default, module, Map.drop(config, [:id]))
+
+          :absent ->
+            :ok
+        end
+
+        case original_env do
+          nil -> Application.delete_env(:aiur, :log_file)
+          value -> Application.put_env(:aiur, :log_file, value)
+        end
+
+        File.rm_rf!(tmp_root)
+      end)
+
+      %{log_file: log_file}
+    end
+
+    test "removes the default console handler so logs do not flash on stdout", %{log_file: log_file} do
+      # Regression: pane BEAMs only called configure_level/0, so their
+      # default console handler stayed wired up and every Logger.debug
+      # at bootstrap flashed onto the operator's terminal for a beat
+      # before the conversation pane took over the screen.
+      assert :ok = LogFile.configure()
+
+      assert {:error, {:not_found, :default}} = :logger.get_handler_config(:default)
+      assert {:ok, %{id: :aiur_file_log}} = :logger.get_handler_config(:aiur_file_log)
+      assert File.exists?(Path.dirname(log_file))
+    end
+  end
+
   describe "configure_level/0" do
     setup do
       original = Logger.level()

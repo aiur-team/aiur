@@ -32,9 +32,7 @@ defmodule Aiur.CLI do
           ensure_all_started: (-> ensure_started_result())
         }
 
-  @spec main([String.t()]) :: no_return()
-  def main(["conversation" | rest]), do: AiurPane.CLI.main(rest)
-
+  @spec main([String.t()]) :: :ok | no_return()
   def main(args) do
     case evaluate(args) do
       :ok ->
@@ -45,7 +43,35 @@ defmodule Aiur.CLI do
 
       {:error, message} ->
         IO.puts(:stderr, message)
-        System.halt(1)
+        Aiur.Shutdown.shutdown(1)
+    end
+  end
+
+  @doc """
+  Read CLI argv from the file named by `AIUR_ARGV_FILE`, one argument
+  per line. The release-mode shim writes argv to a tempfile so quoting
+  survives the `bin/aiur eval` round-trip — `System.argv()` is empty
+  under `eval` mode, so we cannot rely on it.
+
+  Returns `[]` when no file is set, so existing escript callers that
+  pass argv directly to `main/1` keep working unchanged.
+  """
+  @spec argv_from_file() :: [String.t()]
+  def argv_from_file do
+    case System.get_env("AIUR_ARGV_FILE") do
+      path when is_binary(path) and path != "" ->
+        case File.read(path) do
+          {:ok, body} ->
+            body
+            |> String.split("\n", trim: false)
+            |> Enum.reject(&(&1 == ""))
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
     end
   end
 
@@ -231,7 +257,7 @@ defmodule Aiur.CLI do
     case Process.whereis(Aiur.Supervisor) do
       nil ->
         IO.puts(:stderr, "Aiur supervisor is not running")
-        System.halt(1)
+        Aiur.Shutdown.shutdown(1)
 
       pid ->
         ref = Process.monitor(pid)
@@ -239,8 +265,8 @@ defmodule Aiur.CLI do
         receive do
           {:DOWN, ^ref, :process, ^pid, reason} ->
             case reason do
-              :normal -> System.halt(0)
-              _ -> System.halt(1)
+              :normal -> Aiur.Shutdown.shutdown(0)
+              _ -> Aiur.Shutdown.shutdown(1)
             end
         end
     end

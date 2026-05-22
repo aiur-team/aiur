@@ -558,6 +558,104 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
+  test "polling does not auto-dispatch when a paused agent reserves the only slot" do
+    paused_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: "MT-PAUSED",
+      issue: %Issue{id: "issue-paused", identifier: "MT-PAUSED", state: "In Progress"},
+      worker_host: nil,
+      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
+      session_id: "thread-MT-PAUSED",
+      started_at: DateTime.utc_now()
+    }
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 1,
+      running: %{"issue-paused" => paused_entry},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
+
+    refute Orchestrator.should_dispatch_issue_for_test(queued, state)
+  end
+
+  test "per-state slot cap honors the session-aware max, not just the workflow value" do
+    # Regression: bumping the global max via ←/→ updated session_max in
+    # the orchestrator state, but `state_slots_available?` was calling
+    # `Config.max_concurrent_agents_for_state/1`, which falls back to the
+    # *static* workflow value. With workflow max=2 and session bump to 5,
+    # the in-flight-state count of 2 was tripping the per-state cap of 2
+    # and dispatch was rejected — the UI flashed the cap red on every
+    # attempt despite the bump.
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 2)
+
+    in_progress_entry = fn id ->
+      %{
+        pid: self(),
+        ref: make_ref(),
+        identifier: "MT-#{id}",
+        issue: %Issue{id: "issue-#{id}", identifier: "MT-#{id}", state: "In Progress"},
+        worker_host: nil,
+        control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
+        session_id: "thread-MT-#{id}",
+        started_at: DateTime.utc_now()
+      }
+    end
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 2,
+      session_max_concurrent_agents: 5,
+      running: %{
+        "issue-a" => in_progress_entry.("A"),
+        "issue-b" => in_progress_entry.("B")
+      },
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    todo = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
+
+    assert Orchestrator.dispatch_candidate_for_test(todo, state),
+           "manual start of a queued ticket must be eligible after a session-max bump"
+
+    assert Orchestrator.should_dispatch_issue_for_test(todo, state),
+           "polling must also see the bumped cap as the effective per-state limit"
+  end
+
+  test "manual start is eligible when paused holds the slot but active count is below max" do
+    # The operator pressing space on a queued ticket bypasses the
+    # paused-reserves-slot rule: paused agents do not count against the
+    # active cap, so a free slot stays manually claimable. The polling
+    # path stays blocked by the prior test.
+    paused_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: "MT-PAUSED",
+      issue: %Issue{id: "issue-paused", identifier: "MT-PAUSED", state: "In Progress"},
+      worker_host: nil,
+      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
+      session_id: "thread-MT-PAUSED",
+      started_at: DateTime.utc_now()
+    }
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 1,
+      running: %{"issue-paused" => paused_entry},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
+
+    assert Orchestrator.dispatch_candidate_for_test(queued, state)
+  end
+
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
     stale_issue = %Issue{
       id: "blocked-2",

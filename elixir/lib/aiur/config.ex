@@ -114,6 +114,11 @@ defmodule Aiur.Config do
     settings!().workspace.bootstrap_image_pull
   end
 
+  @spec max_vertical_panes() :: pos_integer()
+  def max_vertical_panes do
+    settings!().max_vertical_panes
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks
@@ -243,8 +248,14 @@ defmodule Aiur.Config do
     end
   end
 
-  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp validate_semantics(settings) do
+    with :ok <- validate_kinds_and_secrets(settings) do
+      Aiur.Opencode.Config.validate!()
+    end
+  end
+
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
+  defp validate_kinds_and_secrets(settings) do
     cond do
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}

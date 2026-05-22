@@ -38,7 +38,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  max_concurrent_agents: 2
+  max_concurrent_agents: 3
   max_turns: 3
 codex:
   command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server

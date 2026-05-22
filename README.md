@@ -1,4 +1,4 @@
-# Aiur
+# AIUR - AI Unit Runtime
 
 Aiur turns project work into isolated, autonomous implementation runs so teams can manage work
 instead of supervising individual coding sessions.
@@ -24,6 +24,8 @@ the work at a higher level._
   protocol.
 - **Live run logs:** each workspace writes `logs/agent.md` and `logs/agent.ndjson`; the dashboard
   can open those logs in a live-updating modal while a run is active.
+- **opencode chat panes:** the tmux CLI opens opencode-backed chat panes for live operator
+  input while Aiur keeps the Codex/Claude runtime and transcript as the source of truth.
 - **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
   configured host/port for private operational access.
 - **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing

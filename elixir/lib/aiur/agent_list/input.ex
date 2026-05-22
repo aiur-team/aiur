@@ -95,9 +95,11 @@ defmodule Aiur.AgentList.Input do
 
   defp dispatch("\r", target, _input_fun), do: App.activate(target)
   defp dispatch("\n", target, _input_fun), do: App.activate(target)
-  defp dispatch(" ", target, _input_fun), do: App.activate(target)
+  defp dispatch(" ", target, _input_fun), do: App.toggle_pause(target)
   defp dispatch("k", target, _input_fun), do: App.select_previous(target)
   defp dispatch("j", target, _input_fun), do: App.select_next(target)
+  defp dispatch("a", target, _input_fun), do: App.attach_selected(target)
+  defp dispatch("v", target, _input_fun), do: App.toggle_layout_orientation(target)
   defp dispatch("?", target, _input_fun), do: App.toggle_help(target)
   defp dispatch("q", target, _input_fun), do: App.quit(target)
   defp dispatch(_byte, _target, _input_fun), do: :ok
@@ -121,6 +123,8 @@ defmodule Aiur.AgentList.Input do
 
   defp dispatch_csi(target, "", "A"), do: App.select_previous(target)
   defp dispatch_csi(target, "", "B"), do: App.select_next(target)
+  defp dispatch_csi(target, "", "C"), do: App.adjust_max_concurrent_agents(target, 1)
+  defp dispatch_csi(target, "", "D"), do: App.adjust_max_concurrent_agents(target, -1)
   defp dispatch_csi(_target, _params, _final), do: :ok
 
   defp enter_raw_mode(true), do: :ok
@@ -132,6 +136,10 @@ defmodule Aiur.AgentList.Input do
   end
 
   defp restore_terminal do
+    # `\e[?25h` (DECTCEM show) un-does the cursor hide that the
+    # renderer emits on every frame. Without this, the user's terminal
+    # is left with an invisible cursor after `aiur` quits.
+    IO.write("\e[?25h")
     Os.stty(["sane"])
   rescue
     _ -> :ok

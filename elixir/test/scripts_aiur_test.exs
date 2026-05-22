@@ -87,6 +87,24 @@ defmodule ScriptsAiurTest do
     refute output =~ "restart aiur\n"
   end
 
+  test "falls back to nohup when a Linux background service is missing" do
+    ctx = test_context()
+
+    assert {output, 0} =
+             run_aiur(ctx, ["--bg"], env: [{"AIUR_TEST_SYSTEMCTL_RESTART_FAIL", "1"}])
+
+    command_log = await_command_log(ctx, "NOHUP:")
+
+    assert output =~
+             "aiur: aiur systemd service unavailable; starting with nohup background runner"
+
+    assert output =~ "aiur started in background"
+    assert command_log =~ "SYSTEMCTL:--user restart aiur\n"
+    assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
+    assert command_log =~ "--host 127.0.0.1"
+    assert command_log =~ "./local-workflows/WORKFLOW.aiur.local.md"
+  end
+
   test "restarts every configured background profile once per service" do
     ctx = test_context()
 
@@ -114,6 +132,69 @@ defmodule ScriptsAiurTest do
 
     assert output =~
              "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
+  end
+
+  test "no-arg invocation attaches to an existing default session" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} = run_aiur(ctx, [], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    assert output =~ "aiur: attaching to existing default session"
+    assert command_log =~ "TMUX:-L #{aiur_tmux_socket()} -f "
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "attach -t #{session}"
+    refute command_log =~ "new-session"
+    refute command_log =~ "PKILL:"
+    refute output =~ "MISE:"
+  end
+
+  test "profile invocation attaches to an existing profile session" do
+    ctx = test_context()
+    session = aiur_tmux_session("actions")
+
+    assert {output, 0} = run_aiur(ctx, ["actions"], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    assert output =~ "aiur: attaching to existing actions session"
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "attach -t #{session}"
+    refute command_log =~ "new-session"
+    refute output =~ "MISE:"
+  end
+
+  test "--fresh starts a new foreground session even when one exists" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} = run_aiur(ctx, ["--fresh"], tmux_has_session: true)
+    command_log = command_log(ctx)
+
+    refute output =~ "aiur: attaching to existing"
+    assert command_log =~ "kill-session -t #{session}"
+    assert command_log =~ "new-session -d -s #{session}"
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "no-arg invocation replaces background service when no tmux session exists" do
+    ctx = test_context()
+    session = aiur_tmux_session("default")
+
+    assert {output, 0} =
+             run_aiur(ctx, [], env: [{"AIUR_TEST_SYSTEMCTL_ACTIVE", "1"}])
+
+    command_log = command_log(ctx)
+
+    assert output =~
+             "aiur: no attachable default tmux session found; replacing background aiur with a foreground session"
+
+    assert command_log =~ "SYSTEMCTL:--user is-active --quiet aiur\n"
+    assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
+    assert command_log =~ "has-session -t #{session}"
+    assert command_log =~ "new-session -d -s #{session}"
+    assert command_log =~ "attach -t #{session}"
+    assert output =~ "MISE:exec -- ./bin/aiur"
   end
 
   test "run starts the default profile in the foreground" do
@@ -199,15 +280,162 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- ./bin/aiur --interactive"
   end
 
+  test "--port overrides the profile port for foreground runs" do
+    ctx = test_context()
+
+    write_profiles!(ctx, """
+    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    """)
+
+    assert {output, 0} = run_aiur(ctx, ["--port", "4099", "actions"])
+    assert output =~ "MISE:exec -- ./bin/aiur --logs-root #{ctx.logs_root}/actions --port 4099"
+  end
+
+  test "--port override works with background mode" do
+    ctx = test_context()
+
+    write_profiles!(ctx, """
+    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    """)
+
+    assert {output, 0} = run_aiur(ctx, ["--port", "4099", "--bg", "actions"])
+    assert output =~ "aiur-actions started in background"
+
+    command_log = await_command_log(ctx, "NOHUP:")
+    assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
+    assert command_log =~ "--port 4099"
+    assert command_log =~ "SYSTEMCTL:--user stop aiur-actions"
+    refute command_log =~ "SYSTEMCTL:--user restart aiur-actions"
+  end
+
+  test "auto-increments a busy configured profile port" do
+    ctx = test_context()
+
+    write_profiles!(ctx, """
+    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    """)
+
+    assert {output, 0} =
+             run_aiur(ctx, ["actions"], env: [{"AIUR_TEST_BUSY_PORTS", "4101,4102"}])
+
+    assert output =~
+             "aiur: port 4101 in use; bound to 4103 instead (run with `--port` to override)"
+
+    assert output =~ "MISE:exec -- ./bin/aiur --logs-root #{ctx.logs_root}/actions --port 4103"
+  end
+
+  test "auto-increments a busy workflow port when no profile port is set" do
+    ctx = test_context()
+    workflow_dir = Path.join(ctx.repo_root, "elixir/local-workflows")
+    File.mkdir_p!(workflow_dir)
+
+    File.write!(Path.join(workflow_dir, "WORKFLOW.aiur.local.md"), """
+    ---
+    server:
+      host: 127.0.0.1
+      port: 4000
+    ---
+    """)
+
+    assert {output, 0} =
+             run_aiur(ctx, ["aiur"], env: [{"AIUR_TEST_BUSY_PORTS", "4000"}])
+
+    assert output =~
+             "aiur: port 4000 in use; bound to 4001 instead (run with `--port` to override)"
+
+    assert output =~ "MISE:exec -- ./bin/aiur --port 4001"
+  end
+
+  test "surfaces startup output when all auto-increment ports are busy" do
+    ctx = test_context()
+
+    write_profiles!(ctx, """
+    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    """)
+
+    busy_ports = Enum.map_join(4101..4110, ",", &to_string/1)
+
+    assert {output, 1} =
+             run_aiur(ctx, ["actions"],
+               env: [
+                 {"AIUR_TEST_BUSY_PORTS", busy_ports},
+                 {"AIUR_TEST_MISE_FAIL", "1"}
+               ]
+             )
+
+    assert output =~ "aiur: Aiur exited during startup"
+    assert output =~ "Failed to start Aiur: {:shutdown, :eaddrinuse}"
+    assert output =~ "Hint: port already in use."
+    assert output =~ "try `aiur --port <N>`"
+  end
+
   test "auto-rebuilds bin/aiur when missing" do
     ctx = test_context()
-    # The repo_root/elixir dir is empty by default — bin/aiur does not
-    # exist, so ensure_built should call `mix escript.build` via fake mise.
+    write_mix_lock!(ctx, ["jason"])
+
+    # The repo_root/elixir dir has no deps, _build, or bin/aiur, so
+    # ensure_built should fetch deps, compile, then build the escript.
     assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
 
+    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "MISE:exec -- mix deps.get"
+    assert output =~ "MISE:exec -- mix compile"
     assert output =~ "aiur: rebuilding bin/aiur"
-    assert output =~ "MISE:exec -- mix escript.build"
+    assert output =~ "MISE:exec -- mix release --overwrite"
     # The real Aiur invocation still runs after the rebuild step.
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "fetches dependencies when a locked dep directory is missing" do
+    ctx = test_context()
+    elixir_dir = Path.join(ctx.repo_root, "elixir")
+
+    write_mix_lock!(ctx, ["jason", "ecto"])
+    File.mkdir_p!(Path.join(elixir_dir, "_build"))
+    File.mkdir_p!(Path.join(elixir_dir, "deps/jason"))
+    File.mkdir_p!(Path.join(elixir_dir, "bin"))
+    write_executable!(Path.join(elixir_dir, "bin/aiur"), "#!/usr/bin/env bash\n")
+
+    assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
+
+    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "MISE:exec -- mix deps.get"
+    assert output =~ "MISE:exec -- mix compile"
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "build command fetches dependencies before rebuilding" do
+    ctx = test_context()
+    write_mix_lock!(ctx, ["jason"])
+
+    assert {output, 0} = run_aiur(ctx, ["build"], skip_build: false)
+
+    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "MISE:exec -- mix deps.get"
+    assert output =~ "MISE:exec -- mix compile"
+    assert output =~ "aiur: rebuilding bin/aiur"
+    assert output =~ "MISE:exec -- mix release --overwrite"
+    refute output =~ "MISE:exec -- ./bin/aiur"
+  end
+
+  test "skips dependency bootstrap when build and locked deps exist" do
+    ctx = test_context()
+    elixir_dir = Path.join(ctx.repo_root, "elixir")
+
+    write_mix_lock!(ctx, ["jason", "ecto"])
+    File.mkdir_p!(Path.join(elixir_dir, "_build"))
+    File.mkdir_p!(Path.join(elixir_dir, "deps/jason"))
+    File.mkdir_p!(Path.join(elixir_dir, "deps/ecto"))
+    File.mkdir_p!(Path.join(elixir_dir, "bin"))
+    aiur_bin = Path.join(elixir_dir, "bin/aiur")
+    write_executable!(aiur_bin, "#!/usr/bin/env bash\n")
+    File.touch!(aiur_bin, {{2099, 1, 1}, {0, 0, 0}})
+
+    assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
+
+    refute output =~ "MISE:exec -- mix deps.get"
+    refute output =~ "MISE:exec -- mix compile"
+    refute output =~ "MISE:exec -- mix escript.build"
     assert output =~ "MISE:exec -- ./bin/aiur"
   end
 
@@ -244,7 +472,9 @@ defmodule ScriptsAiurTest do
           {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
           {"AIUR_OS_OVERRIDE", "Linux"},
           {"AIUR_SKIP_BUILD", "1"},
-          {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
+          {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+          {"HOME", ctx.home_dir},
+          {"TMUX", ""}
         ],
         stderr_to_stdout: true
       )
@@ -342,6 +572,7 @@ defmodule ScriptsAiurTest do
     root = Path.join(System.tmp_dir!(), "aiur-script-test-#{System.unique_integer([:positive])}")
     repo_root = Path.join(root, "aiur")
     actions_repo = Path.join(root, "actions")
+    home_dir = Path.join(root, "home")
     bin_dir = Path.join(root, "bin")
     config_file = Path.join(root, "aiur.profiles")
     logs_root = Path.join(root, "logs")
@@ -355,8 +586,11 @@ defmodule ScriptsAiurTest do
 
     File.mkdir_p!(Path.join(repo_root, "elixir"))
     File.mkdir_p!(Path.join(actions_repo, "elixir"))
+    File.mkdir_p!(Path.join(home_dir, ".config/aiur"))
     File.mkdir_p!(bin_dir)
     File.mkdir_p!(logs_root)
+    File.mkdir_p!(bg_state_dir)
+    File.mkdir_p!(home_dir)
 
     fake_mise = Path.join(bin_dir, "mise")
     fake_systemctl = Path.join(bin_dir, "systemctl")
@@ -364,6 +598,7 @@ defmodule ScriptsAiurTest do
     fake_nohup = Path.join(bin_dir, "nohup")
     fake_kill = Path.join(bin_dir, "kill")
     fake_tmux = Path.join(bin_dir, "tmux")
+    fake_port_check = Path.join(bin_dir, "port-check")
 
     write_executable!(fake_mise, """
     #!/usr/bin/env bash
@@ -371,11 +606,29 @@ defmodule ScriptsAiurTest do
       printf 'PWD=%s\\n' "$PWD"
       printf 'MISE:%s\\n' "$*"
     } | tee -a "$AIUR_TEST_COMMAND_LOG"
+
+    if [ "${AIUR_TEST_MISE_FAIL:-0}" = "1" ]; then
+      printf 'Failed to start Aiur: {:shutdown, :eaddrinuse}\\n'
+      exit 1
+    fi
     """)
 
     write_executable!(fake_systemctl, """
     #!/usr/bin/env bash
     printf 'SYSTEMCTL:%s\\n' "$*" | tee -a "$AIUR_TEST_COMMAND_LOG"
+
+    if [ "${1:-}" = "--user" ] && [ "${2:-}" = "restart" ] && [ "${AIUR_TEST_SYSTEMCTL_RESTART_FAIL:-0}" = "1" ]; then
+      printf 'Failed to restart %s.service: Unit %s.service not found.\\n' "${3:-}" "${3:-}" >&2
+      exit 5
+    fi
+
+    if [ "${1:-}" = "--user" ] && [ "${2:-}" = "is-active" ]; then
+      if [ "${AIUR_TEST_SYSTEMCTL_ACTIVE:-0}" = "1" ]; then
+        exit 0
+      else
+        exit 3
+      fi
+    fi
     """)
 
     write_executable!(fake_pkill, """
@@ -397,6 +650,7 @@ defmodule ScriptsAiurTest do
     write_executable!(fake_tmux, """
     #!/usr/bin/env bash
     printf 'TMUX:%s\\n' "$*" >>"$AIUR_TEST_COMMAND_LOG"
+    state_file="${AIUR_TEST_TMUX_STATE:-$AIUR_TEST_COMMAND_LOG.tmux-state}"
 
     # Skip past the isolated-socket/conf prefix so the case below still
     # matches the actual subcommand.
@@ -416,24 +670,39 @@ defmodule ScriptsAiurTest do
         printf 'tmux 3.5a\\n'
         ;;
       has-session)
-        # Always report no existing session in tests.
-        exit 1
+        [ -f "$state_file" ]
         ;;
       new-session)
         # Run the inner command synchronously so the assertions that look
         # for MISE/PWD output keep working.
         inner_cmd="${!#}"
-        bash -c "$inner_cmd"
+        if bash -c "$inner_cmd"; then
+          : >"$state_file"
+        fi
         ;;
       attach|kill-session)
+        rm -f "$state_file"
         :
         ;;
     esac
     """)
 
+    write_executable!(fake_port_check, """
+    #!/usr/bin/env bash
+    port="$1"
+    IFS=',' read -ra busy_ports <<<"${AIUR_TEST_BUSY_PORTS:-}"
+    for busy_port in "${busy_ports[@]}"; do
+      if [ "$port" = "$busy_port" ]; then
+        exit 0
+      fi
+    done
+    exit 1
+    """)
+
     %{
       repo_root: repo_root,
       actions_repo: actions_repo,
+      home_dir: home_dir,
       config_file: config_file,
       logs_root: logs_root,
       command_log: command_log,
@@ -443,7 +712,8 @@ defmodule ScriptsAiurTest do
       fake_pkill: fake_pkill,
       fake_nohup: fake_nohup,
       fake_kill: fake_kill,
-      fake_tmux: fake_tmux
+      fake_tmux: fake_tmux,
+      fake_port_check: fake_port_check
     }
   end
 
@@ -451,26 +721,48 @@ defmodule ScriptsAiurTest do
     File.write!(ctx.config_file, body)
   end
 
+  defp write_mix_lock!(ctx, deps) do
+    entries =
+      deps
+      |> Enum.map_join("\n", fn dep -> ~s(  "#{dep}": {:hex, :#{dep}, "1.0.0"},) end)
+
+    File.write!(Path.join([ctx.repo_root, "elixir", "mix.lock"]), "%{\n#{entries}\n}\n")
+  end
+
   defp run_aiur(ctx, args, opts \\ []) do
     os_override = Keyword.get(opts, :os, "Linux")
     skip_build = if Keyword.get(opts, :skip_build, true), do: "1", else: "0"
+    extra_env = Keyword.get(opts, :env, [])
+    tmux_state = Path.join(ctx.bg_state_dir, "tmux-state")
+
+    if Keyword.get(opts, :tmux_has_session, false) do
+      File.mkdir_p!(ctx.bg_state_dir)
+      File.write!(tmux_state, "")
+    end
 
     System.cmd("bash", [@script | args],
-      env: [
-        {"AIUR_REPO_ROOT", ctx.repo_root},
-        {"AIUR_CONFIG_FILE", ctx.config_file},
-        {"AIUR_ENV_FILE", Path.join(ctx.repo_root, "missing.env")},
-        {"AIUR_MISE_BIN", ctx.fake_mise},
-        {"AIUR_SYSTEMCTL_BIN", ctx.fake_systemctl},
-        {"AIUR_PKILL_BIN", ctx.fake_pkill},
-        {"AIUR_NOHUP_BIN", ctx.fake_nohup},
-        {"AIUR_KILL_BIN", ctx.fake_kill},
-        {"AIUR_TMUX_BIN", ctx.fake_tmux},
-        {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
-        {"AIUR_OS_OVERRIDE", os_override},
-        {"AIUR_SKIP_BUILD", skip_build},
-        {"AIUR_TEST_COMMAND_LOG", ctx.command_log}
-      ],
+      env:
+        [
+          {"AIUR_REPO_ROOT", ctx.repo_root},
+          {"AIUR_CONFIG_FILE", ctx.config_file},
+          {"AIUR_ENV_FILE", Path.join(ctx.repo_root, "missing.env")},
+          {"AIUR_MISE_BIN", ctx.fake_mise},
+          {"AIUR_SYSTEMCTL_BIN", ctx.fake_systemctl},
+          {"AIUR_PKILL_BIN", ctx.fake_pkill},
+          {"AIUR_NOHUP_BIN", ctx.fake_nohup},
+          {"AIUR_KILL_BIN", ctx.fake_kill},
+          {"AIUR_TMUX_BIN", ctx.fake_tmux},
+          {"AIUR_BG_STATE_DIR", ctx.bg_state_dir},
+          {"AIUR_OS_OVERRIDE", os_override},
+          {"AIUR_SKIP_BUILD", skip_build},
+          {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+          {"AIUR_TEST_TMUX_STATE", tmux_state},
+          {"AIUR_STARTUP_GRACE_TICKS", "1"},
+          {"AIUR_STARTUP_GRACE_SLEEP", "0"},
+          {"AIUR_PORT_CHECK_BIN", ctx.fake_port_check},
+          {"HOME", ctx.home_dir},
+          {"TMUX", ""}
+        ] ++ extra_env,
       stderr_to_stdout: true
     )
   end
@@ -485,6 +777,14 @@ defmodule ScriptsAiurTest do
     |> String.split(pattern)
     |> length()
     |> Kernel.-(1)
+  end
+
+  defp aiur_tmux_session(profile) do
+    "aiur-#{System.get_env("USER") || "user"}-#{profile}"
+  end
+
+  defp aiur_tmux_socket do
+    "aiur-#{System.get_env("USER") || "user"}"
   end
 
   defp command_log(ctx) do

@@ -31,10 +31,19 @@ aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 expose_host=0
 debug_mode=0
 logs_mode=0
+fresh_mode=0
 log_issue_id=""
+port_override=""
 filtered_args=()
 expect_log_value=0
+expect_port_value=0
 for arg in "$@"; do
+  if [ "$expect_port_value" -eq 1 ]; then
+    port_override="$arg"
+    expect_port_value=0
+    continue
+  fi
+
   if [ "$expect_log_value" -eq 1 ]; then
     log_issue_id="$arg"
     expect_log_value=0
@@ -51,11 +60,20 @@ for arg in "$@"; do
     --logs)
       logs_mode=1
       ;;
+    --fresh | --new)
+      fresh_mode=1
+      ;;
     --log)
       expect_log_value=1
       ;;
     --log=*)
       log_issue_id="${arg#--log=}"
+      ;;
+    --port)
+      expect_port_value=1
+      ;;
+    --port=*)
+      port_override="${arg#--port=}"
       ;;
     *)
       filtered_args+=("$arg")
@@ -63,9 +81,27 @@ for arg in "$@"; do
   esac
 done
 
+if [ "$expect_port_value" -eq 1 ]; then
+  echo "aiur: --port requires a port number (e.g. --port 4099)" >&2
+  exit 64
+fi
+
 if [ "$expect_log_value" -eq 1 ]; then
   echo "aiur: --log requires an issue identifier (e.g. --log 25)" >&2
   exit 64
+fi
+
+validate_port() {
+  local port="$1"
+
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "aiur: invalid --port value '$port' (expected 1-65535)" >&2
+    exit 64
+  fi
+}
+
+if [ -n "$port_override" ]; then
+  validate_port "$port_override"
 fi
 
 if [ "$debug_mode" -eq 1 ]; then
@@ -96,11 +132,11 @@ declare -a profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: aiur [list|stop [profile|all]|--bg [profile|all]|run [profile]|profile|<workflow-path>]
+Usage: aiur [list|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
 
-Without args, restart the other configured services and run the default profile in the foreground.
+Without args, attach to an existing default session or run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
-With a profile name, run that profile's workflow in the foreground.
+With a profile name, attach to its existing session or run that profile's workflow in the foreground.
 With --bg, restart background services only and return. Defaults to the default profile.
 With all, restart the other configured services and run the default profile in the foreground.
 With stop, stop a profile, every profile, or ad hoc foreground Aiur processes.
@@ -111,16 +147,23 @@ Options:
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
                        Useful in a separate terminal alongside `aiur --debug`.
+  --fresh, --new       start a fresh foreground session even if an
+                       existing Aiur tmux session is available to attach.
   --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
                        Aiur.IssueLog writes for an active
                        conversation pane. Does not start agents.
                        Example: `aiur --log 25`
   --host               leave the workflow's configured host alone (default
                        binds to 127.0.0.1 for loopback-only access).
+  --port <N>           override the profile/workflow port for this invocation.
+                       Without this, aiur auto-increments up to 9 ports when
+                       the configured port is already in use.
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
-  space, enter, or i   open the selected agent conversation
+  enter                open the selected agent conversation
+  space                pause/resume the selected agent
+  left/right           adjust the session max active-agent count
   enter                send the typed message
   alt-enter            insert a newline while typing
   esc or ctrl-c        return from conversation to agent selection
@@ -254,6 +297,104 @@ profile_workflow_arg() {
   fi
 }
 
+workflow_configured_port() {
+  local elixir_dir="$1"
+  local workflow="$2"
+  local path
+
+  if [[ "$workflow" = /* ]]; then
+    path="$workflow"
+  else
+    path="$elixir_dir/${workflow#./}"
+  fi
+
+  if [ ! -r "$path" ]; then
+    return 0
+  fi
+
+  awk '
+    BEGIN { in_frontmatter = 0; in_server = 0 }
+    NR == 1 && $0 == "---" { in_frontmatter = 1; next }
+    in_frontmatter && $0 == "---" { exit }
+    in_frontmatter && $0 ~ /^server:[[:space:]]*$/ { in_server = 1; next }
+    in_server && $0 ~ /^[^[:space:]]/ { in_server = 0 }
+    in_server && $0 ~ /^[[:space:]]+port:[[:space:]]*[0-9]+[[:space:]]*$/ {
+      sub(/^[[:space:]]+port:[[:space:]]*/, "")
+      sub(/[[:space:]]*$/, "")
+      print
+      exit
+    }
+  ' "$path"
+}
+
+port_in_use() {
+  local port="$1"
+  local output
+
+  if [ -n "${AIUR_PORT_CHECK_BIN:-}" ]; then
+    "$AIUR_PORT_CHECK_BIN" "$port"
+    return $?
+  fi
+
+  if command -v ss >/dev/null 2>&1; then
+    output="$(ss -H -ltn "sport = :$port" 2>/dev/null || true)"
+    [ -n "$output" ] && return 0
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  fi
+
+  return 1
+}
+
+launch_port_for_profile() {
+  local profile="$1"
+  local elixir_dir="$2"
+  local workflow="$3"
+  local configured_port
+  local candidate
+  local offset
+
+  if [ -n "$port_override" ]; then
+    printf '%s' "$port_override"
+    return 0
+  fi
+
+  configured_port="$(profile_value port "$profile")"
+
+  if [ -z "$configured_port" ]; then
+    configured_port="$(workflow_configured_port "$elixir_dir" "$workflow")"
+  fi
+
+  if [ -z "$configured_port" ]; then
+    return 0
+  fi
+
+  validate_port "$configured_port"
+
+  for offset in 0 1 2 3 4 5 6 7 8 9; do
+    candidate=$((configured_port + offset))
+
+    if [ "$candidate" -gt 65535 ]; then
+      break
+    fi
+
+    if ! port_in_use "$candidate"; then
+      if [ "$offset" -gt 0 ]; then
+        echo "aiur: port $configured_port in use; bound to $candidate instead (run with \`--port\` to override)" >&2
+      fi
+
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+
+  # Let Aiur attempt the configured port so the real BEAM startup error is
+  # captured and surfaced by the tmux startup failure path.
+  printf '%s' "$configured_port"
+}
+
 require_profile() {
   local profile="$1"
 
@@ -302,32 +443,74 @@ require_mise() {
 ensure_built() {
   local elixir_dir="$1"
   local aiur_bin="$elixir_dir/bin/aiur"
+  local release_dir="$elixir_dir/_build/dev/rel/aiur"
 
   # AIUR_SKIP_BUILD lets the test fixture short-circuit this without faking
-  # `mix escript.build` invocations on top of every other stubbed binary.
+  # `mix release` invocations on top of every other stubbed binary.
   if [ "${AIUR_SKIP_BUILD:-0}" = "1" ]; then
     return 0
   fi
 
-  if [ ! -x "$aiur_bin" ]; then
+  ensure_elixir_deps "$elixir_dir"
+
+  # No shim or no assembled release? Always rebuild.
+  if [ ! -x "$aiur_bin" ] || [ ! -x "$release_dir/bin/aiur" ]; then
     build_aiur "$elixir_dir"
     return
   fi
 
-  # If any source file is newer than the escript, rebuild. `-quit` stops after
-  # the first hit; output is discarded — we only care about the exit signal.
+  # If any source file is newer than the shim, rebuild. `-quit` stops
+  # after the first hit; output is discarded — we only care about the
+  # exit signal. mix.exs counts too, since releases vs escripts is a
+  # mix-config-level decision.
   if [ -n "$(find "$elixir_dir/lib" "$elixir_dir/mix.exs" "$elixir_dir/mix.lock" \
               -newer "$aiur_bin" -print -quit 2>/dev/null)" ]; then
     build_aiur "$elixir_dir"
   fi
 }
 
+ensure_elixir_deps() {
+  local elixir_dir="$1"
+
+  if ! elixir_deps_ready "$elixir_dir"; then
+    require_mise
+    echo "aiur: fetching and compiling Hex dependencies…" >&2
+    (cd "$elixir_dir" && "$mise_bin" exec -- mix deps.get && "$mise_bin" exec -- mix compile) >&2
+  fi
+}
+
+elixir_deps_ready() {
+  local elixir_dir="$1"
+  local deps_dir="$elixir_dir/deps"
+  local dep
+
+  if [ ! -d "$elixir_dir/_build" ] || [ ! -d "$deps_dir" ]; then
+    return 1
+  fi
+
+  if [ ! -f "$elixir_dir/mix.lock" ]; then
+    return 0
+  fi
+
+  while IFS= read -r dep; do
+    if [ -n "$dep" ] && [ ! -d "$deps_dir/$dep" ]; then
+      return 1
+    fi
+  done < <(sed -n 's/^  "\([^"]*\)":.*/\1/p' "$elixir_dir/mix.lock")
+
+  return 0
+}
+
 build_aiur() {
   local elixir_dir="$1"
 
   require_mise
-  echo "aiur: rebuilding bin/aiur…" >&2
-  (cd "$elixir_dir" && "$mise_bin" exec -- mix escript.build) >&2
+  echo "aiur: rebuilding bin/aiur (release)…" >&2
+  # `mix release --overwrite` ships priv/ directories on disk so NIFs
+  # (e.g. exqlite/priv/sqlite3_nif.so) load correctly — escript zips
+  # cannot host NIFs. The post-assemble step in mix.exs writes a thin
+  # shim at bin/aiur that delegates into the release.
+  (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) >&2
 }
 
 source_env_files() {
@@ -497,6 +680,24 @@ stop_profile() {
   fi
 
   "$pkill_bin" -f "$elixir_dir.*bin/aiur" 2>/dev/null || true
+
+  # The OTP release replaces `bin/aiur` with `beam.smp ... -name
+  # aiur-orangekid@<host>`. The escript-era patterns above no longer
+  # match — target the release's BEAM by the erts/bin path that only
+  # the release would launch from. `pkill -f` matches against the
+  # whole command line, which would also match THIS very bash process
+  # if we use the obvious `-name aiur-orangekid` string here. Avoid
+  # self-kill by enumerating PIDs first (filtering out `bash`/`pkill`)
+  # and signalling them directly.
+  for pid in $(pgrep -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
+    [ "$pid" = "$$" ] && continue
+    pid_comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+    case "$pid_comm" in
+      beam.smp)
+        "$kill_bin" -TERM "$pid" 2>/dev/null || true
+        ;;
+    esac
+  done
 }
 
 stop_all() {
@@ -518,9 +719,9 @@ start_bg_nohup() {
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
-  port="$(profile_value port "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
   service="$(profile_value service "$profile")"
+  port="$(launch_port_for_profile "$profile" "$elixir_dir" "$workflow")"
 
   ensure_built "$elixir_dir"
 
@@ -564,13 +765,26 @@ restart_one_background_service() {
   local service
   service="$(profile_value service "$profile")"
 
+  if [ -n "$port_override" ]; then
+    if [ "$aiur_os" != "Darwin" ] && [ -n "$service" ] && command -v "$systemctl_bin" >/dev/null 2>&1; then
+      "$systemctl_bin" --user stop "$service" >/dev/null 2>&1 || true
+    fi
+
+    start_bg_nohup "$profile"
+    return
+  fi
+
   case "$aiur_os" in
     Darwin*)
       start_bg_nohup "$profile"
       ;;
     *)
-      "$systemctl_bin" --user restart "$service"
-      "$systemctl_bin" --user status "$service" --no-pager
+      if command -v "$systemctl_bin" >/dev/null 2>&1 && "$systemctl_bin" --user restart "$service"; then
+        "$systemctl_bin" --user status "$service" --no-pager || true
+      else
+        echo "aiur: $service systemd service unavailable; starting with nohup background runner" >&2
+        start_bg_nohup "$profile"
+      fi
       ;;
   esac
 }
@@ -621,6 +835,31 @@ restart_background_except_profile() {
   done
 }
 
+background_running() {
+  local profile="$1"
+  local service
+  service="$(profile_value service "$profile")"
+
+  if [ -z "$service" ]; then
+    return 1
+  fi
+
+  case "$aiur_os" in
+    Darwin*)
+      local pid_file
+      pid_file="$(bg_pid_file "$service")"
+      [ -f "$pid_file" ]
+      ;;
+    *)
+      if command -v "$systemctl_bin" >/dev/null 2>&1; then
+        "$systemctl_bin" --user is-active --quiet "$service" >/dev/null 2>&1
+      else
+        return 1
+      fi
+      ;;
+  esac
+}
+
 run_foreground() {
   local profile="$1"
   local elixir_dir
@@ -634,8 +873,8 @@ run_foreground() {
 
   elixir_dir="$(profile_elixir_dir "$profile")"
   workflow="$(profile_workflow_arg "$profile")"
-  port="$(profile_value port "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
+  port="$(launch_port_for_profile "$profile" "$elixir_dir" "$workflow")"
 
   ensure_built "$elixir_dir"
 
@@ -666,9 +905,44 @@ run_foreground() {
   run_in_tmux "$profile" "$elixir_dir" "${aiur_args[@]}"
 }
 
+run_or_attach_foreground() {
+  local profile="$1"
+  local service
+
+  require_profile "$profile"
+
+  if [ "$fresh_mode" -eq 0 ] && attach_existing_tmux_session "$profile"; then
+    return
+  fi
+
+  service="$(profile_value service "$profile")"
+
+  if [ "$fresh_mode" -eq 0 ] && background_running "$profile"; then
+    echo "aiur: no attachable $profile tmux session found; replacing background $service with a foreground session" >&2
+  fi
+
+  run_foreground "$profile"
+}
+
 die() {
   echo "aiur: $*" >&2
   exit 1
+}
+
+print_startup_failure() {
+  local startup_capture="$1"
+
+  echo "aiur: Aiur exited during startup — captured pane output:" >&2
+  echo >&2
+
+  if [ -s "$startup_capture" ]; then
+    tail -n 30 "$startup_capture" | sed 's/^/  /' >&2
+  else
+    echo "  (no pane output captured)" >&2
+  fi
+
+  echo >&2
+  echo "Hint: port already in use. Aiur automatically tries the next 9 ports; try \`aiur --port <N>\` or set a different port in your profile." >&2
 }
 
 aiur_tmux_session_name() {
@@ -718,6 +992,104 @@ run_in_tmux() {
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="$elixir_dir/bin/aiur"
   export AIUR_MISE_BIN="$mise_bin"
+  local startup_capture
+  startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
+
+  # Session-id sidecar file. SessionWriter writes one opencode session id
+  # per line into this file as it creates them; the trap below reaps every
+  # id on exit (incl. parent-bash exit, Ctrl+C, terminal close, panic).
+  # This is the layer-2 cleanup defense — the BEAM-side Aiur.Shutdown is
+  # layer 1, and WarmServer's boot-time GC is layer 3 (SIGKILL recovery).
+  local session_tmpfile_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+  export AIUR_SESSION_TMPFILE="${session_tmpfile_root}/aiur-${$}-sessions"
+  : > "$AIUR_SESSION_TMPFILE"
+
+  __aiur_cleanup() {
+    local exit_code=$?
+    local sessions_file="${AIUR_SESSION_TMPFILE:-}"
+    # `startup_capture` was declared `local` inside this function's caller,
+    # so by the time the EXIT trap fires it has gone out of scope. Use
+    # safe expansion so `set -u` doesn't blow up before the real reaping.
+    local capture="${startup_capture:-}"
+
+    if [ -n "$capture" ]; then
+      rm -f "$capture" 2>/dev/null || true
+    fi
+
+    # Shut the aiur BEAM down. The detached tmux session running aiur
+    # outlives this trap; without an explicit stop the BEAM keeps
+    # holding the registered Erlang node name and port 4000, breaking
+    # the next `aiur` invocation with:
+    #     Protocol 'inet_tcp': the name aiur-orangekid@... seems to
+    #     be in use by another Erlang node
+    #
+    # `bin/aiur stop` (OTP release RPC) doesn't work here — we start
+    # the BEAM via a custom Elixir CLI path, not the release's
+    # standard `start` command, so the stop RPC can't reach it.
+    # Kill the aiur tmux session (SIGHUP propagates to the BEAM via
+    # its parent bash) and SIGTERM the BEAM directly as fallback.
+    if [ -n "${socket:-}" ] && [ -n "${session:-}" ] && [ -n "${tmux_bin:-}" ]; then
+      "$tmux_bin" -L "$socket" -f "${conf:-}" kill-session -t "$session" 2>/dev/null || true
+    fi
+
+    # Belt-and-suspenders: enumerate aiur release BEAMs and SIGTERM
+    # them. The tmux kill-session above usually suffices, but if the
+    # BEAM was started outside the expected tmux session (or the
+    # session was killed externally first), this catches the stragglers.
+    # Pattern matches only this release's BEAM (no false positives from
+    # other Elixir apps on the box). Use safe expansion on `elixir_dir`
+    # — it's a `local` in this function's caller (`run_foreground`), so
+    # `set -u` (script line 2) would crash here if `run_foreground` had
+    # already returned by the time the trap fires (e.g., on EXIT after
+    # tmux attach finished naturally).
+    local trap_elixir_dir="${elixir_dir:-}"
+    if [ -n "$trap_elixir_dir" ]; then
+      local beam_pids
+      beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+      if [ -n "$beam_pids" ]; then
+        local pid
+        for pid in $beam_pids; do
+          # Don't kill ourselves; we're not a BEAM, but defensive.
+          [ "$pid" = "$$" ] && continue
+          kill -TERM "$pid" 2>/dev/null || true
+        done
+
+        # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
+        # SIGKILL any stragglers. SIGTERM lets Aiur.Shutdown's supervisor
+        # tree run termination callbacks (session GC, file cleanup).
+        local kill_wait=0
+        while [ $kill_wait -lt 30 ]; do
+          beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+          [ -z "$beam_pids" ] && break
+          sleep 0.1
+          kill_wait=$((kill_wait + 1))
+        done
+
+        beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+        if [ -n "$beam_pids" ]; then
+          for pid in $beam_pids; do
+            [ "$pid" = "$$" ] && continue
+            kill -KILL "$pid" 2>/dev/null || true
+          done
+        fi
+      fi
+    fi
+
+    if [ -n "$sessions_file" ] && [ -s "$sessions_file" ]; then
+      local id
+      while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        "$mise_bin" exec -- opencode session delete "$id" >/dev/null 2>&1 &
+      done < "$sessions_file"
+
+      wait 2>/dev/null || true
+      rm -f "$sessions_file" 2>/dev/null || true
+    fi
+
+    return $exit_code
+  }
+
+  trap '__aiur_cleanup' EXIT INT TERM HUP
 
   # Resolve where the BEAM will write its log file. The Elixir CLI sets
   # `:log_file` to `<logs_root>/log/aiur.log` when `--logs-root` is
@@ -740,21 +1112,72 @@ run_in_tmux() {
     "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
   fi
 
-  # Build the inner command as a single string for tmux to exec inside its
-  # pane. We change into the elixir dir and call mise with the supplied args.
+  # Build the inner command as a single string for tmux to run inside its
+  # pane. Output is tee'd to a temp file so a startup crash can be replayed
+  # after tmux tears down the pane.
   local inner_cmd
-  printf -v inner_cmd 'cd %q && exec %q' "$elixir_dir" "$mise_bin"
+  printf -v inner_cmd 'cd %q && set -o pipefail && %q' "$elixir_dir" "$mise_bin"
 
   local arg
   for arg in "$@"; do
     printf -v inner_cmd '%s %q' "$inner_cmd" "$arg"
   done
+  printf -v inner_cmd '%s 2>&1 | tee -a %q; exit ${PIPESTATUS[0]}' "$inner_cmd" "$startup_capture"
 
-  "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
-    -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"
+  if ! "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
+    -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
+    print_startup_failure "$startup_capture"
+    exit 1
+  fi
 
-  # In the foreground, the user attaches to the session normally.
-  exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
+  local grace_ticks="${AIUR_STARTUP_GRACE_TICKS:-30}"
+  local grace_sleep="${AIUR_STARTUP_GRACE_SLEEP:-0.1}"
+  local tick
+  for ((tick = 0; tick < grace_ticks; tick++)); do
+    if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+      print_startup_failure "$startup_capture"
+      exit 1
+    fi
+
+    sleep "$grace_sleep"
+  done
+
+  # In the foreground, the user attaches to the session normally. We do
+  # NOT `exec` into tmux — replacing the bash process would tear down our
+  # EXIT/INT/TERM/HUP trap before it could run the session reaper. Instead
+  # we run tmux as a child and propagate its exit status after cleanup.
+  rm -f "$startup_capture"
+
+  # tmux prints `[server exited]` to stderr when the inner session dies
+  # (i.e. the user quits aiur via `q`). It is unhelpful noise on quit;
+  # the BEAM has already cleanly shut down by this point. Filter it.
+  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
+  local tmux_status=$?
+
+  # Trap fires on `exit` below — let it reap sessions before we leave.
+  exit $tmux_status
+}
+
+attach_existing_tmux_session() {
+  local profile="$1"
+  local session socket conf
+
+  session="$(aiur_tmux_session_name "$profile")"
+  socket="$(aiur_tmux_socket_name)"
+  conf="$(resolve_aiur_tmux_conf)"
+
+  if [ ! -f "$conf" ]; then
+    die "tmux conf not found at $conf"
+  fi
+
+  check_tmux || die "tmux >= 3.3 is required; install tmux before running aiur"
+
+  if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    echo "aiur: attaching to existing $profile session" >&2
+    exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
+  fi
+
+  return 1
 }
 
 run_ad_hoc_workflow() {
@@ -824,6 +1247,7 @@ case "${1:-}" in
     exit 0
     ;;
   build)
+    ensure_elixir_deps "$repo_root/elixir"
     build_aiur "$repo_root/elixir"
     exit 0
     ;;
@@ -853,12 +1277,12 @@ case "${1:-}" in
     exit 0
     ;;
   "" | default)
-    run_foreground "default"
+    run_or_attach_foreground "default"
     ;;
   *.md | /*)
     run_ad_hoc_workflow "$1"
     ;;
   *)
-    run_foreground "$1"
+    run_or_attach_foreground "$1"
     ;;
 esac
