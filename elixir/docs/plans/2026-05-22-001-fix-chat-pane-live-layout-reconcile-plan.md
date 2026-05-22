@@ -1,7 +1,7 @@
 ---
 title: fix: Chat pane live layout reconciliation
 type: fix
-status: active
+status: completed
 date: 2026-05-22
 origin: https://github.com/its-everdred/aiur/issues/64
 ---
