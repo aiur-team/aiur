@@ -102,30 +102,34 @@ defmodule Aiur.CoreTest do
 
   test "current WORKFLOW.md file is valid and complete" do
     original_workflow_path = Workflow.workflow_file_path()
-    on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
-    Workflow.clear_workflow_file_path()
 
-    assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
-    assert is_map(config)
+    try do
+      Workflow.clear_workflow_file_path()
 
-    tracker = Map.get(config, "tracker", %{})
-    assert is_map(tracker)
-    assert Map.get(tracker, "kind") in ["linear", "github", "memory"]
-    assert is_list(Map.get(tracker, "active_states"))
-    assert is_list(Map.get(tracker, "terminal_states"))
+      assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
+      assert is_map(config)
 
-    hooks = Map.get(config, "hooks", %{})
-    assert is_map(hooks)
-    assert is_binary(Map.get(hooks, "after_create"))
-    assert is_binary(Map.get(hooks, "before_remove"))
-    assert String.trim(Map.get(hooks, "after_create")) != ""
-    assert String.trim(Map.get(hooks, "before_remove")) != ""
+      tracker = Map.get(config, "tracker", %{})
+      assert is_map(tracker)
+      assert Map.get(tracker, "kind") in ["linear", "github", "memory"]
+      assert is_list(Map.get(tracker, "active_states"))
+      assert is_list(Map.get(tracker, "terminal_states"))
 
-    assert String.trim(prompt) != ""
-    assert prompt =~ "{{ issue.identifier }}"
-    assert prompt =~ "{{ issue.title }}"
-    assert is_binary(Config.workflow_prompt())
-    assert Config.workflow_prompt() == prompt
+      hooks = Map.get(config, "hooks", %{})
+      assert is_map(hooks)
+      assert is_binary(Map.get(hooks, "after_create"))
+      assert is_binary(Map.get(hooks, "before_remove"))
+      assert String.trim(Map.get(hooks, "after_create")) != ""
+      assert String.trim(Map.get(hooks, "before_remove")) != ""
+
+      assert String.trim(prompt) != ""
+      assert prompt =~ "{{ issue.identifier }}"
+      assert prompt =~ "{{ issue.title }}"
+      assert is_binary(Config.workflow_prompt())
+      assert Config.workflow_prompt() == prompt
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
   end
 
   test "checked-in workflow examples parse and portable examples stay generic" do
@@ -206,25 +210,26 @@ defmodule Aiur.CoreTest do
   test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
     original_workflow_path = Workflow.workflow_file_path()
 
-    on_exit(fn ->
+    try do
+      Workflow.clear_workflow_file_path()
+
+      assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
+    after
       Workflow.set_workflow_file_path(original_workflow_path)
-    end)
-
-    Workflow.clear_workflow_file_path()
-
-    assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
+    end
   end
 
   test "workflow file path resolves from app env when set" do
+    original_workflow_path = Workflow.workflow_file_path()
     app_workflow_path = "/tmp/app/WORKFLOW.md"
 
-    on_exit(fn ->
-      Workflow.clear_workflow_file_path()
-    end)
+    try do
+      Workflow.set_workflow_file_path(app_workflow_path)
 
-    Workflow.set_workflow_file_path(app_workflow_path)
-
-    assert Workflow.workflow_file_path() == app_workflow_path
+      assert Workflow.workflow_file_path() == app_workflow_path
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
   end
 
   test "workflow load accepts prompt-only files without front matter" do

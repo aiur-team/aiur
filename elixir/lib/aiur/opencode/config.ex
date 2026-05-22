@@ -24,7 +24,7 @@ defmodule Aiur.Opencode.Config do
 
   @spec bridge_host() :: String.t()
   def bridge_host do
-    case section_value("bridge_host") do
+    case Application.get_env(:aiur, :opencode_bridge_host_override) || section_value("bridge_host") do
       value when is_binary(value) ->
         value = String.trim(value)
         if value == "", do: @default_bridge_host, else: value
@@ -36,7 +36,7 @@ defmodule Aiur.Opencode.Config do
 
   @spec bridge_port() :: non_neg_integer()
   def bridge_port do
-    case section_value("bridge_port") do
+    case Application.get_env(:aiur, :opencode_bridge_port_override) || section_value("bridge_port") do
       value when is_integer(value) and value >= 0 -> value
       _ -> @default_bridge_port
     end

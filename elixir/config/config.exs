@@ -20,5 +20,6 @@ config :aiur, AiurWeb.Endpoint,
 if config_env() == :test do
   config :aiur, :server_host_override, "127.0.0.1"
   config :aiur, :server_port_override, 0
+  config :aiur, :opencode_bridge_host_override, "127.0.0.1"
   config :aiur, :opencode_bridge_port_override, 0
 end
