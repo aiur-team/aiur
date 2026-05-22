@@ -478,16 +478,50 @@ defmodule Aiur.AgentList.App do
       tag in ["agent:cancelled", "agent:canceled", "agent:done"]
     end)
     |> Enum.sort_by(fn s ->
-      bucket =
-        case Map.get(s, :status) do
-          :running -> 0
-          :queued -> 1
-          _ -> 2
-        end
-
-      {bucket, to_string(Map.get(s, :identifier) || "")}
+      # Group by status emoji (matches what the renderer paints), then
+      # by numeric identifier ASCENDING within each group. Previously
+      # sorted identifiers as strings, so "10" came before "5" — the
+      # user explicitly asked for natural numeric order within each
+      # status-emoji bucket.
+      emoji_bucket = emoji_sort_key(s)
+      id_key = identifier_sort_key(Map.get(s, :identifier))
+      {emoji_bucket, id_key}
     end)
   end
+
+  # Map status emoji to a stable sort bucket. Lower = higher in the list.
+  # Mirrors `Aiur.AgentList.Renderer.summary_emoji/1` so list order
+  # matches what the user sees painted next to each row.
+  defp emoji_sort_key(%{status: :queued}), do: 4
+
+  defp emoji_sort_key(%{status: :running} = summary) do
+    case Map.get(summary, :work_state) do
+      # 🟢 actively working — most useful to see first
+      :working -> 0
+      # ⏸️ paused — still alive, less urgent than working
+      :paused -> 1
+      # 🔴 error — surface above queued but below healthy
+      :error -> 2
+      _ -> 3
+    end
+  end
+
+  defp emoji_sort_key(_), do: 5
+
+  # Parse identifier as integer for natural numeric ordering. Falls
+  # back to the original string for non-numeric identifiers (test
+  # fixtures like "MT-FOCUS" or future namespaced ids) so they group
+  # together rather than crash the sort.
+  defp identifier_sort_key(nil), do: {1, ""}
+
+  defp identifier_sort_key(identifier) when is_binary(identifier) do
+    case Integer.parse(identifier) do
+      {n, ""} -> {0, n}
+      _ -> {1, identifier}
+    end
+  end
+
+  defp identifier_sort_key(other), do: {1, to_string(other)}
 
   defp render(state) do
     # Re-query geometry on every render: tmux resizes panes after splits and
