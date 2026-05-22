@@ -159,17 +159,21 @@ defmodule Aiur.Opencode.SessionWriter do
     # every assistant message to it.
     root_msg_id = Db.msg_id()
     user_root_data = Protocol.user_message_data(state.identifier)
-    _ = Db.insert_message(state.session_id, root_msg_id, user_root_data)
 
+    # All replay inserts share one BEGIN IMMEDIATE → COMMIT transaction
+    # so the SQLite write lock is acquired ONCE per writer instead of
+    # once per row. Without this, N concurrent SessionWriters each doing
+    # ~100 inserts produce N×100 contended lock acquisitions; the per-
+    # row 5 s busy_timeout eventually blows past the 10 s await_replay
+    # cap on the slow writers (observed wedging 4 of 5 agents on
+    # 2026-05-22).
     replayed =
-      events
-      |> Enum.reject(&match?(%{role: :user}, &1))
-      |> Enum.reduce(0, fn event, count ->
-        case write_event(state_with_root(state, root_msg_id), event) do
-          {:ok, _msg_id} -> count + 1
-          {:error, _reason} -> count
-        end
+      Db.with_transaction(fn conn ->
+        _ = Db.insert_message(conn, state.session_id, root_msg_id, user_root_data)
+        replay_events(conn, state_with_root(state, root_msg_id), events)
       end)
+
+    replayed = if is_integer(replayed), do: replayed, else: 0
 
     Logger.info("opencode_session_writer phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{state.identifier} session_id=#{state.session_id} replayed=#{replayed}")
 
@@ -179,9 +183,23 @@ defmodule Aiur.Opencode.SessionWriter do
   defp state_with_root(state, root_msg_id),
     do: %{state | root_msg_id: root_msg_id}
 
+  defp replay_events(conn, state, events) do
+    events
+    |> Enum.reject(&match?(%{role: :user}, &1))
+    |> Enum.reduce(0, fn event, count ->
+      case write_event(conn, state, event) do
+        {:ok, _msg_id} -> count + 1
+        {:error, _reason} -> count
+      end
+    end)
+  end
+
   # --- write one assistant message + parts ---------------------------------
 
-  defp write_event(state, %{role: role, body: body} = event)
+  # Live-write path used by handle_info — opens its own connection.
+  defp write_event(state, event), do: Db.with_conn(&write_event(&1, state, event))
+
+  defp write_event(conn, state, %{role: role, body: body} = event)
        when role in [:assistant, :command, :system, :alert] do
     message_id = Db.msg_id()
     parent_id = state.root_msg_id || message_id
@@ -201,11 +219,19 @@ defmodule Aiur.Opencode.SessionWriter do
         finish: finish
       })
 
-    with :ok <- Db.insert_message(state.session_id, message_id, message_data),
-         :ok <- Db.insert_part(state.session_id, message_id, Db.prt_id(), Protocol.step_start_part_data()),
-         :ok <- insert_body_parts(state, message_id, role, body, event),
+    with :ok <- Db.insert_message(conn, state.session_id, message_id, message_data),
          :ok <-
            Db.insert_part(
+             conn,
+             state.session_id,
+             message_id,
+             Db.prt_id(),
+             Protocol.step_start_part_data()
+           ),
+         :ok <- insert_body_parts(conn, state, message_id, role, body, event),
+         :ok <-
+           Db.insert_part(
+             conn,
              state.session_id,
              message_id,
              Db.prt_id(),
@@ -215,9 +241,9 @@ defmodule Aiur.Opencode.SessionWriter do
     end
   end
 
-  defp write_event(_state, _event), do: {:error, :unsupported_role}
+  defp write_event(_conn, _state, _event), do: {:error, :unsupported_role}
 
-  defp insert_body_parts(state, message_id, :command, body, _event) do
+  defp insert_body_parts(conn, state, message_id, :command, body, _event) do
     # Command transcript event from codex — capture as a single completed
     # tool call. We don't have separate stdout/exit; the body field carries
     # the raw command line (e.g., "$ ls").
@@ -230,14 +256,14 @@ defmodule Aiur.Opencode.SessionWriter do
         title: body
       )
 
-    Db.insert_part(state.session_id, message_id, Db.prt_id(), part_data)
+    Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), part_data)
   end
 
-  defp insert_body_parts(state, message_id, _role, body, _event) when is_binary(body) do
-    Db.insert_part(state.session_id, message_id, Db.prt_id(), Protocol.text_part_data(body))
+  defp insert_body_parts(conn, state, message_id, _role, body, _event) when is_binary(body) do
+    Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), Protocol.text_part_data(body))
   end
 
-  defp insert_body_parts(_state, _message_id, _role, _body, _event), do: :ok
+  defp insert_body_parts(_conn, _state, _message_id, _role, _body, _event), do: :ok
 
   # --- nudge opencode to render the just-written rows ----------------------
   #

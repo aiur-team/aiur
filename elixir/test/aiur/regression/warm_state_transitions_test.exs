@@ -61,6 +61,62 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
     end
   end
 
+  describe "do_select must not crash on await_replay timeout" do
+    @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+    @session_writer_source Path.expand(
+                             "../../../lib/aiur/opencode/session_writer.ex",
+                             __DIR__
+                           )
+
+    test "Slot.do_select handles {:error, :timeout} from await_replay without MatchError" do
+      source = File.read!(@slot_source)
+
+      # The bug was `:ok = SessionWriter.await_replay(...)`. The fix
+      # must surface the timeout as a Slot.select return value (any
+      # case/with against await_replay) so the warm Task's caller can
+      # broadcast :attach_failed instead of being killed by a MatchError
+      # exit. Without this, 4 of 5 slots wedge in :warming state
+      # whenever SQLite contention slows replay past the 10 s budget.
+      refute source =~ ~r/:ok\s*=\s*SessionWriter\.await_replay/,
+             """
+             slot.ex must NOT use `:ok = SessionWriter.await_replay(...)`.
+             That pattern crashes the Slot worker with MatchError when
+             replay times out under SQLite contention, which silently
+             kills the AttachPool warm Task and leaves the agent stuck
+             in ⏳ forever. Use `case`/`with` instead so the error
+             propagates as a Slot.select return value.
+             """
+
+      assert source =~ ~r/case\s+SessionWriter\.await_replay/,
+             """
+             slot.ex must call `SessionWriter.await_replay/2` inside a
+             `case` (or `with`) so the timeout branch returns
+             `{:error, :timeout}` from `do_select/2` instead of
+             crashing.
+             """
+    end
+
+    test "SessionWriter wraps replay inserts in one SQLite transaction" do
+      source = File.read!(@session_writer_source)
+
+      replay_block =
+        case Regex.run(~r/defp replay_history.*?\n  end\n/s, source) do
+          [match | _] -> match
+          _ -> raise "could not extract replay_history"
+        end
+
+      assert replay_block =~ ~r/Db\.with_transaction/,
+             """
+             SessionWriter.replay_history must batch its inserts inside
+             a single `Db.with_transaction` call. Without this, every
+             individual insert opens its own SQLite connection and
+             contends for the write lock — N concurrent writers with
+             ~100 inserts each blow past the 10 s await_replay timeout
+             under any real concurrency.
+             """
+    end
+  end
+
   describe ":attach_failed must clear warming_identifiers via PubSub" do
     test "AttachPool broadcasts :attach_failed when wait_for_paint times out" do
       source = File.read!(@attach_pool_source)

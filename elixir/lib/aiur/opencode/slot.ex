@@ -460,47 +460,35 @@ defmodule Aiur.Opencode.Slot do
             session_id: session_id
           )
 
-        :ok = SessionWriter.await_replay(writer_pid, 10_000)
+        case SessionWriter.await_replay(writer_pid, 10_000) do
+          :ok ->
+            Aiur.Perf.span_end(replay_span,
+              slot: state.slot_index,
+              identifier: identifier,
+              session_id: session_id
+            )
 
-        Aiur.Perf.span_end(replay_span,
-          slot: state.slot_index,
-          identifier: identifier,
-          session_id: session_id
-        )
+            select_with_respawn(state, identifier, session_id, do_select_span)
 
-        # Respawn opencode-attach with `--session <id>` so the TUI boots
-        # straight into the conversation view. POSTing
-        # `/tui/select-session` to an already-running pre-warmed attach
-        # returns 200 but does not switch the rendered view — opencode
-        # 1.15.6's TUI stays on the welcome screen ("Ask anything...",
-        # OPENCODE logo). The previously-pre-warmed attach pane is killed
-        # and a new one is split into aiur-hidden so PaneManager can
-        # move it to visible. State.pane_id is updated to the new pane.
-        case respawn_attach_with_session(state, session_id) do
-          {:ok, new_pane_id} ->
-            Logger.info("opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{new_pane_id}")
-
-            Aiur.Perf.span_end(do_select_span,
+          {:error, reason} = err ->
+            # Replay timed out or the writer disappeared. Surface as a
+            # plain Slot.select error so AttachPool's warm Task can call
+            # broadcast_event({:attach_failed, ...}) instead of the slot
+            # crashing with MatchError and taking the warm Task with it
+            # (which is what wedged 4 of 5 agents in ⏳ on 2026-05-22).
+            Aiur.Perf.span_end(replay_span,
+              result: :failed,
               slot: state.slot_index,
               identifier: identifier,
               session_id: session_id,
-              pane_id: new_pane_id
+              reason: reason
             )
 
-            {:ok, session_id,
-             %{
-               state
-               | status: :active,
-                 active_identifier: identifier,
-                 active_session_id: session_id,
-                 pane_id: new_pane_id
-             }}
-
-          {:error, _} = err ->
             Aiur.Perf.span_end(do_select_span,
-              result: :respawn_failed,
+              result: :replay_failed,
               slot: state.slot_index,
-              identifier: identifier
+              identifier: identifier,
+              reason: reason
             )
 
             err
@@ -509,6 +497,46 @@ defmodule Aiur.Opencode.Slot do
       {:error, _} = err ->
         Aiur.Perf.span_end(do_select_span,
           result: :writer_failed,
+          slot: state.slot_index,
+          identifier: identifier
+        )
+
+        err
+    end
+  end
+
+  # Respawn opencode-attach with `--session <id>` so the TUI boots
+  # straight into the conversation view. POSTing
+  # `/tui/select-session` to an already-running pre-warmed attach
+  # returns 200 but does not switch the rendered view — opencode
+  # 1.15.6's TUI stays on the welcome screen ("Ask anything...",
+  # OPENCODE logo). The previously-pre-warmed attach pane is killed
+  # and a new one is split into aiur-hidden so PaneManager can
+  # move it to visible. State.pane_id is updated to the new pane.
+  defp select_with_respawn(state, identifier, session_id, do_select_span) do
+    case respawn_attach_with_session(state, session_id) do
+      {:ok, new_pane_id} ->
+        Logger.info("opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{new_pane_id}")
+
+        Aiur.Perf.span_end(do_select_span,
+          slot: state.slot_index,
+          identifier: identifier,
+          session_id: session_id,
+          pane_id: new_pane_id
+        )
+
+        {:ok, session_id,
+         %{
+           state
+           | status: :active,
+             active_identifier: identifier,
+             active_session_id: session_id,
+             pane_id: new_pane_id
+         }}
+
+      {:error, _} = err ->
+        Aiur.Perf.span_end(do_select_span,
+          result: :respawn_failed,
           slot: state.slot_index,
           identifier: identifier
         )

@@ -48,12 +48,59 @@ defmodule Aiur.Opencode.Db do
   end
 
   @doc """
+  Run `fun` inside one `BEGIN IMMEDIATE … COMMIT` transaction on a single
+  fresh connection. Use for batched replays — `replay_history/1` in
+  `SessionWriter` is the canonical caller. Without this, each individual
+  `insert_message` / `insert_part` opens its own connection and contends
+  for the SQLite write lock on every row; 5 concurrent writers each doing
+  ~100 inserts blow past the 10 s `await_replay` timeout (observed on
+  2026-05-22). With this, each writer acquires the lock once, performs
+  all inserts, then releases — turning 500 contended writes into 5
+  serialized transactions.
+
+  On error inside `fun`, ROLLBACK fires and the error propagates. The
+  passed conn must be used with the `_in/N` insert variants below.
+  """
+  @spec with_transaction((Connection.t() -> result)) :: result | {:error, term()}
+        when result: var
+  def with_transaction(fun) when is_function(fun, 1) do
+    with_conn(fn conn ->
+      case Basic.exec(conn, "BEGIN IMMEDIATE") do
+        {:ok, _, _, _} ->
+          try do
+            result = fun.(conn)
+            _ = Basic.exec(conn, "COMMIT")
+            result
+          catch
+            kind, reason ->
+              _ = Basic.exec(conn, "ROLLBACK")
+              :erlang.raise(kind, reason, __STACKTRACE__)
+          end
+
+        {:error, err, _} ->
+          {:error, err}
+      end
+    end)
+  end
+
+  @doc """
   Insert one `message` row. `data_map` becomes the `data` JSON column;
   `id` and `session_id` populate the corresponding SQL columns.
   Retries once on `SQLITE_BUSY` so concurrent opencode writes don't fail us.
   """
   @spec insert_message(String.t(), String.t(), map()) :: :ok | {:error, term()}
   def insert_message(session_id, message_id, data_map)
+      when is_binary(session_id) and is_binary(message_id) and is_map(data_map) do
+    with_conn(fn conn -> insert_message(conn, session_id, message_id, data_map) end)
+  end
+
+  @doc """
+  Variant that reuses a caller-owned connection — for batching inside
+  `with_transaction/1`.
+  """
+  @spec insert_message(Connection.t(), String.t(), String.t(), map()) ::
+          :ok | {:error, term()}
+  def insert_message(conn, session_id, message_id, data_map)
       when is_binary(session_id) and is_binary(message_id) and is_map(data_map) do
     now = System.os_time(:millisecond)
 
@@ -63,9 +110,7 @@ defmodule Aiur.Opencode.Db do
     """
 
     with {:ok, data_json} <- encode(data_map) do
-      with_conn(fn conn ->
-        exec_with_retry(conn, sql, [message_id, session_id, now, now, data_json])
-      end)
+      exec_with_retry(conn, sql, [message_id, session_id, now, now, data_json])
     end
   end
 
@@ -77,6 +122,17 @@ defmodule Aiur.Opencode.Db do
   @spec insert_part(String.t(), String.t(), String.t(), map()) :: :ok | {:error, term()}
   def insert_part(session_id, message_id, part_id, data_map)
       when is_binary(session_id) and is_binary(message_id) and is_binary(part_id) and is_map(data_map) do
+    with_conn(fn conn -> insert_part(conn, session_id, message_id, part_id, data_map) end)
+  end
+
+  @doc """
+  Variant that reuses a caller-owned connection — for batching inside
+  `with_transaction/1`.
+  """
+  @spec insert_part(Connection.t(), String.t(), String.t(), String.t(), map()) ::
+          :ok | {:error, term()}
+  def insert_part(conn, session_id, message_id, part_id, data_map)
+      when is_binary(session_id) and is_binary(message_id) and is_binary(part_id) and is_map(data_map) do
     now = System.os_time(:millisecond)
 
     sql = """
@@ -85,9 +141,7 @@ defmodule Aiur.Opencode.Db do
     """
 
     with {:ok, data_json} <- encode(data_map) do
-      with_conn(fn conn ->
-        exec_with_retry(conn, sql, [part_id, message_id, session_id, now, now, data_json])
-      end)
+      exec_with_retry(conn, sql, [part_id, message_id, session_id, now, now, data_json])
     end
   end
 
