@@ -473,6 +473,7 @@ defmodule ScriptsAiurTest do
           {"AIUR_OS_OVERRIDE", "Linux"},
           {"AIUR_SKIP_BUILD", "1"},
           {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+          {"XDG_RUNTIME_DIR", ctx.runtime_dir},
           {"HOME", ctx.home_dir},
           {"TMUX", ""}
         ],
@@ -578,6 +579,7 @@ defmodule ScriptsAiurTest do
     logs_root = Path.join(root, "logs")
     command_log = Path.join(root, "commands.log")
     bg_state_dir = Path.join(root, "bg-state")
+    runtime_dir = Path.join(root, "runtime")
 
     # System.unique_integer resets per VM, so stale tmp dirs from prior
     # `mix test` runs can collide. Clear before setting up.
@@ -590,6 +592,7 @@ defmodule ScriptsAiurTest do
     File.mkdir_p!(bin_dir)
     File.mkdir_p!(logs_root)
     File.mkdir_p!(bg_state_dir)
+    File.mkdir_p!(runtime_dir)
     File.mkdir_p!(home_dir)
 
     fake_mise = Path.join(bin_dir, "mise")
@@ -707,6 +710,7 @@ defmodule ScriptsAiurTest do
       logs_root: logs_root,
       command_log: command_log,
       bg_state_dir: bg_state_dir,
+      runtime_dir: runtime_dir,
       fake_mise: fake_mise,
       fake_systemctl: fake_systemctl,
       fake_pkill: fake_pkill,
@@ -760,6 +764,7 @@ defmodule ScriptsAiurTest do
           {"AIUR_STARTUP_GRACE_TICKS", "1"},
           {"AIUR_STARTUP_GRACE_SLEEP", "0"},
           {"AIUR_PORT_CHECK_BIN", ctx.fake_port_check},
+          {"XDG_RUNTIME_DIR", ctx.runtime_dir},
           {"HOME", ctx.home_dir},
           {"TMUX", ""}
         ] ++ extra_env,

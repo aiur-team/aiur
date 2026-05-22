@@ -4,6 +4,19 @@ defmodule Aiur.Opencode.ConfigTest do
   alias Aiur.Opencode.Config
 
   describe "workflow settings" do
+    setup do
+      previous_host_override = Application.get_env(:aiur, :opencode_bridge_host_override)
+      previous_port_override = Application.get_env(:aiur, :opencode_bridge_port_override)
+
+      Application.delete_env(:aiur, :opencode_bridge_host_override)
+      Application.delete_env(:aiur, :opencode_bridge_port_override)
+
+      on_exit(fn ->
+        restore_app_env(:opencode_bridge_host_override, previous_host_override)
+        restore_app_env(:opencode_bridge_port_override, previous_port_override)
+      end)
+    end
+
     test "uses defaults when opencode section is omitted" do
       write_workflow_file!(Aiur.Workflow.workflow_file_path(), opencode_command: nil)
 
@@ -28,6 +41,19 @@ defmodule Aiur.Opencode.ConfigTest do
       assert Config.bridge_host() == "127.0.0.2"
       assert Config.serve_args() == ["--log-level", "debug"]
       assert Config.model_prefix() == "custom"
+    end
+
+    test "application env overrides bridge bind settings" do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        opencode_bridge_port: 5000,
+        opencode_bridge_host: "127.0.0.2"
+      )
+
+      Application.put_env(:aiur, :opencode_bridge_port_override, 0)
+      Application.put_env(:aiur, :opencode_bridge_host_override, "127.0.0.1")
+
+      assert Config.bridge_port() == 0
+      assert Config.bridge_host() == "127.0.0.1"
     end
 
     test "blank command falls back to default" do
@@ -55,4 +81,7 @@ defmodule Aiur.Opencode.ConfigTest do
     assert {:error, message} = Aiur.Config.validate!()
     assert message =~ "opencode.command"
   end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 end
