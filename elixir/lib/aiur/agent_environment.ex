@@ -13,7 +13,7 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_command(String.t()) :: String.t()
   def scrub_shell_command(command) when is_binary(command) do
-    "#{scrub_shell_prefix()}; exec #{command}"
+    "#{scrub_shell_prefix()}; #{command}"
   end
 
   @spec scrub_shell_prefix() :: String.t()
