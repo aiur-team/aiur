@@ -238,8 +238,14 @@ defmodule Aiur.Config do
     end
   end
 
-  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp validate_semantics(settings) do
+    with :ok <- validate_kinds_and_secrets(settings) do
+      Aiur.Opencode.Config.validate!()
+    end
+  end
+
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
+  defp validate_kinds_and_secrets(settings) do
     cond do
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}

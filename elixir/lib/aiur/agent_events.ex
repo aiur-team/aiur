@@ -2,7 +2,7 @@ defmodule Aiur.AgentEvents do
   @moduledoc """
   Canonical payload contracts for per-agent and orchestrator-wide PubSub events.
 
-  Subscribers (CLI conversation panes, agent-list pane, future MCP bridges) match
+  Subscribers (opencode relay, agent-list pane, future MCP bridges) match
   on these tuple shapes. Producers (`AgentRunner`, `Orchestrator`, `AgentChat`,
   `Alerts`) construct messages with the constructor helpers in this module so
   the wire format stays consistent.
@@ -29,7 +29,9 @@ defmodule Aiur.AgentEvents do
           role: role(),
           body: String.t(),
           timestamp: DateTime.t(),
-          msg_id: String.t() | nil
+          msg_id: String.t() | nil,
+          sequence: integer(),
+          turn_id: String.t() | nil
         }
 
   @typedoc "Alert payload broadcast on the per-agent topic."
@@ -69,8 +71,8 @@ defmodule Aiur.AgentEvents do
 
   @doc """
   Canonical short tag name for a transcript role. Used by the
-  conversation pane (`AiurPane.Viewport`), the per-issue log writer
-  (`Aiur.IssueLog`), and any external consumer that wants to
+  opencode transcript relay, the per-issue log writer (`Aiur.IssueLog`),
+  and any external consumer that wants to
   surface the same labels Aiur renders in its UI. Define every new
   role's tag here so the pane, the file log, and the system log all
   stay in sync.
@@ -102,7 +104,9 @@ defmodule Aiur.AgentEvents do
       role: role,
       body: body,
       timestamp: Keyword.get(opts, :timestamp) || DateTime.utc_now(),
-      msg_id: Keyword.get(opts, :msg_id)
+      msg_id: Keyword.get(opts, :msg_id),
+      sequence: Keyword.get(opts, :sequence) || :erlang.unique_integer([:positive, :monotonic]),
+      turn_id: Keyword.get(opts, :turn_id)
     }
   end
 
@@ -139,10 +143,10 @@ defmodule Aiur.AgentEvents do
 
   @doc """
   Canonical emoji for a worker's `work_state`. Shared by every
-  surface that paints agent status — the agent-list pane, the
-  conversation pane header, and (in future) the web dashboard. If a
-  surface needs a different glyph for the same state it should still
-  branch off this function so a state-rename is a one-line change.
+  surface that paints agent status — the agent-list pane, opencode
+  relay metadata, and (in future) the web dashboard. If a surface needs
+  a different glyph for the same state it should still branch off this
+  function so a state-rename is a one-line change.
 
   Mapping:
     * `:working` — `🟢` actively working
@@ -170,4 +174,7 @@ defmodule Aiur.AgentEvents do
 
   @spec status_topic() :: String.t()
   def status_topic, do: "agents:status"
+
+  @spec poll_state_topic() :: String.t()
+  def poll_state_topic, do: "orchestrator:poll_state"
 end

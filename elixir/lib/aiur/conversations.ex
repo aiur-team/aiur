@@ -56,9 +56,10 @@ defmodule Aiur.Conversations do
   def open(identifier, opts \\ []) when is_binary(identifier) do
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
     command = Keyword.get(opts, :command, default_command(identifier))
+    pane_opts = Keyword.take(opts, [:title])
 
     with {:ok, ref} <- attach(identifier),
-         {:ok, pane_id} <- PaneManager.open_conversation(pane_manager, identifier, command) do
+         {:ok, pane_id} <- PaneManager.open_conversation(pane_manager, identifier, command, pane_opts) do
       {:ok, Map.put(ref, :pane_id, pane_id)}
     end
   end
@@ -83,16 +84,6 @@ defmodule Aiur.Conversations do
   end
 
   defp default_command(identifier) do
-    bin = System.get_env("AIUR_BIN") || "./bin/aiur"
-    mise = System.get_env("AIUR_MISE_BIN")
-
-    base =
-      if is_binary(mise) and mise != "" do
-        "#{mise} exec -- #{bin} conversation #{identifier}"
-      else
-        "#{bin} conversation #{identifier}"
-      end
-
-    base
+    "__aiur_opencode__ #{identifier}"
   end
 end

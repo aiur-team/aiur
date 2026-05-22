@@ -65,35 +65,50 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  defp codex_message_handler(recipient, issue, workspace, worker_host) do
+  defp codex_message_handler(recipient, issue, workspace, worker_host, turn_id \\ nil) do
     fn message ->
       message = CodingAgent.normalize_event(message)
       AgentEventLog.write(workspace, worker_host, message)
-      maybe_broadcast_transcript(issue, message)
+      maybe_broadcast_transcript(issue, message, turn_id)
+      maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
     end
   end
 
-  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message)
+  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, turn_id)
        when is_binary(identifier) do
-    case transcript_event_from(message) do
+    case transcript_event_from(message, turn_id) do
       {:ok, event} -> AgentPubSub.broadcast_transcript(identifier, event)
       :skip -> :ok
     end
   end
 
-  defp maybe_broadcast_transcript(_issue, _message), do: :ok
+  defp maybe_broadcast_transcript(_issue, _message, _turn_id), do: :ok
 
-  defp transcript_event_from(message) when is_map(message) do
+  defp maybe_broadcast_turn_event(%Issue{identifier: identifier}, message, turn_id)
+       when is_binary(identifier) and is_binary(turn_id) do
+    case event_kind(message) do
+      kind when kind in ["turn_completed", "turn_failed", "turn_cancelled", "turn_input_required"] ->
+        payload = %{turn_id: turn_id, payload: message}
+        AgentPubSub.broadcast_turn_event(identifier, String.to_existing_atom(kind), payload)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_broadcast_turn_event(_issue, _message, _turn_id), do: :ok
+
+  defp transcript_event_from(message, turn_id) when is_map(message) do
     cond do
       text = assistant_message_from_codex(message) ->
-        {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message))}
+        {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message), turn_id: turn_id)}
 
       summary = system_activity_from_codex(message) ->
-        {:ok, AgentEvents.transcript_event(:command, summary, timestamp: timestamp_for(message))}
+        {:ok, AgentEvents.transcript_event(:command, summary, timestamp: timestamp_for(message), turn_id: turn_id)}
 
       true ->
-        legacy_transcript_event(message)
+        legacy_transcript_event(message, turn_id)
     end
   end
 
@@ -179,7 +194,7 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  defp legacy_transcript_event(message) do
+  defp legacy_transcript_event(message, turn_id) do
     role = role_for_event(message)
     body = body_for_event(message)
 
@@ -187,7 +202,7 @@ defmodule Aiur.AgentRunner do
       is_nil(role) -> :skip
       is_nil(body) -> :skip
       body == "" -> :skip
-      true -> {:ok, AgentEvents.transcript_event(role, body, timestamp: timestamp_for(message))}
+      true -> {:ok, AgentEvents.transcript_event(role, body, timestamp: timestamp_for(message), turn_id: turn_id)}
     end
   end
 
@@ -365,16 +380,22 @@ defmodule Aiur.AgentRunner do
 
     case continue_with_issue?(issue, issue_state_fetcher) do
       {:continue, refreshed_issue} when turn_number < max_turns ->
+        Logger.info("aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns} reason=turn_completed")
+
         Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
         continue_issue_turn(%{turn_context | issue: refreshed_issue, turn_number: turn_number + 1}, app_session)
 
       {:continue, refreshed_issue} ->
+        Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
+
         Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
 
         :ok
 
-      {:done, _refreshed_issue} ->
+      {:done, refreshed_issue} ->
+        Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
+
         :ok
 
       {:error, reason} ->
@@ -399,15 +420,23 @@ defmodule Aiur.AgentRunner do
            ) do
       case continue_with_issue?(issue, turn_context.issue_state_fetcher) do
         {:continue, refreshed_issue} when turn_context.turn_number < turn_context.max_turns ->
+          Logger.info(
+            "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{turn_context.max_turns} reason=resume"
+          )
+
           continue_issue_turn(
             %{turn_context | issue: refreshed_issue, turn_number: turn_context.turn_number + 1},
             app_session
           )
 
-        {:continue, _refreshed_issue} ->
+        {:continue, refreshed_issue} ->
+          Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume")
+
           :ok
 
-        {:done, _refreshed_issue} ->
+        {:done, refreshed_issue} ->
+          Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume_inactive")
+
           :ok
 
         {:error, reason} ->
@@ -527,8 +556,12 @@ defmodule Aiur.AgentRunner do
     run_queue_item_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
   end
 
-  defp run_queue_item_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient) do
+  defp run_queue_item_turn(app_session, issue, item, _message_handler, orchestrator, codex_update_recipient) do
     text = queue_item_text(item)
+    turn_id = queue_item_turn_id(item)
+    workspace = session_workspace(app_session)
+    worker_host = session_worker_host(app_session)
+    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host, turn_id)
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
@@ -543,6 +576,11 @@ defmodule Aiur.AgentRunner do
          ) do
       {:ok, _turn_session} ->
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
+
+        if is_binary(turn_id) do
+          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
+        end
+
         drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:paused, _payload} ->
@@ -553,9 +591,18 @@ defmodule Aiur.AgentRunner do
 
       {:error, reason} = error ->
         :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
+
+        if is_binary(turn_id) do
+          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{turn_id: turn_id, reason: reason})
+        end
+
         error
     end
   end
+
+  defp queue_item_turn_id(%{turn_id: turn_id}) when is_binary(turn_id), do: turn_id
+  defp queue_item_turn_id(%{body: %{turn_id: turn_id}}) when is_binary(turn_id), do: turn_id
+  defp queue_item_turn_id(_item), do: nil
 
   defp queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
 

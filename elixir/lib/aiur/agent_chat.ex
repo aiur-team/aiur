@@ -13,20 +13,21 @@ defmodule Aiur.AgentChat do
       when is_binary(issue_identifier) and is_binary(text) do
     delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
     fallback = Keyword.get(opts, :fallback, :queue_next)
+    turn_id = Keyword.get(opts, :turn_id)
 
     Logger.info("AgentChat.send issue=#{issue_identifier} bytes=#{byte_size(text)} body=#{inspect(preview(text))}")
 
     result =
       Orchestrator.send_operator_message(
         issue_identifier,
-        %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback}
+        %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback, turn_id: turn_id}
       )
 
     case result do
       {:ok, _} = ok ->
         AgentPubSub.broadcast_transcript(
           issue_identifier,
-          AgentEvents.transcript_event(:user, text)
+          AgentEvents.transcript_event(:user, text, turn_id: turn_id)
         )
 
         ok

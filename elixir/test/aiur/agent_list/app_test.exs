@@ -10,11 +10,11 @@ defmodule Aiur.AgentList.AppTest do
     def start_link(parent), do: GenServer.start_link(__MODULE__, parent)
     def init(parent), do: {:ok, parent}
 
-    def open_conversation(pid, identifier, command) do
-      GenServer.call(pid, {:open, identifier, command})
+    def open_conversation(pid, identifier, command, opts \\ []) do
+      GenServer.call(pid, {:open, identifier, command, opts})
     end
 
-    def handle_call({:open, identifier, command}, _from, parent) do
+    def handle_call({:open, identifier, command, _opts}, _from, parent) do
       send(parent, {:mock_open, identifier, command})
       {:reply, {:ok, "%999"}, parent}
     end
@@ -282,6 +282,35 @@ defmodule Aiur.AgentList.AppTest do
 
     assert_receive {:mock_adjust_max, 1}, 500
     assert_receive {:mock_adjust_max, -1}, 500
+  end
+
+  test "activate stays responsive when PaneManager parks the open (F1 regression)", %{app: app} do
+    # Regression: AgentList.handle_cast(:activate) used to call
+    # PaneManager.open_conversation synchronously inside the cast handler.
+    # When PaneManager parked the call (no slot ready during cold pre-warm),
+    # the default 5 s GenServer.call timeout crashed the AgentList process,
+    # losing every subsequent keystroke. Fix moves the call to Task.start
+    # so the cast returns immediately and the input loop stays alive.
+    send_running_change(app, [AgentEvents.agent_summary("MT-PARK", :running, 0)])
+    Process.sleep(50)
+
+    # Capture the AgentList pid so we can assert it survives.
+    app_pid = GenServer.whereis(app)
+    assert is_pid(app_pid)
+    assert Process.alive?(app_pid)
+
+    # Mock open: receive the open marker, but never reply (simulating a
+    # parked call that takes longer than 5 s).
+    App.activate(app)
+    assert_receive {:mock_open, "MT-PARK", "echo open MT-PARK"}, 500
+
+    # Even though the open is "parked" (the mock GenServer hasn't replied
+    # to the Task), AgentList must remain responsive to further casts.
+    # Wait past the default 5 s GenServer.call timeout to confirm no crash.
+    Process.sleep(5_500)
+
+    assert Process.alive?(app_pid),
+           "AgentList must NOT crash when PaneManager parks the open call"
   end
 
   test "activate uses the visible-row order, not raw input order", %{app: app} do

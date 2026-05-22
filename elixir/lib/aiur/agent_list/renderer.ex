@@ -34,6 +34,7 @@ defmodule Aiur.AgentList.Renderer do
   # as 1 terminal column — same family as the ▶ selection marker, and
   # not an emoji (no variation-selector surprises).
   @open_pane_glyph "●"
+  @warm_pane_glyph "⚡"
 
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
@@ -70,7 +71,14 @@ defmodule Aiur.AgentList.Renderer do
 
       layout = compute_layout(summaries, inner_width)
 
+      debug_footer = debug_perf_footer(state, inner_width)
+
       [
+        # Hide the terminal cursor for every render — without this the
+        # cursor flashes around the pane as we redraw each row, which
+        # reads as visual jitter to the user. `\e[?25l` is DECTCEM hide.
+        # Restored on shutdown by Aiur.AgentList.Input.terminate/2.
+        "\e[?25l",
         "\e[H",
         title_row(inner_width, Map.get(state, :refresh_label)),
         eol(),
@@ -87,13 +95,18 @@ defmodule Aiur.AgentList.Renderer do
           Map.get(state, :selection_focus, :agents),
           inner_width,
           layout,
-          Map.get(state, :open_pane_ids, MapSet.new())
+          visible_identifiers(state),
+          Map.get(state, :warm_identifiers, MapSet.new())
         ),
         bottom_border(inner_width),
         eol(),
         footer_iodata(inner_width),
         eol(),
-        clear_remaining(rows, lines_emitted(state, inner_width))
+        debug_footer,
+        clear_remaining(
+          rows,
+          lines_emitted(state, inner_width) + debug_footer_line_count(state)
+        )
       ]
     end
   end
@@ -360,14 +373,14 @@ defmodule Aiur.AgentList.Renderer do
     pad_with_ansi(@ansi_gray, body, inner_width)
   end
 
-  defp render_rows([], _idx, _selection_focus, inner_width, _layout, _open_pane_ids) do
+  defp render_rows([], _idx, _selection_focus, inner_width, _layout, _open_pane_ids, _warm_ids) do
     [
       pad_with_ansi(@ansi_dim, "│   (no agents running)", inner_width),
       eol()
     ]
   end
 
-  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids) do
+  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids, warm_ids) do
     summaries
     |> Enum.with_index()
     |> Enum.map(fn {summary, row_idx} ->
@@ -377,14 +390,15 @@ defmodule Aiur.AgentList.Renderer do
           selection_focus == :agents and row_idx == idx,
           inner_width,
           layout,
-          open_pane_ids
+          open_pane_ids,
+          warm_ids
         ),
         eol()
       ]
     end)
   end
 
-  defp render_row(summary, selected?, inner_width, layout, open_pane_ids) do
+  defp render_row(summary, selected?, inner_width, layout, open_pane_ids, warm_ids \\ MapSet.new()) do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
     title = Map.get(summary, :title) || ""
@@ -394,7 +408,12 @@ defmodule Aiur.AgentList.Renderer do
     age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary), @state_cell_width)
     title_cell = cell(title, layout.title_width)
-    open_marker = open_pane_marker(id_str, open_pane_ids)
+    # Single 3-cell marker in the ID-AGE gap. Precedence:
+    #   ● (open pane) > ⚡ (warm pre-attach ready) > blank
+    # Open and warm are mutually exclusive in practice — once the
+    # warm pane is moved visible AttachPool drops it from the warm
+    # set and PaneManager records it in visible_sessions.
+    open_marker = id_age_gap_marker(id_str, open_pane_ids, warm_ids)
 
     # Order: marker, ID, open-pane indicator, AGE, state-circle, TITLE.
     # The single-glyph circle sits in the gap between ID and AGE so the
@@ -428,11 +447,57 @@ defmodule Aiur.AgentList.Renderer do
   # otherwise — keeps the column width stable so the AGE column never
   # shifts. Glyph is plain (terminal-default white) so it pops against
   # the surrounding dim text without re-using the green status palette.
+  # The circle in front of an identifier indicates "this agent's session
+  # is currently visible somewhere in the conversation grid." Source:
+  # the `visible_sessions` map populated by AgentList.App from Slot
+  # workers' `:slot_session_changed` PubSub broadcasts.
+  defp visible_identifiers(state) do
+    raw =
+      state
+      |> Map.get(:visible_sessions, %{})
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    # `visible_sessions` is populated from :slot_session_changed which
+    # fires during AttachPool's warming — long before any pane is
+    # actually visible to the user. Subtract warming + warm identifiers
+    # so ● only marks rows whose pane is truly on screen.
+    warming = Map.get(state, :warming_identifiers, MapSet.new())
+    warm = Map.get(state, :warm_identifiers, MapSet.new())
+
+    raw
+    |> MapSet.difference(warming)
+    |> MapSet.difference(warm)
+  end
+
   defp open_pane_marker(id_str, open_pane_ids) do
     if MapSet.member?(open_pane_ids, id_str) do
       [" ", @open_pane_glyph, " "]
     else
       String.duplicate(" ", @id_age_gap_width)
+    end
+  end
+
+  # 3-cell marker between ID and AGE. Precedence:
+  #   ⚡ (warm pre-attach ready) > ● (open and visible) > blank
+  # `warm` wins because the slot's broadcast of :slot_session_changed
+  # fires during AttachPool's pre-warm — visible_identifiers/1 strips
+  # warming/warm ids from visible_sessions so ● only marks truly
+  # visible panes.
+  defp id_age_gap_marker(id_str, open_pane_ids, warm_ids) do
+    cond do
+      MapSet.member?(warm_ids, id_str) ->
+        # ⚡ (U+26A1) is East Asian Width=Narrow but typically renders
+        # 2 cols in modern terminals. Pad with trailing space to match
+        # ●'s 3-col cell width regardless of how the terminal sizes it.
+        [" ", IO.ANSI.yellow(), @warm_pane_glyph, IO.ANSI.reset(), " "]
+
+      MapSet.member?(open_pane_ids, id_str) ->
+        [" ", @open_pane_glyph, " "]
+
+      true ->
+        String.duplicate(" ", @id_age_gap_width)
     end
   end
 
@@ -572,6 +637,64 @@ defmodule Aiur.AgentList.Renderer do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
     8 + footer_line_count(inner_width) + body_rows
+  end
+
+  # --- Debug perf footer ---------------------------------------------
+  # When AIUR_DEBUG=1, the agent list shows a fixed 3-row footer with
+  # the three milestones the user actually cares about:
+  #   1. agent list ready       (boot -> agent_list rendered)
+  #   2. chat pane visible      (Enter -> placeholder pane on screen)
+  #   3. opencode render        (Enter -> opencode-attach painted convo)
+  #
+  # Each row shows the last measured value or `…` while we wait.
+
+  defp debug_perf_footer(state, inner_width) do
+    if Map.get(state, :debug_mode?, false) do
+      summary = Map.get(state, :perf_summary, %{})
+
+      [
+        debug_footer_heading(inner_width),
+        eol(),
+        debug_footer_row("agent list ready", Map.get(summary, :agent_list_ready_ms), inner_width),
+        eol(),
+        debug_footer_row("chat pane visible", Map.get(summary, :chat_pane_visible_ms), inner_width),
+        eol(),
+        debug_footer_row("opencode render  ", Map.get(summary, :opencode_render_ms), inner_width),
+        eol()
+      ]
+    else
+      []
+    end
+  end
+
+  defp debug_footer_line_count(state) do
+    if Map.get(state, :debug_mode?, false), do: 4, else: 0
+  end
+
+  defp debug_footer_heading(inner_width) do
+    label = "  perf — AIUR_DEBUG"
+    pad = max(inner_width - String.length(label), 0)
+    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  defp debug_footer_row(label, value_ms, inner_width) do
+    value_str =
+      case value_ms do
+        nil -> "…"
+        ms when ms < 1_000 -> "#{ms} ms"
+        ms -> :io_lib.format("~.2fs", [ms / 1000]) |> IO.iodata_to_binary()
+      end
+
+    text = "  #{label}  #{value_str}"
+
+    truncated =
+      if String.length(text) > inner_width do
+        String.slice(text, 0, inner_width)
+      else
+        text <> String.duplicate(" ", max(inner_width - String.length(text), 0))
+      end
+
+    [IO.ANSI.faint(), truncated, IO.ANSI.reset()]
   end
 
   defp clear_remaining(rows, lines_drawn) do

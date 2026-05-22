@@ -9,8 +9,8 @@ defmodule Aiur.AgentList.App do
   `Aiur.AgentList.Renderer`.
 
   On activate (enter), calls
-  `Aiur.PaneManager.open_conversation/3` with the configured
-  command template (typically `bin/aiur conversation <id>`).
+  `Aiur.PaneManager.open_conversation/3` with the configured command
+  template. The default opens an opencode-backed pane session.
 
   Accepts these test seams:
     * `:write_fun` — function called with the rendered iodata (defaults to `IO.write/1`).
@@ -18,7 +18,7 @@ defmodule Aiur.AgentList.App do
     * `:orchestrator` — name of the Orchestrator GenServer.
     * `:subscribe?` — subscribe to agent PubSub topics (defaults to `true`).
     * `:command_template` — string with `~s` placeholder filled by the
-      selected identifier. Defaults to `bin/aiur conversation`.
+      selected identifier. Defaults to the opencode pane sentinel.
   """
 
   use GenServer
@@ -26,6 +26,7 @@ defmodule Aiur.AgentList.App do
 
   alias Aiur.AgentList.Renderer
   alias Aiur.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
+  alias Aiur.Opencode.{AttachPool, Slot}
 
   # `init/1` and `render/1` go through GenServer-side and IO callbacks
   # whose return shapes dialyzer can't fully trace; the warnings are
@@ -69,6 +70,15 @@ defmodule Aiur.AgentList.App do
   @spec activate(GenServer.server()) :: :ok
   def activate(server \\ __MODULE__), do: GenServer.cast(server, :activate)
 
+  @doc """
+  Attach the currently-selected agent to the most-recently-focused chat
+  pane (the same slot rebuilds with the new identifier). When no pane
+  is currently focused, falls through to `activate/1` (open in a new
+  slot). Triggered by the `a` keybind in `input.ex`.
+  """
+  @spec attach_selected(GenServer.server()) :: :ok
+  def attach_selected(server \\ __MODULE__), do: GenServer.cast(server, :attach_selected)
+
   @spec toggle_pause(GenServer.server()) :: :ok
   def toggle_pause(server \\ __MODULE__), do: GenServer.cast(server, :toggle_pause)
 
@@ -87,7 +97,7 @@ defmodule Aiur.AgentList.App do
     # restarted it — the operator saw the list flash empty for a beat
     # and then re-populate from PubSub instead of actually quitting.
     Logger.info("[user-action] quit source=agent_list")
-    System.halt(0)
+    Aiur.Shutdown.shutdown(0)
   end
 
   @spec toggle_help(GenServer.server()) :: :ok
@@ -110,9 +120,18 @@ defmodule Aiur.AgentList.App do
     command_template = Keyword.get(opts, :command_template, default_command_template())
     {cols, rows} = terminal_geometry()
 
+    debug_mode? = Keyword.get(opts, :debug?, debug_env?())
+
     if Keyword.get(opts, :subscribe?, true) do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
+      AgentPubSub.subscribe_poll_state()
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
+      Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
+
+      if debug_mode? do
+        Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+      end
     end
 
     state = %{
@@ -127,12 +146,58 @@ defmodule Aiur.AgentList.App do
       pane_manager: pane_manager,
       orchestrator: orchestrator,
       command_template: command_template,
-      open_pane_ids: initial_open_pane_ids(pane_manager)
+      # slot_index → currently-visible identifier (nil = slot idle).
+      # Updated on `:slot_session_changed` PubSub events from Slot workers.
+      # This is the single source of truth for the agent-list circle
+      # indicator — the legacy `open_pane_ids` (historical opens) is gone.
+      visible_sessions: %{},
+      # Cached orchestrator polling state — updated only on PubSub
+      # `:poll_state_changed` broadcasts so the 1 Hz render tick never
+      # has to GenServer.call into the orchestrator (which blocks for
+      # seconds while it does HTTP polls). `max_concurrent_agents` is
+      # also carried here so the render never has to query for it.
+      poll_state: %{
+        checking?: false,
+        next_poll_due_at_ms: nil,
+        max_concurrent_agents: nil
+      },
+      debug_mode?: debug_mode?,
+      # Identifiers whose opencode-attach has been pre-warmed by
+      # `Aiur.Opencode.AttachPool` and is sitting in `aiur-hidden`
+      # ready to instant-open. Renderer paints a ⚡ next to these
+      # rows so the user knows they'll open in <100 ms.
+      warm_identifiers: MapSet.new(),
+      # Identifiers whose attach is currently being warmed (Slot.select
+      # in flight, opencode-attach booting). Used to suppress the
+      # misleading ● marker — :slot_session_changed fires during
+      # Slot.select, which would otherwise paint ● on a row whose
+      # pane isn't actually visible yet.
+      warming_identifiers: MapSet.new(),
+      # Compact 3-row debug-footer state. Each field is `nil` until
+      # the corresponding aiur_perf event lands, then holds {wall_ms,
+      # at_ms} so the footer can show "agent list ready: 4.0s",
+      # "chat pane visible: 0.1s", "opencode render: 7.2s". Newest
+      # event wins per slot — if the user opens multiple chats, the
+      # footer reflects the most recent open.
+      perf_summary: %{
+        agent_list_ready_ms: nil,
+        chat_pane_visible_ms: nil,
+        opencode_render_ms: nil
+      }
     }
 
     schedule_refresh_tick()
     schedule_geometry_tick()
     render(state)
+
+    elapsed = Aiur.Boot.elapsed_ms()
+
+    Logger.info("aiur_agent_list phase=ready elapsed_ms=#{elapsed} agents=#{length(state.summaries)}")
+
+    # Emit through the same aiur_perf channel so the debug footer can
+    # show "agent list ready: Xs" from the same data stream.
+    Aiur.Perf.event(:agent_list_ready, wall_ms: elapsed)
+
     {:ok, state}
   end
 
@@ -159,21 +224,77 @@ defmodule Aiur.AgentList.App do
 
   def handle_cast(:activate, state) do
     if state.selection_focus == :agents do
-      case Enum.at(state.summaries, state.selection_index) do
-        %{identifier: identifier} ->
-          Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
-          command = "#{state.command_template} #{identifier}"
-          # Routes through the agent-native facade so external consumers
-          # (MCP bridge, automation agents) drive conversations the same
-          # way the CLI does.
-          _ = PaneManager.open_conversation(state.pane_manager, identifier, command)
-
-        _ ->
-          :ok
-      end
+      activate_selected_agent(state)
     end
 
     {:noreply, state}
+  end
+
+  def handle_cast(:attach_selected, state) do
+    if state.selection_focus == :agents do
+      attach_selected_agent(state)
+    end
+
+    {:noreply, state}
+  end
+
+  defp activate_selected_agent(state) do
+    case Enum.at(state.summaries, state.selection_index) do
+      %{identifier: identifier} = summary ->
+        Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
+        Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
+        command = "#{state.command_template} #{identifier}"
+        title = Map.get(summary, :title)
+        pane_manager = state.pane_manager
+
+        # PaneManager.open_conversation parks the call when no slot is
+        # ready (cold pre-warm) and replies after the queue drains —
+        # up to 60 s. The AgentList GenServer is the keyboard owner;
+        # it must NOT block on this call or any keystroke pressed
+        # during the wait is lost and the process times out + crashes.
+        # Fire-and-forget in a Task instead.
+        Task.start(fn ->
+          PaneManager.open_conversation(pane_manager, identifier, command, title: title)
+        end)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp attach_selected_agent(state) do
+    case Enum.at(state.summaries, state.selection_index) do
+      %{identifier: identifier} = summary ->
+        Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
+        command = "#{state.command_template} #{identifier}"
+        title = Map.get(summary, :title)
+        pane_manager = state.pane_manager
+
+        # Same parking concern as :activate — `attach_conversation`
+        # already uses a 65 s call timeout but it still blocks the
+        # AgentList process. Run the whole attempt-then-fallback in
+        # a Task so keystrokes stay responsive.
+        Task.start(fn -> attempt_attach_then_open(pane_manager, identifier, command, title) end)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp attempt_attach_then_open(pane_manager, identifier, command, title) do
+    case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
+      {:ok, _pane_id} ->
+        :ok
+
+      {:error, :no_focused_pane} ->
+        PaneManager.open_conversation(pane_manager, identifier, command,
+          title: title,
+          timeout: 65_000
+        )
+
+      {:error, _other} ->
+        :ok
+    end
   end
 
   def handle_cast(:toggle_pause, state) do
@@ -221,25 +342,45 @@ defmodule Aiur.AgentList.App do
     summaries = visible_summaries(summaries)
     selection_focus = if state.summaries == [] and summaries != [], do: :agents, else: state.selection_focus
     new_state = clamp_selection(%{state | summaries: summaries, selection_focus: selection_focus})
+
+    # Tell AttachPool which identifiers should have warm opencode-
+    # attach panes ready. Seeding is idempotent — the pool ignores
+    # already-known ids.
+    active_ids =
+      summaries
+      |> Enum.filter(fn s -> Map.get(s, :status) == :running end)
+      |> Enum.map(&Map.get(&1, :identifier))
+      |> Enum.reject(&is_nil/1)
+
+    _ = safely_seed_attach_pool(active_ids)
     render(new_state)
     {:noreply, new_state}
   end
 
-  def handle_info({:status_changed, %{identifier: id, status: :pane_opened}}, state)
-      when is_binary(id) do
-    new_state = %{state | open_pane_ids: MapSet.put(state.open_pane_ids, id)}
-    render(new_state)
-    {:noreply, new_state}
-  end
-
-  def handle_info({:status_changed, %{identifier: id, status: :pane_closed}}, state)
-      when is_binary(id) do
-    new_state = %{state | open_pane_ids: MapSet.delete(state.open_pane_ids, id)}
-    render(new_state)
-    {:noreply, new_state}
-  end
-
+  # The agent-list circle indicator no longer tracks "pane has ever
+  # been opened" — it tracks "session is currently visible in some
+  # slot", updated via `:slot_session_changed` below. Any other
+  # `:status_changed` event is informational and not rendered.
   def handle_info({:status_changed, _}, state), do: {:noreply, state}
+
+  def handle_info({:slot_session_changed, slot_index, identifier}, state)
+      when is_integer(slot_index) do
+    new_visible =
+      case identifier do
+        nil -> Map.delete(state.visible_sessions, slot_index)
+        id when is_binary(id) -> Map.put(state.visible_sessions, slot_index, id)
+      end
+
+    new_state = %{state | visible_sessions: new_visible}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:slot_ready, _slot_index}, state), do: {:noreply, state}
+
+  def handle_info({:poll_state_changed, payload}, state) do
+    {:noreply, %{state | poll_state: payload}}
+  end
 
   def handle_info({:alert, %{}}, state), do: {:noreply, state}
 
@@ -271,7 +412,86 @@ defmodule Aiur.AgentList.App do
     end
   end
 
+  def handle_info({:attach_warming, identifier, _slot_index}, state) do
+    new_state = update_in(state.warming_identifiers, &MapSet.put(&1, identifier))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:attach_warm, identifier, _pane_id, _slot_index}, state) do
+    new_state =
+      state
+      |> Map.update!(:warm_identifiers, &MapSet.put(&1, identifier))
+      |> Map.update!(:warming_identifiers, &MapSet.delete(&1, identifier))
+
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:attach_consumed, identifier, _pane_id, _slot_index}, state) do
+    # Identifier was opened — the warm pane is gone. Re-warming is
+    # left to a future iteration (the slot is now :active and would
+    # need to be re-cycled).
+    new_state =
+      state
+      |> Map.update!(:warm_identifiers, &MapSet.delete(&1, identifier))
+      |> Map.update!(:warming_identifiers, &MapSet.delete(&1, identifier))
+
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:aiur_perf, event}, %{debug_mode?: true} = state) do
+    new_summary = update_perf_summary(state.perf_summary, event)
+    new_state = %{state | perf_summary: new_summary}
+
+    if new_summary != state.perf_summary do
+      render(new_state)
+    end
+
+    {:noreply, new_state}
+  end
+
+  def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
+
+  # Pull the three milestones the debug footer cares about out of the
+  # aiur_perf stream. Everything else is ignored — the user asked for
+  # a compact 3-row footer, not a rolling event log.
+  defp update_perf_summary(summary, %{phase: :agent_list_ready, meta: %{wall_ms: ms}}) do
+    %{summary | agent_list_ready_ms: ms}
+  end
+
+  defp update_perf_summary(summary, %{phase: :placeholder_spawn_done, meta: %{wall_ms: ms}}) do
+    %{summary | chat_pane_visible_ms: ms}
+  end
+
+  defp update_perf_summary(summary, %{phase: :convo_first_paint, meta: %{wall_ms: ms}}) do
+    %{summary | opencode_render_ms: ms}
+  end
+
+  defp update_perf_summary(summary, _event), do: summary
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  defp safely_seed_attach_pool([]), do: :ok
+
+  defp safely_seed_attach_pool(identifiers) do
+    AttachPool.seed(identifiers)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
+
+  defp debug_env? do
+    case System.get_env("AIUR_DEBUG") do
+      value when is_binary(value) ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes"]
+
+      _ ->
+        false
+    end
+  end
 
   # Internals -----------------------------------------------------------------
 
@@ -393,16 +613,50 @@ defmodule Aiur.AgentList.App do
       tag in ["agent:cancelled", "agent:canceled", "agent:done"]
     end)
     |> Enum.sort_by(fn s ->
-      bucket =
-        case Map.get(s, :status) do
-          :running -> 0
-          :queued -> 1
-          _ -> 2
-        end
-
-      {bucket, to_string(Map.get(s, :identifier) || "")}
+      # Group by status emoji (matches what the renderer paints), then
+      # by numeric identifier ASCENDING within each group. Previously
+      # sorted identifiers as strings, so "10" came before "5" — the
+      # user explicitly asked for natural numeric order within each
+      # status-emoji bucket.
+      emoji_bucket = emoji_sort_key(s)
+      id_key = identifier_sort_key(Map.get(s, :identifier))
+      {emoji_bucket, id_key}
     end)
   end
+
+  # Map status emoji to a stable sort bucket. Lower = higher in the list.
+  # Mirrors `Aiur.AgentList.Renderer.summary_emoji/1` so list order
+  # matches what the user sees painted next to each row.
+  defp emoji_sort_key(%{status: :queued}), do: 4
+
+  defp emoji_sort_key(%{status: :running} = summary) do
+    case Map.get(summary, :work_state) do
+      # 🟢 actively working — most useful to see first
+      :working -> 0
+      # ⏸️ paused — still alive, less urgent than working
+      :paused -> 1
+      # 🔴 error — surface above queued but below healthy
+      :error -> 2
+      _ -> 3
+    end
+  end
+
+  defp emoji_sort_key(_), do: 5
+
+  # Parse identifier as integer for natural numeric ordering. Falls
+  # back to the original string for non-numeric identifiers (test
+  # fixtures like "MT-FOCUS" or future namespaced ids) so they group
+  # together rather than crash the sort.
+  defp identifier_sort_key(nil), do: {1, ""}
+
+  defp identifier_sort_key(identifier) when is_binary(identifier) do
+    case Integer.parse(identifier) do
+      {n, ""} -> {0, n}
+      _ -> {1, identifier}
+    end
+  end
+
+  defp identifier_sort_key(other), do: {1, to_string(other)}
 
   defp render(state) do
     # Re-query geometry on every render: tmux resizes panes after splits and
@@ -417,11 +671,15 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:rows, rows)
       |> Map.put(:project_label, project_label())
       |> Map.put(:dashboard_url, dashboard_url())
-      |> Map.put(:refresh_label, refresh_label())
+      |> Map.put(:refresh_label, refresh_label_from_state(state))
       |> Map.put(:agent_kind, agent_kind())
       |> Map.put(:agent_count, active_agent_count(state.summaries))
-      |> Map.put(:max_agents, max_agents(state.orchestrator))
-      |> Map.put(:open_pane_ids, state.open_pane_ids)
+      |> Map.put(:max_agents, max_agents_from_state(state))
+      |> Map.put(:visible_sessions, state.visible_sessions)
+      |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
+      |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
+      |> Map.put(:warm_identifiers, Map.get(state, :warm_identifiers, MapSet.new()))
+      |> Map.put(:warming_identifiers, Map.get(state, :warming_identifiers, MapSet.new()))
 
     state.write_fun.(Renderer.render(render_state))
     :ok
@@ -446,22 +704,27 @@ defmodule Aiur.AgentList.App do
     end
   end
 
-  defp refresh_label do
-    case safe_call(fn -> Orchestrator.poll_status() end) do
-      %{checking?: true} ->
-        # The "in-progress" state collapses to the same `0s` label as
-        # the final-second countdown — they read the same to the
-        # operator and the unified label is calmer to look at.
-        "0s"
-
-      %{next_poll_in_ms: ms} when is_integer(ms) ->
-        seconds = div(max(ms, 0) + 999, 1000)
-        "#{seconds}s"
-
-      _ ->
-        nil
-    end
+  # Compute the countdown label from cached state — no GenServer.call.
+  # The orchestrator broadcasts `:poll_state_changed` whenever its
+  # mailbox-blocking poll cycle starts or finishes; in between, this
+  # function just subtracts wall time from the cached due-at stamp.
+  defp refresh_label_from_state(%{poll_state: %{checking?: true}}) do
+    # In-progress collapses to "0s" — same calm reading the legacy
+    # path produced via the orchestrator's `checking?` flag.
+    "0s"
   end
+
+  defp refresh_label_from_state(%{poll_state: %{next_poll_due_at_ms: due_at}})
+       when is_integer(due_at) do
+    # The orchestrator stamps `next_poll_due_at_ms` with
+    # `System.monotonic_time(:millisecond)`, so we must read against the
+    # same base. Using `System.system_time/1` would give garbage.
+    ms = due_at - System.monotonic_time(:millisecond)
+    seconds = div(max(ms, 0) + 999, 1000)
+    "#{seconds}s"
+  end
+
+  defp refresh_label_from_state(_state), do: nil
 
   defp agent_kind do
     case safe_call(fn -> Config.agent_kind() end) do
@@ -477,13 +740,20 @@ defmodule Aiur.AgentList.App do
     end)
   end
 
-  defp max_agents(orchestrator) do
-    case safe_call(fn -> Orchestrator.max_concurrent_agents(orchestrator) end) do
-      %{max: n} when is_integer(n) and n > 0 -> n
-      n when is_integer(n) and n > 0 -> n
-      _ -> nil
-    end
-  end
+  # Read from the cached poll_state payload. The orchestrator publishes
+  # `max_concurrent_agents` in every `:poll_state_changed` broadcast, so
+  # render avoids the 5 s `Orchestrator.max_concurrent_agents/0` GenServer.call
+  # that previously froze arrow-key input during poll cycles.
+  defp max_agents_from_state(%{poll_state: %{max_concurrent_agents: n}})
+       when is_integer(n) and n > 0, do: n
+
+  defp max_agents_from_state(_state), do: nil
+
+  # Note: the previous `max_agents/1` private helper called
+  # `Orchestrator.max_concurrent_agents` synchronously and blocked the
+  # render tick for up to 5 s during poll cycles. It was replaced by
+  # `max_agents_from_state/1` (cache + broadcast). Do NOT reintroduce a
+  # blocking call here without also updating the broadcast path.
 
   defp safe_call(fun) do
     fun.()
@@ -519,21 +789,7 @@ defmodule Aiur.AgentList.App do
 
   defp parse_int(_value, default), do: default
 
-  defp initial_open_pane_ids(pane_manager) do
-    case safe_call(fn -> PaneManager.list_open_panes(pane_manager) end) do
-      panes when is_map(panes) -> panes |> Map.keys() |> MapSet.new()
-      _ -> MapSet.new()
-    end
-  end
-
   defp default_command_template do
-    bin = System.get_env("AIUR_BIN") || "./bin/aiur"
-    mise = System.get_env("AIUR_MISE_BIN")
-
-    if is_binary(mise) and mise != "" do
-      ~s(#{mise} exec -- #{bin} conversation)
-    else
-      "#{bin} conversation"
-    end
+    "__aiur_opencode__"
   end
 end

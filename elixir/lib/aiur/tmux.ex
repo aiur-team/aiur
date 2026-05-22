@@ -49,13 +49,33 @@ defmodule Aiur.Tmux do
   Direction is `:horizontal` (new pane to the right) or `:vertical`
   (new pane below); `percent` sets the new pane's size as a percentage
   of the target pane.
+
+  Options:
+  - `:silent` (default `false`) — when `true`, do NOT call `select-pane`
+    after the split. `select-pane` switches tmux's active window to the
+    one containing the new pane, which is harmful when splitting into
+    a hidden window because it drags the attached client there.
   """
-  @spec split_pane(GenServer.server(), String.t(), :horizontal | :vertical, pos_integer(), String.t()) ::
+  @spec split_pane(
+          GenServer.server(),
+          String.t(),
+          :horizontal | :vertical,
+          pos_integer(),
+          String.t(),
+          keyword()
+        ) ::
           {:ok, String.t()} | {:error, term()}
-  def split_pane(server \\ __MODULE__, target_pane_id, direction, percent, command_to_run)
+  def split_pane(server \\ __MODULE__, target_pane_id, direction, percent, command_to_run, opts \\ [])
       when is_binary(target_pane_id) and direction in [:horizontal, :vertical] and
-             is_integer(percent) and percent > 0 and percent < 100 and is_binary(command_to_run) do
-    GenServer.call(server, {:split_pane, target_pane_id, direction, percent, command_to_run}, 10_000)
+             is_integer(percent) and percent > 0 and percent < 100 and is_binary(command_to_run) and
+             is_list(opts) do
+    silent? = Keyword.get(opts, :silent, false)
+
+    GenServer.call(
+      server,
+      {:split_pane, target_pane_id, direction, percent, command_to_run, silent?},
+      10_000
+    )
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -70,6 +90,84 @@ defmodule Aiur.Tmux do
   def respawn_pane(server \\ __MODULE__, pane_id, command_to_run)
       when is_binary(pane_id) and is_binary(command_to_run) do
     GenServer.call(server, {:respawn_pane, pane_id, command_to_run}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Create a new tmux window detached from the current view and run
+  `command_to_run` inside it. Returns the pane id of the new pane.
+
+  Used by `Aiur.Opencode.HiddenWindow` to create the persistent hidden
+  warm window at boot; `move_pane_visible/2` later promotes background
+  panes from this window into the visible agents window.
+  """
+  @spec new_hidden_window(GenServer.server(), String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def new_hidden_window(server \\ __MODULE__, window_name, command_to_run)
+      when is_binary(window_name) and is_binary(command_to_run) do
+    GenServer.call(server, {:new_hidden_window, window_name, command_to_run}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Move `source_pane` into `target_window`. Preserves the running
+  process and the pane id — verified against tmux 3.5a on aiur's
+  isolated socket.
+  """
+  @spec join_pane(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def join_pane(server \\ __MODULE__, source_pane, target_window)
+      when is_binary(source_pane) and is_binary(target_window) do
+    GenServer.call(server, {:join_pane, source_pane, target_window}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Move `source_pane` into a hidden `target_window` without stealing
+  focus. tmux's `move-pane -d` flag detaches the move from the active
+  selection so the user keeps looking at the visible window. Preserves
+  PID and pane id — verified equivalent to `join-pane` in tmux 3.5a.
+
+  Used by `Aiur.PaneManager` close path and by `Aiur.Opencode.Slot`
+  workers when their attached pane goes hidden.
+  """
+  @spec move_pane_hidden(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def move_pane_hidden(server \\ __MODULE__, source_pane, target_window)
+      when is_binary(source_pane) and is_binary(target_window) do
+    GenServer.call(server, {:move_pane_hidden, source_pane, target_window}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Move `source_pane` into the visible `target_window`, splitting
+  horizontally next to existing panes. Caller is responsible for any
+  follow-up layout reflow.
+  """
+  @spec move_pane_visible(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def move_pane_visible(server \\ __MODULE__, source_pane, target_window)
+      when is_binary(source_pane) and is_binary(target_window) do
+    GenServer.call(server, {:move_pane_visible, source_pane, target_window}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Send `text` to `pane_id` as a single literal keystroke buffer (tmux's
+  `send-keys -l`). Bypasses the string-split parsing in `command/3` which
+  would mangle whitespace and quote characters.
+  """
+  @spec send_keys_literal(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def send_keys_literal(server \\ __MODULE__, pane_id, text)
+      when is_binary(pane_id) and is_binary(text) do
+    GenServer.call(server, {:send_keys_literal, pane_id, text})
   catch
     :exit, {:noproc, _} -> {:error, :no_tmux}
     :exit, {:timeout, _} -> {:error, :timeout}
@@ -161,29 +259,27 @@ defmodule Aiur.Tmux do
     {:reply, run_command(state, cmd), state}
   end
 
-  def handle_call({:split_pane, target_pane, direction, percent, command_to_run}, _from, state) do
+  def handle_call({:split_pane, target_pane, direction, percent, command_to_run, silent?}, _from, state) do
     direction_flag = if direction == :horizontal, do: "-h", else: "-v"
 
     # `-l N%` is the modern way to size the new pane; tmux 3.5+ tightened
     # parsing of the deprecated `-p N` form and returns "size missing" on
     # detached sessions when the percentage flag isn't paired with a `-l`.
-    args = [
-      "split-window",
-      "-t",
-      target_pane,
-      direction_flag,
-      "-l",
-      "#{percent}%",
-      "-P",
-      "-F",
-      "\#{pane_id}",
-      command_to_run
-    ]
+    # `-d` keeps the active pane selection where it is, so a split into
+    # a hidden window does not drag the attached client there.
+    base_args =
+      if silent? do
+        ["split-window", "-d", "-t", target_pane, direction_flag, "-l", "#{percent}%"]
+      else
+        ["split-window", "-t", target_pane, direction_flag, "-l", "#{percent}%"]
+      end
+
+    args = base_args ++ ["-P", "-F", "\#{pane_id}", command_to_run]
 
     case run_args(state, args) do
       {:ok, [pane_id | _]} ->
         new_id = String.trim(pane_id)
-        _ = run_args(state, ["select-pane", "-t", new_id])
+        unless silent?, do: run_args(state, ["select-pane", "-t", new_id])
         {:reply, {:ok, new_id}, state}
 
       {:ok, []} ->
@@ -272,6 +368,50 @@ defmodule Aiur.Tmux do
     args = ["respawn-pane", "-k", "-t", pane_id, command_to_run]
 
     case run_args(state, args) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:send_keys_literal, pane_id, text}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "-l", text]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:new_hidden_window, window_name, command_to_run}, _from, state) do
+    # `-d` keeps the new window in the background; `-P -F #{pane_id}` makes
+    # tmux print the pane id so we can target it later for `join-pane`.
+    args = ["new-window", "-d", "-n", window_name, "-P", "-F", "\#{pane_id}", command_to_run]
+
+    case run_args(state, args) do
+      {:ok, [pane_id | _]} -> {:reply, {:ok, String.trim(pane_id)}, state}
+      {:ok, []} -> {:reply, {:error, :no_pane_id}, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:join_pane, source_pane, target_window}, _from, state) do
+    # `-h` makes the joined pane a horizontal split next to the existing
+    # panes in the target window; layout reflow happens on the caller side.
+    case run_args(state, ["join-pane", "-s", source_pane, "-t", target_window, "-h"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:move_pane_hidden, source_pane, target_window}, _from, state) do
+    # `-d` detaches the move from the active selection (no focus shift).
+    # `-h` keeps tmux happy when the destination window has existing panes.
+    case run_args(state, ["move-pane", "-d", "-s", source_pane, "-t", target_window, "-h"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:move_pane_visible, source_pane, target_window}, _from, state) do
+    case run_args(state, ["move-pane", "-s", source_pane, "-t", target_window, "-h"]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end

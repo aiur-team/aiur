@@ -23,7 +23,10 @@ defmodule Aiur.Application do
 
   @impl true
   def start(_type, _args) do
+    :ok = Aiur.Boot.mark()
     :ok = Aiur.LogFile.configure()
+    Logger.info("aiur_boot phase=start elapsed_ms=0")
+    install_signal_handlers()
     maybe_start_distribution()
 
     interactive_cli? = Application.get_env(:aiur, :interactive_cli, false)
@@ -33,6 +36,7 @@ defmodule Aiur.Application do
         [
           Aiur.Tmux,
           Aiur.PaneManager,
+          Aiur.Opencode.PrewarmSupervisor,
           Aiur.AgentList.App,
           Aiur.AgentList.Input
         ]
@@ -44,11 +48,18 @@ defmodule Aiur.Application do
       [
         {Phoenix.PubSub, name: Aiur.PubSub},
         {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
+        {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
+        {Registry, keys: :unique, name: Aiur.Opencode.SessionWriterRegistry.Registry},
+        {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
         {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
         {Task.Supervisor, name: Aiur.TaskSupervisor},
         Aiur.WorkflowStore,
         Aiur.Orchestrator,
-        Aiur.HttpServer
+        Aiur.HttpServer,
+        Aiur.Opencode.TokenRegistry,
+        Aiur.Opencode.PaneSupervisor,
+        Aiur.Opencode.SessionSupervisor,
+        Aiur.Opencode.BridgeSupervisor
       ] ++ cli_children
 
     Supervisor.start_link(
@@ -59,7 +70,13 @@ defmodule Aiur.Application do
   end
 
   @impl true
-  def stop(_state), do: :ok
+  def stop(_state) do
+    # SIGTERM / `:init.stop` path — OTP shuts down before `Aiur.Shutdown.shutdown/2`
+    # would normally run, so make sure opencode sessions are still reaped.
+    # `delete_all/1` is idempotent so re-entry from the `q`-key path is safe.
+    Aiur.Shutdown.cleanup()
+    :ok
+  end
 
   @doc """
   Run the distribution bring-up step and log the outcome. Public so
@@ -81,4 +98,23 @@ defmodule Aiur.Application do
   end
 
   defp maybe_start_distribution, do: start_distribution()
+
+  # BEAM-level signal routing. The Erlang VM's default handlers already do
+  # what we want for catchable signals:
+  #   SIGINT  -> `init:stop()` -> Application.stop/1 -> Aiur.Shutdown.cleanup
+  #   SIGTERM -> `init:stop()` -> same path
+  # SIGHUP defaults to ignored on most VMs; we explicitly opt it into the
+  # same graceful path so a terminal-close kills opencode sessions too.
+  # Layer 2 (the bash trap in `scripts/aiur`) backstops these. Layer 3 is
+  # boot-time GC in `Aiur.Opencode.SessionGC` for uncatchable signals (SIGKILL, OOM).
+  defp install_signal_handlers do
+    try do
+      :ok = :os.set_signal(:sighup, :handle)
+    catch
+      kind, reason ->
+        Logger.warning("aiur_signal phase=sighup_install_failed kind=#{kind} reason=#{inspect(reason)}")
+    end
+
+    :ok
+  end
 end

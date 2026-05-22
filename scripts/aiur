@@ -443,22 +443,26 @@ require_mise() {
 ensure_built() {
   local elixir_dir="$1"
   local aiur_bin="$elixir_dir/bin/aiur"
+  local release_dir="$elixir_dir/_build/dev/rel/aiur"
 
   # AIUR_SKIP_BUILD lets the test fixture short-circuit this without faking
-  # `mix escript.build` invocations on top of every other stubbed binary.
+  # `mix release` invocations on top of every other stubbed binary.
   if [ "${AIUR_SKIP_BUILD:-0}" = "1" ]; then
     return 0
   fi
 
   ensure_elixir_deps "$elixir_dir"
 
-  if [ ! -x "$aiur_bin" ]; then
+  # No shim or no assembled release? Always rebuild.
+  if [ ! -x "$aiur_bin" ] || [ ! -x "$release_dir/bin/aiur" ]; then
     build_aiur "$elixir_dir"
     return
   fi
 
-  # If any source file is newer than the escript, rebuild. `-quit` stops after
-  # the first hit; output is discarded — we only care about the exit signal.
+  # If any source file is newer than the shim, rebuild. `-quit` stops
+  # after the first hit; output is discarded — we only care about the
+  # exit signal. mix.exs counts too, since releases vs escripts is a
+  # mix-config-level decision.
   if [ -n "$(find "$elixir_dir/lib" "$elixir_dir/mix.exs" "$elixir_dir/mix.lock" \
               -newer "$aiur_bin" -print -quit 2>/dev/null)" ]; then
     build_aiur "$elixir_dir"
@@ -501,8 +505,12 @@ build_aiur() {
   local elixir_dir="$1"
 
   require_mise
-  echo "aiur: rebuilding bin/aiur…" >&2
-  (cd "$elixir_dir" && "$mise_bin" exec -- mix escript.build) >&2
+  echo "aiur: rebuilding bin/aiur (release)…" >&2
+  # `mix release --overwrite` ships priv/ directories on disk so NIFs
+  # (e.g. exqlite/priv/sqlite3_nif.so) load correctly — escript zips
+  # cannot host NIFs. The post-assemble step in mix.exs writes a thin
+  # shim at bin/aiur that delegates into the release.
+  (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) >&2
 }
 
 source_env_files() {
@@ -672,6 +680,24 @@ stop_profile() {
   fi
 
   "$pkill_bin" -f "$elixir_dir.*bin/aiur" 2>/dev/null || true
+
+  # The OTP release replaces `bin/aiur` with `beam.smp ... -name
+  # aiur-orangekid@<host>`. The escript-era patterns above no longer
+  # match — target the release's BEAM by the erts/bin path that only
+  # the release would launch from. `pkill -f` matches against the
+  # whole command line, which would also match THIS very bash process
+  # if we use the obvious `-name aiur-orangekid` string here. Avoid
+  # self-kill by enumerating PIDs first (filtering out `bash`/`pkill`)
+  # and signalling them directly.
+  for pid in $(pgrep -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
+    [ "$pid" = "$$" ] && continue
+    pid_comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+    case "$pid_comm" in
+      beam.smp)
+        "$kill_bin" -TERM "$pid" 2>/dev/null || true
+        ;;
+    esac
+  done
 }
 
 stop_all() {
@@ -968,7 +994,102 @@ run_in_tmux() {
   export AIUR_MISE_BIN="$mise_bin"
   local startup_capture
   startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
-  trap 'rm -f "$startup_capture"' EXIT
+
+  # Session-id sidecar file. SessionWriter writes one opencode session id
+  # per line into this file as it creates them; the trap below reaps every
+  # id on exit (incl. parent-bash exit, Ctrl+C, terminal close, panic).
+  # This is the layer-2 cleanup defense — the BEAM-side Aiur.Shutdown is
+  # layer 1, and WarmServer's boot-time GC is layer 3 (SIGKILL recovery).
+  local session_tmpfile_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+  export AIUR_SESSION_TMPFILE="${session_tmpfile_root}/aiur-${$}-sessions"
+  : > "$AIUR_SESSION_TMPFILE"
+
+  __aiur_cleanup() {
+    local exit_code=$?
+    local sessions_file="${AIUR_SESSION_TMPFILE:-}"
+    # `startup_capture` was declared `local` inside this function's caller,
+    # so by the time the EXIT trap fires it has gone out of scope. Use
+    # safe expansion so `set -u` doesn't blow up before the real reaping.
+    local capture="${startup_capture:-}"
+
+    if [ -n "$capture" ]; then
+      rm -f "$capture" 2>/dev/null || true
+    fi
+
+    # Shut the aiur BEAM down. The detached tmux session running aiur
+    # outlives this trap; without an explicit stop the BEAM keeps
+    # holding the registered Erlang node name and port 4000, breaking
+    # the next `aiur` invocation with:
+    #     Protocol 'inet_tcp': the name aiur-orangekid@... seems to
+    #     be in use by another Erlang node
+    #
+    # `bin/aiur stop` (OTP release RPC) doesn't work here — we start
+    # the BEAM via a custom Elixir CLI path, not the release's
+    # standard `start` command, so the stop RPC can't reach it.
+    # Kill the aiur tmux session (SIGHUP propagates to the BEAM via
+    # its parent bash) and SIGTERM the BEAM directly as fallback.
+    if [ -n "${socket:-}" ] && [ -n "${session:-}" ] && [ -n "${tmux_bin:-}" ]; then
+      "$tmux_bin" -L "$socket" -f "${conf:-}" kill-session -t "$session" 2>/dev/null || true
+    fi
+
+    # Belt-and-suspenders: enumerate aiur release BEAMs and SIGTERM
+    # them. The tmux kill-session above usually suffices, but if the
+    # BEAM was started outside the expected tmux session (or the
+    # session was killed externally first), this catches the stragglers.
+    # Pattern matches only this release's BEAM (no false positives from
+    # other Elixir apps on the box). Use safe expansion on `elixir_dir`
+    # — it's a `local` in this function's caller (`run_foreground`), so
+    # `set -u` (script line 2) would crash here if `run_foreground` had
+    # already returned by the time the trap fires (e.g., on EXIT after
+    # tmux attach finished naturally).
+    local trap_elixir_dir="${elixir_dir:-}"
+    if [ -n "$trap_elixir_dir" ]; then
+      local beam_pids
+      beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+      if [ -n "$beam_pids" ]; then
+        local pid
+        for pid in $beam_pids; do
+          # Don't kill ourselves; we're not a BEAM, but defensive.
+          [ "$pid" = "$$" ] && continue
+          kill -TERM "$pid" 2>/dev/null || true
+        done
+
+        # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
+        # SIGKILL any stragglers. SIGTERM lets Aiur.Shutdown's supervisor
+        # tree run termination callbacks (session GC, file cleanup).
+        local kill_wait=0
+        while [ $kill_wait -lt 30 ]; do
+          beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+          [ -z "$beam_pids" ] && break
+          sleep 0.1
+          kill_wait=$((kill_wait + 1))
+        done
+
+        beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+        if [ -n "$beam_pids" ]; then
+          for pid in $beam_pids; do
+            [ "$pid" = "$$" ] && continue
+            kill -KILL "$pid" 2>/dev/null || true
+          done
+        fi
+      fi
+    fi
+
+    if [ -n "$sessions_file" ] && [ -s "$sessions_file" ]; then
+      local id
+      while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        "$mise_bin" exec -- opencode session delete "$id" >/dev/null 2>&1 &
+      done < "$sessions_file"
+
+      wait 2>/dev/null || true
+      rm -f "$sessions_file" 2>/dev/null || true
+    fi
+
+    return $exit_code
+  }
+
+  trap '__aiur_cleanup' EXIT INT TERM HUP
 
   # Resolve where the BEAM will write its log file. The Elixir CLI sets
   # `:log_file` to `<logs_root>/log/aiur.log` when `--logs-root` is
@@ -1021,9 +1142,20 @@ run_in_tmux() {
     sleep "$grace_sleep"
   done
 
-  # In the foreground, the user attaches to the session normally.
+  # In the foreground, the user attaches to the session normally. We do
+  # NOT `exec` into tmux — replacing the bash process would tear down our
+  # EXIT/INT/TERM/HUP trap before it could run the session reaper. Instead
+  # we run tmux as a child and propagate its exit status after cleanup.
   rm -f "$startup_capture"
-  exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
+
+  # tmux prints `[server exited]` to stderr when the inner session dies
+  # (i.e. the user quits aiur via `q`). It is unhelpful noise on quit;
+  # the BEAM has already cleanly shut down by this point. Filter it.
+  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
+  local tmux_status=$?
+
+  # Trap fires on `exit` below — let it reap sessions before we leave.
+  exit $tmux_status
 }
 
 attach_existing_tmux_session() {

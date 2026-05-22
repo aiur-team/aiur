@@ -1268,6 +1268,12 @@ defmodule Aiur.Orchestrator do
     |> running_summaries()
     |> AgentPubSub.broadcast_running_change()
 
+    AgentPubSub.broadcast_poll_state(%{
+      checking?: state.poll_check_in_progress == true,
+      next_poll_due_at_ms: state.next_poll_due_at_ms,
+      max_concurrent_agents: state.max_concurrent_agents
+    })
+
     ObservabilityPubSub.broadcast_update()
   end
 
@@ -1742,6 +1748,24 @@ defmodule Aiur.Orchestrator do
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
   @doc """
+  Returns the identifiers Aiur currently knows are running. Used by
+  `Aiur.Opencode.WarmServer` at boot-time GC to decide which leftover
+  opencode sessions belong to live agents vs ungraceful prior exits.
+  """
+  @spec list_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
+  def list_active_identifiers(server \\ __MODULE__, timeout \\ 1_000) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, :list_active_identifiers, timeout)
+      catch
+        :exit, _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  @doc """
   Lightweight read of the polling clock so UI surfaces (the agent-list
   pane) can render a "Next refresh: Ns" countdown without doing a full
   `snapshot/0` every tick. Returns `%{checking?: boolean, next_poll_in_ms: integer | nil}`,
@@ -1788,6 +1812,16 @@ defmodule Aiur.Orchestrator do
     }
 
     {:reply, reply, state}
+  end
+
+  def handle_call(:list_active_identifiers, _from, state) do
+    identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
+      |> Enum.reject(&is_nil/1)
+
+    {:reply, identifiers, state}
   end
 
   def handle_call(:snapshot, _from, state) do
@@ -2019,23 +2053,24 @@ defmodule Aiur.Orchestrator do
   defp enqueue_operator_message(state, issue_identifier, body, payload) do
     delivery_policy = Map.get(payload, :delivery_policy, :checkpoint)
     fallback = Map.get(payload, :fallback)
+    turn_id = Map.get(payload, :turn_id)
 
     case validate_operator_message(body) do
       {:ok, text} ->
-        enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback)
+        enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback, turn_id)
 
       {:error, _reason} = error ->
         {error, state}
     end
   end
 
-  defp enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback) do
+  defp enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback, turn_id) do
     case find_running_by_identifier(state.running, issue_identifier) do
       nil ->
         {{:error, :no_running_agent}, state}
 
       running_entry ->
-        enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback)
+        enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
     end
   end
 
@@ -2045,15 +2080,23 @@ defmodule Aiur.Orchestrator do
   # so we can't push active over max no matter which entry point the
   # operator uses. If no slot is free, the cap error propagates and the
   # conversation pane surfaces it.
-  defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback) do
+  defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
     if paused_running_entry?(running_entry) do
-      enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback)
+      enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
     else
-      do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, delivery_policy, fallback)
+      do_enqueue_running_operator_message(
+        state,
+        running_entry,
+        issue_identifier,
+        text,
+        delivery_policy,
+        fallback,
+        turn_id
+      )
     end
   end
 
-  defp enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback) do
+  defp enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
     case resume_paused_issue(state, running_entry) do
       {{:ok, :resumed}, next_state} ->
         resumed_entry = find_running_by_identifier(next_state.running, issue_identifier)
@@ -2064,7 +2107,8 @@ defmodule Aiur.Orchestrator do
           issue_identifier,
           text,
           delivery_policy,
-          fallback
+          fallback,
+          turn_id
         )
 
       {{:error, _reason} = error, next_state} ->
@@ -2078,14 +2122,15 @@ defmodule Aiur.Orchestrator do
          issue_identifier,
          text,
          delivery_policy,
-         fallback
+         fallback,
+         turn_id
        ) do
     capabilities = issue_control_capabilities(state, issue_identifier)
 
     case normalize_delivery_request(delivery_policy, fallback, capabilities) do
       {:ok, queue_opts} ->
         {queue_store, item} =
-          AgentQueue.operator_message(issue_identifier, text, queue_opts)
+          AgentQueue.operator_message(issue_identifier, text, Keyword.put(queue_opts, :turn_id, turn_id))
           |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
         # NOTE: previously we emitted a `chat.send` alert here for every

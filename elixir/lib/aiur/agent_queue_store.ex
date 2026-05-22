@@ -23,6 +23,7 @@ defmodule Aiur.AgentQueueStore do
           optional(:delivery) => map(),
           optional(:dedupe_key) => String.t(),
           optional(:causal_refs) => [String.t()],
+          optional(:turn_id) => String.t(),
           optional(:subscription) => map()
         }
 
@@ -46,6 +47,7 @@ defmodule Aiur.AgentQueueStore do
       delivery: delivery,
       dedupe_key: Map.get(attrs, :dedupe_key),
       causal_refs: Map.get(attrs, :causal_refs, []),
+      turn_id: Map.get(attrs, :turn_id),
       subscription: Map.get(attrs, :subscription),
       status: :pending,
       inserted_at: now

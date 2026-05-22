@@ -42,9 +42,8 @@ defmodule Aiur.LogFile do
   Truthy values: `"1"`, `"true"`, `"yes"` (case-insensitive). Anything
   else is treated as falsy.
 
-  Called by `configure/0` during application start and by
-  `AiurPane.CLI.main/1` during pane bootstrap so both BEAMs see the
-  same flag.
+  Called by `configure/0` during application start so every supervised
+  process sees the same flag.
   """
   @spec configure_level() :: :ok
   def configure_level do

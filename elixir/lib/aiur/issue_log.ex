@@ -1,7 +1,7 @@
 defmodule Aiur.IssueLog do
   @moduledoc """
   Per-issue file writer that captures the same transcript + alert stream
-  the conversation pane shows. One GenServer per active issue; it
+  the opencode pane shows. One GenServer per active issue; it
   subscribes to the agent's PubSub topic on startup and appends every
   event to `<logs-root>/log/<repo>.<issue>.log`.
 
@@ -68,6 +68,49 @@ defmodule Aiur.IssueLog do
   end
 
   @doc """
+  Reads the on-disk log file for `identifier` and returns the last `limit`
+  parsed events. Unlike `history/2`, this reaches back beyond the in-memory
+  ring — useful when the BEAM restarted while the underlying agent kept
+  running, so prior conversation can be replayed into a fresh opencode pane.
+  """
+  @spec disk_history(AgentEvents.agent_identifier(), pos_integer()) :: [map()]
+  def disk_history(identifier, limit \\ @history_limit) when is_binary(identifier) do
+    path = log_path(identifier)
+
+    case File.read(path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse_line/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.take(-limit)
+
+      _ ->
+        []
+    end
+  end
+
+  defp parse_line(line) do
+    case Regex.run(~r/\A([0-9T:\-\.Z]+) \[([a-z]+)\] (.*)\z/, line) do
+      [_, _ts, tag, body] ->
+        case role_from_tag(tag) do
+          nil -> nil
+          role -> %{role: role, body: body, turn_id: nil}
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp role_from_tag("agent"), do: :assistant
+  defp role_from_tag("user"), do: :user
+  defp role_from_tag("cmd"), do: :command
+  defp role_from_tag("system"), do: :system
+  defp role_from_tag("alert"), do: :alert
+  defp role_from_tag(_), do: nil
+
+  @doc """
   Returns the resolved file path for an issue's log. Useful for tests
   and for users who want to `tail -F` a specific issue.
   """
@@ -110,7 +153,16 @@ defmodule Aiur.IssueLog do
 
   @impl true
   def handle_call({:history, limit}, _from, state) do
-    items = :queue.to_list(state.history) |> Enum.take(-limit)
+    items =
+      state.history
+      |> :queue.to_list()
+      |> Enum.take(-limit)
+      |> Enum.map(fn
+        {:transcript_event, event} -> Map.put_new(event, :turn_id, nil)
+        {:alert, event} -> %{role: :alert, body: event[:message] || "", turn_id: nil}
+        bare when is_map(bare) -> bare
+      end)
+
     {:reply, items, state}
   end
 
