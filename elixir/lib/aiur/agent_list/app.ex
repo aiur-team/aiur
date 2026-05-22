@@ -446,15 +446,27 @@ defmodule Aiur.AgentList.App do
     {:noreply, new_state}
   end
 
-  def handle_info({:attach_consumed, identifier, _pane_id, _slot_index}, state) do
-    # Identifier was opened — the warm pane is gone. Re-warming is
-    # left to a future iteration (the slot is now :active and would
-    # need to be re-cycled).
-    new_state =
-      state
-      |> Map.update!(:warm_identifiers, &MapSet.delete(&1, identifier))
-      |> Map.update!(:warming_identifiers, &MapSet.delete(&1, identifier))
+  def handle_info({:attach_failed, identifier, _slot_index, _reason}, state) do
+    # AttachPool gave up warming this identifier (typically paint
+    # timeout under CPU contention). Clear the ⏳ warming marker —
+    # without this, the row stays hourglass forever and Enter remains
+    # blocked. The renderer will fall back to the default running
+    # marker; if the identifier still has agent:todo, a future seed
+    # will re-attempt warm.
+    new_state = update_in(state.warming_identifiers, &MapSet.delete(&1, identifier))
+    render(new_state)
+    {:noreply, new_state}
+  end
 
+  def handle_info({:attach_consumed, identifier, _pane_id, _slot_index}, state) do
+    # Identifier was opened — keep it in `warm_identifiers` so the
+    # status emoji stays green (the row is ready and now also visible).
+    # The renderer composes warm + open: open-pane glyph wins for the
+    # ID gap, and the status emoji stays at the warm marker (🟢) rather
+    # than regressing to the warming fallback (⏳). Without this, opening
+    # any chat appears to revert the row to "warming" until the
+    # underlying agent emits a phase event.
+    new_state = update_in(state.warming_identifiers, &MapSet.delete(&1, identifier))
     render(new_state)
     {:noreply, new_state}
   end
