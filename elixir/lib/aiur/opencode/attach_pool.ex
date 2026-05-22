@@ -49,7 +49,16 @@ defmodule Aiur.Opencode.AttachPool do
 
   defstruct slots_ready?: false,
             seeded_identifiers: MapSet.new(),
-            attachments: %{}
+            attachments: %{},
+            # Slot indexes currently held by an in-flight warm Task or
+            # by a :warm attachment in the pool. SlotSupervisor.acquire_slot
+            # returns the lowest-indexed :ready slot; without this guard,
+            # back-to-back acquire calls in maybe_warm_pending return the
+            # SAME slot (the slot's status doesn't transition to :active
+            # until the dispatched Task's Slot.select message lands).
+            # Two warmings would then collide on slot 1 — both fight for
+            # the pane, both hit the 30 s paint timeout.
+            claimed_slots: MapSet.new()
 
   @type attachment_status :: :pending | :warming | :warm | :consumed
   @type attachment :: %{
@@ -121,7 +130,15 @@ defmodule Aiur.Opencode.AttachPool do
       %{status: :warm, slot_index: slot_index, pane_id: pane_id} = att
       when is_integer(slot_index) and is_binary(pane_id) ->
         new_att = %{att | status: :consumed}
-        new_state = put_in(state.attachments[identifier], new_att)
+
+        new_state =
+          state
+          |> put_in([Access.key!(:attachments), identifier], new_att)
+          # Release the slot claim — the warm pane is now visible to
+          # the user and the slot is :active under their open. If the
+          # user closes the pane, that slot can be re-warmed for a
+          # different identifier (future enhancement).
+          |> Map.update!(:claimed_slots, &MapSet.delete(&1, slot_index))
 
         Aiur.Perf.event(:attach_pool_hit,
           identifier: identifier,
@@ -201,7 +218,14 @@ defmodule Aiur.Opencode.AttachPool do
           reason: reason
         )
 
-        new_state = update_in(state.attachments, &Map.delete(&1, identifier))
+        new_state =
+          state
+          |> Map.update!(:attachments, &Map.delete(&1, identifier))
+          # Release the claim so the slot can be retried (e.g. with a
+          # different identifier, or this one once the upstream issue
+          # is fixed).
+          |> Map.update!(:claimed_slots, &MapSet.delete(&1, slot_index))
+
         {:noreply, new_state}
 
       _ ->
@@ -244,13 +268,16 @@ defmodule Aiur.Opencode.AttachPool do
     pool = self()
 
     Enum.reduce(pending, state, fn identifier, acc ->
-      case SlotSupervisor.acquire_slot() do
+      case acquire_unclaimed_slot(acc.claimed_slots) do
         {slot_index, slot_pid} when is_integer(slot_index) ->
           spawn_warm_attach(pool, identifier, slot_index, slot_pid)
 
           att = Map.fetch!(acc.attachments, identifier)
           new_att = %{att | status: :warming, slot_index: slot_index}
-          put_in(acc.attachments[identifier], new_att)
+
+          acc
+          |> put_in([Access.key!(:attachments), identifier], new_att)
+          |> Map.update!(:claimed_slots, &MapSet.put(&1, slot_index))
 
         {:error, :no_ready_slot} ->
           # Stop here — no more slots free this round. Remaining
@@ -259,6 +286,28 @@ defmodule Aiur.Opencode.AttachPool do
           acc
       end
     end)
+  end
+
+  # Walk SlotRegistry directly to find an :ready slot whose index is
+  # NOT in `claimed`. This is what `SlotSupervisor.acquire_slot/0`
+  # does but with the claim-set guard so back-to-back calls in
+  # `maybe_warm_pending` can't return the same slot twice before the
+  # async Task transitions it to :active.
+  defp acquire_unclaimed_slot(claimed) do
+    ready =
+      SlotRegistry.all()
+      |> Enum.reject(fn {idx, _pid} -> MapSet.member?(claimed, idx) end)
+      |> Enum.map(fn {idx, pid} -> {idx, pid, Slot.snapshot(pid)} end)
+      |> Enum.filter(fn {_idx, _pid, snap} -> Map.get(snap, :status) == :ready end)
+
+    case ready do
+      [] ->
+        {:error, :no_ready_slot}
+
+      candidates ->
+        {idx, pid, _snap} = Enum.min_by(candidates, fn {idx, _, _} -> idx end)
+        {idx, pid}
+    end
   end
 
   defp spawn_warm_attach(pool, identifier, slot_index, slot_pid) do
@@ -283,16 +332,20 @@ defmodule Aiur.Opencode.AttachPool do
           # If we mark warm now, the user sees a black/loading pane
           # for 7 s when they press Enter — defeating the purpose.
           #
-          # Also resize the hidden pane to roughly the size it will
-          # have when moved to the visible window. opencode-attach
-          # re-renders from scratch on resize, so if we don't pre-
-          # size, the user pressing Enter triggers another 5-7 s
-          # render after move-pane. Pre-sizing avoids that.
-          _ = Tmux.command(Tmux, "resize-pane -t #{pane_id} -x 110 -y 30")
+          # Before waiting, ensure the hidden pane is sized close to
+          # the target visible size. opencode-attach re-renders on
+          # resize so a hidden->visible move of a tiny pane (1-44
+          # cols when many siblings are co-located) costs the user
+          # the full re-render time. We use ensure_hidden_geometry to
+          # widen the hidden window itself so every warm pane has
+          # room — pre-resizing individual panes was a dead end
+          # because aiur-hidden is only as wide as the client (220),
+          # so 5 panes at 110 each is impossible.
+          ensure_hidden_geometry()
 
           # Wait for the message-turn marker `Build · issue-` to
           # appear in the pane before declaring warm.
-          case wait_for_paint(pane_id, 30_000) do
+          case wait_for_paint(pane_id, 20_000) do
             :ok ->
               Aiur.Perf.span_end(span,
                 identifier: identifier,
@@ -310,10 +363,12 @@ defmodule Aiur.Opencode.AttachPool do
                 pane_id: pane_id
               )
 
-              # The attach spawned but never painted — best effort:
-              # mark it warm anyway since the pane DOES exist. User
-              # might see a slow render but at least gets opencode.
-              send(pool, {:attach_warmed, identifier, slot_index, pane_id})
+              # Paint never landed within the budget. Treat as failure
+              # — marking warm now would lie to the user (⚡ promises
+              # instant open, but a never-painted attach renders cold
+              # at move-pane time). Drop the attachment so the next
+              # seed can retry on a fresh slot.
+              send(pool, {:attach_failed, identifier, slot_index, :paint_timeout})
           end
 
         {:error, reason} ->
@@ -327,6 +382,53 @@ defmodule Aiur.Opencode.AttachPool do
           send(pool, {:attach_failed, identifier, slot_index, reason})
       end
     end)
+  end
+
+  # Widen the aiur-hidden window so each warm-attach pane has at
+  # least ~110 cols to render in. The window normally inherits the
+  # client size (~220 cols), and tmux splits panes 50/50 — so 5 co-
+  # located opencode-attach panes get squished to 1-44 cols each,
+  # and opencode-attach never paints in that little space.
+  #
+  # `resize-window -A` auto-sizes to fit attached clients; for our
+  # hidden window with no attached client we pin a large fixed
+  # width via `resize-window -x`. tmux silently caps to the max
+  # available width if our target exceeds physical capacity.
+  #
+  # Idempotent: if the window is already wide enough we no-op.
+  @hidden_target_width 600
+  @hidden_target_height 60
+
+  defp ensure_hidden_geometry do
+    target = Aiur.Config.max_vertical_panes() * 2 - 1
+    desired_width = max(target * 110, @hidden_target_width)
+
+    case Tmux.command(Tmux, "display-message -p -t aiur-orangekid-default:aiur-hidden \#{window_width}") do
+      {:ok, [width_str | _]} ->
+        current = width_str |> String.trim() |> String.to_integer()
+
+        if current < desired_width do
+          _ =
+            Tmux.command(
+              Tmux,
+              "resize-window -t aiur-orangekid-default:aiur-hidden -x #{desired_width} -y #{@hidden_target_height}"
+            )
+
+          # Re-layout so existing panes get equal share of the new width.
+          _ =
+            Tmux.command(
+              Tmux,
+              "select-layout -t aiur-orangekid-default:aiur-hidden even-horizontal"
+            )
+        end
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   # Poll the pane for the `Build · issue-` marker — opencode prints it
