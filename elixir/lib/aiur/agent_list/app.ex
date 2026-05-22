@@ -192,6 +192,7 @@ defmodule Aiur.AgentList.App do
       case Enum.at(state.summaries, state.selection_index) do
         %{identifier: identifier} = summary ->
           Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
+          Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
           command = "#{state.command_template} #{identifier}"
           title = Map.get(summary, :title)
           pane_manager = state.pane_manager

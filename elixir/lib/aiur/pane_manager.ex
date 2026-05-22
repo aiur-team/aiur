@@ -209,12 +209,19 @@ defmodule Aiur.PaneManager do
 
   @impl true
   def handle_call({:open, identifier, command_to_run, opts}, from, state) do
+    Aiur.Perf.event(:pane_open_request, identifier: identifier)
+
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, existing_pane} ->
         case Tmux.command(state.tmux, "select-pane -t #{existing_pane}") do
           {:ok, _} ->
             Logger.info(
               "aiur_pane_manager phase=open_already_visible elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} pane_id=#{existing_pane}"
+            )
+
+            Aiur.Perf.event(:pane_open_already_visible,
+              identifier: identifier,
+              pane_id: existing_pane
             )
 
             {:reply, {:ok, existing_pane}, state}
@@ -492,11 +499,20 @@ defmodule Aiur.PaneManager do
   # (chain pre-warm hasn't reached one yet), fall back to the legacy
   # cold-attach path so the user never sees an error.
   defp open_opencode_pane(state, identifier, _opts, from) do
+    acquire_span = Aiur.Perf.span_begin(:acquire_slot, identifier: identifier)
+
     case SlotSupervisor.acquire_slot() do
       {slot_index, slot_pid} when is_integer(slot_index) ->
+        Aiur.Perf.span_end(acquire_span,
+          result: :ok,
+          slot: slot_index,
+          identifier: identifier
+        )
+
         attach_identifier_to_slot(state, identifier, slot_index, slot_pid)
 
       {:error, :no_ready_slot} ->
+        Aiur.Perf.span_end(acquire_span, result: :no_ready_slot, identifier: identifier)
         enqueue_open(state, identifier, from)
     end
   end
@@ -507,11 +523,23 @@ defmodule Aiur.PaneManager do
   # `from` of `nil` (the queue-drain case re-replies via `GenServer.reply`).
   defp attach_identifier_to_slot(state, identifier, slot_index, slot_pid, from \\ nil) do
     started_at = System.monotonic_time(:millisecond)
+    select_span = Aiur.Perf.span_begin(:slot_select, slot: slot_index, identifier: identifier)
 
     case Slot.select(slot_pid, identifier) do
       {:ok, pane_id} ->
+        Aiur.Perf.span_end(select_span,
+          result: :ok,
+          slot: slot_index,
+          identifier: identifier,
+          pane_id: pane_id
+        )
+
+        move_span = Aiur.Perf.span_begin(:pane_move_visible, pane_id: pane_id)
+
         case Tmux.move_pane_visible(state.tmux, pane_id, state.window_target) do
           :ok ->
+            Aiur.Perf.span_end(move_span, result: :ok, pane_id: pane_id)
+
             new_state =
               state
               |> record_slot_pane(slot_index, pane_id, identifier)
@@ -520,8 +548,17 @@ defmodule Aiur.PaneManager do
             _ = apply_layout(new_state)
             AgentPubSub.broadcast_status_change(identifier, :pane_opened)
 
+            open_ms = System.monotonic_time(:millisecond) - started_at
+
             Logger.info(
-              "aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{System.monotonic_time(:millisecond) - started_at} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
+              "aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{open_ms} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
+            )
+
+            Aiur.Perf.event(:pane_open_visible,
+              identifier: identifier,
+              slot: slot_index,
+              pane_id: pane_id,
+              wall_ms: open_ms
             )
 
             reply_or_noreply({:ok, pane_id}, from, new_state)

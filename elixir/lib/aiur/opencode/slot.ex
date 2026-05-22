@@ -173,6 +173,8 @@ defmodule Aiur.Opencode.Slot do
 
   @impl true
   def handle_continue(:start_serve, state) do
+    serve_span = Aiur.Perf.span_begin(:slot_start_serve, slot: state.slot_index)
+    Process.put(:slot_serve_span, serve_span)
     bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
 
     # Slot's models map grows incrementally — boot with whatever's in
@@ -214,6 +216,11 @@ defmodule Aiur.Opencode.Slot do
         "opencode_slot phase=serve_ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} base_url=#{base_url}"
       )
 
+      if span = Process.get(:slot_serve_span) do
+        Aiur.Perf.span_end(span, slot: state.slot_index, base_url: base_url)
+        Process.delete(:slot_serve_span)
+      end
+
       new_state = %{
         state
         | status: :attach_spawning,
@@ -246,6 +253,7 @@ defmodule Aiur.Opencode.Slot do
       )
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
+      Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
       if state.slot_index == 1 do
         Task.start(fn -> SessionGC.run(state.base_url) end)
@@ -271,6 +279,7 @@ defmodule Aiur.Opencode.Slot do
         )
 
         Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
+      Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
         # First slot to reach :ready runs boot-time GC. Recovers from any
         # prior aiur run that crashed before its shutdown could reap
@@ -314,6 +323,8 @@ defmodule Aiur.Opencode.Slot do
       Logger.info(
         "opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}"
       )
+
+      Aiur.Perf.event(:slot_identifier_miss, slot: state.slot_index, identifier: identifier)
 
       pending = {from, identifier}
       {:noreply, schedule_serve_rebuild(state, pending)}
@@ -430,9 +441,28 @@ defmodule Aiur.Opencode.Slot do
   # --- Internals ------------------------------------------------------------
 
   defp do_select(identifier, state) do
+    do_select_span =
+      Aiur.Perf.span_begin(:slot_do_select,
+        slot: state.slot_index,
+        identifier: identifier
+      )
+
     case SessionWriterRegistry.ensure(identifier, state.base_url) do
       {:ok, %{session_id: session_id, writer_pid: writer_pid}} ->
+        replay_span =
+          Aiur.Perf.span_begin(:session_writer_await_replay,
+            slot: state.slot_index,
+            identifier: identifier,
+            session_id: session_id
+          )
+
         :ok = SessionWriter.await_replay(writer_pid, 10_000)
+
+        Aiur.Perf.span_end(replay_span,
+          slot: state.slot_index,
+          identifier: identifier,
+          session_id: session_id
+        )
 
         # Respawn opencode-attach with `--session <id>` so the TUI boots
         # straight into the conversation view. POSTing
@@ -448,6 +478,13 @@ defmodule Aiur.Opencode.Slot do
               "opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{new_pane_id}"
             )
 
+            Aiur.Perf.span_end(do_select_span,
+              slot: state.slot_index,
+              identifier: identifier,
+              session_id: session_id,
+              pane_id: new_pane_id
+            )
+
             {:ok, session_id,
              %{
                state
@@ -458,10 +495,22 @@ defmodule Aiur.Opencode.Slot do
              }}
 
           {:error, _} = err ->
+            Aiur.Perf.span_end(do_select_span,
+              result: :respawn_failed,
+              slot: state.slot_index,
+              identifier: identifier
+            )
+
             err
         end
 
       {:error, _} = err ->
+        Aiur.Perf.span_end(do_select_span,
+          result: :writer_failed,
+          slot: state.slot_index,
+          identifier: identifier
+        )
+
         err
     end
   end
@@ -470,6 +519,12 @@ defmodule Aiur.Opencode.Slot do
   # session-less one, or any previous session's attach) and spawn a
   # fresh attach bound to `session_id`. Returns the new pane id.
   defp respawn_attach_with_session(state, session_id) do
+    span =
+      Aiur.Perf.span_begin(:slot_respawn_attach,
+        slot: state.slot_index,
+        session_id: session_id
+      )
+
     if is_binary(state.pane_id) do
       _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
     end
@@ -486,11 +541,23 @@ defmodule Aiur.Opencode.Slot do
              attach_cmd,
              silent: true
            ) do
+      Aiur.Perf.span_end(span,
+        slot: state.slot_index,
+        session_id: session_id,
+        pane_id: pane_id
+      )
+
       {:ok, pane_id}
     else
       error ->
         Logger.warning(
           "opencode_slot phase=respawn_attach_failed slot=#{state.slot_index} session_id=#{session_id} reason=#{inspect(error)}"
+        )
+
+        Aiur.Perf.span_end(span,
+          result: :failed,
+          slot: state.slot_index,
+          session_id: session_id
         )
 
         {:error, :respawn_failed}
