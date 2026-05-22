@@ -12,7 +12,7 @@ defmodule Aiur.Opencode.BridgeSupervisor do
   @impl true
   def init(_opts) do
     host = Config.bridge_host()
-    port = Config.bridge_port()
+    port = Application.get_env(:aiur, :opencode_bridge_port_override, Config.bridge_port())
 
     Logger.warning("opencode_bridge starting host=#{host} port=#{port}")
 
