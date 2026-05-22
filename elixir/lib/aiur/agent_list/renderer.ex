@@ -34,6 +34,7 @@ defmodule Aiur.AgentList.Renderer do
   # as 1 terminal column — same family as the ▶ selection marker, and
   # not an emoji (no variation-selector surprises).
   @open_pane_glyph "●"
+  @warm_pane_glyph "⚡"
 
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
@@ -94,7 +95,8 @@ defmodule Aiur.AgentList.Renderer do
           Map.get(state, :selection_focus, :agents),
           inner_width,
           layout,
-          visible_identifiers(state)
+          visible_identifiers(state),
+          Map.get(state, :warm_identifiers, MapSet.new())
         ),
         bottom_border(inner_width),
         eol(),
@@ -378,7 +380,7 @@ defmodule Aiur.AgentList.Renderer do
     ]
   end
 
-  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids) do
+  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids, warm_ids \\ MapSet.new()) do
     summaries
     |> Enum.with_index()
     |> Enum.map(fn {summary, row_idx} ->
@@ -388,14 +390,15 @@ defmodule Aiur.AgentList.Renderer do
           selection_focus == :agents and row_idx == idx,
           inner_width,
           layout,
-          open_pane_ids
+          open_pane_ids,
+          warm_ids
         ),
         eol()
       ]
     end)
   end
 
-  defp render_row(summary, selected?, inner_width, layout, open_pane_ids) do
+  defp render_row(summary, selected?, inner_width, layout, open_pane_ids, warm_ids \\ MapSet.new()) do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
     title = Map.get(summary, :title) || ""
@@ -405,7 +408,12 @@ defmodule Aiur.AgentList.Renderer do
     age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary), @state_cell_width)
     title_cell = cell(title, layout.title_width)
-    open_marker = open_pane_marker(id_str, open_pane_ids)
+    # Single 3-cell marker in the ID-AGE gap. Precedence:
+    #   ● (open pane) > ⚡ (warm pre-attach ready) > blank
+    # Open and warm are mutually exclusive in practice — once the
+    # warm pane is moved visible AttachPool drops it from the warm
+    # set and PaneManager records it in visible_sessions.
+    open_marker = id_age_gap_marker(id_str, open_pane_ids, warm_ids)
 
     # Order: marker, ID, open-pane indicator, AGE, state-circle, TITLE.
     # The single-glyph circle sits in the gap between ID and AGE so the
@@ -456,6 +464,26 @@ defmodule Aiur.AgentList.Renderer do
       [" ", @open_pane_glyph, " "]
     else
       String.duplicate(" ", @id_age_gap_width)
+    end
+  end
+
+  # 3-cell marker between ID and AGE. Precedence:
+  #   ⚡ (warm pre-attach ready) > ● (open and visible) > blank
+  # `warm` wins because the slot's broadcast of :slot_session_changed
+  # fires during AttachPool's pre-warm — it doesn't mean the pane is
+  # visible to the user, just that the slot is bound to the agent.
+  # Until visible_sessions is wired from the actual pane-open event,
+  # the ⚡ signal is more accurate for warm rows.
+  defp id_age_gap_marker(id_str, open_pane_ids, warm_ids) do
+    cond do
+      MapSet.member?(warm_ids, id_str) ->
+        [" ", IO.ANSI.yellow(), @warm_pane_glyph, IO.ANSI.reset()]
+
+      MapSet.member?(open_pane_ids, id_str) ->
+        [" ", @open_pane_glyph, " "]
+
+      true ->
+        String.duplicate(" ", @id_age_gap_width)
     end
   end
 
@@ -598,84 +626,52 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   # --- Debug perf footer ---------------------------------------------
-  # When AIUR_DEBUG=1, the agent list footer carries a rolling window
-  # of the most recent aiur_perf events. Each row is one phase event
-  # with elapsed time and key meta. Lets the operator watch slot pre-
-  # warm and pane-open progress in real time without tailing logs.
-
-  @debug_footer_event_count 12
+  # When AIUR_DEBUG=1, the agent list shows a fixed 3-row footer with
+  # the three milestones the user actually cares about:
+  #   1. agent list ready       (boot -> agent_list rendered)
+  #   2. chat pane visible      (Enter -> placeholder pane on screen)
+  #   3. opencode render        (Enter -> opencode-attach painted convo)
+  #
+  # Each row shows the last measured value or `…` while we wait.
 
   defp debug_perf_footer(state, inner_width) do
-    case Map.get(state, :debug_mode?, false) do
-      true ->
-        events =
-          state
-          |> Map.get(:perf_events, [])
-          |> Enum.take(@debug_footer_event_count)
+    if Map.get(state, :debug_mode?, false) do
+      summary = Map.get(state, :perf_summary, %{})
 
-        if events == [] do
-          [
-            debug_footer_heading(inner_width),
-            eol(),
-            debug_footer_empty(inner_width),
-            eol()
-          ]
-        else
-          rows = Enum.map(events, &debug_footer_row(&1, inner_width))
-
-          [
-            debug_footer_heading(inner_width),
-            eol()
-            | Enum.flat_map(rows, fn row -> [row, eol()] end)
-          ]
-        end
-
-      false ->
-        []
+      [
+        debug_footer_heading(inner_width),
+        eol(),
+        debug_footer_row("agent list ready", Map.get(summary, :agent_list_ready_ms), inner_width),
+        eol(),
+        debug_footer_row("chat pane visible", Map.get(summary, :chat_pane_visible_ms), inner_width),
+        eol(),
+        debug_footer_row("opencode render  ", Map.get(summary, :opencode_render_ms), inner_width),
+        eol()
+      ]
+    else
+      []
     end
   end
 
   defp debug_footer_line_count(state) do
-    case Map.get(state, :debug_mode?, false) do
-      true ->
-        events = state |> Map.get(:perf_events, []) |> Enum.take(@debug_footer_event_count)
-        # heading row + (events or 1 empty row)
-        1 + max(length(events), 1)
-
-      false ->
-        0
-    end
+    if Map.get(state, :debug_mode?, false), do: 4, else: 0
   end
 
   defp debug_footer_heading(inner_width) do
-    label = "  perf events (newest first) — AIUR_DEBUG"
+    label = "  perf — AIUR_DEBUG"
     pad = max(inner_width - String.length(label), 0)
     [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
   end
 
-  defp debug_footer_empty(inner_width) do
-    label = "    (no events yet — press Enter on an agent or wait for pre-warm)"
-    pad = max(inner_width - String.length(label), 0)
-    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
-  end
-
-  defp debug_footer_row(%{phase: phase, meta: meta, elapsed_ms: elapsed_ms}, inner_width) do
-    secs = :io_lib.format("~6.2.0f", [elapsed_ms / 1000]) |> IO.iodata_to_binary()
-    phase_str = "#{phase}" |> String.pad_trailing(28)
-
-    wall =
-      case Map.get(meta, :wall_ms) do
-        nil -> "         "
-        ms -> :io_lib.format("+~5wms ", [ms]) |> IO.iodata_to_binary()
+  defp debug_footer_row(label, value_ms, inner_width) do
+    value_str =
+      case value_ms do
+        nil -> "…"
+        ms when ms < 1_000 -> "#{ms} ms"
+        ms -> :io_lib.format("~.2fs", [ms / 1000]) |> IO.iodata_to_binary()
       end
 
-    keys_str =
-      meta
-      |> Map.drop([:wall_ms])
-      |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
-      |> Enum.join(" ")
-
-    text = "  [#{secs}s] #{phase_str} #{wall}#{keys_str}"
+    text = "  #{label}  #{value_str}"
 
     truncated =
       if String.length(text) > inner_width do
@@ -685,10 +681,6 @@ defmodule Aiur.AgentList.Renderer do
       end
 
     [IO.ANSI.faint(), truncated, IO.ANSI.reset()]
-  end
-
-  defp debug_footer_row(_other, inner_width) do
-    [IO.ANSI.faint(), String.duplicate(" ", inner_width), IO.ANSI.reset()]
   end
 
   defp clear_remaining(rows, lines_drawn) do

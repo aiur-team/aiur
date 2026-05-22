@@ -383,6 +383,19 @@ defmodule Aiur.PaneManager do
           pane_id: real_pane_id
         )
 
+        # Async detect when opencode-attach actually renders the convo
+        # (process boot + WS handshake + SQLite read + TUI paint). This
+        # is what the user experiences as "opencode is up", not the
+        # tmux swap above. Poll pane content for the message-turn
+        # marker `Build · issue-` which opencode prints only once a
+        # session is rendered.
+        pm = self()
+        tmux = state.tmux
+
+        Task.start(fn ->
+          detect_convo_first_paint(pm, tmux, identifier, slot_index, real_pane_id)
+        end)
+
         {:noreply, new_state}
 
       {:error, reason} ->
@@ -401,6 +414,12 @@ defmodule Aiur.PaneManager do
         _ = Tmux.command(state.tmux, "kill-pane -t #{placeholder_pane_id}")
         {:noreply, drop_placeholder(state, identifier)}
     end
+  end
+
+  def handle_info({:convo_first_paint, _identifier, _pane_id, _wall_ms}, state) do
+    # The convo_first_paint Perf event is the actual signal — this
+    # handler just keeps the message from hitting the catch-all.
+    {:noreply, state}
   end
 
   def handle_info({:placeholder_failed, identifier, placeholder_pane_id, reason}, state) do
@@ -567,6 +586,81 @@ defmodule Aiur.PaneManager do
   # (chain pre-warm hasn't reached one yet), fall back to the legacy
   # cold-attach path so the user never sees an error.
   defp open_opencode_pane(state, identifier, _opts, from) do
+    # FAST PATH: AttachPool may have a warm opencode-attach pane
+    # already running in aiur-hidden for this identifier. If so, just
+    # move it to visible (~50 ms — opencode is already painted).
+    case Aiur.Opencode.AttachPool.consume(identifier) do
+      {:ok, %{slot_index: slot_index, pane_id: pane_id}} ->
+        Aiur.Perf.event(:attach_pool_consume_hit,
+          identifier: identifier,
+          slot: slot_index,
+          pane_id: pane_id
+        )
+
+        move_warm_pane_visible(state, identifier, slot_index, pane_id, from)
+
+      :miss ->
+        open_with_placeholder(state, identifier, from)
+    end
+  end
+
+  # Warm path: an opencode-attach process is already booted in aiur-
+  # hidden, bound to this identifier's session and painted. Move it
+  # to window 0 and record bookkeeping. No placeholder, no respawn.
+  defp move_warm_pane_visible(state, identifier, slot_index, pane_id, from) do
+    move_span = Aiur.Perf.span_begin(:pane_move_visible, pane_id: pane_id, source: :warm)
+
+    case Tmux.move_pane_visible(state.tmux, pane_id, state.window_target) do
+      :ok ->
+        Aiur.Perf.span_end(move_span, result: :ok, pane_id: pane_id, source: :warm)
+
+        new_state =
+          state
+          |> record_slot_pane(slot_index, pane_id, identifier)
+          |> Map.put(:last_attached_pane_id, pane_id)
+
+        _ = apply_layout(new_state)
+        AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+
+        Aiur.Perf.event(:pane_open_visible_warm,
+          identifier: identifier,
+          slot: slot_index,
+          pane_id: pane_id
+        )
+
+        # Also fire the convo_first_paint detector — even on warm
+        # path the convo content is already rendered, so it should
+        # detect within the first poll (~100 ms). This keeps the
+        # 3-row debug footer's "opencode render" number consistent
+        # across warm and cold opens.
+        pm = self()
+        tmux = state.tmux
+
+        Task.start(fn ->
+          detect_convo_first_paint(pm, tmux, identifier, slot_index, pane_id)
+        end)
+
+        reply_or_noreply({:ok, pane_id}, from, new_state)
+
+      {:error, reason} ->
+        Aiur.Perf.span_end(move_span,
+          result: :failed,
+          pane_id: pane_id,
+          source: :warm,
+          reason: reason
+        )
+
+        Logger.warning(
+          "aiur_pane_manager phase=warm_move_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)} — falling back to cold open"
+        )
+
+        # Warm pane is unmovable for some reason — fall back to the
+        # cold placeholder path so the user still gets an open.
+        open_with_placeholder(state, identifier, from)
+    end
+  end
+
+  defp open_with_placeholder(state, identifier, from) do
     # INSTANT placeholder: spawn a visible pane with a loading message
     # in window 0 RIGHT NOW. The user sees a pane appear in < 100 ms
     # regardless of opencode-serve readiness. The real attach pane is
@@ -672,6 +766,84 @@ defmodule Aiur.PaneManager do
   defp drop_placeholder(state, identifier) do
     placeholders = Map.get(state, :placeholder_panes, %{})
     Map.put(state, :placeholder_panes, Map.delete(placeholders, identifier))
+  end
+
+  # Poll the opencode-attach pane for the convo render marker. opencode
+  # prints `▣  Build · issue-<id> · <timing>` once it finishes booting
+  # the Node.js runtime, opening the WebSocket to the serve, reading
+  # the SQLite session rows, and painting the TUI. That paint is what
+  # the user sees as "opencode is up" — the tmux swap we already
+  # measured fires much earlier.
+  #
+  # Polls every 100ms up to 30s; emits `convo_first_paint` with
+  # wall_ms once the marker appears or `convo_first_paint_timeout`
+  # if it never does.
+  @convo_paint_poll_interval_ms 100
+  @convo_paint_budget_ms 30_000
+
+  defp detect_convo_first_paint(pm, tmux, identifier, slot_index, pane_id) do
+    started_at = System.monotonic_time(:millisecond)
+    deadline = started_at + @convo_paint_budget_ms
+
+    do_detect_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline)
+  end
+
+  defp do_detect_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline) do
+    case Tmux.command(tmux, "capture-pane -p -t #{pane_id}") do
+      {:ok, lines} ->
+        content = Enum.join(lines, "\n")
+
+        if String.contains?(content, "Build · issue-") do
+          wall_ms = System.monotonic_time(:millisecond) - started_at
+
+          Aiur.Perf.event(:convo_first_paint,
+            identifier: identifier,
+            slot: slot_index,
+            pane_id: pane_id,
+            wall_ms: wall_ms
+          )
+
+          send(pm, {:convo_first_paint, identifier, pane_id, wall_ms})
+        else
+          wait_and_retry_convo_paint(
+            pm,
+            tmux,
+            identifier,
+            slot_index,
+            pane_id,
+            started_at,
+            deadline
+          )
+        end
+
+      _ ->
+        wait_and_retry_convo_paint(
+          pm,
+          tmux,
+          identifier,
+          slot_index,
+          pane_id,
+          started_at,
+          deadline
+        )
+    end
+  end
+
+  defp wait_and_retry_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      wall_ms = System.monotonic_time(:millisecond) - started_at
+
+      Aiur.Perf.event(:convo_first_paint_timeout,
+        identifier: identifier,
+        slot: slot_index,
+        pane_id: pane_id,
+        wall_ms: wall_ms
+      )
+    else
+      Process.sleep(@convo_paint_poll_interval_ms)
+
+      do_detect_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline)
+    end
   end
 
   # Async worker: acquire slot, drive Slot.select (which respawns the

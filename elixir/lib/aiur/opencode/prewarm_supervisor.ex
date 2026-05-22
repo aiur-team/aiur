@@ -26,7 +26,8 @@ defmodule Aiur.Opencode.PrewarmSupervisor do
       [
         Aiur.Opencode.HiddenWindow,
         Aiur.Opencode.SlotSupervisor,
-        Aiur.Opencode.SlotPolicy
+        Aiur.Opencode.SlotPolicy,
+        Aiur.Opencode.AttachPool
       ],
       strategy: :one_for_one
     )

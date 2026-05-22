@@ -126,6 +126,7 @@ defmodule Aiur.AgentList.App do
       AgentPubSub.subscribe_status()
       AgentPubSub.subscribe_poll_state()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.Slot.slots_topic())
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.AttachPool.topic())
 
       if debug_mode? do
         Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
@@ -160,18 +161,37 @@ defmodule Aiur.AgentList.App do
         max_concurrent_agents: nil
       },
       debug_mode?: debug_mode?,
-      # Rolling window of recent aiur_perf events. Rendered as a debug
-      # footer when debug_mode? is on. Newest first.
-      perf_events: []
+      # Identifiers whose opencode-attach has been pre-warmed by
+      # `Aiur.Opencode.AttachPool` and is sitting in `aiur-hidden`
+      # ready to instant-open. Renderer paints a ⚡ next to these
+      # rows so the user knows they'll open in <100 ms.
+      warm_identifiers: MapSet.new(),
+      # Compact 3-row debug-footer state. Each field is `nil` until
+      # the corresponding aiur_perf event lands, then holds {wall_ms,
+      # at_ms} so the footer can show "agent list ready: 4.0s",
+      # "chat pane visible: 0.1s", "opencode render: 7.2s". Newest
+      # event wins per slot — if the user opens multiple chats, the
+      # footer reflects the most recent open.
+      perf_summary: %{
+        agent_list_ready_ms: nil,
+        chat_pane_visible_ms: nil,
+        opencode_render_ms: nil
+      }
     }
 
     schedule_refresh_tick()
     schedule_geometry_tick()
     render(state)
 
+    elapsed = Aiur.Boot.elapsed_ms()
+
     Logger.info(
-      "aiur_agent_list phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} agents=#{length(state.summaries)}"
+      "aiur_agent_list phase=ready elapsed_ms=#{elapsed} agents=#{length(state.summaries)}"
     )
+
+    # Emit through the same aiur_perf channel so the debug footer can
+    # show "agent list ready: Xs" from the same data stream.
+    Aiur.Perf.event(:agent_list_ready, wall_ms: elapsed)
 
     {:ok, state}
   end
@@ -307,6 +327,17 @@ defmodule Aiur.AgentList.App do
     summaries = visible_summaries(summaries)
     selection_focus = if state.summaries == [] and summaries != [], do: :agents, else: state.selection_focus
     new_state = clamp_selection(%{state | summaries: summaries, selection_focus: selection_focus})
+
+    # Tell AttachPool which identifiers should have warm opencode-
+    # attach panes ready. Seeding is idempotent — the pool ignores
+    # already-known ids.
+    active_ids =
+      summaries
+      |> Enum.filter(fn s -> Map.get(s, :status) == :running end)
+      |> Enum.map(&Map.get(&1, :identifier))
+      |> Enum.reject(&is_nil/1)
+
+    _ = safely_seed_attach_pool(active_ids)
     render(new_state)
     {:noreply, new_state}
   end
@@ -366,17 +397,62 @@ defmodule Aiur.AgentList.App do
     end
   end
 
-  def handle_info({:aiur_perf, event}, %{debug_mode?: true} = state) do
-    # Keep last 20 events; render footer uses the newest first.
-    new_events = [event | state.perf_events] |> Enum.take(20)
-    new_state = %{state | perf_events: new_events}
+  def handle_info({:attach_warm, identifier, _pane_id, _slot_index}, state) do
+    new_state = update_in(state.warm_identifiers, &MapSet.put(&1, identifier))
     render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:attach_consumed, identifier, _pane_id, _slot_index}, state) do
+    # Identifier was opened — the warm pane is gone. Re-warming is
+    # left to a future iteration (the slot is now :active and would
+    # need to be re-cycled).
+    new_state = update_in(state.warm_identifiers, &MapSet.delete(&1, identifier))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:aiur_perf, event}, %{debug_mode?: true} = state) do
+    new_summary = update_perf_summary(state.perf_summary, event)
+    new_state = %{state | perf_summary: new_summary}
+
+    if new_summary != state.perf_summary do
+      render(new_state)
+    end
+
     {:noreply, new_state}
   end
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
 
+  # Pull the three milestones the debug footer cares about out of the
+  # aiur_perf stream. Everything else is ignored — the user asked for
+  # a compact 3-row footer, not a rolling event log.
+  defp update_perf_summary(summary, %{phase: :agent_list_ready, meta: %{wall_ms: ms}}) do
+    %{summary | agent_list_ready_ms: ms}
+  end
+
+  defp update_perf_summary(summary, %{phase: :placeholder_spawn_done, meta: %{wall_ms: ms}}) do
+    %{summary | chat_pane_visible_ms: ms}
+  end
+
+  defp update_perf_summary(summary, %{phase: :convo_first_paint, meta: %{wall_ms: ms}}) do
+    %{summary | opencode_render_ms: ms}
+  end
+
+  defp update_perf_summary(summary, _event), do: summary
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  defp safely_seed_attach_pool([]), do: :ok
+
+  defp safely_seed_attach_pool(identifiers) do
+    Aiur.Opencode.AttachPool.seed(identifiers)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
 
   defp debug_env? do
     case System.get_env("AIUR_DEBUG") do
@@ -572,7 +648,8 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:max_agents, max_agents_from_state(state))
       |> Map.put(:visible_sessions, state.visible_sessions)
       |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
-      |> Map.put(:perf_events, Map.get(state, :perf_events, []))
+      |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
+      |> Map.put(:warm_identifiers, Map.get(state, :warm_identifiers, MapSet.new()))
 
     state.write_fun.(Renderer.render(render_state))
     :ok
