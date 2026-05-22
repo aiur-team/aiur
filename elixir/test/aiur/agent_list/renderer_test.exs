@@ -188,9 +188,8 @@ defmodule Aiur.AgentList.RendererTest do
   test "working agents render the same green emoji as the conversation pane header" do
     # Regression: the agent list used to render the tag color (e.g. 🟡
     # for `agent:todo`) for an actively working agent, while the
-    # conversation pane header showed 🟢 for the same agent. Both now
-    # route through `Aiur.AgentEvents.state_emoji/1` so an in-progress
-    # agent is green everywhere — independent of the tracker label.
+    # conversation pane header showed 🟢 for the same agent. A warmed
+    # working row is green everywhere — independent of the tracker label.
     summaries = [
       %{
         identifier: "MT-WORK",
@@ -201,10 +200,36 @@ defmodule Aiur.AgentList.RendererTest do
       }
     ]
 
-    out = render(base_state(%{summaries: summaries})) |> visible()
+    out =
+      render(base_state(%{summaries: summaries, warm_identifiers: MapSet.new(["MT-WORK"])}))
+      |> visible()
 
     assert out =~ "🟢"
     refute out =~ "🟡"
+  end
+
+  test "running working agents transition from warming to ready status" do
+    summaries = [
+      %{
+        identifier: "MT-WARM",
+        status: :running,
+        alert_count: 0,
+        work_state: :working
+      }
+    ]
+
+    warming =
+      render(base_state(%{summaries: summaries, warm_identifiers: MapSet.new()}))
+      |> visible()
+
+    ready =
+      render(base_state(%{summaries: summaries, warm_identifiers: MapSet.new(["MT-WARM"])}))
+      |> visible()
+
+    assert warming =~ "⏳"
+    refute warming =~ "🟢"
+    assert ready =~ "🟢"
+    refute ready =~ "⏳"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do

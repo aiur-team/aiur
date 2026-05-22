@@ -106,6 +106,17 @@ defmodule Aiur.AgentList.AppTest do
     send(GenServer.whereis(app), {:running_changed, summaries})
   end
 
+  defp mark_warm(app, identifier) do
+    send(GenServer.whereis(app), {:attach_warm, identifier, "%warm", 1})
+
+    wait_until(fn ->
+      app
+      |> App.snapshot()
+      |> Map.get(:warm_identifiers)
+      |> MapSet.member?(identifier)
+    end)
+  end
+
   test "renders on startup", %{} do
     assert_receive {:rendered, _output}, 500
   end
@@ -162,6 +173,7 @@ defmodule Aiur.AgentList.AppTest do
   test "activate calls PaneManager with the selected identifier and command", %{app: app} do
     send_running_change(app, [AgentEvents.agent_summary("MT-FOCUS", :running, 0)])
     Process.sleep(50)
+    mark_warm(app, "MT-FOCUS")
 
     App.activate(app)
 
@@ -243,6 +255,7 @@ defmodule Aiur.AgentList.AppTest do
     ])
 
     Process.sleep(50)
+    mark_warm(app, "MT-PAUSED")
 
     App.activate(app)
 
@@ -301,6 +314,7 @@ defmodule Aiur.AgentList.AppTest do
 
     # Mock open: receive the open marker, but never reply (simulating a
     # parked call that takes longer than 5 s).
+    mark_warm(app, "MT-PARK")
     App.activate(app)
     assert_receive {:mock_open, "MT-PARK", "echo open MT-PARK"}, 500
 
@@ -331,16 +345,19 @@ defmodule Aiur.AgentList.AppTest do
 
     # Visible+sorted order: [MT-A running, MT-C running, MT-B queued].
     # Selection starts at 0 → activate must open MT-A, not the raw[0] (MT-X done).
+    mark_warm(app, "MT-A")
     App.activate(app)
     assert_receive {:mock_open, "MT-A", "echo open MT-A"}, 500
 
     App.select_next(app)
     Process.sleep(20)
+    mark_warm(app, "MT-C")
     App.activate(app)
     assert_receive {:mock_open, "MT-C", "echo open MT-C"}, 500
 
     App.select_next(app)
     Process.sleep(20)
+    mark_warm(app, "MT-B")
     App.activate(app)
     assert_receive {:mock_open, "MT-B", "echo open MT-B"}, 500
   end

@@ -34,7 +34,6 @@ defmodule Aiur.AgentList.Renderer do
   # as 1 terminal column — same family as the ▶ selection marker, and
   # not an emoji (no variation-selector surprises).
   @open_pane_glyph "●"
-  @warm_pane_glyph "⚡"
 
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
@@ -154,7 +153,8 @@ defmodule Aiur.AgentList.Renderer do
        ]},
       {"State circle",
        [
-         "🟢  agent actively working",
+         "⏳  warming up — pane not yet ready",
+         "🟢  agent actively working — pane ready to open",
          "⏸️  agent paused by operator",
          "🔴  agent in error state",
          "🏁  agent fully finished",
@@ -398,7 +398,7 @@ defmodule Aiur.AgentList.Renderer do
     end)
   end
 
-  defp render_row(summary, selected?, inner_width, layout, open_pane_ids, warm_ids \\ MapSet.new()) do
+  defp render_row(summary, selected?, inner_width, layout, open_pane_ids, warm_ids) do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
     title = Map.get(summary, :title) || ""
@@ -406,14 +406,9 @@ defmodule Aiur.AgentList.Renderer do
 
     id_cell = cell(id_str, layout.id_width)
     age_cell = cell(age, layout.age_width)
-    state_cell = emoji_cell(summary_emoji(summary), @state_cell_width)
+    state_cell = emoji_cell(summary_emoji(summary, warm_ids), @state_cell_width)
     title_cell = cell(title, layout.title_width)
-    # Single 3-cell marker in the ID-AGE gap. Precedence:
-    #   ● (open pane) > ⚡ (warm pre-attach ready) > blank
-    # Open and warm are mutually exclusive in practice — once the
-    # warm pane is moved visible AttachPool drops it from the warm
-    # set and PaneManager records it in visible_sessions.
-    open_marker = id_age_gap_marker(id_str, open_pane_ids, warm_ids)
+    open_marker = open_pane_marker(id_str, open_pane_ids)
 
     # Order: marker, ID, open-pane indicator, AGE, state-circle, TITLE.
     # The single-glyph circle sits in the gap between ID and AGE so the
@@ -479,45 +474,37 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  # 3-cell marker between ID and AGE. Precedence:
-  #   ⚡ (warm pre-attach ready) > ● (open and visible) > blank
-  # `warm` wins because the slot's broadcast of :slot_session_changed
-  # fires during AttachPool's pre-warm — visible_identifiers/1 strips
-  # warming/warm ids from visible_sessions so ● only marks truly
-  # visible panes.
-  defp id_age_gap_marker(id_str, open_pane_ids, warm_ids) do
-    cond do
-      MapSet.member?(warm_ids, id_str) ->
-        # ⚡ (U+26A1) is East Asian Width=Narrow but typically renders
-        # 2 cols in modern terminals. Pad with trailing space to match
-        # ●'s 3-col cell width regardless of how the terminal sizes it.
-        [" ", IO.ANSI.yellow(), @warm_pane_glyph, IO.ANSI.reset(), " "]
-
-      MapSet.member?(open_pane_ids, id_str) ->
-        [" ", @open_pane_glyph, " "]
-
-      true ->
-        String.duplicate(" ", @id_age_gap_width)
-    end
-  end
-
   # The state column reflects both the workflow tag *and* whether a
   # Aiur agent slot is currently running this ticket:
   # State emoji is driven by the worker's live `work_state` so the agent
   # list paints the same status the conversation pane shows in its
   # header. Both surfaces share `AgentEvents.state_emoji/1`.
   #
-  #   running + :working           → 🟢 green   (actively working)
+  #   running + :working + warming → ⏳ warming (pane not ready)
+  #   running + :working + warm    → 🟢 green   (ready to open)
   #   running + :paused            → ⏸️  pause  (paused by operator)
   #   running + :error             → 🔴 red     (agent reported error)
   #   queued  (no slot allocated)  → ⚫ grey
-  defp summary_emoji(%{status: :queued}), do: "⚫"
+  defp summary_emoji(summary, warm_ids)
 
-  defp summary_emoji(%{status: :running} = summary) do
-    AgentEvents.state_emoji(Map.get(summary, :work_state))
+  defp summary_emoji(%{status: :queued}, _warm_ids), do: "⚫"
+
+  defp summary_emoji(%{status: :running, identifier: identifier} = summary, warm_ids) do
+    case Map.get(summary, :work_state) do
+      state when state in [:paused, "paused", :error, "error", :done, "done"] ->
+        AgentEvents.state_emoji(state)
+
+      _ ->
+        if MapSet.member?(warm_ids, to_string(identifier)) do
+          "🟢"
+        else
+          "⏳"
+        end
+    end
   end
 
-  defp summary_emoji(_), do: "⚫"
+  defp summary_emoji(%{work_state: work_state}, _warm_ids), do: AgentEvents.state_emoji(work_state)
+  defp summary_emoji(_, _warm_ids), do: "⚫"
 
   defp emoji_cell(glyph, width) do
     # `glyph` is a single grapheme that renders as 2 terminal columns.
