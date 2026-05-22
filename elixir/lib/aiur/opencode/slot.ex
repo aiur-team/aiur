@@ -235,39 +235,59 @@ defmodule Aiur.Opencode.Slot do
   end
 
   def handle_continue(:spawn_attach, state) do
-    with {:ok, keep_alive_pane} <- hidden_window_target(),
-         attach_cmd = Protocol.attach_command(state.base_url),
-         {:ok, pane_id} <-
-           Tmux.split_pane(
-             Tmux,
-             keep_alive_pane,
-             :horizontal,
-             @hidden_split_percent,
-             attach_cmd,
-             silent: true
-           ) do
+    # Fast path: when a `pending_select` is queued (identifier_miss rebuild),
+    # `do_select` is about to respawn attach WITH `--session` anyway. Skip
+    # the throwaway no-session attach spawn here to save 1-2 s per first
+    # open per slot. Mark ready with pane_id=nil; do_select will create
+    # the bound attach pane.
+    if state.pending_select do
       Logger.info(
-        "opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}"
+        "opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=nil (pending_select fast-path)"
       )
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
 
-      # First slot to reach :ready runs boot-time GC. Recovers from any
-      # prior aiur run that crashed before its shutdown could reap
-      # sessions (kill -9, BEAM panic, OOM). Lifted from WarmServer.
       if state.slot_index == 1 do
         Task.start(fn -> SessionGC.run(state.base_url) end)
       end
 
-      ready_state = %{state | status: :ready, pane_id: pane_id}
+      ready_state = %{state | status: :ready, pane_id: nil}
       {:noreply, drain_pending_select(ready_state)}
     else
-      error ->
-        Logger.warning(
-          "opencode_slot phase=attach_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}"
+      with {:ok, keep_alive_pane} <- hidden_window_target(),
+           attach_cmd = Protocol.attach_command(state.base_url),
+           {:ok, pane_id} <-
+             Tmux.split_pane(
+               Tmux,
+               keep_alive_pane,
+               :horizontal,
+               @hidden_split_percent,
+               attach_cmd,
+               silent: true
+             ) do
+        Logger.info(
+          "opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}"
         )
 
-        {:noreply, %{state | status: :failed}}
+        Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
+
+        # First slot to reach :ready runs boot-time GC. Recovers from any
+        # prior aiur run that crashed before its shutdown could reap
+        # sessions (kill -9, BEAM panic, OOM). Lifted from WarmServer.
+        if state.slot_index == 1 do
+          Task.start(fn -> SessionGC.run(state.base_url) end)
+        end
+
+        ready_state = %{state | status: :ready, pane_id: pane_id}
+        {:noreply, drain_pending_select(ready_state)}
+      else
+        error ->
+          Logger.warning(
+            "opencode_slot phase=attach_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}"
+          )
+
+          {:noreply, %{state | status: :failed}}
+      end
     end
   end
 
