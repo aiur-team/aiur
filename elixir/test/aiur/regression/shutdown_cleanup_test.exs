@@ -45,7 +45,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
       source = File.read!(@scripts_aiur)
       cleanup_block = extract_cleanup_block(source)
 
-      assert cleanup_block =~ ~r/pgrep -f "\$elixir_dir\/.*rel\/aiur\/erts.*beam\.smp"/,
+      assert cleanup_block =~ ~r/pgrep -f "\$(?:trap_)?elixir_dir\/.*rel\/aiur\/erts.*beam\.smp"/,
              "__aiur_cleanup MUST enumerate this release's BEAM pids by their erts/beam.smp path"
 
       assert cleanup_block =~ ~r/kill -TERM/,

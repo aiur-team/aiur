@@ -974,8 +974,8 @@ run_in_tmux() {
     # standard `start` command, so the stop RPC can't reach it.
     # Kill the aiur tmux session (SIGHUP propagates to the BEAM via
     # its parent bash) and SIGTERM the BEAM directly as fallback.
-    if [ -n "${socket:-}" ] && [ -n "${session:-}" ]; then
-      "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+    if [ -n "${socket:-}" ] && [ -n "${session:-}" ] && [ -n "${tmux_bin:-}" ]; then
+      "$tmux_bin" -L "$socket" -f "${conf:-}" kill-session -t "$session" 2>/dev/null || true
     fi
 
     # Belt-and-suspenders: enumerate aiur release BEAMs and SIGTERM
@@ -983,34 +983,41 @@ run_in_tmux() {
     # BEAM was started outside the expected tmux session (or the
     # session was killed externally first), this catches the stragglers.
     # Pattern matches only this release's BEAM (no false positives from
-    # other Elixir apps on the box).
-    local beam_pids
-    beam_pids="$(pgrep -f "$elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-    if [ -n "$beam_pids" ]; then
-      local pid
-      for pid in $beam_pids; do
-        # Don't kill ourselves; we're not a BEAM, but defensive.
-        [ "$pid" = "$$" ] && continue
-        kill -TERM "$pid" 2>/dev/null || true
-      done
-
-      # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
-      # SIGKILL any stragglers. SIGTERM lets Aiur.Shutdown's supervisor
-      # tree run termination callbacks (session GC, file cleanup).
-      local kill_wait=0
-      while [ $kill_wait -lt 30 ]; do
-        beam_pids="$(pgrep -f "$elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-        [ -z "$beam_pids" ] && break
-        sleep 0.1
-        kill_wait=$((kill_wait + 1))
-      done
-
-      beam_pids="$(pgrep -f "$elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+    # other Elixir apps on the box). Use safe expansion on `elixir_dir`
+    # — it's a `local` in this function's caller (`run_foreground`), so
+    # `set -u` (script line 2) would crash here if `run_foreground` had
+    # already returned by the time the trap fires (e.g., on EXIT after
+    # tmux attach finished naturally).
+    local trap_elixir_dir="${elixir_dir:-}"
+    if [ -n "$trap_elixir_dir" ]; then
+      local beam_pids
+      beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
       if [ -n "$beam_pids" ]; then
+        local pid
         for pid in $beam_pids; do
+          # Don't kill ourselves; we're not a BEAM, but defensive.
           [ "$pid" = "$$" ] && continue
-          kill -KILL "$pid" 2>/dev/null || true
+          kill -TERM "$pid" 2>/dev/null || true
         done
+
+        # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
+        # SIGKILL any stragglers. SIGTERM lets Aiur.Shutdown's supervisor
+        # tree run termination callbacks (session GC, file cleanup).
+        local kill_wait=0
+        while [ $kill_wait -lt 30 ]; do
+          beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+          [ -z "$beam_pids" ] && break
+          sleep 0.1
+          kill_wait=$((kill_wait + 1))
+        done
+
+        beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
+        if [ -n "$beam_pids" ]; then
+          for pid in $beam_pids; do
+            [ "$pid" = "$$" ] && continue
+            kill -KILL "$pid" 2>/dev/null || true
+          done
+        fi
       fi
     fi
 
