@@ -42,3 +42,14 @@ Do **not** self-merge. Always await user review after marking the PR ready.
 ### Manual CLI verification before opening a PR
 
 Before opening the draft PR, run the CLI locally and manually exercise all new functionality end-to-end. If the CLI fails to run, debug and fix the issues — do not skip verification or give up. Only open the draft PR once the requested functionality is confirmed working in the CLI.
+
+### Out-of-scope findings
+
+While working on an issue, if you find a separate, real problem that is **not** required to ship the current task, do not silently fix it inside the same PR. Instead:
+
+1. Open a new GitHub issue describing the finding (clear title, evidence, suggested fix if obvious).
+2. Label the new issue `agent:human-review` so the user triages it before any agent picks it up.
+3. Reference the issue you're currently working on inside the new issue (e.g., "surfaced while working on #N").
+4. Add a comment on your current issue with a link to the new issue (e.g., "out-of-scope finding filed as #M").
+
+Keep the current PR focused on the originally-scoped change.
