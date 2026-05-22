@@ -226,7 +226,7 @@ defmodule Aiur.Alerts do
   end
 
   defp test_env_without_player_override?(opts) when is_list(opts) do
-    Mix.env() == :test and not Keyword.has_key?(opts, :player)
+    Application.get_env(:aiur, :env) == :test and not Keyword.has_key?(opts, :player)
   end
 
   # Public (but undocumented) so tests can exercise the URL / missing-
