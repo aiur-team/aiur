@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, env: config_env()
+
 config :phoenix, :json_library, Jason
 
 config :aiur, AiurWeb.Endpoint,

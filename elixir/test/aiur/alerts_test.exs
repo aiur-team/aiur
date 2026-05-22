@@ -455,6 +455,13 @@ defmodule Aiur.AlertsTest do
   end
 
   describe "playback fallbacks" do
+    test "playback env guard does not depend on Mix at runtime" do
+      source = File.read!(Path.expand("../../lib/aiur/alerts.ex", __DIR__))
+
+      refute source =~ "Mix.env"
+      assert Application.get_env(:aiur, :env) == :test
+    end
+
     test "swallows a player function that raises and still emits" do
       # `maybe_play_sound`'s rescue branch logs at debug and returns :ok
       # so a crashing player can't break the alert emission flow.
