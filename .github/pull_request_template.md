@@ -1,3 +1,5 @@
+Closes #<!-- issue number; use Fixes or Resolves if you prefer; list multiple as `Closes #43, #46` -->
+
 #### Context
 
 <!-- Why is this change needed? Length <= 240 chars -->

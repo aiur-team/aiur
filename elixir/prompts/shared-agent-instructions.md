@@ -45,17 +45,7 @@ Before opening the draft PR, run the CLI locally and manually exercise all new f
 
 ### Closing keyword in PR description
 
-Every PR description must include a GitHub **closing keyword** linking the PR to the originating issue, on its own line near the top of the body. Use one of:
-
-```
-Closes #N
-Fixes #N
-Resolves #N
-```
-
-(`close`/`closes`/`closed`, `fix`/`fixes`/`fixed`, `resolve`/`resolves`/`resolved` are all accepted.) For PRs that close multiple issues, list them: `Closes #43, #46`.
-
-This causes GitHub to **auto-close the issue when the PR merges into `main`** — no manual cleanup, no orphaned issues. The link must be in the PR **body or in a commit message**, not in a review comment. Without the keyword, the issue stays open after merge and the next agent run may re-pick-up work that's already shipped.
+Every PR description must start with `Closes #N` (or `Fixes` / `Resolves`) for the originating issue so GitHub auto-closes it on merge. Multiple issues: `Closes #43, #46`.
 
 ### Out-of-scope findings
 
