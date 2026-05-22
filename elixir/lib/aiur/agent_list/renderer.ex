@@ -70,6 +70,8 @@ defmodule Aiur.AgentList.Renderer do
 
       layout = compute_layout(summaries, inner_width)
 
+      debug_footer = debug_perf_footer(state, inner_width)
+
       [
         # Hide the terminal cursor for every render — without this the
         # cursor flashes around the pane as we redraw each row, which
@@ -98,7 +100,11 @@ defmodule Aiur.AgentList.Renderer do
         eol(),
         footer_iodata(inner_width),
         eol(),
-        clear_remaining(rows, lines_emitted(state, inner_width))
+        debug_footer,
+        clear_remaining(
+          rows,
+          lines_emitted(state, inner_width) + debug_footer_line_count(state)
+        )
       ]
     end
   end
@@ -589,6 +595,100 @@ defmodule Aiur.AgentList.Renderer do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
     8 + footer_line_count(inner_width) + body_rows
+  end
+
+  # --- Debug perf footer ---------------------------------------------
+  # When AIUR_DEBUG=1, the agent list footer carries a rolling window
+  # of the most recent aiur_perf events. Each row is one phase event
+  # with elapsed time and key meta. Lets the operator watch slot pre-
+  # warm and pane-open progress in real time without tailing logs.
+
+  @debug_footer_event_count 12
+
+  defp debug_perf_footer(state, inner_width) do
+    case Map.get(state, :debug_mode?, false) do
+      true ->
+        events =
+          state
+          |> Map.get(:perf_events, [])
+          |> Enum.take(@debug_footer_event_count)
+
+        if events == [] do
+          [
+            debug_footer_heading(inner_width),
+            eol(),
+            debug_footer_empty(inner_width),
+            eol()
+          ]
+        else
+          rows = Enum.map(events, &debug_footer_row(&1, inner_width))
+
+          [
+            debug_footer_heading(inner_width),
+            eol()
+            | Enum.flat_map(rows, fn row -> [row, eol()] end)
+          ]
+        end
+
+      false ->
+        []
+    end
+  end
+
+  defp debug_footer_line_count(state) do
+    case Map.get(state, :debug_mode?, false) do
+      true ->
+        events = state |> Map.get(:perf_events, []) |> Enum.take(@debug_footer_event_count)
+        # heading row + (events or 1 empty row)
+        1 + max(length(events), 1)
+
+      false ->
+        0
+    end
+  end
+
+  defp debug_footer_heading(inner_width) do
+    label = "  perf events (newest first) — AIUR_DEBUG"
+    pad = max(inner_width - String.length(label), 0)
+    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  defp debug_footer_empty(inner_width) do
+    label = "    (no events yet — press Enter on an agent or wait for pre-warm)"
+    pad = max(inner_width - String.length(label), 0)
+    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  defp debug_footer_row(%{phase: phase, meta: meta, elapsed_ms: elapsed_ms}, inner_width) do
+    secs = :io_lib.format("~6.2.0f", [elapsed_ms / 1000]) |> IO.iodata_to_binary()
+    phase_str = "#{phase}" |> String.pad_trailing(28)
+
+    wall =
+      case Map.get(meta, :wall_ms) do
+        nil -> "         "
+        ms -> :io_lib.format("+~5wms ", [ms]) |> IO.iodata_to_binary()
+      end
+
+    keys_str =
+      meta
+      |> Map.drop([:wall_ms])
+      |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
+      |> Enum.join(" ")
+
+    text = "  [#{secs}s] #{phase_str} #{wall}#{keys_str}"
+
+    truncated =
+      if String.length(text) > inner_width do
+        String.slice(text, 0, inner_width)
+      else
+        text <> String.duplicate(" ", max(inner_width - String.length(text), 0))
+      end
+
+    [IO.ANSI.faint(), truncated, IO.ANSI.reset()]
+  end
+
+  defp debug_footer_row(_other, inner_width) do
+    [IO.ANSI.faint(), String.duplicate(" ", inner_width), IO.ANSI.reset()]
   end
 
   defp clear_remaining(rows, lines_drawn) do

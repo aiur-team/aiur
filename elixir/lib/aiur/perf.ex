@@ -38,10 +38,35 @@ defmodule Aiur.Perf do
   @type meta :: keyword()
   @opaque span :: {phase(), integer(), meta()}
 
+  @perf_topic "aiur:perf"
+
+  @doc "PubSub topic on which Aiur.Perf broadcasts every event."
+  @spec topic() :: String.t()
+  def topic, do: @perf_topic
+
   @spec event(phase(), meta()) :: :ok
   def event(phase, meta \\ []) when is_atom(phase) and is_list(meta) do
     Logger.info(format_line(phase, meta))
+    broadcast_event(phase, meta)
     :ok
+  end
+
+  defp broadcast_event(phase, meta) do
+    Phoenix.PubSub.broadcast(
+      Aiur.PubSub,
+      @perf_topic,
+      {:aiur_perf,
+       %{
+         phase: phase,
+         meta: Enum.into(meta, %{}),
+         at_ms: System.monotonic_time(:millisecond),
+         elapsed_ms: Boot.elapsed_ms()
+       }}
+    )
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   @spec span_begin(phase(), meta()) :: span()

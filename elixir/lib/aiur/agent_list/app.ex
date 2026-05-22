@@ -119,11 +119,17 @@ defmodule Aiur.AgentList.App do
     command_template = Keyword.get(opts, :command_template, default_command_template())
     {cols, rows} = terminal_geometry()
 
+    debug_mode? = Keyword.get(opts, :debug?, debug_env?())
+
     if Keyword.get(opts, :subscribe?, true) do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
       AgentPubSub.subscribe_poll_state()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.Slot.slots_topic())
+
+      if debug_mode? do
+        Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+      end
     end
 
     state = %{
@@ -152,7 +158,11 @@ defmodule Aiur.AgentList.App do
         checking?: false,
         next_poll_due_at_ms: nil,
         max_concurrent_agents: nil
-      }
+      },
+      debug_mode?: debug_mode?,
+      # Rolling window of recent aiur_perf events. Rendered as a debug
+      # footer when debug_mode? is on. Newest first.
+      perf_events: []
     }
 
     schedule_refresh_tick()
@@ -356,7 +366,27 @@ defmodule Aiur.AgentList.App do
     end
   end
 
+  def handle_info({:aiur_perf, event}, %{debug_mode?: true} = state) do
+    # Keep last 20 events; render footer uses the newest first.
+    new_events = [event | state.perf_events] |> Enum.take(20)
+    new_state = %{state | perf_events: new_events}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  defp debug_env? do
+    case System.get_env("AIUR_DEBUG") do
+      value when is_binary(value) ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes"]
+
+      _ ->
+        false
+    end
+  end
 
   # Internals -----------------------------------------------------------------
 
@@ -541,6 +571,8 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:agent_count, active_agent_count(state.summaries))
       |> Map.put(:max_agents, max_agents_from_state(state))
       |> Map.put(:visible_sessions, state.visible_sessions)
+      |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
+      |> Map.put(:perf_events, Map.get(state, :perf_events, []))
 
     state.write_fun.(Renderer.render(render_state))
     :ok
