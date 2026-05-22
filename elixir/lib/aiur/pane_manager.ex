@@ -51,7 +51,7 @@ defmodule Aiur.PaneManager do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, Boot, Tmux}
-  alias Aiur.Opencode.{HiddenWindow, Slot, SlotRegistry, SlotSupervisor}
+  alias Aiur.Opencode.{AttachPool, HiddenWindow, Slot, SlotRegistry, SlotSupervisor}
   alias Aiur.PaneManager.Layout
 
   @type agent_id :: AgentEvents.agent_identifier()
@@ -182,7 +182,7 @@ defmodule Aiur.PaneManager do
       # Listen for slot lifecycle so the open queue can drain when new
       # slots reach `:ready` and so `last_attached_pane_id` can be
       # cleared when its slot's session is deselected.
-      :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.Slot.slots_topic())
+      :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
 
       :net_kernel.monitor_nodes(true, node_type: :hidden)
 
@@ -215,9 +215,7 @@ defmodule Aiur.PaneManager do
       {:ok, existing_pane} ->
         case Tmux.command(state.tmux, "select-pane -t #{existing_pane}") do
           {:ok, _} ->
-            Logger.info(
-              "aiur_pane_manager phase=open_already_visible elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} pane_id=#{existing_pane}"
-            )
+            Logger.info("aiur_pane_manager phase=open_already_visible elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} pane_id=#{existing_pane}")
 
             Aiur.Perf.event(:pane_open_already_visible,
               identifier: identifier,
@@ -257,9 +255,7 @@ defmodule Aiur.PaneManager do
   def handle_call({:close, identifier}, _from, state) do
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, pane_id} ->
-        Logger.info(
-          "[user-action] close_conversation identifier=#{identifier} pane_id=#{pane_id}"
-        )
+        Logger.info("[user-action] close_conversation identifier=#{identifier} pane_id=#{pane_id}")
 
         close_opencode_or_generic(state, identifier, pane_id)
 
@@ -333,9 +329,7 @@ defmodule Aiur.PaneManager do
             new_queue = :queue.from_list(Enum.reverse(entries))
             new_timers = Map.delete(state.open_queue_timers, identifier)
 
-            Logger.warning(
-              "aiur_pane_manager phase=open_queue_timeout elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} timeout_ms=#{@open_queue_timeout_ms}"
-            )
+            Logger.warning("aiur_pane_manager phase=open_queue_timeout elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} timeout_ms=#{@open_queue_timeout_ms}")
 
             GenServer.reply(from, {:error, :no_ready_slot})
             {:noreply, %{state | open_queue: new_queue, open_queue_timers: new_timers}}
@@ -346,6 +340,7 @@ defmodule Aiur.PaneManager do
   def handle_info({:nodedown, _node}, state), do: {:noreply, state}
   def handle_info({:nodeup, _node, _info}, state), do: {:noreply, state}
   def handle_info({:nodeup, _node}, state), do: {:noreply, state}
+
   def handle_info({:placeholder_swap, identifier, placeholder_pane_id, slot_index, real_pane_id}, state) do
     swap_span =
       Aiur.Perf.span_begin(:placeholder_swap,
@@ -405,9 +400,7 @@ defmodule Aiur.PaneManager do
           reason: reason
         )
 
-        Logger.warning(
-          "aiur_pane_manager phase=placeholder_swap_failed identifier=#{identifier} placeholder=#{placeholder_pane_id} real=#{real_pane_id} reason=#{inspect(reason)}"
-        )
+        Logger.warning("aiur_pane_manager phase=placeholder_swap_failed identifier=#{identifier} placeholder=#{placeholder_pane_id} real=#{real_pane_id} reason=#{inspect(reason)}")
 
         # Best effort: kill the placeholder so the user isn't stuck
         # staring at a loading screen forever.
@@ -423,9 +416,7 @@ defmodule Aiur.PaneManager do
   end
 
   def handle_info({:placeholder_failed, identifier, placeholder_pane_id, reason}, state) do
-    Logger.warning(
-      "aiur_pane_manager phase=placeholder_failed identifier=#{identifier} placeholder=#{placeholder_pane_id} reason=#{inspect(reason)}"
-    )
+    Logger.warning("aiur_pane_manager phase=placeholder_failed identifier=#{identifier} placeholder=#{placeholder_pane_id} reason=#{inspect(reason)}")
 
     Aiur.Perf.event(:placeholder_failed, identifier: identifier, reason: reason)
 
@@ -441,30 +432,29 @@ defmodule Aiur.PaneManager do
   # next `:slot_ready` broadcast. v1: drains 1 entry per broadcast.
   defp drain_open_queue(state) do
     case :queue.out(state.open_queue) do
-      {:empty, _} ->
-        state
+      {:empty, _} -> state
+      {{:value, entry}, rest} -> drain_open_entry(state, entry, rest)
+    end
+  end
 
-      {{:value, {identifier, from, timer_ref}}, rest} ->
-        case SlotSupervisor.acquire_slot() do
-          {slot_index, slot_pid} when is_integer(slot_index) ->
-            _ = Process.cancel_timer(timer_ref)
-            new_timers = Map.delete(state.open_queue_timers, identifier)
-            new_state = %{state | open_queue: rest, open_queue_timers: new_timers}
+  defp drain_open_entry(state, {identifier, from, timer_ref}, rest) do
+    case SlotSupervisor.acquire_slot() do
+      {slot_index, slot_pid} when is_integer(slot_index) ->
+        _ = Process.cancel_timer(timer_ref)
+        new_timers = Map.delete(state.open_queue_timers, identifier)
+        new_state = %{state | open_queue: rest, open_queue_timers: new_timers}
 
-            Logger.info(
-              "aiur_pane_manager phase=open_queue_drained elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} queue_depth=#{:queue.len(rest)}"
-            )
+        Logger.info("aiur_pane_manager phase=open_queue_drained elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} queue_depth=#{:queue.len(rest)}")
 
-            case attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from) do
-              {:noreply, after_state} -> after_state
-              {:reply, _result, after_state} -> after_state
-            end
-
-          {:error, :no_ready_slot} ->
-            # Race: another open just took the newly-ready slot. Leave
-            # the entry queued; the next `:slot_ready` will retry.
-            state
+        case attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from) do
+          {:noreply, after_state} -> after_state
+          {:reply, _result, after_state} -> after_state
         end
+
+      {:error, :no_ready_slot} ->
+        # Race: another open just took the newly-ready slot. Leave
+        # the entry queued; the next `:slot_ready` will retry.
+        state
     end
   end
 
@@ -520,16 +510,12 @@ defmodule Aiur.PaneManager do
             new_state = forget_pane_by_identifier(state, pane_id)
             _ = apply_layout(new_state)
 
-            Logger.info(
-              "aiur_pane_manager phase=close_hide elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
-            )
+            Logger.info("aiur_pane_manager phase=close_hide elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}")
 
             {:reply, :ok, new_state}
 
           {:error, reason} ->
-            Logger.warning(
-              "aiur_pane_manager phase=close_hide_failed identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id} reason=#{inspect(reason)}"
-            )
+            Logger.warning("aiur_pane_manager phase=close_hide_failed identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id} reason=#{inspect(reason)}")
 
             # Fallback: tell the slot to deselect so it isn't wedged, and
             # leave the pane in place — user can retry close.
@@ -571,9 +557,7 @@ defmodule Aiur.PaneManager do
         {:reply, {:ok, pane_id}, advance_cycle(new_state)}
 
       {:error, reason} ->
-        Logger.warning(
-          "PaneManager.open identifier=#{identifier} slot=#{slot} failed: #{inspect(reason)}"
-        )
+        Logger.warning("PaneManager.open identifier=#{identifier} slot=#{slot} failed: #{inspect(reason)}")
 
         {:reply, {:error, reason}, state}
     end
@@ -589,7 +573,7 @@ defmodule Aiur.PaneManager do
     # FAST PATH: AttachPool may have a warm opencode-attach pane
     # already running in aiur-hidden for this identifier. If so, just
     # move it to visible (~50 ms — opencode is already painted).
-    case Aiur.Opencode.AttachPool.consume(identifier) do
+    case AttachPool.consume(identifier) do
       {:ok, %{slot_index: slot_index, pane_id: pane_id}} ->
         Aiur.Perf.event(:attach_pool_consume_hit,
           identifier: identifier,
@@ -650,9 +634,7 @@ defmodule Aiur.PaneManager do
           reason: reason
         )
 
-        Logger.warning(
-          "aiur_pane_manager phase=warm_move_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)} — falling back to cold open"
-        )
+        Logger.warning("aiur_pane_manager phase=warm_move_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)} — falling back to cold open")
 
         # Warm pane is unmovable for some reason — fall back to the
         # cold placeholder path so the user still gets an open.
@@ -703,9 +685,7 @@ defmodule Aiur.PaneManager do
           reason: reason
         )
 
-        Logger.warning(
-          "aiur_pane_manager phase=placeholder_spawn_failed identifier=#{identifier} reason=#{inspect(reason)}"
-        )
+        Logger.warning("aiur_pane_manager phase=placeholder_spawn_failed identifier=#{identifier} reason=#{inspect(reason)}")
 
         # Fall back to the synchronous open path (pre-U3 behavior) so
         # we never hard-fail a user open just because tmux split-window
@@ -854,57 +834,46 @@ defmodule Aiur.PaneManager do
 
     case SlotSupervisor.acquire_slot() do
       {slot_index, slot_pid} when is_integer(slot_index) ->
-        case Slot.select(slot_pid, identifier) do
-          {:ok, real_pane_id} ->
-            Aiur.Perf.span_end(span,
-              identifier: identifier,
-              slot: slot_index,
-              real_pane_id: real_pane_id
-            )
-
-            send(pm, {:placeholder_swap, identifier, placeholder_pane_id, slot_index, real_pane_id})
-
-          {:error, reason} ->
-            Aiur.Perf.span_end(span,
-              result: :select_failed,
-              identifier: identifier,
-              slot: slot_index,
-              reason: reason
-            )
-
-            send(pm, {:placeholder_failed, identifier, placeholder_pane_id, reason})
-        end
+        perform_select_for_placeholder(pm, span, identifier, placeholder_pane_id, slot_index, slot_pid)
 
       {:error, :no_ready_slot} ->
         # Wait briefly for a slot to become ready (slot pre-warm may
         # still be in flight). Poll up to 60 s.
-        case wait_for_slot(60_000) do
-          {:ok, {slot_index, slot_pid}} ->
-            case Slot.select(slot_pid, identifier) do
-              {:ok, real_pane_id} ->
-                Aiur.Perf.span_end(span,
-                  identifier: identifier,
-                  slot: slot_index,
-                  real_pane_id: real_pane_id
-                )
+        wait_then_select_for_placeholder(pm, span, identifier, placeholder_pane_id)
+    end
+  end
 
-                send(pm, {:placeholder_swap, identifier, placeholder_pane_id, slot_index, real_pane_id})
+  defp wait_then_select_for_placeholder(pm, span, identifier, placeholder_pane_id) do
+    case wait_for_slot(60_000) do
+      {:ok, {slot_index, slot_pid}} ->
+        perform_select_for_placeholder(pm, span, identifier, placeholder_pane_id, slot_index, slot_pid)
 
-              {:error, reason} ->
-                Aiur.Perf.span_end(span,
-                  result: :select_failed,
-                  identifier: identifier,
-                  slot: slot_index,
-                  reason: reason
-                )
+      {:error, :timeout} ->
+        Aiur.Perf.span_end(span, result: :slot_wait_timeout, identifier: identifier)
+        send(pm, {:placeholder_failed, identifier, placeholder_pane_id, :no_ready_slot})
+    end
+  end
 
-                send(pm, {:placeholder_failed, identifier, placeholder_pane_id, reason})
-            end
+  defp perform_select_for_placeholder(pm, span, identifier, placeholder_pane_id, slot_index, slot_pid) do
+    case Slot.select(slot_pid, identifier) do
+      {:ok, real_pane_id} ->
+        Aiur.Perf.span_end(span,
+          identifier: identifier,
+          slot: slot_index,
+          real_pane_id: real_pane_id
+        )
 
-          {:error, :timeout} ->
-            Aiur.Perf.span_end(span, result: :slot_wait_timeout, identifier: identifier)
-            send(pm, {:placeholder_failed, identifier, placeholder_pane_id, :no_ready_slot})
-        end
+        send(pm, {:placeholder_swap, identifier, placeholder_pane_id, slot_index, real_pane_id})
+
+      {:error, reason} ->
+        Aiur.Perf.span_end(span,
+          result: :select_failed,
+          identifier: identifier,
+          slot: slot_index,
+          reason: reason
+        )
+
+        send(pm, {:placeholder_failed, identifier, placeholder_pane_id, reason})
     end
   end
 
@@ -961,9 +930,7 @@ defmodule Aiur.PaneManager do
 
             open_ms = System.monotonic_time(:millisecond) - started_at
 
-            Logger.info(
-              "aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{open_ms} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}"
-            )
+            Logger.info("aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{open_ms} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}")
 
             Aiur.Perf.event(:pane_open_visible,
               identifier: identifier,
@@ -975,18 +942,14 @@ defmodule Aiur.PaneManager do
             reply_or_noreply({:ok, pane_id}, from, new_state)
 
           {:error, reason} ->
-            Logger.warning(
-              "aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
-            )
+            Logger.warning("aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
 
             _ = Slot.deselect(slot_pid)
             reply_or_noreply({:error, reason}, from, state)
         end
 
       {:error, reason} ->
-        Logger.warning(
-          "aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
-        )
+        Logger.warning("aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
 
         reply_or_noreply({:error, reason}, from, state)
     end
@@ -1010,7 +973,7 @@ defmodule Aiur.PaneManager do
         {:reply, {:error, :no_focused_pane}, new_state}
 
       {:ok, slot_index} ->
-        case Aiur.Opencode.SlotRegistry.lookup(slot_index) do
+        case SlotRegistry.lookup(slot_index) do
           {:ok, slot_pid} ->
             # The slot rebuild will spawn a NEW attach pane (the
             # identifier_miss path stops the serve + respawns attach).
@@ -1050,9 +1013,7 @@ defmodule Aiur.PaneManager do
 
         new_state = %{state | open_queue: new_queue, open_queue_timers: new_timers}
 
-        Logger.info(
-          "aiur_pane_manager phase=open_queued elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} queue_depth=#{:queue.len(new_queue)}"
-        )
+        Logger.info("aiur_pane_manager phase=open_queued elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} queue_depth=#{:queue.len(new_queue)}")
 
         {:noreply, new_state}
     end

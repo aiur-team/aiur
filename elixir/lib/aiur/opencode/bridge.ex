@@ -3,6 +3,8 @@ defmodule Aiur.Opencode.Bridge do
 
   use Plug.Router
 
+  alias Aiur.Opencode.ChatCompletions
+
   plug(:match)
   plug(Plug.Parsers, parsers: [:json], json_decoder: Jason)
   plug(:dispatch)
@@ -14,7 +16,7 @@ defmodule Aiur.Opencode.Bridge do
   end
 
   post "/v1/chat/completions" do
-    Aiur.Opencode.ChatCompletions.handle(conn.body_params, conn)
+    ChatCompletions.handle(conn.body_params, conn)
   end
 
   match _ do

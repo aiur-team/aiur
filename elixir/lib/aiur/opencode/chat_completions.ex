@@ -4,7 +4,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   require Logger
 
   alias Aiur.{AgentChat, AgentPubSub}
-  alias Aiur.Opencode.{Config, Db}
+  alias Aiur.Opencode.{Config, Db, SessionWriterRegistry, TokenRegistry}
 
   @stream_marker_prefix "__aiur_stream__:"
   @stream_marker_regex ~r/\A__aiur_stream__:(msg_[A-Z0-9]+)\z/
@@ -55,23 +55,29 @@ defmodule Aiur.Opencode.ChatCompletions do
         end
 
       {:ok, raw_text} ->
-        with {:ok, sanitized} <- validate_body(raw_text),
-             {:ok, conn} <- maybe_authorized(conn, identifier) do
-          if Map.get(body, "stream", true) do
-            stream_turn(conn, identifier, sanitized)
-          else
-            non_stream_turn(conn, identifier, sanitized)
-          end
-        else
-          {:error, :unauthorized} -> json(conn, 401, auth_failed_body())
-          {:error, :body_too_large} -> json(conn, 400, %{error: "body too large"})
-          {:error, reason} -> json(conn, 400, %{error: inspect(reason)})
-        end
+        dispatch_user_text(body, conn, identifier, raw_text)
 
       {:error, reason} ->
         json(conn, 400, %{error: inspect(reason)})
     end
   end
+
+  defp dispatch_user_text(body, conn, identifier, raw_text) do
+    with {:ok, sanitized} <- validate_body(raw_text),
+         {:ok, conn} <- maybe_authorized(conn, identifier) do
+      route_turn(conn, identifier, sanitized, Map.get(body, "stream", true))
+    else
+      {:error, :unauthorized} -> json(conn, 401, auth_failed_body())
+      {:error, :body_too_large} -> json(conn, 400, %{error: "body too large"})
+      {:error, reason} -> json(conn, 400, %{error: inspect(reason)})
+    end
+  end
+
+  defp route_turn(conn, identifier, sanitized, true),
+    do: stream_turn(conn, identifier, sanitized)
+
+  defp route_turn(conn, identifier, sanitized, _),
+    do: non_stream_turn(conn, identifier, sanitized)
 
   @spec build_chunk(String.t(), map()) :: map()
   def build_chunk(completion_id, %{content: content, finish_reason: finish_reason}) do
@@ -201,24 +207,22 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp delta(content), do: %{content: content}
 
   defp identifier_from_model(model) when is_binary(model) do
-    cond do
-      placeholder_model?(model) ->
-        {:error, :placeholder_session}
+    if placeholder_model?(model) do
+      {:error, :placeholder_session}
+    else
+      # opencode sends just `issue-<id>` to the provider's chat-completions endpoint;
+      # the `aiur/` provider routing has already happened. Accept both shapes.
+      prefix = Regex.escape(Config.model_prefix())
+      regex = ~r/\A(?:#{prefix}\/)?issue-([A-Za-z0-9._-]+)\z/
 
-      true ->
-        # opencode sends just `issue-<id>` to the provider's chat-completions endpoint;
-        # the `aiur/` provider routing has already happened. Accept both shapes.
-        prefix = Regex.escape(Config.model_prefix())
-        regex = ~r/\A(?:#{prefix}\/)?issue-([A-Za-z0-9._-]+)\z/
+      case Regex.run(regex, model) do
+        [_match, identifier] ->
+          {:ok, identifier}
 
-        case Regex.run(regex, model) do
-          [_match, identifier] ->
-            {:ok, identifier}
-
-          _ ->
-            Logger.warning("opencode_bridge invalid_model received_model=#{inspect(model)}")
-            {:error, :invalid_model}
-        end
+        _ ->
+          Logger.warning("opencode_bridge invalid_model received_model=#{inspect(model)}")
+          {:error, :invalid_model}
+      end
     end
   end
 
@@ -256,35 +260,30 @@ defmodule Aiur.Opencode.ChatCompletions do
       |> Plug.Conn.send_chunked(200)
 
     session_id =
-      case Aiur.Opencode.SessionWriterRegistry.lookup(identifier) do
+      case SessionWriterRegistry.lookup(identifier) do
         {:ok, %{session_id: sid}} -> sid
         _ -> nil
       end
 
     case session_id && Db.fetch_message_with_parts(session_id, message_id) do
       {:ok, %{parts: parts}} ->
-        conn =
-          Enum.reduce(parts, conn, fn part, acc ->
-            case part do
-              %{"type" => "text", "text" => text} when is_binary(text) and text != "" ->
-                chunk(acc, completion_id, text, nil)
-
-              _ ->
-                acc
-            end
-          end)
-
+        conn = Enum.reduce(parts, conn, &chunk_part(&1, &2, completion_id))
         chunk(conn, completion_id, nil, "stop")
 
       _ ->
-        Logger.warning(
-          "opencode_bridge stream_replay message_not_found identifier=#{identifier} message_id=#{message_id}"
-        )
+        Logger.warning("opencode_bridge stream_replay message_not_found identifier=#{identifier} message_id=#{message_id}")
 
         conn = chunk(conn, completion_id, "**system:** message not found", nil)
         chunk(conn, completion_id, nil, "stop")
     end
   end
+
+  defp chunk_part(%{"type" => "text", "text" => text}, conn, completion_id)
+       when is_binary(text) and text != "" do
+    chunk(conn, completion_id, text, nil)
+  end
+
+  defp chunk_part(_, conn, _completion_id), do: conn
 
   defp last_user_text(%{"messages" => messages}) when is_list(messages) do
     messages
@@ -303,12 +302,10 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp last_user_text(_), do: {:error, :missing_user_message}
 
   defp text_from_parts(parts) do
-    parts
-    |> Enum.map(fn
+    Enum.map_join(parts, "", fn
       %{"type" => "text", "text" => text} when is_binary(text) -> text
       _ -> ""
     end)
-    |> Enum.join("")
   end
 
   defp validate_body(body) when byte_size(body) > @max_body_bytes, do: {:error, :body_too_large}
@@ -327,7 +324,7 @@ defmodule Aiur.Opencode.ChatCompletions do
     # and routes the request, while the bearer just authorizes "this is
     # a live aiur workspace."
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
-         true <- Aiur.Opencode.TokenRegistry.valid?(token) do
+         true <- TokenRegistry.valid?(token) do
       {:ok, conn}
     else
       _ -> {:error, :unauthorized}

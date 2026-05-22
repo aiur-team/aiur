@@ -86,21 +86,23 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
       base_url = current_base_url(entries)
       deadline = System.monotonic_time(:millisecond) + timeout_ms
 
-      Enum.each(entries, fn %{identifier: identifier, session_id: session_id, writer_pid: pid} ->
-        remaining = max(deadline - System.monotonic_time(:millisecond), 0)
-
-        if remaining > 0 do
-          _ = maybe_delete_session(base_url, session_id)
-          _ = DynamicSupervisor.terminate_child(SessionSupervisor, pid)
-          _ = Registry.unregister(@registry, identifier)
-        end
-      end)
+      Enum.each(entries, &drain_entry(&1, base_url, deadline))
 
       :ok
     end
   end
 
   # --- internals ----------------------------------------------------------
+
+  defp drain_entry(%{identifier: identifier, session_id: session_id, writer_pid: pid}, base_url, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    if remaining > 0 do
+      _ = maybe_delete_session(base_url, session_id)
+      _ = DynamicSupervisor.terminate_child(SessionSupervisor, pid)
+      _ = Registry.unregister(@registry, identifier)
+    end
+  end
 
   defp create_session(identifier, base_url) do
     safe_id = Config.safe_identifier(identifier)
@@ -129,9 +131,7 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   defp start_writer(identifier, session_id, base_url) do
     spec = %{
       id: {SessionWriter, identifier},
-      start:
-        {SessionWriter, :start_link,
-         [%{identifier: identifier, session_id: session_id, base_url: base_url}]},
+      start: {SessionWriter, :start_link, [%{identifier: identifier, session_id: session_id, base_url: base_url}]},
       restart: :transient
     }
 

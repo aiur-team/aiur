@@ -2084,7 +2084,15 @@ defmodule Aiur.Orchestrator do
     if paused_running_entry?(running_entry) do
       enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
     else
-      do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+      do_enqueue_running_operator_message(
+        state,
+        running_entry,
+        issue_identifier,
+        text,
+        delivery_policy,
+        fallback,
+        turn_id
+      )
     end
   end
 

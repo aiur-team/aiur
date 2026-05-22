@@ -46,28 +46,33 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
     test "paint_timeout drops the attachment (does NOT mark warm)" do
       source = File.read!(@attach_pool_source)
 
-      # Get the spawn_warm_attach body
-      spawn_block =
-        case Regex.run(~r/defp spawn_warm_attach.*?\n  end\n/s, source) do
+      # The :timeout branch lives in finish_warm_attach_after_paint/5,
+      # the helper that spawn_warm_attach delegates to once Slot.select
+      # returns its pane_id.
+      paint_block =
+        case Regex.run(
+               ~r/defp finish_warm_attach_after_paint.*?\n  end\n/s,
+               source
+             ) do
           [m | _] -> m
-          _ -> raise "could not extract spawn_warm_attach"
+          _ -> raise "could not extract finish_warm_attach_after_paint"
         end
 
-      assert spawn_block =~ ~r/:timeout ->\s*\n[^}]*?send\(pool, \{:attach_failed/,
+      assert paint_block =~ ~r/:timeout ->\s*\n[^}]*?send\(pool, \{:attach_failed/s,
              """
-             On wait_for_paint :timeout, spawn_warm_attach MUST send
-             :attach_failed (not :attach_warmed). The ⚡ icon is a
-             PROMISE that pressing Enter opens opencode in <1 s.
+             On wait_for_paint :timeout, finish_warm_attach_after_paint
+             MUST send :attach_failed (not :attach_warmed). The ⚡ icon
+             is a PROMISE that pressing Enter opens opencode in <1 s.
              Marking warm on timeout breaks that promise — the user
              sees ⚡ on a row whose attach is dead or still booting.
              """
 
-      refute spawn_block =~
-               ~r/:timeout ->\s*\n[^}]*?send\(pool, \{:attach_warmed/,
+      refute paint_block =~
+               ~r/:timeout ->\s*\n[^}]*?send\(pool, \{:attach_warmed/s,
              """
-             spawn_warm_attach must NOT send :attach_warmed on paint
-             timeout. (Previous version did this as a 'best effort'
-             but it lied to the user.)
+             finish_warm_attach_after_paint must NOT send :attach_warmed
+             on paint timeout. (Previous version did this as a 'best
+             effort' but it lied to the user.)
              """
     end
   end

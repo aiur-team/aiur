@@ -89,7 +89,8 @@ defmodule Aiur.AgentRunner do
        when is_binary(identifier) and is_binary(turn_id) do
     case event_kind(message) do
       kind when kind in ["turn_completed", "turn_failed", "turn_cancelled", "turn_input_required"] ->
-        AgentPubSub.broadcast_turn_event(identifier, String.to_existing_atom(kind), %{turn_id: turn_id, payload: message})
+        payload = %{turn_id: turn_id, payload: message}
+        AgentPubSub.broadcast_turn_event(identifier, String.to_existing_atom(kind), payload)
 
       _ ->
         :ok
@@ -379,27 +380,21 @@ defmodule Aiur.AgentRunner do
 
     case continue_with_issue?(issue, issue_state_fetcher) do
       {:continue, refreshed_issue} when turn_number < max_turns ->
-        Logger.info(
-          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns} reason=turn_completed"
-        )
+        Logger.info("aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns} reason=turn_completed")
 
         Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
         continue_issue_turn(%{turn_context | issue: refreshed_issue, turn_number: turn_number + 1}, app_session)
 
       {:continue, refreshed_issue} ->
-        Logger.info(
-          "aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}"
-        )
+        Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
 
         Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
 
         :ok
 
       {:done, refreshed_issue} ->
-        Logger.info(
-          "aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive"
-        )
+        Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
 
         :ok
 
@@ -435,16 +430,12 @@ defmodule Aiur.AgentRunner do
           )
 
         {:continue, refreshed_issue} ->
-          Logger.info(
-            "aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume"
-          )
+          Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume")
 
           :ok
 
         {:done, refreshed_issue} ->
-          Logger.info(
-            "aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume_inactive"
-          )
+          Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume_inactive")
 
           :ok
 
@@ -568,7 +559,9 @@ defmodule Aiur.AgentRunner do
   defp run_queue_item_turn(app_session, issue, item, _message_handler, orchestrator, codex_update_recipient) do
     text = queue_item_text(item)
     turn_id = queue_item_turn_id(item)
-    message_handler = codex_message_handler(codex_update_recipient, issue, session_workspace(app_session), session_worker_host(app_session), turn_id)
+    workspace = session_workspace(app_session)
+    worker_host = session_worker_host(app_session)
+    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host, turn_id)
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
@@ -583,7 +576,11 @@ defmodule Aiur.AgentRunner do
          ) do
       {:ok, _turn_session} ->
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
-        if is_binary(turn_id), do: AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
+
+        if is_binary(turn_id) do
+          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
+        end
+
         drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
       {:paused, _payload} ->
@@ -594,7 +591,11 @@ defmodule Aiur.AgentRunner do
 
       {:error, reason} = error ->
         :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
-        if is_binary(turn_id), do: AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{turn_id: turn_id, reason: reason})
+
+        if is_binary(turn_id) do
+          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{turn_id: turn_id, reason: reason})
+        end
+
         error
     end
   end

@@ -43,14 +43,10 @@ defmodule Aiur.Opencode.SessionGC do
 
         kept = length(sessions) - deleted
 
-        Logger.info(
-          "opencode_session_gc phase=complete elapsed_ms=#{Boot.elapsed_ms()} kept=#{kept} deleted=#{deleted}"
-        )
+        Logger.info("opencode_session_gc phase=complete elapsed_ms=#{Boot.elapsed_ms()} kept=#{kept} deleted=#{deleted}")
 
       {:error, reason} ->
-        Logger.warning(
-          "opencode_session_gc phase=skipped elapsed_ms=#{Boot.elapsed_ms()} reason=#{inspect(reason)}"
-        )
+        Logger.warning("opencode_session_gc phase=skipped elapsed_ms=#{Boot.elapsed_ms()} reason=#{inspect(reason)}")
     end
 
     :ok

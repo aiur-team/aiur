@@ -239,9 +239,8 @@ defmodule Aiur.Config do
   end
 
   defp validate_semantics(settings) do
-    with :ok <- validate_kinds_and_secrets(settings),
-         :ok <- Aiur.Opencode.Config.validate!() do
-      :ok
+    with :ok <- validate_kinds_and_secrets(settings) do
+      Aiur.Opencode.Config.validate!()
     end
   end
 

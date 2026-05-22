@@ -22,6 +22,8 @@ defmodule Aiur.Shutdown do
 
   require Logger
 
+  alias Aiur.Opencode.SessionWriterRegistry
+
   @default_cleanup_timeout_ms 5_000
   @default_supervisor_stop_timeout_ms 5_000
 
@@ -30,7 +32,7 @@ defmodule Aiur.Shutdown do
   """
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
-    safely(fn -> Aiur.Opencode.SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
+    safely(fn -> SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
     safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")
     :ok
   end
@@ -58,6 +60,8 @@ defmodule Aiur.Shutdown do
   Replaces direct `System.halt` calls in `Aiur.AgentList.App.quit/1`
   and `Aiur.CLI.wait_for_shutdown/0`.
   """
+  @spec shutdown() :: no_return()
+  @spec shutdown(non_neg_integer()) :: no_return()
   @spec shutdown(non_neg_integer(), keyword()) :: no_return()
   def shutdown(code \\ 0, opts \\ []) do
     cleanup_timeout = Keyword.get(opts, :cleanup_timeout, @default_cleanup_timeout_ms)
@@ -78,13 +82,9 @@ defmodule Aiur.Shutdown do
   end
 
   defp safely(fun, label) do
-    try do
-      fun.()
-    catch
-      kind, reason ->
-        Logger.warning(
-          "aiur_shutdown phase=#{label} caught=#{inspect({kind, reason})}"
-        )
-    end
+    fun.()
+  catch
+    kind, reason ->
+      Logger.warning("aiur_shutdown phase=#{label} caught=#{inspect({kind, reason})}")
   end
 end

@@ -308,6 +308,7 @@ defmodule Aiur.AgentList.AppTest do
     # to the Task), AgentList must remain responsive to further casts.
     # Wait past the default 5 s GenServer.call timeout to confirm no crash.
     Process.sleep(5_500)
+
     assert Process.alive?(app_pid),
            "AgentList must NOT crash when PaneManager parks the open call"
   end

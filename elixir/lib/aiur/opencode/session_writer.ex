@@ -121,9 +121,7 @@ defmodule Aiur.Opencode.SessionWriter do
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "opencode_session_writer write_failed identifier=#{state.identifier} reason=#{inspect(reason)}"
-        )
+        Logger.warning("opencode_session_writer write_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
     end
 
     {:noreply, state}
@@ -136,9 +134,7 @@ defmodule Aiur.Opencode.SessionWriter do
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "opencode_session_writer alert_failed identifier=#{state.identifier} reason=#{inspect(reason)}"
-        )
+        Logger.warning("opencode_session_writer alert_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
     end
 
     {:noreply, state}
@@ -175,9 +171,7 @@ defmodule Aiur.Opencode.SessionWriter do
         end
       end)
 
-    Logger.info(
-      "opencode_session_writer phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{state.identifier} session_id=#{state.session_id} replayed=#{replayed}"
-    )
+    Logger.info("opencode_session_writer phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{state.identifier} session_id=#{state.session_id} replayed=#{replayed}")
 
     root_msg_id
   end
@@ -193,15 +187,9 @@ defmodule Aiur.Opencode.SessionWriter do
     parent_id = state.root_msg_id || message_id
 
     cwd =
-      case Aiur.Config.workspace_root() do
-        path when is_binary(path) ->
-          path
-          |> Path.expand()
-          |> Path.join(Aiur.Opencode.Config.safe_identifier(state.identifier))
-
-        _ ->
-          "/"
-      end
+      Aiur.Config.workspace_root()
+      |> Path.expand()
+      |> Path.join(Aiur.Opencode.Config.safe_identifier(state.identifier))
 
     finish = if role == :command, do: "tool-calls", else: "stop"
 
@@ -271,9 +259,7 @@ defmodule Aiur.Opencode.SessionWriter do
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "opencode_session_writer nudge_failed identifier=#{state.identifier} reason=#{inspect(reason)}"
-        )
+        Logger.warning("opencode_session_writer nudge_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
     end
   end
 end

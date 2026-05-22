@@ -124,7 +124,7 @@ defmodule Aiur.Opencode.Config do
   end
 
   defp default_prewarm_workspace do
-    Path.join([System.user_home!() || "/tmp", ".local/share/aiur/opencode-warm"])
+    Path.join([System.user_home!(), ".local/share/aiur/opencode-warm"])
   end
 
   @doc """

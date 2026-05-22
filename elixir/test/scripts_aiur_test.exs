@@ -300,7 +300,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- mix deps.get"
     assert output =~ "MISE:exec -- mix compile"
     assert output =~ "aiur: rebuilding bin/aiur"
-    assert output =~ "MISE:exec -- mix escript.build"
+    assert output =~ "MISE:exec -- mix release --overwrite"
     # The real Aiur invocation still runs after the rebuild step.
     assert output =~ "MISE:exec -- ./bin/aiur"
   end
@@ -333,7 +333,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- mix deps.get"
     assert output =~ "MISE:exec -- mix compile"
     assert output =~ "aiur: rebuilding bin/aiur"
-    assert output =~ "MISE:exec -- mix escript.build"
+    assert output =~ "MISE:exec -- mix release --overwrite"
     refute output =~ "MISE:exec -- ./bin/aiur"
   end
 

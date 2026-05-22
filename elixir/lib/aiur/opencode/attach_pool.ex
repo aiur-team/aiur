@@ -42,7 +42,7 @@ defmodule Aiur.Opencode.AttachPool do
   use GenServer
   require Logger
 
-  alias Aiur.Opencode.{Protocol, Slot, SlotSupervisor, SlotRegistry}
+  alias Aiur.Opencode.{Protocol, Slot, SlotRegistry, SlotSupervisor}
   alias Aiur.Tmux
 
   @topic "attach_pool"
@@ -343,31 +343,7 @@ defmodule Aiur.Opencode.AttachPool do
           #
           # Wait for the message-turn marker `Build · issue-` to
           # appear in the pane before declaring warm.
-          case wait_for_paint(pane_id, 20_000) do
-            :ok ->
-              Aiur.Perf.span_end(span,
-                identifier: identifier,
-                slot: slot_index,
-                pane_id: pane_id
-              )
-
-              send(pool, {:attach_warmed, identifier, slot_index, pane_id})
-
-            :timeout ->
-              Aiur.Perf.span_end(span,
-                result: :paint_timeout,
-                identifier: identifier,
-                slot: slot_index,
-                pane_id: pane_id
-              )
-
-              # Paint never landed within the budget. Treat as failure
-              # — marking warm now would lie to the user (⚡ promises
-              # instant open, but a never-painted attach renders cold
-              # at move-pane time). Drop the attachment so the next
-              # seed can retry on a fresh slot.
-              send(pool, {:attach_failed, identifier, slot_index, :paint_timeout})
-          end
+          finish_warm_attach_after_paint(pool, span, identifier, slot_index, pane_id)
 
         {:error, reason} ->
           Aiur.Perf.span_end(span,
@@ -380,6 +356,34 @@ defmodule Aiur.Opencode.AttachPool do
           send(pool, {:attach_failed, identifier, slot_index, reason})
       end
     end)
+  end
+
+  defp finish_warm_attach_after_paint(pool, span, identifier, slot_index, pane_id) do
+    case wait_for_paint(pane_id, 20_000) do
+      :ok ->
+        Aiur.Perf.span_end(span,
+          identifier: identifier,
+          slot: slot_index,
+          pane_id: pane_id
+        )
+
+        send(pool, {:attach_warmed, identifier, slot_index, pane_id})
+
+      :timeout ->
+        Aiur.Perf.span_end(span,
+          result: :paint_timeout,
+          identifier: identifier,
+          slot: slot_index,
+          pane_id: pane_id
+        )
+
+        # Paint never landed within the budget. Treat as failure
+        # — marking warm now would lie to the user (⚡ promises
+        # instant open, but a never-painted attach renders cold
+        # at move-pane time). Drop the attachment so the next
+        # seed can retry on a fresh slot.
+        send(pool, {:attach_failed, identifier, slot_index, :paint_timeout})
+    end
   end
 
   # Widen the aiur-hidden window so each warm-attach pane has at
@@ -442,26 +446,27 @@ defmodule Aiur.Opencode.AttachPool do
   defp do_wait_for_paint(pane_id, deadline) do
     case Tmux.command(Tmux, "capture-pane -p -t #{pane_id}") do
       {:ok, lines} ->
-        content = Enum.join(lines, "\n")
-
-        if String.contains?(content, "Build · issue-") do
-          :ok
-        else
-          if System.monotonic_time(:millisecond) >= deadline do
-            :timeout
-          else
-            Process.sleep(@paint_poll_interval_ms)
-            do_wait_for_paint(pane_id, deadline)
-          end
-        end
+        check_paint_or_retry(pane_id, deadline, Enum.join(lines, "\n"))
 
       _ ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          :timeout
-        else
-          Process.sleep(@paint_poll_interval_ms)
-          do_wait_for_paint(pane_id, deadline)
-        end
+        retry_wait_for_paint(pane_id, deadline)
+    end
+  end
+
+  defp check_paint_or_retry(pane_id, deadline, content) do
+    if String.contains?(content, "Build · issue-") do
+      :ok
+    else
+      retry_wait_for_paint(pane_id, deadline)
+    end
+  end
+
+  defp retry_wait_for_paint(pane_id, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      :timeout
+    else
+      Process.sleep(@paint_poll_interval_ms)
+      do_wait_for_paint(pane_id, deadline)
     end
   end
 
@@ -490,8 +495,7 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   @doc false
-  # Unused but kept so future code that wants the canonical attach
-  # command can reuse Protocol's escape logic.
+  @spec _attach_command_for(String.t(), String.t()) :: String.t()
   def _attach_command_for(base_url, session_id),
     do: Protocol.attach_command(base_url, session_id)
 end

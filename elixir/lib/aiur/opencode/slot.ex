@@ -150,9 +150,7 @@ defmodule Aiur.Opencode.Slot do
 
     case SlotRegistry.register_self(slot_index) do
       :ok ->
-        Logger.info(
-          "opencode_slot phase=init elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index}"
-        )
+        Logger.info("opencode_slot phase=init elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index}")
 
         state = %__MODULE__{
           slot_index: slot_index,
@@ -163,9 +161,7 @@ defmodule Aiur.Opencode.Slot do
         {:ok, state, {:continue, :start_serve}}
 
       {:error, :already_registered} ->
-        Logger.warning(
-          "opencode_slot phase=duplicate elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index}"
-        )
+        Logger.warning("opencode_slot phase=duplicate elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index}")
 
         :ignore
     end
@@ -226,9 +222,7 @@ defmodule Aiur.Opencode.Slot do
              workspace: state.workspace_path
            }),
          {:ok, base_url, _os_pid} <- Server.await_ready(server_pid) do
-      Logger.info(
-        "opencode_slot phase=serve_ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} base_url=#{base_url}"
-      )
+      Logger.info("opencode_slot phase=serve_ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} base_url=#{base_url}")
 
       if span = Process.get(:slot_serve_span) do
         Aiur.Perf.span_end(span, slot: state.slot_index, base_url: base_url)
@@ -247,9 +241,7 @@ defmodule Aiur.Opencode.Slot do
       {:noreply, new_state, {:continue, :spawn_attach}}
     else
       error ->
-        Logger.warning(
-          "opencode_slot phase=serve_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}"
-        )
+        Logger.warning("opencode_slot phase=serve_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}")
 
         {:noreply, %{state | status: :failed}}
     end
@@ -262,58 +254,62 @@ defmodule Aiur.Opencode.Slot do
     # open per slot. Mark ready with pane_id=nil; do_select will create
     # the bound attach pane.
     if state.pending_select do
-      Logger.info(
-        "opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=nil (pending_select fast-path)"
-      )
+      mark_ready_pending_select(state)
+    else
+      mark_ready_with_attach_pane(state)
+    end
+  end
+
+  defp mark_ready_pending_select(state) do
+    Logger.info("opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=nil (pending_select fast-path)")
+
+    Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
+    Aiur.Perf.event(:slot_ready, slot: state.slot_index)
+    maybe_run_session_gc(state)
+
+    ready_state = %{state | status: :ready, pane_id: nil}
+    {:noreply, drain_pending_select(ready_state)}
+  end
+
+  defp mark_ready_with_attach_pane(state) do
+    with {:ok, keep_alive_pane} <- hidden_window_target(),
+         :ok <- reflow_hidden_window(keep_alive_pane),
+         attach_cmd = Protocol.attach_command(state.base_url),
+         {:ok, pane_id} <-
+           Tmux.split_pane(
+             Tmux,
+             keep_alive_pane,
+             :horizontal,
+             @hidden_split_percent,
+             attach_cmd,
+             silent: true
+           ) do
+      Logger.info("opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}")
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
       Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
-      if state.slot_index == 1 do
-        Task.start(fn -> SessionGC.run(state.base_url) end)
-      end
+      # First slot to reach :ready runs boot-time GC. Recovers from any
+      # prior aiur run that crashed before its shutdown could reap
+      # sessions (kill -9, BEAM panic, OOM). Lifted from WarmServer.
+      maybe_run_session_gc(state)
 
-      ready_state = %{state | status: :ready, pane_id: nil}
+      ready_state = %{state | status: :ready, pane_id: pane_id}
       {:noreply, drain_pending_select(ready_state)}
     else
-      with {:ok, keep_alive_pane} <- hidden_window_target(),
-           :ok <- reflow_hidden_window(keep_alive_pane),
-           attach_cmd = Protocol.attach_command(state.base_url),
-           {:ok, pane_id} <-
-             Tmux.split_pane(
-               Tmux,
-               keep_alive_pane,
-               :horizontal,
-               @hidden_split_percent,
-               attach_cmd,
-               silent: true
-             ) do
-        Logger.info(
-          "opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}"
-        )
+      error ->
+        Logger.warning("opencode_slot phase=attach_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}")
 
-        Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
-      Aiur.Perf.event(:slot_ready, slot: state.slot_index)
-
-        # First slot to reach :ready runs boot-time GC. Recovers from any
-        # prior aiur run that crashed before its shutdown could reap
-        # sessions (kill -9, BEAM panic, OOM). Lifted from WarmServer.
-        if state.slot_index == 1 do
-          Task.start(fn -> SessionGC.run(state.base_url) end)
-        end
-
-        ready_state = %{state | status: :ready, pane_id: pane_id}
-        {:noreply, drain_pending_select(ready_state)}
-      else
-        error ->
-          Logger.warning(
-            "opencode_slot phase=attach_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}"
-          )
-
-          {:noreply, %{state | status: :failed}}
-      end
+        {:noreply, %{state | status: :failed}}
     end
   end
+
+  defp maybe_run_session_gc(%{slot_index: 1, base_url: base_url}) do
+    Task.start(fn -> SessionGC.run(base_url) end)
+    :ok
+  end
+
+  defp maybe_run_session_gc(_state), do: :ok
 
   @impl true
   def handle_call({:select, identifier}, from, %{status: status} = state)
@@ -334,9 +330,7 @@ defmodule Aiur.Opencode.Slot do
       # the freshest agent list, THEN retry the select. The user pays
       # a one-time ~5s pause on this open; subsequent opens of any
       # identifier known to the new map are warm.
-      Logger.info(
-        "opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}"
-      )
+      Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
 
       Aiur.Perf.event(:slot_identifier_miss, slot: state.slot_index, identifier: identifier)
 
@@ -360,9 +354,7 @@ defmodule Aiur.Opencode.Slot do
 
     broadcast_session_changed(state.slot_index, nil)
 
-    Logger.info(
-      "opencode_slot phase=deselect elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index}"
-    )
+    Logger.info("opencode_slot phase=deselect elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index}")
 
     {:reply, :ok, new_state}
   end
@@ -398,9 +390,7 @@ defmodule Aiur.Opencode.Slot do
         {:noreply, schedule_poll(state)}
 
       _ ->
-        Logger.info(
-          "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id}"
-        )
+        Logger.info("opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id}")
 
         # AgentList must drop the circle immediately — no `Slot.deselect`
         # call from PaneManager since the pane vanished without going
@@ -435,9 +425,7 @@ defmodule Aiur.Opencode.Slot do
   end
 
   def handle_info({:EXIT, pid, reason}, %{server_pid: pid} = state) do
-    Logger.warning(
-      "opencode_slot phase=serve_exit elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(reason)}"
-    )
+    Logger.warning("opencode_slot phase=serve_exit elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(reason)}")
 
     {:noreply, %{state | status: :failed, server_pid: nil}}
   end
@@ -488,9 +476,7 @@ defmodule Aiur.Opencode.Slot do
         # move it to visible. State.pane_id is updated to the new pane.
         case respawn_attach_with_session(state, session_id) do
           {:ok, new_pane_id} ->
-            Logger.info(
-              "opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{new_pane_id}"
-            )
+            Logger.info("opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{new_pane_id}")
 
             Aiur.Perf.span_end(do_select_span,
               slot: state.slot_index,
@@ -564,9 +550,7 @@ defmodule Aiur.Opencode.Slot do
       {:ok, pane_id}
     else
       error ->
-        Logger.warning(
-          "opencode_slot phase=respawn_attach_failed slot=#{state.slot_index} session_id=#{session_id} reason=#{inspect(error)}"
-        )
+        Logger.warning("opencode_slot phase=respawn_attach_failed slot=#{state.slot_index} session_id=#{session_id} reason=#{inspect(error)}")
 
         Aiur.Perf.span_end(span,
           result: :failed,
@@ -717,8 +701,6 @@ defmodule Aiur.Opencode.Slot do
     %{state | poll_ref: ref}
   end
 
-  defp schedule_poll(state), do: state
-
   defp cancel_poll(nil), do: nil
 
   defp cancel_poll(ref) do
@@ -748,7 +730,7 @@ defmodule Aiur.Opencode.Slot do
   end
 
   defp workspace_path_for(slot_index) do
-    base = System.user_home!() || "/tmp"
+    base = System.user_home!()
     Path.join([base, ".local/share/aiur/opencode-slot-#{slot_index}"])
   end
 

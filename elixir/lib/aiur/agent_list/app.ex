@@ -26,6 +26,7 @@ defmodule Aiur.AgentList.App do
 
   alias Aiur.AgentList.Renderer
   alias Aiur.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
+  alias Aiur.Opencode.{AttachPool, Slot}
 
   # `init/1` and `render/1` go through GenServer-side and IO callbacks
   # whose return shapes dialyzer can't fully trace; the warnings are
@@ -125,8 +126,8 @@ defmodule Aiur.AgentList.App do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
       AgentPubSub.subscribe_poll_state()
-      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.Slot.slots_topic())
-      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Opencode.AttachPool.topic())
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
+      Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
       if debug_mode? do
         Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
@@ -191,9 +192,7 @@ defmodule Aiur.AgentList.App do
 
     elapsed = Aiur.Boot.elapsed_ms()
 
-    Logger.info(
-      "aiur_agent_list phase=ready elapsed_ms=#{elapsed} agents=#{length(state.summaries)}"
-    )
+    Logger.info("aiur_agent_list phase=ready elapsed_ms=#{elapsed} agents=#{length(state.summaries)}")
 
     # Emit through the same aiur_perf channel so the debug footer can
     # show "agent list ready: Xs" from the same data stream.
@@ -225,27 +224,7 @@ defmodule Aiur.AgentList.App do
 
   def handle_cast(:activate, state) do
     if state.selection_focus == :agents do
-      case Enum.at(state.summaries, state.selection_index) do
-        %{identifier: identifier} = summary ->
-          Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
-          Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
-          command = "#{state.command_template} #{identifier}"
-          title = Map.get(summary, :title)
-          pane_manager = state.pane_manager
-
-          # PaneManager.open_conversation parks the call when no slot is
-          # ready (cold pre-warm) and replies after the queue drains —
-          # up to 60 s. The AgentList GenServer is the keyboard owner;
-          # it must NOT block on this call or any keystroke pressed
-          # during the wait is lost and the process times out + crashes.
-          # Fire-and-forget in a Task instead.
-          Task.start(fn ->
-            PaneManager.open_conversation(pane_manager, identifier, command, title: title)
-          end)
-
-        _ ->
-          :ok
-      end
+      activate_selected_agent(state)
     end
 
     {:noreply, state}
@@ -253,39 +232,69 @@ defmodule Aiur.AgentList.App do
 
   def handle_cast(:attach_selected, state) do
     if state.selection_focus == :agents do
-      case Enum.at(state.summaries, state.selection_index) do
-        %{identifier: identifier} = summary ->
-          Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
-          command = "#{state.command_template} #{identifier}"
-          title = Map.get(summary, :title)
-          pane_manager = state.pane_manager
-
-          # Same parking concern as :activate — `attach_conversation`
-          # already uses a 65 s call timeout but it still blocks the
-          # AgentList process. Run the whole attempt-then-fallback in
-          # a Task so keystrokes stay responsive.
-          Task.start(fn ->
-            case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
-              {:ok, _pane_id} ->
-                :ok
-
-              {:error, :no_focused_pane} ->
-                PaneManager.open_conversation(pane_manager, identifier, command,
-                  title: title,
-                  timeout: 65_000
-                )
-
-              {:error, _other} ->
-                :ok
-            end
-          end)
-
-        _ ->
-          :ok
-      end
+      attach_selected_agent(state)
     end
 
     {:noreply, state}
+  end
+
+  defp activate_selected_agent(state) do
+    case Enum.at(state.summaries, state.selection_index) do
+      %{identifier: identifier} = summary ->
+        Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
+        Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
+        command = "#{state.command_template} #{identifier}"
+        title = Map.get(summary, :title)
+        pane_manager = state.pane_manager
+
+        # PaneManager.open_conversation parks the call when no slot is
+        # ready (cold pre-warm) and replies after the queue drains —
+        # up to 60 s. The AgentList GenServer is the keyboard owner;
+        # it must NOT block on this call or any keystroke pressed
+        # during the wait is lost and the process times out + crashes.
+        # Fire-and-forget in a Task instead.
+        Task.start(fn ->
+          PaneManager.open_conversation(pane_manager, identifier, command, title: title)
+        end)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp attach_selected_agent(state) do
+    case Enum.at(state.summaries, state.selection_index) do
+      %{identifier: identifier} = summary ->
+        Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
+        command = "#{state.command_template} #{identifier}"
+        title = Map.get(summary, :title)
+        pane_manager = state.pane_manager
+
+        # Same parking concern as :activate — `attach_conversation`
+        # already uses a 65 s call timeout but it still blocks the
+        # AgentList process. Run the whole attempt-then-fallback in
+        # a Task so keystrokes stay responsive.
+        Task.start(fn -> attempt_attach_then_open(pane_manager, identifier, command, title) end)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp attempt_attach_then_open(pane_manager, identifier, command, title) do
+    case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
+      {:ok, _pane_id} ->
+        :ok
+
+      {:error, :no_focused_pane} ->
+        PaneManager.open_conversation(pane_manager, identifier, command,
+          title: title,
+          timeout: 65_000
+        )
+
+      {:error, _other} ->
+        :ok
+    end
   end
 
   def handle_cast(:toggle_pause, state) do
@@ -467,7 +476,7 @@ defmodule Aiur.AgentList.App do
   defp safely_seed_attach_pool([]), do: :ok
 
   defp safely_seed_attach_pool(identifiers) do
-    Aiur.Opencode.AttachPool.seed(identifiers)
+    AttachPool.seed(identifiers)
   rescue
     _ -> :ok
   catch

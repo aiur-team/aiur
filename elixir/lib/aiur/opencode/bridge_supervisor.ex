@@ -4,13 +4,15 @@ defmodule Aiur.Opencode.BridgeSupervisor do
   use Supervisor
   require Logger
 
+  alias Aiur.Opencode.Config
+
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true
   def init(_opts) do
-    host = Aiur.Opencode.Config.bridge_host()
-    port = Aiur.Opencode.Config.bridge_port()
+    host = Config.bridge_host()
+    port = Config.bridge_port()
 
     Logger.warning("opencode_bridge starting host=#{host} port=#{port}")
 

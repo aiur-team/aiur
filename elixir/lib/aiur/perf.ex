@@ -89,10 +89,7 @@ defmodule Aiur.Perf do
 
     base = "aiur_perf phase=#{phase} at_ms=#{now_ms} elapsed_ms=#{elapsed}"
 
-    extras =
-      meta
-      |> Enum.map(fn {k, v} -> "#{k}=#{format_value(v)}" end)
-      |> Enum.join(" ")
+    extras = Enum.map_join(meta, " ", fn {k, v} -> "#{k}=#{format_value(v)}" end)
 
     if extras == "" do
       base

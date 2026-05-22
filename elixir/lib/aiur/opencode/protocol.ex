@@ -359,16 +359,20 @@ defmodule Aiur.Opencode.Protocol do
 
   @spec serve_command(non_neg_integer(), String.t(), [String.t()]) :: String.t()
   def serve_command(port, host, extra_args \\ []) do
-    ([Config.command(), "serve", "--port", to_string(port), "--hostname", host] ++ extra_args)
-    |> Enum.map(&shell_escape/1)
-    |> Enum.join(" ")
+    Enum.map_join(
+      [Config.command(), "serve", "--port", to_string(port), "--hostname", host] ++ extra_args,
+      " ",
+      &shell_escape/1
+    )
   end
 
   @spec attach_command(String.t(), String.t()) :: String.t()
   def attach_command(url, session_id) when is_binary(session_id) do
-    [Config.command(), "attach", url, "--session", session_id]
-    |> Enum.map(&shell_escape/1)
-    |> Enum.join(" ")
+    Enum.map_join(
+      [Config.command(), "attach", url, "--session", session_id],
+      " ",
+      &shell_escape/1
+    )
   end
 
   @doc """
@@ -379,9 +383,7 @@ defmodule Aiur.Opencode.Protocol do
   """
   @spec attach_command(String.t()) :: String.t()
   def attach_command(url) do
-    [Config.command(), "attach", url]
-    |> Enum.map(&shell_escape/1)
-    |> Enum.join(" ")
+    Enum.map_join([Config.command(), "attach", url], " ", &shell_escape/1)
   end
 
   @spec shell_escape(String.t()) :: String.t()

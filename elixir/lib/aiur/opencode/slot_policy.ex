@@ -32,9 +32,7 @@ defmodule Aiur.Opencode.SlotPolicy do
         default_target_count()
       end)
 
-    Logger.info(
-      "opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count}"
-    )
+    Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count}")
 
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
 
@@ -60,9 +58,7 @@ defmodule Aiur.Opencode.SlotPolicy do
     # New wall time: ~7 s (one opencode-serve startup, in parallel).
     Aiur.Perf.event(:slot_chain_parallel_start, target_count: target)
 
-    Logger.info(
-      "opencode_slot_policy phase=chain_start_parallel elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target}"
-    )
+    Logger.info("opencode_slot_policy phase=chain_start_parallel elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target}")
 
     started =
       Enum.reduce(1..target, 0, fn slot_index, acc ->
@@ -71,17 +67,13 @@ defmodule Aiur.Opencode.SlotPolicy do
             acc + 1
 
           {:error, reason} ->
-            Logger.warning(
-              "opencode_slot_policy phase=chain_start_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}"
-            )
+            Logger.warning("opencode_slot_policy phase=chain_start_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}")
 
             acc
         end
       end)
 
-    Logger.info(
-      "opencode_slot_policy phase=chain_started elapsed_ms=#{Boot.elapsed_ms()} started=#{started} target=#{target}"
-    )
+    Logger.info("opencode_slot_policy phase=chain_started elapsed_ms=#{Boot.elapsed_ms()} started=#{started} target=#{target}")
 
     {:noreply, %{state | highest_started: target}}
   end
@@ -92,9 +84,7 @@ defmodule Aiur.Opencode.SlotPolicy do
       )
       when n >= target do
     if n == target do
-      Logger.info(
-        "opencode_slot_policy phase=chain_complete elapsed_ms=#{Boot.elapsed_ms()} slots=#{target}"
-      )
+      Logger.info("opencode_slot_policy phase=chain_complete elapsed_ms=#{Boot.elapsed_ms()} slots=#{target}")
 
       Aiur.Perf.event(:slot_chain_complete, slots: target)
     end

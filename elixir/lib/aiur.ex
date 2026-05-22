@@ -112,9 +112,7 @@ defmodule Aiur.Application do
       :ok = :os.set_signal(:sighup, :handle)
     catch
       kind, reason ->
-        Logger.warning(
-          "aiur_signal phase=sighup_install_failed kind=#{kind} reason=#{inspect(reason)}"
-        )
+        Logger.warning("aiur_signal phase=sighup_install_failed kind=#{kind} reason=#{inspect(reason)}")
     end
 
     :ok

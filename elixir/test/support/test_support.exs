@@ -221,7 +221,13 @@ defmodule Aiur.TestSupport do
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
-        opencode_yaml(opencode_command, opencode_bridge_port, opencode_bridge_host, opencode_serve_args, opencode_model_prefix),
+        opencode_yaml(
+          opencode_command,
+          opencode_bridge_port,
+          opencode_bridge_host,
+          opencode_serve_args,
+          opencode_model_prefix
+        ),
         "---",
         prompt
       ]

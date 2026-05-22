@@ -373,14 +373,14 @@ defmodule Aiur.AgentList.Renderer do
     pad_with_ansi(@ansi_gray, body, inner_width)
   end
 
-  defp render_rows([], _idx, _selection_focus, inner_width, _layout, _open_pane_ids) do
+  defp render_rows([], _idx, _selection_focus, inner_width, _layout, _open_pane_ids, _warm_ids) do
     [
       pad_with_ansi(@ansi_dim, "│   (no agents running)", inner_width),
       eol()
     ]
   end
 
-  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids, warm_ids \\ MapSet.new()) do
+  defp render_rows(summaries, idx, selection_focus, inner_width, layout, open_pane_ids, warm_ids) do
     summaries
     |> Enum.with_index()
     |> Enum.map(fn {summary, row_idx} ->

@@ -12,7 +12,9 @@ defmodule Aiur.Opencode.Db do
 
   require Logger
 
+  alias Aiur.Opencode.Config
   alias Exqlite.Basic
+  alias Exqlite.Connection
 
   @default_busy_timeout_ms 5_000
 
@@ -23,7 +25,7 @@ defmodule Aiur.Opencode.Db do
         Path.expand(value)
 
       _ ->
-        case Aiur.Opencode.Config.db_path() do
+        case Config.db_path() do
           path when is_binary(path) and path != "" -> Path.expand(path)
           _ -> Path.expand("~/.local/share/opencode/opencode.db")
         end
@@ -33,7 +35,7 @@ defmodule Aiur.Opencode.Db do
   @doc """
   Open a connection, set `PRAGMA busy_timeout`, call `fun.(conn)`, then close.
   """
-  @spec with_conn((Basic.t() -> result)) :: result | {:error, term()}
+  @spec with_conn((Connection.t() -> result)) :: result | {:error, term()}
         when result: var
   def with_conn(fun) when is_function(fun, 1) do
     with {:ok, conn} <- open(path()) do
@@ -160,9 +162,6 @@ defmodule Aiur.Opencode.Db do
 
       {:error, err, _} ->
         {:error, err}
-
-      other ->
-        {:error, other}
     end
   end
 

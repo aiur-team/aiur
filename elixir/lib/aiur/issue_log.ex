@@ -77,14 +77,16 @@ defmodule Aiur.IssueLog do
   def disk_history(identifier, limit \\ @history_limit) when is_binary(identifier) do
     path = log_path(identifier)
 
-    with {:ok, content} <- File.read(path) do
-      content
-      |> String.split("\n", trim: true)
-      |> Enum.map(&parse_line/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.take(-limit)
-    else
-      _ -> []
+    case File.read(path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse_line/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.take(-limit)
+
+      _ ->
+        []
     end
   end
 

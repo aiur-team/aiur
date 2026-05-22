@@ -40,14 +40,15 @@ defmodule Aiur.Regression.MultiPaneOpenTest do
 
     test "spawn_attach calls reflow_hidden_window before split" do
       source = File.read!(@slot_source)
-      block = extract_function(source, "handle_continue\\(:spawn_attach")
+      block = extract_function(source, "mark_ready_with_attach_pane")
 
       assert block =~ ~r/reflow_hidden_window\(keep_alive_pane\)/,
              """
-             spawn_attach MUST call reflow_hidden_window before split_pane
-             for the same reason as respawn — repeated pre-warm/rebuild
-             cycles otherwise leak pane width and the split eventually
-             fails.
+             The spawn_attach chain MUST call reflow_hidden_window before
+             split_pane for the same reason as respawn — repeated
+             pre-warm/rebuild cycles otherwise leak pane width and the
+             split eventually fails. mark_ready_with_attach_pane is the
+             helper called from handle_continue(:spawn_attach, ...).
              """
     end
 

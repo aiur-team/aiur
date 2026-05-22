@@ -70,16 +70,12 @@ defmodule Aiur.Opencode.HiddenWindow do
   def handle_continue(:create_window, state) do
     case Tmux.new_hidden_window(state.window_name, @keep_alive_cmd) do
       {:ok, pane_id} ->
-        Logger.info(
-          "opencode_hidden_window phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} window=#{state.window_name} keep_alive_pane=#{pane_id}"
-        )
+        Logger.info("opencode_hidden_window phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} window=#{state.window_name} keep_alive_pane=#{pane_id}")
 
         {:noreply, %{state | status: :ready, keep_alive_pane_id: pane_id}}
 
       {:error, reason} ->
-        Logger.warning(
-          "opencode_hidden_window phase=create_failed elapsed_ms=#{Aiur.Boot.elapsed_ms()} window=#{state.window_name} reason=#{inspect(reason)}"
-        )
+        Logger.warning("opencode_hidden_window phase=create_failed elapsed_ms=#{Aiur.Boot.elapsed_ms()} window=#{state.window_name} reason=#{inspect(reason)}")
 
         {:noreply, %{state | status: :failed}}
     end
