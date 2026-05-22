@@ -8,8 +8,8 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.CodingAgent
 
   require Logger
+  alias Aiur.{AgentEnvironment, Config, PathSafety, SSH}
   alias Aiur.Codex.DynamicTool
-  alias Aiur.{Config, PathSafety, SSH}
 
   @initialize_id 1
   @thread_start_id 2
@@ -249,7 +249,7 @@ defmodule Aiur.Codex.CodingAgent do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Aiur.Codex.Config.command())],
+            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command()))],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -264,7 +264,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp remote_launch_command(workspace) do
-    ["cd #{shell_escape(workspace)}", "exec #{Aiur.Codex.Config.command()}"]
+    ["cd #{shell_escape(workspace)}", AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command())]
     |> Enum.join(" && ")
   end
 
