@@ -50,16 +50,48 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
              "wait_for_paint MUST grep for the opencode message-turn marker"
     end
 
-    test "AttachPool pre-resizes the hidden pane to visible size" do
+    test "AttachPool ensures hidden-window geometry once before warming" do
       source = File.read!(@attach_pool_source)
 
-      assert source =~ ~r/resize-pane -t #\{pane_id\} -x \d+ -y \d+/,
+      assert source =~ ~r/defp ensure_hidden_geometry/,
              """
-             AttachPool MUST resize the hidden pane to roughly the
-             visible-window size BEFORE wait_for_paint. opencode-attach
-             re-renders from scratch on terminal resize — without the
-             pre-resize, the resize happens at move-pane time and
-             the user pays the 5-7 s re-render cost.
+             AttachPool MUST have an ensure_hidden_geometry/0 helper
+             that widens the aiur-hidden tmux window. Without it,
+             warm-attach panes get squeezed to 1 col (because 5 panes
+             share a 220-col window) and opencode-attach can't render.
+             """
+
+      assert source =~ ~r/resize-window -t aiur-orangekid-default:aiur-hidden -x/,
+             """
+             ensure_hidden_geometry MUST use `resize-window` on the
+             aiur-hidden window — NOT per-pane resize. Per-pane resize
+             pushes siblings to 1 col.
+             """
+
+      assert source =~ ~r/ensure_hidden_geometry\(\)/,
+             "ensure_hidden_geometry MUST be called from the warming flow"
+
+      # Critical: must run ONCE at slots_ready, NOT per-warm. Calling it
+      # per-warm fires window resize while opencode-attach is booting,
+      # which causes a re-render and adds 3-7 s to first paint.
+      # The call should be inside handle_info({:slot_ready, ...}) (one
+      # call per transition to slots_ready), not inside spawn_warm_attach.
+      handle_slot_ready_block =
+        case Regex.run(
+               ~r/def handle_info\(\{:slot_ready,.*?\n  end\n/s,
+               source
+             ) do
+          [match | _] -> match
+          _ -> ""
+        end
+
+      assert handle_slot_ready_block =~ ~r/ensure_hidden_geometry/,
+             """
+             ensure_hidden_geometry/0 MUST be called from
+             handle_info({:slot_ready, ...}) (once when slots become
+             ready). Calling it from spawn_warm_attach (per-warm)
+             triggers a window resize WHILE opencode-attach is
+             booting, costing the user 3-7 s of re-render time.
              """
     end
 
