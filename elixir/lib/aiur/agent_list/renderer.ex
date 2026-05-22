@@ -13,6 +13,8 @@ defmodule Aiur.AgentList.Renderer do
   frames — that produces visible flashing even when content is stable.
   """
 
+  alias Aiur.AgentEvents
+
   # Fixed visual width for the state-emoji column. The glyph occupies
   # two terminal columns; we render `<emoji><space>` so the cell is
   # exactly 3 wide in every terminal we care about.
