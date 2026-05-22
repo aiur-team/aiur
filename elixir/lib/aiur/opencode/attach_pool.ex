@@ -235,6 +235,10 @@ defmodule Aiur.Opencode.AttachPool do
           # is fixed).
           |> Map.update!(:claimed_slots, &MapSet.delete(&1, slot_index))
 
+        # Broadcast so AgentList can clear the ⏳ warming marker —
+        # otherwise rows whose paint timed out stay hourglass forever
+        # because warming_identifiers is never trimmed on failure.
+        broadcast_event({:attach_failed, identifier, slot_index, reason})
         {:noreply, new_state}
 
       _ ->
