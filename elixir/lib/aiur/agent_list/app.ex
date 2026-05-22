@@ -164,8 +164,8 @@ defmodule Aiur.AgentList.App do
       debug_mode?: debug_mode?,
       # Identifiers whose opencode-attach has been pre-warmed by
       # `Aiur.Opencode.AttachPool` and is sitting in `aiur-hidden`
-      # ready to instant-open. Renderer paints a ⚡ next to these
-      # rows so the user knows they'll open in <100 ms.
+      # ready to instant-open. Renderer paints these running rows as
+      # ready so Enter does not fall back to a cold attach.
       warm_identifiers: MapSet.new(),
       # Identifiers whose attach is currently being warmed (Slot.select
       # in flight, opencode-attach booting). Used to suppress the
@@ -241,25 +241,43 @@ defmodule Aiur.AgentList.App do
   defp activate_selected_agent(state) do
     case Enum.at(state.summaries, state.selection_index) do
       %{identifier: identifier} = summary ->
-        Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
-        Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
-        command = "#{state.command_template} #{identifier}"
-        title = Map.get(summary, :title)
-        pane_manager = state.pane_manager
-
-        # PaneManager.open_conversation parks the call when no slot is
-        # ready (cold pre-warm) and replies after the queue drains —
-        # up to 60 s. The AgentList GenServer is the keyboard owner;
-        # it must NOT block on this call or any keystroke pressed
-        # during the wait is lost and the process times out + crashes.
-        # Fire-and-forget in a Task instead.
-        Task.start(fn ->
-          PaneManager.open_conversation(pane_manager, identifier, command, title: title)
-        end)
+        activate_selected_agent_if_warm(state, identifier, summary)
 
       _ ->
         :ok
     end
+  end
+
+  defp activate_selected_agent_if_warm(state, identifier, summary) do
+    if warm_identifier?(state, identifier) do
+      open_warm_selected_agent(state, identifier, summary)
+    else
+      Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
+    end
+  end
+
+  defp open_warm_selected_agent(state, identifier, summary) do
+    Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
+    Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
+    command = "#{state.command_template} #{identifier}"
+    title = Map.get(summary, :title)
+    pane_manager = state.pane_manager
+
+    # PaneManager.open_conversation parks the call when no slot is
+    # ready (cold pre-warm) and replies after the queue drains —
+    # up to 60 s. The AgentList GenServer is the keyboard owner;
+    # it must NOT block on this call or any keystroke pressed
+    # during the wait is lost and the process times out + crashes.
+    # Fire-and-forget in a Task instead.
+    Task.start(fn ->
+      PaneManager.open_conversation(pane_manager, identifier, command, title: title)
+    end)
+  end
+
+  defp warm_identifier?(state, identifier) do
+    state
+    |> Map.get(:warm_identifiers, MapSet.new())
+    |> MapSet.member?(identifier)
   end
 
   defp attach_selected_agent(state) do
@@ -613,8 +631,8 @@ defmodule Aiur.AgentList.App do
       tag in ["agent:cancelled", "agent:canceled", "agent:done"]
     end)
     |> Enum.sort_by(fn s ->
-      # Group by status emoji (matches what the renderer paints), then
-      # by numeric identifier ASCENDING within each group. Previously
+      # Group by live work state, then by numeric identifier ASCENDING
+      # within each group. Previously
       # sorted identifiers as strings, so "10" came before "5" — the
       # user explicitly asked for natural numeric order within each
       # status-emoji bucket.
@@ -624,9 +642,9 @@ defmodule Aiur.AgentList.App do
     end)
   end
 
-  # Map status emoji to a stable sort bucket. Lower = higher in the list.
-  # Mirrors `Aiur.AgentList.Renderer.summary_emoji/1` so list order
-  # matches what the user sees painted next to each row.
+  # Map live work state to a stable sort bucket. Lower = higher in the
+  # list. Warm readiness can change per identifier without reshuffling
+  # rows, so ⏳ and 🟢 stay in the same working bucket.
   defp emoji_sort_key(%{status: :queued}), do: 4
 
   defp emoji_sort_key(%{status: :running} = summary) do

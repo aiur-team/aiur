@@ -1,12 +1,12 @@
 defmodule Aiur.Regression.WarmMarkerSemanticsTest do
   @moduledoc """
-  Regression for "● appeared on agent rows before ⚡" (reported
+  Regression for "● appeared on agent rows before warm-ready" (reported
   2026-05-21). Two interlocking guarantees the renderer must keep:
 
-  1. ⚡ ONLY appears on rows whose opencode-attach is fully painted
-     and ready to instant-open. Promised by AttachPool's
-     `wait_for_paint` gate — if paint times out, we send
-     :attach_failed and the identifier never enters warm_identifiers.
+  1. 🟢 ONLY appears on running rows whose opencode-attach is fully
+     painted and ready to instant-open. Promised by AttachPool's
+     `wait_for_paint` gate — if paint times out, we send :attach_failed
+     and the identifier never enters warm_identifiers.
 
   2. ● ONLY appears on rows whose pane is actually visible to the
      user. `visible_sessions` is populated from :slot_session_changed
@@ -18,15 +18,28 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
      dispatches a warm Task so AgentList can populate
      warming_identifiers immediately. Without this broadcast there's
      a several-second window where ● would falsely paint.
-
-  Also asserts ⚡ formatting: must occupy 3 visible cols to match ●.
   """
 
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentEvents
+  alias Aiur.AgentList.{App, Renderer}
+
   @attach_pool_source Path.expand("../../../lib/aiur/opencode/attach_pool.ex", __DIR__)
   @app_source Path.expand("../../../lib/aiur/agent_list/app.ex", __DIR__)
   @renderer_source Path.expand("../../../lib/aiur/agent_list/renderer.ex", __DIR__)
+
+  defmodule MockPaneManager do
+    use GenServer
+
+    def start_link(parent), do: GenServer.start_link(__MODULE__, parent)
+    def init(parent), do: {:ok, parent}
+
+    def handle_call({:open, identifier, command, _opts}, _from, parent) do
+      send(parent, {:mock_open, identifier, command})
+      {:reply, {:ok, "%999"}, parent}
+    end
+  end
 
   describe "wait_for_paint gates warm" do
     test "AttachPool waits for `Build · issue-` paint before flipping to :warm" do
@@ -61,10 +74,10 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
       assert paint_block =~ ~r/:timeout ->\s*\n[^}]*?send\(pool, \{:attach_failed/s,
              """
              On wait_for_paint :timeout, finish_warm_attach_after_paint
-             MUST send :attach_failed (not :attach_warmed). The ⚡ icon
-             is a PROMISE that pressing Enter opens opencode in <1 s.
-             Marking warm on timeout breaks that promise — the user
-             sees ⚡ on a row whose attach is dead or still booting.
+             MUST send :attach_failed (not :attach_warmed). The ready
+             state is a PROMISE that pressing Enter opens opencode in
+             <1 s. Marking warm on timeout breaks that promise — the
+             user sees 🟢 on a row whose attach is dead or still booting.
              """
 
       refute paint_block =~
@@ -122,64 +135,113 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
       assert visible_block =~ ~r/MapSet\.difference\(.*warm/,
              """
              visible_identifiers MUST subtract warm_identifiers too
-             (defensive — a warm row should show ⚡ not ●).
+             (defensive — a warm row should show ready status, not ●).
              """
     end
   end
 
-  describe "⚡ formatting matches ● width" do
-    test "warm marker pads to 3 visible cols" do
-      source = File.read!(@renderer_source)
+  describe "warm readiness lives in the status column" do
+    test "running but not warm renders hourglass instead of green" do
+      out =
+        render_state(%{
+          summaries: [
+            %{
+              identifier: "MT-WARMING",
+              status: :running,
+              alert_count: 0,
+              work_state: :working
+            }
+          ],
+          warming_identifiers: MapSet.new(["MT-WARMING"]),
+          warm_identifiers: MapSet.new()
+        })
 
-      marker_block =
-        case Regex.run(~r/defp id_age_gap_marker.*?\n  end\n/s, source) do
-          [m | _] -> m
-          _ -> raise "could not extract id_age_gap_marker"
-        end
-
-      # ⚡ (U+26A1) is East Asian Width=Narrow but renders 2 cols in
-      # most modern terminals. ● is 1 col + 2 spaces = 3 cols. ⚡'s
-      # marker must include trailing space so total is at least 3
-      # cols (4 if terminal renders ⚡ wide — never short).
-      assert marker_block =~ ~r/@warm_pane_glyph.*?,\s*IO\.ANSI\.reset\(\),\s*" "/,
-             """
-             The ⚡ marker MUST include a trailing space (after
-             IO.ANSI.reset) to match ●'s 3-col cell width. ⚡ is
-             East Asian Width=Narrow; some terminals render it 1 col
-             wide. Without the trailing space the warm marker is
-             1-col short of the open marker, breaking column
-             alignment.
-             """
-
-      # ⚡ takes precedence over ● (warm IS visible if we already
-      # subtract them from visible_identifiers, but renderer
-      # precedence is the defensive backstop).
-      precedence_order = ["@warm_pane_glyph", "@open_pane_glyph"]
-      positions = Enum.map(precedence_order, &index_of(marker_block, &1))
-
-      assert positions == Enum.sort(positions),
-             """
-             id_age_gap_marker MUST check warm_ids BEFORE open_pane_ids.
-             ⚡ wins over ●. (visible_identifiers already strips warm
-             ids, so this is a defensive backstop.)
-             """
+      assert out =~ "⏳"
+      refute out =~ "🟢"
     end
 
-    test "marker constants are defined" do
-      source = File.read!(@renderer_source)
+    test "warm marker glyph is not rendered in the agent-list UI" do
+      out =
+        render_state(%{
+          summaries: [
+            %{
+              identifier: "MT-WARM",
+              status: :running,
+              alert_count: 0,
+              work_state: :working
+            }
+          ],
+          warm_identifiers: MapSet.new(["MT-WARM"])
+        })
 
-      assert source =~ ~r/@warm_pane_glyph\s+"⚡"/,
-             "@warm_pane_glyph constant MUST be ⚡ (U+26A1 HIGH VOLTAGE SIGN)"
+      assert out =~ "🟢"
+      refute out =~ "⚡"
+    end
 
-      assert source =~ ~r/@open_pane_glyph\s+"●"/,
-             "@open_pane_glyph constant MUST be ● (U+25CF BLACK CIRCLE)"
+    test "enter on a warming row does not open an opencode pane" do
+      parent = self()
+      {:ok, pane_manager} = start_supervised({MockPaneManager, parent})
+      name = Module.concat(__MODULE__, :"App#{System.unique_integer([:positive])}")
+
+      {:ok, _pid} =
+        start_supervised(
+          {App,
+           [
+             name: name,
+             write_fun: fn _iodata -> :ok end,
+             pane_manager: pane_manager,
+             orchestrator: self(),
+             subscribe?: false,
+             command_template: "echo open"
+           ]},
+          id: name
+        )
+
+      send(GenServer.whereis(name), {
+        :running_changed,
+        [
+          Map.put(AgentEvents.agent_summary("MT-WARMING", :running, 0), :work_state, :working)
+        ]
+      })
+
+      wait_until(fn -> App.snapshot(name).summaries != [] end)
+      App.activate(name)
+
+      refute_receive {:mock_open, "MT-WARMING", _command}, 150
     end
   end
 
-  defp index_of(haystack, needle) do
-    case :binary.match(haystack, needle) do
-      {pos, _} -> pos
-      :nomatch -> -1
+  defp render_state(overrides) do
+    %{
+      summaries: [],
+      selection_index: 0,
+      columns: 80,
+      rows: 20,
+      project_label: nil,
+      dashboard_url: nil,
+      refresh_label: nil,
+      agent_kind: nil,
+      agent_count: nil,
+      max_agents: nil
+    }
+    |> Map.merge(overrides)
+    |> Renderer.render()
+    |> IO.iodata_to_binary()
+    |> strip_ansi()
+  end
+
+  defp strip_ansi(text), do: Regex.replace(~r/\e\[[?0-9;]*[A-Za-z]/, text, "")
+
+  defp wait_until(fun, attempts \\ 20)
+
+  defp wait_until(fun, attempts) when attempts > 0 do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(25)
+      wait_until(fun, attempts - 1)
     end
   end
+
+  defp wait_until(_fun, 0), do: flunk("condition was not met")
 end
