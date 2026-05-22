@@ -289,6 +289,29 @@ defmodule Aiur.PaneManagerLiveTest do
     assert map_size(list_panes(socket, window_target)) == 2
   end
 
+  @tag skip: @tmux_skip_reason
+  test "external close is reconciled before the next open reflows layout", %{
+    socket: socket,
+    window_target: window_target,
+    pm: pm
+  } do
+    {:ok, first_pane} = PaneManager.open_conversation(pm, "MT-1", @placeholder_cmd)
+    first_layout = list_panes(socket, window_target)
+    first_geometry = Map.fetch!(first_layout, first_pane)
+
+    {_output, 0} =
+      System.cmd("tmux", ["-L", socket, "kill-pane", "-t", first_pane], stderr_to_stdout: true)
+
+    wait_until(fn -> map_size(list_panes(socket, window_target)) == 1 end)
+
+    {:ok, second_pane} = PaneManager.open_conversation(pm, "MT-2", @placeholder_cmd)
+    second_layout = list_panes(socket, window_target)
+
+    assert Map.fetch!(second_layout, second_pane) == first_geometry,
+           "expected close-then-open to reuse the same visible chat geometry; " <>
+             "first=#{inspect(first_layout)} second=#{inspect(second_layout)}"
+  end
+
   defp list_panes(socket, window_target) do
     {output, 0} =
       System.cmd(

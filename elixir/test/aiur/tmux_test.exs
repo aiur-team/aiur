@@ -86,6 +86,24 @@ defmodule Aiur.TmuxTest do
     assert :ok = Task.await(task, 1_000)
   end
 
+  test "list_panes/2 returns pane ids for a target window", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.list_panes(name, "test:0")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "list-panes -t test:0 -F \#{pane_id}"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%10\n%11\n%end 1 1 0\n"})
+
+    assert {:ok, ["%10", "%11"]} = Task.await(task, 1_000)
+  end
+
   test "move_pane_hidden/3 surfaces tmux errors as {:error, _}", %{name: name} do
     parent = self()
 
