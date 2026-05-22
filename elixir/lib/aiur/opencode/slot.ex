@@ -498,6 +498,15 @@ defmodule Aiur.Opencode.Slot do
       _ = GenServer.stop(state.server_pid, :normal, 1_000)
     end
 
+    # Kill the old attach pane NOW (before we clear state.pane_id below)
+    # so the hidden window's pane budget stays bounded across rebuilds.
+    # Without this, every identifier_miss leaks a tmux pane; once the
+    # window hits its 6-pane cap the next `split_pane` fails with
+    # `no space for new pane` and the rebuild silently aborts.
+    if is_binary(state.pane_id) do
+      _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
+    end
+
     if is_binary(state.token), do: TokenRegistry.delete(state.token)
 
     # Kick the rebuild via a self-message so we can return :noreply now

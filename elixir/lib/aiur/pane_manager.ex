@@ -103,7 +103,11 @@ defmodule Aiur.PaneManager do
           {:ok, pane_id()} | {:error, term()}
   def open_conversation(server \\ __MODULE__, identifier, command_to_run, opts \\ [])
       when is_binary(identifier) and is_binary(command_to_run) and is_list(opts) do
-    GenServer.call(server, {:open, identifier, command_to_run, opts})
+    # Timeout matches `attach_conversation/4` and the open-queue's 60 s
+    # upper bound. PaneManager parks the call when no slot is ready and
+    # only replies after the queue drains; the default 5 s GenServer
+    # timeout would crash the caller mid-park during cold pre-warm.
+    GenServer.call(server, {:open, identifier, command_to_run, opts}, 65_000)
   end
 
   @spec close_conversation(GenServer.server(), agent_id()) :: :ok | {:error, term()}

@@ -193,16 +193,18 @@ defmodule Aiur.AgentList.App do
         %{identifier: identifier} = summary ->
           Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
           command = "#{state.command_template} #{identifier}"
-          # Routes through the agent-native facade so external consumers
-          # (MCP bridge, automation agents) drive conversations the same
-          # way the CLI does.
-          _ =
-            PaneManager.open_conversation(
-              state.pane_manager,
-              identifier,
-              command,
-              title: Map.get(summary, :title)
-            )
+          title = Map.get(summary, :title)
+          pane_manager = state.pane_manager
+
+          # PaneManager.open_conversation parks the call when no slot is
+          # ready (cold pre-warm) and replies after the queue drains —
+          # up to 60 s. The AgentList GenServer is the keyboard owner;
+          # it must NOT block on this call or any keystroke pressed
+          # during the wait is lost and the process times out + crashes.
+          # Fire-and-forget in a Task instead.
+          Task.start(fn ->
+            PaneManager.open_conversation(pane_manager, identifier, command, title: title)
+          end)
 
         _ ->
           :ok
@@ -218,31 +220,28 @@ defmodule Aiur.AgentList.App do
         %{identifier: identifier} = summary ->
           Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
           command = "#{state.command_template} #{identifier}"
+          title = Map.get(summary, :title)
+          pane_manager = state.pane_manager
 
-          # Attempt attach-to-focused-pane first. If no pane is currently
-          # focused, PaneManager returns `:no_focused_pane` and we fall
-          # through to a normal open (per R4.2).
-          case PaneManager.attach_conversation(
-                 state.pane_manager,
-                 identifier,
-                 command,
-                 title: Map.get(summary, :title)
-               ) do
-            {:ok, _pane_id} ->
-              :ok
+          # Same parking concern as :activate — `attach_conversation`
+          # already uses a 65 s call timeout but it still blocks the
+          # AgentList process. Run the whole attempt-then-fallback in
+          # a Task so keystrokes stay responsive.
+          Task.start(fn ->
+            case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
+              {:ok, _pane_id} ->
+                :ok
 
-            {:error, :no_focused_pane} ->
-              _ =
-                PaneManager.open_conversation(
-                  state.pane_manager,
-                  identifier,
-                  command,
-                  title: Map.get(summary, :title)
+              {:error, :no_focused_pane} ->
+                PaneManager.open_conversation(pane_manager, identifier, command,
+                  title: title,
+                  timeout: 65_000
                 )
 
-            {:error, _other} ->
-              :ok
-          end
+              {:error, _other} ->
+                :ok
+            end
+          end)
 
         _ ->
           :ok
