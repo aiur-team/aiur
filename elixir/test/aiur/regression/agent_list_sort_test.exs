@@ -3,9 +3,8 @@ defmodule Aiur.Regression.AgentListSortTest do
   Regression for "agent list sort puts 10 before 5 because identifiers
   are sorted as strings, not integers" (perf redesign, 2026-05-21).
 
-  Expected order: group by status emoji (matches what the renderer
-  paints next to each row), then by numeric identifier ASCENDING
-  within each group.
+  Expected order: group by live work state, then by numeric identifier
+  ASCENDING within each group.
 
   Drives the private `visible_summaries/1` through the live App
   GenServer so we exercise the actual transform the renderer reads
@@ -106,12 +105,10 @@ defmodule Aiur.Regression.AgentListSortTest do
     state = :sys.get_state(app)
     ids = Enum.map(state.summaries, & &1.identifier)
 
-    # Working (🟢) first by id asc, then paused (⏸️) by id asc,
-    # then queued (⚫) by id asc.
+    # Working first by id asc, then paused by id asc, then queued by id asc.
     assert ids == ["2", "10", "5", "8", "1", "3"],
            """
-           Expected status-emoji groups (working 🟢, paused ⏸️, queued ⚫)
-           each sorted ascending by numeric id:
+           Expected work-state groups, each sorted ascending by numeric id:
              [working 2, 10] then [paused 5, 8] then [queued 1, 3]
              == ["2", "10", "5", "8", "1", "3"]
            Got: #{inspect(ids)}

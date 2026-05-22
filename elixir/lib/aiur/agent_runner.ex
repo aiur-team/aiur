@@ -390,6 +390,7 @@ defmodule Aiur.AgentRunner do
         Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
 
         Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
+        broadcast_max_turns_reached(refreshed_issue)
 
         :ok
 
@@ -431,6 +432,7 @@ defmodule Aiur.AgentRunner do
 
         {:continue, refreshed_issue} ->
           Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume")
+          broadcast_max_turns_reached(refreshed_issue)
 
           :ok
 
@@ -772,6 +774,15 @@ defmodule Aiur.AgentRunner do
       )
     end
   end
+
+  defp broadcast_max_turns_reached(%Issue{identifier: identifier}) when is_binary(identifier) do
+    AgentPubSub.broadcast_alert(
+      identifier,
+      AgentEvents.alert_event("agent.max_turns", "Reached agent.max_turns; returning control to orchestrator.")
+    )
+  end
+
+  defp broadcast_max_turns_reached(_issue), do: :ok
 
   defp maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do

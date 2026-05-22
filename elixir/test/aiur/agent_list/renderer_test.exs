@@ -7,6 +7,12 @@ defmodule Aiur.AgentList.RendererTest do
 
   defp visible(text), do: Regex.replace(~r/\e\[[?0-9;]*[A-Za-z]/, text, "")
 
+  defp row_for(output, identifier) do
+    output
+    |> String.split(["\r\n", "\n"])
+    |> Enum.find(fn line -> line =~ identifier end)
+  end
+
   defp base_state(overrides \\ %{}) do
     Map.merge(
       %{
@@ -168,7 +174,7 @@ defmodule Aiur.AgentList.RendererTest do
     refute out =~ "▶ MT-1"
   end
 
-  test "renders state with a colored circle emoji" do
+  test "renders paused agents with a pause emoji" do
     summaries = [
       %{
         identifier: "MT-9",
@@ -180,17 +186,10 @@ defmodule Aiur.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    # Paused agent state surfaces as a pause glyph (⏸️ in the state
-    # column). Working agents would render as 🟢.
     assert out =~ "⏸️"
   end
 
-  test "working agents render the same green emoji as the conversation pane header" do
-    # Regression: the agent list used to render the tag color (e.g. 🟡
-    # for `agent:todo`) for an actively working agent, while the
-    # conversation pane header showed 🟢 for the same agent. Both now
-    # route through `Aiur.AgentEvents.state_emoji/1` so an in-progress
-    # agent is green everywhere — independent of the tracker label.
+  test "running agents without phase activity render idle" do
     summaries = [
       %{
         identifier: "MT-WORK",
@@ -203,8 +202,113 @@ defmodule Aiur.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    assert out =~ "🟢"
+    assert row_for(out, "MT-WORK") =~ "⚫"
     refute out =~ "🟡"
+    refute out =~ "🟢"
+  end
+
+  test "running agents render phase-specific status emoji" do
+    summaries = [
+      %{identifier: "MT-BRAIN", status: :running, alert_count: 0},
+      %{identifier: "MT-PLAN", status: :running, alert_count: 0},
+      %{identifier: "MT-WORK", status: :running, alert_count: 0},
+      %{identifier: "MT-REVIEW", status: :running, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          phase_by_identifier: %{
+            "MT-BRAIN" => :brainstorm,
+            "MT-PLAN" => :plan,
+            "MT-WORK" => :work,
+            "MT-REVIEW" => :review
+          }
+        })
+      )
+      |> visible()
+
+    assert row_for(out, "MT-BRAIN") =~ "🧠"
+    assert row_for(out, "MT-PLAN") =~ "📋"
+    assert row_for(out, "MT-WORK") =~ "🛠️"
+    assert row_for(out, "MT-REVIEW") =~ "🔍"
+  end
+
+  test "running agents render derived activity emoji ahead of phase" do
+    summaries = [
+      %{identifier: "MT-TEST", status: :running, alert_count: 0},
+      %{identifier: "MT-DEBUG", status: :running, alert_count: 0},
+      %{identifier: "MT-PR", status: :running, alert_count: 0},
+      %{identifier: "MT-RESTART", status: :running, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          phase_by_identifier: %{
+            "MT-TEST" => :work,
+            "MT-DEBUG" => :work,
+            "MT-PR" => :review,
+            "MT-RESTART" => :work
+          },
+          activity_by_identifier: %{
+            "MT-TEST" => :test,
+            "MT-DEBUG" => :debug,
+            "MT-PR" => :pr_opened,
+            "MT-RESTART" => :restarted
+          }
+        })
+      )
+      |> visible()
+
+    assert row_for(out, "MT-TEST") =~ "🧪"
+    assert row_for(out, "MT-DEBUG") =~ "🐛"
+    assert row_for(out, "MT-PR") =~ "🚀"
+    assert row_for(out, "MT-RESTART") =~ "🔁"
+  end
+
+  test "warming identifiers render hourglass ahead of active phase" do
+    summaries = [%{identifier: "MT-WARMING", status: :running, alert_count: 0}]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          warming_identifiers: MapSet.new(["MT-WARMING"]),
+          phase_by_identifier: %{"MT-WARMING" => :work}
+        })
+      )
+      |> visible()
+
+    assert row_for(out, "MT-WARMING") =~ "⏳"
+    refute row_for(out, "MT-WARMING") =~ "🛠️"
+  end
+
+  test "terminal and operator states take precedence over phases" do
+    summaries = [
+      %{identifier: "MT-PAUSED", status: :running, alert_count: 0, work_state: :paused},
+      %{identifier: "MT-ERROR", status: :running, alert_count: 0, work_state: :error},
+      %{identifier: "MT-DONE", status: :done, alert_count: 0}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          phase_by_identifier: %{
+            "MT-PAUSED" => :work,
+            "MT-ERROR" => :work,
+            "MT-DONE" => :work
+          }
+        })
+      )
+      |> visible()
+
+    assert row_for(out, "MT-PAUSED") =~ "⏸️"
+    assert row_for(out, "MT-ERROR") =~ "⚠️"
+    assert row_for(out, "MT-DONE") =~ "🏁"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do
@@ -324,6 +428,16 @@ defmodule Aiur.AgentList.RendererTest do
 
     assert out =~ "v"
     assert out =~ "toggle pane layout"
+  end
+
+  test "help overlay documents the phase status palette" do
+    out =
+      render(base_state(%{help_visible?: true, columns: 100, rows: 40}))
+      |> visible()
+
+    for glyph <- ["⏳", "🧠", "📋", "🛠️", "🧪", "🔍", "🐛", "🚀", "🔁", "⏸️", "⚠️", "🏁", "⚫"] do
+      assert out =~ glyph
+    end
   end
 
   test "reserves the final terminal column to avoid autowrap" do

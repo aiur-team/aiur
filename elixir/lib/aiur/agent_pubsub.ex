@@ -23,6 +23,9 @@ defmodule Aiur.AgentPubSub do
     result
   end
 
+  @spec subscribe_agent_events() :: :ok | {:error, term()}
+  def subscribe_agent_events, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.agent_events_topic())
+
   @spec subscribe_running() :: :ok | {:error, term()}
   def subscribe_running, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
 
@@ -58,13 +61,17 @@ defmodule Aiur.AgentPubSub do
   @spec broadcast_transcript(AgentEvents.agent_identifier(), AgentEvents.transcript_event()) :: :ok
   def broadcast_transcript(identifier, %{role: _, body: _, timestamp: _} = event)
       when is_binary(identifier) do
-    do_broadcast(AgentEvents.agent_topic(identifier), {:transcript_event, event})
+    message = {:transcript_event, event}
+    do_broadcast(AgentEvents.agent_topic(identifier), message)
+    do_broadcast(AgentEvents.agent_events_topic(), {:agent_event, identifier, message})
   end
 
   @spec broadcast_alert(AgentEvents.agent_identifier(), AgentEvents.alert_event()) :: :ok
   def broadcast_alert(identifier, %{name: _, message: _, timestamp: _} = event)
       when is_binary(identifier) do
-    do_broadcast(AgentEvents.agent_topic(identifier), {:alert, event})
+    message = {:alert, event}
+    do_broadcast(AgentEvents.agent_topic(identifier), message)
+    do_broadcast(AgentEvents.agent_events_topic(), {:agent_event, identifier, message})
   end
 
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok

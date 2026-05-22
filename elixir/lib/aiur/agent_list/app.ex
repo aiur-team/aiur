@@ -125,6 +125,7 @@ defmodule Aiur.AgentList.App do
     if Keyword.get(opts, :subscribe?, true) do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
+      AgentPubSub.subscribe_agent_events()
       AgentPubSub.subscribe_poll_state()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
@@ -173,6 +174,12 @@ defmodule Aiur.AgentList.App do
       # Slot.select, which would otherwise paint ● on a row whose
       # pane isn't actually visible yet.
       warming_identifiers: MapSet.new(),
+      # Active delivery phase by issue identifier, updated from
+      # `phase.*.start` / `phase.*.end` alerts emitted by the agent.
+      phase_by_identifier: %{},
+      # Short-lived or derived activity by identifier, such as running
+      # tests, debugging after a failed command, or having opened a PR.
+      activity_by_identifier: %{},
       # Compact 3-row debug-footer state. Each field is `nil` until
       # the corresponding aiur_perf event lands, then holds {wall_ms,
       # at_ms} so the footer can show "agent list ready: 4.0s",
@@ -341,7 +348,20 @@ defmodule Aiur.AgentList.App do
   def handle_info({:running_changed, summaries}, state) do
     summaries = visible_summaries(summaries)
     selection_focus = if state.summaries == [] and summaries != [], do: :agents, else: state.selection_focus
-    new_state = clamp_selection(%{state | summaries: summaries, selection_focus: selection_focus})
+
+    visible_ids =
+      summaries
+      |> Enum.map(&Map.get(&1, :identifier))
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    new_state =
+      state
+      |> Map.put(:summaries, summaries)
+      |> Map.put(:selection_focus, selection_focus)
+      |> Map.update!(:phase_by_identifier, &Map.take(&1, MapSet.to_list(visible_ids)))
+      |> Map.update!(:activity_by_identifier, &Map.take(&1, MapSet.to_list(visible_ids)))
+      |> clamp_selection()
 
     # Tell AttachPool which identifiers should have warm opencode-
     # attach panes ready. Seeding is idempotent — the pool ignores
@@ -382,11 +402,49 @@ defmodule Aiur.AgentList.App do
     {:noreply, %{state | poll_state: payload}}
   end
 
+  def handle_info({:agent_event, identifier, {:alert, %{} = event}}, state)
+      when is_binary(identifier) do
+    new_state = update_phase_from_alert(state, identifier, event)
+
+    if new_state != state do
+      render(new_state)
+    end
+
+    {:noreply, new_state}
+  end
+
+  def handle_info({:agent_event, identifier, {:transcript_event, %{} = event}}, state)
+      when is_binary(identifier) do
+    new_state = update_activity_from_transcript(state, identifier, event)
+
+    if new_state != state do
+      render(new_state)
+    end
+
+    {:noreply, new_state}
+  end
+
   def handle_info({:alert, %{}}, state), do: {:noreply, state}
 
   def handle_info(:clear_max_agents_alert, state) do
     new_state = %{state | max_agents_alert?: false}
     render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:clear_agent_activity, identifier, activity}, state) do
+    new_state =
+      update_in(state.activity_by_identifier, fn activities ->
+        case Map.get(activities, identifier) do
+          ^activity -> Map.delete(activities, identifier)
+          _ -> activities
+        end
+      end)
+
+    if new_state != state do
+      render(new_state)
+    end
+
     {:noreply, new_state}
   end
 
@@ -454,6 +512,8 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
 
+  def handle_info(_other, state), do: {:noreply, state}
+
   # Pull the three milestones the debug footer cares about out of the
   # aiur_perf stream. Everything else is ignored — the user asked for
   # a compact 3-row footer, not a rolling event log.
@@ -471,7 +531,121 @@ defmodule Aiur.AgentList.App do
 
   defp update_perf_summary(summary, _event), do: summary
 
-  def handle_info(_other, state), do: {:noreply, state}
+  defp update_phase_from_alert(state, identifier, %{name: "agent.max_turns"}) do
+    put_activity(state, identifier, :restarted, clear_after_ms: 15_000)
+  end
+
+  defp update_phase_from_alert(state, identifier, %{name: name}) when is_binary(name) do
+    case phase_alert(name) do
+      {:start, phase} ->
+        state
+        |> put_in([:phase_by_identifier, identifier], phase)
+        |> update_in([:activity_by_identifier], &Map.delete(&1, identifier))
+
+      {:end, phase} ->
+        clear_phase_if_current(state, identifier, phase)
+
+      :ignore ->
+        state
+    end
+  end
+
+  defp update_phase_from_alert(state, _identifier, _event), do: state
+
+  defp clear_phase_if_current(state, identifier, phase) do
+    update_in(state.phase_by_identifier, fn phases ->
+      if Map.get(phases, identifier) == phase do
+        Map.delete(phases, identifier)
+      else
+        phases
+      end
+    end)
+  end
+
+  defp phase_alert("phase." <> rest) do
+    case String.split(rest, ".") do
+      [phase_name, "start"] -> phase_alert(:start, phase_name)
+      [phase_name, "end"] -> phase_alert(:end, phase_name)
+      _ -> :ignore
+    end
+  end
+
+  defp phase_alert(_name), do: :ignore
+
+  defp phase_alert(action, phase_name) do
+    case phase_name do
+      "brainstorm" -> {action, :brainstorm}
+      "plan" -> {action, :plan}
+      "work" -> {action, :work}
+      "review" -> {action, :review}
+      _ -> :ignore
+    end
+  end
+
+  defp update_activity_from_transcript(state, identifier, %{role: :command, body: body})
+       when is_binary(body) do
+    cond do
+      command_nonzero_exit?(body) ->
+        put_activity(state, identifier, :debug, clear_after_ms: 15_000)
+
+      pr_create_command?(body) ->
+        put_activity(state, identifier, :pr_opened)
+
+      test_command_started?(body) ->
+        put_activity(state, identifier, :test)
+
+      test_command_completed?(body) ->
+        clear_activity(state, identifier, :test)
+
+      true ->
+        state
+    end
+  end
+
+  defp update_activity_from_transcript(state, _identifier, _event), do: state
+
+  defp put_activity(state, identifier, activity, opts \\ []) do
+    if ms = Keyword.get(opts, :clear_after_ms) do
+      Process.send_after(self(), {:clear_agent_activity, identifier, activity}, ms)
+    end
+
+    put_in(state, [:activity_by_identifier, identifier], activity)
+  end
+
+  defp clear_activity(state, identifier, activity) do
+    update_in(state.activity_by_identifier, fn activities ->
+      case Map.get(activities, identifier) do
+        ^activity -> Map.delete(activities, identifier)
+        _ -> activities
+      end
+    end)
+  end
+
+  defp command_nonzero_exit?(body) do
+    case Regex.run(~r/\[exit=(\d+)\]/, body) do
+      [_match, "0"] -> false
+      [_match, _exit_code] -> true
+      _ -> false
+    end
+  end
+
+  defp pr_create_command?(body), do: command_body?(body, "gh pr create")
+
+  defp test_command_started?(body) do
+    command_body?(body, "mix test") and not command_completed?(body)
+  end
+
+  defp test_command_completed?(body), do: command_body?(body, "mix test") and command_completed?(body)
+
+  defp command_completed?(body), do: String.contains?(body, ["[exit=", "[done]"])
+
+  defp command_body?(body, needle) do
+    body
+    |> String.trim()
+    |> String.trim_leading("$")
+    |> String.trim()
+    |> String.contains?(needle)
+  end
 
   defp safely_seed_attach_pool([]), do: :ok
 
@@ -613,7 +787,7 @@ defmodule Aiur.AgentList.App do
       tag in ["agent:cancelled", "agent:canceled", "agent:done"]
     end)
     |> Enum.sort_by(fn s ->
-      # Group by status emoji (matches what the renderer paints), then
+      # Group by live work state, then
       # by numeric identifier ASCENDING within each group. Previously
       # sorted identifiers as strings, so "10" came before "5" — the
       # user explicitly asked for natural numeric order within each
@@ -624,18 +798,16 @@ defmodule Aiur.AgentList.App do
     end)
   end
 
-  # Map status emoji to a stable sort bucket. Lower = higher in the list.
-  # Mirrors `Aiur.AgentList.Renderer.summary_emoji/1` so list order
-  # matches what the user sees painted next to each row.
+  # Map live work state to a stable sort bucket. Lower = higher in the list.
   defp emoji_sort_key(%{status: :queued}), do: 4
 
   defp emoji_sort_key(%{status: :running} = summary) do
     case Map.get(summary, :work_state) do
-      # 🟢 actively working — most useful to see first
+      # actively working — most useful to see first
       :working -> 0
       # ⏸️ paused — still alive, less urgent than working
       :paused -> 1
-      # 🔴 error — surface above queued but below healthy
+      # ⚠️ error — surface above queued but below healthy
       :error -> 2
       _ -> 3
     end
@@ -680,6 +852,8 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
       |> Map.put(:warm_identifiers, Map.get(state, :warm_identifiers, MapSet.new()))
       |> Map.put(:warming_identifiers, Map.get(state, :warming_identifiers, MapSet.new()))
+      |> Map.put(:phase_by_identifier, Map.get(state, :phase_by_identifier, %{}))
+      |> Map.put(:activity_by_identifier, Map.get(state, :activity_by_identifier, %{}))
 
     state.write_fun.(Renderer.render(render_state))
     :ok

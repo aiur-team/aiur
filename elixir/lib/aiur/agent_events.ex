@@ -9,6 +9,7 @@ defmodule Aiur.AgentEvents do
 
   Topic conventions:
     * `"agent:<identifier>"` carries `t:transcript_message/0` and `t:alert_message/0`
+    * `"agents:events"` carries all per-agent events with their identifier
     * `"agents:running"` carries `t:running_change_message/0`
     * `"agents:status"` carries `t:status_change_message/0`
   """
@@ -62,12 +63,18 @@ defmodule Aiur.AgentEvents do
 
   @type transcript_message :: {:transcript_event, transcript_event()}
   @type alert_message :: {:alert, alert_event()}
+  @type agent_event_message ::
+          {:agent_event, agent_identifier(), transcript_message() | alert_message()}
   @type running_change_message :: {:running_changed, [agent_summary()]}
   @type status_change_message :: {:status_changed, %{identifier: agent_identifier(), status: atom()}}
 
   @typedoc "Any message that may be received on a Aiur agent topic."
   @type message ::
-          transcript_message() | alert_message() | running_change_message() | status_change_message()
+          transcript_message()
+          | alert_message()
+          | agent_event_message()
+          | running_change_message()
+          | status_change_message()
 
   @doc """
   Canonical short tag name for a transcript role. Used by the
@@ -151,7 +158,7 @@ defmodule Aiur.AgentEvents do
   Mapping:
     * `:working` — `🟢` actively working
     * `:paused`  — `⏸️` paused by the operator
-    * `:error`   — `🔴` agent reported an error
+    * `:error`   — `⚠️` agent reported an error
     * `:done`    — `🏁` agent has fully finished
     * anything else (queued, idle, unknown) — `⚫` no live work state
   """
@@ -160,14 +167,17 @@ defmodule Aiur.AgentEvents do
   def state_emoji("working"), do: "🟢"
   def state_emoji(:paused), do: "⏸️"
   def state_emoji("paused"), do: "⏸️"
-  def state_emoji(:error), do: "🔴"
-  def state_emoji("error"), do: "🔴"
+  def state_emoji(:error), do: "⚠️"
+  def state_emoji("error"), do: "⚠️"
   def state_emoji(:done), do: "🏁"
   def state_emoji("done"), do: "🏁"
   def state_emoji(_), do: "⚫"
 
   @spec agent_topic(agent_identifier()) :: String.t()
   def agent_topic(identifier) when is_binary(identifier), do: "agent:" <> identifier
+
+  @spec agent_events_topic() :: String.t()
+  def agent_events_topic, do: "agents:events"
 
   @spec running_topic() :: String.t()
   def running_topic, do: "agents:running"

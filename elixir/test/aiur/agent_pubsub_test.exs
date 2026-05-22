@@ -3,6 +3,16 @@ defmodule Aiur.AgentPubSubTest do
 
   alias Aiur.{AgentEvents, AgentPubSub}
 
+  setup do
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+
+    unless Process.whereis(Aiur.PubSub) do
+      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    end
+
+    :ok
+  end
+
   describe "transcript round-trip" do
     test "subscribers receive the broadcast event" do
       :ok = AgentPubSub.subscribe_agent("MT-99")
@@ -11,6 +21,15 @@ defmodule Aiur.AgentPubSubTest do
       :ok = AgentPubSub.broadcast_transcript("MT-99", event)
 
       assert_receive {:transcript_event, ^event}
+    end
+
+    test "agent event subscribers receive transcript events with identifiers" do
+      :ok = AgentPubSub.subscribe_agent_events()
+      event = AgentEvents.transcript_event(:user, "hi")
+
+      :ok = AgentPubSub.broadcast_transcript("MT-99", event)
+
+      assert_receive {:agent_event, "MT-99", {:transcript_event, ^event}}
     end
 
     test "subscriptions are scoped per identifier" do
@@ -29,6 +48,15 @@ defmodule Aiur.AgentPubSubTest do
       :ok = AgentPubSub.broadcast_alert("MT-1", event)
 
       assert_receive {:alert, ^event}
+    end
+
+    test "agent event subscribers receive alerts with identifiers" do
+      :ok = AgentPubSub.subscribe_agent_events()
+      event = AgentEvents.alert_event("task.todo", "go!")
+
+      :ok = AgentPubSub.broadcast_alert("MT-1", event)
+
+      assert_receive {:agent_event, "MT-1", {:alert, ^event}}
     end
   end
 

@@ -106,6 +106,24 @@ defmodule Aiur.AgentList.AppTest do
     send(GenServer.whereis(app), {:running_changed, summaries})
   end
 
+  defp receive_render_containing(text, attempts \\ 10)
+
+  defp receive_render_containing(text, attempts) when attempts > 0 do
+    receive do
+      {:rendered, output} ->
+        if output =~ text do
+          output
+        else
+          receive_render_containing(text, attempts - 1)
+        end
+    after
+      100 ->
+        receive_render_containing(text, attempts - 1)
+    end
+  end
+
+  defp receive_render_containing(text, 0), do: flunk("expected rendered output containing #{inspect(text)}")
+
   test "renders on startup", %{} do
     assert_receive {:rendered, _output}, 500
   end
@@ -343,5 +361,55 @@ defmodule Aiur.AgentList.AppTest do
     Process.sleep(20)
     App.activate(app)
     assert_receive {:mock_open, "MT-B", "echo open MT-B"}, 500
+  end
+
+  test "phase alerts update the rendered status emoji within one render", %{app: app} do
+    send_running_change(app, [AgentEvents.agent_summary("MT-PHASE", :running, 0)])
+    wait_until(fn -> length(App.snapshot(app).summaries) == 1 end)
+
+    send(
+      GenServer.whereis(app),
+      {:agent_event, "MT-PHASE", {:alert, AgentEvents.alert_event("phase.plan.start", "Planning")}}
+    )
+
+    wait_until(fn -> App.snapshot(app).phase_by_identifier["MT-PHASE"] == :plan end)
+    assert receive_render_containing("📋") =~ "MT-PHASE"
+
+    send(
+      GenServer.whereis(app),
+      {:agent_event, "MT-PHASE", {:alert, AgentEvents.alert_event("phase.plan.end", "Done planning")}}
+    )
+
+    wait_until(fn -> not Map.has_key?(App.snapshot(app).phase_by_identifier, "MT-PHASE") end)
+    assert receive_render_containing("⚫") =~ "MT-PHASE"
+  end
+
+  test "command transcript events derive testing debugging and PR activity", %{app: app} do
+    send_running_change(app, [AgentEvents.agent_summary("MT-ACT", :running, 0)])
+    wait_until(fn -> length(App.snapshot(app).summaries) == 1 end)
+
+    send(
+      GenServer.whereis(app),
+      {:agent_event, "MT-ACT", {:transcript_event, AgentEvents.transcript_event(:command, "$ mix test")}}
+    )
+
+    wait_until(fn -> App.snapshot(app).activity_by_identifier["MT-ACT"] == :test end)
+    assert receive_render_containing("🧪") =~ "MT-ACT"
+
+    send(
+      GenServer.whereis(app),
+      {:agent_event, "MT-ACT", {:transcript_event, AgentEvents.transcript_event(:command, "$ mix test [exit=1]")}}
+    )
+
+    wait_until(fn -> App.snapshot(app).activity_by_identifier["MT-ACT"] == :debug end)
+    assert receive_render_containing("🐛") =~ "MT-ACT"
+
+    send(
+      GenServer.whereis(app),
+      {:agent_event, "MT-ACT", {:transcript_event, AgentEvents.transcript_event(:command, "$ gh pr create")}}
+    )
+
+    wait_until(fn -> App.snapshot(app).activity_by_identifier["MT-ACT"] == :pr_opened end)
+    assert receive_render_containing("🚀") =~ "MT-ACT"
   end
 end
