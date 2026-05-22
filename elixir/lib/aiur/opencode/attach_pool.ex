@@ -262,6 +262,12 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   defp spawn_warm_attach(pool, identifier, slot_index, slot_pid) do
+    # Tell AgentList we're warming this identifier so it can suppress
+    # the false "● open pane" marker that fires from
+    # :slot_session_changed during Slot.select. The pane isn't visible
+    # — it's mid-warm.
+    broadcast_event({:attach_warming, identifier, slot_index})
+
     Task.start(fn ->
       span =
         Aiur.Perf.span_begin(:attach_pool_warm_attach,

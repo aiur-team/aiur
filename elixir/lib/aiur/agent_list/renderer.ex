@@ -452,11 +452,23 @@ defmodule Aiur.AgentList.Renderer do
   # the `visible_sessions` map populated by AgentList.App from Slot
   # workers' `:slot_session_changed` PubSub broadcasts.
   defp visible_identifiers(state) do
-    state
-    |> Map.get(:visible_sessions, %{})
-    |> Map.values()
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
+    raw =
+      state
+      |> Map.get(:visible_sessions, %{})
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    # `visible_sessions` is populated from :slot_session_changed which
+    # fires during AttachPool's warming — long before any pane is
+    # actually visible to the user. Subtract warming + warm identifiers
+    # so ● only marks rows whose pane is truly on screen.
+    warming = Map.get(state, :warming_identifiers, MapSet.new())
+    warm = Map.get(state, :warm_identifiers, MapSet.new())
+
+    raw
+    |> MapSet.difference(warming)
+    |> MapSet.difference(warm)
   end
 
   defp open_pane_marker(id_str, open_pane_ids) do
@@ -470,14 +482,16 @@ defmodule Aiur.AgentList.Renderer do
   # 3-cell marker between ID and AGE. Precedence:
   #   ⚡ (warm pre-attach ready) > ● (open and visible) > blank
   # `warm` wins because the slot's broadcast of :slot_session_changed
-  # fires during AttachPool's pre-warm — it doesn't mean the pane is
-  # visible to the user, just that the slot is bound to the agent.
-  # Until visible_sessions is wired from the actual pane-open event,
-  # the ⚡ signal is more accurate for warm rows.
+  # fires during AttachPool's pre-warm — visible_identifiers/1 strips
+  # warming/warm ids from visible_sessions so ● only marks truly
+  # visible panes.
   defp id_age_gap_marker(id_str, open_pane_ids, warm_ids) do
     cond do
       MapSet.member?(warm_ids, id_str) ->
-        [" ", IO.ANSI.yellow(), @warm_pane_glyph, IO.ANSI.reset()]
+        # ⚡ (U+26A1) is East Asian Width=Narrow but typically renders
+        # 2 cols in modern terminals. Pad with trailing space to match
+        # ●'s 3-col cell width regardless of how the terminal sizes it.
+        [" ", IO.ANSI.yellow(), @warm_pane_glyph, IO.ANSI.reset(), " "]
 
       MapSet.member?(open_pane_ids, id_str) ->
         [" ", @open_pane_glyph, " "]

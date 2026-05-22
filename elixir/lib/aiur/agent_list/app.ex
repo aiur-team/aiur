@@ -166,6 +166,12 @@ defmodule Aiur.AgentList.App do
       # ready to instant-open. Renderer paints a ⚡ next to these
       # rows so the user knows they'll open in <100 ms.
       warm_identifiers: MapSet.new(),
+      # Identifiers whose attach is currently being warmed (Slot.select
+      # in flight, opencode-attach booting). Used to suppress the
+      # misleading ● marker — :slot_session_changed fires during
+      # Slot.select, which would otherwise paint ● on a row whose
+      # pane isn't actually visible yet.
+      warming_identifiers: MapSet.new(),
       # Compact 3-row debug-footer state. Each field is `nil` until
       # the corresponding aiur_perf event lands, then holds {wall_ms,
       # at_ms} so the footer can show "agent list ready: 4.0s",
@@ -397,8 +403,18 @@ defmodule Aiur.AgentList.App do
     end
   end
 
+  def handle_info({:attach_warming, identifier, _slot_index}, state) do
+    new_state = update_in(state.warming_identifiers, &MapSet.put(&1, identifier))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
   def handle_info({:attach_warm, identifier, _pane_id, _slot_index}, state) do
-    new_state = update_in(state.warm_identifiers, &MapSet.put(&1, identifier))
+    new_state =
+      state
+      |> Map.update!(:warm_identifiers, &MapSet.put(&1, identifier))
+      |> Map.update!(:warming_identifiers, &MapSet.delete(&1, identifier))
+
     render(new_state)
     {:noreply, new_state}
   end
@@ -407,7 +423,11 @@ defmodule Aiur.AgentList.App do
     # Identifier was opened — the warm pane is gone. Re-warming is
     # left to a future iteration (the slot is now :active and would
     # need to be re-cycled).
-    new_state = update_in(state.warm_identifiers, &MapSet.delete(&1, identifier))
+    new_state =
+      state
+      |> Map.update!(:warm_identifiers, &MapSet.delete(&1, identifier))
+      |> Map.update!(:warming_identifiers, &MapSet.delete(&1, identifier))
+
     render(new_state)
     {:noreply, new_state}
   end
@@ -650,6 +670,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
       |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
       |> Map.put(:warm_identifiers, Map.get(state, :warm_identifiers, MapSet.new()))
+      |> Map.put(:warming_identifiers, Map.get(state, :warming_identifiers, MapSet.new()))
 
     state.write_fun.(Renderer.render(render_state))
     :ok
