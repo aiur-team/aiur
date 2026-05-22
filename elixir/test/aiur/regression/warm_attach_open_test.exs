@@ -6,9 +6,14 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
 
   Source-level wiring guard + perf-log assertion.
 
-  Measured baseline (3 consecutive opens, fully rendered): 118 ms,
-  183 ms, 214 ms. Threshold is the worst-case observed + a 500 ms
-  buffer per user spec, rounded to a clean 750 ms.
+  Measured baseline (3 consecutive opens, fully rendered):
+    Run 1: 118 ms, Run 2: 183 ms, Run 3: 214 ms.
+  Spread across runs: 96 ms. Threshold = worst observed + ~1.5x the
+  spread = 214 + 150 ≈ 364, rounded to a clean 400 ms.
+
+  Tight enough that any real regression fires (removing the pre-resize
+  jumps us back to 5-7 s); loose enough to absorb normal jitter
+  (terminal/tmux latency, scheduler hiccups).
 
   If this fires, investigate:
     1. AttachPool's wait_for_paint may be marking warm too early
@@ -24,8 +29,9 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
   @pane_manager_source Path.expand("../../../lib/aiur/pane_manager.ex", __DIR__)
   @log_path Path.expand("../../../log/aiur.log", __DIR__)
 
-  # Hard fail at threshold. Measured worst case = 214 ms; buffer = 500 ms.
-  @warm_convo_paint_threshold_ms 750
+  # Hard fail at threshold. Worst measured: 214 ms; spread: 96 ms.
+  # Buffer of ~1.5x spread (150 ms) → 400 ms threshold.
+  @warm_convo_paint_threshold_ms 400
 
   describe "source-level wiring (always runs)" do
     test "AttachPool waits for the `Build · issue-` paint marker before warming" do
@@ -139,7 +145,8 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
                  exceeds threshold #{@warm_convo_paint_threshold_ms} ms.
 
                  Threshold derived from measured baseline (worst of 3
-                 consecutive opens: 214 ms) + 500 ms buffer per user spec.
+                 consecutive opens: 214 ms) + ~1.5x spread buffer
+                 (150 ms) ≈ 400 ms.
 
                  Investigate:
                    - AttachPool's wait_for_paint may be marking warm
