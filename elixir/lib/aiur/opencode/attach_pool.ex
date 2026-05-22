@@ -170,6 +170,15 @@ defmodule Aiur.Opencode.AttachPool do
     new_state =
       if slots_ready? and not state.slots_ready? do
         Aiur.Perf.event(:attach_pool_slots_ready, ready_count: ready_count)
+
+        # Widen aiur-hidden ONCE before any warm spawns — so panes are
+        # created at the target geometry and opencode-attach doesn't
+        # re-render mid-boot when we resize the window later.
+        # Previously this ran per-warm AFTER each pane spawned, which
+        # triggered an opencode-attach resize redraw and added 5-7 s
+        # to first paint.
+        ensure_hidden_geometry()
+
         maybe_warm_pending(new_state)
       else
         new_state
@@ -332,17 +341,6 @@ defmodule Aiur.Opencode.AttachPool do
           # If we mark warm now, the user sees a black/loading pane
           # for 7 s when they press Enter — defeating the purpose.
           #
-          # Before waiting, ensure the hidden pane is sized close to
-          # the target visible size. opencode-attach re-renders on
-          # resize so a hidden->visible move of a tiny pane (1-44
-          # cols when many siblings are co-located) costs the user
-          # the full re-render time. We use ensure_hidden_geometry to
-          # widen the hidden window itself so every warm pane has
-          # room — pre-resizing individual panes was a dead end
-          # because aiur-hidden is only as wide as the client (220),
-          # so 5 panes at 110 each is impossible.
-          ensure_hidden_geometry()
-
           # Wait for the message-turn marker `Build · issue-` to
           # appear in the pane before declaring warm.
           case wait_for_paint(pane_id, 20_000) do
