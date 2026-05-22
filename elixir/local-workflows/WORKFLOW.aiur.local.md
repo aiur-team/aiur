@@ -37,7 +37,7 @@ hooks:
     git status --short
 agent:
   max_concurrent_agents: 10
-  max_turns: 3
+  max_turns: 12
 codex:
   command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
   approval_policy: never
@@ -67,6 +67,15 @@ Description:
 No description provided.
 {% endif %}
 
+{% if attempt %}
+Continuation context:
+
+- Retry attempt #{{ attempt }}.
+- Read the existing `## Agent Workpad`, local agent logs, and git state before choosing a phase.
+- Resume from the workpad handoff instead of restarting brainstorm or repeating completed work.
+- Treat the handoff as the source of truth for current phase, decisions, validation already run, and next steps.
+{% endif %}
+
 ## Required Setup
 
 - Use the local tracker and repository auth already configured for this environment.
@@ -90,13 +99,14 @@ GitHub issue state is label-based:
 1. Read the issue and current labels.
 2. If state is `todo`, move it to `in-progress`.
 3. Find or create one persistent issue comment titled `## Agent Workpad`.
-4. Keep all progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
+4. Keep all progress, plan, validation, PR URL, blockers, final notes, and the current handoff in that single workpad comment.
 5. Follow the issue instructions exactly.
 6. Use judgment based on feature size.
 7. Large feature asks should usually follow the full loop `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-review`.
 8. Smaller asks may skip brainstorm, plan, or review when the extra step would be overhead, but err on the side of using these skills when in doubt.
 9. Move the issue to `Human Review` when implementation work is ready for review.
 10. Move the issue to `Done` only when the issue explicitly says the agent should close it out without human review.
+11. Before ending a turn while the issue remains active, update the handoff with current phase, key decisions, validation completed, and remaining next steps.
 
 ## Alert Milestones
 
@@ -129,6 +139,13 @@ Use and update this single issue comment:
 ### Validation
 
 - [ ] ...
+
+### Handoff
+
+- Phase: ...
+- Decisions: ...
+- Completed validation: ...
+- Next steps: ...
 
 ### Final Notes
 

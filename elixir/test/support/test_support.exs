@@ -80,6 +80,14 @@ defmodule Aiur.TestSupport do
   def restore_env(key, value), do: System.put_env(key, value)
 
   def stop_default_http_server do
+    if is_nil(Process.whereis(Aiur.Supervisor)) do
+      :ok
+    else
+      stop_default_http_server_child()
+    end
+  end
+
+  defp stop_default_http_server_child do
     case Enum.find(Supervisor.which_children(Aiur.Supervisor), fn
            {Aiur.HttpServer, _pid, _type, _modules} -> true
            _child -> false
