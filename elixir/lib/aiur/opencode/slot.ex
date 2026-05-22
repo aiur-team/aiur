@@ -45,7 +45,6 @@ defmodule Aiur.Opencode.Slot do
   alias Aiur.Boot
 
   alias Aiur.Opencode.{
-    ApiClient,
     Config,
     HiddenWindow,
     Protocol,
@@ -103,10 +102,12 @@ defmodule Aiur.Opencode.Slot do
   Select an agent's session in this slot. Drives:
 
   1. `SessionWriterRegistry.ensure/2` for the identifier (history replay)
-  2. `ApiClient.select_session/2` to switch the TUI
-  3. A best-effort bridge nudge so opencode re-fetches the new rows
-  4. Starts the active-session poll loop
-  5. Broadcasts `{:slot_session_changed, slot_index, identifier}` on the
+  2. Respawns opencode-attach with `--session <session_id>` so the TUI
+     boots straight into the conversation view (opencode 1.15.6's TUI
+     does not honor POST /tui/select-session once the welcome screen
+     is rendered).
+  3. Starts the active-session poll loop
+  4. Broadcasts `{:slot_session_changed, slot_index, identifier}` on the
      PubSub topic so AgentList can update the circle indicator
 
   Returns `{:ok, pane_id}` so PaneManager can move the pane to visible.
@@ -412,21 +413,18 @@ defmodule Aiur.Opencode.Slot do
       {:ok, %{session_id: session_id, writer_pid: writer_pid}} ->
         :ok = SessionWriter.await_replay(writer_pid, 10_000)
 
-        case select_session_with_retry(state.base_url, session_id, 5) do
-          :ok ->
-            # No synthetic nudge here. The old AgentAttach path POSTed a
-            # `__aiur_stream__:nudge:<N>` user turn to force the TUI to
-            # refresh after history-replay; the bridge used to 400 that
-            # request (visible as a toast). With the bridge now accepting
-            # nudge markers as empty SSE streams, opencode COMMITS the
-            # nudge as a user turn with no assistant reply and jumps the
-            # view to that empty turn — masking the actual history we
-            # just replayed. `/tui/select-session` alone is sufficient:
-            # opencode loads SQLite-resident rows for the selected
-            # session id on its own.
-
+        # Respawn opencode-attach with `--session <id>` so the TUI boots
+        # straight into the conversation view. POSTing
+        # `/tui/select-session` to an already-running pre-warmed attach
+        # returns 200 but does not switch the rendered view — opencode
+        # 1.15.6's TUI stays on the welcome screen ("Ask anything...",
+        # OPENCODE logo). The previously-pre-warmed attach pane is killed
+        # and a new one is split into aiur-hidden so PaneManager can
+        # move it to visible. State.pane_id is updated to the new pane.
+        case respawn_attach_with_session(state, session_id) do
+          {:ok, new_pane_id} ->
             Logger.info(
-              "opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}"
+              "opencode_slot phase=select elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{new_pane_id}"
             )
 
             {:ok, session_id,
@@ -434,7 +432,8 @@ defmodule Aiur.Opencode.Slot do
                state
                | status: :active,
                  active_identifier: identifier,
-                 active_session_id: session_id
+                 active_session_id: session_id,
+                 pane_id: new_pane_id
              }}
 
           {:error, _} = err ->
@@ -446,20 +445,33 @@ defmodule Aiur.Opencode.Slot do
     end
   end
 
-  # `POST /tui/select-session` only succeeds when opencode-attach has
-  # completed its WebSocket handshake with the serve. Immediately after
-  # a slot rebuild the attach is spawning but may not be connected yet,
-  # so retry with a brief backoff (capped at ~1.5s total).
-  defp select_session_with_retry(_base_url, _session_id, 0), do: {:error, :tui_not_ready}
+  # Kill the slot's existing opencode-attach pane (the pre-warmed
+  # session-less one, or any previous session's attach) and spawn a
+  # fresh attach bound to `session_id`. Returns the new pane id.
+  defp respawn_attach_with_session(state, session_id) do
+    if is_binary(state.pane_id) do
+      _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
+    end
 
-  defp select_session_with_retry(base_url, session_id, attempts) do
-    case ApiClient.select_session(base_url, session_id) do
-      :ok ->
-        :ok
+    with {:ok, keep_alive_pane} <- hidden_window_target(),
+         attach_cmd = Protocol.attach_command(state.base_url, session_id),
+         {:ok, pane_id} <-
+           Tmux.split_pane(
+             Tmux,
+             keep_alive_pane,
+             :horizontal,
+             @hidden_split_percent,
+             attach_cmd,
+             silent: true
+           ) do
+      {:ok, pane_id}
+    else
+      error ->
+        Logger.warning(
+          "opencode_slot phase=respawn_attach_failed slot=#{state.slot_index} session_id=#{session_id} reason=#{inspect(error)}"
+        )
 
-      {:error, _reason} ->
-        Process.sleep(300)
-        select_session_with_retry(base_url, session_id, attempts - 1)
+        {:error, :respawn_failed}
     end
   end
 
