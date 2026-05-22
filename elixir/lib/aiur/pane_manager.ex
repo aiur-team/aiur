@@ -346,6 +346,74 @@ defmodule Aiur.PaneManager do
   def handle_info({:nodedown, _node}, state), do: {:noreply, state}
   def handle_info({:nodeup, _node, _info}, state), do: {:noreply, state}
   def handle_info({:nodeup, _node}, state), do: {:noreply, state}
+  def handle_info({:placeholder_swap, identifier, placeholder_pane_id, slot_index, real_pane_id}, state) do
+    swap_span =
+      Aiur.Perf.span_begin(:placeholder_swap,
+        identifier: identifier,
+        placeholder: placeholder_pane_id,
+        real: real_pane_id
+      )
+
+    # Swap real attach into the placeholder's location, then kill the
+    # placeholder. Use tmux's swap-pane primitive — it moves both panes
+    # in one atomic op, preserving the layout the user already sees.
+    case Tmux.command(state.tmux, "swap-pane -s #{real_pane_id} -t #{placeholder_pane_id}") do
+      {:ok, _} ->
+        _ = Tmux.command(state.tmux, "kill-pane -t #{placeholder_pane_id}")
+        _ = Tmux.command(state.tmux, "select-pane -t #{real_pane_id}")
+
+        Aiur.Perf.span_end(swap_span,
+          identifier: identifier,
+          slot: slot_index,
+          real: real_pane_id
+        )
+
+        new_state =
+          state
+          |> record_slot_pane(slot_index, real_pane_id, identifier)
+          |> Map.put(:last_attached_pane_id, real_pane_id)
+          |> drop_placeholder(identifier)
+
+        _ = apply_layout(new_state)
+        AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+
+        Aiur.Perf.event(:pane_open_complete,
+          identifier: identifier,
+          slot: slot_index,
+          pane_id: real_pane_id
+        )
+
+        {:noreply, new_state}
+
+      {:error, reason} ->
+        Aiur.Perf.span_end(swap_span,
+          result: :swap_failed,
+          identifier: identifier,
+          reason: reason
+        )
+
+        Logger.warning(
+          "aiur_pane_manager phase=placeholder_swap_failed identifier=#{identifier} placeholder=#{placeholder_pane_id} real=#{real_pane_id} reason=#{inspect(reason)}"
+        )
+
+        # Best effort: kill the placeholder so the user isn't stuck
+        # staring at a loading screen forever.
+        _ = Tmux.command(state.tmux, "kill-pane -t #{placeholder_pane_id}")
+        {:noreply, drop_placeholder(state, identifier)}
+    end
+  end
+
+  def handle_info({:placeholder_failed, identifier, placeholder_pane_id, reason}, state) do
+    Logger.warning(
+      "aiur_pane_manager phase=placeholder_failed identifier=#{identifier} placeholder=#{placeholder_pane_id} reason=#{inspect(reason)}"
+    )
+
+    Aiur.Perf.event(:placeholder_failed, identifier: identifier, reason: reason)
+
+    _ = Tmux.command(state.tmux, "kill-pane -t #{placeholder_pane_id}")
+    {:noreply, drop_placeholder(state, identifier)}
+  end
+
   def handle_info({:tmux_event, _event}, state), do: {:noreply, state}
   def handle_info(_other, state), do: {:noreply, state}
 
@@ -499,21 +567,192 @@ defmodule Aiur.PaneManager do
   # (chain pre-warm hasn't reached one yet), fall back to the legacy
   # cold-attach path so the user never sees an error.
   defp open_opencode_pane(state, identifier, _opts, from) do
-    acquire_span = Aiur.Perf.span_begin(:acquire_slot, identifier: identifier)
+    # INSTANT placeholder: spawn a visible pane with a loading message
+    # in window 0 RIGHT NOW. The user sees a pane appear in < 100 ms
+    # regardless of opencode-serve readiness. The real attach pane is
+    # built asynchronously and swapped in when ready.
+    placeholder_span = Aiur.Perf.span_begin(:placeholder_spawn, identifier: identifier)
+
+    case spawn_placeholder_pane(state, identifier) do
+      {:ok, placeholder_pane_id} ->
+        Aiur.Perf.span_end(placeholder_span,
+          identifier: identifier,
+          pane_id: placeholder_pane_id
+        )
+
+        Aiur.Perf.event(:placeholder_visible,
+          identifier: identifier,
+          pane_id: placeholder_pane_id
+        )
+
+        # Reply to the caller (AgentList Task) immediately with the
+        # placeholder pane id. The user-facing "open" call returns now.
+        GenServer.reply(from, {:ok, placeholder_pane_id})
+
+        # Async: acquire slot + select + swap real attach into the
+        # placeholder's spot. The Task sends back a :placeholder_swap
+        # message PaneManager handles via handle_info.
+        pm = self()
+
+        Task.start(fn -> drive_real_attach(pm, identifier, placeholder_pane_id) end)
+
+        new_state =
+          state
+          |> record_placeholder(identifier, placeholder_pane_id)
+
+        {:noreply, new_state}
+
+      {:error, reason} ->
+        Aiur.Perf.span_end(placeholder_span,
+          result: :failed,
+          identifier: identifier,
+          reason: reason
+        )
+
+        Logger.warning(
+          "aiur_pane_manager phase=placeholder_spawn_failed identifier=#{identifier} reason=#{inspect(reason)}"
+        )
+
+        # Fall back to the synchronous open path (pre-U3 behavior) so
+        # we never hard-fail a user open just because tmux split-window
+        # blipped.
+        acquire_span = Aiur.Perf.span_begin(:acquire_slot, identifier: identifier)
+
+        case SlotSupervisor.acquire_slot() do
+          {slot_index, slot_pid} when is_integer(slot_index) ->
+            Aiur.Perf.span_end(acquire_span,
+              result: :ok,
+              slot: slot_index,
+              identifier: identifier
+            )
+
+            attach_identifier_to_slot(state, identifier, slot_index, slot_pid, from)
+
+          {:error, :no_ready_slot} ->
+            Aiur.Perf.span_end(acquire_span, result: :no_ready_slot, identifier: identifier)
+            enqueue_open(state, identifier, from)
+        end
+    end
+  end
+
+  # Spawn an instantly-visible placeholder pane in window 0 with a
+  # short loading message. The real opencode-attach swaps into this
+  # pane's spot once the slot is ready.
+  defp spawn_placeholder_pane(state, identifier) do
+    # Embed identifier into the shell command so the loading text is
+    # contextual. `tail -f /dev/null` keeps the pane alive until we
+    # swap it out and kill it.
+    safe_id = String.replace(identifier, "'", "")
+
+    cmd =
+      "bash -c 'clear; printf \"\\033[1;36m  Loading opencode for issue-#{safe_id}...\\033[0m\\n\\n  This will take a moment on first open per slot.\\n\"; tail -f /dev/null'"
+
+    case Tmux.split_pane(
+           state.tmux,
+           state.agent_list_pane,
+           horizontal_orientation(state.orientation),
+           50,
+           cmd,
+           silent: false
+         ) do
+      {:ok, pane_id} -> {:ok, pane_id}
+      err -> err
+    end
+  end
+
+  defp horizontal_orientation(:horizontal), do: :horizontal
+  defp horizontal_orientation(:vertical), do: :vertical
+  defp horizontal_orientation(_), do: :horizontal
+
+  defp record_placeholder(state, identifier, placeholder_pane_id) do
+    placeholders = Map.get(state, :placeholder_panes, %{})
+    Map.put(state, :placeholder_panes, Map.put(placeholders, identifier, placeholder_pane_id))
+  end
+
+  defp drop_placeholder(state, identifier) do
+    placeholders = Map.get(state, :placeholder_panes, %{})
+    Map.put(state, :placeholder_panes, Map.delete(placeholders, identifier))
+  end
+
+  # Async worker: acquire slot, drive Slot.select (which respawns the
+  # opencode-attach pane in aiur-hidden with --session), then tell
+  # PaneManager to swap the real pane into the placeholder's spot.
+  defp drive_real_attach(pm, identifier, placeholder_pane_id) do
+    span = Aiur.Perf.span_begin(:async_drive_attach, identifier: identifier)
 
     case SlotSupervisor.acquire_slot() do
       {slot_index, slot_pid} when is_integer(slot_index) ->
-        Aiur.Perf.span_end(acquire_span,
-          result: :ok,
-          slot: slot_index,
-          identifier: identifier
-        )
+        case Slot.select(slot_pid, identifier) do
+          {:ok, real_pane_id} ->
+            Aiur.Perf.span_end(span,
+              identifier: identifier,
+              slot: slot_index,
+              real_pane_id: real_pane_id
+            )
 
-        attach_identifier_to_slot(state, identifier, slot_index, slot_pid)
+            send(pm, {:placeholder_swap, identifier, placeholder_pane_id, slot_index, real_pane_id})
+
+          {:error, reason} ->
+            Aiur.Perf.span_end(span,
+              result: :select_failed,
+              identifier: identifier,
+              slot: slot_index,
+              reason: reason
+            )
+
+            send(pm, {:placeholder_failed, identifier, placeholder_pane_id, reason})
+        end
 
       {:error, :no_ready_slot} ->
-        Aiur.Perf.span_end(acquire_span, result: :no_ready_slot, identifier: identifier)
-        enqueue_open(state, identifier, from)
+        # Wait briefly for a slot to become ready (slot pre-warm may
+        # still be in flight). Poll up to 60 s.
+        case wait_for_slot(60_000) do
+          {:ok, {slot_index, slot_pid}} ->
+            case Slot.select(slot_pid, identifier) do
+              {:ok, real_pane_id} ->
+                Aiur.Perf.span_end(span,
+                  identifier: identifier,
+                  slot: slot_index,
+                  real_pane_id: real_pane_id
+                )
+
+                send(pm, {:placeholder_swap, identifier, placeholder_pane_id, slot_index, real_pane_id})
+
+              {:error, reason} ->
+                Aiur.Perf.span_end(span,
+                  result: :select_failed,
+                  identifier: identifier,
+                  slot: slot_index,
+                  reason: reason
+                )
+
+                send(pm, {:placeholder_failed, identifier, placeholder_pane_id, reason})
+            end
+
+          {:error, :timeout} ->
+            Aiur.Perf.span_end(span, result: :slot_wait_timeout, identifier: identifier)
+            send(pm, {:placeholder_failed, identifier, placeholder_pane_id, :no_ready_slot})
+        end
+    end
+  end
+
+  defp wait_for_slot(timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_slot(deadline)
+  end
+
+  defp do_wait_for_slot(deadline) do
+    case SlotSupervisor.acquire_slot() do
+      {idx, pid} when is_integer(idx) ->
+        {:ok, {idx, pid}}
+
+      {:error, :no_ready_slot} ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          {:error, :timeout}
+        else
+          Process.sleep(150)
+          do_wait_for_slot(deadline)
+        end
     end
   end
 
