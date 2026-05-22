@@ -79,7 +79,19 @@ defmodule Aiur.MixProject do
           Aiur.Opencode.SessionWriterRegistry,
           Aiur.Opencode.WarmServer,
           Aiur.Opencode.WorkspaceSetup,
-          Aiur.Shutdown
+          Aiur.Shutdown,
+          Aiur.AgentPubSub,
+          Aiur.Application,
+          Aiur.Boot,
+          Aiur.Perf,
+          Aiur.Opencode.AttachPool,
+          Aiur.Opencode.HiddenWindow,
+          Aiur.Opencode.Protocol,
+          Aiur.Opencode.SessionGC,
+          Aiur.Opencode.Slot,
+          Aiur.Opencode.SlotPolicy,
+          Aiur.Opencode.SlotRegistry,
+          Aiur.Opencode.SlotSupervisor
         ]
       ],
       test_ignore_filters: [
@@ -128,7 +140,7 @@ defmodule Aiur.MixProject do
   defp aliases do
     [
       setup: ["deps.get"],
-      build: ["release", "--overwrite"],
+      build: ["release --overwrite"],
       lint: ["specs.check", "credo --strict"]
     ]
   end
