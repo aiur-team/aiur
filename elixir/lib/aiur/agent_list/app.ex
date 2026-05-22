@@ -631,8 +631,8 @@ defmodule Aiur.AgentList.App do
       tag in ["agent:cancelled", "agent:canceled", "agent:done"]
     end)
     |> Enum.sort_by(fn s ->
-      # Group by status emoji (matches what the renderer paints), then
-      # by numeric identifier ASCENDING within each group. Previously
+      # Group by live work state, then by numeric identifier ASCENDING
+      # within each group. Previously
       # sorted identifiers as strings, so "10" came before "5" — the
       # user explicitly asked for natural numeric order within each
       # status-emoji bucket.
@@ -642,9 +642,9 @@ defmodule Aiur.AgentList.App do
     end)
   end
 
-  # Map status emoji to a stable sort bucket. Lower = higher in the list.
-  # Mirrors `Aiur.AgentList.Renderer.summary_emoji/1` so list order
-  # matches what the user sees painted next to each row.
+  # Map live work state to a stable sort bucket. Lower = higher in the
+  # list. Warm readiness can change per identifier without reshuffling
+  # rows, so ⏳ and 🟢 stay in the same working bucket.
   defp emoji_sort_key(%{status: :queued}), do: 4
 
   defp emoji_sort_key(%{status: :running} = summary) do
