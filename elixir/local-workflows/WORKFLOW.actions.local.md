@@ -43,7 +43,7 @@ hooks:
     git status --short
 agent:
   max_concurrent_agents: 1
-  max_turns: 3
+  max_turns: 12
 codex:
   command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
   approval_policy: never
@@ -127,7 +127,8 @@ If the issue is already `in-progress`, `rework`, or `merging`, or if this worksp
 2. Run the continuation checklist before taking new action when the issue is already active or the workspace has previous logs/work.
 3. If state is `todo`, move it to `in-progress`.
 4. Find or create one persistent issue comment titled `## Codex Workpad`.
-5. Keep all progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
+5. Keep all progress, plan, validation, PR URL, blockers, final notes, and the current handoff in that single workpad comment.
+   Before ending a turn while the issue remains active, update the handoff with current phase, key decisions, validation completed, and remaining next steps.
 6. Sync with `main` before editing:
 
    ```bash
@@ -207,6 +208,13 @@ Use and update this single issue comment:
 ### Notes
 
 - <timestamped concise progress notes>
+
+### Handoff
+
+- Phase: ...
+- Decisions: ...
+- Completed validation: ...
+- Next steps: ...
 
 ### Blockers
 

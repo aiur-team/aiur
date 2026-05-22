@@ -31,7 +31,7 @@ hooks:
     git status --short
 agent:
   max_concurrent_agents: 10
-  max_turns: 3
+  max_turns: 12
 codex:
   command: codex app-server
 opencode:
@@ -64,7 +64,9 @@ No description provided.
 Continuation context:
 
 - Retry attempt #{{ attempt }}.
-- Resume from existing workspace state before repeating completed work.
+- Read the existing `## Agent Workpad`, local agent logs, and git state before choosing a phase.
+- Resume from the workpad handoff instead of restarting brainstorm or repeating completed work.
+- Treat the handoff as the source of truth for current phase, decisions, validation already run, and next steps.
 {% endif %}
 
 ## Required Setup
@@ -89,10 +91,11 @@ GitHub issue state is label-based:
 1. Read the issue and current labels.
 2. If state is `todo`, move it to `in-progress`.
 3. Find or create one persistent issue comment titled `## Agent Workpad`.
-4. Keep progress, plan, validation, PR URL, blockers, and final notes in that single workpad comment.
+4. Keep progress, plan, validation, PR URL, blockers, final notes, and the current handoff in that single workpad comment.
 5. Follow the issue instructions exactly.
 6. Move the issue to `Human Review` when implementation work is ready for review.
 7. Move the issue to `Done` only when the issue explicitly says the agent should close it out without human review.
+8. Before ending a turn while the issue remains active, update the handoff with current phase, key decisions, validation completed, and remaining next steps.
 
 ## Workpad Template
 
@@ -112,6 +115,13 @@ Use and update this single issue comment:
 ### Validation
 
 - [ ] ...
+
+### Handoff
+
+- Phase: ...
+- Decisions: ...
+- Completed validation: ...
+- Next steps: ...
 
 ### Final Notes
 

@@ -150,6 +150,25 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
+    workflow_paths = [
+      "WORKFLOW.md",
+      "examples/workflows/github-codex.md",
+      "local-workflows/WORKFLOW.aiur.local.md",
+      "local-workflows/WORKFLOW.actions.local.md"
+    ]
+
+    for path <- workflow_paths do
+      assert {:ok, %{config: config, prompt: prompt}} = Workflow.load(path)
+
+      assert get_in(config, ["agent", "max_turns"]) >= 12
+      assert prompt =~ "handoff"
+      assert prompt =~ "current phase"
+      assert prompt =~ "validation"
+      assert prompt =~ "next steps"
+    end
+  end
+
   test "linear api token resolves from LINEAR_API_KEY env var" do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
     env_api_key = "test-linear-api-key"
