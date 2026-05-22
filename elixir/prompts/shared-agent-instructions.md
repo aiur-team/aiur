@@ -53,3 +53,74 @@ While working on an issue, if you find a separate, real problem that is **not** 
 4. Add a comment on your current issue with a link to the new issue (e.g., "out-of-scope finding filed as #M").
 
 Keep the current PR focused on the originally-scoped change.
+
+### Complexity routing
+
+Every issue in this repo carries one of `complexity:1` through `complexity:5` as a label. Use it as a **starting hypothesis** for how to approach the work — not a binding contract. After reading the issue and any linked context, decide whether the implementation actually matches, exceeds, or undershoots that complexity, and adjust your skill flow accordingly. Document the choice in the PR description (see the next section).
+
+If the issue has no complexity label, treat it as `complexity:3` until evidence says otherwise.
+
+#### `complexity:1` — trivial, one-shot
+
+A rename, a copy tweak, a config bump, a single-file bug fix with an already-understood cause. Roughly under 30 minutes; no architectural decisions.
+
+- Model: Codex.
+- Skills: `ce-work` only.
+- Skip: `ce-brainstorm`, `ce-plan`, `ce-doc-review`, full `ce-code-review`. A self-read of the diff before pushing is enough.
+
+#### `complexity:2` — small, contained
+
+A bounded bug fix or a small feature addition that lives inside one subsystem and extends existing tests. Roughly an hour or two.
+
+- Model: Codex.
+- Skills: `ce-work`, then `ce-code-review` on the diff before opening the PR for review.
+- Skip: `ce-brainstorm`, `ce-plan`, `ce-doc-review`. Mental sequencing is enough — no plan document.
+
+#### `complexity:3` — moderate, multi-file
+
+Multiple files, real sequencing decisions, but contained to one subsystem. Roughly half a day. Default for unlabelled issues.
+
+- Model: Codex by default. Switch to Claude when the work touches concurrency, persistence, or any path where a wrong call is expensive to roll back.
+- Skills: `ce-plan` (short — 1-2 implementation units) → `ce-work` → `ce-code-review`.
+- Skip: `ce-brainstorm` if scope is already clear from the issue. `ce-doc-review` optional — run it only if the plan touches more than one subsystem.
+
+#### `complexity:4` — cross-cutting, design decisions
+
+Touches multiple subsystems or introduces a new abstraction. Has design decisions other agents and contributors will live with. A day or more.
+
+- Model: Claude.
+- Skills: `ce-plan` (full plan: implementation units, test scenarios, risk section) → `ce-doc-review` on the plan → `ce-work` → `ce-code-review`.
+- Optional: `ce-brainstorm` first if the issue is exploratory or scope is unclear.
+- Treat the plan as a review artifact — push the plan, link it from the issue, give the user a chance to redirect before implementation starts.
+
+#### `complexity:5` — strategic, high-stakes
+
+New architecture, multi-system change, security/auth, data-integrity, anything where "wrong" means an incident. Multi-day work.
+
+- Model: Claude with `model_reasoning_effort=high`.
+- Skills: `ce-brainstorm` → requirements doc → `ce-plan` → deepen the plan → `ce-doc-review` → revise → `ce-work` → `ce-code-review`.
+- Always request adversarial review on the diff by naming the relevant persona explicitly: `ce-security-reviewer`, `ce-data-migration-expert`, `ce-architecture-strategist`, `ce-adversarial-reviewer`. Default checks alone are not enough at this tier.
+- Land in small, reviewable commits; never one mega-PR.
+
+### Complexity routing note in PR descriptions
+
+Every PR description must include a `### Complexity routing` block that answers four things in a few lines:
+
+1. **Signal** — the complexity label on the issue (or `untagged → treated as complexity:3`).
+2. **Skills used** — the skill/agent/model path you actually ran.
+3. **Rationale** — why those choices fit *this* issue, not just the label.
+4. **Adjustment** — whether you followed the recommended path or moved up/down, and why.
+
+Example:
+
+```markdown
+### Complexity routing
+
+- Signal: `complexity:3`
+- Skills used: `ce-plan` → `ce-work` → `ce-code-review`
+- Rationale: Two files, one subsystem, but the new code path touches the
+  SessionWriter callback chain — used Claude instead of Codex so the
+  failure-mode analysis stayed sharp.
+- Adjustment: Stayed on the complexity:3 recommended path; the SessionWriter
+  touch was inside scope and didn't warrant escalating to 4.
+```
