@@ -255,6 +255,7 @@ defmodule Aiur.Opencode.Slot do
       {:noreply, drain_pending_select(ready_state)}
     else
       with {:ok, keep_alive_pane} <- hidden_window_target(),
+           :ok <- reflow_hidden_window(keep_alive_pane),
            attach_cmd = Protocol.attach_command(state.base_url),
            {:ok, pane_id} <-
              Tmux.split_pane(
@@ -474,6 +475,7 @@ defmodule Aiur.Opencode.Slot do
     end
 
     with {:ok, keep_alive_pane} <- hidden_window_target(),
+         :ok <- reflow_hidden_window(keep_alive_pane),
          attach_cmd = Protocol.attach_command(state.base_url, session_id),
          {:ok, pane_id} <-
            Tmux.split_pane(
@@ -492,6 +494,21 @@ defmodule Aiur.Opencode.Slot do
         )
 
         {:error, :respawn_failed}
+    end
+  end
+
+  # Redistribute pane widths across the hidden window so the keep-alive
+  # sentinel pane never shrinks below tmux's minimum splittable width.
+  # Without this, repeated kill+split cycles (one per identifier_miss
+  # rebuild + one per session-bound respawn) halve the sentinel pane
+  # each time; after enough cycles tmux returns `no space for new pane`
+  # and the slot gets stuck.
+  defp reflow_hidden_window(keep_alive_pane) do
+    # `even-horizontal` requires at least 2 panes; tolerate a 1-pane
+    # window (would be just the sentinel) by ignoring layout errors.
+    case Tmux.command(Tmux, "select-layout -t #{keep_alive_pane} even-horizontal") do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
     end
   end
 
