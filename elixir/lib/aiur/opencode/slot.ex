@@ -177,13 +177,27 @@ defmodule Aiur.Opencode.Slot do
     Process.put(:slot_serve_span, serve_span)
     bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
 
-    # Slot's models map grows incrementally — boot with whatever's in
-    # `state.known_identifiers` (empty on first boot; carries previous
-    # entries on serve rebuild for identifier_miss). No wait for
-    # `Aiur.Orchestrator.list_active_identifiers/0` — slots are useful
-    # without knowing about any agent, and grow on demand when
-    # `Slot.select/2` is called with a missing identifier (U3 rebuild).
-    agent_ids = MapSet.to_list(state.known_identifiers)
+    # Pre-seed the slot's models map with all currently-active agent
+    # identifiers from the orchestrator. This eliminates the
+    # `identifier_miss` rebuild on first open of every agent —
+    # previously every first open paid a ~6 s opencode-serve restart
+    # to add the chosen identifier to the map. Pre-seeding moves that
+    # cost into background pre-warm where the user never sees it.
+    #
+    # On rebuild (pending_select set), keep the already-accumulated
+    # `state.known_identifiers` so we don't drop previously-attached
+    # identifiers in the rebuilt serve.
+    agent_ids =
+      cond do
+        state.pending_select != nil ->
+          MapSet.to_list(state.known_identifiers)
+
+        MapSet.size(state.known_identifiers) > 0 ->
+          MapSet.to_list(state.known_identifiers)
+
+        true ->
+          safely_list_active_identifiers()
+      end
 
     # On rebuild, set the slot's top-level `model` field (which drives
     # opencode-attach's status bar) to the identifier that triggered
@@ -581,6 +595,43 @@ defmodule Aiur.Opencode.Slot do
 
   defp identifier_known?(%{known_identifiers: known}, identifier) do
     MapSet.member?(known, identifier)
+  end
+
+  # Pull the orchestrator's currently-active identifier list. The
+  # orchestrator starts agents asynchronously after the slot supervisor
+  # starts, so the list may be empty when the first slot boots. Poll
+  # briefly (up to ~3 s) waiting for at least one agent so the
+  # pre-warmed serve includes a useful models map and the first open
+  # hits the warm path. If still empty after the budget, proceed with
+  # an empty map — first open will pay the identifier_miss rebuild.
+  @orchestrator_wait_budget_ms 3_000
+  @orchestrator_poll_interval_ms 100
+
+  defp safely_list_active_identifiers do
+    do_wait_for_active_identifiers(0)
+  end
+
+  defp do_wait_for_active_identifiers(waited_ms) when waited_ms >= @orchestrator_wait_budget_ms do
+    fetch_active_identifiers()
+  end
+
+  defp do_wait_for_active_identifiers(waited_ms) do
+    case fetch_active_identifiers() do
+      [] ->
+        Process.sleep(@orchestrator_poll_interval_ms)
+        do_wait_for_active_identifiers(waited_ms + @orchestrator_poll_interval_ms)
+
+      ids ->
+        ids
+    end
+  end
+
+  defp fetch_active_identifiers do
+    Aiur.Orchestrator.list_active_identifiers(Aiur.Orchestrator, 500)
+  rescue
+    _ -> []
+  catch
+    _, _ -> []
   end
 
   # Called on transition to `:ready`. If a `:select` GenServer call was
