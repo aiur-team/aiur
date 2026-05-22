@@ -12,7 +12,7 @@ defmodule Aiur.Claude.CodingAgent do
   @behaviour Aiur.CodingAgent
 
   require Logger
-  alias Aiur.Config
+  alias Aiur.{AgentEnvironment, Config}
 
   @initialize_id 1
   @thread_start_id 2
@@ -184,7 +184,7 @@ defmodule Aiur.Claude.CodingAgent do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Aiur.Claude.Config.command())],
+            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(Aiur.Claude.Config.command()))],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
