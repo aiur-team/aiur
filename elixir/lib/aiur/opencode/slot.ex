@@ -15,30 +15,26 @@ defmodule Aiur.Opencode.Slot do
                         → broadcast {:slot_ready, slot_index} on "opencode:slots"
                         → status = :ready
       :ready            → idle, accepting Slot.attach/2 + Slot.set_visible/2
-      :active           → an agent's session is currently displayed
-                          (visible_identifier set, poll loop running)
+      :active           → visible_identifier set, poll loop running
 
-  Each slot tracks an `attached_identifiers` MapSet — every identifier
-  whose session has been pre-created in this slot's opencode-serve via
-  `SessionWriterRegistry.ensure/2`. Attachment is independent of
-  visibility: a slot can have N identifiers attached, and at most one
-  of them is the `visible_identifier` shown in the slot's attach pane.
+  Each slot tracks an `attached_identifiers` MapSet. Attachment is
+  independent of visibility: a slot can have N identifiers attached,
+  and at most one of them is the `visible_identifier` shown in the
+  slot's attach pane.
 
   Three public lifecycle calls drive a slot:
 
     * `attach/2` — pre-warm an identifier's session in this slot's
       serve. Idempotent. Broadcasts `{:slot_attach_added, slot, id}`.
     * `set_visible/2` — display an identifier's session in the slot's
-      attach pane. Respawns the attach pane with `--session <id>` on
-      first call, then uses `/tui/select-session` for subsequent
-      swaps. Broadcasts `{:slot_visible_changed, slot, id}`.
+      attach pane. Respawns with `--session <id>` on first call, then
+      uses `/tui/select-session` for subsequent swaps. Broadcasts
+      `{:slot_visible_changed, slot, id}`.
     * `detach/2` — drop the identifier from `attached_identifiers`.
       Broadcasts `{:slot_attach_removed, slot, id}`.
 
-  `Slot.select/2` and `Slot.deselect/1` are retained as compatibility
-  wrappers — `select` is now `attach + set_visible`; `deselect` is
-  `clear_visible`. Callers under refactor (U3, U7) move to the new
-  API; old call sites remain functional until then.
+  `Slot.select/2` is `attach + set_visible`; `Slot.deselect/1` is
+  `clear_visible`.
 
   ## Polling for external session changes
 
@@ -89,40 +85,23 @@ defmodule Aiur.Opencode.Slot do
             token: nil,
             generation: 1,
             pane_id: nil,
-            # Set of identifiers whose sessions have been pre-created in
-            # this slot's opencode-serve via SessionWriterRegistry.ensure.
-            # Independent of visibility: a slot can have N identifiers
-            # attached and at most one currently visible. Populated by
-            # `Slot.attach/2`; emptied by `Slot.detach/2`.
             attached_identifiers: MapSet.new(),
-            # The identifier currently displayed in the slot's attach
-            # pane (or nil when the slot is idle). Set by
-            # `Slot.set_visible/2`; cleared by `Slot.clear_visible/1`.
-            # Tracked separately from `attached_identifiers` so multiple
-            # agents can be pre-warmed without changing what the user
-            # sees in this pane.
             visible_identifier: nil,
             visible_session_id: nil,
-            # LEGACY: kept transitionally so the old `select/2` compat
-            # wrapper continues to populate them. Both alias the new
-            # visible_* fields; new code MUST read visible_identifier
-            # and visible_session_id. Removed when the last legacy
-            # caller is gone.
+            # Mirror visible_identifier / visible_session_id for legacy
+            # callers still using select/deselect.
             active_identifier: nil,
             active_session_id: nil,
             poll_ref: nil,
             # Identifiers declared in this slot's `opencode.json` models
-            # map at the time `materialize_slot/5` ran. opencode-serve
-            # does not hot-reload this file; any identifier NOT in this
-            # set will fail with `Model not found: aiur/issue-X. Did you
-            # mean: issue-Y, ...` from the bridge. When attach/select
-            # sees a miss it triggers a transparent serve restart with
-            # the freshest `list_active_identifiers/0` before proceeding.
+            # map. opencode-serve does not hot-reload this file; any
+            # identifier outside this set fails with `Model not found`.
+            # On miss, attach/select triggers a transparent serve
+            # rebuild with the freshest active list.
             known_identifiers: MapSet.new(),
-            # Either nil, or `{from, identifier}` queued from a
-            # `:set_visible` / `:select` call whose identifier wasn't in
-            # the serve's models map. Drained after `:rebuild_now`
-            # returns to `:ready`.
+            # `{from, identifier}` queued from a `:set_visible` /
+            # `:select` whose identifier wasn't in the serve's models
+            # map. Drained after `:rebuild_now` reaches `:ready`.
             pending_select: nil
 
   @type status :: :booting | :serve_starting | :attach_spawning | :ready | :active | :failed
@@ -463,10 +442,6 @@ defmodule Aiur.Opencode.Slot do
   @impl true
   def handle_call({:select, identifier}, from, %{status: status} = state)
       when status in [:ready, :active] do
-    # Legacy entry point. New code calls attach + set_visible
-    # explicitly via the dedicated handlers above. We delegate
-    # through the same `do_set_visible_call` path so behavior is
-    # identical regardless of which API the caller picked.
     do_set_visible_call(identifier, from, state)
   end
 
@@ -474,13 +449,6 @@ defmodule Aiur.Opencode.Slot do
     {:reply, {:error, {:slot_not_ready, state.status}}, state}
   end
 
-  # --- New attach / set_visible / detach API --------------------------------
-  #
-  # `attach/2` is the pre-warm primitive. It ensures the identifier
-  # has a session in this slot's serve (via SessionWriterRegistry) and
-  # registers the identifier in `attached_identifiers` without
-  # touching what the attach pane is showing. Used by AttachPool (U3)
-  # and SlotPolicy's fan-out.
   def handle_call({:attach, identifier}, _from, %{status: status} = state)
       when status in [:ready, :active] do
     case do_attach(identifier, state) do
@@ -497,15 +465,9 @@ defmodule Aiur.Opencode.Slot do
     {:reply, {:error, {:slot_not_ready, state.status}}, state}
   end
 
-  # `set_visible/2` is the user-driven primitive. Falls through to the
-  # same respawn-with-session path as the legacy `:select` handler, but
-  # also ensures the identifier is in `attached_identifiers` first
-  # (so AttachPool's bookkeeping is consistent even when set_visible
-  # races ahead of an explicit attach).
   def handle_call({:set_visible, identifier}, from, %{status: status} = state)
       when status in [:ready, :active] do
     if state.visible_identifier == identifier and is_binary(state.pane_id) do
-      # Already visible. Idempotent.
       {:reply, {:ok, state.pane_id}, state}
     else
       do_set_visible_call(identifier, from, state)
@@ -544,10 +506,6 @@ defmodule Aiur.Opencode.Slot do
         | attached_identifiers: MapSet.delete(state.attached_identifiers, identifier)
       }
 
-      # If we were showing this identifier, clear visibility too. We
-      # leave the attach pane alive — PaneManager (U9) will issue a
-      # kill-pane when the agent goes inactive. Here we only manage
-      # this slot's view of the world.
       new_state =
         if state.visible_identifier == identifier do
           broadcast_visible_changed(new_state.slot_index, nil)
@@ -683,17 +641,9 @@ defmodule Aiur.Opencode.Slot do
 
   # --- Internals ------------------------------------------------------------
 
-  # Pre-create the identifier's session in this slot's serve. Bumps
-  # `attached_identifiers`. Triggers identifier-miss rebuild if the
-  # identifier isn't in the serve's models map yet.
   defp do_attach(identifier, state) do
     cond do
       MapSet.member?(state.attached_identifiers, identifier) ->
-        # Already attached. Return the cached session id when we have
-        # one (we don't track session-id-per-identifier yet, so return
-        # the current visible session id if it matches, else :attached
-        # as a placeholder; callers that need the session id should
-        # rely on set_visible's return).
         sid =
           if state.visible_identifier == identifier do
             state.visible_session_id
@@ -745,18 +695,13 @@ defmodule Aiur.Opencode.Slot do
         end
 
       true ->
-        # Identifier not in the serve's models map. Falling back to a
-        # synchronous rebuild here would block the caller for ~5s
-        # without giving them a chance to abandon. Surface the miss
-        # so the caller can retry via `set_visible` (which has the
-        # async rebuild + drain path).
+        # Synchronous rebuild would block the caller; surface the miss
+        # and let the caller retry via `set_visible`, which owns the
+        # async rebuild + drain path.
         {:error, :identifier_unknown}
     end
   end
 
-  # SessionWriterRegistry.ensure runs the session-create + history
-  # replay against this slot's serve. Same call the legacy `do_select`
-  # uses for its first step. Pulled out so `do_attach` can share it.
   defp ensure_session_for(identifier, state) do
     case SessionWriterRegistry.ensure(identifier, state.base_url) do
       {:ok, %{session_id: session_id, writer_pid: writer_pid}} ->
@@ -770,8 +715,6 @@ defmodule Aiur.Opencode.Slot do
     end
   end
 
-  # `set_visible` handler shared by `:set_visible` and the legacy
-  # `:select` path. Returns `{:reply | :noreply, state}` tuples.
   defp do_set_visible_call(identifier, from, state) do
     if identifier_known?(state, identifier) do
       case do_select(identifier, state) do
@@ -878,8 +821,6 @@ defmodule Aiur.Opencode.Slot do
          %{
            state
            | status: :active,
-             # Legacy fields preserved so still-existing callers see
-             # the same shape; new code reads visible_identifier.
              active_identifier: identifier,
              active_session_id: session_id,
              visible_identifier: identifier,
@@ -1079,9 +1020,6 @@ defmodule Aiur.Opencode.Slot do
     )
   end
 
-  # New attach/detach/visible events — preferred by U3 onward.
-  # `:slot_session_changed` (above) is kept for legacy subscribers
-  # until the AttachPool rewrite (U3) lands.
   defp broadcast_attach_added(slot_index, identifier) do
     Phoenix.PubSub.broadcast(
       Aiur.PubSub,

@@ -23,6 +23,11 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
   @attach_pool_source Path.expand("../../../lib/aiur/opencode/attach_pool.ex", __DIR__)
 
   describe ":attach_consumed must NOT clear warm_identifiers" do
+    @describetag :skip
+    # Issue #85 retired warm_identifiers / warming_identifiers in favor
+    # of the per-identifier attach_state %{attached_slots, visible_in}.
+    # Equivalent behavioral guarantee — opening a chat does NOT regress
+    # the row's marker — moves to U11's e2e test.
     test "AgentList keeps the identifier in warm_identifiers after consume" do
       source = File.read!(@app_source)
 
@@ -162,6 +167,11 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
   end
 
   describe ":attach_failed must clear warming_identifiers via PubSub" do
+    @describetag :skip
+    # Issue #85 retired warming_identifiers. The new model still
+    # broadcasts :attach_failed (AttachPool's handle_info({:attach_failed, ...}))
+    # but the consumer is the per-identifier attach_state machine, not
+    # a warming MapSet. Behavioral coverage moves to U11.
     test "AttachPool broadcasts :attach_failed when wait_for_paint times out" do
       source = File.read!(@attach_pool_source)
 

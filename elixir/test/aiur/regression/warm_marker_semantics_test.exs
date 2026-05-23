@@ -42,6 +42,12 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
   end
 
   describe "wait_for_paint gates warm" do
+    @describetag :skip
+    # Issue #85 retired the warm/warming binary state machine. The new
+    # design (1 Slot.attach per agent per slot) doesn't need a paint
+    # gate — Slot.set_visible respawns the attach pane with --session
+    # synchronously when the user opens an agent. Behavioral coverage
+    # of "no false 🟢 / no false ⚪" moves to U11.
     test "AttachPool waits for `Build · issue-` paint before flipping to :warm" do
       source = File.read!(@attach_pool_source)
 
@@ -91,6 +97,11 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
   end
 
   describe "● is suppressed during warming + warm" do
+    @describetag :skip
+    # Issue #85 retired the ● open-pane glyph in favor of the 4-state
+    # ⏳ / 🔘 / ⚪ / 🟢 marker. The new model atomically updates
+    # visible_in alongside :slot_visible_changed broadcasts — no
+    # interleave race exists. Behavioral coverage moves to U11.
     test "AttachPool broadcasts :attach_warming when dispatching warm Task" do
       source = File.read!(@attach_pool_source)
 
@@ -141,6 +152,12 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
   end
 
   describe "warm readiness lives in the status column" do
+    @describetag :skip
+    # Issue #85 swapped the binary warm/warming state for the 4-state
+    # ⏳ / 🔘 / ⚪ / 🟢 model. Render assertions below check the old
+    # state names (warming_identifiers / warm_identifiers). Renderer
+    # tests for the new state model land alongside U5; behavioral
+    # coverage of "🟢 only when actually visible" moves to U11.
     test "running but not warm renders hourglass instead of green" do
       out =
         render_state(%{
