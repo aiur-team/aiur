@@ -102,6 +102,11 @@ defmodule Aiur.AgentList.Input do
   defp dispatch("v", target, _input_fun), do: App.toggle_layout_orientation(target)
   defp dispatch("?", target, _input_fun), do: App.toggle_help(target)
   defp dispatch("q", target, _input_fun), do: App.quit(target)
+  # Capital-O is the fallback "open in new pane" keybind for terminals
+  # that don't emit a distinct sequence for Shift+Enter. CSI-u-capable
+  # terminals also reach activate_new_pane via the `\e[13;2u` parser
+  # below.
+  defp dispatch("O", target, _input_fun), do: App.activate_new_pane(target)
   defp dispatch(_byte, _target, _input_fun), do: :ok
 
   defp read_csi(target, input_fun, params) do
@@ -125,21 +130,31 @@ defmodule Aiur.AgentList.Input do
   defp dispatch_csi(target, "", "B"), do: App.select_next(target)
   defp dispatch_csi(target, "", "C"), do: App.adjust_max_concurrent_agents(target, 1)
   defp dispatch_csi(target, "", "D"), do: App.adjust_max_concurrent_agents(target, -1)
+  # CSI-u: Shift+Enter is `\e[13;2u` under modifyOtherKeys-2 / kitty
+  # keyboard protocol. The second parameter (`2`) is the Shift modifier
+  # bit. Plain Enter is `\e[13u`. Other shifted keys (e.g. `\e[97;2u`
+  # for Shift+a) are ignored.
+  defp dispatch_csi(target, "13;2", "u"), do: App.activate_new_pane(target)
+  defp dispatch_csi(target, "13", "u"), do: App.activate(target)
   defp dispatch_csi(_target, _params, _final), do: :ok
 
   defp enter_raw_mode(true), do: :ok
 
   defp enter_raw_mode(false) do
-    Os.stty(["-icanon", "-echo", "-isig", "-ixon", "min", "0", "time", "1"])
+    with :ok <- Os.stty(["-icanon", "-echo", "-isig", "-ixon", "min", "0", "time", "1"]) do
+      # modifyOtherKeys=2 + kitty extended keys = terminal emits
+      # `\e[13;2u` for Shift+Enter rather than collapsing it to plain
+      # `\r`. Terminals that don't grok these sequences silently ignore
+      # them, so the capital-O fallback in `dispatch/3` still works.
+      IO.write("\e[>4;2m\e[?2017h")
+      :ok
+    end
   rescue
     _ -> {:error, :stty_unavailable}
   end
 
   defp restore_terminal do
-    # `\e[?25h` (DECTCEM show) un-does the cursor hide that the
-    # renderer emits on every frame. Without this, the user's terminal
-    # is left with an invisible cursor after `aiur` quits.
-    IO.write("\e[?25h")
+    IO.write("\e[?2017l\e[>4;0m\e[?25h")
     Os.stty(["sane"])
   rescue
     _ -> :ok

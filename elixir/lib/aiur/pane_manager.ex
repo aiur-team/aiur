@@ -185,10 +185,8 @@ defmodule Aiur.PaneManager do
         {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
       end
 
-      # Listen for slot lifecycle so the open queue can drain when new
-      # slots reach `:ready` and so `last_attached_pane_id` can be
-      # cleared when its slot's session is deselected.
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
+      :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
       :net_kernel.monitor_nodes(true, node_type: :hidden)
 
@@ -325,6 +323,41 @@ defmodule Aiur.PaneManager do
   def handle_info({:slot_session_changed, _slot_index, _identifier}, state) do
     {:noreply, state}
   end
+
+  def handle_info({:slot_visible_changed, _slot_index, _identifier}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:slot_attach_added, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_attach_removed, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:agent_inactive, identifier}, state) when is_binary(identifier) do
+    case Map.fetch(state.identifier_to_pane, identifier) do
+      {:ok, pane_id} ->
+        Logger.info("aiur_pane_manager phase=close_inactive identifier=#{identifier} pane_id=#{pane_id}")
+
+        {:reply, _, new_state} = close_opencode_or_generic(state, identifier, pane_id)
+        {:noreply, new_state}
+
+      :error ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:attach_state_changed, _identifier, _count, _visible_in}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_fully_warmed, _slot_index}, state), do: {:noreply, state}
+  def handle_info({:slot_warmth_dropped, _slot_index}, state), do: {:noreply, state}
+
+  def handle_info({:attach_consumed, _identifier, _pane_id, _slot_index}, state),
+    do: {:noreply, state}
+
+  def handle_info({:attach_failed, _identifier, _slot_index, _reason}, state),
+    do: {:noreply, state}
 
   def handle_info({:open_queue_timeout, identifier}, state) do
     case Map.fetch(state.open_queue_timers, identifier) do

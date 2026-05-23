@@ -330,6 +330,8 @@ defmodule Aiur.Opencode.AttachPool do
           end
         end)
 
+        broadcast_event({:agent_inactive, id})
+        Aiur.Perf.event(:agent_inactive, identifier: id)
         acc
       end)
 
