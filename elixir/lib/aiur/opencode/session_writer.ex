@@ -296,7 +296,7 @@ defmodule Aiur.Opencode.SessionWriter do
 
   defp insert_batch_event_part(%{role: :command} = event, {:ok, text_buffer}, conn, state, message_id) do
     with :ok <- flush_text_part(conn, state, message_id, text_buffer),
-         :ok <- insert_body_parts(conn, state, message_id, :command, event[:body], event) do
+         :ok <- insert_command_part(conn, state, message_id, event[:body]) do
       {:cont, {:ok, []}}
     else
       error -> {:halt, error}
@@ -321,7 +321,7 @@ defmodule Aiur.Opencode.SessionWriter do
     |> then(&Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), Protocol.text_part_data(&1)))
   end
 
-  defp insert_body_parts(conn, state, message_id, :command, body, _event) do
+  defp insert_command_part(conn, state, message_id, body) do
     # Command transcript event from codex — capture as a single completed
     # tool call. We don't have separate stdout/exit; the body field carries
     # the raw command line (e.g., "$ ls").
@@ -336,12 +336,6 @@ defmodule Aiur.Opencode.SessionWriter do
 
     Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), part_data)
   end
-
-  defp insert_body_parts(conn, state, message_id, _role, body, _event) when is_binary(body) do
-    Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), Protocol.text_part_data(body))
-  end
-
-  defp insert_body_parts(_conn, _state, _message_id, _role, _body, _event), do: :ok
 
   # --- nudge opencode to render the just-written rows ----------------------
   #
