@@ -628,9 +628,11 @@ defmodule Aiur.PaneManager do
   # cold-attach path so the user never sees an error.
   defp open_opencode_pane(state, identifier, _opts, from) do
     # FAST PATH: AttachPool may have a warm opencode-attach pane
-    # already running in aiur-hidden for this identifier. If so, just
-    # move it to visible (~50 ms — opencode is already painted).
-    case AttachPool.consume(identifier) do
+    # already running in aiur-hidden for this identifier. Ask it to
+    # exclude slots whose pane is already user-visible so the
+    # "open in a new pane" call doesn't reuse one the user is
+    # already looking at (which would only swap content in place).
+    case AttachPool.consume(identifier, exclude_visible: true) do
       {:ok, %{slot_index: slot_index, pane_id: pane_id}} ->
         Aiur.Perf.event(:attach_pool_consume_hit,
           identifier: identifier,

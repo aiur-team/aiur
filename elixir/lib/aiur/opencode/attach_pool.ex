@@ -83,11 +83,18 @@ defmodule Aiur.Opencode.AttachPool do
   Find a slot that has `identifier` attached, drive Slot.set_visible
   on it, and return `{:ok, %{slot_index, pane_id}}`. Returns `:miss`
   when no slot has it attached.
+
+  Options:
+
+    * `:exclude_visible` — when true, skip slots whose pane is
+      currently displaying a different identifier user-visibly. Use
+      this for the "open in a new pane" flow so the call doesn't
+      reuse a slot the user is already looking at.
   """
-  @spec consume(GenServer.server(), String.t()) ::
+  @spec consume(String.t(), keyword()) ::
           {:ok, %{slot_index: pos_integer(), pane_id: String.t()}} | :miss
-  def consume(server \\ __MODULE__, identifier) when is_binary(identifier) do
-    GenServer.call(server, {:consume, identifier})
+  def consume(identifier, opts \\ []) when is_binary(identifier) and is_list(opts) do
+    GenServer.call(__MODULE__, {:consume, identifier, opts})
   catch
     :exit, _ -> :miss
   end
@@ -183,8 +190,8 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   @impl true
-  def handle_call({:consume, identifier}, _from, state) do
-    case find_slot_for_impl(state, identifier, []) do
+  def handle_call({:consume, identifier, opts}, _from, state) do
+    case find_slot_for_impl(state, identifier, opts) do
       {:ok, slot_index} ->
         case slot_pid_for(slot_index) do
           {:ok, slot_pid} ->
@@ -195,7 +202,11 @@ defmodule Aiur.Opencode.AttachPool do
         end
 
       :miss ->
-        Aiur.Perf.event(:attach_pool_miss, identifier: identifier)
+        Aiur.Perf.event(:attach_pool_miss,
+          identifier: identifier,
+          exclude_visible: Keyword.get(opts, :exclude_visible, false)
+        )
+
         {:reply, :miss, state}
     end
   end
