@@ -5,3 +5,5 @@ AGENTS.local.md
 .env.local
 .env.*.local
 .env.swp
+.agent-label-snapshot.json
+.agent-label-restore.sh
