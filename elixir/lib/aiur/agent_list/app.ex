@@ -162,17 +162,17 @@ defmodule Aiur.AgentList.App do
         max_concurrent_agents: nil
       },
       debug_mode?: debug_mode?,
-      # Identifiers whose opencode-attach has been pre-warmed by
-      # `Aiur.Opencode.AttachPool` and is sitting in `aiur-hidden`
-      # ready to instant-open. Renderer paints these running rows as
-      # ready so Enter does not fall back to a cold attach.
-      warm_identifiers: MapSet.new(),
-      # Identifiers whose attach is currently being warmed (Slot.select
-      # in flight, opencode-attach booting). Used to suppress the
-      # misleading ● marker — :slot_session_changed fires during
-      # Slot.select, which would otherwise paint ● on a row whose
-      # pane isn't actually visible yet.
-      warming_identifiers: MapSet.new(),
+      # %{identifier => %{attach_count, visible_in}} mirrored from
+      # AttachPool's :attach_state_changed broadcasts. Drives the
+      # 4-state ⏳/🔘/⚪/🟢 marker per row.
+      attach_state: %{},
+      # Slot indexes that have reached :ready (opencode-serve up,
+      # accepting attach calls). One status glyph per entry under the
+      # bottom nav: in-progress when not yet fully warmed, finished
+      # once every active agent is attached.
+      started_slots: MapSet.new(),
+      fully_warmed_slots: MapSet.new(),
+      warm_status_dark_mode?: warm_status_dark_mode_default(),
       # Compact 3-row debug-footer state. Each field is `nil` until
       # the corresponding aiur_perf event lands, then holds {wall_ms,
       # at_ms} so the footer can show "agent list ready: 4.0s",
@@ -275,9 +275,10 @@ defmodule Aiur.AgentList.App do
   end
 
   defp warm_identifier?(state, identifier) do
-    state
-    |> Map.get(:warm_identifiers, MapSet.new())
-    |> MapSet.member?(identifier)
+    case Map.get(state.attach_state, identifier) do
+      %{attach_count: n} when n > 0 -> true
+      _ -> false
+    end
   end
 
   defp attach_selected_agent(state) do
@@ -394,7 +395,13 @@ defmodule Aiur.AgentList.App do
     {:noreply, new_state}
   end
 
-  def handle_info({:slot_ready, _slot_index}, state), do: {:noreply, state}
+  def handle_info({:slot_ready, slot_index}, state) when is_integer(slot_index) do
+    new_state = update_in(state.started_slots, &MapSet.put(&1, slot_index))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:slot_ready, _other}, state), do: {:noreply, state}
 
   def handle_info({:poll_state_changed, payload}, state) do
     {:noreply, %{state | poll_state: payload}}
@@ -430,43 +437,47 @@ defmodule Aiur.AgentList.App do
     end
   end
 
-  def handle_info({:attach_warming, identifier, _slot_index}, state) do
-    new_state = update_in(state.warming_identifiers, &MapSet.put(&1, identifier))
+  def handle_info({:attach_state_changed, identifier, attach_count, visible_in}, state) do
+    entry = %{attach_count: attach_count, visible_in: visible_in}
+    new_state = put_in(state.attach_state[identifier], entry)
     render(new_state)
     {:noreply, new_state}
   end
 
-  def handle_info({:attach_warm, identifier, _pane_id, _slot_index}, state) do
-    new_state =
-      state
-      |> Map.update!(:warm_identifiers, &MapSet.put(&1, identifier))
-      |> Map.update!(:warming_identifiers, &MapSet.delete(&1, identifier))
-
+  def handle_info({:slot_fully_warmed, slot_index}, state) do
+    new_state = update_in(state.fully_warmed_slots, &MapSet.put(&1, slot_index))
     render(new_state)
     {:noreply, new_state}
   end
 
-  def handle_info({:attach_failed, identifier, _slot_index, _reason}, state) do
-    # AttachPool gave up warming this identifier (typically paint
-    # timeout under CPU contention). Clear the ⏳ warming marker —
-    # without this, the row stays hourglass forever and Enter remains
-    # blocked. The renderer will fall back to the default running
-    # marker; if the identifier still has agent:todo, a future seed
-    # will re-attempt warm.
-    new_state = update_in(state.warming_identifiers, &MapSet.delete(&1, identifier))
+  def handle_info({:slot_warmth_dropped, slot_index}, state) do
+    new_state = update_in(state.fully_warmed_slots, &MapSet.delete(&1, slot_index))
     render(new_state)
     {:noreply, new_state}
   end
 
-  def handle_info({:attach_consumed, identifier, _pane_id, _slot_index}, state) do
-    # Identifier was opened — keep it in `warm_identifiers` so the
-    # status emoji stays green (the row is ready and now also visible).
-    # The renderer composes warm + open: open-pane glyph wins for the
-    # ID gap, and the status emoji stays at the warm marker (🟢) rather
-    # than regressing to the warming fallback (⏳). Without this, opening
-    # any chat appears to revert the row to "warming" until the
-    # underlying agent emits a phase event.
-    new_state = update_in(state.warming_identifiers, &MapSet.delete(&1, identifier))
+  def handle_info({:attach_failed, _identifier, _slot_index, _reason}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:attach_consumed, _identifier, _pane_id, _slot_index}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:slot_attach_added, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_attach_removed, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_visible_changed, slot_index, identifier}, state) do
+    new_visible =
+      case identifier do
+        nil -> Map.delete(state.visible_sessions, slot_index)
+        id when is_binary(id) -> Map.put(state.visible_sessions, slot_index, id)
+      end
+
+    new_state = %{state | visible_sessions: new_visible}
     render(new_state)
     {:noreply, new_state}
   end
@@ -502,6 +513,10 @@ defmodule Aiur.AgentList.App do
   defp update_perf_summary(summary, _event), do: summary
 
   def handle_info(_other, state), do: {:noreply, state}
+
+  defp warm_status_dark_mode_default do
+    Application.get_env(:aiur, :warm_status_dark_mode?, true)
+  end
 
   defp safely_seed_attach_pool([]), do: :ok
 
@@ -708,8 +723,13 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:visible_sessions, state.visible_sessions)
       |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
       |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
-      |> Map.put(:warm_identifiers, Map.get(state, :warm_identifiers, MapSet.new()))
-      |> Map.put(:warming_identifiers, Map.get(state, :warming_identifiers, MapSet.new()))
+      |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
+      |> Map.put(:started_slots, Map.get(state, :started_slots, MapSet.new()))
+      |> Map.put(:fully_warmed_slots, Map.get(state, :fully_warmed_slots, MapSet.new()))
+      |> Map.put(
+        :warm_status_dark_mode?,
+        Map.get(state, :warm_status_dark_mode?, true)
+      )
 
     state.write_fun.(Renderer.render(render_state))
     :ok

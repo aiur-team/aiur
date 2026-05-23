@@ -107,13 +107,17 @@ defmodule Aiur.AgentList.AppTest do
   end
 
   defp mark_warm(app, identifier) do
-    send(GenServer.whereis(app), {:attach_warm, identifier, "%warm", 1})
+    send(GenServer.whereis(app), {:attach_state_changed, identifier, 1, nil})
 
     wait_until(fn ->
       app
       |> App.snapshot()
-      |> Map.get(:warm_identifiers)
-      |> MapSet.member?(identifier)
+      |> Map.get(:attach_state, %{})
+      |> Map.get(identifier)
+      |> case do
+        %{attach_count: n} when n > 0 -> true
+        _ -> false
+      end
     end)
   end
 
