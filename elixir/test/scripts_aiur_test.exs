@@ -62,6 +62,18 @@ defmodule ScriptsAiurTest do
              "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
   end
 
+  test "falls back when XDG_RUNTIME_DIR cannot hold session tmpfiles" do
+    ctx = test_context()
+    runtime_dir = Path.join(ctx.root, "readonly-runtime")
+    File.mkdir_p!(runtime_dir)
+    File.chmod!(runtime_dir, 0o500)
+    on_exit(fn -> File.chmod(runtime_dir, 0o700) end)
+
+    assert {output, 0} = run_aiur(ctx, ["aiur"], env: [{"XDG_RUNTIME_DIR", runtime_dir}])
+    refute output =~ "Permission denied"
+    assert output =~ "MISE:exec -- ./bin/aiur"
+  end
+
   test "runs the built-in actions profile in the foreground" do
     ctx = test_context()
 
@@ -704,6 +716,7 @@ defmodule ScriptsAiurTest do
 
     %{
       repo_root: repo_root,
+      root: root,
       actions_repo: actions_repo,
       home_dir: home_dir,
       config_file: config_file,

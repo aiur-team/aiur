@@ -42,7 +42,7 @@ defmodule Aiur.Opencode.AttachPool do
   use GenServer
   require Logger
 
-  alias Aiur.Opencode.{Protocol, Slot, SlotRegistry, SlotSupervisor}
+  alias Aiur.Opencode.{Protocol, Slot, SlotRegistry}
   alias Aiur.Tmux
 
   @topic "attach_pool"

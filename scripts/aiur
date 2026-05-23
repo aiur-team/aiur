@@ -970,6 +970,25 @@ resolve_aiur_tmux_conf() {
   printf '%s\n' "$script_dir/aiur.tmux.conf"
 }
 
+is_writable_dir() {
+  local dir="${1:-}"
+  [ -n "$dir" ] && [ -d "$dir" ] && [ -w "$dir" ]
+}
+
+session_tmpfile_root() {
+  if is_writable_dir "${XDG_RUNTIME_DIR:-}"; then
+    printf '%s\n' "$XDG_RUNTIME_DIR"
+    return
+  fi
+
+  if is_writable_dir "${TMPDIR:-}"; then
+    printf '%s\n' "$TMPDIR"
+    return
+  fi
+
+  printf '/tmp\n'
+}
+
 run_in_tmux() {
   local profile="$1"
   local elixir_dir="$2"
@@ -1000,7 +1019,8 @@ run_in_tmux() {
   # id on exit (incl. parent-bash exit, Ctrl+C, terminal close, panic).
   # This is the layer-2 cleanup defense — the BEAM-side Aiur.Shutdown is
   # layer 1, and WarmServer's boot-time GC is layer 3 (SIGKILL recovery).
-  local session_tmpfile_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+  local session_tmpfile_root
+  session_tmpfile_root="$(session_tmpfile_root)"
   export AIUR_SESSION_TMPFILE="${session_tmpfile_root}/aiur-${$}-sessions"
   : > "$AIUR_SESSION_TMPFILE"
 

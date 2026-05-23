@@ -238,83 +238,6 @@ defmodule Aiur.AgentList.App do
     {:noreply, state}
   end
 
-  defp activate_selected_agent(state) do
-    case Enum.at(state.summaries, state.selection_index) do
-      %{identifier: identifier} = summary ->
-        activate_selected_agent_if_warm(state, identifier, summary)
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp activate_selected_agent_if_warm(state, identifier, summary) do
-    if warm_identifier?(state, identifier) do
-      open_warm_selected_agent(state, identifier, summary)
-    else
-      Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
-    end
-  end
-
-  defp open_warm_selected_agent(state, identifier, summary) do
-    Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
-    Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
-    command = "#{state.command_template} #{identifier}"
-    title = Map.get(summary, :title)
-    pane_manager = state.pane_manager
-
-    # PaneManager.open_conversation parks the call when no slot is
-    # ready (cold pre-warm) and replies after the queue drains —
-    # up to 60 s. The AgentList GenServer is the keyboard owner;
-    # it must NOT block on this call or any keystroke pressed
-    # during the wait is lost and the process times out + crashes.
-    # Fire-and-forget in a Task instead.
-    Task.start(fn ->
-      PaneManager.open_conversation(pane_manager, identifier, command, title: title)
-    end)
-  end
-
-  defp warm_identifier?(state, identifier) do
-    state
-    |> Map.get(:warm_identifiers, MapSet.new())
-    |> MapSet.member?(identifier)
-  end
-
-  defp attach_selected_agent(state) do
-    case Enum.at(state.summaries, state.selection_index) do
-      %{identifier: identifier} = summary ->
-        Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
-        command = "#{state.command_template} #{identifier}"
-        title = Map.get(summary, :title)
-        pane_manager = state.pane_manager
-
-        # Same parking concern as :activate — `attach_conversation`
-        # already uses a 65 s call timeout but it still blocks the
-        # AgentList process. Run the whole attempt-then-fallback in
-        # a Task so keystrokes stay responsive.
-        Task.start(fn -> attempt_attach_then_open(pane_manager, identifier, command, title) end)
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp attempt_attach_then_open(pane_manager, identifier, command, title) do
-    case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
-      {:ok, _pane_id} ->
-        :ok
-
-      {:error, :no_focused_pane} ->
-        PaneManager.open_conversation(pane_manager, identifier, command,
-          title: title,
-          timeout: 65_000
-        )
-
-      {:error, _other} ->
-        :ok
-    end
-  end
-
   def handle_cast(:toggle_pause, state) do
     state = toggle_selected_agent_pause(state)
     render(state)
@@ -484,6 +407,8 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
 
+  def handle_info(_other, state), do: {:noreply, state}
+
   # Pull the three milestones the debug footer cares about out of the
   # aiur_perf stream. Everything else is ignored — the user asked for
   # a compact 3-row footer, not a rolling event log.
@@ -500,8 +425,6 @@ defmodule Aiur.AgentList.App do
   end
 
   defp update_perf_summary(summary, _event), do: summary
-
-  def handle_info(_other, state), do: {:noreply, state}
 
   defp safely_seed_attach_pool([]), do: :ok
 
@@ -524,6 +447,83 @@ defmodule Aiur.AgentList.App do
   end
 
   # Internals -----------------------------------------------------------------
+
+  defp activate_selected_agent(state) do
+    case Enum.at(state.summaries, state.selection_index) do
+      %{identifier: identifier} = summary ->
+        activate_selected_agent_if_warm(state, identifier, summary)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp activate_selected_agent_if_warm(state, identifier, summary) do
+    if warm_identifier?(state, identifier) do
+      open_warm_selected_agent(state, identifier, summary)
+    else
+      Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
+    end
+  end
+
+  defp open_warm_selected_agent(state, identifier, summary) do
+    Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
+    Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
+    command = "#{state.command_template} #{identifier}"
+    title = Map.get(summary, :title)
+    pane_manager = state.pane_manager
+
+    # PaneManager.open_conversation parks the call when no slot is
+    # ready (cold pre-warm) and replies after the queue drains —
+    # up to 60 s. The AgentList GenServer is the keyboard owner;
+    # it must NOT block on this call or any keystroke pressed
+    # during the wait is lost and the process times out + crashes.
+    # Fire-and-forget in a Task instead.
+    Task.start(fn ->
+      PaneManager.open_conversation(pane_manager, identifier, command, title: title)
+    end)
+  end
+
+  defp warm_identifier?(state, identifier) do
+    state
+    |> Map.get(:warm_identifiers, MapSet.new())
+    |> MapSet.member?(identifier)
+  end
+
+  defp attach_selected_agent(state) do
+    case Enum.at(state.summaries, state.selection_index) do
+      %{identifier: identifier} = summary ->
+        Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
+        command = "#{state.command_template} #{identifier}"
+        title = Map.get(summary, :title)
+        pane_manager = state.pane_manager
+
+        # Same parking concern as :activate — `attach_conversation`
+        # already uses a 65 s call timeout but it still blocks the
+        # AgentList process. Run the whole attempt-then-fallback in
+        # a Task so keystrokes stay responsive.
+        Task.start(fn -> attempt_attach_then_open(pane_manager, identifier, command, title) end)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp attempt_attach_then_open(pane_manager, identifier, command, title) do
+    case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
+      {:ok, _pane_id} ->
+        :ok
+
+      {:error, :no_focused_pane} ->
+        PaneManager.open_conversation(pane_manager, identifier, command,
+          title: title,
+          timeout: 65_000
+        )
+
+      {:error, _other} ->
+        :ok
+    end
+  end
 
   defp handle_resume_result(state, {:ok, _}), do: state
 
