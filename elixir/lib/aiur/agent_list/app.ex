@@ -71,6 +71,14 @@ defmodule Aiur.AgentList.App do
   def activate(server \\ __MODULE__), do: GenServer.cast(server, :activate)
 
   @doc """
+  Open the currently-selected agent in a new chat pane (Shift+Enter
+  semantics). Distinct from `activate/1`, which swaps the session
+  in the last-used pane.
+  """
+  @spec activate_new_pane(GenServer.server()) :: :ok
+  def activate_new_pane(server \\ __MODULE__), do: GenServer.cast(server, :activate_new_pane)
+
+  @doc """
   Attach the currently-selected agent to the most-recently-focused chat
   pane (the same slot rebuilds with the new identifier). When no pane
   is currently focused, falls through to `activate/1` (open in a new
@@ -224,7 +232,15 @@ defmodule Aiur.AgentList.App do
 
   def handle_cast(:activate, state) do
     if state.selection_focus == :agents do
-      activate_selected_agent(state)
+      activate_selected_agent(state, :swap_in_last_used)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:activate_new_pane, state) do
+    if state.selection_focus == :agents do
+      activate_selected_agent(state, :new_pane)
     end
 
     {:noreply, state}
@@ -238,40 +254,75 @@ defmodule Aiur.AgentList.App do
     {:noreply, state}
   end
 
-  defp activate_selected_agent(state) do
+  defp activate_selected_agent(state, mode) do
     case Enum.at(state.summaries, state.selection_index) do
       %{identifier: identifier} = summary ->
-        activate_selected_agent_if_warm(state, identifier, summary)
+        activate_selected_agent_if_warm(state, identifier, summary, mode)
 
       _ ->
         :ok
     end
   end
 
-  defp activate_selected_agent_if_warm(state, identifier, summary) do
-    if warm_identifier?(state, identifier) do
-      open_warm_selected_agent(state, identifier, summary)
-    else
-      Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
+  defp activate_selected_agent_if_warm(state, identifier, summary, mode) do
+    cond do
+      not warm_identifier?(state, identifier) ->
+        Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
+
+      mode == :new_pane and not has_parallel_headroom?(state, identifier) ->
+        Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=no_headroom")
+
+      true ->
+        open_selected_agent(state, identifier, summary, mode)
     end
   end
 
-  defp open_warm_selected_agent(state, identifier, summary) do
-    Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
-    Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
+  defp open_selected_agent(state, identifier, summary, mode) do
+    Logger.info("[user-action] open_conversation identifier=#{identifier} mode=#{mode} source=agent_list")
+
+    Aiur.Perf.event(:user_pressed_enter,
+      identifier: identifier,
+      source: :agent_list,
+      mode: mode
+    )
+
     command = "#{state.command_template} #{identifier}"
     title = Map.get(summary, :title)
     pane_manager = state.pane_manager
 
-    # PaneManager.open_conversation parks the call when no slot is
-    # ready (cold pre-warm) and replies after the queue drains —
-    # up to 60 s. The AgentList GenServer is the keyboard owner;
-    # it must NOT block on this call or any keystroke pressed
-    # during the wait is lost and the process times out + crashes.
-    # Fire-and-forget in a Task instead.
-    Task.start(fn ->
-      PaneManager.open_conversation(pane_manager, identifier, command, title: title)
-    end)
+    Task.start(fn -> do_open(pane_manager, identifier, command, title, mode) end)
+  end
+
+  defp do_open(pane_manager, identifier, command, title, :new_pane) do
+    PaneManager.open_conversation(pane_manager, identifier, command, title: title)
+  end
+
+  defp do_open(pane_manager, identifier, command, title, :swap_in_last_used) do
+    case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
+      {:ok, _pane_id} ->
+        :ok
+
+      {:error, :no_focused_pane} ->
+        PaneManager.open_conversation(pane_manager, identifier, command,
+          title: title,
+          timeout: 65_000
+        )
+
+      {:error, _other} ->
+        :ok
+    end
+  end
+
+  defp has_parallel_headroom?(state, identifier) do
+    visible_count =
+      Enum.count(Map.get(state, :attach_state, %{}), fn {_id, e} ->
+        not is_nil(Map.get(e, :visible_in))
+      end)
+
+    case Map.get(state.attach_state, identifier) do
+      %{attach_count: n} when n >= visible_count + 1 -> true
+      _ -> false
+    end
   end
 
   defp warm_identifier?(state, identifier) do

@@ -51,7 +51,7 @@ defmodule Aiur.PaneManager do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, Boot, Tmux}
-  alias Aiur.Opencode.{AttachPool, HiddenWindow, Slot, SlotRegistry, SlotSupervisor}
+  alias Aiur.Opencode.{AttachPool, HiddenWindow, Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
   alias Aiur.PaneManager.Layout
 
   @type agent_id :: AgentEvents.agent_identifier()
@@ -636,6 +636,8 @@ defmodule Aiur.PaneManager do
           pane_id: pane_id
         )
 
+        bump_next_slot()
+
         # Also fire the convo_first_paint detector — even on warm
         # path the convo content is already rendered, so it should
         # detect within the first poll (~100 ms). This keeps the
@@ -971,6 +973,7 @@ defmodule Aiur.PaneManager do
               wall_ms: open_ms
             )
 
+            bump_next_slot()
             reply_or_noreply({:ok, pane_id}, from, new_state)
 
           {:error, reason} ->
@@ -1313,6 +1316,18 @@ defmodule Aiur.PaneManager do
     dist_flags = " -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
 
     "env ERL_AFLAGS=\"-name #{node_long}#{cookie_flag}#{dist_flags}\" #{command}"
+  end
+
+  # Lazy slot expansion: after the user opens another chat pane,
+  # ask SlotPolicy to start the next slot. Idempotent and rate-limited
+  # by SlotPolicy itself, so calling it on every successful open is
+  # safe.
+  defp bump_next_slot do
+    SlotPolicy.bump()
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp read_erlang_cookie do

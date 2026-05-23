@@ -19,10 +19,12 @@ defmodule Aiur.AgentList.AppTest do
       {:reply, {:ok, "%999"}, parent}
     end
 
-    # App.init queries this to seed the open-pane indicator set.
+    def handle_call({:attach, _identifier, _command, _opts}, _from, parent) do
+      {:reply, {:error, :no_focused_pane}, parent}
+    end
+
     def handle_call(:list, _from, parent), do: {:reply, %{}, parent}
 
-    # App.toggle_layout_orientation calls through PaneManager.
     def handle_call(:toggle_orientation, _from, parent),
       do: {:reply, {:ok, :vertical}, parent}
   end
