@@ -12,12 +12,8 @@ defmodule Aiur.AgentControlCLI do
         print_status_table(statuses)
         exit_marker(0)
 
-      :timeout ->
-        IO.puts(:stderr, "aiur: timed out while reading agent status")
-        exit_marker(1)
-
-      :unavailable ->
-        IO.puts(:stderr, "aiur: orchestrator is not running")
+      error ->
+        print_orchestrator_status_error(error)
         exit_marker(1)
     end
   end
@@ -40,13 +36,8 @@ defmodule Aiur.AgentControlCLI do
     |> control_selected(action, targets)
   end
 
-  defp control_status(_action, _targets, :timeout) do
-    IO.puts(:stderr, "aiur: timed out while reading agent status")
-    1
-  end
-
-  defp control_status(_action, _targets, :unavailable) do
-    IO.puts(:stderr, "aiur: orchestrator is not running")
+  defp control_status(_action, _targets, error) when error in [:timeout, :unavailable] do
+    print_orchestrator_status_error(error)
     1
   end
 
@@ -85,7 +76,7 @@ defmodule Aiur.AgentControlCLI do
   defp control_one(:pause, %{state: :running} = status) do
     canonical = canonical_identifier(status)
 
-    case AgentChat.pause(canonical) do
+    case pause_agent(canonical) do
       {:ok, _request_id} ->
         IO.puts("aiur: paused #{display_identifier(status)} (was: running)")
         :ok
@@ -104,13 +95,9 @@ defmodule Aiur.AgentControlCLI do
   defp control_one(:resume, %{state: :paused} = status) do
     canonical = canonical_identifier(status)
 
-    case AgentChat.resume(canonical) do
-      {:ok, :resumed} ->
-        IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
-        :ok
-
-      {:ok, :started} ->
-        IO.puts("aiur: started #{display_identifier(status)} (was: paused)")
+    case resume_agent(canonical) do
+      {:ok, result} when result in [:resumed, :started] ->
+        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: paused)")
         :ok
 
       {:error, reason} ->
@@ -127,13 +114,9 @@ defmodule Aiur.AgentControlCLI do
   defp control_one(:resume, %{state: :idle} = status) do
     canonical = canonical_identifier(status)
 
-    case AgentChat.resume(canonical) do
-      {:ok, :started} ->
-        IO.puts("aiur: started #{display_identifier(status)} (was: idle)")
-        :ok
-
-      {:ok, :resumed} ->
-        IO.puts("aiur: resumed #{display_identifier(status)} (was: idle)")
+    case resume_agent(canonical) do
+      {:ok, result} when result in [:started, :resumed] ->
+        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: idle)")
         :ok
 
       {:error, reason} ->
@@ -169,6 +152,10 @@ defmodule Aiur.AgentControlCLI do
   defp print_empty_selection(:pause, :all), do: IO.puts("aiur: no running agents")
   defp print_empty_selection(:resume, :all), do: IO.puts("aiur: no paused agents")
 
+  defp print_orchestrator_status_error(error) do
+    IO.puts(:stderr, Map.fetch!(%{timeout: "aiur: timed out while reading agent status", unavailable: "aiur: orchestrator is not running"}, error))
+  end
+
   defp print_failure(action, status, reason) do
     IO.puts(:stderr, "aiur: failed to #{action} #{display_identifier(status)} (#{format_reason(reason)})")
   end
@@ -183,6 +170,14 @@ defmodule Aiur.AgentControlCLI do
 
   defp canonical_identifier(status) do
     to_string(status.identifier || status.issue_id)
+  end
+
+  defp pause_agent(identifier) do
+    Application.get_env(:aiur, :agent_control_cli_pause_fun, &AgentChat.pause/1).(identifier)
+  end
+
+  defp resume_agent(identifier) do
+    Application.get_env(:aiur, :agent_control_cli_resume_fun, &AgentChat.resume/1).(identifier)
   end
 
   defp display_identifier(%{identifier: identifier, issue_id: issue_id}) do
@@ -216,13 +211,22 @@ defmodule Aiur.AgentControlCLI do
   defp numeric_identifier?(identifier) when is_binary(identifier), do: Regex.match?(~r/^\d+$/, identifier)
   defp numeric_identifier?(_identifier), do: false
 
-  defp format_reason(:no_running_agent), do: "no running agent"
-  defp format_reason(:agent_finished), do: "agent finished"
-  defp format_reason(:max_concurrent_agents_reached), do: "max concurrent agents reached"
-  defp format_reason(:not_resumable), do: "not resumable"
-  defp format_reason(:unavailable), do: "orchestrator unavailable"
-  defp format_reason(:timeout), do: "orchestrator timed out"
-  defp format_reason(reason), do: inspect(reason)
+  defp result_verb(result), do: Map.fetch!(%{resumed: "resumed", started: "started"}, result)
+
+  defp format_reason(reason) do
+    Map.get(
+      %{
+        no_running_agent: "no running agent",
+        agent_finished: "agent finished",
+        max_concurrent_agents_reached: "max concurrent agents reached",
+        not_resumable: "not resumable",
+        unavailable: "orchestrator unavailable",
+        timeout: "orchestrator timed out"
+      },
+      reason,
+      inspect(reason)
+    )
+  end
 
   defp exit_marker(code) do
     IO.puts("#{@exit_marker}#{code}")
