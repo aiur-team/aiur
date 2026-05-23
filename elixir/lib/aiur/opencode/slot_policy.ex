@@ -101,10 +101,13 @@ defmodule Aiur.Opencode.SlotPolicy do
 
     case SlotSupervisor.start_slot(1) do
       {:ok, _pid} ->
+        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_starting, 1})
         {:noreply, %{state | highest_started: 1}}
 
       {:error, reason} ->
-        Logger.warning("opencode_slot_policy phase=first_slot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=1 reason=#{inspect(reason)}")
+        Logger.warning(
+          "opencode_slot_policy phase=first_slot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=1 reason=#{inspect(reason)}"
+        )
 
         {:noreply, state}
     end
@@ -159,17 +162,20 @@ defmodule Aiur.Opencode.SlotPolicy do
 
     Aiur.Perf.event(:slot_policy_bumped, slot: next)
 
-    Logger.info("opencode_slot_policy phase=bump elapsed_ms=#{Boot.elapsed_ms()} slot=#{next}")
+    Logger.info(
+      "opencode_slot_policy phase=bump elapsed_ms=#{Boot.elapsed_ms()} slot=#{next}"
+    )
 
     case SlotSupervisor.start_slot(next) do
       {:ok, _pid} ->
+        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_starting, next})
         {:noreply, %{state | highest_started: next}}
 
       {:error, reason} ->
-        Logger.warning("opencode_slot_policy phase=bump_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{next} reason=#{inspect(reason)}")
+        Logger.warning(
+          "opencode_slot_policy phase=bump_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{next} reason=#{inspect(reason)}"
+        )
 
-        # Don't increment highest_started so a retry bumps the same
-        # slot.
         {:noreply, state}
     end
   end

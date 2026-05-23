@@ -458,6 +458,14 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:slot_ready, _other}, state), do: {:noreply, state}
 
+  def handle_info({:slot_starting, slot_index}, state) when is_integer(slot_index) do
+    new_state = update_in(state.started_slots, &MapSet.put(&1, slot_index))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:slot_starting, _other}, state), do: {:noreply, state}
+
   def handle_info({:poll_state_changed, payload}, state) do
     {:noreply, %{state | poll_state: payload}}
   end

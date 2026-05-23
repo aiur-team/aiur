@@ -288,6 +288,19 @@ defmodule Aiur.PaneManager do
 
   @impl true
   def handle_info({:tmux_event, {:notification, :pane_died, pane_id}}, state) do
+    identifier = Map.get(state.pane_to_identifier, pane_id)
+    slot = Map.get(state.pane_to_slot, pane_id)
+
+    Logger.warning(
+      "aiur_pane_manager phase=tmux_pane_died pane_id=#{pane_id} identifier=#{inspect(identifier)} slot=#{inspect(slot)}"
+    )
+
+    Aiur.Perf.event(:pane_died_event,
+      pane_id: pane_id,
+      identifier: identifier,
+      slot: slot
+    )
+
     {:noreply, handle_pane_closed(state, pane_id)}
   end
 

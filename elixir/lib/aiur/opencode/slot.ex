@@ -588,22 +588,29 @@ defmodule Aiur.Opencode.Slot do
       {:ok, [^pane_id | _]} ->
         {:noreply, schedule_poll(state)}
 
-      _ ->
-        Logger.info("opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id}")
+      other ->
+        Logger.warning(
+          "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id} poll_result=#{inspect(other)}"
+        )
 
-        # AgentList must drop the circle immediately — no `Slot.deselect`
-        # call from PaneManager since the pane vanished without going
-        # through `close_conversation`.
+        Aiur.Perf.event(:slot_poll_pane_died,
+          slot: state.slot_index,
+          identifier: state.active_identifier,
+          pane_id: pane_id,
+          poll_result: inspect(other)
+        )
+
         broadcast_session_changed(state.slot_index, nil)
+        broadcast_visible_changed(state.slot_index, nil)
 
-        # opencode-serve is still alive; respawn just the attach pane
-        # (cheap, ~50ms) so the slot is reusable for the next open.
         new_state = %{
           state
           | status: :attach_spawning,
             pane_id: nil,
             active_identifier: nil,
             active_session_id: nil,
+            visible_identifier: nil,
+            visible_session_id: nil,
             poll_ref: nil
         }
 
@@ -1002,6 +1009,10 @@ defmodule Aiur.Opencode.Slot do
       )
 
     if is_binary(state.pane_id) do
+      Logger.warning(
+        "opencode_slot phase=kill_for_respawn slot=#{state.slot_index} old_pane_id=#{state.pane_id} session_id=#{session_id}"
+      )
+
       _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
     end
 
