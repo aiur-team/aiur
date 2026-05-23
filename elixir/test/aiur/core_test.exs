@@ -104,7 +104,9 @@ defmodule Aiur.CoreTest do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
-      Workflow.clear_workflow_file_path()
+      Workflow.set_workflow_file_path(
+        Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!())
+      )
 
       assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
       assert is_map(config)
@@ -134,8 +136,7 @@ defmodule Aiur.CoreTest do
 
   test "checked-in workflow examples parse and portable examples stay generic" do
     workflow_paths =
-      ["WORKFLOW.md"] ++
-        Path.wildcard("examples/workflows/*.md") ++
+      Path.wildcard("examples/workflows/*.md") ++
         Path.wildcard("local-workflows/WORKFLOW.*.local.md")
 
     assert Enum.any?(workflow_paths)
@@ -146,7 +147,7 @@ defmodule Aiur.CoreTest do
       assert String.trim(prompt) != ""
     end
 
-    portable_paths = ["WORKFLOW.md" | Path.wildcard("examples/workflows/*.md")]
+    portable_paths = Path.wildcard("examples/workflows/*.md")
     machine_local_pattern = ~r/(\/home\/|100\.\d+\.\d+\.\d+|applekid|orangekid|its-applekid|ethereum-optimism)/
 
     for path <- portable_paths do
@@ -156,7 +157,6 @@ defmodule Aiur.CoreTest do
 
   test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
     workflow_paths = [
-      "WORKFLOW.md",
       "examples/workflows/github-codex.md",
       "local-workflows/WORKFLOW.aiur.local.md",
       "local-workflows/WORKFLOW.actions.local.md"
@@ -1095,7 +1095,10 @@ defmodule Aiur.CoreTest do
 
   test "in-repo WORKFLOW.md renders correctly" do
     workflow_path = Workflow.workflow_file_path()
-    Workflow.set_workflow_file_path(Path.expand("WORKFLOW.md", File.cwd!()))
+
+    Workflow.set_workflow_file_path(
+      Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!())
+    )
 
     issue = %Issue{
       identifier: "MT-616",

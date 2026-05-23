@@ -654,51 +654,85 @@ defmodule Aiur.Opencode.Slot do
         {:ok, sid, state}
 
       identifier_known?(state, identifier) ->
-        span =
-          Aiur.Perf.span_begin(:slot_do_attach,
-            slot: state.slot_index,
-            identifier: identifier
-          )
-
-        case ensure_session_for(identifier, state) do
-          {:ok, session_id} ->
-            Aiur.Perf.span_end(span,
-              slot: state.slot_index,
-              identifier: identifier,
-              session_id: session_id
-            )
-
-            Aiur.Perf.event(:slot_attach_added,
-              slot: state.slot_index,
-              identifier: identifier,
-              session_id: session_id
-            )
-
-            new_state = %{
-              state
-              | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)
-            }
-
-            Logger.info("opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}")
-
-            {:ok, session_id, new_state}
-
-          {:error, reason} = err ->
-            Aiur.Perf.span_end(span,
-              result: :failed,
-              slot: state.slot_index,
-              identifier: identifier,
-              reason: reason
-            )
-
-            err
-        end
+        do_attach_known(identifier, state)
 
       true ->
-        # Synchronous rebuild would block the caller; surface the miss
-        # and let the caller retry via `set_visible`, which owns the
-        # async rebuild + drain path.
         {:error, :identifier_unknown}
+    end
+  end
+
+  defp do_attach_known(identifier, state) do
+    span =
+      Aiur.Perf.span_begin(:slot_do_attach,
+        slot: state.slot_index,
+        identifier: identifier
+      )
+
+    case ensure_session_for(identifier, state) do
+      {:ok, session_id} ->
+        Aiur.Perf.span_end(span,
+          slot: state.slot_index,
+          identifier: identifier,
+          session_id: session_id
+        )
+
+        new_state = %{
+          state
+          | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)
+        }
+
+        new_state = maybe_render_leadoff_pane(identifier, session_id, new_state)
+
+        Aiur.Perf.event(:slot_attach_added,
+          slot: state.slot_index,
+          identifier: identifier,
+          session_id: session_id
+        )
+
+        Logger.info(
+          "opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}"
+        )
+
+        {:ok, session_id, new_state}
+
+      {:error, reason} = err ->
+        Aiur.Perf.span_end(span,
+          result: :failed,
+          slot: state.slot_index,
+          identifier: identifier,
+          reason: reason
+        )
+
+        err
+    end
+  end
+
+  # Pre-render the slot's attach pane when this is the slot's first
+  # attach (no current pane / no visible identifier). Pane sits in
+  # aiur-hidden bound to this identifier's session; PaneManager moves
+  # it visible on user open. Without this, the renderer's ⚪ marker
+  # would lie — it'd appear as soon as the session was created in the
+  # serve's DB, but opening would still pay the 5-7s pane-spawn cost.
+  defp maybe_render_leadoff_pane(identifier, session_id, state) do
+    if is_nil(state.pane_id) and is_nil(state.visible_identifier) do
+      case respawn_attach_with_session(state, session_id) do
+        {:ok, new_pane_id} ->
+          _ = Aiur.Opencode.AttachPool.wait_for_paint(new_pane_id, 20_000)
+
+          %{
+            state
+            | pane_id: new_pane_id,
+              visible_identifier: identifier,
+              visible_session_id: session_id,
+              active_identifier: identifier,
+              active_session_id: session_id
+          }
+
+        {:error, _} ->
+          state
+      end
+    else
+      state
     end
   end
 

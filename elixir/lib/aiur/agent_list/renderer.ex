@@ -654,13 +654,7 @@ defmodule Aiur.AgentList.Renderer do
       summary = Map.get(state, :perf_summary, %{})
 
       [
-        debug_footer_heading(inner_width),
-        eol(),
-        debug_footer_row("agent list ready", Map.get(summary, :agent_list_ready_ms), inner_width),
-        eol(),
-        debug_footer_row("chat pane visible", Map.get(summary, :chat_pane_visible_ms), inner_width),
-        eol(),
-        debug_footer_row("opencode render  ", Map.get(summary, :opencode_render_ms), inner_width),
+        perf_compact_row(summary, inner_width),
         eol(),
         warmth_footer_row(state, inner_width),
         eol()
@@ -671,8 +665,26 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp debug_footer_line_count(state) do
-    if Map.get(state, :debug_mode?, false), do: 5, else: 0
+    if Map.get(state, :debug_mode?, false), do: 2, else: 0
   end
+
+  defp perf_compact_row(summary, inner_width) do
+    text =
+      "  perf  list " <>
+        format_perf_ms(Map.get(summary, :agent_list_ready_ms)) <>
+        " · pane " <>
+        format_perf_ms(Map.get(summary, :chat_pane_visible_ms)) <>
+        " · render " <> format_perf_ms(Map.get(summary, :opencode_render_ms))
+
+    pad = max(inner_width - String.length(text), 0)
+    [IO.ANSI.faint(), text, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  defp format_perf_ms(nil), do: "…"
+  defp format_perf_ms(ms) when ms < 1_000, do: "#{ms}ms"
+
+  defp format_perf_ms(ms),
+    do: :io_lib.format("~.1fs", [ms / 1000]) |> IO.iodata_to_binary()
 
   defp warmth_footer_row(state, inner_width) do
     rows =
@@ -703,31 +715,6 @@ defmodule Aiur.AgentList.Renderer do
     end)
   end
 
-  defp debug_footer_heading(inner_width) do
-    label = "  perf — AIUR_DEBUG"
-    pad = max(inner_width - String.length(label), 0)
-    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
-  end
-
-  defp debug_footer_row(label, value_ms, inner_width) do
-    value_str =
-      case value_ms do
-        nil -> "…"
-        ms when ms < 1_000 -> "#{ms} ms"
-        ms -> :io_lib.format("~.2fs", [ms / 1000]) |> IO.iodata_to_binary()
-      end
-
-    text = "  #{label}  #{value_str}"
-
-    truncated =
-      if String.length(text) > inner_width do
-        String.slice(text, 0, inner_width)
-      else
-        text <> String.duplicate(" ", max(inner_width - String.length(text), 0))
-      end
-
-    [IO.ANSI.faint(), truncated, IO.ANSI.reset()]
-  end
 
   defp clear_remaining(rows, lines_drawn) do
     if lines_drawn >= rows do

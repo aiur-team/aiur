@@ -16,6 +16,7 @@ github:
   label_prefix: agent
 polling:
   interval_ms: 5000
+max_vertical_panes: 3
 server:
   host: 100.81.109.51
   port: 4000
@@ -36,7 +37,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  max_concurrent_agents: 10
+  max_concurrent_agents: 5
   max_turns: 12
 codex:
   command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
@@ -47,6 +48,12 @@ codex:
     writableRoots:
       - /home/applekid/code/aiur-workspaces
     networkAccess: true
+opencode:
+  command: opencode
+  bridge_host: 127.0.0.1
+  bridge_port: 4097
+  serve_args: []
+  model_prefix: aiur
 ---
 
 You are working on tracker issue `{{ issue.identifier }}` for the Aiur repository.
