@@ -661,6 +661,8 @@ defmodule Aiur.AgentList.Renderer do
         debug_footer_row("chat pane visible", Map.get(summary, :chat_pane_visible_ms), inner_width),
         eol(),
         debug_footer_row("opencode render  ", Map.get(summary, :opencode_render_ms), inner_width),
+        eol(),
+        warmth_footer_row(state, inner_width),
         eol()
       ]
     else
@@ -669,7 +671,36 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp debug_footer_line_count(state) do
-    if Map.get(state, :debug_mode?, false), do: 4, else: 0
+    if Map.get(state, :debug_mode?, false), do: 5, else: 0
+  end
+
+  defp warmth_footer_row(state, inner_width) do
+    rows =
+      state
+      |> Map.get(:warmth_events, [])
+      |> Aiur.Opencode.WarmthReport.from_events()
+
+    summary = format_warmth_summary(rows)
+    label = "  warmth (loose→strict): " <> summary
+    pad = max(inner_width - String.length(label), 0)
+    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  defp format_warmth_summary([]), do: "no attach events yet"
+
+  defp format_warmth_summary(rows) do
+    rows
+    |> Enum.take(3)
+    |> Enum.map_join("  ", fn r ->
+      delta =
+        case r.loose_to_strict_delta_ms do
+          n when is_integer(n) -> "#{n}ms"
+          :strict_never_reached -> "never"
+          other -> Atom.to_string(other)
+        end
+
+      "#{r.identifier}=#{delta}"
+    end)
   end
 
   defp debug_footer_heading(inner_width) do

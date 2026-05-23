@@ -35,6 +35,7 @@ defmodule Aiur.AgentList.App do
   @dialyzer {:nowarn_function, render: 1}
 
   @refresh_tick_ms 1_000
+  @warmth_event_cap 500
   # Geometry-watch interval. Far faster than the refresh tick so that
   # tmux resizes (caused by another pane opening/closing in the same
   # window) reflow the agent list within a quarter-second — the old
@@ -181,6 +182,9 @@ defmodule Aiur.AgentList.App do
       started_slots: MapSet.new(),
       fully_warmed_slots: MapSet.new(),
       warm_status_dark_mode?: warm_status_dark_mode_default(),
+      # Ring buffer of warmth-related aiur_perf events (debug mode
+      # only). Capped at @warmth_event_cap to avoid unbounded growth.
+      warmth_events: [],
       # Compact 3-row debug-footer state. Each field is `nil` until
       # the corresponding aiur_perf event lands, then holds {wall_ms,
       # at_ms} so the footer can show "agent list ready: 4.0s",
@@ -535,7 +539,8 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:aiur_perf, event}, %{debug_mode?: true} = state) do
     new_summary = update_perf_summary(state.perf_summary, event)
-    new_state = %{state | perf_summary: new_summary}
+    new_warmth = absorb_warmth_event(state.warmth_events, event)
+    new_state = %{state | perf_summary: new_summary, warmth_events: new_warmth}
 
     if new_summary != state.perf_summary do
       render(new_state)
@@ -562,6 +567,28 @@ defmodule Aiur.AgentList.App do
   end
 
   defp update_perf_summary(summary, _event), do: summary
+
+  defp absorb_warmth_event(events, %{
+         phase: phase,
+         meta: meta,
+         at_ms: at_ms
+       })
+       when phase in [
+              :slot_attach_added,
+              :slot_attach_removed,
+              :slot_visible_changed
+            ] do
+    entry = %{
+      phase: phase,
+      at_ms: at_ms,
+      identifier: Map.get(meta, :identifier),
+      slot: Map.get(meta, :slot)
+    }
+
+    [entry | events] |> Enum.take(@warmth_event_cap)
+  end
+
+  defp absorb_warmth_event(events, _other), do: events
 
   def handle_info(_other, state), do: {:noreply, state}
 
@@ -774,6 +801,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:visible_sessions, state.visible_sessions)
       |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
       |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
+      |> Map.put(:warmth_events, Map.get(state, :warmth_events, []))
       |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
       |> Map.put(:started_slots, Map.get(state, :started_slots, MapSet.new()))
       |> Map.put(:fully_warmed_slots, Map.get(state, :fully_warmed_slots, MapSet.new()))
