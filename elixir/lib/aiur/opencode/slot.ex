@@ -76,6 +76,7 @@ defmodule Aiur.Opencode.Slot do
   @slots_topic "opencode:slots"
   @hidden_split_percent 50
   @default_poll_interval_ms 500
+  @poll_death_threshold 3
 
   defstruct slot_index: nil,
             status: :booting,
@@ -88,6 +89,12 @@ defmodule Aiur.Opencode.Slot do
             attached_identifiers: MapSet.new(),
             visible_identifier: nil,
             visible_session_id: nil,
+            # Consecutive empty/unexpected display-message responses
+            # from the pane-death poll. tmux returns empty under
+            # transient load; one negative reading is not enough to
+            # conclude the pane is gone. Concludes death only after
+            # @poll_death_threshold consecutive failures.
+            poll_death_count: 0,
             # Mirror visible_identifier / visible_session_id for legacy
             # callers still using select/deselect.
             active_identifier: nil,
@@ -576,45 +583,56 @@ defmodule Aiur.Opencode.Slot do
   @impl true
   def handle_info(:poll_session, %{status: :active, pane_id: pane_id} = state)
       when is_binary(pane_id) do
-    # Detect external pane death (user pressed Ctrl+C inside opencode,
-    # opencode-attach exited, tmux destroyed the pane). `Aiur.Tmux`
-    # exposes no live event stream, so we poll. tmux's `display-message
-    # -t <dead-pane>` silently routes to the active pane and returns
-    # the OTHER pane's id, or an empty list — exit 0 either way. We
-    # must compare the returned id against our recorded pane_id.
+    # tmux's `display-message -t <pane>` returns empty under transient
+    # load even when the pane is alive (verified against a real run
+    # where capture-pane on a freshly-spawned sibling was returning
+    # empty in a tight loop). One bad reading is not enough — require
+    # @poll_death_threshold consecutive failures before tearing the
+    # slot down.
     result = Tmux.command(Tmux, "display-message -p -t #{pane_id} \#{pane_id}")
 
     case result do
       {:ok, [^pane_id | _]} ->
-        {:noreply, schedule_poll(state)}
+        {:noreply, schedule_poll(%{state | poll_death_count: 0})}
 
       other ->
-        Logger.warning(
-          "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id} poll_result=#{inspect(other)}"
+        bumped = state.poll_death_count + 1
+
+        Logger.info(
+          "opencode_slot phase=poll_pane_missing slot=#{state.slot_index} pane_id=#{pane_id} attempt=#{bumped}/#{@poll_death_threshold} poll_result=#{inspect(other)}"
         )
 
-        Aiur.Perf.event(:slot_poll_pane_died,
-          slot: state.slot_index,
-          identifier: state.active_identifier,
-          pane_id: pane_id,
-          poll_result: inspect(other)
-        )
+        if bumped >= @poll_death_threshold do
+          Logger.warning(
+            "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id} consecutive_failures=#{bumped}"
+          )
 
-        broadcast_session_changed(state.slot_index, nil)
-        broadcast_visible_changed(state.slot_index, nil)
+          Aiur.Perf.event(:slot_poll_pane_died,
+            slot: state.slot_index,
+            identifier: state.active_identifier,
+            pane_id: pane_id,
+            consecutive_failures: bumped
+          )
 
-        new_state = %{
-          state
-          | status: :attach_spawning,
-            pane_id: nil,
-            active_identifier: nil,
-            active_session_id: nil,
-            visible_identifier: nil,
-            visible_session_id: nil,
-            poll_ref: nil
-        }
+          broadcast_session_changed(state.slot_index, nil)
+          broadcast_visible_changed(state.slot_index, nil)
 
-        {:noreply, new_state, {:continue, :spawn_attach}}
+          new_state = %{
+            state
+            | status: :attach_spawning,
+              pane_id: nil,
+              active_identifier: nil,
+              active_session_id: nil,
+              visible_identifier: nil,
+              visible_session_id: nil,
+              poll_ref: nil,
+              poll_death_count: 0
+          }
+
+          {:noreply, new_state, {:continue, :spawn_attach}}
+        else
+          {:noreply, schedule_poll(%{state | poll_death_count: bumped})}
+        end
     end
   end
 
