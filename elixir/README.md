@@ -66,10 +66,10 @@ until the file is fixed.
 
 ## Operating with `aiur`
 
-`scripts/aiur` wraps `./bin/aiur` with named profiles, foreground/background modes, and
-a `stop` verb. It autodetects Linux (systemd `--user`) vs macOS (`nohup` + PID file).
-On a fresh clone it also runs `mix deps.get`, `mix compile`, and `mix escript.build`
-before launching Aiur.
+`scripts/aiur` wraps `./bin/aiur` with named profiles, foreground/background modes,
+operator controls, and a `stop` verb. It autodetects Linux (systemd `--user`) vs
+macOS (`nohup` + PID file). On a fresh clone it also runs `mix deps.get`,
+`mix compile`, and `mix release --overwrite` before launching Aiur.
 Put `scripts/` on your `PATH`:
 
 ```bash
@@ -87,7 +87,27 @@ aiur list
 | `aiur stop [profile\|all]` | Stop foreground processes and background services |
 | `aiur list` | Show configured profiles |
 | `aiur build` | Rebuild `bin/aiur` |
+| `aiur status` | Show active agents and their running/paused/idle state |
+| `aiur pause <id...>` | Cooperatively pause one or more running agents by issue ID |
+| `aiur pause --all` | Cooperatively pause the currently running/paused agent snapshot |
+| `aiur resume <id...>` | Resume one or more paused agents by issue ID |
+| `aiur resume --all` | Resume the currently paused agent snapshot |
 | `aiur <path-to-WORKFLOW.md>` | Ad-hoc workflow |
+
+Pause and resume target issue IDs, not process IDs. Space-separated and
+comma-separated forms are both accepted:
+
+```bash
+aiur pause 44
+aiur pause 44 45 46
+aiur pause 44,45,46
+aiur resume 44
+aiur status
+```
+
+Pause is cooperative: the running agent receives the same pause request used by the
+dashboard and agent-list pane, then stops at its next safe turn boundary. Pausing an
+already-paused agent is a no-op and exits successfully.
 
 Profiles live at `~/.config/aiur/aiur.profiles` (six pipe-separated fields per line:
 `name|root|workflow|port|logs_root|service`). Environment overrides come from

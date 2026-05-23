@@ -81,6 +81,11 @@ defmodule ScriptsAiurTest do
     """)
 
     assert {output, 0} = run_aiur(ctx, ["--bg", "actions"])
+    command_log = command_log(ctx)
+
+    assert command_log =~ "SYSTEMCTL:--user set-environment RELEASE_DISTRIBUTION=name"
+    assert command_log =~ "RELEASE_NODE=aiur-"
+    assert command_log =~ "RELEASE_COOKIE="
     assert output =~ "SYSTEMCTL:--user restart aiur-actions\n"
     assert output =~ "SYSTEMCTL:--user status aiur-actions --no-pager\n"
     refute output =~ "MISE:"
@@ -306,6 +311,72 @@ defmodule ScriptsAiurTest do
     assert command_log =~ "--port 4099"
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions"
     refute command_log =~ "SYSTEMCTL:--user restart aiur-actions"
+  end
+
+  test "pause parses space and comma separated issue IDs for release RPC" do
+    ctx = test_context()
+    write_fake_release_rpc!(ctx, "aiur: paused #44 (was: running)\n__AIUR_CONTROL_EXIT__:0\n")
+
+    assert {output, 0} = run_aiur(ctx, ["pause", "44", "45,46"])
+
+    assert output =~ "aiur: paused #44 (was: running)"
+    refute output =~ "__AIUR_CONTROL_EXIT__"
+
+    command_log = command_log(ctx)
+    assert command_log =~ ~S|AIUR_RELEASE:rpc Aiur.AgentControlCLI.pause(["44", "45", "46"])| <> "\n"
+    assert command_log =~ "RELEASE_DISTRIBUTION=name\n"
+    assert command_log =~ "RELEASE_NODE=aiur-"
+  end
+
+  test "pause --all targets the all snapshot helper" do
+    ctx = test_context()
+    write_fake_release_rpc!(ctx, "aiur: paused #44 (was: running)\n__AIUR_CONTROL_EXIT__:0\n")
+
+    assert {output, 0} = run_aiur(ctx, ["pause", "--all"])
+
+    assert output =~ "aiur: paused #44"
+    assert command_log(ctx) =~ "AIUR_RELEASE:rpc Aiur.AgentControlCLI.pause(:all)\n"
+  end
+
+  test "resume --all targets paused agents through release RPC" do
+    ctx = test_context()
+    write_fake_release_rpc!(ctx, "aiur: resumed #44 (was: paused)\n__AIUR_CONTROL_EXIT__:0\n")
+
+    assert {output, 0} = run_aiur(ctx, ["resume", "--all"])
+
+    assert output =~ "aiur: resumed #44"
+    assert command_log(ctx) =~ "AIUR_RELEASE:rpc Aiur.AgentControlCLI.resume(:all)\n"
+  end
+
+  test "status calls the release RPC status helper" do
+    ctx = test_context()
+    write_fake_release_rpc!(ctx, "ISSUE STATE   TITLE\n#44   running Test\n__AIUR_CONTROL_EXIT__:0\n")
+
+    assert {output, 0} = run_aiur(ctx, ["status"])
+
+    assert output =~ "ISSUE STATE"
+    assert output =~ "#44"
+    assert command_log(ctx) =~ "AIUR_RELEASE:rpc Aiur.AgentControlCLI.status()\n"
+  end
+
+  test "pause rejects invalid issue IDs without calling release RPC" do
+    ctx = test_context()
+    write_fake_release_rpc!(ctx, "__AIUR_CONTROL_EXIT__:0\n")
+
+    assert {output, 64} = run_aiur(ctx, ["pause", "44,bad"])
+
+    assert output =~ "aiur: pause expects issue IDs or --all"
+    refute File.exists?(ctx.command_log) && command_log(ctx) =~ "AIUR_RELEASE:"
+  end
+
+  test "pause reports a clear error when no aiur node is running" do
+    ctx = test_context()
+    write_fake_release_rpc!(ctx, ":noconnection\n", exit_status: 1)
+
+    assert {output, 1} = run_aiur(ctx, ["pause", "44"])
+
+    assert output =~ "aiur: no running aiur node"
+    refute output =~ ":noconnection"
   end
 
   test "auto-increments a busy configured profile port" do
@@ -731,6 +802,25 @@ defmodule ScriptsAiurTest do
       |> Enum.map_join("\n", fn dep -> ~s(  "#{dep}": {:hex, :#{dep}, "1.0.0"},) end)
 
     File.write!(Path.join([ctx.repo_root, "elixir", "mix.lock"]), "%{\n#{entries}\n}\n")
+  end
+
+  defp write_fake_release_rpc!(ctx, body, opts \\ []) do
+    exit_status = Keyword.get(opts, :exit_status, 0)
+    release_bin = Path.join([ctx.repo_root, "elixir", "_build", "dev", "rel", "aiur", "bin"])
+    File.mkdir_p!(release_bin)
+
+    write_executable!(Path.join(release_bin, "aiur"), """
+    #!/usr/bin/env bash
+    {
+      printf 'AIUR_RELEASE:%s\\n' "$*"
+      printf 'RELEASE_DISTRIBUTION=%s\\n' "${RELEASE_DISTRIBUTION:-}"
+      printf 'RELEASE_NODE=%s\\n' "${RELEASE_NODE:-}"
+      printf 'RELEASE_COOKIE_SET=%s\\n' "${RELEASE_COOKIE:+1}"
+    } >>"$AIUR_TEST_COMMAND_LOG"
+
+    printf '%b' #{inspect(body)}
+    exit #{exit_status}
+    """)
   end
 
   defp run_aiur(ctx, args, opts \\ []) do

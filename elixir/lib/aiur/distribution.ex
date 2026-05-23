@@ -2,10 +2,10 @@ defmodule Aiur.Distribution do
   @moduledoc """
   Aiur's Erlang distribution bring-up and monitoring.
 
-  Phase 1 expectations: `scripts/aiur` launches the BEAM with `-sname` and
-  reads the cookie from `~/.erlang.cookie` (BEAM auto-reads it). This module
-  is called from `Application.start/2` to validate the runtime environment
-  and start monitoring for pane-node lifecycle events.
+  `scripts/aiur` launches the BEAM with a distributed release node and a
+  stable per-host cookie. This module is called from `Application.start/2`
+  to validate the runtime environment and start monitoring for pane-node
+  lifecycle events.
 
   Per the security review, `ERL_EPMD_ADDRESS` must be `127.0.0.1` so epmd is
   not exposed beyond loopback. We refuse to enable distribution monitoring if

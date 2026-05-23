@@ -216,6 +216,7 @@ defmodule Aiur.MixProject do
     # Passes args to Aiur.CLI.main/1 via an argv file so quoting survives.
     # Releases ship priv/ on disk, so exqlite + other NIFs load correctly.
     set -euo pipefail
+    release_root="#{release.path}"
     argv_file="$(mktemp "${TMPDIR:-/tmp}/aiur-argv.XXXXXX")"
     trap 'rm -f "$argv_file"' EXIT
     : >"$argv_file"
@@ -223,6 +224,26 @@ defmodule Aiur.MixProject do
       printf '%s\\n' "$arg" >>"$argv_file"
     done
     export AIUR_ARGV_FILE="$argv_file"
+
+    if [ "${RELEASE_DISTRIBUTION:-none}" = "name" ] || [ "${RELEASE_DISTRIBUTION:-none}" = "sname" ]; then
+      release_vsn="${RELEASE_VSN:-$(cut -d' ' -f2 "$release_root/releases/start_erl.data")}"
+      rel_vsn_dir="$release_root/releases/$release_vsn"
+      release_cookie="${RELEASE_COOKIE:-$(cat "$release_root/releases/COOKIE")}"
+      release_node="${RELEASE_NODE:-aiur}"
+      release_vm_args="${RELEASE_VM_ARGS:-$rel_vsn_dir/vm.args}"
+      release_sys_config="${RELEASE_SYS_CONFIG:-$rel_vsn_dir/sys}"
+      release_boot_script_clean="${RELEASE_BOOT_SCRIPT_CLEAN:-start_clean}"
+
+      exec "$rel_vsn_dir/elixir" \
+        --cookie "$release_cookie" \
+        "--${RELEASE_DISTRIBUTION}" "$release_node" \
+        --erl-config "$release_sys_config" \
+        --boot "$rel_vsn_dir/$release_boot_script_clean" \
+        --boot-var RELEASE_LIB "$release_root/lib" \
+        --vm-args "$release_vm_args" \
+        --eval "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    fi
+
     exec "#{release_bin}" eval "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
     """
 
