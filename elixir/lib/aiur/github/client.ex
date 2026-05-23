@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.Client do
   """
 
   require Logger
-  alias Aiur.{GitHub, Issue}
+  alias Aiur.{Codeowners, GitHub, Issue}
 
   @base_url "https://api.github.com"
 
@@ -222,6 +222,62 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def fetch_pull_request_changed_paths(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
+
+      case fetch_json_list(request_fun, token, url) do
+        {:ok, files} ->
+          {:ok, files |> Enum.map(&Map.get(&1, "filename")) |> Enum.reject(&is_nil/1)}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  @spec fetch_pull_request_review_comments(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_pull_request_review_comments(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?per_page=100"
+
+      fetch_json_list(request_fun, token, url)
+    end
+  end
+
+  @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_review_comments(pr_number, opts \\ []) do
+    with {:ok, paths} <- fetch_pull_request_changed_paths(pr_number, opts),
+         {:ok, comments} <- fetch_pull_request_review_comments(pr_number, opts) do
+      context = Codeowners.ownership_for_paths(paths, opts)
+      {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
+    end
+  end
+
+  @spec fetch_classified_issue_comments(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_classified_issue_comments(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
+      context = Codeowners.repo_ownership(opts)
+
+      case fetch_json_list(request_fun, token, url) do
+        {:ok, comments} -> {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
       when is_binary(issue_number) and is_binary(state_name) do
@@ -323,6 +379,19 @@ defmodule Aiur.GitHub.Client do
 
       {:error, reason} ->
         {:halt, {:error, {:github_api_request, reason}}}
+    end
+  end
+
+  defp fetch_json_list(request_fun, token, url) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, body}
+
+      {:ok, %{status: status}} ->
+        {:error, {:github_api_status, status}}
+
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
     end
   end
 

@@ -42,6 +42,16 @@ defmodule Aiur.GitHub.Tracker do
     client_module().create_comment(issue_id, body)
   end
 
+  @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_review_comments(pr_number) do
+    client_module().fetch_classified_pr_review_comments(pr_number)
+  end
+
+  @spec fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_issue_comments(issue_id) do
+    client_module().fetch_classified_issue_comments(issue_id)
+  end
+
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do
