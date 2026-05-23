@@ -603,15 +603,25 @@ defmodule Aiur.Opencode.Slot do
         )
 
         if bumped >= @poll_death_threshold do
+          capture_dump =
+            case Tmux.command(Tmux, "capture-pane -p -t #{pane_id}") do
+              {:ok, lines} ->
+                lines |> Enum.take(8) |> Enum.join(" \\ ")
+
+              _ ->
+                "capture_failed"
+            end
+
           Logger.warning(
-            "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id} consecutive_failures=#{bumped}"
+            "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id} consecutive_failures=#{bumped} capture_at_death=#{inspect(capture_dump)}"
           )
 
           Aiur.Perf.event(:slot_poll_pane_died,
             slot: state.slot_index,
             identifier: state.active_identifier,
             pane_id: pane_id,
-            consecutive_failures: bumped
+            consecutive_failures: bumped,
+            capture_at_death: capture_dump
           )
 
           broadcast_session_changed(state.slot_index, nil)
@@ -1225,10 +1235,18 @@ defmodule Aiur.Opencode.Slot do
   end
 
   defp schedule_poll(%{status: :active} = state) do
+    # Cancel any prior pending poll timer before scheduling a new one.
+    # Otherwise rapid back-to-back swaps stack multiple Process.send_after
+    # timers; they all fire 500ms later within milliseconds of each
+    # other, defeating the consecutive-failures debounce and false-
+    # tearing the slot down.
+    _ = cancel_poll(state.poll_ref)
     interval = poll_interval_ms()
     ref = Process.send_after(self(), :poll_session, interval)
     %{state | poll_ref: ref}
   end
+
+  defp schedule_poll(state), do: state
 
   defp cancel_poll(nil), do: nil
 
