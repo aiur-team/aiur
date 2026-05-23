@@ -14,13 +14,31 @@ defmodule Aiur.Opencode.Slot do
       :attach_spawning  → tmux split_pane into hidden window (silent)
                         → broadcast {:slot_ready, slot_index} on "opencode:slots"
                         → status = :ready
-      :ready            → idle, accepting Slot.select/2 calls
+      :ready            → idle, accepting Slot.attach/2 + Slot.set_visible/2
       :active           → an agent's session is currently displayed
-                          (active_identifier set, poll loop running)
+                          (visible_identifier set, poll loop running)
 
-  When `Slot.deselect/1` is called the worker returns to `:ready` —
-  the opencode-serve and attach pane stay alive; only the active
-  session selection clears.
+  Each slot tracks an `attached_identifiers` MapSet — every identifier
+  whose session has been pre-created in this slot's opencode-serve via
+  `SessionWriterRegistry.ensure/2`. Attachment is independent of
+  visibility: a slot can have N identifiers attached, and at most one
+  of them is the `visible_identifier` shown in the slot's attach pane.
+
+  Three public lifecycle calls drive a slot:
+
+    * `attach/2` — pre-warm an identifier's session in this slot's
+      serve. Idempotent. Broadcasts `{:slot_attach_added, slot, id}`.
+    * `set_visible/2` — display an identifier's session in the slot's
+      attach pane. Respawns the attach pane with `--session <id>` on
+      first call, then uses `/tui/select-session` for subsequent
+      swaps. Broadcasts `{:slot_visible_changed, slot, id}`.
+    * `detach/2` — drop the identifier from `attached_identifiers`.
+      Broadcasts `{:slot_attach_removed, slot, id}`.
+
+  `Slot.select/2` and `Slot.deselect/1` are retained as compatibility
+  wrappers — `select` is now `attach + set_visible`; `deselect` is
+  `clear_visible`. Callers under refactor (U3, U7) move to the new
+  API; old call sites remain functional until then.
 
   ## Polling for external session changes
 
@@ -71,6 +89,25 @@ defmodule Aiur.Opencode.Slot do
             token: nil,
             generation: 1,
             pane_id: nil,
+            # Set of identifiers whose sessions have been pre-created in
+            # this slot's opencode-serve via SessionWriterRegistry.ensure.
+            # Independent of visibility: a slot can have N identifiers
+            # attached and at most one currently visible. Populated by
+            # `Slot.attach/2`; emptied by `Slot.detach/2`.
+            attached_identifiers: MapSet.new(),
+            # The identifier currently displayed in the slot's attach
+            # pane (or nil when the slot is idle). Set by
+            # `Slot.set_visible/2`; cleared by `Slot.clear_visible/1`.
+            # Tracked separately from `attached_identifiers` so multiple
+            # agents can be pre-warmed without changing what the user
+            # sees in this pane.
+            visible_identifier: nil,
+            visible_session_id: nil,
+            # LEGACY: kept transitionally so the old `select/2` compat
+            # wrapper continues to populate them. Both alias the new
+            # visible_* fields; new code MUST read visible_identifier
+            # and visible_session_id. Removed when the last legacy
+            # caller is gone.
             active_identifier: nil,
             active_session_id: nil,
             poll_ref: nil,
@@ -78,10 +115,14 @@ defmodule Aiur.Opencode.Slot do
             # map at the time `materialize_slot/5` ran. opencode-serve
             # does not hot-reload this file; any identifier NOT in this
             # set will fail with `Model not found: aiur/issue-X. Did you
-            # mean: issue-Y, ...` from the bridge. When `Slot.select/2`
+            # mean: issue-Y, ...` from the bridge. When attach/select
             # sees a miss it triggers a transparent serve restart with
             # the freshest `list_active_identifiers/0` before proceeding.
             known_identifiers: MapSet.new(),
+            # Either nil, or `{from, identifier}` queued from a
+            # `:set_visible` / `:select` call whose identifier wasn't in
+            # the serve's models map. Drained after `:rebuild_now`
+            # returns to `:ready`.
             pending_select: nil
 
   @type status :: :booting | :serve_starting | :attach_spawning | :ready | :active | :failed
@@ -139,6 +180,114 @@ defmodule Aiur.Opencode.Slot do
     GenServer.call(server, :snapshot, 2_000)
   catch
     :exit, _ -> %{status: :unavailable}
+  end
+
+  @doc """
+  Pre-warm `identifier`'s session in this slot's opencode-serve.
+
+  Idempotent: a second call for the same identifier returns
+  `{:ok, session_id}` from cache without re-running replay.
+
+  Drives:
+
+  1. `SessionWriterRegistry.ensure/2` for the identifier (history
+     replay against the slot's serve).
+  2. Adds the identifier to `attached_identifiers`.
+  3. Broadcasts `{:slot_attach_added, slot_index, identifier}` on the
+     PubSub `slots_topic/0`.
+
+  Does NOT change which session is visible in the slot's attach pane.
+  Use `set_visible/2` to display the session.
+  """
+  @spec attach(GenServer.server(), String.t(), timeout()) ::
+          {:ok, String.t()} | {:error, term()}
+  def attach(server, identifier, timeout \\ 15_000) when is_binary(identifier) do
+    GenServer.call(server, {:attach, identifier}, timeout)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_slot}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Attach a list of identifiers sequentially. Returns the list of
+  results in input order.
+
+  Sequential rather than parallel for v1: parallel attaches against a
+  single serve can hit SQLite contention even after PR #83's
+  transaction batching. Tune to parallel with a Task.Supervisor cap if
+  attach fan-out wall-time becomes the bottleneck (see U10's
+  measurement report).
+  """
+  @spec attach_many(GenServer.server(), [String.t()], timeout()) ::
+          [{:ok, String.t()} | {:error, term()}]
+  def attach_many(server, identifiers, timeout \\ 15_000) when is_list(identifiers) do
+    Enum.map(identifiers, fn id -> attach(server, id, timeout) end)
+  end
+
+  @doc """
+  Display `identifier`'s session in this slot's attach pane.
+
+  Ensures the identifier is attached first (calls `attach/2`
+  internally if not yet attached). Then:
+
+    * First visible call OR different identifier than currently
+      visible: kills the existing attach pane (if any) and respawns
+      with `opencode attach --session <id>`. Required because opencode
+      1.15.6's TUI does not honor `POST /tui/select-session` when the
+      attach is on the welcome screen.
+    * If the slot is already visible-bound to `identifier`: no-op
+      returning the existing pane_id.
+
+  Broadcasts `{:slot_visible_changed, slot_index, identifier}` on the
+  PubSub `slots_topic/0` (legacy `:slot_session_changed` is also
+  broadcast for compatibility).
+
+  Returns `{:ok, pane_id}` so PaneManager can move the pane to visible.
+  """
+  @spec set_visible(GenServer.server(), String.t(), timeout()) ::
+          {:ok, String.t()} | {:error, term()}
+  def set_visible(server, identifier, timeout \\ 15_000) when is_binary(identifier) do
+    GenServer.call(server, {:set_visible, identifier}, timeout)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_slot}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Clear the currently-visible session in this slot's attach pane.
+
+  Returns the slot to a state where `visible_identifier == nil`. The
+  attach pane itself is preserved (it will continue showing whatever
+  session it last rendered) — the user-visible effect is that
+  PaneManager will close the chat pane.
+
+  Broadcasts `{:slot_visible_changed, slot_index, nil}` on the PubSub
+  topic so AgentList can drop the 🟢 marker.
+  """
+  @spec clear_visible(GenServer.server()) :: :ok
+  def clear_visible(server) do
+    GenServer.call(server, :clear_visible, 5_000)
+  catch
+    :exit, _ -> :ok
+  end
+
+  @doc """
+  Detach `identifier` from this slot.
+
+  Removes the identifier from `attached_identifiers`. If it was the
+  visible identifier, also clears visibility. The opencode-serve's
+  SQLite session row is not deleted here — that's left to
+  `SessionGC.run/1` on the next slot reboot.
+
+  Broadcasts `{:slot_attach_removed, slot_index, identifier}` on the
+  PubSub topic. Idempotent: detaching an already-detached identifier
+  is a no-op `:ok`.
+  """
+  @spec detach(GenServer.server(), String.t()) :: :ok
+  def detach(server, identifier) when is_binary(identifier) do
+    GenServer.call(server, {:detach, identifier}, 5_000)
+  catch
+    :exit, _ -> :ok
   end
 
   # --- GenServer callbacks --------------------------------------------------
@@ -314,33 +463,117 @@ defmodule Aiur.Opencode.Slot do
   @impl true
   def handle_call({:select, identifier}, from, %{status: status} = state)
       when status in [:ready, :active] do
-    if identifier_known?(state, identifier) do
-      case do_select(identifier, state) do
-        {:ok, _session_id, new_state} ->
-          broadcast_session_changed(new_state.slot_index, identifier)
-          {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
-
-        {:error, _} = err ->
-          {:reply, err, state}
-      end
-    else
-      # opencode-serve doesn't hot-reload opencode.json, so an identifier
-      # that wasn't active when this slot booted will fail with
-      # `Model not found`. Rebuild the slot's serve transparently with
-      # the freshest agent list, THEN retry the select. The user pays
-      # a one-time ~5s pause on this open; subsequent opens of any
-      # identifier known to the new map are warm.
-      Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
-
-      Aiur.Perf.event(:slot_identifier_miss, slot: state.slot_index, identifier: identifier)
-
-      pending = {from, identifier}
-      {:noreply, schedule_serve_rebuild(state, pending)}
-    end
+    # Legacy entry point. New code calls attach + set_visible
+    # explicitly via the dedicated handlers above. We delegate
+    # through the same `do_set_visible_call` path so behavior is
+    # identical regardless of which API the caller picked.
+    do_set_visible_call(identifier, from, state)
   end
 
   def handle_call({:select, _identifier}, _from, state) do
     {:reply, {:error, {:slot_not_ready, state.status}}, state}
+  end
+
+  # --- New attach / set_visible / detach API --------------------------------
+  #
+  # `attach/2` is the pre-warm primitive. It ensures the identifier
+  # has a session in this slot's serve (via SessionWriterRegistry) and
+  # registers the identifier in `attached_identifiers` without
+  # touching what the attach pane is showing. Used by AttachPool (U3)
+  # and SlotPolicy's fan-out.
+  def handle_call({:attach, identifier}, _from, %{status: status} = state)
+      when status in [:ready, :active] do
+    case do_attach(identifier, state) do
+      {:ok, session_id, new_state} ->
+        broadcast_attach_added(new_state.slot_index, identifier)
+        {:reply, {:ok, session_id}, new_state}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
+  def handle_call({:attach, _identifier}, _from, state) do
+    {:reply, {:error, {:slot_not_ready, state.status}}, state}
+  end
+
+  # `set_visible/2` is the user-driven primitive. Falls through to the
+  # same respawn-with-session path as the legacy `:select` handler, but
+  # also ensures the identifier is in `attached_identifiers` first
+  # (so AttachPool's bookkeeping is consistent even when set_visible
+  # races ahead of an explicit attach).
+  def handle_call({:set_visible, identifier}, from, %{status: status} = state)
+      when status in [:ready, :active] do
+    if state.visible_identifier == identifier and is_binary(state.pane_id) do
+      # Already visible. Idempotent.
+      {:reply, {:ok, state.pane_id}, state}
+    else
+      do_set_visible_call(identifier, from, state)
+    end
+  end
+
+  def handle_call({:set_visible, _identifier}, _from, state) do
+    {:reply, {:error, {:slot_not_ready, state.status}}, state}
+  end
+
+  def handle_call(:clear_visible, _from, state) do
+    new_state =
+      if state.visible_identifier do
+        broadcast_visible_changed(state.slot_index, nil)
+
+        %{
+          state
+          | status: :ready,
+            visible_identifier: nil,
+            visible_session_id: nil,
+            active_identifier: nil,
+            active_session_id: nil,
+            poll_ref: cancel_poll(state.poll_ref)
+        }
+      else
+        state
+      end
+
+    {:reply, :ok, new_state}
+  end
+
+  def handle_call({:detach, identifier}, _from, state) do
+    if MapSet.member?(state.attached_identifiers, identifier) do
+      new_state = %{
+        state
+        | attached_identifiers: MapSet.delete(state.attached_identifiers, identifier)
+      }
+
+      # If we were showing this identifier, clear visibility too. We
+      # leave the attach pane alive — PaneManager (U9) will issue a
+      # kill-pane when the agent goes inactive. Here we only manage
+      # this slot's view of the world.
+      new_state =
+        if state.visible_identifier == identifier do
+          broadcast_visible_changed(new_state.slot_index, nil)
+
+          %{
+            new_state
+            | status: :ready,
+              visible_identifier: nil,
+              visible_session_id: nil,
+              active_identifier: nil,
+              active_session_id: nil,
+              poll_ref: cancel_poll(new_state.poll_ref)
+          }
+        else
+          new_state
+        end
+
+      broadcast_attach_removed(state.slot_index, identifier)
+
+      Logger.info("opencode_slot phase=detach slot=#{state.slot_index} identifier=#{identifier}")
+      Aiur.Perf.event(:slot_attach_removed, slot: state.slot_index, identifier: identifier)
+
+      {:reply, :ok, new_state}
+    else
+      {:reply, :ok, state}
+    end
   end
 
   def handle_call(:deselect, _from, %{status: :active} = state) do
@@ -349,10 +582,13 @@ defmodule Aiur.Opencode.Slot do
       | status: :ready,
         active_identifier: nil,
         active_session_id: nil,
+        visible_identifier: nil,
+        visible_session_id: nil,
         poll_ref: cancel_poll(state.poll_ref)
     }
 
     broadcast_session_changed(state.slot_index, nil)
+    broadcast_visible_changed(state.slot_index, nil)
     Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
     Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
@@ -370,6 +606,9 @@ defmodule Aiur.Opencode.Slot do
        status: state.status,
        active_identifier: state.active_identifier,
        active_session_id: state.active_session_id,
+       visible_identifier: state.visible_identifier,
+       visible_session_id: state.visible_session_id,
+       attached_identifiers: state.attached_identifiers,
        pane_id: state.pane_id,
        base_url: state.base_url,
        generation: state.generation
@@ -443,6 +682,116 @@ defmodule Aiur.Opencode.Slot do
   end
 
   # --- Internals ------------------------------------------------------------
+
+  # Pre-create the identifier's session in this slot's serve. Bumps
+  # `attached_identifiers`. Triggers identifier-miss rebuild if the
+  # identifier isn't in the serve's models map yet.
+  defp do_attach(identifier, state) do
+    cond do
+      MapSet.member?(state.attached_identifiers, identifier) ->
+        # Already attached. Return the cached session id when we have
+        # one (we don't track session-id-per-identifier yet, so return
+        # the current visible session id if it matches, else :attached
+        # as a placeholder; callers that need the session id should
+        # rely on set_visible's return).
+        sid =
+          if state.visible_identifier == identifier do
+            state.visible_session_id
+          else
+            :attached
+          end
+
+        {:ok, sid, state}
+
+      identifier_known?(state, identifier) ->
+        span =
+          Aiur.Perf.span_begin(:slot_do_attach,
+            slot: state.slot_index,
+            identifier: identifier
+          )
+
+        case ensure_session_for(identifier, state) do
+          {:ok, session_id} ->
+            Aiur.Perf.span_end(span,
+              slot: state.slot_index,
+              identifier: identifier,
+              session_id: session_id
+            )
+
+            Aiur.Perf.event(:slot_attach_added,
+              slot: state.slot_index,
+              identifier: identifier,
+              session_id: session_id
+            )
+
+            new_state = %{
+              state
+              | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)
+            }
+
+            Logger.info("opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}")
+
+            {:ok, session_id, new_state}
+
+          {:error, reason} = err ->
+            Aiur.Perf.span_end(span,
+              result: :failed,
+              slot: state.slot_index,
+              identifier: identifier,
+              reason: reason
+            )
+
+            err
+        end
+
+      true ->
+        # Identifier not in the serve's models map. Falling back to a
+        # synchronous rebuild here would block the caller for ~5s
+        # without giving them a chance to abandon. Surface the miss
+        # so the caller can retry via `set_visible` (which has the
+        # async rebuild + drain path).
+        {:error, :identifier_unknown}
+    end
+  end
+
+  # SessionWriterRegistry.ensure runs the session-create + history
+  # replay against this slot's serve. Same call the legacy `do_select`
+  # uses for its first step. Pulled out so `do_attach` can share it.
+  defp ensure_session_for(identifier, state) do
+    case SessionWriterRegistry.ensure(identifier, state.base_url) do
+      {:ok, %{session_id: session_id, writer_pid: writer_pid}} ->
+        case SessionWriter.await_replay(writer_pid, 10_000) do
+          :ok -> {:ok, session_id}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  # `set_visible` handler shared by `:set_visible` and the legacy
+  # `:select` path. Returns `{:reply | :noreply, state}` tuples.
+  defp do_set_visible_call(identifier, from, state) do
+    if identifier_known?(state, identifier) do
+      case do_select(identifier, state) do
+        {:ok, _session_id, new_state} ->
+          broadcast_session_changed(new_state.slot_index, identifier)
+          broadcast_visible_changed(new_state.slot_index, identifier)
+          {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
+
+        {:error, _} = err ->
+          {:reply, err, state}
+      end
+    else
+      Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
+
+      Aiur.Perf.event(:slot_identifier_miss, slot: state.slot_index, identifier: identifier)
+
+      pending = {from, identifier}
+      {:noreply, schedule_serve_rebuild(state, pending)}
+    end
+  end
 
   defp do_select(identifier, state) do
     do_select_span =
@@ -529,8 +878,13 @@ defmodule Aiur.Opencode.Slot do
          %{
            state
            | status: :active,
+             # Legacy fields preserved so still-existing callers see
+             # the same shape; new code reads visible_identifier.
              active_identifier: identifier,
              active_session_id: session_id,
+             visible_identifier: identifier,
+             visible_session_id: session_id,
+             attached_identifiers: MapSet.put(state.attached_identifiers, identifier),
              pane_id: new_pane_id
          }}
 
@@ -722,6 +1076,33 @@ defmodule Aiur.Opencode.Slot do
       Aiur.PubSub,
       @slots_topic,
       {:slot_session_changed, slot_index, identifier_or_nil}
+    )
+  end
+
+  # New attach/detach/visible events — preferred by U3 onward.
+  # `:slot_session_changed` (above) is kept for legacy subscribers
+  # until the AttachPool rewrite (U3) lands.
+  defp broadcast_attach_added(slot_index, identifier) do
+    Phoenix.PubSub.broadcast(
+      Aiur.PubSub,
+      @slots_topic,
+      {:slot_attach_added, slot_index, identifier}
+    )
+  end
+
+  defp broadcast_attach_removed(slot_index, identifier) do
+    Phoenix.PubSub.broadcast(
+      Aiur.PubSub,
+      @slots_topic,
+      {:slot_attach_removed, slot_index, identifier}
+    )
+  end
+
+  defp broadcast_visible_changed(slot_index, identifier_or_nil) do
+    Phoenix.PubSub.broadcast(
+      Aiur.PubSub,
+      @slots_topic,
+      {:slot_visible_changed, slot_index, identifier_or_nil}
     )
   end
 
