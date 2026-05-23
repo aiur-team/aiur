@@ -778,23 +778,112 @@ defmodule Aiur.Opencode.Slot do
   end
 
   defp do_set_visible_call(identifier, from, state) do
-    if identifier_known?(state, identifier) do
-      case do_select(identifier, state) do
-        {:ok, _session_id, new_state} ->
-          broadcast_session_changed(new_state.slot_index, identifier)
-          broadcast_visible_changed(new_state.slot_index, identifier)
-          {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
+    cond do
+      not identifier_known?(state, identifier) ->
+        Logger.info(
+          "opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}"
+        )
 
-        {:error, _} = err ->
-          {:reply, err, state}
-      end
-    else
-      Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
+        Aiur.Perf.event(:slot_identifier_miss,
+          slot: state.slot_index,
+          identifier: identifier
+        )
 
-      Aiur.Perf.event(:slot_identifier_miss, slot: state.slot_index, identifier: identifier)
+        pending = {from, identifier}
+        {:noreply, schedule_serve_rebuild(state, pending)}
 
-      pending = {from, identifier}
-      {:noreply, schedule_serve_rebuild(state, pending)}
+      can_select_via_api?(state, identifier) ->
+        do_select_via_api(identifier, state)
+
+      true ->
+        case do_select(identifier, state) do
+          {:ok, _session_id, new_state} ->
+            broadcast_session_changed(new_state.slot_index, identifier)
+            broadcast_visible_changed(new_state.slot_index, identifier)
+            {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
+
+          {:error, _} = err ->
+            {:reply, err, state}
+        end
+    end
+  end
+
+  # The pane is already painted on a real conversation and we want to
+  # swap to a different attached identifier. `/tui/select-session`
+  # updates the pane's rendered conversation in-place (verified by the
+  # #85 spike against opencode 1.15.6), avoiding the 5-7s kill+respawn.
+  defp can_select_via_api?(state, identifier) do
+    is_binary(state.pane_id) and
+      not is_nil(state.visible_identifier) and
+      state.visible_identifier != identifier and
+      MapSet.member?(state.attached_identifiers, identifier)
+  end
+
+  defp do_select_via_api(identifier, state) do
+    span =
+      Aiur.Perf.span_begin(:slot_select_via_api,
+        slot: state.slot_index,
+        identifier: identifier
+      )
+
+    case SessionWriterRegistry.ensure(identifier, state.base_url) do
+      {:ok, %{session_id: session_id}} ->
+        case Aiur.Opencode.ApiClient.select_session(state.base_url, session_id) do
+          :ok ->
+            Aiur.Perf.span_end(span,
+              slot: state.slot_index,
+              identifier: identifier,
+              session_id: session_id
+            )
+
+            Logger.info(
+              "opencode_slot phase=select_via_api slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{state.pane_id}"
+            )
+
+            new_state = %{
+              state
+              | status: :active,
+                visible_identifier: identifier,
+                visible_session_id: session_id,
+                active_identifier: identifier,
+                active_session_id: session_id
+            }
+
+            broadcast_session_changed(new_state.slot_index, identifier)
+            broadcast_visible_changed(new_state.slot_index, identifier)
+            {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
+
+          {:error, reason} ->
+            Aiur.Perf.span_end(span,
+              result: :api_failed,
+              slot: state.slot_index,
+              identifier: identifier,
+              reason: reason
+            )
+
+            # Fall back to the kill+respawn path when the API call
+            # fails so the user still gets the session swap, just
+            # paying the slower cost.
+            case do_select(identifier, state) do
+              {:ok, _session_id, new_state} ->
+                broadcast_session_changed(new_state.slot_index, identifier)
+                broadcast_visible_changed(new_state.slot_index, identifier)
+                {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
+
+              {:error, _} = err ->
+                {:reply, err, state}
+            end
+        end
+
+      {:error, reason} = err ->
+        Aiur.Perf.span_end(span,
+          result: :ensure_failed,
+          slot: state.slot_index,
+          identifier: identifier,
+          reason: reason
+        )
+
+        {:reply, err, state}
     end
   end
 

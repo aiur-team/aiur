@@ -686,18 +686,43 @@ defmodule Aiur.PaneManager do
         reply_or_noreply({:ok, pane_id}, from, new_state)
 
       {:error, reason} ->
-        Aiur.Perf.span_end(move_span,
-          result: :failed,
-          pane_id: pane_id,
-          source: :warm,
-          reason: reason
-        )
+        if pane_already_visible_reason?(reason) do
+          Aiur.Perf.span_end(move_span,
+            result: :already_visible,
+            pane_id: pane_id,
+            source: :warm
+          )
 
-        Logger.warning("aiur_pane_manager phase=warm_move_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)} — falling back to cold open")
+          new_state =
+            state
+            |> record_slot_pane(slot_index, pane_id, identifier)
+            |> Map.put(:last_attached_pane_id, pane_id)
 
-        # Warm pane is unmovable for some reason — fall back to the
-        # cold placeholder path so the user still gets an open.
-        open_with_placeholder(state, identifier, from)
+          AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+
+          Aiur.Perf.event(:pane_open_visible_warm,
+            identifier: identifier,
+            slot: slot_index,
+            pane_id: pane_id,
+            result: :already_visible
+          )
+
+          bump_next_slot()
+          reply_or_noreply({:ok, pane_id}, from, new_state)
+        else
+          Aiur.Perf.span_end(move_span,
+            result: :failed,
+            pane_id: pane_id,
+            source: :warm,
+            reason: reason
+          )
+
+          Logger.warning(
+            "aiur_pane_manager phase=warm_move_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)} — falling back to cold open"
+          )
+
+          open_with_placeholder(state, identifier, from)
+        end
     end
   end
 
@@ -1010,17 +1035,51 @@ defmodule Aiur.PaneManager do
             reply_or_noreply({:ok, pane_id}, from, new_state)
 
           {:error, reason} ->
-            Logger.warning("aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
+            cond do
+              pane_already_visible_reason?(reason) ->
+                # The slot's attach pane is already in the visible
+                # window — common after an in-place /tui/select-session
+                # swap on a pane the user already had open. Treat as
+                # success: record the new (identifier, pane_id) and
+                # leave the slot's visible_identifier intact so future
+                # swaps can take the API fast-path.
+                new_state =
+                  state
+                  |> record_slot_pane(slot_index, pane_id, identifier)
+                  |> Map.put(:last_attached_pane_id, pane_id)
 
-            _ = Slot.deselect(slot_pid)
-            reply_or_noreply({:error, reason}, from, state)
+                AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+                bump_next_slot()
+                reply_or_noreply({:ok, pane_id}, from, new_state)
+
+              true ->
+                Logger.warning(
+                  "aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
+                )
+
+                _ = Slot.deselect(slot_pid)
+                reply_or_noreply({:error, reason}, from, state)
+            end
         end
 
       {:error, reason} ->
-        Logger.warning("aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
+        Logger.warning(
+          "aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
+        )
 
         reply_or_noreply({:error, reason}, from, state)
     end
+  end
+
+  defp pane_already_visible_reason?(reason) do
+    text =
+      case reason do
+        {_code, msg} when is_binary(msg) -> msg
+        msg when is_binary(msg) -> msg
+        _ -> inspect(reason)
+      end
+
+    String.contains?(text, "source and target panes must be different")
   end
 
   # Rebind the focused pane's slot to a new agent identifier. The slot's
@@ -1043,12 +1102,13 @@ defmodule Aiur.PaneManager do
       {:ok, slot_index} ->
         case SlotRegistry.lookup(slot_index) do
           {:ok, slot_pid} ->
-            # The slot rebuild will spawn a NEW attach pane (the
-            # identifier_miss path stops the serve + respawns attach).
-            # The OLD visible pane must be killed BEFORE the new pane
-            # arrives or we'll end up with two visible chat panes.
-            _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
-            new_state = forget_pane_by_identifier(state, pane_id)
+            # Drop the old identifier→pane mapping so the new identifier
+            # can claim it, but leave the pane bookkeeping intact —
+            # Slot.set_visible may reuse the existing pane in-place via
+            # /tui/select-session (no respawn) when the pane is already
+            # painted on a conversation. If it does have to respawn,
+            # respawn_attach_with_session kills the old pane itself.
+            new_state = forget_identifier_for_pane(state, pane_id)
             attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from)
 
           :not_found ->
