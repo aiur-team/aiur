@@ -98,6 +98,12 @@ defmodule Aiur.PaneManager do
   # in any realistic configuration.
   @open_queue_timeout_ms 60_000
 
+  # Debug-only periodic screen-grab interval. Captures every tracked
+  # pane's content into the log so post-mortem reviews can replay the
+  # visible state at each tick. Gated behind AIUR_DEBUG.
+  @screen_grab_interval_ms 2_000
+  @screen_grab_max_lines 8
+
   # Public API ----------------------------------------------------------------
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -189,6 +195,10 @@ defmodule Aiur.PaneManager do
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
       :net_kernel.monitor_nodes(true, node_type: :hidden)
+
+      if debug_mode?() do
+        Process.send_after(self(), :screen_grab_tick, @screen_grab_interval_ms)
+      end
 
       {:ok,
        %__MODULE__{
@@ -494,8 +504,82 @@ defmodule Aiur.PaneManager do
     {:noreply, new_state}
   end
 
-  def handle_info({:tmux_event, _event}, state), do: {:noreply, state}
+  def handle_info({:tmux_event, event}, state) do
+    if debug_mode?() do
+      Logger.info("aiur_tmux_event #{inspect(event)}")
+    end
+
+    {:noreply, state}
+  end
+  def handle_info(:screen_grab_tick, state) do
+    log_screen_grab(state)
+
+    if debug_mode?() do
+      Process.send_after(self(), :screen_grab_tick, @screen_grab_interval_ms)
+    end
+
+    {:noreply, state}
+  end
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  defp log_screen_grab(state) do
+    panes = collect_tracked_panes(state)
+
+    Logger.info(
+      "aiur_screen_grab phase=tick pane_count=#{map_size(panes)} elapsed_ms=#{Boot.elapsed_ms()}"
+    )
+
+    Enum.each(panes, fn {pane_id, label} ->
+      case Tmux.command(state.tmux, "capture-pane -p -t #{pane_id}") do
+        {:ok, lines} ->
+          excerpt =
+            lines
+            |> Enum.take(@screen_grab_max_lines)
+            |> Enum.map(&String.trim_trailing/1)
+            |> Enum.reject(&(&1 == ""))
+            |> Enum.join(" \\ ")
+
+          Logger.info(
+            "aiur_screen_grab pane_id=#{pane_id} label=#{label} content=#{inspect(excerpt)}"
+          )
+
+        {:error, reason} ->
+          Logger.info(
+            "aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}"
+          )
+      end
+    end)
+  end
+
+  defp collect_tracked_panes(state) do
+    base =
+      if is_binary(state.agent_list_pane) do
+        %{state.agent_list_pane => "agent_list"}
+      else
+        %{}
+      end
+
+    Enum.reduce(state.slot_panes, base, fn
+      {slot, pane_id}, acc when is_binary(pane_id) ->
+        identifier = Map.get(state.pane_to_identifier, pane_id, "?")
+        Map.put(acc, pane_id, "slot#{slot}:#{identifier}")
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp debug_mode? do
+    case System.get_env("AIUR_DEBUG") do
+      value when is_binary(value) ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes"]
+
+      _ ->
+        false
+    end
+  end
+
 
   # Pop the next queued open (if any) and try to attach it to a ready
   # slot. If no slot is ready, leave the entry queued and wait for the
@@ -1225,6 +1309,7 @@ defmodule Aiur.PaneManager do
              slot_panes_list(state),
              state.orientation
            ),
+         _ = log_layout_apply(state, w, h, layout_string),
          :ok <- Tmux.select_layout(state.tmux, state.window_target, layout_string) do
       :ok
     else
@@ -1232,6 +1317,22 @@ defmodule Aiur.PaneManager do
         Logger.warning("PaneManager: layout apply failed: #{inspect(reason)}")
         err
     end
+  end
+
+  defp log_layout_apply(state, w, h, layout_string) do
+    if debug_mode?() do
+      slot_panes_summary =
+        state.slot_panes
+        |> Enum.sort_by(fn {slot, _} -> slot end)
+        |> Enum.map(fn {slot, pane} -> "#{slot}=>#{pane || "_"}" end)
+        |> Enum.join(",")
+
+      Logger.info(
+        "aiur_tmux_layout window=#{w}x#{h} slot_panes=#{slot_panes_summary} agent_list=#{state.agent_list_pane} layout=#{inspect(layout_string)}"
+      )
+    end
+
+    :ok
   end
 
   defp slot_panes_list(%__MODULE__{} = state) do
