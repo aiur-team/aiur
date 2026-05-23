@@ -50,6 +50,16 @@ defmodule Aiur.CodeownersTest do
     assert Codeowners.owners_for_path("docs/plans/plan.md", repo_root: repo_root) == ["docs-owner"]
   end
 
+  test "discovers CODEOWNERS from a parent repo root", %{repo_root: repo_root} do
+    write_codeowners!(repo_root, ".github/CODEOWNERS", "* @repo-owner")
+    nested = Path.join(repo_root, "elixir")
+    File.mkdir_p!(nested)
+
+    File.cd!(nested, fn ->
+      assert Codeowners.owners_for_path("lib/app.ex") == ["repo-owner"]
+    end)
+  end
+
   test "missing CODEOWNERS keeps compatibility fallback except for agent comments", %{repo_root: repo_root} do
     assert Codeowners.owners_for_path("anything.ex", repo_root: repo_root) == []
 

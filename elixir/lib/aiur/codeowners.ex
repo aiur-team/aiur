@@ -206,7 +206,7 @@ defmodule Aiur.Codeowners do
   end
 
   defp read_codeowners(opts) do
-    repo_root = Keyword.get(opts, :repo_root, File.cwd!())
+    repo_root = Keyword.get(opts, :repo_root) || discover_repo_root(File.cwd!())
 
     Enum.find_value(@codeowners_paths, %{present?: false, rules: []}, fn relative_path ->
       full_path = Path.join(repo_root, relative_path)
@@ -215,6 +215,26 @@ defmodule Aiur.Codeowners do
         %{present?: true, rules: parse_file!(full_path)}
       end
     end)
+  end
+
+  defp discover_repo_root(path) do
+    path = Path.expand(path)
+    parent = Path.dirname(path)
+
+    cond do
+      codeowners_root?(path) -> path
+      git_root?(path) -> path
+      parent == path -> path
+      true -> discover_repo_root(parent)
+    end
+  end
+
+  defp codeowners_root?(path) do
+    Enum.any?(@codeowners_paths, &File.regular?(Path.join(path, &1)))
+  end
+
+  defp git_root?(path) do
+    File.dir?(Path.join(path, ".git")) or File.regular?(Path.join(path, ".git"))
   end
 
   defp parse_file!(path) do
