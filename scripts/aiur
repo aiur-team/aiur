@@ -510,7 +510,13 @@ build_aiur() {
   # (e.g. exqlite/priv/sqlite3_nif.so) load correctly — escript zips
   # cannot host NIFs. The post-assemble step in mix.exs writes a thin
   # shim at bin/aiur that delegates into the release.
-  (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) >&2
+  #
+  # Filter mix release's chatty informational lines (assembling, "To
+  # start your system…", "Release created at…") so the user sees a
+  # clean foreground startup. Errors and warnings still flow through.
+  (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) 2>&1 |
+    grep -v -E "^(\* assembling|\* skipping runtime|Generated aiur app|Release created at|    _build|    # |Once the release is running:|To list all commands:|$)" >&2 ||
+    true
 }
 
 source_env_files() {

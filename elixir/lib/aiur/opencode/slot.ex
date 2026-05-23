@@ -707,17 +707,38 @@ defmodule Aiur.Opencode.Slot do
     end
   end
 
-  # Pre-render the slot's attach pane when this is the slot's first
-  # attach (no current pane / no visible identifier). Pane sits in
-  # aiur-hidden bound to this identifier's session; PaneManager moves
-  # it visible on user open. Without this, the renderer's ⚪ marker
-  # would lie — it'd appear as soon as the session was created in the
-  # serve's DB, but opening would still pay the 5-7s pane-spawn cost.
+  # Pre-render the slot's attach pane bound to the first attached
+  # identifier. Boot leaves the pane on opencode's welcome screen with
+  # no session; we kill that pane and respawn with `--session <id>` so
+  # the pane sits in aiur-hidden fully painted. PaneManager moves it
+  # visible on user open — without this, the ⚪ marker lies because
+  # the open path still pays the 5-7s pane-spawn cost.
   defp maybe_render_leadoff_pane(identifier, session_id, state) do
-    if is_nil(state.pane_id) and is_nil(state.visible_identifier) do
+    if is_nil(state.visible_identifier) do
+      Logger.info(
+        "opencode_slot phase=leadoff_render_start slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}"
+      )
+
+      span =
+        Aiur.Perf.span_begin(:slot_leadoff_render,
+          slot: state.slot_index,
+          identifier: identifier
+        )
+
       case respawn_attach_with_session(state, session_id) do
         {:ok, new_pane_id} ->
-          _ = Aiur.Opencode.AttachPool.wait_for_paint(new_pane_id, 20_000)
+          paint_result = Aiur.Opencode.AttachPool.wait_for_paint(new_pane_id, 20_000)
+
+          Aiur.Perf.span_end(span,
+            slot: state.slot_index,
+            identifier: identifier,
+            pane_id: new_pane_id,
+            paint: paint_result
+          )
+
+          Logger.info(
+            "opencode_slot phase=leadoff_render_done slot=#{state.slot_index} identifier=#{identifier} pane_id=#{new_pane_id} paint=#{paint_result}"
+          )
 
           %{
             state
@@ -728,7 +749,14 @@ defmodule Aiur.Opencode.Slot do
               active_session_id: session_id
           }
 
-        {:error, _} ->
+        {:error, reason} ->
+          Aiur.Perf.span_end(span,
+            result: :failed,
+            slot: state.slot_index,
+            identifier: identifier,
+            reason: reason
+          )
+
           state
       end
     else
