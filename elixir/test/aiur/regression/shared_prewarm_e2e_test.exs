@@ -51,13 +51,15 @@ defmodule Aiur.Regression.SharedPrewarmE2ETest do
     assert {:ok, 2} = AttachPool.find_slot_for(pool, "issue-1", prefer: 2)
   end
 
-  test "fully-warmed-slot transitions broadcast", %{pool: pool} do
+  test "fully-warmed-slot fires when slot has its leadoff attached", %{pool: pool} do
+    # Under the leadoff-only pre-warm model, a slot is "fully warmed"
+    # the moment ANY identifier is attached to it (its rotational
+    # leadoff). The previous "every active identifier on every slot"
+    # criterion produced 36 attaches at boot — replaced by single-
+    # leadoff per slot. ⬜ now means "this slot has paint."
     AttachPool.seed(pool, ["issue-1", "issue-2"])
 
     Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-1"})
-    refute_receive {:slot_fully_warmed, 1}, 100
-
-    Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-2"})
     assert_receive {:slot_fully_warmed, 1}, 500
   end
 

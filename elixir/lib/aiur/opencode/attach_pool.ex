@@ -717,10 +717,14 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   defp maybe_update_fully_warmed(state, slot_index) do
-    active_set = MapSet.new(state.active_identifiers)
     attached_in_slot = attached_set_for_slot(state, slot_index)
 
-    full? = MapSet.size(active_set) > 0 and MapSet.subset?(active_set, attached_in_slot)
+    # Under the leadoff-only model (no eager fan-out), a slot is
+    # "fully warmed" the moment its leadoff identifier is attached.
+    # No more "every active identifier on every slot" requirement —
+    # that was the 36-attach boot that took 50 s. Bottom warmth row
+    # ⬜ now means "this slot has paint."
+    full? = MapSet.size(attached_in_slot) >= 1
 
     case {full?, MapSet.member?(state.fully_warmed_slots, slot_index)} do
       {true, false} ->
