@@ -175,7 +175,25 @@ defmodule Aiur.PaneManager do
   def init(opts) do
     tmux = Keyword.get(opts, :tmux, Tmux)
     max_vertical_panes = Keyword.get(opts, :max_vertical_panes, Aiur.Config.max_vertical_panes())
-    slot_count = slot_count(max_vertical_panes)
+
+    # slot_count is the LARGER of grid capacity (panes-* 2 - 1) and
+    # max_concurrent_agents — pre-warm needs one slot per active agent
+    # so an agent that's queued past grid capacity still gets a leadoff
+    # when it becomes active. Tests pass `slot_count` explicitly to
+    # exercise round-robin behavior with a known cap.
+    slot_count =
+      Keyword.get_lazy(opts, :slot_count, fn ->
+        grid = slot_count(max_vertical_panes)
+
+        max_agents =
+          try do
+            Aiur.Config.max_concurrent_agents()
+          rescue
+            _ -> grid
+          end
+
+        max(grid, max_agents)
+      end)
     orientation = Keyword.get(opts, :orientation, :horizontal)
 
     with {:ok, agent_list_pane} <- resolve_agent_list_pane(opts, tmux),
@@ -724,23 +742,46 @@ defmodule Aiur.PaneManager do
   # (chain pre-warm hasn't reached one yet), fall back to the legacy
   # cold-attach path so the user never sees an error.
   defp open_opencode_pane(state, identifier, _opts, from) do
-    # FAST PATH: AttachPool may have a warm opencode-attach pane
-    # already running in aiur-hidden for this identifier. Ask it to
-    # exclude slots whose pane is already user-visible so the
-    # "open in a new pane" call doesn't reuse one the user is
-    # already looking at (which would only swap content in place).
-    case AttachPool.consume(identifier, exclude_visible: true) do
-      {:ok, %{slot_index: slot_index, pane_id: pane_id}} ->
-        Aiur.Perf.event(:attach_pool_consume_hit,
+    # LOCK-FREE FAST PATH: SlotRegistry's ETS table holds each slot's
+    # current {visible_identifier, pane_id}. If a slot is already
+    # painted as the leadoff for this identifier, we can move its pane
+    # visible WITHOUT going through any GenServer mailbox (Slot's or
+    # AttachPool's). Both can be wedged 5+s when fan-out is in flight,
+    # and a synchronous consume call there times out into the
+    # placeholder path — turning the "instant open" pre-warm path into
+    # a 5-7 s cold spawn. We mirror the consumed state into AttachPool
+    # asynchronously below so its bookkeeping (visible_in,
+    # exclude_visible filtering for the NEXT open) stays accurate.
+    case SlotRegistry.find_visible(identifier) do
+      {:ok, slot_index, pane_id} ->
+        Aiur.Perf.event(:warm_open_registry_hit,
           identifier: identifier,
           slot: slot_index,
           pane_id: pane_id
         )
 
+        AttachPool.mark_visible(AttachPool, identifier, slot_index)
         move_warm_pane_visible(state, identifier, slot_index, pane_id, from)
 
-      :miss ->
-        open_with_placeholder(state, identifier, from)
+      :not_found ->
+        # Slow path: ask AttachPool to find any slot that has this
+        # identifier attached (including non-leadoff slots) and drive
+        # Slot.set_visible. Still bounded by GenServer mailbox depth,
+        # but only reached when no slot has the identifier already
+        # painted as its visible leadoff.
+        case AttachPool.consume(identifier, exclude_visible: true) do
+          {:ok, %{slot_index: slot_index, pane_id: pane_id}} ->
+            Aiur.Perf.event(:attach_pool_consume_hit,
+              identifier: identifier,
+              slot: slot_index,
+              pane_id: pane_id
+            )
+
+            move_warm_pane_visible(state, identifier, slot_index, pane_id, from)
+
+          :miss ->
+            open_with_placeholder(state, identifier, from)
+        end
     end
   end
 
@@ -1137,11 +1178,9 @@ defmodule Aiur.PaneManager do
             cond do
               pane_already_visible_reason?(reason) ->
                 # The slot's attach pane is already in the visible
-                # window — common after an in-place /tui/select-session
-                # swap on a pane the user already had open. Treat as
+                # window — tmux refuses to move it again. Treat as
                 # success: record the new (identifier, pane_id) and
-                # leave the slot's visible_identifier intact so future
-                # swaps can take the API fast-path.
+                # leave the slot's visible_identifier intact.
                 new_state =
                   state
                   |> record_slot_pane(slot_index, pane_id, identifier)
@@ -1202,11 +1241,10 @@ defmodule Aiur.PaneManager do
         case SlotRegistry.lookup(slot_index) do
           {:ok, slot_pid} ->
             # Drop the old identifier→pane mapping so the new identifier
-            # can claim it, but leave the pane bookkeeping intact —
-            # Slot.set_visible may reuse the existing pane in-place via
-            # /tui/select-session (no respawn) when the pane is already
-            # painted on a conversation. If it does have to respawn,
-            # respawn_attach_with_session kills the old pane itself.
+            # can claim it. Slot.set_visible always respawns
+            # opencode-attach with `--session <id>`, so
+            # respawn_attach_with_session kills the old pane itself
+            # before splitting a new one.
             new_state = forget_identifier_for_pane(state, pane_id)
             attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from)
 
@@ -1306,7 +1344,7 @@ defmodule Aiur.PaneManager do
              h,
              state.max_vertical_panes,
              state.agent_list_pane,
-             slot_panes_list(state),
+             visible_panes_packed(state),
              state.orientation
            ),
          _ = log_layout_apply(state, w, h, layout_string),
@@ -1335,6 +1373,11 @@ defmodule Aiur.PaneManager do
     :ok
   end
 
+  # Raw slot-indexed view: position i = whatever pane (placeholder OR
+  # real) is currently assigned to slot index i+1, or nil if free.
+  # Used by `first_available_visual_slot` and other state-introspection
+  # code that needs to know "which slot index is free for a new
+  # placeholder". DO NOT use this for layout — see `visible_panes_packed`.
   defp slot_panes_list(%__MODULE__{} = state) do
     placeholder_slots =
       state.placeholder_panes
@@ -1344,6 +1387,20 @@ defmodule Aiur.PaneManager do
     for slot <- 1..state.slot_count do
       Map.get(placeholder_slots, slot) || Map.get(state.slot_panes, slot)
     end
+  end
+
+  # Layout-ready view: visible chat panes packed left-to-right,
+  # padded to slot_count with nils. Slot indexes are an internal
+  # pre-warm detail; the grid should fill from the primary row first.
+  # Without packing, a single visible pane that happens to be slot 4
+  # renders alone in the secondary row while the agent list sits
+  # alone in the primary row — which is the "chat opens under the
+  # agent list" report from the user.
+  defp visible_panes_packed(%__MODULE__{} = state) do
+    raw = slot_panes_list(state)
+    visible = Enum.reject(raw, &is_nil/1)
+    padding = List.duplicate(nil, state.slot_count - length(visible))
+    visible ++ padding
   end
 
   defp first_available_visual_slot(%__MODULE__{} = state) do

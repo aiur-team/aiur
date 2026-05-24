@@ -27,8 +27,10 @@ defmodule Aiur.Opencode.Slot do
     * `attach/2` — pre-warm an identifier's session in this slot's
       serve. Idempotent. Broadcasts `{:slot_attach_added, slot, id}`.
     * `set_visible/2` — display an identifier's session in the slot's
-      attach pane. Respawns with `--session <id>` on first call, then
-      uses `/tui/select-session` for subsequent swaps. Broadcasts
+      attach pane. Always respawns opencode-attach with `--session <id>`.
+      The `/tui/select-session` HTTP path was removed: opencode 1.15.6
+      returns 200 to it but then exits the attach process seconds later,
+      killing the user's pane. Broadcasts
       `{:slot_visible_changed, slot, id}`.
     * `detach/2` — drop the identifier from `attached_identifiers`.
       Broadcasts `{:slot_attach_removed, slot, id}`.
@@ -424,6 +426,8 @@ defmodule Aiur.Opencode.Slot do
       Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
       Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
+      maybe_start_pipe_pane(state.slot_index, pane_id)
+
       # First slot to reach :ready runs boot-time GC. Recovers from any
       # prior aiur run that crashed before its shutdown could reap
       # sessions (kill -9, BEAM panic, OOM). Lifted from WarmServer.
@@ -437,6 +441,56 @@ defmodule Aiur.Opencode.Slot do
 
         {:noreply, %{state | status: :failed}}
     end
+  end
+
+  # tmux pipe-pane captures every byte tmux writes to the pane to a
+  # per-slot log file, so when opencode-attach dies we can read the
+  # last bytes it emitted — including any stderr / panic / disconnect
+  # message — instead of guessing. Gated behind AIUR_DEBUG=1.
+  defp maybe_start_pipe_pane(slot_index, pane_id) when is_binary(pane_id) do
+    if debug_mode?() do
+      path = pipe_pane_path(slot_index)
+      _ = File.mkdir_p(Path.dirname(path))
+      # `-o` only opens the pipe if one isn't already active for this
+      # pane. The shell command appends every byte tmux writes to the
+      # pane into the per-slot log file, so the very last bytes
+      # opencode-attach emits before death are preserved on disk.
+      _ = Tmux.command(Tmux, "pipe-pane -o -t #{pane_id} \"cat >> #{path}\"")
+
+      Logger.info(
+        "opencode_slot phase=pipe_pane_started slot=#{slot_index} pane_id=#{pane_id} path=#{path}"
+      )
+    end
+
+    :ok
+  end
+
+  defp maybe_start_pipe_pane(_slot_index, _pane_id), do: :ok
+
+  defp pipe_pane_path(slot_index),
+    do: "/tmp/aiur-debug/slot-#{slot_index}-attach.log"
+
+  defp debug_mode? do
+    case System.get_env("AIUR_DEBUG") do
+      v when is_binary(v) -> String.downcase(String.trim(v)) in ["1", "true", "yes"]
+      _ -> false
+    end
+  end
+
+  defp dump_pipe_tail(slot_index) do
+    path = pipe_pane_path(slot_index)
+
+    case File.read(path) do
+      {:ok, content} ->
+        lines = String.split(content, "\n", trim: true)
+        tail = lines |> Enum.take(-60) |> Enum.join(" \\ ")
+        Logger.warning("opencode_slot phase=pipe_pane_tail slot=#{slot_index} path=#{path} lines=#{length(lines)} tail=#{inspect(tail)}")
+
+      _ ->
+        Logger.warning("opencode_slot phase=pipe_pane_tail slot=#{slot_index} path=#{path} status=unreadable")
+    end
+
+    :ok
   end
 
   defp maybe_run_session_gc(%{slot_index: 1, base_url: base_url}) do
@@ -488,7 +542,7 @@ defmodule Aiur.Opencode.Slot do
   def handle_call(:clear_visible, _from, state) do
     new_state =
       if state.visible_identifier do
-        broadcast_visible_changed(state.slot_index, nil)
+        broadcast_visible_changed(state.slot_index, nil, state.pane_id)
 
         %{
           state
@@ -515,7 +569,7 @@ defmodule Aiur.Opencode.Slot do
 
       new_state =
         if state.visible_identifier == identifier do
-          broadcast_visible_changed(new_state.slot_index, nil)
+          broadcast_visible_changed(new_state.slot_index, nil, new_state.pane_id)
 
           %{
             new_state
@@ -553,7 +607,7 @@ defmodule Aiur.Opencode.Slot do
     }
 
     broadcast_session_changed(state.slot_index, nil)
-    broadcast_visible_changed(state.slot_index, nil)
+    broadcast_visible_changed(state.slot_index, nil, state.pane_id)
     Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
     Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
@@ -624,8 +678,11 @@ defmodule Aiur.Opencode.Slot do
             capture_at_death: capture_dump
           )
 
+          dump_pipe_tail(state.slot_index)
+
           broadcast_session_changed(state.slot_index, nil)
-          broadcast_visible_changed(state.slot_index, nil)
+          # Pane is dead — clear the registry's pane_id too.
+          broadcast_visible_changed(state.slot_index, nil, nil)
 
           new_state = %{
             state
@@ -670,6 +727,29 @@ defmodule Aiur.Opencode.Slot do
   @impl true
   def terminate(_reason, state) do
     if is_binary(state.token), do: TokenRegistry.delete(state.token)
+
+    # Reap any SessionWriters tied to this slot's base_url. Without this,
+    # rebuilt slots (generation bump → new base_url) leak the previous
+    # generation's writers and their opencode sessions stay orphaned in
+    # the shared SQLite DB. The writers also hold connection pool slots
+    # against a now-dead serve.
+    if is_binary(state.base_url) do
+      Aiur.Opencode.SessionWriterRegistry.all()
+      |> Enum.each(fn entry ->
+        if entry.base_url == state.base_url do
+          _ = Aiur.Opencode.ApiClient.delete_session(state.base_url, entry.session_id)
+
+          if is_pid(entry.writer_pid) and Process.alive?(entry.writer_pid) do
+            _ =
+              DynamicSupervisor.terminate_child(
+                Aiur.Opencode.SessionSupervisor,
+                entry.writer_pid
+              )
+          end
+        end
+      end)
+    end
+
     if is_pid(state.server_pid), do: GenServer.stop(state.server_pid)
     :ok
   end
@@ -716,7 +796,14 @@ defmodule Aiur.Opencode.Slot do
           | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)
         }
 
-        new_state = maybe_render_leadoff_pane(identifier, session_id, new_state)
+        # Note: leadoff render (`respawn_attach_with_session` to bind
+        # the slot's attach pane to a session) is NOT done here. It's
+        # driven explicitly by `AttachPool.kickoff_fan_out` calling
+        # `Slot.set_visible/2` on the slot's intended leadoff
+        # identifier — deterministic per slot. Doing it as a side effect
+        # of whichever attach finished first under parallel boot caused
+        # multiple slots to leadoff the same agent (race), leaving
+        # other agents 🔘 (no painted pane) instead of ⚪.
 
         Aiur.Perf.event(:slot_attach_added,
           slot: state.slot_index,
@@ -739,63 +826,6 @@ defmodule Aiur.Opencode.Slot do
         )
 
         err
-    end
-  end
-
-  # Pre-render the slot's attach pane bound to the first attached
-  # identifier. Boot leaves the pane on opencode's welcome screen with
-  # no session; we kill that pane and respawn with `--session <id>` so
-  # the pane sits in aiur-hidden fully painted. PaneManager moves it
-  # visible on user open — without this, the ⚪ marker lies because
-  # the open path still pays the 5-7s pane-spawn cost.
-  defp maybe_render_leadoff_pane(identifier, session_id, state) do
-    if is_nil(state.visible_identifier) do
-      Logger.info(
-        "opencode_slot phase=leadoff_render_start slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}"
-      )
-
-      span =
-        Aiur.Perf.span_begin(:slot_leadoff_render,
-          slot: state.slot_index,
-          identifier: identifier
-        )
-
-      case respawn_attach_with_session(state, session_id) do
-        {:ok, new_pane_id} ->
-          paint_result = Aiur.Opencode.AttachPool.wait_for_paint(new_pane_id, 20_000)
-
-          Aiur.Perf.span_end(span,
-            slot: state.slot_index,
-            identifier: identifier,
-            pane_id: new_pane_id,
-            paint: paint_result
-          )
-
-          Logger.info(
-            "opencode_slot phase=leadoff_render_done slot=#{state.slot_index} identifier=#{identifier} pane_id=#{new_pane_id} paint=#{paint_result}"
-          )
-
-          %{
-            state
-            | pane_id: new_pane_id,
-              visible_identifier: identifier,
-              visible_session_id: session_id,
-              active_identifier: identifier,
-              active_session_id: session_id
-          }
-
-        {:error, reason} ->
-          Aiur.Perf.span_end(span,
-            result: :failed,
-            slot: state.slot_index,
-            identifier: identifier,
-            reason: reason
-          )
-
-          state
-      end
-    else
-      state
     end
   end
 
@@ -827,98 +857,28 @@ defmodule Aiur.Opencode.Slot do
         pending = {from, identifier}
         {:noreply, schedule_serve_rebuild(state, pending)}
 
-      can_select_via_api?(state, identifier) ->
-        do_select_via_api(identifier, state)
-
       true ->
+        # `/tui/select-session` was removed: opencode 1.15.6 returns 200
+        # on the call but then exits the attach process 1.5-25 s later,
+        # killing whichever pane was rendering it. Every swap goes
+        # through kill+respawn instead. The user-facing "instant open"
+        # path never hits this — `Enter` opens a new pane via
+        # `AttachPool.consume`, which finds a slot already bound to the
+        # target identifier and returns the existing pane via the fast
+        # path in the `set_visible` handle_call clause above. Only
+        # cross-identifier rebinding on the same slot reaches here.
         case do_select(identifier, state) do
           {:ok, _session_id, new_state} ->
             broadcast_session_changed(new_state.slot_index, identifier)
-            broadcast_visible_changed(new_state.slot_index, identifier)
+            broadcast_visible_changed(new_state.slot_index, identifier, new_state.pane_id)
+            # Also broadcast :slot_attach_added so AttachPool's
+            # attached_slots[identifier] includes this slot.
+            broadcast_attach_added(new_state.slot_index, identifier)
             {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
 
           {:error, _} = err ->
             {:reply, err, state}
         end
-    end
-  end
-
-  # The pane is already painted on a real conversation and we want to
-  # swap to a different attached identifier. `/tui/select-session`
-  # updates the pane's rendered conversation in-place (verified by the
-  # #85 spike against opencode 1.15.6), avoiding the 5-7s kill+respawn.
-  defp can_select_via_api?(state, identifier) do
-    is_binary(state.pane_id) and
-      not is_nil(state.visible_identifier) and
-      state.visible_identifier != identifier and
-      MapSet.member?(state.attached_identifiers, identifier)
-  end
-
-  defp do_select_via_api(identifier, state) do
-    span =
-      Aiur.Perf.span_begin(:slot_select_via_api,
-        slot: state.slot_index,
-        identifier: identifier
-      )
-
-    case SessionWriterRegistry.ensure(identifier, state.base_url) do
-      {:ok, %{session_id: session_id}} ->
-        case Aiur.Opencode.ApiClient.select_session(state.base_url, session_id) do
-          :ok ->
-            Aiur.Perf.span_end(span,
-              slot: state.slot_index,
-              identifier: identifier,
-              session_id: session_id
-            )
-
-            Logger.info(
-              "opencode_slot phase=select_via_api slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id} pane_id=#{state.pane_id}"
-            )
-
-            new_state = %{
-              state
-              | status: :active,
-                visible_identifier: identifier,
-                visible_session_id: session_id,
-                active_identifier: identifier,
-                active_session_id: session_id
-            }
-
-            broadcast_session_changed(new_state.slot_index, identifier)
-            broadcast_visible_changed(new_state.slot_index, identifier)
-            {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
-
-          {:error, reason} ->
-            Aiur.Perf.span_end(span,
-              result: :api_failed,
-              slot: state.slot_index,
-              identifier: identifier,
-              reason: reason
-            )
-
-            # Fall back to the kill+respawn path when the API call
-            # fails so the user still gets the session swap, just
-            # paying the slower cost.
-            case do_select(identifier, state) do
-              {:ok, _session_id, new_state} ->
-                broadcast_session_changed(new_state.slot_index, identifier)
-                broadcast_visible_changed(new_state.slot_index, identifier)
-                {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
-
-              {:error, _} = err ->
-                {:reply, err, state}
-            end
-        end
-
-      {:error, reason} = err ->
-        Aiur.Perf.span_end(span,
-          result: :ensure_failed,
-          slot: state.slot_index,
-          identifier: identifier,
-          reason: reason
-        )
-
-        {:reply, err, state}
     end
   end
 
@@ -1062,6 +1022,8 @@ defmodule Aiur.Opencode.Slot do
         pane_id: pane_id
       )
 
+      maybe_start_pipe_pane(state.slot_index, pane_id)
+
       {:ok, pane_id}
     else
       error ->
@@ -1143,6 +1105,12 @@ defmodule Aiur.Opencode.Slot do
     case do_select(identifier, state) do
       {:ok, _session_id, new_state} ->
         broadcast_session_changed(new_state.slot_index, identifier)
+        # Match the non-rebuild path's broadcasts: visible_changed so
+        # the renderer marker flips ⏳/🔘 → ⚪, and attach_added so the
+        # warm consume path finds this slot for the new identifier
+        # (otherwise the next Enter falls through to placeholder).
+        broadcast_visible_changed(new_state.slot_index, identifier, new_state.pane_id)
+        broadcast_attach_added(new_state.slot_index, identifier)
         GenServer.reply(from, {:ok, new_state.pane_id})
         schedule_poll(%{new_state | pending_select: nil})
 
@@ -1226,7 +1194,15 @@ defmodule Aiur.Opencode.Slot do
     )
   end
 
-  defp broadcast_visible_changed(slot_index, identifier_or_nil) do
+  # Broadcasts the visible-identifier transition AND mirrors
+  # {visible_identifier, pane_id} into SlotRegistry's ETS so readers
+  # (PaneManager warm-open hot path) can resolve an identifier to its
+  # painted pane via a lock-free lookup — no GenServer call against
+  # this slot or AttachPool. MUST be called from inside the slot
+  # worker process; Registry.update_value enforces ownership.
+  defp broadcast_visible_changed(slot_index, identifier_or_nil, pane_id_or_nil) do
+    SlotRegistry.update_pane_state(slot_index, identifier_or_nil, pane_id_or_nil)
+
     Phoenix.PubSub.broadcast(
       Aiur.PubSub,
       @slots_topic,
