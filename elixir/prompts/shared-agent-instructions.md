@@ -104,7 +104,7 @@ Touches multiple subsystems or introduces a new abstraction. Has design decision
 New architecture, multi-system change, security/auth, data-integrity, anything where "wrong" means an incident. Multi-day work.
 
 - Suggested model: **the latest Claude model** with `model_reasoning_effort=high`. Don't downgrade to a smaller or older model at this tier — the depth of reasoning matters more than the speed.
-- Suggested skills: `ce-brainstorm` → requirements doc → `ce-plan` → deepen the plan → `ce-doc-review` → revise → `ce-work` → `ce-code-review`.
+- Suggested skills: `ce-brainstorm` → requirements doc → `ce-doc-review` on the requirements → revise → `ce-plan` → deepen the plan → `ce-doc-review` on the plan → revise → `ce-work` → `ce-code-review`.
 - Strongly suggested: request adversarial review on the diff by naming the relevant persona explicitly — `ce-security-reviewer`, `ce-data-migration-expert`, `ce-architecture-strategist`, `ce-adversarial-reviewer`. Default checks alone are usually not enough at this tier.
 - Land in small, reviewable commits; never one mega-PR.
 
