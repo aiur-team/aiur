@@ -1,13 +1,15 @@
 defmodule Aiur.Opencode.SessionWriterRegistry do
   @moduledoc """
-  Per-identifier registry for `Aiur.Opencode.SessionWriter` processes.
-  One writer per active agent — `ensure/2` is idempotent and is the only
-  public entrypoint, so v2 background population can spawn writers for
-  every active agent at boot without touching pane-open code.
+  Registry for `Aiur.Opencode.SessionWriter` processes.
 
-  Aiur tracks every session it creates (per-identifier sessions + the
-  warm placeholder) so shutdown can `DELETE /session/<id>` for each.
-  The session id lives in the registry value alongside the writer pid.
+  Keyed by agent `identifier` with duplicate-key registry storage: one
+  writer per `(identifier, base_url)` pair. opencode sessions are not
+  portable across serves — each slot's serve owns its own session for a
+  given agent, and the writer that pushes transcript events to that
+  serve must use that serve's session_id.
+
+  `ensure/2` is the only public mutator. Aiur tracks every session it
+  creates so shutdown can `DELETE /session/<id>` for each.
   """
 
   alias Aiur.Opencode.{ApiClient, Config, SessionSupervisor, SessionWriter}
@@ -15,17 +17,20 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   @registry __MODULE__.Registry
 
   @doc """
-  Idempotently ensure a `SessionWriter` is running for `identifier` and
-  an opencode session exists for it.
+  Idempotently ensure a `SessionWriter` is running for `(identifier, base_url)`
+  and an opencode session exists in that serve.
 
-  If a writer is already alive, returns its `{session_id, pid}`.
-  Otherwise: `POST /session` with `model: {providerID: "aiur", id: "issue-<X>"}`
-  and `directory: workspace_for(identifier)`, then start the writer.
+  Each (identifier, base_url) pair gets its OWN writer + session. Session
+  ids are per-serve: opencode sessions are not portable across serves
+  even when those serves share a SQLite database (the session carries
+  the serve's bridge token / workspace directory). Reusing one serve's
+  session_id against a different serve produced silent attach death and
+  FOREIGN KEY constraint failures.
   """
   @spec ensure(String.t(), String.t()) ::
           {:ok, %{session_id: String.t(), writer_pid: pid()}} | {:error, term()}
   def ensure(identifier, base_url) when is_binary(identifier) and is_binary(base_url) do
-    case lookup(identifier) do
+    case lookup(identifier, base_url) do
       {:ok, _} = found ->
         found
 
@@ -38,33 +43,63 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   end
 
   @doc """
-  Look up the session + writer for `identifier`, or return `:not_found`.
+  Look up the writer + session for `(identifier, base_url)`. With the
+  registry's duplicate-key keying, there may be multiple writers per
+  identifier (one per serve); this scans for the one bound to `base_url`.
   """
-  @spec lookup(String.t()) :: {:ok, %{session_id: String.t(), writer_pid: pid()}} | :not_found
-  def lookup(identifier) when is_binary(identifier) do
-    case Registry.lookup(@registry, identifier) do
-      [{pid, session_id}] when is_pid(pid) and is_binary(session_id) ->
-        if Process.alive?(pid) do
-          {:ok, %{session_id: session_id, writer_pid: pid}}
-        else
-          :not_found
-        end
+  @spec lookup(String.t(), String.t()) ::
+          {:ok, %{session_id: String.t(), writer_pid: pid()}} | :not_found
+  def lookup(identifier, base_url) when is_binary(identifier) and is_binary(base_url) do
+    @registry
+    |> Registry.lookup(identifier)
+    |> Enum.find_value(:not_found, fn
+      {pid, %{session_id: sid, base_url: ^base_url}} when is_pid(pid) and is_binary(sid) ->
+        if Process.alive?(pid), do: {:ok, %{session_id: sid, writer_pid: pid}}
 
       _ ->
-        :not_found
-    end
+        nil
+    end)
   end
 
   @doc """
-  Enumerate every (identifier, session_id, writer_pid) tracked here.
-  Used by `Aiur.Shutdown.shutdown/2` to walk the registry and DELETE
-  each session before halting.
+  Return any writer for `identifier`, regardless of base_url. Used by
+  chat-completion replay where the message id is globally unique so any
+  writer's session_id lets us read it back.
   """
-  @spec all() :: [%{identifier: String.t(), session_id: String.t(), writer_pid: pid()}]
+  @spec lookup(String.t()) :: {:ok, %{session_id: String.t(), writer_pid: pid()}} | :not_found
+  def lookup(identifier) when is_binary(identifier) do
+    @registry
+    |> Registry.lookup(identifier)
+    |> Enum.find_value(:not_found, fn
+      {pid, %{session_id: sid}} when is_pid(pid) and is_binary(sid) ->
+        if Process.alive?(pid), do: {:ok, %{session_id: sid, writer_pid: pid}}
+
+      _ ->
+        nil
+    end)
+  end
+
+  @doc """
+  Enumerate every (identifier, session_id, base_url, writer_pid) tracked
+  here. Used by `Aiur.Shutdown.shutdown/2` to walk the registry and
+  DELETE each session before halting.
+  """
+  @spec all() :: [
+          %{
+            identifier: String.t(),
+            session_id: String.t(),
+            base_url: String.t(),
+            writer_pid: pid()
+          }
+        ]
   def all do
     Registry.select(@registry, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
-    |> Enum.map(fn {identifier, pid, session_id} ->
-      %{identifier: identifier, session_id: session_id, writer_pid: pid}
+    |> Enum.flat_map(fn
+      {identifier, pid, %{session_id: sid, base_url: url}} ->
+        [%{identifier: identifier, session_id: sid, base_url: url, writer_pid: pid}]
+
+      _ ->
+        []
     end)
   end
 
@@ -83,24 +118,20 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
     if entries == [] do
       :ok
     else
-      base_url = current_base_url(entries)
       deadline = System.monotonic_time(:millisecond) + timeout_ms
-
-      Enum.each(entries, &drain_entry(&1, base_url, deadline))
-
+      Enum.each(entries, &drain_entry(&1, deadline))
       :ok
     end
   end
 
   # --- internals ----------------------------------------------------------
 
-  defp drain_entry(%{identifier: identifier, session_id: session_id, writer_pid: pid}, base_url, deadline) do
+  defp drain_entry(%{session_id: session_id, base_url: base_url, writer_pid: pid}, deadline) do
     remaining = max(deadline - System.monotonic_time(:millisecond), 0)
 
     if remaining > 0 do
       _ = maybe_delete_session(base_url, session_id)
       _ = DynamicSupervisor.terminate_child(SessionSupervisor, pid)
-      _ = Registry.unregister(@registry, identifier)
     end
   end
 
@@ -146,21 +177,6 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
     Aiur.Config.workspace_root()
     |> Path.expand()
     |> Path.join(Aiur.Opencode.Config.safe_identifier(identifier))
-  end
-
-  defp current_base_url(entries) do
-    case entries do
-      [%{writer_pid: pid} | _] when is_pid(pid) ->
-        try do
-          %SessionWriter{} = state = :sys.get_state(pid, 200)
-          state.base_url
-        catch
-          _, _ -> nil
-        end
-
-      _ ->
-        nil
-    end
   end
 
   defp maybe_delete_session(nil, _session_id), do: :ok

@@ -49,7 +49,7 @@ defmodule Aiur.Application do
         {Phoenix.PubSub, name: Aiur.PubSub},
         {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
         {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
-        {Registry, keys: :unique, name: Aiur.Opencode.SessionWriterRegistry.Registry},
+        {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
         {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
         {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
         {Task.Supervisor, name: Aiur.TaskSupervisor},

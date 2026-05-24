@@ -60,14 +60,15 @@ defmodule Aiur.Opencode.SessionWriter do
     Process.flag(:trap_exit, true)
     identifier = Map.fetch!(opts, :identifier)
     session_id = Map.fetch!(opts, :session_id)
+    base_url = Map.fetch!(opts, :base_url)
 
-    # Registry value is the bare session id. The slot model owns
-    # `pane_id` on the Slot worker, not on the writer — SessionWriter
-    # only needs to know which opencode session it's mirroring to.
+    # Registry uses duplicate keys (one writer per (identifier, base_url)
+    # pair). Value carries the session_id + base_url so lookups can
+    # match by either dimension.
     case Registry.register(
            Aiur.Opencode.SessionWriterRegistry.Registry,
            identifier,
-           session_id
+           %{session_id: session_id, base_url: base_url}
          ) do
       {:ok, _} ->
         :ok = append_session_to_tempfile(session_id)
@@ -75,7 +76,7 @@ defmodule Aiur.Opencode.SessionWriter do
         state = %__MODULE__{
           identifier: identifier,
           session_id: session_id,
-          base_url: Map.fetch!(opts, :base_url)
+          base_url: base_url
         }
 
         {:ok, state, {:continue, :boot}}

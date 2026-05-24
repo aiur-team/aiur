@@ -1,0 +1,183 @@
+{
+  "reviewer": "adversarial",
+  "findings": [
+    {
+      "title": "ApiClient.select_session/2 stays publicly exported; only Slot is guarded against reintroducing the upstream-broken call",
+      "category": "composition",
+      "severity": "high",
+      "confidence": 80,
+      "autofix_class": "advisory",
+      "owner": "human",
+      "file": "elixir/lib/aiur/opencode/api_client.ex",
+      "line": 42,
+      "evidence": [
+        "Trigger: any code path other than Slot.do_select calls Aiur.Opencode.ApiClient.select_session/2.",
+        "Execution path: api_client.ex line 43-48 unconditionally POSTs to /tui/select-session against the supplied base_url. The function has no internal feature flag, no deprecation log, no `@deprecated` attribute.",
+        "Outcome: opencode 1.15.6 returns 200 and silently exits the attach process 1.5-25 s later, killing the user's chat pane — the exact bug this branch fixes.",
+        "Existing guard is too narrow: enter_opens_new_pane_test.exs line 68-71 and chat_pane_loads_session_test.exs line 69 only read elixir/lib/aiur/opencode/slot.ex source. Any new caller in pane_manager.ex, agent_list/app.ex, agent_list/input.ex, attach_pool.ex, a future Agent → AgentChat → Slot helper, a debug script, or a test fixture that pokes the API directly is invisible to the regression.",
+        "Concrete reintroduction vectors visible in the diff: pane_manager.ex line 1206-1208 still carries the stale comment 'Slot.set_visible may reuse the existing pane in-place via /tui/select-session (no respawn)'. A reader trusting that comment is one keystroke from typing ApiClient.select_session into pane_manager and reverting the fix without touching slot.ex."
+      ],
+      "remediation": "Delete the function or rename it to `unsafe_select_session_DO_NOT_USE` with a Logger.error on every call. Either way, add a repo-wide grep test that fails if any module under elixir/lib references `ApiClient.select_session` (only the api_client module itself is allowed)."
+    },
+    {
+      "title": "Cascade: stale base_url fallback in resolve_session_for_replay returns wrong slot's session_id and surfaces 'message not found' in the user's chat",
+      "category": "cascade",
+      "severity": "high",
+      "confidence": 80,
+      "autofix_class": "advisory",
+      "owner": "human",
+      "file": "elixir/lib/aiur/opencode/chat_completions.ex",
+      "line": 283,
+      "evidence": [
+        "Trigger: a Slot is mid-rebuild (status :serve_starting or :attach_spawning after identifier_miss). Its base_url is being rotated; TokenRegistry has the new token registered but `delete_stale/2` for the old token may or may not have run; Slot.snapshot/1 has a 2_000 ms timeout (slot.ex line 166) which is plenty to lapse while the slot is blocked on Server.await_ready.",
+        "Step 1: SessionWriter writes assistant rows to slot 2's session_id and POSTs the synthetic `__aiur_stream__:<msg_id>` user message to slot 2's serve (session_writer.ex line 281-289).",
+        "Step 2: opencode-serve on slot 2 calls back to the bridge with slot 2's bearer token to fetch chat completions.",
+        "Step 3: caller_base_url/1 (chat_completions.ex line 296-305) runs: Plug.Conn.get_req_header → ok; TokenRegistry.lookup_slot → ok or stale-window miss; SlotRegistry.lookup → ok; Slot.snapshot/1 → returns %{base_url: nil} if status is still :booting/:serve_starting (defstruct line 85 base_url defaults to nil; snapshot returns the live struct).",
+        "Step 4: the `with` pattern `%{base_url: base_url} when is_binary(base_url)` does NOT match because base_url is nil. Control flows to the fallback `lookup(identifier)` (chat_completions.ex line 289).",
+        "Step 5: SessionWriterRegistry.lookup/1 (session_writer_registry.ex line 70-80) scans the duplicate-key registry and returns the FIRST alive writer found via Registry.lookup + Enum.find_value. With multiple slots having attached the same identifier, Registry.lookup ordering is undefined; the first match may be slot 1's writer, not slot 2's.",
+        "Step 6: replay_message_as_stream calls Db.fetch_message_with_parts(sid_slot1, message_id) where message_id was written under sid_slot2. db.ex line 223 `WHERE id = ? AND session_id = ? LIMIT 1` returns no row.",
+        "Outcome: the user sees '**system:** message not found' in their chat pane (chat_completions.ex line 272) while the just-typed assistant turn is sitting correctly in the SQLite under slot 2's session id. The fallback is silent — no warning, no Aiur.Perf event, nothing in the AgentList footer to indicate stale-resolve.",
+        "Same cascade reproduces if the bearer token survived a Slot.generation bump's `delete_stale/2` but the SlotRegistry.lookup still resolves a now-restarted slot whose snapshot.base_url is nil during its rebuild window."
+      ],
+      "remediation": "Either remove the single-arg fallback entirely (return nil and let the warning fire — the message-not-found UI is no better than letting opencode log the failed completion), or gate the fallback on a strict invariant: only fallback if `lookup(identifier)` returns exactly one writer (i.e. no ambiguity), and log a warning with both candidate session_ids whenever the fallback fires."
+    },
+    {
+      "title": "AttachPool exclude_visible has a TOCTOU window between consume() and Slot.set_visible() — two rapid opens can yield two visible panes for the same slot",
+      "category": "composition",
+      "severity": "high",
+      "confidence": 65,
+      "autofix_class": "advisory",
+      "owner": "human",
+      "file": "elixir/lib/aiur/opencode/attach_pool.ex",
+      "line": 192,
+      "evidence": [
+        "AttachPool's view of `visible_in` is updated only via PubSub messages: `{:slot_visible_changed, slot_index, identifier}` (attach_pool.ex line 270) and `do_mark_visible` (line 600). The slot broadcasts this from do_set_visible_call (slot.ex line 897) — AFTER the synchronous handle_call returns to AttachPool's Task. AttachPool processes the PubSub message asynchronously in handle_info.",
+        "Trigger: user presses Enter twice rapidly on the same agent row (or presses Enter and the AgentList renderer re-fires Enter from a race with input.ex line 25's debouncer — debouncers don't help if both presses already queued). PaneManager.open_opencode_pane fires twice; AttachPool.consume(identifier, exclude_visible: true) runs twice in close succession.",
+        "Step 1: first consume call. find_slot_for_impl filters by `not is_nil(att.visible_in)` (line 560). At this moment att.visible_in for ALL identifiers is nil (warm pre-fan-out done but no user open yet). Slots {1, 2, 3} all viable. Returns slot 1.",
+        "Step 2: consume_via_slot calls Slot.set_visible(slot_1, identifier), receives {:ok, pane_id_A}, calls do_mark_visible (line 600) which sets attachments[identifier].visible_in = 1. Replies to PaneManager. PaneManager calls Tmux.move_pane_visible(pane_id_A) and broadcasts pane_opened.",
+        "Step 3: BUT — the second consume call lands in AttachPool's mailbox BEFORE PaneManager finishes step 2's tmux.move and BEFORE the slot's `broadcast_visible_changed` PubSub fanout completes. (PubSub.broadcast in slot.ex is synchronous; visible_in update inside AttachPool from step 2 is already applied since consume_via_slot runs inside the call handler. So this is safe IF consume calls are serialized in AttachPool's mailbox.)",
+        "However: AttachPool.consume is a synchronous GenServer.call (line 96-97), so two consume calls ARE serialized inside AttachPool. The interesting race is between consume's find_slot_for_impl and an unrelated PubSub-driven do_clear_visible.",
+        "Real scenario: open agent A in slot 1. Open agent B in slot 1 (cross-identifier rebind via Slot.set_visible — slot 1's pane gets respawned to B). Slot broadcasts {:slot_visible_changed, 1, B}. AttachPool processes this: do_mark_visible(state, B, 1) ALSO clears any other identifier whose visible_in is 1 — line 477-478 — clearing A's visible_in to nil. Good.",
+        "BUT also user can call consume(A, exclude_visible: true) DURING this transition: between the slot's broadcast and AttachPool's handle_info processing it. find_slot_for_impl sees stale state where A.visible_in is still 1 (cached) and slot 1 is in A.attached_slots. Filter rejects slot 1 from candidates — so consume falls through to other slots (2 or 3). Result: a second pane opens in slot 2 showing agent A while slot 1's pane is now showing B. Acceptable.",
+        "The actual hazard: when AttachPool's view says att.visible_in is nil but the slot's internal state has visible_identifier set — possible because do_mark_visible is only triggered by `{:slot_visible_changed, slot_index, identifier}` broadcasts. The slot's do_set_visible_call broadcasts AFTER the reply, but the fast-path on line 529-530 (slot already visible-bound to identifier — returns without broadcasting) means AttachPool's state never gets a visible_in update for that re-attach. If the slot's visible_identifier was previously cleared in AttachPool (because some other event cleared visible_in), but the slot's GenServer state still has visible_identifier intact, AttachPool will treat the slot as 'not visible to anyone' and may route a NEW consume there, succeeding and returning the SAME pane_id as before.",
+        "Outcome: PaneManager receives two distinct {:ok, %{slot_index: same, pane_id: same}} results across two opens. record_slot_pane / move_pane_visible runs twice for the same pane_id. The user sees 'open' but no new pane; bookkeeping mismatches (pane_to_slot has the same pane_id mapped under two record_slot_pane calls). When the user later closes the second pane, the slot's pane_id state gets cleared but the first open's tracking lingers.",
+        "Confidence is 65 because reproducing this needs a specific sequence where AttachPool's visible_in was nil'd by a clear_visible PubSub but the slot retained visible_identifier. clear_visible IS broadcast from slot (line 543, 570) — but only when explicit clear/detach happens. The dangling path is the fast-path no-broadcast on line 530 + a prior unrelated mark_visible/clear cycle."
+      ],
+      "remediation": "Make Slot.set_visible always broadcast {:slot_visible_changed, slot_index, identifier}, including on the same-identifier fast-path. Or have AttachPool re-check slot.snapshot.visible_identifier (synchronous GenServer call to Slot) inside consume_via_slot before returning, so stale visible_in cannot leak the wrong slot."
+    },
+    {
+      "title": "Cascade: tmux server restart leaves slots in a respawn loop with no backoff and unbounded pipe-pane log growth",
+      "category": "cascade",
+      "severity": "medium",
+      "confidence": 80,
+      "autofix_class": "advisory",
+      "owner": "human",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line": 636,
+      "evidence": [
+        "Trigger: tmux server restart (user runs `tmux kill-server`, or upgrades tmux, or OOM-killer hits tmux). All panes vanish; the Tmux GenServer may stay alive but commands fail.",
+        "Step 1: every Slot in :active state runs the poll_session handle_info every 500 ms (default_poll_interval_ms). `Tmux.command(Tmux, \"display-message -p -t #{pane_id} ...\")` returns an error tuple for the missing pane.",
+        "Step 2: after 3 consecutive failures (~1.5 s), the slot transitions to :attach_spawning and calls {:continue, :spawn_attach}. mark_ready_with_attach_pane (line 409) calls hidden_window_target/0 (line 1241) which checks HiddenWindow.status — if it returned :ready before tmux died, it still returns :ready (status is cached state in the HiddenWindow GenServer, not a live tmux probe).",
+        "Step 3: Tmux.split_pane runs against the dead tmux server. Returns an error. mark_ready_with_attach_pane drops the slot to :failed (line 440-441).",
+        "Step 4: the slot is now in :failed. There is no handle_info for retrying. The user's chat pane is gone, and only a fresh aiur boot recovers. But: the SessionWriter for that slot's identifiers is still alive, pinning a session_id against a base_url whose opencode-serve is also affected (server died with tmux's child processes? depends on which tmux killed). Token in TokenRegistry stays mapped.",
+        "Step 5: incoming chat-completion replay for those identifiers resolves caller_base_url to the failed slot's still-mapped base_url (TokenRegistry was never delete_stale'd because there was no Slot.generation bump). Slot.snapshot/1 in caller_base_url returns the :failed slot's stale base_url. SessionWriterRegistry.lookup(identifier, base_url) succeeds. Db.fetch_message_with_parts looks up against the SQLite (still on disk). Returns content. The user sees the bridge serving messages against a slot that has no pane — no obvious symptom in chat_completions, but the AgentList marker becomes ⚪ (warm) forever because nothing reaps the :failed slot.",
+        "Additionally: under tmux restart with debug_mode true, maybe_start_pipe_pane (line 448) was opened with `pipe-pane -o -t <old_pane_id>`. Pipe-pane survives ONLY if the pane survives. After respawn, a NEW pane_id is used and maybe_start_pipe_pane fires again pointing the same `/tmp/aiur-debug/slot-N-attach.log` file. There is no rotation. dump_pipe_tail (line 478) reads the entire file with File.read! and splits by newline. On a long-running aiur with debug enabled and frequent pane deaths, this file is unbounded.",
+        "Outcome: in a session that experiences N pane deaths (e.g. opencode-serve restart loop), dump_pipe_tail loads MB-to-GB of log data into BEAM memory on each death, splits it into a list of strings (massive heap allocation), then keeps the last 60. Memory pressure cascades; in extreme cases the BEAM OOMs from a debug-only feature.",
+        "Concurrent rapid open-close: if the user opens and closes a pane every few seconds, each open spawns a new attach pane with pipe-pane appending to the same log. The file grows linearly in real time — even when no pane death occurs — and only dump_pipe_tail reads it. As long as no death fires, no memory blow. But a single death after hours of normal use triggers the full read."
+      ],
+      "remediation": "Two issues, two fixes: (1) Add a periodic Tmux.command(\"ping\")-equivalent in HiddenWindow that demotes status to :failed when tmux is unreachable, and add a backoff-retry loop in Slot for :failed → :booting transitions. (2) For the pipe-pane log: either truncate the file on every maybe_start_pipe_pane invocation, or change dump_pipe_tail to use `Path.expand` + `:file.position` + `:file.read` to read only the last ~64 KB instead of `File.read!` on the whole file."
+    },
+    {
+      "title": "Symlink/path-injection in /tmp/aiur-debug pipe-pane log (debug-mode only, local-other-user attacker)",
+      "category": "abuse",
+      "severity": "medium",
+      "confidence": 70,
+      "autofix_class": "advisory",
+      "owner": "human",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line": 448,
+      "evidence": [
+        "Trigger: AIUR_DEBUG=1 is set. The user (or any other local UID with write access to /tmp) can predict the path `/tmp/aiur-debug/slot-1-attach.log` (slot.ex line 469) before aiur boots.",
+        "Step 1: attacker runs `mkdir -p /tmp/aiur-debug; ln -s /home/victim/.ssh/authorized_keys /tmp/aiur-debug/slot-1-attach.log` BEFORE the victim launches aiur with AIUR_DEBUG=1.",
+        "Step 2: victim launches aiur. maybe_start_pipe_pane (line 448-461) runs File.mkdir_p(Path.dirname(path)) — no-op because /tmp/aiur-debug exists. No mode check, no chown, no `O_NOFOLLOW` equivalent.",
+        "Step 3: Tmux.command(Tmux, \"pipe-pane -o -t #{pane_id} \\\"cat >> #{path}\\\"\") spawns a shell inside tmux that does `cat >> /tmp/aiur-debug/slot-1-attach.log`. The shell's `>>` follows the symlink and appends tmux's captured bytes to the target file. authorized_keys gets prepended with whatever opencode-attach prints (mostly ANSI escapes and TUI rendering, but on some terminal types this could include arbitrary content).",
+        "Step 4: even without symlink to authorized_keys: the attacker pre-creates /tmp/aiur-debug/slot-1-attach.log as a regular file with mode 0666 and reads it back. Every byte tmux writes to the attached opencode-attach pane is now world-readable. This includes the user's typed-in chat content, the opencode TUI's rendering of provider API responses, and potentially API keys if any tooling prints them.",
+        "Step 5 (escalation): the bearer tokens in TokenRegistry are echoed into opencode-serve's stdout on startup (Aiur.Opencode.Server typically logs the auth header for debugging). If pipe-pane captures that — tokens leak to the attacker.",
+        "Outcome: information disclosure of user chat content and possibly bearer tokens; arbitrary file content corruption via symlink. Local-only, gated on debug mode, but environment-attacker is the stated threat model.",
+        "Note also: the `cat >> path` shell command is constructed via string interpolation in slot.ex line 456. `pane_id` comes from Tmux.split_pane (server-controlled, low risk) and `path` is hardcoded — no user-supplied input to attack the command construction itself. The vulnerability is purely the well-known-path + world-writable /tmp."
+      ],
+      "remediation": "Use `Path.join([System.tmp_dir!(), \"aiur-debug-#{System.get_env(\"USER\") || \"x\"}-#{Boot.pid()}\"])` — a per-user, per-pid directory that the BEAM creates with `File.mkdir_p` followed by `File.chmod(0o700)`. Refuse to start pipe-pane if the directory already exists and is not owned by the current uid, or if the target file is a symlink (`File.lstat` + check type before opening)."
+    },
+    {
+      "title": "Ghost session in shared SQLite on Slot.terminate without graceful API delete",
+      "category": "cascade",
+      "severity": "medium",
+      "confidence": 75,
+      "autofix_class": "advisory",
+      "owner": "human",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line": 724,
+      "evidence": [
+        "Trigger: a Slot GenServer crashes (e.g. MatchError in some new code path) or is force-stopped without graceful Aiur.Shutdown. Slot.terminate (line 724-729) runs: it deletes the slot's TokenRegistry entry and stops the opencode-serve process, but does NOT walk the SessionWriters for this slot's base_url to issue DELETE /session.",
+        "Step 1: the slot's opencode-serve dies. Its base_url is no longer reachable.",
+        "Step 2: SessionWriter processes that registered with this base_url (one per attached identifier) are still alive in SessionSupervisor — they are NOT linked to the Slot process. session_writer.ex line 60 `Process.flag(:trap_exit, true)` but the writer is started by SessionSupervisor (a DynamicSupervisor), not by the slot, so the slot's crash doesn't propagate.",
+        "Step 3: when aiur replaces the slot (if there's any restart path) OR on next boot, the new opencode-serve has a DIFFERENT base_url. SessionWriterRegistry.ensure(identifier, new_base_url) sees `:not_found` (the only matching writer is bound to the old base_url) and creates a NEW session. Now there are TWO writers in the registry for the same identifier, two session rows in the shared SQLite DB at `~/.local/share/opencode/opencode.db`.",
+        "Step 4: Aiur.Shutdown.shutdown/2 walks `SessionWriterRegistry.all/0` (session_writer_registry.ex line 95) and tries to drain_entry for both — the orphaned one's base_url no longer has a serve listening, so ApiClient.delete_session returns an error. drain_entry swallows the error (line 132-135). The SQLite row for the orphaned session is never deleted.",
+        "Step 5: across multiple aiur runs with periodic slot crashes, opencode.db accumulates session rows that no live aiur run will ever clean up. SessionGC.run/1 (slot.ex line 494) is called on slot 1 boot, but it only cleans sessions FOR THE base_url of the CURRENT run — it has no knowledge of orphan sessions from previous runs against different (now-dead) base_urls.",
+        "Step 6: opencode reads `~/.local/share/opencode/opencode.db` on session listing — if it ever surfaces a 'recent sessions' view, the orphaned ones show up. More concretely: if user uses opencode-cli directly outside aiur, those orphan sessions are visible.",
+        "The FOREIGN KEY constraint violation mentioned in the bug report happens because messages can be inserted referencing the orphan session_id; if the session is then deleted by another path, parts/messages dangle and trigger FK errors on subsequent inserts."
+      ],
+      "remediation": "Slot.terminate should enumerate `SessionWriterRegistry.all/0`, filter for writers whose base_url matches this slot's base_url, and call ApiClient.delete_session against THAT base_url (which is dying — fine, opencode-serve handles the request on its way out). Or have SessionWriter link to the Slot that ensured it and self-terminate (plus DELETE) on slot death."
+    },
+    {
+      "title": "lookup/1 with duplicate-key registry returns non-deterministic writer; under (identifier, base_url1) and (identifier, base_url2) co-existence, replay correctness depends on Registry's internal ordering",
+      "category": "assumption",
+      "severity": "medium",
+      "confidence": 75,
+      "autofix_class": "advisory",
+      "owner": "human",
+      "file": "elixir/lib/aiur/opencode/session_writer_registry.ex",
+      "line": 70,
+      "evidence": [
+        "session_writer_registry.ex line 70-80 (`lookup(identifier)` single-arg) iterates `Registry.lookup(@registry, identifier)` with Enum.find_value and returns the FIRST writer for which Process.alive? returns true.",
+        "Assumption violated: Registry.lookup ordering over duplicate keys is documented to be undefined. With two slots each having registered (identifier, base_url_slot1) and (identifier, base_url_slot2), the order in which lookup/1 returns them can vary across BEAM versions, across registry partitions, and even within a single run after registry rebalancing.",
+        "Consequence: when chat_completions.resolve_session_for_replay falls back to lookup/1 (chat_completions.ex line 289), it can return slot_1's writer OR slot_2's writer on different requests for the same identifier. With shared SQLite DB but PER-SLOT session_ids, the message_id from a replay only resolves under ONE of those session_ids (the slot that actually wrote it). 50% of requests landing in the fallback would mis-resolve.",
+        "Compounded by the orphan-writer issue (separate finding): if a stale writer from a dead slot's base_url is still alive (because SessionSupervisor restarted it as :transient — `:transient` actually does NOT restart on normal exit, only on abnormal — but if SessionWriter crashed via SQLite error, it does restart with same opts and re-registers), lookup/1 might return the orphan first.",
+        "The fast-path (lookup/2 with base_url) is correct. The fallback is the leaky abstraction: 'any writer for identifier' is only safe when there's exactly one writer per identifier, which is the pre-fix world. Post-fix, there are deliberately multiple writers per identifier — but lookup/1 still assumes singleton."
+      ],
+      "remediation": "Either remove lookup/1 entirely (force every caller to know the base_url) or change its semantics to require unambiguity: return :ambiguous when multiple alive writers exist, forcing the caller to use lookup/2."
+    },
+    {
+      "title": "Stale documentation in slot.ex @doc and pane_manager comments still claims /tui/select-session is used for swaps — invites reversion",
+      "category": "composition",
+      "severity": "low",
+      "confidence": 95,
+      "autofix_class": "manual",
+      "owner": "downstream-resolver",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line": 31,
+      "evidence": [
+        "slot.ex line 29-32 (module @moduledoc): 'set_visible/2 — display an identifier's session in the slot's attach pane. Respawns with --session <id> on first call, then uses /tui/select-session for subsequent swaps.' — but the actual implementation in do_set_visible_call (line 884-893) and do_select → select_with_respawn ALWAYS respawns. Documentation says one thing, code does another.",
+        "slot.ex line 220-225 (set_visible @doc): 'First visible call OR different identifier than currently visible: kills the existing attach pane (if any) and respawns... If the slot is already visible-bound to identifier: no-op returning the existing pane_id.' — this part is correct, but @doc on line 31 contradicts it.",
+        "pane_manager.ex line 1206-1208: 'Slot.set_visible may reuse the existing pane in-place via /tui/select-session (no respawn) when the pane is already painted on a conversation.' — false. Slot never calls /tui/select-session anymore.",
+        "pane_manager.ex line 1139-1144: 'common after an in-place /tui/select-session swap on a pane the user already had open. Treat as success...' — references a code path that no longer exists.",
+        "Risk: a future engineer reading these comments will believe the in-place swap path exists and reintroduce it via direct ApiClient.select_session call (defeating the fix). The regression test only guards slot.ex source text. Combined with finding #1 (ApiClient.select_session still exported), this is the precondition for an undetected revert."
+      ],
+      "remediation": "Update slot.ex line 31, pane_manager.ex lines 1140 and 1206-1208 to say 'kill+respawn' (no /tui/select-session). Add a CHANGELOG note about the upstream limitation."
+    }
+  ],
+  "residual_risks": [
+    "tmux server-side restart recovery: nothing in the diff handles the case where the tmux server process itself restarts mid-session. HiddenWindow.status caches its readiness check; Slot polls via display-message but transitions to :failed terminal state after 3 misses with no retry. Manual recovery requires aiur restart.",
+    "Shared SQLite DB at ~/.local/share/opencode/opencode.db is treated as authoritative state across slots, but aiur has no locking discipline beyond opencode's own busy_timeout. Two slots concurrently calling create_session for different identifiers is safe (different rows). Two aiur processes running at the same time against the same user account would corrupt each other's SessionWriterRegistry view (separate BEAMs, separate registries, same DB). Not in scope of this diff, but compounds with the orphan-session cascade.",
+    "AttachPool's `in_flight` MapSet (attach_pool.ex line 408) prevents duplicate Slot.attach during fan-out, but is only cleared on `{:attach_task_done, ...}` (sent from inside Task.start). If the Task crashes before sending the done message (uncaught throw inside Slot.attach call, BEAM scheduler issue), the entry is wedged in in_flight forever, blocking future re-attaches for that (slot, identifier) pair until AttachPool restarts.",
+    "Bearer token rotation under Slot.generation bump (slot.ex line 70 token field, terminate line 726 TokenRegistry.delete): the rebuild path in handle_continue(:start_serve) calls WorkspaceSetup.materialize_slot which mints a new token. Old token is delete_stale'd 'only after the new attach is ready' per @moduledoc line 51, but the actual delete_stale call site wasn't grep'd in this review and may have an order-of-operations bug that mirrors the bridge-token race described in finding #2."
+  ],
+  "testing_gaps": [
+    "No regression test asserts ApiClient.select_session has zero non-test callers across the entire elixir/lib tree. The current test (enter_opens_new_pane_test.exs line 68-71) only reads slot.ex source — any other module re-introducing the call would pass CI.",
+    "No regression test covers resolve_session_for_replay's fallback branch (chat_completions.ex line 289). The fast-path is implicitly tested by chat_pane_loads_session_test.exs but the fallback's wrong-session-id outcome isn't asserted in any direction.",
+    "No regression test for AttachPool.consume(exclude_visible: true) under concurrent Slot.set_visible broadcasts. The TOCTOU window between consume's filter and Slot.set_visible's broadcast is unverified.",
+    "No regression test for SessionWriterRegistry behavior when multiple writers register for the same identifier with different base_urls (the duplicate-key case). lookup/1's non-determinism is not asserted in any test — testing that 'lookup/1 returns SOME alive writer' is fine, but testing that 'lookup/1 must NOT return an arbitrary writer when ambiguity exists' is missing.",
+    "No test for Slot behavior when tmux server is unreachable mid-poll (3 consecutive failures + spawn_attach failure path → :failed terminal state). The fix changed the poll logic from 'tear down on first miss' to '3-miss debounce' but didn't add a test for what happens after the 3rd miss when the tmux server itself is dead.",
+    "No test verifies pipe-pane log file growth bounds or symlink resistance. Pure debug-mode feature, but it touches /tmp at a well-known path; one test asserting File.lstat type != :symlink before opening would close the symlink attack."
+  ]
+}

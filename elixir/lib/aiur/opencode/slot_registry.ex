@@ -26,16 +26,71 @@ defmodule Aiur.Opencode.SlotRegistry do
 
   @doc """
   Slot worker calls this from its `init/1` to register its pid against
-  its slot index. Returns `:ok` on success, `{:error, :already_registered}`
-  if a slot worker for the same index is already alive (shouldn't happen —
+  its slot index. The registry value is a map tracking the slot's
+  currently visible identifier and pane id — lock-free for any reader
+  via `find_visible/1` and `pane_state/1`, so the warm-open hot path
+  never has to wait on Slot's GenServer mailbox.
+
+  Returns `:ok` on success, `{:error, :already_registered}` if a slot
+  worker for the same index is already alive (shouldn't happen —
   SlotSupervisor never starts two children with the same slot index).
   """
   @spec register_self(slot_index()) :: :ok | {:error, :already_registered}
   def register_self(slot_index) when is_integer(slot_index) and slot_index > 0 do
-    case Registry.register(@registry, slot_index, nil) do
+    case Registry.register(@registry, slot_index, %{visible_identifier: nil, pane_id: nil}) do
       {:ok, _} -> :ok
       {:error, {:already_registered, _pid}} -> {:error, :already_registered}
     end
+  end
+
+  @doc """
+  Slot worker calls this whenever its visible identifier or pane id
+  changes. Must run from inside the slot's own process — Registry
+  enforces this. Lock-free ETS write.
+  """
+  @spec update_pane_state(slot_index(), String.t() | nil, String.t() | nil) :: :ok
+  def update_pane_state(slot_index, visible_identifier, pane_id)
+      when is_integer(slot_index) and slot_index > 0 do
+    Registry.update_value(@registry, slot_index, fn _ ->
+      %{visible_identifier: visible_identifier, pane_id: pane_id}
+    end)
+
+    :ok
+  end
+
+  @doc """
+  Read the cached `%{visible_identifier, pane_id}` for `slot_index`.
+  Lock-free ETS read — does NOT call into the slot worker.
+  """
+  @spec pane_state(slot_index()) ::
+          {:ok, %{visible_identifier: String.t() | nil, pane_id: String.t() | nil}}
+          | :not_found
+  def pane_state(slot_index) when is_integer(slot_index) and slot_index > 0 do
+    case Registry.lookup(@registry, slot_index) do
+      [{_pid, value}] when is_map(value) -> {:ok, value}
+      _ -> :not_found
+    end
+  end
+
+  @doc """
+  Inverse lookup: find the (slot_index, pane_id) where the slot is
+  currently visible for `identifier`. Returns `:not_found` when no
+  slot has it painted as its current visible identifier. Lock-free
+  ETS scan over the (small) slot set.
+  """
+  @spec find_visible(String.t()) ::
+          {:ok, slot_index(), String.t()} | :not_found
+  def find_visible(identifier) when is_binary(identifier) do
+    @registry
+    |> Registry.select([{{:"$1", :_, :"$3"}, [], [{{:"$1", :"$3"}}]}])
+    |> Enum.find_value(:not_found, fn
+      {slot_index, %{visible_identifier: ^identifier, pane_id: pane_id}}
+      when is_binary(pane_id) ->
+        {:ok, slot_index, pane_id}
+
+      _ ->
+        nil
+    end)
   end
 
   @doc """

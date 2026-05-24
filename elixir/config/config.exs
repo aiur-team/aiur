@@ -22,4 +22,8 @@ if config_env() == :test do
   config :aiur, :server_port_override, 0
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"
   config :aiur, :opencode_bridge_port_override, 0
+
+  config :aiur,
+         :workflow_file_path,
+         Path.expand("../local-workflows/WORKFLOW.aiur.local.md", __DIR__)
 end

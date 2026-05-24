@@ -1,17 +1,25 @@
 defmodule Aiur.Opencode.SlotPolicy do
   @moduledoc """
-  Chain pre-warm orchestrator.
+  Parallel pre-warm orchestrator.
 
-  Subscribes to `Aiur.PubSub` topic `Aiur.Opencode.Slot.slots_topic/0`.
-  At init, asks `SlotSupervisor` to start slot 1. On every
-  `{:slot_ready, n}` broadcast it asks the supervisor to start slot N+1,
-  up to `target_count` (default `(2 * max_vertical_panes) - 1`).
+  Starts every slot up to `target_count` concurrently at boot. With
+  lazy expansion (one slot per user open), only one slot was warm when
+  the user pressed Enter on the second/third agent — the open then
+  paid a 5-7 s respawn because the matching leadoff slot wasn't ready
+  yet. Parallel boot front-loads that cost into application startup so
+  every ⚪ open is instant.
 
-  Net effect: the user gets sub-100 ms opens for every slot they reach,
-  because by the time they get there the slot is already warm.
+  Subscribes to `Aiur.Opencode.Slot.slots_topic/0`. On
+  `{:slot_ready, target_count}` emits a `:slot_chain_complete` perf
+  event for telemetry.
 
-  Idempotent: receiving the same `{:slot_ready, n}` twice does not
-  start N+1 twice. Tracks "highest slot started" in state.
+  ## Public API
+
+    * `bump/0` — kept for backward compatibility with PaneManager's
+      post-open call site. Now a no-op since every slot is already
+      starting at boot.
+    * `highest_started/0` — index of the highest slot started so far.
+    * `target_count/0` — upper bound on slots.
   """
 
   use GenServer
@@ -25,6 +33,48 @@ defmodule Aiur.Opencode.SlotPolicy do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  @doc """
+  Start the next opencode slot in sequence (lazy expansion).
+
+  Returns `:ok` regardless of whether a new slot actually started:
+  callers should not block on the response. Use `SlotSupervisor` /
+  `SlotRegistry` to introspect actual slot state.
+
+  Idempotent and safe to call from concurrent contexts — the policy
+  serializes bump decisions in its own mailbox.
+  """
+  @spec bump() :: :ok
+  @spec bump(GenServer.server()) :: :ok
+  def bump(server \\ __MODULE__) do
+    GenServer.cast(server, :bump)
+  catch
+    :exit, _ -> :ok
+  end
+
+  @doc """
+  Return the highest slot index started by this policy.
+
+  Used by `PaneManager` to decide whether to call `bump/0` after a
+  successful pane open (don't bump past `target_count`; don't bump
+  while a previous bump is still in flight).
+  """
+  @spec highest_started() :: non_neg_integer()
+  @spec highest_started(GenServer.server()) :: non_neg_integer()
+  def highest_started(server \\ __MODULE__) do
+    GenServer.call(server, :highest_started, 1_000)
+  catch
+    :exit, _ -> 0
+  end
+
+  @doc "Upper bound on slots this policy will start."
+  @spec target_count() :: non_neg_integer()
+  @spec target_count(GenServer.server()) :: non_neg_integer()
+  def target_count(server \\ __MODULE__) do
+    GenServer.call(server, :target_count, 1_000)
+  catch
+    :exit, _ -> 0
+  end
+
   @impl true
   def init(opts) do
     target_count =
@@ -32,56 +82,58 @@ defmodule Aiur.Opencode.SlotPolicy do
         default_target_count()
       end)
 
-    Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count}")
+    Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} mode=parallel")
 
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
 
-    # Kick the chain off immediately.
-    send(self(), :start_first_slot)
+    send(self(), :start_all_slots)
 
     {:ok, %__MODULE__{target_count: target_count, highest_started: 0}}
   end
 
   @impl true
-  def handle_info(:start_first_slot, %{target_count: 0} = state) do
+  def handle_info(:start_all_slots, %{target_count: 0} = state) do
     Logger.info("opencode_slot_policy phase=chain_skipped target_count=0")
     {:noreply, state}
   end
 
-  def handle_info(:start_first_slot, %{target_count: target} = state) do
-    # Spawn ALL slots in parallel instead of waiting for slot N to be
-    # :ready before starting slot N+1. Each slot's pre-warm is
-    # independent (different ports, different workspaces); serial
-    # chaining was costing ~5 s per additional slot for no reason.
-    #
-    # Wall time was: 5 slots * ~6 s each = ~30 s for the chain.
-    # New wall time: ~7 s (one opencode-serve startup, in parallel).
-    Aiur.Perf.event(:slot_chain_parallel_start, target_count: target)
+  def handle_info(:start_all_slots, %{target_count: target} = state) do
+    Aiur.Perf.event(:slot_policy_start_first, target_count: target)
 
-    Logger.info("opencode_slot_policy phase=chain_start_parallel elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target}")
+    Logger.info(
+      "opencode_slot_policy phase=parallel_boot_start elapsed_ms=#{Boot.elapsed_ms()} target=#{target}"
+    )
 
-    started =
-      Enum.reduce(1..target, 0, fn slot_index, acc ->
+    highest =
+      1..target
+      |> Enum.reduce(0, fn slot_index, acc ->
         case SlotSupervisor.start_slot(slot_index) do
           {:ok, _pid} ->
-            acc + 1
+            Phoenix.PubSub.broadcast(
+              Aiur.PubSub,
+              Slot.slots_topic(),
+              {:slot_starting, slot_index}
+            )
+
+            max(acc, slot_index)
 
           {:error, reason} ->
-            Logger.warning("opencode_slot_policy phase=chain_start_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}")
+            Logger.warning(
+              "opencode_slot_policy phase=parallel_boot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}"
+            )
 
             acc
         end
       end)
 
-    Logger.info("opencode_slot_policy phase=chain_started elapsed_ms=#{Boot.elapsed_ms()} started=#{started} target=#{target}")
+    Logger.info(
+      "opencode_slot_policy phase=parallel_boot_dispatched elapsed_ms=#{Boot.elapsed_ms()} highest=#{highest}"
+    )
 
-    {:noreply, %{state | highest_started: target}}
+    {:noreply, %{state | highest_started: highest}}
   end
 
-  def handle_info(
-        {:slot_ready, n},
-        %{target_count: target, highest_started: highest} = state
-      )
+  def handle_info({:slot_ready, n}, %{target_count: target} = state)
       when n >= target do
     if n == target do
       Logger.info("opencode_slot_policy phase=chain_complete elapsed_ms=#{Boot.elapsed_ms()} slots=#{target}")
@@ -89,24 +141,63 @@ defmodule Aiur.Opencode.SlotPolicy do
       Aiur.Perf.event(:slot_chain_complete, slots: target)
     end
 
-    _ = highest
     {:noreply, state}
   end
 
   def handle_info({:slot_ready, _n}, state) do
-    # In parallel mode, every slot was started up-front so no further
-    # advance work is needed when one becomes ready. The :chain_complete
-    # event fires when the last (== target_count) slot reports ready.
     {:noreply, state}
   end
 
-  def handle_info({:slot_session_changed, _slot_index, _identifier}, state), do: {:noreply, state}
+  # Old PubSub event names from U1 / pre-U3 — keep no-op handlers so we
+  # don't crash when subscribers from other modules emit.
+  def handle_info({:slot_session_changed, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_attach_added, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_attach_removed, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_visible_changed, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
   def handle_info(_msg, state), do: {:noreply, state}
 
+  # All slots are dispatched at boot now, so bump has no work to do.
+  # Kept as a no-op so existing call sites in PaneManager continue to
+  # compile without conditionals.
+  @impl true
+  def handle_cast(:bump, state) do
+    Aiur.Perf.event(:slot_policy_bump_noop,
+      reason: :parallel_boot,
+      highest_started: state.highest_started,
+      target: state.target_count
+    )
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_call(:highest_started, _from, state) do
+    {:reply, state.highest_started, state}
+  end
+
+  def handle_call(:target_count, _from, state) do
+    {:reply, state.target_count, state}
+  end
+
+  # Pre-warm slot count is governed by the new `pre_warmed_sessions`
+  # WORKFLOW setting (default 3). Capped at `max_concurrent_agents`
+  # because spawning more pre-warm slots than the orchestrator will
+  # ever fill with active agents wastes opencode-serve processes.
+  # `pre_warmed_sessions = 0` is valid: no slots boot, every open
+  # goes through the cold placeholder path.
   defp default_target_count do
-    max_vertical_panes = Aiur.Config.max_vertical_panes()
-    max_vertical_panes * 2 - 1
+    pre_warmed = Aiur.Config.pre_warmed_sessions()
+    max_agents = Aiur.Config.max_concurrent_agents()
+    min(pre_warmed, max_agents)
   rescue
-    _ -> 5
+    _ -> 3
   end
 end

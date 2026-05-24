@@ -30,6 +30,7 @@ aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 # `--host 127.0.0.1` so a default `aiur` run binds locally only.
 expose_host=0
 debug_mode=0
+clear_mode=0
 logs_mode=0
 fresh_mode=0
 log_issue_id=""
@@ -57,6 +58,9 @@ for arg in "$@"; do
     --debug)
       debug_mode=1
       ;;
+    --clear)
+      clear_mode=1
+      ;;
     --logs)
       logs_mode=1
       ;;
@@ -80,6 +84,11 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
+  echo "aiur: --clear requires --debug (e.g. \`aiur --debug --clear\`)" >&2
+  exit 64
+fi
 
 if [ "$expect_port_value" -eq 1 ]; then
   echo "aiur: --port requires a port number (e.g. --port 4099)" >&2
@@ -144,6 +153,12 @@ With stop, stop a profile, every profile, or ad hoc foreground Aiur processes.
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
                        Tail logs in another terminal: `aiur --logs`.
+  --clear              delete previous aiur*.log files before starting.
+                       Also reaps accumulated BEAM hot-load /tmp/.*.so
+                       and /tmp/aiur-debug pipe-pane captures (only when
+                       no other aiur BEAM is running) so /tmp doesn't
+                       fill up across many debug runs.
+                       Must be combined with --debug.
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
                        Useful in a separate terminal alongside `aiur --debug`.
@@ -510,7 +525,13 @@ build_aiur() {
   # (e.g. exqlite/priv/sqlite3_nif.so) load correctly — escript zips
   # cannot host NIFs. The post-assemble step in mix.exs writes a thin
   # shim at bin/aiur that delegates into the release.
-  (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) >&2
+  #
+  # Filter mix release's chatty informational lines (assembling, "To
+  # start your system…", "Release created at…") so the user sees a
+  # clean foreground startup. Errors and warnings still flow through.
+  (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) 2>&1 |
+    grep -v -E "^(\* assembling|\* skipping runtime|Generated aiur app|Release created at|    _build|    # |Once the release is running:|To list all commands:|$)" >&2 ||
+    true
 }
 
 source_env_files() {
@@ -1123,6 +1144,37 @@ run_in_tmux() {
   fi
 
   if [ "$debug_mode" -eq 1 ]; then
+    if [ "$clear_mode" -eq 1 ]; then
+      local log_dir
+      log_dir="$(dirname "$log_path")"
+      if [ -d "$log_dir" ]; then
+        find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
+        echo "aiur: cleared previous logs in $log_dir" >&2
+      fi
+
+      # Reap BEAM hot-load shared libraries and debug pipe-pane captures.
+      # Each aiur run writes ~8 MB of `.so` files into /tmp that the BEAM
+      # never cleans up; 1900+ of them accumulated to 15 GB on one box,
+      # bricking the next `mix release` with "no space left on device".
+      # Pipe-pane captures (per-slot stderr logs) add ~60 MB per run.
+      # Only safe when no BEAM is running — by this point in the script
+      # we have already killed any prior aiur tmux session above, so the
+      # only beams that could be holding open handles are unrelated.
+      if ! pgrep -f "rel/aiur/erts.*beam.smp" >/dev/null 2>&1; then
+        local stale_so_count
+        stale_so_count=$(find /tmp -maxdepth 1 -name ".*.so" -user "${USER:-$(id -un)}" 2>/dev/null | wc -l)
+        if [ "$stale_so_count" -gt 0 ]; then
+          find /tmp -maxdepth 1 -name ".*.so" -user "${USER:-$(id -un)}" -delete 2>/dev/null || true
+          find /tmp -maxdepth 1 -name ".*.node" -user "${USER:-$(id -un)}" -delete 2>/dev/null || true
+          echo "aiur: reaped $stale_so_count stale BEAM hot-load files in /tmp" >&2
+        fi
+
+        if [ -d /tmp/aiur-debug ]; then
+          rm -rf /tmp/aiur-debug 2>/dev/null || true
+          echo "aiur: cleared /tmp/aiur-debug pipe-pane captures" >&2
+        fi
+      fi
+    fi
     echo "aiur: debug logging enabled" >&2
     echo "aiur: tail logs with -> tail -F $log_path" >&2
     echo "aiur: tmux socket=$socket conf=$conf" >&2

@@ -70,6 +70,8 @@ defmodule Aiur.Opencode.HiddenWindow do
   def handle_continue(:create_window, state) do
     case Tmux.new_hidden_window(state.window_name, @keep_alive_cmd) do
       {:ok, pane_id} ->
+        size_to_visible_geometry(state.window_name)
+
         Logger.info("opencode_hidden_window phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} window=#{state.window_name} keep_alive_pane=#{pane_id}")
 
         {:noreply, %{state | status: :ready, keep_alive_pane_id: pane_id}}
@@ -79,6 +81,60 @@ defmodule Aiur.Opencode.HiddenWindow do
 
         {:noreply, %{state | status: :failed}}
     end
+  end
+
+  # Pre-size the hidden window so each slot's attach pane lands at the
+  # SAME geometry it will eventually have in window 0 once the user
+  # opens it. Avoids the SIGWINCH that triggers opencode-attach's
+  # ~7 s splash animation on every move-pane resize (observed: pane
+  # appears in 64 ms but opencode TUI takes 7 s to repaint because the
+  # hidden pane was 600 cols wide and the visible split is 67-100 cols).
+  #
+  # Target = first-chat geometry: agent_list + 1 chat = 50/50 split of
+  # window 0. Hidden window width = chat_pane_width × slot_count so each
+  # hidden pane = chat_pane_width once even-horizontal splits them.
+  defp size_to_visible_geometry(window_name) do
+    with {:ok, [dims_str | _]} <-
+           Tmux.command(
+             Tmux,
+             "display-message -p -t aiur-orangekid-default:0 \#{window_width} \#{window_height}"
+           ),
+         [w_str, h_str] <- String.split(String.trim(dims_str), " ", trim: true),
+         {term_w, ""} <- Integer.parse(w_str),
+         {term_h, ""} <- Integer.parse(h_str) do
+      slot_count = safe_slot_count()
+      chat_pane_width = max(div(term_w, 2), 40)
+      hidden_window_w = chat_pane_width * slot_count
+
+      _ =
+        Tmux.command(
+          Tmux,
+          "resize-window -t aiur-orangekid-default:#{window_name} -x #{hidden_window_w} -y #{term_h}"
+        )
+
+      Aiur.Perf.event(:hidden_window_resized,
+        terminal_w: term_w,
+        terminal_h: term_h,
+        chat_pane_width: chat_pane_width,
+        hidden_window_w: hidden_window_w,
+        slot_count: slot_count
+      )
+    else
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
+
+  defp safe_slot_count do
+    pre_warmed = Aiur.Config.pre_warmed_sessions()
+    max_agents = Aiur.Config.max_concurrent_agents()
+    max(min(pre_warmed, max_agents), 1)
+  rescue
+    _ -> 3
   end
 
   @impl true

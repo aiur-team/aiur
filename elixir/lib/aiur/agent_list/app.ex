@@ -35,6 +35,7 @@ defmodule Aiur.AgentList.App do
   @dialyzer {:nowarn_function, render: 1}
 
   @refresh_tick_ms 1_000
+  @warmth_event_cap 500
   # Geometry-watch interval. Far faster than the refresh tick so that
   # tmux resizes (caused by another pane opening/closing in the same
   # window) reflow the agent list within a quarter-second — the old
@@ -69,6 +70,14 @@ defmodule Aiur.AgentList.App do
 
   @spec activate(GenServer.server()) :: :ok
   def activate(server \\ __MODULE__), do: GenServer.cast(server, :activate)
+
+  @doc """
+  Open the currently-selected agent in a new chat pane (Shift+Enter
+  semantics). Distinct from `activate/1`, which swaps the session
+  in the last-used pane.
+  """
+  @spec activate_new_pane(GenServer.server()) :: :ok
+  def activate_new_pane(server \\ __MODULE__), do: GenServer.cast(server, :activate_new_pane)
 
   @doc """
   Attach the currently-selected agent to the most-recently-focused chat
@@ -162,17 +171,28 @@ defmodule Aiur.AgentList.App do
         max_concurrent_agents: nil
       },
       debug_mode?: debug_mode?,
-      # Identifiers whose opencode-attach has been pre-warmed by
-      # `Aiur.Opencode.AttachPool` and is sitting in `aiur-hidden`
-      # ready to instant-open. Renderer paints these running rows as
-      # ready so Enter does not fall back to a cold attach.
-      warm_identifiers: MapSet.new(),
-      # Identifiers whose attach is currently being warmed (Slot.select
-      # in flight, opencode-attach booting). Used to suppress the
-      # misleading ● marker — :slot_session_changed fires during
-      # Slot.select, which would otherwise paint ● on a row whose
-      # pane isn't actually visible yet.
-      warming_identifiers: MapSet.new(),
+      # %{identifier => %{attach_count, visible_in}} mirrored from
+      # AttachPool's :attach_state_changed broadcasts. Drives the
+      # 4-state ⏳/🔘/⚪/🟢 marker per row.
+      attach_state: %{},
+      # Slot indexes that have reached :ready (opencode-serve up,
+      # accepting attach calls). One status glyph per entry under the
+      # bottom nav: in-progress when not yet fully warmed, finished
+      # once every active agent is attached.
+      started_slots: MapSet.new(),
+      fully_warmed_slots: MapSet.new(),
+      # Identifiers currently shown in a chat pane (window 0). Populated
+      # by `AgentPubSub.broadcast_status_change(_, :pane_opened)` from
+      # PaneManager, cleared on `:pane_closed`. The renderer uses this
+      # to render 🟢 (truly open in a pane) instead of the prior
+      # behavior of mapping AttachPool's `visible_in` to 🟢 — that
+      # field actually means "slot's leadoff was painted in the hidden
+      # window", which is the ⚪ state from the user's perspective.
+      opened_panes: MapSet.new(),
+      warm_status_dark_mode?: warm_status_dark_mode_default(),
+      # Ring buffer of warmth-related aiur_perf events (debug mode
+      # only). Capped at @warmth_event_cap to avoid unbounded growth.
+      warmth_events: [],
       # Compact 3-row debug-footer state. Each field is `nil` until
       # the corresponding aiur_perf event lands, then holds {wall_ms,
       # at_ms} so the footer can show "agent list ready: 4.0s",
@@ -223,8 +243,21 @@ defmodule Aiur.AgentList.App do
   end
 
   def handle_cast(:activate, state) do
+    # Both Enter and Shift+Enter open the agent in a new pane. The old
+    # swap-in-place path went through `/tui/select-session`, which opencode
+    # 1.15.6 responds to with a 200 but then exits the attach process
+    # seconds later — that was the "pane dies after a few seconds"
+    # bug. Opening a new pane uses pre-warmed slots and is instant.
     if state.selection_focus == :agents do
-      activate_selected_agent(state)
+      activate_selected_agent(state, :new_pane)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:activate_new_pane, state) do
+    if state.selection_focus == :agents do
+      activate_selected_agent(state, :new_pane)
     end
 
     {:noreply, state}
@@ -238,46 +271,96 @@ defmodule Aiur.AgentList.App do
     {:noreply, state}
   end
 
-  defp activate_selected_agent(state) do
+  defp activate_selected_agent(state, mode) do
     case Enum.at(state.summaries, state.selection_index) do
       %{identifier: identifier} = summary ->
-        activate_selected_agent_if_warm(state, identifier, summary)
+        activate_selected_agent_if_warm(state, identifier, summary, mode)
 
       _ ->
         :ok
     end
   end
 
-  defp activate_selected_agent_if_warm(state, identifier, summary) do
-    if warm_identifier?(state, identifier) do
-      open_warm_selected_agent(state, identifier, summary)
-    else
-      Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
+  defp activate_selected_agent_if_warm(state, identifier, summary, mode) do
+    cond do
+      not warm_identifier?(state, identifier) ->
+        Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
+
+      mode == :new_pane and not has_parallel_headroom?(state, identifier) ->
+        Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=no_headroom")
+
+      true ->
+        open_selected_agent(state, identifier, summary, mode)
     end
   end
 
-  defp open_warm_selected_agent(state, identifier, summary) do
-    Logger.info("[user-action] open_conversation identifier=#{identifier} source=agent_list")
-    Aiur.Perf.event(:user_pressed_enter, identifier: identifier, source: :agent_list)
+  defp open_selected_agent(state, identifier, summary, mode) do
+    Logger.info("[user-action] open_conversation identifier=#{identifier} mode=#{mode} source=agent_list")
+
+    Aiur.Perf.event(:user_pressed_enter,
+      identifier: identifier,
+      source: :agent_list,
+      mode: mode
+    )
+
     command = "#{state.command_template} #{identifier}"
     title = Map.get(summary, :title)
     pane_manager = state.pane_manager
 
-    # PaneManager.open_conversation parks the call when no slot is
-    # ready (cold pre-warm) and replies after the queue drains —
-    # up to 60 s. The AgentList GenServer is the keyboard owner;
-    # it must NOT block on this call or any keystroke pressed
-    # during the wait is lost and the process times out + crashes.
-    # Fire-and-forget in a Task instead.
-    Task.start(fn ->
-      PaneManager.open_conversation(pane_manager, identifier, command, title: title)
-    end)
+    Task.start(fn -> do_open(pane_manager, identifier, command, title, mode) end)
+  end
+
+  defp do_open(pane_manager, identifier, command, title, :new_pane) do
+    PaneManager.open_conversation(pane_manager, identifier, command, title: title)
+  end
+
+  defp do_open(pane_manager, identifier, command, title, :swap_in_last_used) do
+    case PaneManager.attach_conversation(pane_manager, identifier, command, title: title) do
+      {:ok, _pane_id} ->
+        :ok
+
+      {:error, :no_focused_pane} ->
+        PaneManager.open_conversation(pane_manager, identifier, command,
+          title: title,
+          timeout: 65_000
+        )
+
+      {:error, _other} ->
+        :ok
+    end
+  end
+
+  # Whether opening `identifier` will land on a free slot. With
+  # deterministic leadoff every active agent has a slot pre-painted in
+  # the hidden window — `visible_in` in attach_state means "leadoff
+  # painted" now, not "in window 0". The real gate is whether the
+  # agent's pane is already open (= in `opened_panes`); if not, the
+  # warm path can move its leadoff pane to visible instantly.
+  defp has_parallel_headroom?(state, identifier) do
+    opened = Map.get(state, :opened_panes, MapSet.new())
+    id_str = to_string(identifier)
+
+    cond do
+      # Already open — let PaneManager focus the existing pane (it
+      # returns :pane_open_already_visible).
+      MapSet.member?(opened, id_str) ->
+        true
+
+      # The agent has at least one slot attached → has a slot the
+      # AttachPool can hand back.
+      true ->
+        case Map.get(state.attach_state, id_str) do
+          %{attach_count: n} when n >= 1 -> true
+          _ -> false
+        end
+    end
   end
 
   defp warm_identifier?(state, identifier) do
-    state
-    |> Map.get(:warm_identifiers, MapSet.new())
-    |> MapSet.member?(identifier)
+    case Map.get(state.attach_state, identifier) do
+      %{attach_count: n} when n > 0 -> true
+      _ -> false
+    end
   end
 
   defp attach_selected_agent(state) do
@@ -362,11 +445,15 @@ defmodule Aiur.AgentList.App do
     new_state = clamp_selection(%{state | summaries: summaries, selection_focus: selection_focus})
 
     # Tell AttachPool which identifiers should have warm opencode-
-    # attach panes ready. Seeding is idempotent — the pool ignores
-    # already-known ids.
+    # attach panes ready. Paused agents (`work_state == :paused`) are
+    # still status=:running per the orchestrator's view — they kept
+    # their slot during pause. Exclude them so AttachPool frees the
+    # slot for newly-queued agents the user starts in their place.
     active_ids =
       summaries
-      |> Enum.filter(fn s -> Map.get(s, :status) == :running end)
+      |> Enum.filter(fn s ->
+        Map.get(s, :status) == :running and not paused_summary?(s)
+      end)
       |> Enum.map(&Map.get(&1, :identifier))
       |> Enum.reject(&is_nil/1)
 
@@ -378,7 +465,22 @@ defmodule Aiur.AgentList.App do
   # The agent-list circle indicator no longer tracks "pane has ever
   # been opened" — it tracks "session is currently visible in some
   # slot", updated via `:slot_session_changed` below. Any other
-  # `:status_changed` event is informational and not rendered.
+  # Track pane open/close so the renderer can show 🟢 only when the
+  # agent's pane is actually visible in window 0 — not just when
+  # AttachPool's `visible_in` is set (which fires at leadoff-paint
+  # time, before the user has opened anything).
+  def handle_info({:status_changed, %{identifier: id, status: :pane_opened}}, state) do
+    new_state = update_in(state.opened_panes, &MapSet.put(&1, to_string(id)))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:status_changed, %{identifier: id, status: :pane_closed}}, state) do
+    new_state = update_in(state.opened_panes, &MapSet.delete(&1, to_string(id)))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
   def handle_info({:status_changed, _}, state), do: {:noreply, state}
 
   def handle_info({:slot_session_changed, slot_index, identifier}, state)
@@ -394,7 +496,21 @@ defmodule Aiur.AgentList.App do
     {:noreply, new_state}
   end
 
-  def handle_info({:slot_ready, _slot_index}, state), do: {:noreply, state}
+  def handle_info({:slot_ready, slot_index}, state) when is_integer(slot_index) do
+    new_state = update_in(state.started_slots, &MapSet.put(&1, slot_index))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:slot_ready, _other}, state), do: {:noreply, state}
+
+  def handle_info({:slot_starting, slot_index}, state) when is_integer(slot_index) do
+    new_state = update_in(state.started_slots, &MapSet.put(&1, slot_index))
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:slot_starting, _other}, state), do: {:noreply, state}
 
   def handle_info({:poll_state_changed, payload}, state) do
     {:noreply, %{state | poll_state: payload}}
@@ -430,50 +546,55 @@ defmodule Aiur.AgentList.App do
     end
   end
 
-  def handle_info({:attach_warming, identifier, _slot_index}, state) do
-    new_state = update_in(state.warming_identifiers, &MapSet.put(&1, identifier))
+  def handle_info({:attach_state_changed, identifier, attach_count, visible_in}, state) do
+    entry = %{attach_count: attach_count, visible_in: visible_in}
+    new_state = put_in(state.attach_state[identifier], entry)
     render(new_state)
     {:noreply, new_state}
   end
 
-  def handle_info({:attach_warm, identifier, _pane_id, _slot_index}, state) do
-    new_state =
-      state
-      |> Map.update!(:warm_identifiers, &MapSet.put(&1, identifier))
-      |> Map.update!(:warming_identifiers, &MapSet.delete(&1, identifier))
-
+  def handle_info({:slot_fully_warmed, slot_index}, state) do
+    new_state = update_in(state.fully_warmed_slots, &MapSet.put(&1, slot_index))
     render(new_state)
     {:noreply, new_state}
   end
 
-  def handle_info({:attach_failed, identifier, _slot_index, _reason}, state) do
-    # AttachPool gave up warming this identifier (typically paint
-    # timeout under CPU contention). Clear the ⏳ warming marker —
-    # without this, the row stays hourglass forever and Enter remains
-    # blocked. The renderer will fall back to the default running
-    # marker; if the identifier still has agent:todo, a future seed
-    # will re-attempt warm.
-    new_state = update_in(state.warming_identifiers, &MapSet.delete(&1, identifier))
+  def handle_info({:slot_warmth_dropped, slot_index}, state) do
+    new_state = update_in(state.fully_warmed_slots, &MapSet.delete(&1, slot_index))
     render(new_state)
     {:noreply, new_state}
   end
 
-  def handle_info({:attach_consumed, identifier, _pane_id, _slot_index}, state) do
-    # Identifier was opened — keep it in `warm_identifiers` so the
-    # status emoji stays green (the row is ready and now also visible).
-    # The renderer composes warm + open: open-pane glyph wins for the
-    # ID gap, and the status emoji stays at the warm marker (🟢) rather
-    # than regressing to the warming fallback (⏳). Without this, opening
-    # any chat appears to revert the row to "warming" until the
-    # underlying agent emits a phase event.
-    new_state = update_in(state.warming_identifiers, &MapSet.delete(&1, identifier))
+  def handle_info({:attach_failed, _identifier, _slot_index, _reason}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:attach_consumed, _identifier, _pane_id, _slot_index}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:slot_attach_added, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_attach_removed, _slot_index, _identifier}, state),
+    do: {:noreply, state}
+
+  def handle_info({:slot_visible_changed, slot_index, identifier}, state) do
+    new_visible =
+      case identifier do
+        nil -> Map.delete(state.visible_sessions, slot_index)
+        id when is_binary(id) -> Map.put(state.visible_sessions, slot_index, id)
+      end
+
+    new_state = %{state | visible_sessions: new_visible}
     render(new_state)
     {:noreply, new_state}
   end
 
   def handle_info({:aiur_perf, event}, %{debug_mode?: true} = state) do
     new_summary = update_perf_summary(state.perf_summary, event)
-    new_state = %{state | perf_summary: new_summary}
+    new_warmth = absorb_warmth_event(state.warmth_events, event)
+    new_state = %{state | perf_summary: new_summary, warmth_events: new_warmth}
 
     if new_summary != state.perf_summary do
       render(new_state)
@@ -501,7 +622,33 @@ defmodule Aiur.AgentList.App do
 
   defp update_perf_summary(summary, _event), do: summary
 
+  defp absorb_warmth_event(events, %{
+         phase: phase,
+         meta: meta,
+         at_ms: at_ms
+       })
+       when phase in [
+              :slot_attach_added,
+              :slot_attach_removed,
+              :slot_visible_changed
+            ] do
+    entry = %{
+      phase: phase,
+      at_ms: at_ms,
+      identifier: Map.get(meta, :identifier),
+      slot: Map.get(meta, :slot)
+    }
+
+    [entry | events] |> Enum.take(@warmth_event_cap)
+  end
+
+  defp absorb_warmth_event(events, _other), do: events
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  defp warm_status_dark_mode_default do
+    Application.get_env(:aiur, :warm_status_dark_mode?, true)
+  end
 
   defp safely_seed_attach_pool([]), do: :ok
 
@@ -528,11 +675,13 @@ defmodule Aiur.AgentList.App do
   defp handle_resume_result(state, {:ok, _}), do: state
 
   # Any resume_agent / start_queued failure rings the bell and flashes
-  # the max chip. Previously only :max_concurrent_agents_reached and
-  # :below_active_count surfaced — every other reason (no_running_agent,
-  # not_resumable, dispatch_failed, agent_paused) was swallowed silently,
-  # which is what made the cap feel like it wasn't being applied.
-  defp handle_resume_result(state, {:error, _reason}) do
+  # the max chip. Different error codes have different real causes —
+  # log the specific reason so the user can tell a capacity issue
+  # (:max_concurrent_agents_reached) from a dispatch issue
+  # (:not_resumable, :dispatch_failed, :no_running_agent). The red
+  # flash alone doesn't tell them which.
+  defp handle_resume_result(state, {:error, reason}) do
+    Logger.info("[user-action] resume_failed reason=#{inspect(reason)}")
     ring_bell(state)
     schedule_max_agents_alert_clear()
     %{state | max_agents_alert?: true}
@@ -708,8 +857,15 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:visible_sessions, state.visible_sessions)
       |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
       |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
-      |> Map.put(:warm_identifiers, Map.get(state, :warm_identifiers, MapSet.new()))
-      |> Map.put(:warming_identifiers, Map.get(state, :warming_identifiers, MapSet.new()))
+      |> Map.put(:warmth_events, Map.get(state, :warmth_events, []))
+      |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
+      |> Map.put(:started_slots, Map.get(state, :started_slots, MapSet.new()))
+      |> Map.put(:fully_warmed_slots, Map.get(state, :fully_warmed_slots, MapSet.new()))
+      |> Map.put(:opened_panes, Map.get(state, :opened_panes, MapSet.new()))
+      |> Map.put(
+        :warm_status_dark_mode?,
+        Map.get(state, :warm_status_dark_mode?, true)
+      )
 
     state.write_fun.(Renderer.render(render_state))
     :ok

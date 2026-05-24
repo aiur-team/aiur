@@ -185,11 +185,7 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "⏸️"
   end
 
-  test "working agents render the same green emoji as the conversation pane header" do
-    # Regression: the agent list used to render the tag color (e.g. 🟡
-    # for `agent:todo`) for an actively working agent, while the
-    # conversation pane header showed 🟢 for the same agent. A warmed
-    # working row is green everywhere — independent of the tracker label.
+  test "working agents render the ready marker, not the tag color" do
     summaries = [
       %{
         identifier: "MT-WORK",
@@ -200,36 +196,132 @@ defmodule Aiur.AgentList.RendererTest do
       }
     ]
 
-    out =
-      render(base_state(%{summaries: summaries, warm_identifiers: MapSet.new(["MT-WORK"])}))
+    attached =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}}
+        })
+      )
       |> visible()
 
-    assert out =~ "🟢"
-    refute out =~ "🟡"
+    visible_now =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}},
+          opened_panes: MapSet.new(["MT-WORK"])
+        })
+      )
+      |> visible()
+
+    assert attached =~ "⚪"
+    assert visible_now =~ "🟢"
+    refute attached =~ "🟡"
   end
 
-  test "running working agents transition from warming to ready status" do
+  test "running working agents transition ⏳ → 🔘 → ⚪ → 🟢" do
     summaries = [
       %{
         identifier: "MT-WARM",
         status: :running,
         alert_count: 0,
         work_state: :working
+      },
+      %{
+        identifier: "MT-OPEN",
+        status: :running,
+        alert_count: 0,
+        work_state: :working
       }
     ]
 
-    warming =
-      render(base_state(%{summaries: summaries, warm_identifiers: MapSet.new()}))
+    hourglass =
+      render(base_state(%{summaries: summaries, attach_state: %{}})) |> visible()
+
+    only_attached =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{
+            "MT-WARM" => %{attach_count: 1, visible_in: nil},
+            "MT-OPEN" => %{attach_count: 1, visible_in: 1}
+          },
+          opened_panes: MapSet.new(["MT-OPEN"])
+        })
+      )
       |> visible()
 
-    ready =
-      render(base_state(%{summaries: summaries, warm_identifiers: MapSet.new(["MT-WARM"])}))
+    full_headroom =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{
+            "MT-WARM" => %{attach_count: 1, visible_in: 2},
+            "MT-OPEN" => %{attach_count: 1, visible_in: 1}
+          },
+          opened_panes: MapSet.new(["MT-OPEN"])
+        })
+      )
       |> visible()
 
-    assert warming =~ "⏳"
-    refute warming =~ "🟢"
-    assert ready =~ "🟢"
-    refute ready =~ "⏳"
+    assert hourglass =~ "⏳"
+    refute hourglass =~ "🟢"
+
+    # MT-WARM has a session attached but no leadoff paint yet → 🔘.
+    # MT-OPEN's pane is actually open (opened_panes) → 🟢.
+    assert only_attached =~ "🔘"
+    assert only_attached =~ "🟢"
+
+    # MT-WARM's leadoff slot has painted (visible_in: 2) → ⚪.
+    # MT-OPEN's pane is open in window 0 → 🟢.
+    assert full_headroom =~ "⚪"
+  end
+
+  test "warm status row renders in-progress vs finished glyphs per started slot" do
+    summaries = [
+      %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    none = render(base_state(%{summaries: summaries, warm_status_row?: true})) |> visible()
+
+    # The warm status row is debug-only by default (renders only when
+    # AIUR_DEBUG=1). Explicit `warm_status_row?: true` overrides the
+    # env check so this glyph-rendering test stays deterministic
+    # without mucking with process env.
+    mixed =
+      render(
+        base_state(%{
+          summaries: summaries,
+          warm_status_row?: true,
+          started_slots: MapSet.new([1, 2, 3]),
+          fully_warmed_slots: MapSet.new([1])
+        })
+      )
+      |> visible()
+
+    light =
+      render(
+        base_state(%{
+          summaries: summaries,
+          warm_status_row?: true,
+          started_slots: MapSet.new([1, 2]),
+          fully_warmed_slots: MapSet.new([1]),
+          warm_status_dark_mode?: false
+        })
+      )
+      |> visible()
+
+    refute none =~ "🔲"
+    refute none =~ "⬜️"
+
+    # Dark mode default: slot 1 finished (⬜️), slots 2 and 3 in progress (🔲).
+    assert mixed =~ "⬜️"
+    assert mixed =~ "🔲"
+
+    # Light mode: slot 1 finished (⬛️), slot 2 in progress (🔳).
+    assert light =~ "⬛️"
+    assert light =~ "🔳"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do
@@ -283,36 +375,42 @@ defmodule Aiur.AgentList.RendererTest do
     assert raw =~ ~r/\e\[\d+;1H\e\[J/
   end
 
-  test "renders the open-pane circle next to ids that have a live pane" do
+  test "🟢 marker renders for the identifier whose pane is open in window 0" do
     summaries = [
-      %{identifier: "MT-1", status: :running, alert_count: 0},
-      %{identifier: "MT-2", status: :running, alert_count: 0}
+      %{identifier: "MT-1", status: :running, alert_count: 0, work_state: :working},
+      %{identifier: "MT-2", status: :running, alert_count: 0, work_state: :working}
     ]
 
     out =
       render(
         base_state(%{
           summaries: summaries,
-          visible_sessions: %{1 => "MT-1"}
+          attach_state: %{
+            "MT-1" => %{attach_count: 1, visible_in: 1},
+            "MT-2" => %{attach_count: 1, visible_in: 2}
+          },
+          opened_panes: MapSet.new(["MT-1"])
         })
       )
       |> visible()
 
-    # MT-1 line carries the circle, MT-2 line does not.
     lines = String.split(out, ["\r\n", "\n"])
 
     mt1_line = Enum.find(lines, fn line -> line =~ "MT-1" end)
     mt2_line = Enum.find(lines, fn line -> line =~ "MT-2" end)
 
-    assert mt1_line =~ "●"
-    refute mt2_line =~ "●"
+    # MT-1's pane is open in window 0 → 🟢.
+    # MT-2's leadoff slot has painted but pane isn't open → ⚪, not 🟢.
+    assert mt1_line =~ "🟢"
+    refute mt2_line =~ "🟢"
+    assert mt2_line =~ "⚪"
   end
 
-  test "open-pane circle defaults off when no visible_sessions are passed" do
-    summaries = [%{identifier: "MT-X", status: :running, alert_count: 0}]
+  test "no 🟢 marker when nothing is visible" do
+    summaries = [%{identifier: "MT-X", status: :running, alert_count: 0, work_state: :working}]
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    refute out =~ "●"
+    refute out =~ "🟢"
   end
 
   test "footer shows v layout inline when terminal is wide enough" do

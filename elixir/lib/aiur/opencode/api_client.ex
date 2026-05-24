@@ -39,13 +39,13 @@ defmodule Aiur.Opencode.ApiClient do
   def post_message(base_url, session_id, payload),
     do: request(:post, base_url, "/session/#{session_id}/message", json: payload)
 
-  @spec select_session(String.t(), String.t()) :: :ok | {:error, term()}
-  def select_session(base_url, session_id) when is_binary(session_id) do
-    case request(:post, base_url, "/tui/select-session", json: %{sessionID: session_id}) do
-      {:ok, _} -> :ok
-      error -> error
-    end
-  end
+  # `POST /tui/select-session` was removed: opencode 1.15.6 returns 200
+  # but then exits the attached `opencode attach` process 1.5-25 s later,
+  # killing the user's visible chat pane. The function had only one
+  # caller (Slot.do_select_via_api) which was also removed. Keeping the
+  # endpoint reachable via a public function invited regression — every
+  # in-place session swap should go through the kill+respawn path in
+  # `Slot.do_select` / `Slot.respawn_attach_with_session` instead.
 
   @spec delete_session(String.t(), String.t()) :: :ok | {:error, term()}
   def delete_session(base_url, session_id) when is_binary(session_id) do

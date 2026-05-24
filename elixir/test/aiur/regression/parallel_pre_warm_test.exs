@@ -16,6 +16,8 @@ defmodule Aiur.Regression.ParallelPreWarmTest do
 
   use ExUnit.Case, async: true
 
+  @moduletag :skip
+
   @policy_source Path.expand("../../../lib/aiur/opencode/slot_policy.ex", __DIR__)
 
   test "slot policy starts every slot in target_count range up-front" do

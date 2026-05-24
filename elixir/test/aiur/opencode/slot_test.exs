@@ -36,4 +36,57 @@ defmodule Aiur.Opencode.SlotTest do
       assert :ok = Slot.deselect(dead)
     end
   end
+
+  describe "new lifecycle API against a dead pid" do
+    setup do
+      dead = spawn(fn -> :ok end)
+      Process.sleep(10)
+      refute Process.alive?(dead)
+      {:ok, dead: dead}
+    end
+
+    test "attach/3 returns {:error, :no_slot} on a dead pid", %{dead: dead} do
+      assert {:error, :no_slot} = Slot.attach(dead, "issue-1", 100)
+    end
+
+    test "attach_many/3 returns a list of {:error, :no_slot} for each id", %{dead: dead} do
+      assert [
+               {:error, :no_slot},
+               {:error, :no_slot}
+             ] = Slot.attach_many(dead, ["issue-1", "issue-2"], 100)
+    end
+
+    test "set_visible/3 returns {:error, :no_slot} on a dead pid", %{dead: dead} do
+      assert {:error, :no_slot} = Slot.set_visible(dead, "issue-1", 100)
+    end
+
+    test "clear_visible/1 tolerates a dead pid", %{dead: dead} do
+      assert :ok = Slot.clear_visible(dead)
+    end
+
+    test "detach/2 tolerates a dead pid", %{dead: dead} do
+      assert :ok = Slot.detach(dead, "issue-1")
+    end
+  end
+
+  describe "PubSub event topology" do
+    test "all attach/visible events broadcast on slots_topic/0" do
+      topic = Slot.slots_topic()
+      Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
+
+      # We broadcast directly to assert the topic is the single source
+      # of truth for slot state. Real slots send these via the
+      # internal helpers in slot.ex; here we just confirm a subscriber
+      # on the topic sees each event shape.
+      Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:slot_attach_added, 1, "issue-1"})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:slot_attach_removed, 1, "issue-1"})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:slot_visible_changed, 1, "issue-1"})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:slot_visible_changed, 1, nil})
+
+      assert_receive {:slot_attach_added, 1, "issue-1"}, 500
+      assert_receive {:slot_attach_removed, 1, "issue-1"}, 500
+      assert_receive {:slot_visible_changed, 1, "issue-1"}, 500
+      assert_receive {:slot_visible_changed, 1, nil}, 500
+    end
+  end
 end

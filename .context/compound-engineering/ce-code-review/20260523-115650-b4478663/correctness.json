@@ -1,0 +1,93 @@
+{
+  "reviewer": "correctness",
+  "findings": [
+    {
+      "id": "leadoff-skips-status-active",
+      "title": "maybe_render_leadoff_pane sets visible/active_identifier but leaves status=:ready, no death poll scheduled",
+      "severity": "medium",
+      "confidence": 75,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/slot.ex",
+      "lines": "3791-3840 (defp maybe_render_leadoff_pane) / 540-559 (set_visible fast path)",
+      "description": "When the first identifier is pre-warmed into a slot via Slot.attach, maybe_render_leadoff_pane respawns the attach pane bound to --session, sets state.pane_id, state.visible_identifier, state.visible_session_id AND state.active_identifier / state.active_session_id, but does NOT transition status to :active and does NOT call schedule_poll. The death poll (handle_info(:poll_session, %{status: :active, ...})) is gated on status=:active, so a leadoff pane that later dies silently is never noticed by the slot. When the user opens the chat (set_visible fast path on line 529-530), it returns state.pane_id immediately without transitioning status or scheduling poll either — so the slot continues running with active_identifier set, visible_identifier set, a live-looking pane_id, but status=:ready and no poll_ref. State-machine inconsistency: every other path that produces visible_identifier (do_select / select_with_respawn at line 990, and resume after rebuild at line 1130) sets status=:active and schedule_poll. tmux's pane_died notification routed through PaneManager is the only safety net; the slot's own redundancy is silently disabled on the most common path."
+    },
+    {
+      "id": "ensure-race-orphan-session",
+      "title": "SessionWriterRegistry.ensure/2 races: two concurrent callers for same (identifier, base_url) can each create an opencode session, leaving the second orphaned",
+      "severity": "low",
+      "confidence": 50,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/session_writer_registry.ex",
+      "lines": "32-43",
+      "description": "ensure/2 = lookup → create_session → start_writer with no lock. With the registry switched to :duplicate keys, Registry.register inside SessionWriter.init no longer returns {:error, :already_registered} (duplicate keys always succeed). DynamicSupervisor.start_child ignores the child spec :id field, so both writers will be started. Concretely: two simultaneous calls to ensure(\"issue-42\", base_url_A) will both see :not_found in lookup, both POST /session on base_url_A creating TWO opencode session rows, both spawn writers, both register. The lookup(identifier, base_url) helper (Enum.find_value) returns the first match, leaving the second writer + session orphaned in the registry. The orphan is reaped at shutdown via delete_all, but until then it consumes a SQLite session row and a writer process. Today's callsites are Slot.do_attach_known and Slot.do_select, each from a single GenServer, so the race is mostly cross-slot (different base_urls — safe) or sequential. Becomes reachable if AttachPool starts parallel attach_many or if SlotPolicy lazy-bump triggers a second ensure during a slow first attach."
+    },
+    {
+      "id": "session-writer-ignore-branch-dead",
+      "title": "SessionWriter init's {:error, :already_registered} branch is unreachable with duplicate-key registry",
+      "severity": "low",
+      "confidence": 100,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/session_writer.ex",
+      "lines": "68-86",
+      "description": "Registry.register on a :duplicate-keyed registry NEVER returns {:error, {:already_registered, _}} — that error shape is exclusive to :unique-keyed registries. The init/1 case clause `{:error, {:already_registered, _pid}} -> :ignore` (lines 84-85) is now dead code. Functionally harmless (the success branch always taken) but the dead branch is misleading: if a future refactor flips the registry back to :unique without deleting this clause, the writer would silently ignore identifier collisions instead of erroring."
+    },
+    {
+      "id": "lookup-fallback-wrong-session-id",
+      "title": "chat_completions.resolve_session_for_replay fallback chain returns wrong session_id when caller_base_url fails",
+      "severity": "medium",
+      "confidence": 50,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/chat_completions.ex",
+      "lines": "283-305",
+      "description": "Each per-(identifier, base_url) SessionWriter generates its OWN message_id via Db.msg_id() when writing the SAME transcript event (session_writer.ex line 205). So a given message_id is owned by exactly one (identifier, base_url) writer. When caller_base_url(conn) fails — bearer header missing, token not in TokenRegistry (slot died), slot pid not in SlotRegistry, or Slot.snapshot timeout — the fallback calls SessionWriterRegistry.lookup(identifier) which returns the first matching writer's session_id (Enum.find_value). If that writer is NOT the one that originated the message_id, Db.fetch_message_with_parts(wrong_session_id, message_id) returns nothing and the user sees `**system:** message not found`. Reachable scenarios: opencode-attach in slot N posts to bridge → slot N dies before request handled → token lookup fails → fallback picks slot M's session_id → replay silently fails. Not a crash, but a misleading degradation that mimics data corruption."
+    },
+    {
+      "id": "do-attach-returns-atom-instead-of-session-id",
+      "title": "Slot.do_attach returns {:ok, :attached, state} when identifier already attached but not visible — violates @spec",
+      "severity": "low",
+      "confidence": 100,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/slot.ex",
+      "lines": "3719-3736 (defp do_attach), 3267-3274 (@spec attach/2)",
+      "description": "do_attach's first branch (MapSet.member?(state.attached_identifiers, identifier)) returns {:ok, sid, state} where `sid = state.visible_session_id` (a String) when visible, else the literal atom `:attached`. @spec attach(server, identifier, timeout) :: {:ok, String.t()} | {:error, term()} declares the success payload is a String. Today's only caller (attach_pool.ex line 391) matches {:ok, _session_id} and discards the value, so the atom return doesn't crash anything. But any future caller that pipes the returned session_id into ApiClient or Db helpers — many of which guard with `is_binary` — will silently fall through to error paths. Either return state.visible_session_id || nil, or change the API to {:ok, :already_attached} | {:ok, String.t()} and adjust the spec."
+    },
+    {
+      "id": "broadcast-attach-added-on-idempotent-reattach",
+      "title": "Slot broadcasts :slot_attach_added even when identifier was already attached (no state change)",
+      "severity": "low",
+      "confidence": 75,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/slot.ex",
+      "lines": "511-521 (handle_call({:attach, identifier}, ...))",
+      "description": "The {:attach, identifier} handler unconditionally calls broadcast_attach_added when do_attach returns {:ok, ...}, but do_attach's already-attached branch (3719-3729) returns the state unchanged. Subscribers (AttachPool.do_attach_added) handle this idempotently — MapSet.put is a no-op, broadcast_state_changed re-fires the SAME (identifier, attach_count, visible_in) tuple. AgentList re-renders on every {:attach_state_changed, ...} message. Net effect: redundant render storms when AttachPool drives multiple attach calls per slot, which it does on every seed cycle. Not incorrect output, but wastes CPU at scale and complicates reasoning about event uniqueness."
+    },
+    {
+      "id": "do-seed-sync-call-blocks-attachpool",
+      "title": "AttachPool.do_seed performs synchronous GenServer.call(Slot.detach) inside a cast handler",
+      "severity": "low",
+      "confidence": 75,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/attach_pool.ex",
+      "lines": "2207-2225 (do_seed removed loop)",
+      "description": "Inside handle_cast({:seed, identifiers}, ...) → do_seed, the `removed` reduce calls Slot.detach(pid, id) for every slot the identifier was attached to. Slot.detach is GenServer.call(server, {:detach, identifier}, 5_000). If any slot is wedged (mid-respawn, slow opencode-serve restart), the AttachPool worker blocks its mailbox for up to 5s × N_slots while every other event piles up. With max_vertical_panes=3 → target_count=5 slots and a 2-agent removal, that's a worst case 50s mailbox stall. AttachPool.consume / attach_count / find_slot_for callers will see timeouts during this window and silently return :miss / 0, breaking the user's Enter open. Fire-and-forget via Task.start would isolate this."
+    },
+    {
+      "id": "find-slot-for-default-server-mismatch",
+      "title": "AttachPool.consume/2 hardcodes __MODULE__ but find_slot_for/3 takes server parameter — test harness inconsistency",
+      "severity": "low",
+      "confidence": 100,
+      "file": "/home/orangekid/github/aiur/elixir/lib/aiur/opencode/attach_pool.ex",
+      "lines": "1901-1909 (consume), 1942-1949 (find_slot_for)",
+      "description": "consume/2's signature changed to `consume(identifier, opts)` and the GenServer.call target is hardcoded to __MODULE__. find_slot_for/3 still takes `server \\\\ __MODULE__`. The new regression test shared_prewarm_e2e_test.exs starts a uniquely-named AttachPool (`AttachPool_#{unique}`) and calls find_slot_for(pool, ...) — fine — but cannot call consume against that test pool (consume ignores the server). Behavioral coverage of consume's exclude_visible logic relies on the global default AttachPool, which isn't started in the async test harness. The test never exercises consume — it's tested only via type assertions. The asymmetric API is a footgun: if anyone writes `AttachPool.consume(pool, identifier)` after seeing find_slot_for's shape, it silently calls the global default."
+    }
+  ],
+  "residual_risks": [
+    "Lazy SlotPolicy: only Slot 1 is started at boot; Slots 2-N are bumped on demand by PaneManager. If the bump path is ever broken (e.g., PaneManager.open_conversation succeeds without bumping), slots 2-N never start and the AttachPool's fan-out is trivially incomplete. No source-level test catches this — the parallel_pre_warm_test was @skipped because the design changed.",
+    "kickoff_fan_out wraps active_identifiers via Enum.slice + Enum.take but does NOT deduplicate the slot's leadoff: if a slot is restarted (e.g., after pane_died → :spawn_attach continues) it re-emits :slot_ready, AttachPool's handle_info({:slot_ready, n}, ...) calls kickoff_fan_out again. start_attach_task does dedupe via identifier_already_attached?/in_flight set, but the loop is O(N_identifiers) per re-ready event.",
+    "screen_grab_tick re-schedules every 2s using debug_mode? — if AIUR_DEBUG is unset mid-run via System.put_env, the timer stops; if set mid-run, the existing handler doesn't auto-arm. Self-rearming is correct under steady-state but startup ordering ambiguous.",
+    "WarmthReport.parse_line calls String.to_atom(phase) for every aiur_perf line. The aiur log is local and rotates, so atom-table exhaustion is unlikely, but a logfile concatenated across many runs with unique phase names could leak atoms permanently in the BEAM. Defensive fix: String.to_existing_atom with a fallback.",
+    "Slot.detach broadcasts both :slot_attach_removed AND (if it was visible) :slot_visible_changed nil — but never broadcast_session_changed. Some legacy code paths still listen for :slot_session_changed nil (e.g., AgentList's visible_sessions handler at line 388 uses BOTH events). Detaching a visible identifier may leave the agent_list's visible_sessions map stale until the next render tick if AgentList only listens for one of the two events. Worth tracing through AgentList's handlers."
+  ],
+  "testing_gaps": [
+    "No unit test covers maybe_render_leadoff_pane's status/poll-scheduling behavior. The state-machine contract 'visible_identifier non-nil implies status=:active and poll_ref non-nil' is asserted nowhere — both regression and slot_test only check error paths against dead pids.",
+    "No test exercises the ChatCompletions fallback path where caller_base_url fails. resolve_session_for_replay's behavior on stale bearer tokens (token in TokenRegistry but slot gone) needs a unit test with a stub registry — otherwise the silent-degradation case (wrong session_id returned, message not found) is invisible.",
+    "No test for the SessionWriterRegistry.ensure/2 race. With duplicate-key registry, two concurrent ensure calls for the same (identifier, base_url) can each create an opencode session — needs a focused test with a stubbed ApiClient.create_session that latches and a Task.async_stream to drive concurrent ensure.",
+    "shared_prewarm_e2e_test starts AttachPool with a unique name but never tests AttachPool.consume — only find_slot_for and the broadcast plumbing. The consume → Slot.set_visible chain (the user's Enter path) is untested end-to-end at the unit level; only the regression test chat_pane_loads_session_test guards the source-level wiring of attach_command/2.",
+    "No test verifies that broadcasting :slot_attach_added for an already-attached identifier does NOT double-count or leak state in AttachPool's attachments map. The MapSet.put idempotency is implicit; a test asserting attach_count stays at 1 after two :slot_attach_added events would lock it in.",
+    "The death-poll debounce (@poll_death_threshold = 3) is tested only at the source level (warm_state_transitions tests are now @skipped). No behavioral test exercises the 'tmux returns empty under transient load → don't tear down' case — a stubbed Tmux returning empty for 2 cycles then [pane_id] for the 3rd would verify recovery.",
+    "do_attach's already-attached branch returning the atom :attached is not exercised. A test asserting the return type from Slot.attach when called twice for the same identifier on the same slot would catch the @spec violation immediately."
+  ]
+}

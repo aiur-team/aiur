@@ -19,10 +19,12 @@ defmodule Aiur.AgentList.AppTest do
       {:reply, {:ok, "%999"}, parent}
     end
 
-    # App.init queries this to seed the open-pane indicator set.
+    def handle_call({:attach, _identifier, _command, _opts}, _from, parent) do
+      {:reply, {:error, :no_focused_pane}, parent}
+    end
+
     def handle_call(:list, _from, parent), do: {:reply, %{}, parent}
 
-    # App.toggle_layout_orientation calls through PaneManager.
     def handle_call(:toggle_orientation, _from, parent),
       do: {:reply, {:ok, :vertical}, parent}
   end
@@ -107,13 +109,17 @@ defmodule Aiur.AgentList.AppTest do
   end
 
   defp mark_warm(app, identifier) do
-    send(GenServer.whereis(app), {:attach_warm, identifier, "%warm", 1})
+    send(GenServer.whereis(app), {:attach_state_changed, identifier, 1, nil})
 
     wait_until(fn ->
       app
       |> App.snapshot()
-      |> Map.get(:warm_identifiers)
-      |> MapSet.member?(identifier)
+      |> Map.get(:attach_state, %{})
+      |> Map.get(identifier)
+      |> case do
+        %{attach_count: n} when n > 0 -> true
+        _ -> false
+      end
     end)
   end
 

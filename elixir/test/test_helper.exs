@@ -22,6 +22,13 @@ test_home =
 File.mkdir_p!(test_home)
 System.put_env("HOME", test_home)
 
+workflow_file =
+  Path.expand("../local-workflows/WORKFLOW.aiur.local.md", __DIR__)
+
+if File.exists?(workflow_file) do
+  Application.put_env(:aiur, :workflow_file_path, workflow_file)
+end
+
 ExUnit.start(exclude: [:perf_regression])
 
 ExUnit.after_suite(fn _result ->

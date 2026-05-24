@@ -52,19 +52,21 @@ defmodule Aiur.Regression.ChatPaneLoadsSessionTest do
   describe "Slot uses session-bound attach for :select" do
     @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
 
-    test "do_select spawns a fresh attach pane bound to the session_id" do
-      # Read the slot source and assert the wiring: do_select must
-      # respawn attach with the 2-arity `Protocol.attach_command(url, sid)`.
-      # If a future refactor reverts to just POSTing /tui/select-session
-      # (which silently fails to render in opencode 1.15.6), this test
-      # turns red and the user sees the welcome screen.
+    test "do_select spawns a fresh attach pane bound to the session_id for cold opens" do
       source = File.read!(@slot_source)
 
       assert source =~ ~r/Protocol\.attach_command\(\s*state\.base_url\s*,\s*session_id\s*\)/,
-             "Slot.do_select MUST call Protocol.attach_command/2 with session_id — POSTing /tui/select-session alone does NOT switch the TUI view in opencode 1.15.6"
+             "Slot MUST retain Protocol.attach_command/2 so welcome→conversation transitions use --session"
+    end
 
-      refute source =~ ~r/ApiClient\.select_session\b/,
-             "Slot must not rely on POST /tui/select-session as the session-attach mechanism — opencode 1.15.6's TUI does not honor it after the welcome screen is rendered"
+    test "Slot never calls /tui/select-session — every swap respawns" do
+      source = File.read!(@slot_source)
+
+      refute source =~ ~r/do_select_via_api/,
+             "Slot MUST NOT route through /tui/select-session: opencode 1.15.6 returns 200 but exits the attach process seconds later, killing the user's chat pane. Every visible swap goes through kill+respawn instead."
+
+      refute source =~ ~r/ApiClient\.select_session/,
+             "ApiClient.select_session is the upstream-broken /tui/select-session bridge. Slot must not call it."
     end
   end
 end

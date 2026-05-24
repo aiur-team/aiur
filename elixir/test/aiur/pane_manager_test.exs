@@ -26,7 +26,11 @@ defmodule Aiur.PaneManagerTest do
            name: pm_name,
            agent_list_pane: "%1",
            window_target: "test:0",
-           max_vertical_panes: max_vertical_panes
+           max_vertical_panes: max_vertical_panes,
+           # Pin slot_count to the grid formula so round-robin tests
+           # see the expected wrap behavior independent of any
+           # max_concurrent_agents value from the runtime workflow.
+           slot_count: max_vertical_panes * 2 - 1
          ]},
         id: pm_name
       )
@@ -254,20 +258,31 @@ defmodule Aiur.PaneManagerTest do
            "expected stale placeholder %10 to be dropped before laying out %11, got #{second_layout}"
   end
 
-  test "placeholder open reuses a stale middle visual slot", %{tmux: tmux, pm: pm} do
+  test "placeholder open packs visible panes left-to-right (gaps don't strand panes)", %{tmux: tmux, pm: pm} do
     open_placeholder(pm, tmux, "MT-1", "%10", ["%1"])
     open_placeholder(pm, tmux, "MT-2", "%11", ["%1", "%10"])
     open_placeholder(pm, tmux, "MT-3", "%12", ["%1", "%10", "%11"])
 
     layout = open_placeholder(pm, tmux, "MT-4", "%13", ["%1", "%10", "%12"])
 
-    assert layout =~ "[", "expected a two-row layout after three live placeholders, got #{layout}"
+    # After %11 dies and MT-4 replaces it (placeholder reuses freed
+    # slot 2), state.slot_panes = {1=%10, 2=%13, 3=%12}. The packed
+    # visible list keeps slot-index order: [%10, %13, %12]. With
+    # primary_capacity=2 the layout becomes top=[%1, %10, %13],
+    # bottom=[%12]. The OLD "slot-index = pane-position" behavior
+    # left a single visible pane stranded in the secondary row while
+    # the agent list sat alone in primary — the user's "chat opens
+    # under the agent list" report. Packing left-to-right keeps the
+    # primary row full.
+    assert layout =~ "[", "expected a two-row layout after four live panes, got #{layout}"
 
+    # Top row holds agent_list (numeric 1), %10, %13.
     assert layout =~ ~r/\{[^}]*,10,[^}]*,13\}/,
-           "expected new placeholder %13 to occupy the freed top-row slot, got #{layout}"
+           "expected packed top row to contain %10 and %13, got #{layout}"
 
-    assert layout =~ ~r/,13,12/,
-           "expected existing bottom-row placeholder %12 to stay in the bottom row, got #{layout}"
+    # Bottom row holds the overflow pane (%12).
+    assert layout =~ ~r/,12\]/,
+           "expected %12 (the overflow pane) in the bottom row, got #{layout}"
   end
 
   test "four configured columns produce seven slots before cycling" do

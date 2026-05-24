@@ -14,6 +14,11 @@ defmodule Aiur.AgentList.InputTest do
       {:noreply, parent}
     end
 
+    def handle_cast(:activate_new_pane, parent) do
+      send(parent, :activate_new_pane)
+      {:noreply, parent}
+    end
+
     def handle_cast(:toggle_pause, parent) do
       send(parent, :toggle_pause)
       {:noreply, parent}
@@ -37,6 +42,54 @@ defmodule Aiur.AgentList.InputTest do
     assert_receive :activated, 500
     assert_receive {:adjust_max, -1}, 500
     assert_receive {:adjust_max, 1}, 500
+  end
+
+  test "capital-O dispatches activate_new_pane" do
+    {:ok, target} = start_supervised({Target, self()})
+    input = input_fun(["O", :eof])
+
+    start_supervised!(
+      {Input, target: target, input_fun: input, skip_raw_mode: true},
+      id: :input_o
+    )
+
+    assert_receive :activate_new_pane, 500
+  end
+
+  test "CSI-u Shift+Enter (\\e[13;2u) dispatches activate_new_pane" do
+    {:ok, target} = start_supervised({Target, self()})
+
+    input =
+      input_fun([
+        "\e",
+        "[",
+        "1",
+        "3",
+        ";",
+        "2",
+        "u",
+        :eof
+      ])
+
+    start_supervised!(
+      {Input, target: target, input_fun: input, skip_raw_mode: true},
+      id: :input_shift_enter
+    )
+
+    assert_receive :activate_new_pane, 500
+  end
+
+  test "CSI-u plain Enter (\\e[13u) dispatches activate" do
+    {:ok, target} = start_supervised({Target, self()})
+
+    input = input_fun(["\e", "[", "1", "3", "u", :eof])
+
+    start_supervised!(
+      {Input, target: target, input_fun: input, skip_raw_mode: true},
+      id: :input_plain_enter
+    )
+
+    assert_receive :activated, 500
   end
 
   defp input_fun(bytes) do

@@ -102,6 +102,21 @@ defmodule Aiur.Opencode.TokenRegistry do
     :ets.member(@table, token)
   end
 
+  @doc """
+  Returns `{:ok, slot_index}` for a registered token, or `:not_found`.
+  Used by the chat-completion bridge to identify which slot's serve
+  issued the request so it can look up the right per-slot SessionWriter.
+  """
+  @spec lookup_slot(String.t()) :: {:ok, slot_index()} | :not_found
+  def lookup_slot(token) when is_binary(token) do
+    ensure_table()
+
+    case :ets.lookup(@table, token) do
+      [{^token, {slot_index, _gen, _ts}}] -> {:ok, slot_index}
+      _ -> :not_found
+    end
+  end
+
   @impl true
   def init(_opts) do
     ensure_table()

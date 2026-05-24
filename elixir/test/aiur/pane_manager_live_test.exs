@@ -114,7 +114,8 @@ defmodule Aiur.PaneManagerLiveTest do
            name: pm_name,
            agent_list_pane: anchor_pane,
            window_target: window_target,
-           max_vertical_panes: 3
+           max_vertical_panes: 3,
+           slot_count: 5
          ]},
         id: pm_name
       )

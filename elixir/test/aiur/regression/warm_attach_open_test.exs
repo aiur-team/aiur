@@ -34,6 +34,13 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
   @warm_convo_paint_threshold_ms 400
 
   describe "source-level wiring (always runs)" do
+    @describetag :skip
+    # Issue #85 retired the warm/warming binary state machine in favor
+    # of the 4-state attach_count / visible_in model. Source patterns
+    # below (defp wait_for_paint, AttachPool.consume) belong to the
+    # old design and no longer reflect the truth — behavioral coverage
+    # of the equivalent perf invariants moves to U11
+    # (test/aiur/regression/shared_prewarm_e2e_test.exs).
     test "AttachPool waits for the `Build · issue-` paint marker before warming" do
       source = File.read!(@attach_pool_source)
 
