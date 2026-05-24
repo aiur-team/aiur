@@ -504,6 +504,10 @@ defmodule Aiur.Opencode.AttachPool do
     case slot_pid_for(slot_index) do
       {:ok, slot_pid} ->
         pool = self()
+        # Snapshot rest of the active identifiers at task-spawn time so
+        # the background fill runs against a stable list — even if
+        # active_identifiers shifts during boot.
+        fill_identifiers = state.active_identifiers -- [identifier]
 
         Task.start(fn ->
           span =
@@ -516,6 +520,14 @@ defmodule Aiur.Opencode.AttachPool do
             {:ok, _pane_id} ->
               Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
               send(pool, {:attach_task_done, slot_index, identifier, :ok})
+              # Background fill: after this slot's leadoff is painted,
+              # attach every OTHER active identifier so they show 🔘
+              # (attached-shared) and `AttachPool.consume` can warm-open
+              # them via this slot when the user clicks them. Runs
+              # SEQUENTIALLY through THIS slot's mailbox so it doesn't
+              # compete with other slots' leadoffs (those run in their
+              # own Tasks against their own slots).
+              background_fill_slot(slot_pid, slot_index, fill_identifiers)
 
             {:error, reason} ->
               Aiur.Perf.span_end(span,
@@ -535,6 +547,35 @@ defmodule Aiur.Opencode.AttachPool do
       :error ->
         state
     end
+  end
+
+  # Fire `Slot.attach` for each fill identifier against this slot.
+  # Sequential through the slot's GenServer mailbox — runs strictly
+  # AFTER the leadoff's `set_visible` returned, so it never blocks the
+  # critical "first paint" path. Fully fire-and-forget; failures (e.g.
+  # `:identifier_unknown` for agents added post-boot) are logged via
+  # the perf span and otherwise ignored.
+  defp background_fill_slot(slot_pid, slot_index, fill_identifiers) do
+    Enum.each(fill_identifiers, fn fill_id ->
+      span =
+        Aiur.Perf.span_begin(:attach_pool_fill,
+          identifier: fill_id,
+          slot: slot_index
+        )
+
+      case Slot.attach(slot_pid, fill_id) do
+        {:ok, _} ->
+          Aiur.Perf.span_end(span, identifier: fill_id, slot: slot_index)
+
+        {:error, reason} ->
+          Aiur.Perf.span_end(span,
+            result: :failed,
+            identifier: fill_id,
+            slot: slot_index,
+            reason: reason
+          )
+      end
+    end)
   end
 
   defp start_attach_task(state, slot_index, identifier, opts) do
