@@ -847,31 +847,49 @@ defmodule Aiur.Opencode.AttachPool do
   @hidden_target_height 60
   @paint_poll_interval_ms 100
 
-  @doc false
+  @doc """
+  Re-size the hidden window so each slot's attach pane matches the
+  geometry it will have in window 0 once the user opens it. Avoids
+  the SIGWINCH that triggers opencode-attach's ~7 s splash animation
+  on every move-pane resize. Idempotent — safe to call on terminal
+  resize signals.
+
+  `HiddenWindow.handle_continue(:create_window)` runs the same logic
+  inline at boot so the keep-alive pane is already at the right size
+  before the first slot splits into it. This `ensure_hidden_geometry`
+  entry point is kept for re-trigger paths (e.g. terminal resize).
+  """
+  @spec ensure_hidden_geometry() :: :ok
   def ensure_hidden_geometry do
-    target = Aiur.Config.max_vertical_panes() * 2 - 1
-    desired_width = max(target * 110, @hidden_target_width)
+    with {:ok, [dims_str | _]} <-
+           Tmux.command(
+             Tmux,
+             "display-message -p -t aiur-orangekid-default:0 \#{window_width} \#{window_height}"
+           ),
+         [w_str, h_str] <- String.split(String.trim(dims_str), " ", trim: true),
+         {term_w, ""} <- Integer.parse(w_str),
+         {term_h, ""} <- Integer.parse(h_str) do
+      pre_warmed = Aiur.Config.pre_warmed_sessions()
+      max_agents = Aiur.Config.max_concurrent_agents()
+      slot_count = max(min(pre_warmed, max_agents), 1)
+      chat_pane_width = max(div(term_w, 2), 40)
+      hidden_window_w = chat_pane_width * slot_count
 
-    case Tmux.command(Tmux, "display-message -p -t aiur-orangekid-default:aiur-hidden \#{window_width}") do
-      {:ok, [width_str | _]} ->
-        current = width_str |> String.trim() |> String.to_integer()
+      _ =
+        Tmux.command(
+          Tmux,
+          "resize-window -t aiur-orangekid-default:aiur-hidden -x #{hidden_window_w} -y #{term_h}"
+        )
 
-        if current < desired_width do
-          _ =
-            Tmux.command(
-              Tmux,
-              "resize-window -t aiur-orangekid-default:aiur-hidden -x #{desired_width} -y #{@hidden_target_height}"
-            )
+      _ =
+        Tmux.command(
+          Tmux,
+          "select-layout -t aiur-orangekid-default:aiur-hidden even-horizontal"
+        )
 
-          _ =
-            Tmux.command(
-              Tmux,
-              "select-layout -t aiur-orangekid-default:aiur-hidden even-horizontal"
-            )
-        end
-
-      _ ->
-        :ok
+      :ok
+    else
+      _ -> :ok
     end
   rescue
     _ -> :ok
