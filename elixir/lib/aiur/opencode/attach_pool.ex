@@ -460,13 +460,64 @@ defmodule Aiur.Opencode.AttachPool do
       )
     end
 
-    # Unpaired identifiers (more active agents than free slots) stay
-    # ⏳ until a slot frees up (via pause/close) and a follow-up
-    # do_seed pairs them. The previous "attach unpaired to every
-    # slot" path produced N × S extra HTTP attaches per do_seed and
-    # was the silent twin of kickoff_fan_out's deleted rest loop —
-    # together they accounted for the 50 s all-hourglass boot.
+    # Initial-active identifiers that DID get paired are handled
+    # by start_leadoff_task's background_fill — the slot's leadoff
+    # Task attaches all OTHER active identifiers into that slot
+    # after the leadoff paints. So at boot, every initial-active
+    # identifier ends up in every slot.
+    #
+    # POST-BOOT additions (e.g., a ⚫ queued agent gets dispatched
+    # and shows up in `added`) miss that boot fill because the
+    # leadoff Tasks already completed. Without dedicated handling
+    # they stay ⏳ forever. Solution: for each unpaired added
+    # identifier, fire a background attach to every running slot.
+    # Same shape as the boot fill but driven from do_seed instead
+    # of from a leadoff task.
+    unpaired_added = added -- paired_added
+    running_slots = running_slot_indexes()
+
+    Enum.each(unpaired_added, fn id ->
+      Enum.each(running_slots, fn slot_index ->
+        spawn_post_boot_fill(slot_index, id)
+      end)
+    end)
+
     new_state
+  end
+
+  defp spawn_post_boot_fill(slot_index, identifier) do
+    case slot_pid_for(slot_index) do
+      {:ok, slot_pid} ->
+        Task.start(fn ->
+          span =
+            Aiur.Perf.span_begin(:attach_pool_fill,
+              identifier: identifier,
+              slot: slot_index,
+              source: :post_boot
+            )
+
+          case Slot.attach(slot_pid, identifier) do
+            {:ok, _} ->
+              Aiur.Perf.span_end(span,
+                identifier: identifier,
+                slot: slot_index,
+                source: :post_boot
+              )
+
+            {:error, reason} ->
+              Aiur.Perf.span_end(span,
+                result: :failed,
+                identifier: identifier,
+                slot: slot_index,
+                source: :post_boot,
+                reason: reason
+              )
+          end
+        end)
+
+      :error ->
+        :ok
+    end
   end
 
   defp kickoff_fan_out(state, slot_index) do
