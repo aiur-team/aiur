@@ -154,6 +154,10 @@ Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
                        Tail logs in another terminal: `aiur --logs`.
   --clear              delete previous aiur*.log files before starting.
+                       Also reaps accumulated BEAM hot-load /tmp/.*.so
+                       and /tmp/aiur-debug pipe-pane captures (only when
+                       no other aiur BEAM is running) so /tmp doesn't
+                       fill up across many debug runs.
                        Must be combined with --debug.
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
@@ -1146,6 +1150,29 @@ run_in_tmux() {
       if [ -d "$log_dir" ]; then
         find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
         echo "aiur: cleared previous logs in $log_dir" >&2
+      fi
+
+      # Reap BEAM hot-load shared libraries and debug pipe-pane captures.
+      # Each aiur run writes ~8 MB of `.so` files into /tmp that the BEAM
+      # never cleans up; 1900+ of them accumulated to 15 GB on one box,
+      # bricking the next `mix release` with "no space left on device".
+      # Pipe-pane captures (per-slot stderr logs) add ~60 MB per run.
+      # Only safe when no BEAM is running — by this point in the script
+      # we have already killed any prior aiur tmux session above, so the
+      # only beams that could be holding open handles are unrelated.
+      if ! pgrep -f "rel/aiur/erts.*beam.smp" >/dev/null 2>&1; then
+        local stale_so_count
+        stale_so_count=$(find /tmp -maxdepth 1 -name ".*.so" -user "${USER:-$(id -un)}" 2>/dev/null | wc -l)
+        if [ "$stale_so_count" -gt 0 ]; then
+          find /tmp -maxdepth 1 -name ".*.so" -user "${USER:-$(id -un)}" -delete 2>/dev/null || true
+          find /tmp -maxdepth 1 -name ".*.node" -user "${USER:-$(id -un)}" -delete 2>/dev/null || true
+          echo "aiur: reaped $stale_so_count stale BEAM hot-load files in /tmp" >&2
+        fi
+
+        if [ -d /tmp/aiur-debug ]; then
+          rm -rf /tmp/aiur-debug 2>/dev/null || true
+          echo "aiur: cleared /tmp/aiur-debug pipe-pane captures" >&2
+        fi
       fi
     fi
     echo "aiur: debug logging enabled" >&2
