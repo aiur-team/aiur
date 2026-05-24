@@ -4,7 +4,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   require Logger
 
   alias Aiur.{AgentChat, AgentPubSub}
-  alias Aiur.Opencode.{Config, Db, SessionWriterRegistry, TokenRegistry}
+  alias Aiur.Opencode.{Config, Db, SessionWriterRegistry, Slot, SlotRegistry, TokenRegistry}
 
   @stream_marker_prefix "__aiur_stream__:"
   @stream_marker_regex ~r/\A__aiur_stream__:(msg_[A-Z0-9]+)\z/
@@ -259,11 +259,7 @@ defmodule Aiur.Opencode.ChatCompletions do
       |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
       |> Plug.Conn.send_chunked(200)
 
-    session_id =
-      case SessionWriterRegistry.lookup(identifier) do
-        {:ok, %{session_id: sid}} -> sid
-        _ -> nil
-      end
+    session_id = resolve_session_for_replay(conn, identifier)
 
     case session_id && Db.fetch_message_with_parts(session_id, message_id) do
       {:ok, %{parts: parts}} ->
@@ -275,6 +271,54 @@ defmodule Aiur.Opencode.ChatCompletions do
 
         conn = chunk(conn, completion_id, "**system:** message not found", nil)
         chunk(conn, completion_id, nil, "stop")
+    end
+  end
+
+  # Each slot's opencode-serve owns its own per-agent session_id (sessions
+  # aren't portable across serves, even with a shared SQLite DB). The
+  # bearer token identifies which slot's serve issued the chat-completion
+  # callback, so we look up that exact (identifier, base_url) pair.
+  #
+  # NO FALLBACK to "any writer for identifier" — with `:duplicate` keys
+  # in `SessionWriterRegistry`, `lookup/1` returns whichever writer the
+  # registry happened to order first, and that writer's session_id may
+  # be in a DIFFERENT serve's DB view from the one that wrote `message_id`.
+  # The replay query then returns no rows and the user sees
+  # `**system:** message not found` even though the message was written
+  # correctly elsewhere. Returning nil here forces the same not-found
+  # error path but with a clearer logged reason.
+  defp resolve_session_for_replay(conn, identifier) do
+    case caller_base_url(conn) do
+      {:ok, base_url} ->
+        case SessionWriterRegistry.lookup(identifier, base_url) do
+          {:ok, %{session_id: sid}} ->
+            sid
+
+          :not_found ->
+            Logger.warning(
+              "opencode_bridge resolve_session writer_not_found identifier=#{identifier} base_url=#{base_url}"
+            )
+
+            nil
+        end
+
+      :error ->
+        Logger.warning(
+          "opencode_bridge resolve_session caller_unresolved identifier=#{identifier}"
+        )
+
+        nil
+    end
+  end
+
+  defp caller_base_url(conn) do
+    with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
+         {:ok, slot_index} <- TokenRegistry.lookup_slot(token),
+         {:ok, slot_pid} <- SlotRegistry.lookup(slot_index),
+         %{base_url: base_url} when is_binary(base_url) <- Slot.snapshot(slot_pid) do
+      {:ok, base_url}
+    else
+      _ -> :error
     end
   end
 

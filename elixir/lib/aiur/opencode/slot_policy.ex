@@ -1,11 +1,13 @@
 defmodule Aiur.Opencode.SlotPolicy do
   @moduledoc """
-  Lazy-expansion pre-warm orchestrator.
+  Parallel pre-warm orchestrator.
 
-  Boots Slot 1 at startup. Subsequent slots warm on demand via
-  `bump/0`, typically called by `PaneManager` after the user opens a
-  new chat pane. The Nth slot warms when the user has opened N-1
-  panes. Cap is `target_count` (default `max_vertical_panes * 2 - 1`).
+  Starts every slot up to `target_count` concurrently at boot. With
+  lazy expansion (one slot per user open), only one slot was warm when
+  the user pressed Enter on the second/third agent — the open then
+  paid a 5-7 s respawn because the matching leadoff slot wasn't ready
+  yet. Parallel boot front-loads that cost into application startup so
+  every ⚪ open is instant.
 
   Subscribes to `Aiur.Opencode.Slot.slots_topic/0`. On
   `{:slot_ready, target_count}` emits a `:slot_chain_complete` perf
@@ -13,8 +15,9 @@ defmodule Aiur.Opencode.SlotPolicy do
 
   ## Public API
 
-    * `bump/0` — start the next slot. Idempotent under concurrent
-      calls: at most one slot advances per bump.
+    * `bump/0` — kept for backward compatibility with PaneManager's
+      post-open call site. Now a no-op since every slot is already
+      starting at boot.
     * `highest_started/0` — index of the highest slot started so far.
     * `target_count/0` — upper bound on slots.
   """
@@ -79,38 +82,55 @@ defmodule Aiur.Opencode.SlotPolicy do
         default_target_count()
       end)
 
-    Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} mode=lazy")
+    Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} mode=parallel")
 
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
 
-    send(self(), :start_first_slot)
+    send(self(), :start_all_slots)
 
     {:ok, %__MODULE__{target_count: target_count, highest_started: 0}}
   end
 
   @impl true
-  def handle_info(:start_first_slot, %{target_count: 0} = state) do
+  def handle_info(:start_all_slots, %{target_count: 0} = state) do
     Logger.info("opencode_slot_policy phase=chain_skipped target_count=0")
     {:noreply, state}
   end
 
-  def handle_info(:start_first_slot, %{target_count: target} = state) do
+  def handle_info(:start_all_slots, %{target_count: target} = state) do
     Aiur.Perf.event(:slot_policy_start_first, target_count: target)
 
-    Logger.info("opencode_slot_policy phase=first_slot_start elapsed_ms=#{Boot.elapsed_ms()} target=#{target}")
+    Logger.info(
+      "opencode_slot_policy phase=parallel_boot_start elapsed_ms=#{Boot.elapsed_ms()} target=#{target}"
+    )
 
-    case SlotSupervisor.start_slot(1) do
-      {:ok, _pid} ->
-        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_starting, 1})
-        {:noreply, %{state | highest_started: 1}}
+    highest =
+      1..target
+      |> Enum.reduce(0, fn slot_index, acc ->
+        case SlotSupervisor.start_slot(slot_index) do
+          {:ok, _pid} ->
+            Phoenix.PubSub.broadcast(
+              Aiur.PubSub,
+              Slot.slots_topic(),
+              {:slot_starting, slot_index}
+            )
 
-      {:error, reason} ->
-        Logger.warning(
-          "opencode_slot_policy phase=first_slot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=1 reason=#{inspect(reason)}"
-        )
+            max(acc, slot_index)
 
-        {:noreply, state}
-    end
+          {:error, reason} ->
+            Logger.warning(
+              "opencode_slot_policy phase=parallel_boot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}"
+            )
+
+            acc
+        end
+      end)
+
+    Logger.info(
+      "opencode_slot_policy phase=parallel_boot_dispatched elapsed_ms=#{Boot.elapsed_ms()} highest=#{highest}"
+    )
+
+    {:noreply, %{state | highest_started: highest}}
   end
 
   def handle_info({:slot_ready, n}, %{target_count: target} = state)
@@ -144,40 +164,18 @@ defmodule Aiur.Opencode.SlotPolicy do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
+  # All slots are dispatched at boot now, so bump has no work to do.
+  # Kept as a no-op so existing call sites in PaneManager continue to
+  # compile without conditionals.
   @impl true
-  def handle_cast(:bump, %{target_count: target, highest_started: highest} = state)
-      when highest >= target do
-    # Already at cap. No-op.
+  def handle_cast(:bump, state) do
     Aiur.Perf.event(:slot_policy_bump_noop,
-      reason: :at_cap,
-      highest_started: highest,
-      target: target
+      reason: :parallel_boot,
+      highest_started: state.highest_started,
+      target: state.target_count
     )
 
     {:noreply, state}
-  end
-
-  def handle_cast(:bump, %{highest_started: highest} = state) do
-    next = highest + 1
-
-    Aiur.Perf.event(:slot_policy_bumped, slot: next)
-
-    Logger.info(
-      "opencode_slot_policy phase=bump elapsed_ms=#{Boot.elapsed_ms()} slot=#{next}"
-    )
-
-    case SlotSupervisor.start_slot(next) do
-      {:ok, _pid} ->
-        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_starting, next})
-        {:noreply, %{state | highest_started: next}}
-
-      {:error, reason} ->
-        Logger.warning(
-          "opencode_slot_policy phase=bump_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{next} reason=#{inspect(reason)}"
-        )
-
-        {:noreply, state}
-    end
   end
 
   @impl true
@@ -189,9 +187,18 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:reply, state.target_count, state}
   end
 
+  # Slot count is the LARGER of (grid capacity) or (max active agents).
+  # The grid capacity (`max_vertical_panes * 2 - 1`) caps how many panes
+  # can be VISIBLE at once. Pre-warm slot count must be at least
+  # `max_concurrent_agents` so every active agent has a slot to leadoff
+  # in — otherwise a newly-activated agent that exceeds grid capacity
+  # gets stuck at 🔘 (attached but no painted pane), and `Slot.attach`
+  # returns `:identifier_unknown` because slots' known_identifiers were
+  # set at boot from the original active set.
   defp default_target_count do
-    max_vertical_panes = Aiur.Config.max_vertical_panes()
-    max_vertical_panes * 2 - 1
+    grid_capacity = Aiur.Config.max_vertical_panes() * 2 - 1
+    max_agents = Aiur.Config.max_concurrent_agents()
+    max(grid_capacity, max_agents)
   rescue
     _ -> 5
   end

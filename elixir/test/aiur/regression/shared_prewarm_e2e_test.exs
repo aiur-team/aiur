@@ -61,6 +61,85 @@ defmodule Aiur.Regression.SharedPrewarmE2ETest do
     assert_receive {:slot_fully_warmed, 1}, 500
   end
 
+  describe "pause/resume → leadoff reassignment" do
+    test "reassigns a freed leadoff slot when pause and resume arrive as separate do_seed calls", %{pool: pool} do
+      # Seed 3 agents and paint a leadoff per slot (simulating boot).
+      AttachPool.seed(pool, ["issue-1", "issue-2", "issue-3"])
+      Process.sleep(20)
+
+      for {slot, id} <- [{1, "issue-1"}, {2, "issue-2"}, {3, "issue-3"}] do
+        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, slot, id})
+        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_visible_changed, slot, id})
+      end
+
+      assert_receive {:attach_state_changed, "issue-3", _, 3}, 500
+
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+
+      # First call: user pauses issue-2 (orchestrator drops it). No
+      # added identifier yet — but Slot.detach should clear visible_in,
+      # and the slot stays free for the next call.
+      AttachPool.seed(pool, ["issue-1", "issue-3"])
+      assert_receive {:agent_inactive, "issue-2"}, 500
+
+      # Second call (separate event): user starts issue-4 (the queued
+      # ticket). The slot freed by the previous call must now be
+      # claimed by issue-4 — that's the user's reported scenario.
+      AttachPool.seed(pool, ["issue-1", "issue-3", "issue-4"])
+
+      assert_receive {:aiur_perf,
+                      %{
+                        phase: :seed_leadoff_reassignment,
+                        meta: %{paired: 1, added_ids: ["issue-4"]}
+                      }},
+                     500
+    end
+
+    test "single do_seed with both added and removed still pairs", %{pool: pool} do
+      AttachPool.seed(pool, ["issue-1", "issue-2"])
+      Process.sleep(20)
+
+      for {slot, id} <- [{1, "issue-1"}, {2, "issue-2"}] do
+        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, slot, id})
+        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_visible_changed, slot, id})
+      end
+
+      assert_receive {:attach_state_changed, "issue-2", _, 2}, 500
+
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+
+      # Both pause AND resume in the same orchestrator broadcast.
+      AttachPool.seed(pool, ["issue-1", "issue-3"])
+
+      assert_receive {:aiur_perf,
+                      %{
+                        phase: :seed_leadoff_reassignment,
+                        meta: %{paired: 1, added_ids: ["issue-3"]}
+                      }},
+                     500
+
+      assert_receive {:agent_inactive, "issue-2"}, 500
+    end
+
+    test "no event when no free slot is available", %{pool: pool} do
+      AttachPool.seed(pool, ["issue-1"])
+      Process.sleep(20)
+
+      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-1"})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_visible_changed, 1, "issue-1"})
+
+      assert_receive {:attach_state_changed, "issue-1", _, 1}, 500
+
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+
+      # Adding issue-2 with no slots free (slot 1 is claimed by
+      # issue-1). No reassignment event should fire.
+      AttachPool.seed(pool, ["issue-1", "issue-2"])
+
+      refute_receive {:aiur_perf, %{phase: :seed_leadoff_reassignment}}, 200
+    end
+  end
+
   test "warmth report computes loose→strict delta from broadcast events", %{pool: pool} do
     events = [
       %{phase: :slot_attach_added, identifier: "issue-1", slot: 1, at_ms: 100},

@@ -1,0 +1,98 @@
+{
+  "reviewer": "reliability",
+  "findings": [
+    {
+      "id": "rel-1",
+      "severity": "high",
+      "confidence": 80,
+      "title": "Orphaned SessionWriters accumulate across slot rebuilds — never stopped, never reaped",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line_hint": "1142-1186 (schedule_serve_rebuild)",
+      "description": "schedule_serve_rebuild/2 tears down the slot's opencode-serve (GenServer.stop server_pid), kills the attach pane, clears token, and bumps generation — but does NOT touch the SessionWriter processes that registered against the slot's OLD base_url. A rebuilt slot's new opencode-serve gets a freshly OS-picked port (see Server handle_info parse_listening_port), so the rebuilt slot's base_url is different. SessionWriterRegistry.lookup(identifier, new_base_url) will not match the orphaned writer (value's base_url is the dead one), so ensure/2 creates a NEW writer + session for the new base_url. The OLD writer stays alive, still subscribed to AgentPubSub for that identifier, and on every transcript event tries to nudge_tui via POST to its dead base_url (ApiClient warning logs per event) AND writes rows to a SQLite DB whose serve process is gone (Db.with_conn may succeed since SQLite is file-backed — but rows mount up in a now-unused session). Slot.terminate/2 doesn't stop writers either. Across N identifier_miss rebuilds with M identifiers, M*N orphan writers accumulate within one Aiur run. They are only reaped by SessionWriterRegistry.delete_all on shutdown.",
+      "suggestion": "When schedule_serve_rebuild runs, walk SessionWriterRegistry for entries with value.base_url == state.base_url and terminate them via DynamicSupervisor.terminate_child(SessionSupervisor, pid). The new ensure/2 calls after rebuild will spawn fresh writers bound to the new base_url."
+    },
+    {
+      "id": "rel-2",
+      "severity": "high",
+      "confidence": 75,
+      "title": "Shutdown delete_all serializes per-entry HTTP DELETEs with no connect-timeout — single hung serve blocks full shutdown",
+      "file": "elixir/lib/aiur/opencode/session_writer_registry.ex",
+      "line_hint": "115-136 (delete_all + drain_entry)",
+      "description": "delete_all enforces a deadline only by checking `remaining = deadline - System.monotonic_time(:millisecond)` between entries and skipping when budget is exhausted — but inside drain_entry it calls maybe_delete_session(base_url, session_id) → ApiClient.delete_session, which uses Req with receive_timeout=30_000 and no explicit connect_timeout (elixir/lib/aiur/opencode/api_client.ex:79). A single base_url whose serve died (orphan from rel-1) and whose port no longer accepts connections returns ECONNREFUSED fast on localhost, but if the host is unreachable (laptop sleep wake transient, DNS issue, IPv6 fallback) a single drain_entry call can block up to 30s. With 5 slots × N identifiers post-rebuild, the registry has many entries; one slow DELETE consumes the entire timeout_ms=5_000 budget and the remaining writers are then merely skipped — leaving live writers behind even past shutdown completion.",
+      "suggestion": "Run drain_entry calls concurrently inside delete_all (Task.async_stream with max_concurrency = entries length and timeout per task), OR pass a per-call receive_timeout from the remaining deadline into ApiClient.delete_session, OR fire-and-forget the HTTP DELETE and terminate the writer immediately (the writer's `terminate` is :ok). Order-wise: terminating the writer first prevents further nudge POSTs to the dead serve, but the explicit DELETE was the only way to clean up server-side sessions across restarts."
+    },
+    {
+      "id": "rel-3",
+      "severity": "medium",
+      "confidence": 80,
+      "title": "Slot.set_visible fast path can return stale pane_id after a failed respawn",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line_hint": "1013-1061 (respawn_attach_with_session) + 1075-1080 (set_visible fast path)",
+      "description": "respawn_attach_with_session unconditionally kills state.pane_id via tmux kill-pane (line 1025) BEFORE attempting the new split_pane. If the subsequent with-chain fails (hidden_window_target/reflow/split all surfaced as `{:error, :respawn_failed}`), the caller's do_select returns {:error, ...} but the slot's state is left unchanged — visible_identifier and pane_id still point at the now-dead pane. The next set_visible call for the same identifier hits the fast path at slot.ex handle_call({:set_visible, ...}): `if state.visible_identifier == identifier and is_binary(state.pane_id) -> {:reply, {:ok, state.pane_id}, state}`. PaneManager then attempts to move-pane the dead pane and the open fails silently or with a confusing error.",
+      "suggestion": "On respawn failure inside select_with_respawn, clear state.pane_id (and visible_identifier / active_identifier) before returning the error, so subsequent set_visible calls re-enter the slow path and try the respawn again."
+    },
+    {
+      "id": "rel-4",
+      "severity": "medium",
+      "confidence": 70,
+      "title": "AttachPool.start_attach_task uses unsupervised Task.start; in_flight keys leak on Task crash",
+      "file": "elixir/lib/aiur/opencode/attach_pool.ex",
+      "line_hint": "368-414 (start_attach_task)",
+      "description": "start_attach_task spawns a Task.start (unlinked, unmonitored) per (slot, identifier). The cleanup of `in_flight` MapSet relies on Slot broadcasting :slot_attach_added (clears via do_attach_added) or the Task sending {:attach_failed, ...} on its way down. If the Task itself crashes between span_begin and Slot.attach (process killed by SIGKILL or some other path, or Slot.attach raises something other than :exit), no message is sent and the key remains in in_flight permanently — future kickoff_fan_out and do_seed will see the key and short-circuit, preventing the slot from ever being re-attached. There's also no handle_info({:attach_task_done, ...}, _) — the message is sent on success but never received by a clause (only fallthrough handle_info(_other, state) discards it), so in_flight cleanup depends on the broadcast loop succeeding. Race: if Slot.attach succeeds but the {:slot_attach_added, ...} PubSub message is dropped (network partition between nodes is N/A here but Phoenix.PubSub.broadcast on a single node still relies on registry delivery), in_flight stays set.",
+      "suggestion": "Use Task.Supervisor.async_nolink with a monitor, or change Task.start to Task.Supervisor.start_child and handle_info({:DOWN, ...}) to clean up in_flight. Alternatively, add an explicit handle_info({:attach_task_done, slot_index, identifier, _result}, state) that removes the key — this makes the cleanup independent of the PubSub round-trip."
+    },
+    {
+      "id": "rel-5",
+      "severity": "medium",
+      "confidence": 75,
+      "title": "Slot.attach has no upper bound on serialized fan-out — slow agent stalls all subsequent attaches",
+      "file": "elixir/lib/aiur/opencode/attach_pool.ex",
+      "line_hint": "352-366 (kickoff_fan_out) + slot.ex 753-783 (do_attach_known)",
+      "description": "kickoff_fan_out reduces over `ordered` identifiers and calls start_attach_task synchronously per identifier — each one is a Task that calls Slot.attach (a GenServer.call with timeout 15_000). The Slot processes attach messages serially in its mailbox (FIFO), and each do_attach_known runs SessionWriterRegistry.ensure (HTTP POST /session, may take seconds), SessionWriter.await_replay (10s timeout), and potentially maybe_render_leadoff_pane (which waits for paint up to 20s). For N active agents and 5 slots, that's 5*N tasks all queuing into 5 slot mailboxes. If one agent's history replay hits the 10s timeout, the slot processes it, returns {:error, :timeout} — but the task already lost its 15s GenServer.call deadline. Worse, with the broken in_flight cleanup (rel-4), repeated failed attempts compound. There's no jitter, no exponential backoff, no concurrency cap; a single misbehaving identifier (large history, dead writer subscribed to wrong serve) can wedge every slot's attach queue.",
+      "suggestion": "Either (a) cap concurrent in-flight attaches per slot (e.g. via Task.Supervisor with max_concurrency), (b) parallelize attaches across slots but serialize within a slot's mailbox naturally (current behavior — but make the timeout budget consistent so callers don't drop before the slot has a chance to respond), or (c) circuit-break attach attempts for an identifier after K consecutive failures so one bad agent doesn't keep eating slot mailbox time."
+    },
+    {
+      "id": "rel-6",
+      "severity": "medium",
+      "confidence": 70,
+      "title": "Pane-death poll's capture-pane dump and pipe-pane log file have no read timeout",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line_hint": "657-700 (handle_info :poll_session pane-died branch) + 488-498 (dump_pipe_tail)",
+      "description": "When the 3-consecutive-failure threshold is hit, the slot synchronously calls Tmux.command(Tmux, \"capture-pane -p -t #{pane_id}\") AND dump_pipe_tail which does File.read(path) of the pipe-pane log file. Both are blocking calls inside the slot's :poll_session handler. If tmux is stalled (which is the suspected cause of the false-positive pane-missing readings in the first place), the capture-pane call hangs too — and Tmux.command in the codebase appears not to enforce its own timeout (would need to verify). dump_pipe_tail's File.read of /tmp/aiur-debug/slot-N-attach.log is unbounded; for a long-running pane the log can grow large (every byte tmux writes), so File.read can allocate substantial memory and block the slot process. Worst case: a slot stuck reading a 500MB pipe-pane log delays its mailbox processing (including any pending select/attach calls from users).",
+      "suggestion": "(a) Bound the pipe-pane log via tmux's `head -c N` or log rotation; (b) for dump_pipe_tail, use File.stream! with limit OR :prim_file with seek-to-end and read-last-N-bytes; (c) ensure Tmux.command has a default :infinity or per-call timeout — if it's GenServer.call to Tmux it may already be 5s, but capture-pane on a 1MB pane is slow on stressed systems."
+    },
+    {
+      "id": "rel-7",
+      "severity": "low",
+      "confidence": 65,
+      "title": "consume / Slot.deselect race: AttachPool can drive set_visible on a slot that's about to be reset",
+      "file": "elixir/lib/aiur/opencode/attach_pool.ex",
+      "line_hint": "193-204 (handle_call {:consume, ...}) + slot.ex 595-606 (handle_call :deselect)",
+      "description": "Sequence: user A's open path calls AttachPool.consume(id) → find_slot_for returns slot 3 → Slot.set_visible(slot_pid, id) blocks on the slot's mailbox. Meanwhile user B (or PaneManager from a close event) calls Slot.deselect on slot 3, which is also a GenServer.call queued in the same mailbox. Mailbox FIFO determines order: if deselect arrives first, set_visible runs against a slot just deselected (status :ready) — the fast-path check `state.visible_identifier == identifier and is_binary(state.pane_id)` returns false because visible_identifier was cleared, and the slow path do_select runs respawn_attach_with_session. But state.pane_id was nilled by deselect (no, deselect doesn't nil pane_id — only active/visible identifiers and poll_ref). So pane_id still points at the existing attach pane, respawn kills it and respawns. Net effect: extra kill+spawn churn (~1-2s) but not a crash. The greater risk: if Slot.deselect cancels the poll timer, the post-set_visible state is :active but the poll never restarts unless schedule_poll(new_state) is called — which set_visible's success path does. So this particular race is benign, but the absence of an explicit ordering guard means future refactors could break it.",
+      "suggestion": "Either accept the FIFO ordering as the spec, or have consume_via_slot include a generation/epoch check (the slot already has a `generation` field). Pass generation through Slot.set_visible and reject if the slot's generation advanced since AttachPool's snapshot."
+    },
+    {
+      "id": "rel-8",
+      "severity": "low",
+      "confidence": 60,
+      "title": "Pane-death debounce: 3*500ms = 1.5s window may false-trigger under tmux-server signal stalls",
+      "file": "elixir/lib/aiur/opencode/slot.ex",
+      "line_hint": "636-700 (handle_info :poll_session)",
+      "description": "The 3-consecutive-failure debounce only protects against single-poll transient tmux returns; a tmux-server stall lasting >=1.5s (heavy capture-pane load, fsync stalls on a busy host, OS scheduler latency) produces 3+ consecutive empty display-message returns and false-triggers pane_died. The slot then kills + respawns its attach pane unnecessarily, costing ~5s warmth. The risk is asymmetric: under-detection (real death takes >=1.5s to detect) is benign because the next user open just respawns; over-detection (false-positive pane_died) destroys a warm session the user was relying on. Inverse concern: if tmux returns the pane_id but the pane's foreground process (opencode-attach) has died, display-message still returns the pane_id (it's tmux's allocated id, not the child process). The poll doesn't detect dead-child-but-live-pane.",
+      "suggestion": "(a) Bump threshold to 4-5 readings or extend poll_interval to 1s; (b) add a second probe like `display-message -p '#{pane_dead}'` (tmux >= 3.2 exposes this format) to distinguish 'tmux is slow' from 'pane is gone'; (c) augment with a check on opencode-attach's PID/process group instead of relying on tmux."
+    }
+  ],
+  "residual_risks": [
+    "SessionWriter has no detection of its parent serve dying — orphan writers run indefinitely consuming AgentPubSub events and writing into a SQLite DB whose serve is gone, until shutdown reaps them.",
+    "Slot.attach default timeout (15_000) is shorter than the worst-case sum of internal operations (await_replay 10s + leadoff render paint 20s), so AttachPool tasks can time out on the call even though the slot eventually completes the attach.",
+    "delete_all is best-effort with a single shared deadline — partial drain leaves opencode sessions undeleted on the serve side, accumulating across runs until SessionGC reaps them at next boot.",
+    "schedule_serve_rebuild discards `pending_select` if the rebuild itself crashes (start_serve returns error → status :failed), and the pending caller times out — but no perf event documents the wedge state and no retry path exists."
+  ],
+  "testing_gaps": [
+    "No test exercises slot rebuild orphan writer accumulation — would catch rel-1 by asserting SessionWriterRegistry.all/0 size after N identifier_miss rebuilds equals N (not 2N) writers per identifier.",
+    "No test for delete_all with one base_url unreachable (e.g. simulate by stopping the serve but not unregistering the writer) — would catch rel-2 by asserting total wall time stays within timeout_ms+epsilon.",
+    "No test for respawn_attach_with_session failure path leaving state.pane_id dangling — would catch rel-3 with a Tmux mock that fails split_pane after kill_pane succeeds.",
+    "No test for AttachPool with a Task that crashes mid-attach (process kill) — would catch rel-4 by asserting in_flight is empty after task DOWN.",
+    "No test for pane-death poll under a Tmux mock that returns empty for exactly 3 polls then recovers — would tell us if false-positive rebuilds happen and quantify the threshold trade-off."
+  ]
+}

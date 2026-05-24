@@ -48,7 +48,15 @@ defmodule Aiur.Opencode.AttachPool do
             # `{slot_index, identifier}` keys for attach tasks currently
             # in flight. Prevents duplicate broadcasts re-spawning the
             # same task.
-            in_flight: MapSet.new()
+            in_flight: MapSet.new(),
+            # Slot indexes that have already received their initial
+            # `kickoff_fan_out` leadoff assignment. A slot can broadcast
+            # `:slot_ready` more than once over its lifetime (rebuild
+            # paths post-`schedule_serve_rebuild`), but its rotational
+            # leadoff must only fire ONCE — otherwise a re-ready races
+            # against in-flight `set_visible` calls from `do_seed` and
+            # displaces the assignment the user just triggered.
+            fanned_out_slots: MapSet.new()
 
   @type attachment :: %{
           attached_slots: MapSet.t(pos_integer()),
@@ -241,8 +249,14 @@ defmodule Aiur.Opencode.AttachPool do
   @impl true
   def handle_info({:slot_ready, slot_index}, state) do
     # First time we've seen this slot ready — kick its initial attach
-    # fan-out (leadoff + remaining active agents).
+    # fan-out (leadoff + remaining active agents). On subsequent re-
+    # readys (rebuild path), only re-attach non-leadoff identifiers so
+    # the slot's existing leadoff isn't displaced.
     {:noreply, kickoff_fan_out(state, slot_index)}
+  end
+
+  defp slot_already_fanned_out?(state, slot_index) do
+    MapSet.member?(state.fanned_out_slots, slot_index)
   end
 
   def handle_info({:slot_attach_added, slot_index, identifier}, state) do
@@ -319,13 +333,12 @@ defmodule Aiur.Opencode.AttachPool do
         end
       end)
 
-    new_state =
-      Enum.reduce(added, new_state, fn id, acc ->
-        Enum.reduce(running_slot_indexes(), acc, fn slot_index, acc2 ->
-          start_attach_task(acc2, slot_index, id)
-        end)
-      end)
-
+    # Detach removed identifiers FIRST so Slot.detach clears the slot's
+    # visible_identifier and broadcasts :slot_visible_changed nil. That
+    # makes the slot show up as "free" in the next step, both for this
+    # call AND for any future do_seed that arrives before another
+    # agent is added (the user's actual scenario: pause then start are
+    # two separate calls).
     new_state =
       Enum.reduce(removed, new_state, fn id, acc ->
         slots =
@@ -346,27 +359,191 @@ defmodule Aiur.Opencode.AttachPool do
         acc
       end)
 
+    # Find "free" slots: in production, ask each Slot directly for its
+    # current visible_identifier (avoids the broadcast race where
+    # AttachPool's own `visible_in` map lags). In tests with no live
+    # Slot processes, fall back to AttachPool's attachments view.
+    slot_indexes = running_slot_indexes()
+
+    {known_slots, claimed_by_active} =
+      if slot_indexes == [] do
+        # Test-only / no-slots path: use attachments.
+        known =
+          new_state.attachments
+          |> Enum.flat_map(fn {_id, %{attached_slots: slots}} -> MapSet.to_list(slots) end)
+          |> MapSet.new()
+
+        claimed =
+          new_state.attachments
+          |> Enum.flat_map(fn {id, %{visible_in: slot}} ->
+            if is_integer(slot) and id in new_active, do: [slot], else: []
+          end)
+          |> MapSet.new()
+
+        {known, claimed}
+      else
+        slot_snapshots =
+          Enum.map(slot_indexes, fn slot_index ->
+            case slot_pid_for(slot_index) do
+              {:ok, pid} ->
+                case Slot.snapshot(pid) do
+                  %{visible_identifier: vid} -> {slot_index, vid}
+                  _ -> {slot_index, nil}
+                end
+
+              :error ->
+                {slot_index, nil}
+            end
+          end)
+
+        known = MapSet.new(slot_indexes)
+
+        claimed =
+          slot_snapshots
+          |> Enum.flat_map(fn {idx, vid} ->
+            if is_binary(vid) and vid in new_active, do: [idx], else: []
+          end)
+          |> MapSet.new()
+
+        {known, claimed}
+      end
+
+    free_slots =
+      known_slots
+      |> MapSet.difference(claimed_by_active)
+      |> Enum.sort()
+
+    leadoff_pairs = Enum.zip(added, free_slots)
+    paired_added = Enum.map(leadoff_pairs, fn {id, _} -> id end)
+
+    if added != [] do
+      slot_vids =
+        if slot_indexes == [] do
+          [{nil, :test_path}]
+        else
+          Enum.map(slot_indexes, fn idx ->
+            case slot_pid_for(idx) do
+              {:ok, pid} ->
+                case Slot.snapshot(pid) do
+                  %{visible_identifier: vid} -> {idx, vid}
+                  other -> {idx, {:snapshot_shape, inspect(other)}}
+                end
+
+              :error ->
+                {idx, :no_pid}
+            end
+          end)
+        end
+
+      Aiur.Perf.event(:do_seed_pairing_check,
+        new_active: new_active,
+        added: added,
+        removed: removed,
+        known_slots: MapSet.to_list(known_slots),
+        claimed_by_active: MapSet.to_list(claimed_by_active),
+        free_slots: free_slots,
+        pairs: leadoff_pairs,
+        slot_vids: slot_vids
+      )
+    end
+
+    Enum.each(leadoff_pairs, fn {id, slot_index} ->
+      _ = start_leadoff_task(new_state, slot_index, id)
+    end)
+
+    if leadoff_pairs != [] do
+      Aiur.Perf.event(:seed_leadoff_reassignment,
+        paired: length(leadoff_pairs),
+        added_ids: paired_added,
+        free_slots: free_slots
+      )
+    end
+
+    # Attach unpaired added identifiers to every slot (session created
+    # but no slot paints for them; they'll stay 🔘 until a slot frees
+    # up).
+    unpaired_added = added -- paired_added
+
+    new_state =
+      Enum.reduce(unpaired_added, new_state, fn id, acc ->
+        Enum.reduce(running_slot_indexes(), acc, fn slot_index, acc2 ->
+          start_attach_task(acc2, slot_index, id, leadoff: false)
+        end)
+      end)
+
     new_state
   end
 
   defp kickoff_fan_out(state, slot_index) do
-    # Leadoff = active_identifiers at index (slot_index - 1), wrapping.
+    # Each slot's rotational leadoff is a DIFFERENT active identifier
+    # (slot 1 = active[0], slot 2 = active[1], ...). Fire it exactly
+    # ONCE per slot lifetime — slots can broadcast :slot_ready more
+    # than once (post-rebuild path), and re-firing the rotation here
+    # would race do_seed's pairing and displace whichever assignment
+    # the user just triggered (e.g. resume of a queued agent).
     n = length(state.active_identifiers)
 
     if n == 0 do
       state
     else
       start = rem(slot_index - 1, n)
-      ordered = Enum.slice(state.active_identifiers, start, n) ++ Enum.take(state.active_identifiers, start)
+      leadoff = Enum.at(state.active_identifiers, start)
+      rest = Enum.slice(state.active_identifiers, start + 1, n) ++ Enum.take(state.active_identifiers, start)
 
-      Enum.reduce(ordered, state, fn id, acc ->
-        start_attach_task(acc, slot_index, id)
+      state =
+        if slot_already_fanned_out?(state, slot_index) do
+          state
+        else
+          _ = start_leadoff_task(state, slot_index, leadoff)
+          %{state | fanned_out_slots: MapSet.put(state.fanned_out_slots, slot_index)}
+        end
+
+      Enum.reduce(rest, state, fn id, acc ->
+        start_attach_task(acc, slot_index, id, leadoff: false)
       end)
     end
   end
 
-  defp start_attach_task(state, slot_index, identifier) do
+  defp start_leadoff_task(state, slot_index, identifier) do
+    case slot_pid_for(slot_index) do
+      {:ok, slot_pid} ->
+        pool = self()
+
+        Task.start(fn ->
+          span =
+            Aiur.Perf.span_begin(:attach_pool_leadoff,
+              identifier: identifier,
+              slot: slot_index
+            )
+
+          case Slot.set_visible(slot_pid, identifier) do
+            {:ok, _pane_id} ->
+              Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
+              send(pool, {:attach_task_done, slot_index, identifier, :ok})
+
+            {:error, reason} ->
+              Aiur.Perf.span_end(span,
+                result: :failed,
+                identifier: identifier,
+                slot: slot_index,
+                reason: reason
+              )
+
+              send(pool, {:attach_failed, identifier, slot_index, reason})
+              send(pool, {:attach_task_done, slot_index, identifier, {:error, reason}})
+          end
+        end)
+
+        state
+
+      :error ->
+        state
+    end
+  end
+
+  defp start_attach_task(state, slot_index, identifier, opts) do
     key = {slot_index, identifier}
+    leadoff? = Keyword.get(opts, :leadoff, false)
 
     cond do
       MapSet.member?(state.in_flight, key) ->
@@ -384,11 +561,29 @@ defmodule Aiur.Opencode.AttachPool do
               span =
                 Aiur.Perf.span_begin(:attach_pool_attach,
                   identifier: identifier,
-                  slot: slot_index
+                  slot: slot_index,
+                  leadoff: leadoff?
                 )
 
-              case Slot.attach(slot_pid, identifier) do
-                {:ok, _session_id} ->
+              result =
+                if leadoff? do
+                  # set_visible drives both: attach (creates session if
+                  # needed) AND respawn the slot's attach pane bound to
+                  # that session. The result is a painted pane in the
+                  # hidden window — exactly what ⚪ promises the user.
+                  case Slot.set_visible(slot_pid, identifier) do
+                    {:ok, _pane_id} -> :ok
+                    err -> err
+                  end
+                else
+                  case Slot.attach(slot_pid, identifier) do
+                    {:ok, _session_id} -> :ok
+                    err -> err
+                  end
+                end
+
+              case result do
+                :ok ->
                   Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
                   send(pool, {:attach_task_done, slot_index, identifier, :ok})
 
@@ -549,7 +744,7 @@ defmodule Aiur.Opencode.AttachPool do
 
   defp find_slot_for_impl(state, identifier, opts) do
     case Map.get(state.attachments, identifier) do
-      %{attached_slots: slots} ->
+      %{attached_slots: slots} = self_att ->
         prefer = Keyword.get(opts, :prefer)
         exclude_visible = Keyword.get(opts, :exclude_visible, false)
 
@@ -568,12 +763,25 @@ defmodule Aiur.Opencode.AttachPool do
             MapSet.to_list(slots)
           end
 
+        own_visible = self_att.visible_in
+
         cond do
           candidates == [] ->
             :miss
 
           prefer != nil and prefer in candidates ->
             {:ok, prefer}
+
+          # Preferred path: the slot where this identifier was rendered
+          # as the leadoff (Slot broadcasts :slot_visible_changed during
+          # `maybe_render_leadoff_pane`). Returning that slot lets
+          # `Slot.set_visible/2` hit its fast path
+          # (`visible_identifier == identifier`) and return the existing
+          # pane id without a respawn — instant open, the whole point
+          # of pre-warming. Picking any other slot forces a respawn
+          # (5-7 s, the regression the user reported).
+          is_integer(own_visible) and own_visible in candidates ->
+            {:ok, own_visible}
 
           true ->
             {:ok, Enum.min(candidates)}

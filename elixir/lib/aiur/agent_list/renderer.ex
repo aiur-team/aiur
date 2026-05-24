@@ -429,38 +429,50 @@ defmodule Aiur.AgentList.Renderer do
     [body, pad]
   end
 
-  # Per-identifier marker: ⏳ (no attach), 🔘 (attached but no parallel
-  # headroom), ⚪ (attached with headroom for a new pane), 🟢 (visible
-  # in some pane). Driven by AttachPool's `attach_state` snapshot.
+  # Per-identifier marker, ordered most-ready-first:
+  #
+  #   🟢  agent's pane is open in window 0 right now
+  #       (`opened_panes`, populated by PaneManager pane_opened/closed events)
+  #   ⚪  agent's leadoff slot has finished painting in the hidden window
+  #       — open is instant (move-pane only, no respawn).
+  #       (`attach_state[id].visible_in` is set, but the pane hasn't been
+  #       moved to window 0 yet)
+  #   🔘  agent has a session attached to some slot, but the slot hasn't
+  #       finished its leadoff paint — open requires a respawn (5-7 s).
+  #   ⏳  no slot has attached this identifier yet.
+  #
+  # Previous semantics treated `visible_in` as 🟢, which lied to the
+  # user: leadoff-paint and user-visible-open got the same emoji, so
+  # ⚪ never appeared and the user couldn't tell a slow-open agent from
+  # an instant-open agent.
   defp compute_markers(state, summaries) do
     attach_state = Map.get(state, :attach_state, %{})
-    visible_count = count_visible(attach_state)
+    opened_panes = Map.get(state, :opened_panes, MapSet.new())
 
     summaries
     |> Enum.reduce(%{}, fn summary, acc ->
       id = to_string(Map.get(summary, :identifier) || "")
 
-      case Map.get(attach_state, id) do
-        %{visible_in: slot} when not is_nil(slot) ->
+      cond do
+        MapSet.member?(opened_panes, id) ->
           Map.put(acc, id, "🟢")
 
-        %{attach_count: n} when n >= visible_count + 1 ->
-          Map.put(acc, id, "⚪")
+        true ->
+          case Map.get(attach_state, id) do
+            %{visible_in: slot} when not is_nil(slot) ->
+              Map.put(acc, id, "⚪")
 
-        %{attach_count: n} when n >= 1 ->
-          Map.put(acc, id, "🔘")
+            %{attach_count: n} when n >= 1 ->
+              Map.put(acc, id, "🔘")
 
-        _ ->
-          Map.put(acc, id, "⏳")
+            _ ->
+              Map.put(acc, id, "⏳")
+          end
       end
     end)
   end
 
-  defp count_visible(attach_state) do
-    Enum.count(attach_state, fn {_id, e} -> not is_nil(Map.get(e, :visible_in)) end)
-  end
-
-  # `summary_emoji` defers to the precomputed marker for running
+# `summary_emoji` defers to the precomputed marker for running
   # working agents, and to AgentEvents for paused/error/done states.
   defp summary_emoji(%{status: :queued}, _markers), do: "⚫"
 

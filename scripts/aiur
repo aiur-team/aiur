@@ -30,6 +30,7 @@ aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 # `--host 127.0.0.1` so a default `aiur` run binds locally only.
 expose_host=0
 debug_mode=0
+clear_mode=0
 logs_mode=0
 fresh_mode=0
 log_issue_id=""
@@ -57,6 +58,9 @@ for arg in "$@"; do
     --debug)
       debug_mode=1
       ;;
+    --clear)
+      clear_mode=1
+      ;;
     --logs)
       logs_mode=1
       ;;
@@ -80,6 +84,11 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
+  echo "aiur: --clear requires --debug (e.g. \`aiur --debug --clear\`)" >&2
+  exit 64
+fi
 
 if [ "$expect_port_value" -eq 1 ]; then
   echo "aiur: --port requires a port number (e.g. --port 4099)" >&2
@@ -144,6 +153,8 @@ With stop, stop a profile, every profile, or ad hoc foreground Aiur processes.
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
                        Tail logs in another terminal: `aiur --logs`.
+  --clear              delete previous aiur*.log files before starting.
+                       Must be combined with --debug.
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
                        Useful in a separate terminal alongside `aiur --debug`.
@@ -1129,6 +1140,14 @@ run_in_tmux() {
   fi
 
   if [ "$debug_mode" -eq 1 ]; then
+    if [ "$clear_mode" -eq 1 ]; then
+      local log_dir
+      log_dir="$(dirname "$log_path")"
+      if [ -d "$log_dir" ]; then
+        find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
+        echo "aiur: cleared previous logs in $log_dir" >&2
+      fi
+    fi
     echo "aiur: debug logging enabled" >&2
     echo "aiur: tail logs with -> tail -F $log_path" >&2
     echo "aiur: tmux socket=$socket conf=$conf" >&2

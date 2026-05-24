@@ -59,14 +59,14 @@ defmodule Aiur.Regression.ChatPaneLoadsSessionTest do
              "Slot MUST retain Protocol.attach_command/2 so welcome→conversation transitions use --session"
     end
 
-    test "API select_session is gated on an already-painted conversation pane" do
+    test "Slot never calls /tui/select-session — every swap respawns" do
       source = File.read!(@slot_source)
 
-      assert source =~ ~r/can_select_via_api\?/,
-             "Slot MUST gate ApiClient.select_session behind a predicate that requires an already-painted conversation pane (visible_identifier set, pane_id set)"
+      refute source =~ ~r/do_select_via_api/,
+             "Slot MUST NOT route through /tui/select-session: opencode 1.15.6 returns 200 but exits the attach process seconds later, killing the user's chat pane. Every visible swap goes through kill+respawn instead."
 
-      assert source =~ ~r/visible_identifier != identifier/,
-             "the API fast-path predicate MUST require the swap to be conversation→different-conversation"
+      refute source =~ ~r/ApiClient\.select_session/,
+             "ApiClient.select_session is the upstream-broken /tui/select-session bridge. Slot must not call it."
     end
   end
 end

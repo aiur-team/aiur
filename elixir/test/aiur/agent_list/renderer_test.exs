@@ -200,7 +200,7 @@ defmodule Aiur.AgentList.RendererTest do
       render(
         base_state(%{
           summaries: summaries,
-          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: nil}}
+          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}}
         })
       )
       |> visible()
@@ -209,7 +209,8 @@ defmodule Aiur.AgentList.RendererTest do
       render(
         base_state(%{
           summaries: summaries,
-          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}}
+          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}},
+          opened_panes: MapSet.new(["MT-WORK"])
         })
       )
       |> visible()
@@ -245,7 +246,8 @@ defmodule Aiur.AgentList.RendererTest do
           attach_state: %{
             "MT-WARM" => %{attach_count: 1, visible_in: nil},
             "MT-OPEN" => %{attach_count: 1, visible_in: 1}
-          }
+          },
+          opened_panes: MapSet.new(["MT-OPEN"])
         })
       )
       |> visible()
@@ -255,9 +257,10 @@ defmodule Aiur.AgentList.RendererTest do
         base_state(%{
           summaries: summaries,
           attach_state: %{
-            "MT-WARM" => %{attach_count: 2, visible_in: nil},
+            "MT-WARM" => %{attach_count: 1, visible_in: 2},
             "MT-OPEN" => %{attach_count: 1, visible_in: 1}
-          }
+          },
+          opened_panes: MapSet.new(["MT-OPEN"])
         })
       )
       |> visible()
@@ -265,12 +268,13 @@ defmodule Aiur.AgentList.RendererTest do
     assert hourglass =~ "⏳"
     refute hourglass =~ "🟢"
 
-    # MT-OPEN visible in slot 1; MT-WARM has 1 attached, visible_count is 1,
-    # so threshold = 2 → MT-WARM is 🔘.
+    # MT-WARM has a session attached but no leadoff paint yet → 🔘.
+    # MT-OPEN's pane is actually open (opened_panes) → 🟢.
     assert only_attached =~ "🔘"
     assert only_attached =~ "🟢"
 
-    # MT-WARM attach_count 2 >= visible_count (1) + 1 → ⚪.
+    # MT-WARM's leadoff slot has painted (visible_in: 2) → ⚪.
+    # MT-OPEN's pane is open in window 0 → 🟢.
     assert full_headroom =~ "⚪"
   end
 
@@ -365,7 +369,7 @@ defmodule Aiur.AgentList.RendererTest do
     assert raw =~ ~r/\e\[\d+;1H\e\[J/
   end
 
-  test "🟢 marker renders for the identifier visible in a slot" do
+  test "🟢 marker renders for the identifier whose pane is open in window 0" do
     summaries = [
       %{identifier: "MT-1", status: :running, alert_count: 0, work_state: :working},
       %{identifier: "MT-2", status: :running, alert_count: 0, work_state: :working}
@@ -377,8 +381,9 @@ defmodule Aiur.AgentList.RendererTest do
           summaries: summaries,
           attach_state: %{
             "MT-1" => %{attach_count: 1, visible_in: 1},
-            "MT-2" => %{attach_count: 1, visible_in: nil}
-          }
+            "MT-2" => %{attach_count: 1, visible_in: 2}
+          },
+          opened_panes: MapSet.new(["MT-1"])
         })
       )
       |> visible()
@@ -388,8 +393,11 @@ defmodule Aiur.AgentList.RendererTest do
     mt1_line = Enum.find(lines, fn line -> line =~ "MT-1" end)
     mt2_line = Enum.find(lines, fn line -> line =~ "MT-2" end)
 
+    # MT-1's pane is open in window 0 → 🟢.
+    # MT-2's leadoff slot has painted but pane isn't open → ⚪, not 🟢.
     assert mt1_line =~ "🟢"
     refute mt2_line =~ "🟢"
+    assert mt2_line =~ "⚪"
   end
 
   test "no 🟢 marker when nothing is visible" do
