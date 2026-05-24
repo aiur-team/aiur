@@ -769,7 +769,19 @@ defmodule Aiur.PaneManager do
         # Slot.set_visible. Still bounded by GenServer mailbox depth,
         # but only reached when no slot has the identifier already
         # painted as its visible leadoff.
-        case AttachPool.consume(identifier, exclude_visible: true) do
+        #
+        # Pass the slots whose panes are CURRENTLY IN WINDOW 0 (the
+        # ones the user is actively looking at) so consume doesn't
+        # hijack them when rebinding to a different identifier. Slots
+        # whose panes are still in aiur-hidden (the boot-time case for
+        # leadoffs) ARE valid candidates — the previous
+        # `exclude_visible: true` filter excluded every leadoff slot
+        # regardless of window, which made post-boot opens on a non-
+        # leadoff agent always miss when every slot had a hidden-
+        # window leadoff painted.
+        visible_in_window_0 = state.slot_panes |> Map.keys() |> MapSet.new()
+
+        case AttachPool.consume(identifier, exclude_slots: visible_in_window_0) do
           {:ok, %{slot_index: slot_index, pane_id: pane_id}} ->
             Aiur.Perf.event(:attach_pool_consume_hit,
               identifier: identifier,

@@ -212,7 +212,8 @@ defmodule Aiur.Opencode.AttachPool do
       :miss ->
         Aiur.Perf.event(:attach_pool_miss,
           identifier: identifier,
-          exclude_visible: Keyword.get(opts, :exclude_visible, false)
+          exclude_visible: Keyword.get(opts, :exclude_visible, false),
+          exclude_slots: opts |> Keyword.get(:exclude_slots, []) |> Enum.to_list()
         )
 
         {:reply, :miss, state}
@@ -788,21 +789,32 @@ defmodule Aiur.Opencode.AttachPool do
       %{attached_slots: slots} = self_att ->
         prefer = Keyword.get(opts, :prefer)
         exclude_visible = Keyword.get(opts, :exclude_visible, false)
+        # `exclude_slots` — explicit list of slot indexes whose panes
+        # are currently visible in window 0 (PaneManager owns this fact).
+        # We must not hijack a slot whose pane the user is actively
+        # looking at by re-binding it to a different identifier.
+        # Authoritative over `exclude_visible`, which excluded ALL
+        # slots whose `visible_in` was set — including hidden-window
+        # leadoffs, which made every post-boot non-leadoff open miss.
+        exclude_slots = Keyword.get(opts, :exclude_slots, MapSet.new()) |> to_mapset()
 
         candidates =
-          if exclude_visible do
-            visible_to_other =
-              state.attachments
-              |> Enum.filter(fn {id, att} -> id != identifier and not is_nil(att.visible_in) end)
-              |> Enum.map(fn {_id, att} -> att.visible_in end)
-              |> MapSet.new()
+          slots
+          |> MapSet.to_list()
+          |> Enum.reject(&MapSet.member?(exclude_slots, &1))
+          |> then(fn list ->
+            if exclude_visible and MapSet.size(exclude_slots) == 0 do
+              visible_to_other =
+                state.attachments
+                |> Enum.filter(fn {id, att} -> id != identifier and not is_nil(att.visible_in) end)
+                |> Enum.map(fn {_id, att} -> att.visible_in end)
+                |> MapSet.new()
 
-            slots
-            |> MapSet.to_list()
-            |> Enum.reject(&MapSet.member?(visible_to_other, &1))
-          else
-            MapSet.to_list(slots)
-          end
+              Enum.reject(list, &MapSet.member?(visible_to_other, &1))
+            else
+              list
+            end
+          end)
 
         own_visible = self_att.visible_in
 
@@ -860,6 +872,10 @@ defmodule Aiur.Opencode.AttachPool do
   defp running_slot_indexes do
     SlotRegistry.all() |> Enum.map(fn {idx, _pid} -> idx end)
   end
+
+  defp to_mapset(%MapSet{} = ms), do: ms
+  defp to_mapset(list) when is_list(list), do: MapSet.new(list)
+  defp to_mapset(_), do: MapSet.new()
 
   defp slot_pid_for(slot_index) do
     case Enum.find(SlotRegistry.all(), fn {idx, _pid} -> idx == slot_index end) do
