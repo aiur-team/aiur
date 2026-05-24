@@ -481,26 +481,28 @@ defmodule Aiur.Opencode.AttachPool do
     # than once (post-rebuild path), and re-firing the rotation here
     # would race do_seed's pairing and displace whichever assignment
     # the user just triggered (e.g. resume of a queued agent).
+    #
+    # Each slot paints ONLY its leadoff. The previous "fan out the
+    # remaining active identifiers as background `Slot.attach` tasks"
+    # cost 30 HTTP attaches at boot (6 slots × 5 rest agents) and
+    # saturated Slot mailboxes for ~30 s — the observed 50 s boot.
+    # Secondary attach (the 🔘 "switch-session within opencode" path)
+    # is a deferred follow-up; deleting the rest loop here gets boot
+    # back under 20 s for the common case.
     n = length(state.active_identifiers)
 
-    if n == 0 do
-      state
-    else
-      start = rem(slot_index - 1, n)
-      leadoff = Enum.at(state.active_identifiers, start)
-      rest = Enum.slice(state.active_identifiers, start + 1, n) ++ Enum.take(state.active_identifiers, start)
+    cond do
+      n == 0 ->
+        state
 
-      state =
-        if slot_already_fanned_out?(state, slot_index) do
-          state
-        else
-          _ = start_leadoff_task(state, slot_index, leadoff)
-          %{state | fanned_out_slots: MapSet.put(state.fanned_out_slots, slot_index)}
-        end
+      slot_already_fanned_out?(state, slot_index) ->
+        state
 
-      Enum.reduce(rest, state, fn id, acc ->
-        start_attach_task(acc, slot_index, id, leadoff: false)
-      end)
+      true ->
+        start = rem(slot_index - 1, n)
+        leadoff = Enum.at(state.active_identifiers, start)
+        _ = start_leadoff_task(state, slot_index, leadoff)
+        %{state | fanned_out_slots: MapSet.put(state.fanned_out_slots, slot_index)}
     end
   end
 
