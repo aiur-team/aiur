@@ -187,19 +187,17 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:reply, state.target_count, state}
   end
 
-  # Slot count is the LARGER of (grid capacity) or (max active agents).
-  # The grid capacity (`max_vertical_panes * 2 - 1`) caps how many panes
-  # can be VISIBLE at once. Pre-warm slot count must be at least
-  # `max_concurrent_agents` so every active agent has a slot to leadoff
-  # in — otherwise a newly-activated agent that exceeds grid capacity
-  # gets stuck at 🔘 (attached but no painted pane), and `Slot.attach`
-  # returns `:identifier_unknown` because slots' known_identifiers were
-  # set at boot from the original active set.
+  # Pre-warm slot count is governed by the new `pre_warmed_sessions`
+  # WORKFLOW setting (default 3). Capped at `max_concurrent_agents`
+  # because spawning more pre-warm slots than the orchestrator will
+  # ever fill with active agents wastes opencode-serve processes.
+  # `pre_warmed_sessions = 0` is valid: no slots boot, every open
+  # goes through the cold placeholder path.
   defp default_target_count do
-    grid_capacity = Aiur.Config.max_vertical_panes() * 2 - 1
+    pre_warmed = Aiur.Config.pre_warmed_sessions()
     max_agents = Aiur.Config.max_concurrent_agents()
-    max(grid_capacity, max_agents)
+    min(pre_warmed, max_agents)
   rescue
-    _ -> 5
+    _ -> 3
   end
 end

@@ -17,6 +17,7 @@ github:
 polling:
   interval_ms: 5000
 max_vertical_panes: 3
+pre_warmed_sessions: 3
 server:
   host: 100.81.109.51
   port: 4000

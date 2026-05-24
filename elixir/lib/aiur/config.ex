@@ -132,6 +132,19 @@ defmodule Aiur.Config do
     settings!().agent.max_concurrent_agents
   end
 
+  @doc """
+  Number of opencode-serve instances to pre-warm at boot. Each pre-
+  warmed slot binds to a different active ticket as its leadoff so
+  the user's first click on that ticket opens its chat pane in
+  <100 ms. Defaults to 3 when absent from WORKFLOW. `0` is valid
+  and disables pre-warm entirely (all opens go through the cold
+  placeholder path).
+  """
+  @spec pre_warmed_sessions() :: non_neg_integer()
+  def pre_warmed_sessions do
+    settings!().pre_warmed_sessions
+  end
+
   @spec max_retry_attempts() :: pos_integer()
   def max_retry_attempts do
     settings!().agent.max_retry_attempts
