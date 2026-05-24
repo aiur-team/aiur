@@ -779,7 +779,15 @@ defmodule Aiur.PaneManager do
         # regardless of window, which made post-boot opens on a non-
         # leadoff agent always miss when every slot had a hidden-
         # window leadoff painted.
-        visible_in_window_0 = state.slot_panes |> Map.keys() |> MapSet.new()
+        # `slot_panes` is pre-seeded with `{slot => nil}` for every
+        # slot index 1..slot_count regardless of whether a chat pane
+        # is currently visible. Filter to slots with a non-nil pane_id —
+        # those are the ones actually mounted in window 0 right now.
+        visible_in_window_0 =
+          state.slot_panes
+          |> Enum.filter(fn {_slot, pane_id} -> is_binary(pane_id) end)
+          |> Enum.map(fn {slot, _pane_id} -> slot end)
+          |> MapSet.new()
 
         case AttachPool.consume(identifier, exclude_slots: visible_in_window_0) do
           {:ok, %{slot_index: slot_index, pane_id: pane_id}} ->
