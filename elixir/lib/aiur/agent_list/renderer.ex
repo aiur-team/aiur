@@ -527,7 +527,22 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp warm_status_enabled?(state) do
-    Map.get(state, :warm_status_row?, true)
+    # Bottom warmth row (🔲 starting / ⬜ ready) is a debug-only
+    # observability surface, not a user-facing feature. Hidden when
+    # AIUR_DEBUG is off so the default agent list stays focused on
+    # per-ticket markers. State-level override (`warm_status_row?`)
+    # still wins for tests that explicitly want to render it.
+    case Map.get(state, :warm_status_row?) do
+      nil -> debug_enabled?()
+      explicit -> explicit
+    end
+  end
+
+  defp debug_enabled? do
+    case System.get_env("AIUR_DEBUG") do
+      v when is_binary(v) -> String.downcase(String.trim(v)) in ["1", "true", "yes"]
+      _ -> false
+    end
   end
 
   defp warm_row_line_count(state), do: warm_status_row_line_count(state)

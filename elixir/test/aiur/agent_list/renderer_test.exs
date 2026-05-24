@@ -283,12 +283,17 @@ defmodule Aiur.AgentList.RendererTest do
       %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
     ]
 
-    none = render(base_state(%{summaries: summaries})) |> visible()
+    none = render(base_state(%{summaries: summaries, warm_status_row?: true})) |> visible()
 
+    # The warm status row is debug-only by default (renders only when
+    # AIUR_DEBUG=1). Explicit `warm_status_row?: true` overrides the
+    # env check so this glyph-rendering test stays deterministic
+    # without mucking with process env.
     mixed =
       render(
         base_state(%{
           summaries: summaries,
+          warm_status_row?: true,
           started_slots: MapSet.new([1, 2, 3]),
           fully_warmed_slots: MapSet.new([1])
         })
@@ -299,6 +304,7 @@ defmodule Aiur.AgentList.RendererTest do
       render(
         base_state(%{
           summaries: summaries,
+          warm_status_row?: true,
           started_slots: MapSet.new([1, 2]),
           fully_warmed_slots: MapSet.new([1]),
           warm_status_dark_mode?: false

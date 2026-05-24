@@ -111,7 +111,15 @@ defmodule Aiur.Opencode.Slot do
             # `{from, identifier}` queued from a `:set_visible` /
             # `:select` whose identifier wasn't in the serve's models
             # map. Drained after `:rebuild_now` reaches `:ready`.
-            pending_select: nil
+            pending_select: nil,
+            # Identifiers queued from `Slot.attach` calls that returned
+            # `:identifier_unknown` (the agent became active post-boot
+            # and wasn't in the serve's models map). Each triggers a
+            # serve rebuild that incorporates them into known_identifiers
+            # before retrying the attach. Reply already sent to the
+            # caller as `{:error, :identifier_unknown}`; the retry is a
+            # background side-effect for fill purposes.
+            pending_attaches: MapSet.new()
 
   @type status :: :booting | :serve_starting | :attach_spawning | :ready | :active | :failed
 
@@ -405,7 +413,7 @@ defmodule Aiur.Opencode.Slot do
     maybe_run_session_gc(state)
 
     ready_state = %{state | status: :ready, pane_id: nil}
-    {:noreply, drain_pending_select(ready_state)}
+    {:noreply, ready_state |> drain_pending_select() |> drain_pending_attaches()}
   end
 
   defp mark_ready_with_attach_pane(state) do
@@ -434,7 +442,7 @@ defmodule Aiur.Opencode.Slot do
       maybe_run_session_gc(state)
 
       ready_state = %{state | status: :ready, pane_id: pane_id}
-      {:noreply, drain_pending_select(ready_state)}
+      {:noreply, ready_state |> drain_pending_select() |> drain_pending_attaches()}
     else
       error ->
         Logger.warning("opencode_slot phase=attach_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}")
@@ -516,6 +524,26 @@ defmodule Aiur.Opencode.Slot do
       {:ok, session_id, new_state} ->
         broadcast_attach_added(new_state.slot_index, identifier)
         {:reply, {:ok, session_id}, new_state}
+
+      {:error, :identifier_unknown} ->
+        # Agent became active post-boot and isn't in this serve's
+        # models map. Reply now (callers — background fill — won't
+        # block) and schedule a serve rebuild to incorporate the
+        # identifier. The rebuild's :ready continuation drains
+        # `pending_attaches` and re-fires the attach so the next
+        # consume can warm-open this identifier from this slot.
+        new_state = %{
+          state
+          | known_identifiers: MapSet.put(state.known_identifiers, identifier),
+            pending_attaches: MapSet.put(state.pending_attaches, identifier)
+        }
+
+        Aiur.Perf.event(:slot_attach_rebuild_scheduled,
+          slot: state.slot_index,
+          identifier: identifier
+        )
+
+        {:reply, {:error, :identifier_unknown}, schedule_serve_rebuild(new_state, state.pending_select)}
 
       {:error, _} = err ->
         {:reply, err, state}
@@ -1120,11 +1148,59 @@ defmodule Aiur.Opencode.Slot do
     end
   end
 
+  # Called on transition to `:ready` after a serve rebuild triggered
+  # by `Slot.attach` returning `:identifier_unknown`. The rebuild
+  # incorporated each pending identifier into known_identifiers and
+  # the new serve's models map; retry the underlying attach so the
+  # session is created and `slot_attach_added` fires for the warm
+  # consume path. Fire-and-forget; no callers waiting on reply.
+  defp drain_pending_attaches(%{pending_attaches: ms} = state) do
+    if MapSet.size(ms) == 0 do
+      state
+    else
+      Enum.reduce(ms, %{state | pending_attaches: MapSet.new()}, fn id, acc ->
+        case do_attach(id, acc) do
+          {:ok, _session_id, new_acc} ->
+            broadcast_attach_added(new_acc.slot_index, id)
+
+            Aiur.Perf.event(:slot_attach_retry_succeeded,
+              slot: new_acc.slot_index,
+              identifier: id
+            )
+
+            new_acc
+
+          {:error, reason} ->
+            Aiur.Perf.event(:slot_attach_retry_failed,
+              slot: acc.slot_index,
+              identifier: id,
+              reason: reason
+            )
+
+            acc
+        end
+      end)
+    end
+  end
+
   # Rebuild the slot's opencode-serve + workspace + attach pane so the
   # new models map includes a previously-unknown identifier. Stores
   # `{from, identifier}` in `pending_select`; once the rebuild reaches
   # `:ready` again, `handle_continue(:spawn_attach, ...)` drains it.
+  defp schedule_serve_rebuild(state, nil) do
+    # Rebuild without queuing a pending select reply. Used by the
+    # `Slot.attach` path when an agent became active post-boot:
+    # we already replied to the attach caller (error), and the
+    # rebuild's purpose is purely to incorporate the identifier into
+    # known_identifiers + retry attaches from `pending_attaches`.
+    do_schedule_serve_rebuild(state, nil, state.known_identifiers)
+  end
+
   defp schedule_serve_rebuild(state, {_from, identifier} = pending) do
+    do_schedule_serve_rebuild(state, pending, MapSet.put(state.known_identifiers, identifier))
+  end
+
+  defp do_schedule_serve_rebuild(state, pending, next_known) do
     # Tear down the existing serve + pane. Bump generation + delete
     # the old token so the bridge can't accept stale auth from a
     # still-running opencode process after we replace it.
@@ -1146,13 +1222,6 @@ defmodule Aiur.Opencode.Slot do
     # Kick the rebuild via a self-message so we can return :noreply now
     # and the next mailbox dispatch re-enters via :rebuild_now → start_serve.
     send(self(), :rebuild_now)
-
-    # Add JUST the missing identifier to the known set — incremental,
-    # not "every active agent in the orchestrator". Previously-attached
-    # identifiers stay in the set so future selects for them hit the
-    # warm path. This is what makes R4 (manual attach in same pane)
-    # work cheaply after the first attach.
-    next_known = MapSet.put(state.known_identifiers, identifier)
 
     %{
       state

@@ -1471,7 +1471,24 @@ defmodule Aiur.OrchestratorStatusTest do
             }} = Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
   end
 
-  test "application configures a single-file logger handler" do
+  test "application configures a single-file logger handler when AIUR_DEBUG=1" do
+    # The file handler is now gated on AIUR_DEBUG so the default
+    # quiet `aiur` invocation doesn't write aiur.log. Set the env
+    # and re-configure to verify the handler still installs cleanly
+    # in debug mode.
+    original = System.get_env("AIUR_DEBUG")
+    System.put_env("AIUR_DEBUG", "1")
+    Aiur.LogFile.configure()
+
+    on_exit(fn ->
+      case original do
+        nil -> System.delete_env("AIUR_DEBUG")
+        v -> System.put_env("AIUR_DEBUG", v)
+      end
+
+      Aiur.LogFile.configure()
+    end)
+
     assert {:ok, handler_config} = :logger.get_handler_config(:aiur_file_log)
     assert handler_config.module == :logger_std_h
 

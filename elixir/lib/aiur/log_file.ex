@@ -29,9 +29,17 @@ defmodule Aiur.LogFile do
 
   @spec configure() :: :ok
   def configure do
-    log_file = Application.get_env(:aiur, :log_file, default_log_file())
+    if debug_enabled?() do
+      log_file = Application.get_env(:aiur, :log_file, default_log_file())
+      setup_file_handler(log_file)
+    else
+      # No --debug → no aiur.log at all. Per-agent stdout files
+      # (elixir/log/aiur.<id>.log via Aiur.IssueLog) are unaffected and
+      # always written. Quiet default per the spec.
+      :ok = remove_existing_handler()
+      :ok = remove_default_console_handler()
+    end
 
-    setup_file_handler(log_file)
     configure_level()
   end
 

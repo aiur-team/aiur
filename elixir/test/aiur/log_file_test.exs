@@ -70,6 +70,12 @@ defmodule Aiur.LogFileTest do
       # default console handler stayed wired up and every Logger.debug
       # at bootstrap flashed onto the operator's terminal for a beat
       # before the conversation pane took over the screen.
+      # File handler is only installed when AIUR_DEBUG is on (the
+      # default `aiur` invocation stays quiet); the console removal
+      # behavior holds in both modes.
+      System.put_env("AIUR_DEBUG", "1")
+      on_exit(fn -> System.delete_env("AIUR_DEBUG") end)
+
       assert :ok = LogFile.configure()
 
       assert {:error, {:not_found, :default}} = :logger.get_handler_config(:default)
