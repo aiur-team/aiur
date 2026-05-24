@@ -459,18 +459,12 @@ defmodule Aiur.Opencode.AttachPool do
       )
     end
 
-    # Attach unpaired added identifiers to every slot (session created
-    # but no slot paints for them; they'll stay 🔘 until a slot frees
-    # up).
-    unpaired_added = added -- paired_added
-
-    new_state =
-      Enum.reduce(unpaired_added, new_state, fn id, acc ->
-        Enum.reduce(running_slot_indexes(), acc, fn slot_index, acc2 ->
-          start_attach_task(acc2, slot_index, id, leadoff: false)
-        end)
-      end)
-
+    # Unpaired identifiers (more active agents than free slots) stay
+    # ⏳ until a slot frees up (via pause/close) and a follow-up
+    # do_seed pairs them. The previous "attach unpaired to every
+    # slot" path produced N × S extra HTTP attaches per do_seed and
+    # was the silent twin of kickoff_fan_out's deleted rest loop —
+    # together they accounted for the 50 s all-hourglass boot.
     new_state
   end
 
