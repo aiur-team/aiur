@@ -846,7 +846,7 @@ defmodule Aiur.AgentList.Renderer do
 
   # Truncate a string to at most `limit` visual columns, splitting on
   # grapheme boundaries (so we never cut an emoji mid-codepoint).
-  defp truncate_visual(text, limit) when limit <= 0, do: ""
+  defp truncate_visual(_text, limit) when limit <= 0, do: ""
 
   defp truncate_visual(text, limit) do
     {kept, _used} =
