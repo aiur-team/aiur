@@ -51,6 +51,24 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "📄 ticket.42.branch.push id=4290 (#42)"
     end
 
+    test "newest event renders BELOW older events (anchored to bottom)" do
+      events = [
+        debug_entry(:read, topic: "ticket.42.read", id: 3),
+        debug_entry(:receive, topic: "ticket.42.receive", id: 2),
+        debug_entry(:publish, topic: "ticket.42.publish", id: 1)
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      publish_pos = :binary.match(output, "ticket.42.publish") |> elem(0)
+      receive_pos = :binary.match(output, "ticket.42.receive") |> elem(0)
+      read_pos = :binary.match(output, "ticket.42.read") |> elem(0)
+
+      assert publish_pos < receive_pos
+      assert receive_pos < read_pos
+    end
+
     test "hides oldest events when ticker would exceed budget" do
       # 24 rows total, header + table chrome eats most; the ticker gets
       # a small remaining budget. Generate more events than can fit and

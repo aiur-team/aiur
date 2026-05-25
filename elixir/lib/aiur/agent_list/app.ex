@@ -878,6 +878,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
       |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
       |> Map.put(:warmth_events, Map.get(state, :warmth_events, []))
+      |> Map.put(:debug_events, Map.get(state, :debug_events, []))
       |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
       |> Map.put(:started_slots, Map.get(state, :started_slots, MapSet.new()))
       |> Map.put(:fully_warmed_slots, Map.get(state, :fully_warmed_slots, MapSet.new()))

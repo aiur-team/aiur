@@ -767,20 +767,34 @@ defmodule Aiur.AgentList.Renderer do
   defp debug_events_ticker(state, inner_width, budget) do
     if Map.get(state, :debug_mode?, false) and budget > 0 do
       header_line = ticker_header_row(inner_width)
+      # Header eats one row; remaining is the visible event capacity.
+      capacity = max(budget - 1, 0)
 
+      # state.debug_events is newest-first. Keep the newest `capacity`
+      # (drop the oldest beyond that), then reverse so we render
+      # oldest-at-top → newest-at-bottom. Events anchor to the BOTTOM
+      # of the ticker section: when fewer than `capacity` exist, blank
+      # padding fills the rows above so the newest event always sits
+      # at the bottom of the pane.
       events =
         state
         |> Map.get(:debug_events, [])
-        # Header costs one line, so we can fit budget - 1 event rows.
-        |> Enum.take(max(budget - 1, 0))
+        |> Enum.take(capacity)
+        |> Enum.reverse()
 
+      pad_count = max(capacity - length(events), 0)
+      blank = ticker_blank_row(inner_width)
+      blank_rows = List.duplicate([blank, eol()], pad_count)
       event_rows = Enum.flat_map(events, &[ticker_event_row(&1, inner_width), eol()])
 
-      lines = 1 + length(events)
-      {[header_line, eol(), event_rows], lines}
+      {[header_line, eol(), blank_rows, event_rows], 1 + pad_count + length(events)}
     else
       {[], 0}
     end
+  end
+
+  defp ticker_blank_row(inner_width) do
+    String.duplicate(" ", inner_width)
   end
 
   defp ticker_header_row(inner_width) do
