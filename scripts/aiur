@@ -33,6 +33,10 @@ debug_mode=0
 clear_mode=0
 logs_mode=0
 fresh_mode=0
+test_mode=0
+test_confirm=0
+test_force=0
+test_allow_remote=0
 log_issue_id=""
 port_override=""
 filtered_args=()
@@ -64,6 +68,18 @@ for arg in "$@"; do
     --logs)
       logs_mode=1
       ;;
+    --test)
+      test_mode=1
+      ;;
+    --confirm)
+      test_confirm=1
+      ;;
+    --force)
+      test_force=1
+      ;;
+    --allow-remote)
+      test_allow_remote=1
+      ;;
     --fresh | --new)
       fresh_mode=1
       ;;
@@ -88,6 +104,24 @@ done
 if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   echo "aiur: --clear requires --debug (e.g. \`aiur --debug --clear\`)" >&2
   exit 64
+fi
+
+# --test is a one-shot reset that bypasses the full Aiur launch. Mirrors
+# the --logs short-circuit pattern: parse our flags, dispatch the mix
+# task, and exec out before any tmux/BEAM startup.
+if [ "$test_mode" -eq 1 ]; then
+  if [ -z "$mise_bin" ]; then
+    echo "aiur: --test requires mise on PATH" >&2
+    exit 1
+  fi
+
+  test_args=()
+  [ "$test_confirm" -eq 1 ] && test_args+=("--confirm")
+  [ "$test_force" -eq 1 ] && test_args+=("--force")
+  [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
+
+  cd "$default_repo_root/elixir"
+  exec "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"
 fi
 
 if [ "$expect_port_value" -eq 1 ]; then
