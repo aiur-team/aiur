@@ -72,6 +72,16 @@ defmodule Aiur.AgentList.Renderer do
       markers = compute_markers(state, summaries)
       warm_row = warm_status_row(state, inner_width)
 
+      base_lines =
+        lines_emitted(state, inner_width) + debug_footer_line_count(state) +
+          warm_row_line_count(state)
+
+      # Reserve at least one row of breathing room before the bottom of
+      # the pane so the ticker never overflows tmux's scroll region. If
+      # there's no room left, render nothing.
+      ticker_budget = max(rows - base_lines - 1, 0)
+      {ticker_iodata, ticker_line_count} = debug_events_ticker(state, inner_width, ticker_budget)
+
       [
         "\e[?25l",
         "\e[H",
@@ -98,11 +108,8 @@ defmodule Aiur.AgentList.Renderer do
         eol(),
         warm_row,
         debug_footer,
-        clear_remaining(
-          rows,
-          lines_emitted(state, inner_width) + debug_footer_line_count(state) +
-            warm_row_line_count(state)
-        )
+        ticker_iodata,
+        clear_remaining(rows, base_lines + ticker_line_count)
       ]
     end
   end
@@ -472,7 +479,7 @@ defmodule Aiur.AgentList.Renderer do
     end)
   end
 
-# `summary_emoji` defers to the precomputed marker for running
+  # `summary_emoji` defers to the precomputed marker for running
   # working agents, and to AgentEvents for paused/error/done states.
   defp summary_emoji(%{status: :queued}, _markers), do: "⚫"
 
@@ -742,6 +749,83 @@ defmodule Aiur.AgentList.Renderer do
     end)
   end
 
+  # --- Debug events ticker ------------------------------------------------
+  # When `--debug` is on, the bottom of the agent-list pane shows the
+  # most recent event lifecycle marks. Three kinds, in three columns of
+  # visual weight:
+  #
+  #   ✉️  publish — Aiur.Events.Publisher.publish/3 accepted the event
+  #   📥  receive — Aiur.Events.SubscriptionStore enqueued the event
+  #                  for a specific subscribing identifier
+  #   📄  read    — the agent's queue consumed an `events_digest` item
+  #                  (the digest reached the agent's prompt)
+  #
+  # The buffer is newest-first. Renderer trims to `budget` lines so
+  # the ticker never overflows the pane height; older events are
+  # silently dropped from the visible window.
+
+  defp debug_events_ticker(state, inner_width, budget) do
+    if Map.get(state, :debug_mode?, false) and budget > 0 do
+      header_line = ticker_header_row(inner_width)
+
+      events =
+        state
+        |> Map.get(:debug_events, [])
+        # Header costs one line, so we can fit budget - 1 event rows.
+        |> Enum.take(max(budget - 1, 0))
+
+      event_rows = Enum.flat_map(events, &[ticker_event_row(&1, inner_width), eol()])
+
+      lines = 1 + length(events)
+      {[header_line, eol(), event_rows], lines}
+    else
+      {[], 0}
+    end
+  end
+
+  defp ticker_header_row(inner_width) do
+    label = "  events (✉️ publish · 📥 receive · 📄 read)"
+    pad = max(inner_width - String.length(label), 0)
+    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  defp ticker_event_row(%{kind: kind, topic: topic} = entry, inner_width) do
+    glyph =
+      case kind do
+        :publish -> "✉️"
+        :receive -> "📥"
+        :read -> "📄"
+      end
+
+    id_part =
+      case Map.get(entry, :id) do
+        n when is_integer(n) -> " id=#{n}"
+        _ -> ""
+      end
+
+    identifier_part =
+      case Map.get(entry, :identifier) do
+        id when is_binary(id) and id != "" -> " (##{id})"
+        _ -> ""
+      end
+
+    text = "  #{glyph} #{topic}#{id_part}#{identifier_part}"
+
+    # Truncate / pad to inner_width. emoji glyphs are visually two
+    # columns wide in most terminals; we measure with String.length/1
+    # which counts grapheme clusters (1 per emoji), so the actual
+    # rendered width is slightly wider than the padding suggests —
+    # acceptable for a debug ticker.
+    truncated =
+      if String.length(text) > inner_width do
+        String.slice(text, 0, max(inner_width - 1, 0)) <> "…"
+      else
+        text
+      end
+
+    pad = max(inner_width - String.length(truncated), 0)
+    [IO.ANSI.faint(), truncated, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
 
   defp clear_remaining(rows, lines_drawn) do
     if lines_drawn >= rows do

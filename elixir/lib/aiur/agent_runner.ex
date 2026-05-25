@@ -611,6 +611,24 @@ defmodule Aiur.AgentRunner do
   defp queue_item_text(%{
          category: :coordination_event,
          event_type: :events_digest,
+         target_issue_identifier: identifier,
+         body: %{events: events}
+       })
+       when is_list(events) do
+    rendered_events = Enum.map_join(events, "\n", &render_event_line/1)
+
+    for event <- events do
+      topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+      id = Map.get(event, :id) || Map.get(event, "id")
+      Aiur.Events.DebugLog.broadcast(:read, topic, id: id, identifier: identifier)
+    end
+
+    "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"
+  end
+
+  defp queue_item_text(%{
+         category: :coordination_event,
+         event_type: :events_digest,
          body: %{events: events}
        })
        when is_list(events) do

@@ -26,6 +26,7 @@ defmodule Aiur.AgentList.App do
 
   alias Aiur.AgentList.Renderer
   alias Aiur.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
+  alias Aiur.Events.DebugLog
   alias Aiur.Opencode.{AttachPool, Slot}
 
   # `init/1` and `render/1` go through GenServer-side and IO callbacks
@@ -36,6 +37,10 @@ defmodule Aiur.AgentList.App do
 
   @refresh_tick_ms 1_000
   @warmth_event_cap 500
+  # Cap on the in-memory debug-event ticker buffer. The renderer trims
+  # further based on available pane height, but this stops unbounded
+  # growth if the operator leaves --debug on for hours.
+  @debug_event_cap 200
   # Geometry-watch interval. Far faster than the refresh tick so that
   # tmux resizes (caused by another pane opening/closing in the same
   # window) reflow the agent list within a quarter-second — the old
@@ -140,6 +145,7 @@ defmodule Aiur.AgentList.App do
 
       if debug_mode? do
         Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+        DebugLog.subscribe()
       end
     end
 
@@ -203,7 +209,12 @@ defmodule Aiur.AgentList.App do
         agent_list_ready_ms: nil,
         chat_pane_visible_ms: nil,
         opencode_render_ms: nil
-      }
+      },
+      # Ring buffer of debug-only event lifecycle marks (publish /
+      # receive / read). Newest first; capped at @debug_event_cap.
+      # Empty in non-debug mode. Renderer further trims to available
+      # pane height.
+      debug_events: []
     }
 
     schedule_refresh_tick()
@@ -596,6 +607,15 @@ defmodule Aiur.AgentList.App do
   end
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
+
+  def handle_info({:event_debug, entry}, %{debug_mode?: true} = state) do
+    new_events = [entry | state.debug_events] |> Enum.take(@debug_event_cap)
+    new_state = %{state | debug_events: new_events}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info({:event_debug, _entry}, state), do: {:noreply, state}
 
   def handle_info(_other, state), do: {:noreply, state}
 

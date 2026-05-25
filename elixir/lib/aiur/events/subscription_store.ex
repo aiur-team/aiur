@@ -93,8 +93,12 @@ defmodule Aiur.Events.SubscriptionStore do
   @spec attach(String.t()) :: :ok
   def attach(identifier) when is_binary(identifier) do
     case DynamicSupervisor.start_child(@supervisor, {__MODULE__, identifier: identifier}) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_started, _pid}} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("SubscriptionStore.attach(#{identifier}) failed: #{inspect(reason)}")
         :ok
@@ -282,6 +286,13 @@ defmodule Aiur.Events.SubscriptionStore do
       true ->
         enqueue_event(state.identifier, event)
         Aiur.IssueLog.record_event(state.identifier, :consumed, event)
+        topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+
+        Aiur.Events.DebugLog.broadcast(:receive, topic,
+          id: event_id,
+          identifier: state.identifier
+        )
+
         new_state = advance_cursor_inline(state, event_id)
         {:noreply, new_state}
     end
@@ -392,9 +403,7 @@ defmodule Aiur.Events.SubscriptionStore do
     })
   rescue
     error ->
-      Logger.warning(
-        "SubscriptionStore(#{state.identifier}) persist failed: " <> Exception.message(error)
-      )
+      Logger.warning("SubscriptionStore(#{state.identifier}) persist failed: " <> Exception.message(error))
 
       :error
   end
