@@ -7,3 +7,4 @@ AGENTS.local.md
 .env.swp
 .agent-label-snapshot.json
 .agent-label-restore.sh
+elixir/WORKFLOW.md
