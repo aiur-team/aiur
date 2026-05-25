@@ -42,6 +42,34 @@ defmodule Aiur.Opencode.DbTest do
       ids = for _ <- 1..100, do: Db.msg_id()
       assert Enum.uniq(ids) == ids
     end
+
+    test "prt_id/0 returns lexically increasing ids within a single millisecond" do
+      # opencode's TUI orders message parts by lexical `id`. Before the
+      # monotonic-within-ms fix, three back-to-back prt_id() calls would
+      # share a timestamp and rank by random entropy — step-finish could
+      # sort before the body part, hiding tool/text content in the chat
+      # pane (only the "Build · ..." chrome header would render).
+      Process.delete(:aiur_opencode_last_id)
+      ids = for _ <- 1..50, do: Db.prt_id()
+      assert ids == Enum.sort(ids), "prt_id/0 produced non-monotonic ids: #{inspect(ids)}"
+    end
+
+    test "id monotonicity holds across msg_id, prt_id, and call_id interleaved" do
+      Process.delete(:aiur_opencode_last_id)
+
+      ids =
+        for _ <- 1..30 do
+          [Db.msg_id(), Db.prt_id(), Db.call_id()]
+        end
+        |> List.flatten()
+        |> Enum.map(fn id ->
+          # Drop the prefix so we can compare the timestamp+entropy suffix
+          # across mixed prefixes (msg_/prt_/call_).
+          id |> String.split("_", parts: 2) |> List.last()
+        end)
+
+      assert ids == Enum.sort(ids), "id suffixes not monotonic: #{inspect(ids)}"
+    end
   end
 
   describe "insert + fetch round-trip" do
