@@ -167,6 +167,61 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
       assert "ticket.55.#" in Exchange.bindings_for(pid)
     end
+
+    test "attach/1 returns AFTER bindings are registered (no race)", %{identifier: id} do
+      # Pre-populate the on-disk subscriptions file so a fresh attach
+      # has bindings to re-register during init.
+      tmp_path =
+        Path.join(
+          Paths.log_root_dir(),
+          "#{Paths.repo_name()}.#{safe_id(id)}.subscriptions.json"
+        )
+
+      File.mkdir_p!(Path.dirname(tmp_path))
+
+      File.write!(
+        tmp_path,
+        Jason.encode!(%{
+          "subscribed_to" => [
+            %{
+              "topic" => "ticket.901.#",
+              "reason" => "test",
+              "subscription_created_at_event_id" => 1
+            }
+          ],
+          "last_seen_event_id" => nil,
+          "open_attentions" => []
+        })
+      )
+
+      :ok = SubscriptionStore.attach(id)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # No Process.sleep — bindings must be ready synchronously.
+      assert "ticket.901.#" in Exchange.bindings_for(pid)
+    end
+  end
+
+  describe "cursor redelivery defense" do
+    test "events with id <= last_seen_event_id are dropped on handle_info", %{identifier: id} do
+      test_pid = self()
+      SubscriptionStore.set_enqueue_fn(fn _id, ev -> send(test_pid, {:enqueued, ev}); :ok end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.555.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 1000)
+
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # Simulate Exchange delivering a stale event (id < cursor)
+      send(pid, {:event, %{id: 500, topic: "ticket.555.branch.push"}})
+      send(pid, {:event, %{id: 1500, topic: "ticket.555.branch.push"}})
+
+      assert_receive {:enqueued, %{id: 1500}}, 500
+      refute_receive {:enqueued, %{id: 500}}, 100
+
+      SubscriptionStore.set_enqueue_fn(nil)
+    end
   end
 
   defp safe_id(id) do

@@ -162,8 +162,17 @@ defmodule Aiur.GitHub.IssueDependencies do
 
         bfs(rest ++ next_nodes, %{visited_state | api_calls: state.api_calls + 1}, opts)
 
+      {:error, {:github_api_status, 404}} ->
+        # Issue was deleted from GitHub — no outgoing edges to follow.
+        # Treat as a leaf, not an inconclusive cycle check.
+        bfs(rest, %{visited_state | api_calls: state.api_calls + 1}, opts)
+
       {:error, _reason} ->
-        bfs(rest, visited_state, opts)
+        # Transient API failure mid-BFS — we can't prove no cycle. Bail
+        # out with :cycle_check_inconclusive rather than POST optimistically
+        # and trip GitHub's own 422 (or worse, succeed and leave a real
+        # cycle hidden in the graph).
+        {:error, :cycle_check_inconclusive}
     end
   end
 end

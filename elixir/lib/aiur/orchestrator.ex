@@ -110,6 +110,7 @@ defmodule Aiur.Orchestrator do
     }
 
     run_terminal_workspace_cleanup()
+    init_tracked_set_table()
     install_event_tracked_fn()
     state = schedule_tick(state, 0)
 
@@ -127,25 +128,59 @@ defmodule Aiur.Orchestrator do
     :ok
   end
 
-  # Read by the Publisher's persistent-term tracked_fn. Public so the
-  # set_tracked_fn closure stays stable across orchestrator restarts.
+  @tracked_table __MODULE__.TrackedSet
+
+  defp init_tracked_set_table do
+    case :ets.whereis(@tracked_table) do
+      :undefined ->
+        :ets.new(@tracked_table, [
+          :named_table,
+          :public,
+          :set,
+          read_concurrency: true,
+          write_concurrency: true
+        ])
+
+      _ ->
+        :ets.delete_all_objects(@tracked_table)
+    end
+
+    :ok
+  end
+
+  # Public — called by the Publisher's tracked_fn closure. Reads ETS
+  # directly so the publish path never makes a GenServer call back
+  # into the orchestrator (which would deadlock when publish happens
+  # inside `:run_poll_cycle`).
   @doc false
+  @spec issue_tracked?(String.t() | integer() | nil) :: boolean()
   def issue_tracked?(nil), do: false
 
   def issue_tracked?(issue_number) do
     needle = to_string(issue_number)
 
-    case Process.whereis(__MODULE__) do
-      nil ->
-        true
-
-      pid ->
-        try do
-          GenServer.call(pid, {:issue_tracked?, needle}, 1_000)
-        catch
-          :exit, _ -> true
-        end
+    case :ets.whereis(@tracked_table) do
+      :undefined -> true
+      _ -> :ets.member(@tracked_table, needle)
     end
+  end
+
+  # Refreshes the tracked set with the current running issues. Called
+  # after every poll cycle so the contamination filter sees the latest
+  # set without crossing the GenServer mailbox boundary.
+  defp refresh_tracked_set(state) do
+    needles =
+      state.running
+      |> Map.values()
+      |> Enum.map(fn entry ->
+        id = entry[:identifier] || Map.get(entry, :identifier)
+        if id, do: to_string(id)
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    :ets.delete_all_objects(@tracked_table)
+    Enum.each(needles, &:ets.insert(@tracked_table, {&1, true}))
+    state
   end
 
   @impl true
@@ -357,6 +392,7 @@ defmodule Aiur.Orchestrator do
 
   defp maybe_dispatch(%State{} = state) do
     state = reconcile_running_issues(state)
+    state = refresh_tracked_set(state)
     state = poll_github_firehose(state)
 
     with :ok <- Config.validate!(),
@@ -1881,18 +1917,6 @@ defmodule Aiur.Orchestrator do
     end
 
     {:reply, :ok, next_state}
-  end
-
-  def handle_call({:issue_tracked?, needle}, _from, state) do
-    tracked =
-      state.running
-      |> Map.values()
-      |> Enum.any?(fn entry ->
-        id = entry[:identifier] || Map.get(entry, :identifier)
-        to_string(id) == needle
-      end)
-
-    {:reply, tracked, state}
   end
 
   def handle_call(:poll_status, _from, state) do

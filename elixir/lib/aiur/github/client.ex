@@ -95,7 +95,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, {:not_modified, header(headers, "etag") || etag, poll_interval(headers)}}
 
         {:ok, %{status: 200, headers: headers, body: body}} when is_list(body) ->
-          {:ok, {:events, body, header(headers, "etag"), poll_interval(headers)}}
+          # Mirror the 304 path: preserve the prior etag if GitHub
+          # omits the response header (rare but observed behind some
+          # caching proxies). Dropping it would force a non-conditional
+          # GET on the next poll, re-translating the same page of events.
+          {:ok, {:events, body, header(headers, "etag") || etag, poll_interval(headers)}}
 
         {:ok, %{status: status}} ->
           {:error, {:github_api_status, status}}

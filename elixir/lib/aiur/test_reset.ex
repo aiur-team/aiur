@@ -273,11 +273,41 @@ defmodule Aiur.TestReset do
   end
 
   defp restore_baseline(opts) do
+    # If the operator passed --force AND any sandbox file has uncommitted
+    # local changes, stash them first so destructive checkout doesn't
+    # silently lose work.
+    if opts.force, do: stash_sandbox_if_dirty(opts)
+
     args = ["checkout", "HEAD", "--"] ++ @baseline_files
 
     case System.cmd("git", args, stderr_to_stdout: true, cd: opts.repo_root) do
       {_, 0} -> emit("  restored sandbox baseline from HEAD", :info)
       {output, code} -> emit("  WARN baseline restore exit=#{code}: #{output}", :warning)
+    end
+  end
+
+  defp stash_sandbox_if_dirty(opts) do
+    args = ["status", "--porcelain", "--"] ++ @baseline_files
+
+    case System.cmd("git", args, stderr_to_stdout: true, cd: opts.repo_root) do
+      {"", _} ->
+        :ok
+
+      {dirty, _} ->
+        emit(
+          "  WARN --force with uncommitted sandbox edits:\n" <> dirty <>
+            "Stashing before checkout.",
+          :warning
+        )
+
+        stash_msg = "aiur-test-reset auto-stash #{DateTime.utc_now() |> DateTime.to_iso8601()}"
+
+        System.cmd("git", ["stash", "push", "-m", stash_msg, "--"] ++ @baseline_files,
+          stderr_to_stdout: true,
+          cd: opts.repo_root
+        )
+
+        :ok
     end
   end
 

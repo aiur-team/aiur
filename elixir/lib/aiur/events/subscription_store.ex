@@ -183,13 +183,14 @@ defmodule Aiur.Events.SubscriptionStore do
       open_attentions: []
     }
 
-    {:ok, state, {:continue, :load}}
-  end
-
-  @impl true
-  def handle_continue(:load, state) do
+    # Synchronous load + re-register bindings during init so attach/1
+    # never returns to the caller before the Exchange bindings are
+    # in the routing table. Otherwise a publish between attach/1 and
+    # the binding registration silently drops the event.
     state = load_persisted(state)
-    {:noreply, register_existing_bindings(state)}
+    state = register_existing_bindings(state)
+
+    {:ok, state}
   end
 
   @impl true
@@ -269,10 +270,31 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @impl true
   def handle_info({:event, event}, state) do
-    enqueue_event(state.identifier, event)
-    Aiur.IssueLog.record_event(state.identifier, :consumed, event)
-    {:noreply, state}
+    event_id = Map.get(event, :id) || Map.get(event, "id")
+
+    cursor = state.last_seen_event_id || 0
+
+    cond do
+      is_integer(event_id) and event_id <= cursor ->
+        # Redelivery after restart — already consumed.
+        {:noreply, state}
+
+      true ->
+        enqueue_event(state.identifier, event)
+        Aiur.IssueLog.record_event(state.identifier, :consumed, event)
+        new_state = advance_cursor_inline(state, event_id)
+        {:noreply, new_state}
+    end
   end
+
+  defp advance_cursor_inline(state, event_id) when is_integer(event_id) do
+    new_cursor = max(state.last_seen_event_id || 0, event_id)
+    new_state = %{state | last_seen_event_id: new_cursor}
+    _ = persist(new_state)
+    new_state
+  end
+
+  defp advance_cursor_inline(state, _), do: state
 
   def handle_info(_other, state), do: {:noreply, state}
 

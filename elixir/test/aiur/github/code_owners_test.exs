@@ -119,6 +119,24 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       refute Enum.any?(snap, &String.contains?(&1, "team"))
     end
 
+    test "missing file + nil bot_account → sentinel keeps allowlist non-empty",
+         %{path: path} do
+      # Both bot_account unset and file missing — the size==0 guard
+      # would silently preserve init's bootstrap sentinel, ensuring
+      # allowed?/1 returns false rather than getting stuck in a
+      # broken-empty state.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur"
+      )
+
+      {_pid, name} = start_owners(path)
+      snap = CodeOwners.snapshot(name)
+      assert "__codeowners_bootstrap__" in snap
+      refute CodeOwners.allowed?("alice", name)
+    end
+
     test "refresh/1 re-parses the file in place", %{path: path} do
       File.write!(path, "* @alice\n")
       configure_bot_account("aiur-bot")

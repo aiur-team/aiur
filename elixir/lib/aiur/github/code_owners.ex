@@ -98,7 +98,10 @@ defmodule Aiur.GitHub.CodeOwners do
   @impl true
   def init(opts) do
     state = %{
-      allowlist: MapSet.new([]),
+      # Sentinel so the size==0 guard in do_refresh never silently
+      # preserves an actually-empty allowlist. allowed?/1 never matches
+      # this sentinel because it's not a valid GitHub login.
+      allowlist: MapSet.new(["__codeowners_bootstrap__"]),
       codeowners_path: Keyword.get(opts, :path, default_codeowners_path()),
       request_fun: Keyword.get(opts, :request_fun),
       refresh_seconds: Keyword.get(opts, :refresh_seconds, @default_refresh_seconds),

@@ -91,6 +91,25 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       assert {:ok, :already_present} = IssueDependencies.declare(7, 80, request_fun: request_fun)
     end
 
+    test "transient BFS error returns :cycle_check_inconclusive (does NOT optimistically POST)" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          # Mid-BFS transient failure
+          String.contains?(req.url, "/issues/80/dependencies/blocking") ->
+            {:ok, %{status: 502, headers: [], body: ""}}
+        end
+      end
+
+      assert {:error, :cycle_check_inconclusive} =
+               IssueDependencies.declare(7, 80, request_fun: request_fun)
+    end
+
     test "permission_denied on POST 403" do
       request_fun = fn req ->
         cond do
