@@ -608,6 +608,16 @@ defmodule Aiur.AgentRunner do
 
   defp queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
 
+  defp queue_item_text(%{
+         category: :coordination_event,
+         event_type: :events_digest,
+         body: %{events: events}
+       })
+       when is_list(events) do
+    rendered_events = Enum.map_join(events, "\n", &render_event_line/1)
+    "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"
+  end
+
   defp queue_item_text(%{category: :coordination_event, event_type: event_type, body: body}) do
     summary = Map.get(body, :summary) || Map.get(body, "summary") || inspect(body)
 
@@ -620,6 +630,22 @@ defmodule Aiur.AgentRunner do
   end
 
   defp queue_item_text(item), do: inspect(item)
+
+  defp render_event_line(event) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+    id = Map.get(event, :id) || Map.get(event, "id")
+
+    summary =
+      cond do
+        msg = Map.get(event, "message") || Map.get(event, :message) -> msg
+        msg = Map.get(event, "summary") || Map.get(event, :summary) -> msg
+        true -> ""
+      end
+
+    "[id=#{id}] #{topic}#{if summary != "", do: ": " <> summary, else: ""}"
+  end
+
+  defp render_event_line(other), do: inspect(other)
 
   defp send_control_state(recipient, %Issue{id: issue_id}, status)
        when is_pid(recipient) and is_binary(issue_id) and status in [:paused, :working] do

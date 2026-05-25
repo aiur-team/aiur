@@ -333,6 +333,16 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  defp event_digest_summary(event) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+    message = Map.get(event, "message") || Map.get(event, :message) || Map.get(event, "summary")
+
+    case message do
+      m when is_binary(m) and m != "" -> "#{topic}: #{m}"
+      _ -> topic
+    end
+  end
+
   defp poll_github_firehose(%State{} = state) do
     case Aiur.Events.GithubFirehose.poll(etag: state.events_etag) do
       {:ok, %{etag: etag, count: count}} ->
@@ -1850,6 +1860,29 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
+  def handle_call({:enqueue_event_digest, identifier, event}, _from, state) do
+    body = %{
+      summary: event_digest_summary(event),
+      events: [event]
+    }
+
+    {queue_store, item} =
+      AgentQueue.coordination_event(identifier, :events_digest, body, source: :system)
+      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+    next_state = %{state | queue_store: queue_store}
+
+    case find_running_by_identifier(state.running, identifier) do
+      nil ->
+        :ok
+
+      running_entry ->
+        notify_running_queue_update(running_entry, item)
+    end
+
+    {:reply, :ok, next_state}
+  end
+
   def handle_call({:issue_tracked?, needle}, _from, state) do
     tracked =
       state.running

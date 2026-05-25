@@ -162,6 +162,14 @@ defmodule Aiur.Events.SubscriptionStore do
     end
   end
 
+  @doc false
+  # Provided so tests can stub the enqueue call without invoking the
+  # full orchestrator. Default behaviour: route to Aiur.Orchestrator.
+  @spec set_enqueue_fn((String.t(), map() -> :ok) | nil) :: :ok
+  def set_enqueue_fn(fun) when is_function(fun, 2) or is_nil(fun) do
+    :persistent_term.put({__MODULE__, :enqueue_fn}, fun)
+  end
+
   @impl true
   def init(opts) do
     identifier = Keyword.fetch!(opts, :identifier)
@@ -257,6 +265,39 @@ defmodule Aiur.Events.SubscriptionStore do
 
   def handle_call(:snapshot, _from, state) do
     {:reply, to_snapshot(state), state}
+  end
+
+  @impl true
+  def handle_info({:event, event}, state) do
+    enqueue_event(state.identifier, event)
+    {:noreply, state}
+  end
+
+  def handle_info(_other, state), do: {:noreply, state}
+
+  defp enqueue_event(identifier, event) do
+    case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do
+      fun when is_function(fun, 2) ->
+        try do
+          fun.(identifier, event)
+        rescue
+          _ -> :ok
+        end
+
+      _ ->
+        # Default route: orchestrator's handle_call
+        case Process.whereis(Aiur.Orchestrator) do
+          nil ->
+            :ok
+
+          pid ->
+            try do
+              GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000)
+            catch
+              :exit, _ -> :ok
+            end
+        end
+    end
   end
 
   @impl true
