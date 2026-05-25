@@ -363,7 +363,8 @@ defmodule Aiur.TestReset do
 
       {dirty, _} ->
         emit(
-          "  WARN --force with uncommitted sandbox edits:\n" <> dirty <>
+          "  WARN --force with uncommitted sandbox edits:\n" <>
+            dirty <>
             "Stashing before checkout.",
           :warning
         )

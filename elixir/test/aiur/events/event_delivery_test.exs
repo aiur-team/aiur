@@ -23,6 +23,7 @@ defmodule Aiur.Events.EventDeliveryTest do
     identifier = "delivery-#{System.unique_integer([:positive])}"
 
     test_pid = self()
+
     SubscriptionStore.set_enqueue_fn(fn id, event ->
       send(test_pid, {:enqueued, id, event})
       :ok

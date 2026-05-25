@@ -205,7 +205,11 @@ defmodule Aiur.Events.SubscriptionStoreTest do
   describe "cursor redelivery defense" do
     test "events with id <= last_seen_event_id are dropped on handle_info", %{identifier: id} do
       test_pid = self()
-      SubscriptionStore.set_enqueue_fn(fn _id, ev -> send(test_pid, {:enqueued, ev}); :ok end)
+
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        send(test_pid, {:enqueued, ev})
+        :ok
+      end)
 
       :ok = SubscriptionStore.attach(id)
       :ok = SubscriptionStore.add_subscription(id, "ticket.555.#", "test")
@@ -246,5 +250,4 @@ defmodule Aiur.Events.SubscriptionStoreTest do
         eventually_loop(fun, deadline)
     end
   end
-
 end

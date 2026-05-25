@@ -104,9 +104,7 @@ defmodule Aiur.CoreTest do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
-      Workflow.set_workflow_file_path(
-        Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!())
-      )
+      Workflow.set_workflow_file_path(Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!()))
 
       assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
       assert is_map(config)
@@ -1096,9 +1094,7 @@ defmodule Aiur.CoreTest do
   test "in-repo WORKFLOW.md renders correctly" do
     workflow_path = Workflow.workflow_file_path()
 
-    Workflow.set_workflow_file_path(
-      Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!())
-    )
+    Workflow.set_workflow_file_path(Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!()))
 
     issue = %Issue{
       identifier: "MT-616",

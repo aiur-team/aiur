@@ -391,7 +391,11 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     test "passes through optional payload" do
       published = self()
-      stub = fn _, _, payload -> send(published, {:payload, payload}); {:ok, %{}} end
+
+      stub = fn _, _, payload ->
+        send(published, {:payload, payload})
+        {:ok, %{}}
+      end
 
       DynamicTool.execute(
         "emit_event",
@@ -454,7 +458,11 @@ defmodule Aiur.Codex.DynamicToolTest do
   describe "aiur_subscribe / aiur_unsubscribe" do
     test "subscribe invokes injected closure with the topic pattern" do
       test_pid = self()
-      stub = fn pattern -> send(test_pid, {:subscribed, pattern}); :ok end
+
+      stub = fn pattern ->
+        send(test_pid, {:subscribed, pattern})
+        :ok
+      end
 
       response =
         DynamicTool.execute(
@@ -469,7 +477,11 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     test "unsubscribe invokes injected closure" do
       test_pid = self()
-      stub = fn pattern -> send(test_pid, {:unsubscribed, pattern}); :ok end
+
+      stub = fn pattern ->
+        send(test_pid, {:unsubscribed, pattern})
+        :ok
+      end
 
       DynamicTool.execute(
         "aiur_unsubscribe",

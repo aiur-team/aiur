@@ -132,16 +132,12 @@ defmodule Aiur.Events.IdGenerator do
         cold_boot_seed(state, :missing_file)
 
       {:ok, _other} ->
-        Logger.warning(
-          "IdGenerator: counter file at #{state.path} has unexpected shape; treating as corrupt"
-        )
+        Logger.warning("IdGenerator: counter file at #{state.path} has unexpected shape; treating as corrupt")
 
         cold_boot_seed(state, :corrupt_file)
 
       {:error, reason} ->
-        Logger.warning(
-          "IdGenerator: counter file at #{state.path} could not be read (#{inspect(reason)}); treating as corrupt"
-        )
+        Logger.warning("IdGenerator: counter file at #{state.path} could not be read (#{inspect(reason)}); treating as corrupt")
 
         cold_boot_seed(state, :corrupt_file)
     end

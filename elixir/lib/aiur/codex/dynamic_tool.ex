@@ -39,8 +39,7 @@ defmodule Aiur.Codex.DynamicTool do
     "properties" => %{
       "name" => %{
         "type" => "string",
-        "description" =>
-          "Vocabulary tag. One of: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
+        "description" => "Vocabulary tag. One of: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
@@ -229,7 +228,9 @@ defmodule Aiur.Codex.DynamicTool do
 
   defp normalize_issue_number(arguments) when is_map(arguments) do
     case Map.get(arguments, "issue_number") || Map.get(arguments, :issue_number) do
-      n when is_integer(n) and n > 0 -> {:ok, n}
+      n when is_integer(n) and n > 0 ->
+        {:ok, n}
+
       n when is_binary(n) ->
         case Integer.parse(String.trim(n)) do
           {parsed, ""} when parsed > 0 -> {:ok, parsed}
@@ -561,8 +562,7 @@ defmodule Aiur.Codex.DynamicTool do
   defp tool_error_payload(:event_name_not_in_allowlist) do
     %{
       "error" => %{
-        "message" =>
-          "`emit_event.name` must match the agent vocabulary: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
+        "message" => "`emit_event.name` must match the agent vocabulary: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
         "examples" => [
           "progress.brainstorm-end",
           "decision.use-amqp-matcher",
@@ -580,8 +580,7 @@ defmodule Aiur.Codex.DynamicTool do
   defp tool_error_payload(:invalid_topic_pattern),
     do: %{
       "error" => %{
-        "message" =>
-          "`topic_pattern` must be non-empty, must not start or end with `.`, and must not contain `..`."
+        "message" => "`topic_pattern` must be non-empty, must not start or end with `.`, and must not contain `..`."
       }
     }
 
@@ -610,8 +609,7 @@ defmodule Aiur.Codex.DynamicTool do
   defp tool_error_payload(:cycle_detected),
     do: %{
       "error" => %{
-        "message" =>
-          "Declaring this blocker would create a dependency cycle. Resolve the chain before declaring."
+        "message" => "Declaring this blocker would create a dependency cycle. Resolve the chain before declaring."
       }
     }
 
@@ -627,8 +625,7 @@ defmodule Aiur.Codex.DynamicTool do
   defp tool_error_payload(:custom_event_quota_exceeded) do
     %{
       "error" => %{
-        "message" =>
-          "`emit_event` over the per-turn custom.* quota. Wait for the next turn or use a non-`custom.*` name."
+        "message" => "`emit_event` over the per-turn custom.* quota. Wait for the next turn or use a non-`custom.*` name."
       }
     }
   end

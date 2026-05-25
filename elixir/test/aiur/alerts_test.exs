@@ -253,8 +253,9 @@ defmodule Aiur.AlertsTest do
       Application.put_env(:aiur, :alerts_file_path, tmp_yaml)
 
       on_exit(fn ->
-        if prev, do: Application.put_env(:aiur, :alerts_file_path, prev),
-        else: Application.delete_env(:aiur, :alerts_file_path)
+        if prev,
+          do: Application.put_env(:aiur, :alerts_file_path, prev),
+          else: Application.delete_env(:aiur, :alerts_file_path)
 
         File.rm(tmp_yaml)
       end)

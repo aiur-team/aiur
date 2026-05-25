@@ -166,9 +166,7 @@ defmodule Aiur.GitHub.CodeOwners do
     new_allowlist = MapSet.union(resolved, bot_set)
 
     if MapSet.size(new_allowlist) == 0 do
-      Logger.error(
-        "CodeOwners: allowlist would be empty (bot_account also unset); keeping previous allowlist"
-      )
+      Logger.error("CodeOwners: allowlist would be empty (bot_account also unset); keeping previous allowlist")
 
       state
     else

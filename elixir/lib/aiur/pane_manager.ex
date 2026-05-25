@@ -194,6 +194,7 @@ defmodule Aiur.PaneManager do
 
         max(grid, max_agents)
       end)
+
     orientation = Keyword.get(opts, :orientation, :horizontal)
 
     with {:ok, agent_list_pane} <- resolve_agent_list_pane(opts, tmux),
@@ -319,9 +320,7 @@ defmodule Aiur.PaneManager do
     identifier = Map.get(state.pane_to_identifier, pane_id)
     slot = Map.get(state.pane_to_slot, pane_id)
 
-    Logger.warning(
-      "aiur_pane_manager phase=tmux_pane_died pane_id=#{pane_id} identifier=#{inspect(identifier)} slot=#{inspect(slot)}"
-    )
+    Logger.warning("aiur_pane_manager phase=tmux_pane_died pane_id=#{pane_id} identifier=#{inspect(identifier)} slot=#{inspect(slot)}")
 
     Aiur.Perf.event(:pane_died_event,
       pane_id: pane_id,
@@ -529,6 +528,7 @@ defmodule Aiur.PaneManager do
 
     {:noreply, state}
   end
+
   def handle_info(:screen_grab_tick, state) do
     log_screen_grab(state)
 
@@ -544,9 +544,7 @@ defmodule Aiur.PaneManager do
   defp log_screen_grab(state) do
     panes = collect_tracked_panes(state)
 
-    Logger.info(
-      "aiur_screen_grab phase=tick pane_count=#{map_size(panes)} elapsed_ms=#{Boot.elapsed_ms()}"
-    )
+    Logger.info("aiur_screen_grab phase=tick pane_count=#{map_size(panes)} elapsed_ms=#{Boot.elapsed_ms()}")
 
     Enum.each(panes, fn {pane_id, label} ->
       case Tmux.command(state.tmux, "capture-pane -p -t #{pane_id}") do
@@ -558,14 +556,10 @@ defmodule Aiur.PaneManager do
             |> Enum.reject(&(&1 == ""))
             |> Enum.join(" \\ ")
 
-          Logger.info(
-            "aiur_screen_grab pane_id=#{pane_id} label=#{label} content=#{inspect(excerpt)}"
-          )
+          Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} content=#{inspect(excerpt)}")
 
         {:error, reason} ->
-          Logger.info(
-            "aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}"
-          )
+          Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
       end
     end)
   end
@@ -597,7 +591,6 @@ defmodule Aiur.PaneManager do
         false
     end
   end
-
 
   # Pop the next queued open (if any) and try to attach it to a ready
   # slot. If no slot is ready, leave the entry queued and wait for the
@@ -877,9 +870,7 @@ defmodule Aiur.PaneManager do
             reason: reason
           )
 
-          Logger.warning(
-            "aiur_pane_manager phase=warm_move_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)} — falling back to cold open"
-          )
+          Logger.warning("aiur_pane_manager phase=warm_move_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)} — falling back to cold open")
 
           open_with_placeholder(state, identifier, from)
         end
@@ -1211,9 +1202,7 @@ defmodule Aiur.PaneManager do
                 reply_or_noreply({:ok, pane_id}, from, new_state)
 
               true ->
-                Logger.warning(
-                  "aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
-                )
+                Logger.warning("aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
 
                 _ = Slot.deselect(slot_pid)
                 reply_or_noreply({:error, reason}, from, state)
@@ -1221,9 +1210,7 @@ defmodule Aiur.PaneManager do
         end
 
       {:error, reason} ->
-        Logger.warning(
-          "aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}"
-        )
+        Logger.warning("aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
 
         reply_or_noreply({:error, reason}, from, state)
     end
@@ -1385,9 +1372,7 @@ defmodule Aiur.PaneManager do
         |> Enum.map(fn {slot, pane} -> "#{slot}=>#{pane || "_"}" end)
         |> Enum.join(",")
 
-      Logger.info(
-        "aiur_tmux_layout window=#{w}x#{h} slot_panes=#{slot_panes_summary} agent_list=#{state.agent_list_pane} layout=#{inspect(layout_string)}"
-      )
+      Logger.info("aiur_tmux_layout window=#{w}x#{h} slot_panes=#{slot_panes_summary} agent_list=#{state.agent_list_pane} layout=#{inspect(layout_string)}")
     end
 
     :ok

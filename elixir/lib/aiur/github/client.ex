@@ -211,7 +211,8 @@ defmodule Aiur.GitHub.Client do
   defp parse_next_page_url(headers) do
     case header(headers, "link") do
       value when is_binary(value) ->
-        Regex.run(~r/<([^>]+)>;\s*rel="next"/, value) |> case do
+        Regex.run(~r/<([^>]+)>;\s*rel="next"/, value)
+        |> case do
           [_, next_url] -> next_url
           _ -> nil
         end

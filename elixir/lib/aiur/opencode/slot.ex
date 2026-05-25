@@ -465,9 +465,7 @@ defmodule Aiur.Opencode.Slot do
       # opencode-attach emits before death are preserved on disk.
       _ = Tmux.command(Tmux, "pipe-pane -o -t #{pane_id} \"cat >> #{path}\"")
 
-      Logger.info(
-        "opencode_slot phase=pipe_pane_started slot=#{slot_index} pane_id=#{pane_id} path=#{path}"
-      )
+      Logger.info("opencode_slot phase=pipe_pane_started slot=#{slot_index} pane_id=#{pane_id} path=#{path}")
     end
 
     :ok
@@ -680,9 +678,7 @@ defmodule Aiur.Opencode.Slot do
       other ->
         bumped = state.poll_death_count + 1
 
-        Logger.info(
-          "opencode_slot phase=poll_pane_missing slot=#{state.slot_index} pane_id=#{pane_id} attempt=#{bumped}/#{@poll_death_threshold} poll_result=#{inspect(other)}"
-        )
+        Logger.info("opencode_slot phase=poll_pane_missing slot=#{state.slot_index} pane_id=#{pane_id} attempt=#{bumped}/#{@poll_death_threshold} poll_result=#{inspect(other)}")
 
         if bumped >= @poll_death_threshold do
           capture_dump =
@@ -839,9 +835,7 @@ defmodule Aiur.Opencode.Slot do
           session_id: session_id
         )
 
-        Logger.info(
-          "opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}"
-        )
+        Logger.info("opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}")
 
         {:ok, session_id, new_state}
 
@@ -873,9 +867,7 @@ defmodule Aiur.Opencode.Slot do
   defp do_set_visible_call(identifier, from, state) do
     cond do
       not identifier_known?(state, identifier) ->
-        Logger.info(
-          "opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}"
-        )
+        Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
 
         Aiur.Perf.event(:slot_identifier_miss,
           slot: state.slot_index,
@@ -1025,9 +1017,7 @@ defmodule Aiur.Opencode.Slot do
       )
 
     if is_binary(state.pane_id) do
-      Logger.warning(
-        "opencode_slot phase=kill_for_respawn slot=#{state.slot_index} old_pane_id=#{state.pane_id} session_id=#{session_id}"
-      )
+      Logger.warning("opencode_slot phase=kill_for_respawn slot=#{state.slot_index} old_pane_id=#{state.pane_id} session_id=#{session_id}")
 
       _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
     end

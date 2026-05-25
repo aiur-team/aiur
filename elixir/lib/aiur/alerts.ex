@@ -113,9 +113,7 @@ defmodule Aiur.Alerts do
   end
 
   defp publish_to_exchange(topic, message, opts) do
-    Publisher.publish(topic, %{"message" => message || "", "source" => "alert"},
-      issue_number: issue_number_for(opts)
-    )
+    Publisher.publish(topic, %{"message" => message || "", "source" => "alert"}, issue_number: issue_number_for(opts))
 
     :ok
   rescue

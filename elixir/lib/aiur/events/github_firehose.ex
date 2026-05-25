@@ -112,10 +112,7 @@ defmodule Aiur.Events.GithubFirehose do
           repo: repo_name
         }
 
-        {topic, payload,
-         actor: actor,
-         issue_number: id,
-         dedup_key: {repo_name, ref, sha}}
+        {topic, payload, actor: actor, issue_number: id, dedup_key: {repo_name, ref, sha}}
 
       {:system, topic} ->
         payload = %{
@@ -126,9 +123,7 @@ defmodule Aiur.Events.GithubFirehose do
           repo: repo_name
         }
 
-        {topic, payload,
-         actor: actor,
-         dedup_key: {repo_name, ref, sha}}
+        {topic, payload, actor: actor, dedup_key: {repo_name, ref, sha}}
 
       _ ->
         nil

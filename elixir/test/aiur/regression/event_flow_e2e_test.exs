@@ -41,6 +41,7 @@ defmodule Aiur.Regression.EventFlowE2eTest do
     # Stub the enqueue closure so we see what would have reached the
     # AgentRunner without spinning up the orchestrator + queue store.
     test_pid = self()
+
     SubscriptionStore.set_enqueue_fn(fn id, event ->
       send(test_pid, {:enqueued, id, event})
       :ok
