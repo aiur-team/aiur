@@ -54,6 +54,8 @@ defmodule Aiur.Application do
         {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
         {Task.Supervisor, name: Aiur.TaskSupervisor},
         Aiur.WorkflowStore,
+        Aiur.Events.IdGenerator,
+        Aiur.Events.Exchange,
         Aiur.Orchestrator,
         Aiur.HttpServer,
         Aiur.Opencode.TokenRegistry,
