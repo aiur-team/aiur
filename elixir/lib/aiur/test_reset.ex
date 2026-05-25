@@ -225,11 +225,11 @@ defmodule Aiur.TestReset do
     Enum.each(tickets, fn id -> emit("  - #{id}", :info) end)
 
     emit("\nPer-ticket actions:", :info)
-    emit("  - Strip agent:* labels, set agent:todo", :info)
+    emit("  - Delete subscriptions file for <id>", :info)
+    emit("  - Remove workspace at <workspace_root>/<id> (fans across worker.ssh_hosts)", :info)
     emit("  - Delete remote branch aiur/<id>", :info)
     emit("  - Close any open PR from aiur/<id>", :info)
-    emit("  - Remove workspace at <workspace_root>/<id>", :info)
-    emit("  - Delete subscriptions file for <id>", :info)
+    emit("  - Strip every agent:* label, re-add agent:todo", :info)
     emit("\nAlways:", :info)
     emit("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "), :info)
     emit("  - Preserve <repo>.event_id (IdGenerator counter)", :info)
@@ -239,8 +239,10 @@ defmodule Aiur.TestReset do
     Logger.info("aiur_test_reset starting ticket=#{id}")
 
     delete_subscriptions_file(id)
+    delete_workspace(id)
     delete_remote_branch(id)
     close_open_pr(id)
+    reset_labels(id)
     Logger.info("aiur_test_reset finished ticket=#{id}")
   end
 
@@ -252,6 +254,20 @@ defmodule Aiur.TestReset do
       {:error, :enoent} -> :ok
       {:error, reason} -> emit("  WARN rm #{path} failed: #{inspect(reason)}", :warning)
     end
+  end
+
+  # Per-issue workspace clone (typically <workspace_root>/<id>) carries
+  # the agent's uncommitted edits, untracked files, and git state from
+  # the prior session. Without this, the agent on the next run starts
+  # in a dirty tree and reports "I see uncommitted changes" — exactly
+  # the symptom the operator hit. Fans out across `worker.ssh_hosts`
+  # when configured.
+  defp delete_workspace(id) do
+    Aiur.Workspace.remove_issue_workspaces(to_string(id))
+    emit("  rm workspace for #{id}", :info)
+  rescue
+    error ->
+      emit("  WARN workspace cleanup for #{id} failed: #{Exception.message(error)}", :warning)
   end
 
   defp delete_remote_branch(id) do
@@ -269,6 +285,25 @@ defmodule Aiur.TestReset do
     case System.cmd("gh", ["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true) do
       {_, 0} -> emit("  closed PR on #{branch}", :info)
       {_, _} -> :ok
+    end
+  end
+
+  # Strip every agent:* label and re-add agent:todo so the orchestrator
+  # treats the issue as queued on the next dispatch poll. Without this,
+  # tickets that the previous run flipped to agent:in-progress (or
+  # agent:human-review, agent:done) stay in that state and either
+  # never re-enter the dispatch set or skip the queue logic entirely.
+  defp reset_labels(id) do
+    agent_labels =
+      "agent:todo,agent:in-progress,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled"
+
+    case System.cmd(
+           "gh",
+           ["issue", "edit", to_string(id), "--remove-label", agent_labels, "--add-label", "agent:todo"],
+           stderr_to_stdout: true
+         ) do
+      {_, 0} -> emit("  reset labels on ##{id} → agent:todo", :info)
+      {output, _} -> emit("  WARN label reset on ##{id}: #{String.trim(output)}", :warning)
     end
   end
 
