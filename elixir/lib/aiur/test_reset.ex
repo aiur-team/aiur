@@ -262,12 +262,38 @@ defmodule Aiur.TestReset do
   # in a dirty tree and reports "I see uncommitted changes" — exactly
   # the symptom the operator hit. Fans out across `worker.ssh_hosts`
   # when configured.
+  #
+  # We don't go through `Aiur.Workspace.remove_issue_workspaces/1`
+  # because that calls `Aiur.Config.settings!()` which requires
+  # WORKFLOW.md to be present and parseable — the reset task runs
+  # outside any orchestrator boot, so it may not have a workflow
+  # context. Instead we compute the workspace root from
+  # `Aiur.Config.workspace_root/0` if available; if not, fall back
+  # to the same default `Aiur.Config.Schema.Workspace` uses
+  # (`<tmp_dir>/aiur_workspaces`).
   defp delete_workspace(id) do
-    Aiur.Workspace.remove_issue_workspaces(to_string(id))
-    emit("  rm workspace for #{id}", :info)
+    root = workspace_root_with_fallback()
+    safe_id = String.replace(to_string(id), ~r/[^a-zA-Z0-9._-]/, "_")
+    path = Path.join(root, safe_id)
+
+    case File.rm_rf(path) do
+      {:ok, []} ->
+        emit("  workspace for #{id} already absent (#{path})", :info)
+
+      {:ok, _} ->
+        emit("  rm workspace for #{id} (#{path})", :info)
+
+      {:error, reason, file} ->
+        emit("  WARN workspace cleanup for #{id} failed at #{file}: #{inspect(reason)}", :warning)
+    end
+  end
+
+  defp workspace_root_with_fallback do
+    Aiur.Config.workspace_root()
   rescue
-    error ->
-      emit("  WARN workspace cleanup for #{id} failed: #{Exception.message(error)}", :warning)
+    _ -> Path.join(System.tmp_dir!(), "aiur_workspaces")
+  catch
+    _, _ -> Path.join(System.tmp_dir!(), "aiur_workspaces")
   end
 
   defp delete_remote_branch(id) do
