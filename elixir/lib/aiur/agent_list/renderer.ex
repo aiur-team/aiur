@@ -632,9 +632,10 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp pad_with_ansi(ansi, text, inner_width) do
-    safe = String.slice(text, 0, inner_width)
-    pad = padding_for(safe, inner_width)
-    [ansi, safe, @ansi_reset, pad]
+    # clip_and_pad guarantees visual width == inner_width, so the
+    # terminal can never wrap and our line-count bookkeeping stays
+    # accurate.
+    [ansi, clip_and_pad(text, inner_width), @ansi_reset]
   end
 
   defp padding_for(text, inner_width) do
@@ -647,9 +648,11 @@ defmodule Aiur.AgentList.Renderer do
     String.duplicate(" ", max(inner_width - visible, 0))
   end
 
-  # Visual column width of `text`, counting each grapheme heavier than
-  # one byte as occupying two terminal columns. That matches how every
-  # mainstream terminal renders emoji and CJK glyphs.
+  # Visual column width of `text` in terminal cells. Wide-grapheme
+  # detection follows the Unicode East-Asian-Width "Wide" + "Fullwidth"
+  # ranges plus the emoji blocks (1F000+). Common multi-byte symbols
+  # used in our chrome (·, →, …, box-drawing) intentionally score 1 so
+  # padding lines up.
   defp visual_width(text) when is_binary(text) do
     text
     |> strip_ansi()
@@ -657,8 +660,74 @@ defmodule Aiur.AgentList.Renderer do
     |> Enum.reduce(0, fn g, acc -> acc + grapheme_width(g) end)
   end
 
-  defp grapheme_width(g) when byte_size(g) > 1, do: 2
-  defp grapheme_width(_g), do: 1
+  defp grapheme_width(g) do
+    case String.to_charlist(g) do
+      [cp | _] -> codepoint_width(cp)
+      [] -> 0
+    end
+  end
+
+  # ASCII fast path.
+  defp codepoint_width(cp) when cp < 0x80, do: 1
+  # Zero-width: combining marks, ZWJ, variation selectors. Keep these
+  # at 0 so emoji presentation modifiers don't double-count.
+  defp codepoint_width(cp) when cp >= 0x300 and cp <= 0x36F, do: 0
+  defp codepoint_width(0x200B), do: 0
+  defp codepoint_width(0x200C), do: 0
+  defp codepoint_width(0x200D), do: 0
+  defp codepoint_width(0xFE0E), do: 0
+  defp codepoint_width(0xFE0F), do: 0
+  # East-Asian Wide + Fullwidth ranges.
+  defp codepoint_width(cp) when cp >= 0x1100 and cp <= 0x115F, do: 2
+  defp codepoint_width(cp) when cp >= 0x2E80 and cp <= 0x303E, do: 2
+  defp codepoint_width(cp) when cp >= 0x3041 and cp <= 0x33FF, do: 2
+  defp codepoint_width(cp) when cp >= 0x3400 and cp <= 0x4DBF, do: 2
+  defp codepoint_width(cp) when cp >= 0x4E00 and cp <= 0x9FFF, do: 2
+  defp codepoint_width(cp) when cp >= 0xA000 and cp <= 0xA4CF, do: 2
+  defp codepoint_width(cp) when cp >= 0xAC00 and cp <= 0xD7A3, do: 2
+  defp codepoint_width(cp) when cp >= 0xF900 and cp <= 0xFAFF, do: 2
+  defp codepoint_width(cp) when cp >= 0xFE30 and cp <= 0xFE4F, do: 2
+  defp codepoint_width(cp) when cp >= 0xFF00 and cp <= 0xFF60, do: 2
+  defp codepoint_width(cp) when cp >= 0xFFE0 and cp <= 0xFFE6, do: 2
+  # Selected symbol blocks that terminals render as wide / emoji-style.
+  # Many cells in 2600-26FF are 1 col in some terminals but render as
+  # 2 in modern emoji fonts — overcount is safer than wrap.
+  defp codepoint_width(cp) when cp >= 0x2600 and cp <= 0x27BF, do: 2
+  defp codepoint_width(cp) when cp >= 0x2B00 and cp <= 0x2BFF, do: 2
+  defp codepoint_width(cp) when cp >= 0x1F000, do: 2
+  # Everything else (Latin-1 supplement, arrows, box drawing, …) is 1.
+  defp codepoint_width(_cp), do: 1
+
+  # Truncate `text` to at most `limit` visual columns, splitting on
+  # grapheme boundaries so a multi-codepoint emoji is never cut.
+  defp truncate_visual(_text, limit) when limit <= 0, do: ""
+
+  defp truncate_visual(text, limit) do
+    text
+    |> String.graphemes()
+    |> Enum.reduce_while({"", 0}, fn g, {acc, used} ->
+      w = grapheme_width(g)
+
+      if used + w > limit do
+        {:halt, {acc, used}}
+      else
+        {:cont, {acc <> g, used + w}}
+      end
+    end)
+    |> elem(0)
+  end
+
+  # Pad a (raw, no-ansi) text to exactly `inner_width` visual columns,
+  # truncating with `…` if the text would otherwise wrap. Caller is
+  # responsible for any wrapping ANSI escapes.
+  defp clip_and_pad(text, inner_width) do
+    if visual_width(text) <= inner_width do
+      [text, String.duplicate(" ", max(inner_width - visual_width(text), 0))]
+    else
+      trimmed = truncate_visual(text, max(inner_width - 1, 0)) <> "…"
+      [trimmed, String.duplicate(" ", max(inner_width - visual_width(trimmed), 0))]
+    end
+  end
 
   defp strip_ansi(text) do
     Regex.replace(~r/\e\[[0-9;]*[A-Za-z]/, text, "")
@@ -715,8 +784,7 @@ defmodule Aiur.AgentList.Renderer do
         format_perf_ms(Map.get(summary, :chat_pane_visible_ms)) <>
         " · render " <> format_perf_ms(Map.get(summary, :opencode_render_ms))
 
-    pad = max(inner_width - String.length(text), 0)
-    [IO.ANSI.faint(), text, String.duplicate(" ", pad), IO.ANSI.reset()]
+    [IO.ANSI.faint(), clip_and_pad(text, inner_width), IO.ANSI.reset()]
   end
 
   defp format_perf_ms(nil), do: "…"
@@ -733,8 +801,7 @@ defmodule Aiur.AgentList.Renderer do
 
     summary = format_warmth_summary(rows)
     label = "  warmth (loose→strict): " <> summary
-    pad = max(inner_width - String.length(label), 0)
-    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+    [IO.ANSI.faint(), clip_and_pad(label, inner_width), IO.ANSI.reset()]
   end
 
   defp format_warmth_summary([]), do: "no attach events yet"
@@ -803,9 +870,19 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp ticker_header_row(inner_width) do
-    label = "  events (✉️ publish · 📥 receive · 📄 read)"
-    pad = max(inner_width - visual_width(label), 0)
-    [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
+    # Two label variants: full and compact. Pick the widest that fits
+    # so a narrow tmux split doesn't wrap the header.
+    full = "  events (✉️ publish · 📥 receive · 📄 read)"
+    compact = "  events  ✉️ 📥 📄"
+
+    label =
+      cond do
+        visual_width(full) <= inner_width -> full
+        visual_width(compact) <= inner_width -> compact
+        true -> "  events"
+      end
+
+    [IO.ANSI.faint(), clip_and_pad(label, inner_width), IO.ANSI.reset()]
   end
 
   defp ticker_event_row(%{kind: kind, topic: topic} = entry, inner_width) do
@@ -829,40 +906,7 @@ defmodule Aiur.AgentList.Renderer do
       end
 
     text = "  #{glyph} #{topic}#{id_part}#{identifier_part}"
-
-    # Measure visual columns (emoji = 2) so we truncate/pad without
-    # causing the terminal to wrap — wrapping would make this line
-    # count as 2 in the pane and overflow the geometry budget.
-    truncated =
-      if visual_width(text) > inner_width do
-        truncate_visual(text, max(inner_width - 1, 0)) <> "…"
-      else
-        text
-      end
-
-    pad = max(inner_width - visual_width(truncated), 0)
-    [IO.ANSI.faint(), truncated, String.duplicate(" ", pad), IO.ANSI.reset()]
-  end
-
-  # Truncate a string to at most `limit` visual columns, splitting on
-  # grapheme boundaries (so we never cut an emoji mid-codepoint).
-  defp truncate_visual(_text, limit) when limit <= 0, do: ""
-
-  defp truncate_visual(text, limit) do
-    {kept, _used} =
-      text
-      |> String.graphemes()
-      |> Enum.reduce_while({"", 0}, fn g, {acc, used} ->
-        w = grapheme_width(g)
-
-        if used + w > limit do
-          {:halt, {acc, used}}
-        else
-          {:cont, {acc <> g, used + w}}
-        end
-      end)
-
-    kept
+    [IO.ANSI.faint(), clip_and_pad(text, inner_width), IO.ANSI.reset()]
   end
 
   defp clear_remaining(rows, lines_drawn) do

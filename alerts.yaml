@@ -115,25 +115,27 @@ alerts:
       - "~/alerts/archon-power-overwhelming.wav"
 
   # ---------- Workflow phase milestones (agent-emitted) -------------------
-  "ticket.*.agent.progress.brainstorm-start":
+  # Agents emit bare names like `brainstorm.start`; agent_runner prefixes
+  # to `ticket.<id>.agent.<name>` before publish.
+  "ticket.*.agent.brainstorm.start":
     message: Entered brainstorm
-  "ticket.*.agent.progress.brainstorm-end":
+  "ticket.*.agent.brainstorm.end":
     message: Exited brainstorm
     sound:
       - "~/alerts/advisor-research-complete.wav"
-  "ticket.*.agent.progress.plan-start":
+  "ticket.*.agent.plan.start":
     message: Entered planning
-  "ticket.*.agent.progress.plan-end":
+  "ticket.*.agent.plan.end":
     message: Exited planning
     sound:
       - "~/alerts/advisor-research-complete.wav"
-  "ticket.*.agent.progress.work-start":
+  "ticket.*.agent.work.start":
     message: Entered implementation
-  "ticket.*.agent.progress.work-end":
+  "ticket.*.agent.work.end":
     message: Exited implementation
-  "ticket.*.agent.progress.review-start":
+  "ticket.*.agent.review.start":
     message: Entered review
-  "ticket.*.agent.progress.review-end":
+  "ticket.*.agent.review.end":
     message: Exited review
     sound:
       - "~/alerts/advisor-research-complete.wav"

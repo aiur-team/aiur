@@ -948,7 +948,7 @@ defmodule Aiur.CoreTest do
 
     assert prompt =~ "## Shared Agent Instructions"
     assert prompt =~ "emit_alert"
-    assert prompt =~ "phase.brainstorm"
+    assert prompt =~ "brainstorm.start"
     assert prompt =~ "### Complexity routing"
     assert prompt =~ "label-based complexity is the default"
     assert prompt =~ "Complexity routing note in PR descriptions"

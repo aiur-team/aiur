@@ -11,15 +11,13 @@
 - Use judgment based on feature size.
   - Large feature asks should usually follow the full loop: `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-review`.
   - Smaller asks may skip brainstorm, plan, or review when the extra step would be overhead, but err on the side of using these skills when in doubt.
-- Use custom workflow alerts for milestone announcements. In this repository, prefer:
-  - `phase.brainstorm.start`
-  - `phase.brainstorm.end`
-  - `phase.plan.start`
-  - `phase.plan.end`
-  - `phase.work.start`
-  - `phase.work.end`
-  - `phase.review.start`
-  - `phase.review.end`
+- Use custom workflow alerts for milestone announcements. Aiur automatically
+  scopes every agent-emitted name under `ticket.<your-issue>.agent.` — so you
+  pass the bare name and the event bus does the rest. In this repository, prefer:
+  - `brainstorm.start` / `brainstorm.end`
+  - `plan.start` / `plan.end`
+  - `work.start` / `work.end`
+  - `review.start` / `review.end`
 - Emit milestone alerts when you actually enter or leave the corresponding phase, not retroactively.
 
 ### Cross-ticket events (`emit_event`, `aiur_subscribe`, `aiur_declare_blocker`)

@@ -809,7 +809,15 @@ defmodule Aiur.AgentRunner do
         tool,
         arguments,
         alert_emitter: fn name, message ->
-          Alerts.emit_custom(name, message,
+          # Agent-emitted alerts are always per-ticket — namespace under
+          # `ticket.<id>.agent.<name>` so subscribers can bind by ticket
+          # (and so the alert log lines a single ticket together).
+          # Names that already start with `ticket.` or `system.` pass
+          # through unchanged so orchestrator-side callsites (which
+          # pre-build the full topic) aren't double-prefixed.
+          topic = prefix_with_ticket_namespace(name, issue)
+
+          Alerts.emit_custom(topic, message,
             issue: issue,
             workspace: workspace,
             worker_host: worker_host
@@ -829,6 +837,20 @@ defmodule Aiur.AgentRunner do
       )
     end
   end
+
+  defp prefix_with_ticket_namespace(name, issue) when is_binary(name) do
+    cond do
+      String.starts_with?(name, "ticket.") -> name
+      String.starts_with?(name, "system.") -> name
+      true ->
+        case issue_identifier(issue) do
+          id when is_binary(id) and id != "" -> "ticket.#{id}.agent.#{name}"
+          _ -> name
+        end
+    end
+  end
+
+  defp prefix_with_ticket_namespace(name, _issue), do: name
 
   defp declare_blocker_for_issue(issue, blocker_number) do
     case issue_number_of(issue) do
