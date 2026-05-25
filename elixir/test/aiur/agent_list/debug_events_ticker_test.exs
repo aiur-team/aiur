@@ -94,6 +94,44 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
     end
   end
 
+  describe "persistence across render cycles" do
+    test "events survive a render → other_event_with_unchanged_debug_events → render cycle" do
+      events = [debug_entry(:publish, topic: "ticket.42.branch.push", id: 42)]
+      state = build_state(debug_events: events)
+
+      # Render once — event appears.
+      first = state |> Renderer.render() |> IO.iodata_to_binary()
+      assert first =~ "✉️ ticket.42.branch.push id=42"
+
+      # Render again with identical state — event MUST still appear.
+      second = state |> Renderer.render() |> IO.iodata_to_binary()
+      assert second =~ "✉️ ticket.42.branch.push id=42"
+
+      # Render a third time after simulating something that updates other
+      # state but preserves debug_events (e.g., perf summary update).
+      bumped = %{state | perf_summary: Map.put(state.perf_summary, :opencode_render_ms, 500)}
+      third = bumped |> Renderer.render() |> IO.iodata_to_binary()
+      assert third =~ "✉️ ticket.42.branch.push id=42"
+    end
+  end
+
+  describe "App render() pipes debug_events through" do
+    # Regression: the previous bug was that defp render/1 in app.ex
+    # built a render_state via Map.take + Map.put and didn't include
+    # debug_events. This test locks in that render_state must carry it.
+    test "Renderer reads debug_events from the state map" do
+      events = [debug_entry(:publish, topic: "t", id: 1)]
+      with_events = build_state(debug_events: events)
+      without_events = build_state(debug_events: [])
+
+      with_out = with_events |> Renderer.render() |> IO.iodata_to_binary()
+      without_out = without_events |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert with_out =~ "id=1"
+      refute without_out =~ "id=1"
+    end
+  end
+
   describe "DebugLog broadcast" do
     test "subscribers receive {:event_debug, entry} on publish kind" do
       DebugLog.subscribe()
