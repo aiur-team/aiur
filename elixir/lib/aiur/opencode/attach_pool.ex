@@ -256,10 +256,6 @@ defmodule Aiur.Opencode.AttachPool do
     {:noreply, kickoff_fan_out(state, slot_index)}
   end
 
-  defp slot_already_fanned_out?(state, slot_index) do
-    MapSet.member?(state.fanned_out_slots, slot_index)
-  end
-
   def handle_info({:slot_attach_added, slot_index, identifier}, state) do
     {:noreply, do_attach_added(state, slot_index, identifier)}
   end
@@ -630,78 +626,8 @@ defmodule Aiur.Opencode.AttachPool do
     end)
   end
 
-  defp start_attach_task(state, slot_index, identifier, opts) do
-    key = {slot_index, identifier}
-    leadoff? = Keyword.get(opts, :leadoff, false)
-
-    cond do
-      MapSet.member?(state.in_flight, key) ->
-        state
-
-      identifier_already_attached?(state, slot_index, identifier) ->
-        state
-
-      true ->
-        case slot_pid_for(slot_index) do
-          {:ok, slot_pid} ->
-            pool = self()
-
-            Task.start(fn ->
-              span =
-                Aiur.Perf.span_begin(:attach_pool_attach,
-                  identifier: identifier,
-                  slot: slot_index,
-                  leadoff: leadoff?
-                )
-
-              result =
-                if leadoff? do
-                  # set_visible drives both: attach (creates session if
-                  # needed) AND respawn the slot's attach pane bound to
-                  # that session. The result is a painted pane in the
-                  # hidden window — exactly what ⚪ promises the user.
-                  case Slot.set_visible(slot_pid, identifier) do
-                    {:ok, _pane_id} -> :ok
-                    err -> err
-                  end
-                else
-                  case Slot.attach(slot_pid, identifier) do
-                    {:ok, _session_id} -> :ok
-                    err -> err
-                  end
-                end
-
-              case result do
-                :ok ->
-                  Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
-                  send(pool, {:attach_task_done, slot_index, identifier, :ok})
-
-                {:error, reason} ->
-                  Aiur.Perf.span_end(span,
-                    result: :failed,
-                    identifier: identifier,
-                    slot: slot_index,
-                    reason: reason
-                  )
-
-                  send(pool, {:attach_failed, identifier, slot_index, reason})
-                  send(pool, {:attach_task_done, slot_index, identifier, {:error, reason}})
-              end
-            end)
-
-            %{state | in_flight: MapSet.put(state.in_flight, key)}
-
-          :error ->
-            state
-        end
-    end
-  end
-
-  defp identifier_already_attached?(state, slot_index, identifier) do
-    case Map.get(state.attachments, identifier) do
-      %{attached_slots: slots} -> MapSet.member?(slots, slot_index)
-      _ -> false
-    end
+  defp slot_already_fanned_out?(state, slot_index) do
+    MapSet.member?(state.fanned_out_slots, slot_index)
   end
 
   defp do_attach_added(state, slot_index, identifier) do
@@ -951,8 +877,6 @@ defmodule Aiur.Opencode.AttachPool do
   # callers (e.g. Slot's hidden-window setup) and as a stable target
   # for behavioral guards. Not invoked from inside this module.
 
-  @hidden_target_width 600
-  @hidden_target_height 60
   @paint_poll_interval_ms 100
 
   @doc """

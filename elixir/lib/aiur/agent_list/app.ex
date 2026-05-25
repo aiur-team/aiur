@@ -221,13 +221,8 @@ defmodule Aiur.AgentList.App do
     {:ok, state}
   end
 
-  defp schedule_refresh_tick do
-    Process.send_after(self(), :refresh_tick, @refresh_tick_ms)
-  end
-
-  defp schedule_geometry_tick do
-    Process.send_after(self(), :geometry_tick, @geometry_tick_ms)
-  end
+  @impl true
+  def handle_call(:snapshot, _from, state), do: {:reply, state, state}
 
   @impl true
   def handle_cast(:select_previous, state) do
@@ -266,6 +261,43 @@ defmodule Aiur.AgentList.App do
   def handle_cast(:attach_selected, state) do
     if state.selection_focus == :agents do
       attach_selected_agent(state)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:toggle_pause, state) do
+    state = toggle_selected_agent_pause(state)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_cast({:adjust_max_concurrent_agents, delta}, state) do
+    # ←/→ adjusts the session max regardless of current selection focus —
+    # the keybind is global so the operator does not have to navigate to
+    # the max chip first. Focus-gating silently swallowed the keypress
+    # and made the cap feel un-editable from the agent list.
+    Logger.info("[user-action] adjust_max delta=#{delta} source=agent_list")
+    result = Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta)
+    Logger.info("[user-action] adjust_max result=#{inspect(result)}")
+    state = handle_max_adjust_result(state, result)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_cast(:toggle_help, state) do
+    new_state = %{state | help_visible?: not Map.get(state, :help_visible?, false)}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_cast(:toggle_layout_orientation, state) do
+    case safe_call(fn -> PaneManager.toggle_orientation(state.pane_manager) end) do
+      {:ok, orientation} ->
+        Logger.info("[user-action] toggle_layout orientation=#{orientation} source=agent_list")
+
+      _ ->
+        :ok
     end
 
     {:noreply, state}
@@ -397,46 +429,6 @@ defmodule Aiur.AgentList.App do
         :ok
     end
   end
-
-  def handle_cast(:toggle_pause, state) do
-    state = toggle_selected_agent_pause(state)
-    render(state)
-    {:noreply, state}
-  end
-
-  def handle_cast({:adjust_max_concurrent_agents, delta}, state) do
-    # ←/→ adjusts the session max regardless of current selection focus —
-    # the keybind is global so the operator does not have to navigate to
-    # the max chip first. Focus-gating silently swallowed the keypress
-    # and made the cap feel un-editable from the agent list.
-    Logger.info("[user-action] adjust_max delta=#{delta} source=agent_list")
-    result = Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta)
-    Logger.info("[user-action] adjust_max result=#{inspect(result)}")
-    state = handle_max_adjust_result(state, result)
-    render(state)
-    {:noreply, state}
-  end
-
-  def handle_cast(:toggle_help, state) do
-    new_state = %{state | help_visible?: not Map.get(state, :help_visible?, false)}
-    render(new_state)
-    {:noreply, new_state}
-  end
-
-  def handle_cast(:toggle_layout_orientation, state) do
-    case safe_call(fn -> PaneManager.toggle_orientation(state.pane_manager) end) do
-      {:ok, orientation} ->
-        Logger.info("[user-action] toggle_layout orientation=#{orientation} source=agent_list")
-
-      _ ->
-        :ok
-    end
-
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_call(:snapshot, _from, state), do: {:reply, state, state}
 
   @impl true
   def handle_info({:running_changed, summaries}, state) do
@@ -605,6 +597,8 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
 
+  def handle_info(_other, state), do: {:noreply, state}
+
   # Pull the three milestones the debug footer cares about out of the
   # aiur_perf stream. Everything else is ignored — the user asked for
   # a compact 3-row footer, not a rolling event log.
@@ -644,7 +638,13 @@ defmodule Aiur.AgentList.App do
 
   defp absorb_warmth_event(events, _other), do: events
 
-  def handle_info(_other, state), do: {:noreply, state}
+  defp schedule_refresh_tick do
+    Process.send_after(self(), :refresh_tick, @refresh_tick_ms)
+  end
+
+  defp schedule_geometry_tick do
+    Process.send_after(self(), :geometry_tick, @geometry_tick_ms)
+  end
 
   defp warm_status_dark_mode_default do
     Application.get_env(:aiur, :warm_status_dark_mode?, true)
