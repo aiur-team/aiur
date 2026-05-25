@@ -58,7 +58,7 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
       :ok = ActiveTurns.put(id, turn)
 
       # Drive the handle_info path directly without waiting the 60 s timer.
-      pid = Process.whereis(Aiur.Opencode.ActiveTurns)
+      pid = Process.whereis(ActiveTurns)
       assert is_pid(pid)
       send(pid, {:cleanup, {id, turn}})
       # Round-trip a synchronous call to flush the mailbox so :cleanup ran.
@@ -70,16 +70,16 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
     test "init returns ok state and re-uses existing table" do
       # The Application started the GenServer once already; calling init
       # again should hit the ensure_table fallback (table already exists).
-      assert {:ok, %{}} = Aiur.Opencode.ActiveTurns.init([])
+      assert {:ok, %{}} = ActiveTurns.init([])
     end
 
     test "mark_closed is safe when GenServer is not registered" do
       # Hit the schedule_cleanup `_ -> :ok` branch (nil pid path) by
       # briefly unregistering the name. Re-register before returning so
       # other tests aren't affected.
-      pid = Process.whereis(Aiur.Opencode.ActiveTurns)
+      pid = Process.whereis(ActiveTurns)
       assert is_pid(pid)
-      Process.unregister(Aiur.Opencode.ActiveTurns)
+      Process.unregister(ActiveTurns)
 
       try do
         id = "test-#{System.unique_integer()}"
@@ -88,7 +88,7 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
         assert :ok = ActiveTurns.mark_closed(id, turn, :done)
         assert ActiveTurns.lookup(id, turn) == {:closed, :done}
       after
-        Process.register(pid, Aiur.Opencode.ActiveTurns)
+        Process.register(pid, ActiveTurns)
       end
     end
   end
