@@ -104,7 +104,8 @@ defmodule Aiur.MixProject do
         "test/support/test_support.exs"
       ],
       dialyzer: [
-        plt_add_apps: [:mix]
+        plt_add_apps: [:mix],
+        ignore_warnings: ".dialyzer_ignore.exs"
       ],
       releases: releases(),
       escript: escript(),
