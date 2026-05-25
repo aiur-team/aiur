@@ -148,6 +148,26 @@ defmodule Aiur.GitHub.Client do
   end
 
   @doc """
+  Fetches the raw GitHub issue body by number (not the Aiur-normalized
+  shape). Used by `Aiur.GitHub.IssueDependencies` to resolve a blocker's
+  numeric `id` (required by the Dependencies REST API).
+  """
+  @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def fetch_issue_raw(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
+        {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
+        {:error, reason} -> {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
+  @doc """
   Lists the logins of every member of `team_slug` inside `org`. Used by
   `Aiur.GitHub.CodeOwners` to expand `@org/team` entries.
 

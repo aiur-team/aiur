@@ -21,6 +21,7 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
+  alias Aiur.GitHub.IssueDependencies
 
   @type worker_host :: String.t() | nil
 
@@ -774,8 +775,36 @@ defmodule Aiur.AgentRunner do
           emit_agent_event(issue, name, message, payload)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
-        unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end
+        unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
+        blocker_declarer: fn blocker_number ->
+          declare_blocker_for_issue(issue, blocker_number)
+        end,
+        unblocker: fn blocker_number ->
+          unblock_for_issue(issue, blocker_number)
+        end
       )
+    end
+  end
+
+  defp declare_blocker_for_issue(issue, blocker_number) do
+    case issue_number_of(issue) do
+      nil -> {:error, :no_issue_number}
+      current -> IssueDependencies.declare(current, blocker_number)
+    end
+  end
+
+  defp unblock_for_issue(issue, blocker_number) do
+    case issue_number_of(issue) do
+      nil -> {:error, :no_issue_number}
+      current -> IssueDependencies.unblock(current, blocker_number)
+    end
+  end
+
+  defp issue_number_of(issue) do
+    case Map.get(issue, :number) || Map.get(issue, :identifier) do
+      n when is_integer(n) -> n
+      n when is_binary(n) -> n
+      _ -> nil
     end
   end
 

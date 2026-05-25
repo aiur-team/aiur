@@ -50,6 +50,29 @@ defmodule Aiur.Codex.DynamicTool do
       }
     }
   }
+  @aiur_declare_blocker_tool "aiur_declare_blocker"
+  @aiur_declare_blocker_description """
+  Declare that another GitHub issue (by number) blocks the issue you
+  are working on. Uses GitHub's native Issue Dependencies REST API.
+  Cycle-checked client-side before submission. Returns success if the
+  blocker is already declared (idempotent).
+  """
+  @aiur_declare_blocker_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["issue_number"],
+    "properties" => %{
+      "issue_number" => %{
+        "type" => ["integer", "string"],
+        "description" => "Issue number of the blocker (numeric, not the internal id)."
+      }
+    }
+  }
+  @aiur_unblock_tool "aiur_unblock"
+  @aiur_unblock_description """
+  Remove a previously-declared blocker from your current issue.
+  """
+  @aiur_unblock_input_schema @aiur_declare_blocker_input_schema
   @aiur_subscribe_tool "aiur_subscribe"
   @aiur_subscribe_description """
   Subscribe the current issue to a topic pattern. Patterns use AMQP topic
@@ -118,6 +141,12 @@ defmodule Aiur.Codex.DynamicTool do
       @aiur_unsubscribe_tool ->
         execute_subscription(arguments, opts, :unsubscribe)
 
+      @aiur_declare_blocker_tool ->
+        execute_dependency_action(arguments, opts, :declare)
+
+      @aiur_unblock_tool ->
+        execute_dependency_action(arguments, opts, :unblock)
+
       other ->
         failure_response(%{
           "error" => %{
@@ -155,9 +184,68 @@ defmodule Aiur.Codex.DynamicTool do
         "name" => @aiur_unsubscribe_tool,
         "description" => @aiur_unsubscribe_description,
         "inputSchema" => @aiur_unsubscribe_input_schema
+      },
+      %{
+        "name" => @aiur_declare_blocker_tool,
+        "description" => @aiur_declare_blocker_description,
+        "inputSchema" => @aiur_declare_blocker_input_schema
+      },
+      %{
+        "name" => @aiur_unblock_tool,
+        "description" => @aiur_unblock_description,
+        "inputSchema" => @aiur_unblock_input_schema
       }
     ]
   end
+
+  defp execute_dependency_action(arguments, opts, action) do
+    handler =
+      case action do
+        :declare -> Keyword.get(opts, :blocker_declarer)
+        :unblock -> Keyword.get(opts, :unblocker)
+      end
+
+    error_atom =
+      case action do
+        :declare -> :blocker_declarer_unavailable
+        :unblock -> :unblocker_unavailable
+      end
+
+    with {:ok, issue_number} <- normalize_issue_number(arguments),
+         true <- is_function(handler, 1) || {:error, error_atom},
+         {:ok, result} <- handler.(issue_number) do
+      dynamic_tool_response(
+        true,
+        Jason.encode!(%{"ok" => true, "issue_number" => issue_number, "result" => result_jsonable(result)}, pretty: true)
+      )
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+
+      false ->
+        failure_response(tool_error_payload(error_atom))
+    end
+  end
+
+  defp normalize_issue_number(arguments) when is_map(arguments) do
+    case Map.get(arguments, "issue_number") || Map.get(arguments, :issue_number) do
+      n when is_integer(n) and n > 0 -> {:ok, n}
+      n when is_binary(n) ->
+        case Integer.parse(String.trim(n)) do
+          {parsed, ""} when parsed > 0 -> {:ok, parsed}
+          _ -> {:error, :invalid_issue_number}
+        end
+
+      _ ->
+        {:error, :missing_issue_number}
+    end
+  end
+
+  defp normalize_issue_number(_), do: {:error, :invalid_issue_number}
+
+  defp result_jsonable(value) when is_atom(value), do: Atom.to_string(value)
+  defp result_jsonable(value) when is_map(value) or is_list(value) or is_binary(value), do: value
+  defp result_jsonable(value), do: inspect(value)
 
   defp execute_subscription(arguments, opts, action) do
     handler =
@@ -506,6 +594,35 @@ defmodule Aiur.Codex.DynamicTool do
         "message" => "`aiur_unsubscribe` is unavailable in the current runtime context."
       }
     }
+
+  defp tool_error_payload(:missing_issue_number),
+    do: %{"error" => %{"message" => "`issue_number` is required."}}
+
+  defp tool_error_payload(:invalid_issue_number),
+    do: %{"error" => %{"message" => "`issue_number` must be a positive integer."}}
+
+  defp tool_error_payload(:blocker_declarer_unavailable),
+    do: %{"error" => %{"message" => "`aiur_declare_blocker` is unavailable in the current runtime context."}}
+
+  defp tool_error_payload(:unblocker_unavailable),
+    do: %{"error" => %{"message" => "`aiur_unblock` is unavailable in the current runtime context."}}
+
+  defp tool_error_payload(:cycle_detected),
+    do: %{
+      "error" => %{
+        "message" =>
+          "Declaring this blocker would create a dependency cycle. Resolve the chain before declaring."
+      }
+    }
+
+  defp tool_error_payload(:blocker_not_found),
+    do: %{"error" => %{"message" => "Blocker issue does not exist or is not visible to Aiur's token."}}
+
+  defp tool_error_payload(:rate_limited),
+    do: %{"error" => %{"message" => "Cycle pre-check exhausted API budget; retry later."}}
+
+  defp tool_error_payload(:permission_denied),
+    do: %{"error" => %{"message" => "Aiur's GitHub token lacks Issues:write scope for this repo."}}
 
   defp tool_error_payload(:custom_event_quota_exceeded) do
     %{

@@ -47,7 +47,9 @@ defmodule Aiur.Codex.DynamicToolTest do
                  "emit_alert",
                  "emit_event",
                  "aiur_subscribe",
-                 "aiur_unsubscribe"
+                 "aiur_unsubscribe",
+                 "aiur_declare_blocker",
+                 "aiur_unblock"
                ]
              }
            }
