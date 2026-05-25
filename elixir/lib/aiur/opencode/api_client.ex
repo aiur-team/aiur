@@ -39,6 +39,37 @@ defmodule Aiur.Opencode.ApiClient do
   def post_message(base_url, session_id, payload),
     do: request(:post, base_url, "/session/#{session_id}/message", json: payload)
 
+  @doc """
+  PATCH a part on an existing message. opencode's projector for
+  `message.part.updated` upserts the row in SQL **and** publishes a
+  `message.part.updated` event via the `/event` SSE stream so the
+  attached TUI re-renders that part in place.
+
+  This is the live-update path that replaces the synthetic-user-message
+  nudge: a direct SQL write alone does not fire the SSE event (opencode
+  only emits from inside its own write paths), and `POST /session/.../message`
+  triggers a chat-completion roundtrip that produces a mirror duplicate.
+  PATCH fires the event without the chat-completion side effect.
+
+  `part_payload` must be the full `MessageV2.Part` shape — type-specific
+  fields **plus** top-level `id`, `messageID`, `sessionID` so the handler's
+  param/payload equality check passes.
+
+  Errors are returned as `{:error, _}` and are non-fatal at the call site
+  — when opencode-serve is not running (the chat pane is closed; agents
+  still work in the background), this call fails and we continue. The
+  SQL row written separately is the source of truth on re-attach.
+  """
+  @spec update_part(String.t(), String.t(), String.t(), String.t(), map()) :: :ok | {:error, term()}
+  def update_part(base_url, session_id, message_id, part_id, part_payload) do
+    path = "/session/#{session_id}/message/#{message_id}/part/#{part_id}"
+
+    case request(:patch, base_url, path, json: part_payload) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
   # `POST /tui/select-session` was removed: opencode 1.15.6 returns 200
   # but then exits the attached `opencode attach` process 1.5-25 s later,
   # killing the user's visible chat pane. The function had only one

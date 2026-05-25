@@ -1,27 +1,33 @@
 defmodule Aiur.Opencode.SessionWriter do
   @moduledoc """
   Per-identifier writer that owns the SQLite-injection lifecycle for one
-  agent's opencode session. On start it replays the on-disk transcript
-  history into opencode's `message`/`part` tables; for every subsequent
-  transcript event it writes the assistant rows and POSTs a synthetic
-  user message carrying the `__aiur_stream__:<msg_id>` marker so opencode
-  triggers a chat-completion the bridge can stream back as the
-  assistant's reply.
+  agent's opencode session.
+
+  Agents run independently of opencode — direct SQL writes are the
+  source of truth so the chat pane remains an *optional* viewer.
+  When opencode-serve is running and a chat pane is attached, we
+  ALSO fire `PATCH /session/:s/message/:m/part/:p` for each freshly
+  written part. opencode's handler upserts the row (no-op against
+  our own write) and publishes `message.part.updated` via its
+  `/event` SSE so the attached TUI re-renders the part in place —
+  the same hook native opencode uses internally during streaming.
+
+  Direct SQL writes alone are invisible to the attached TUI (opencode
+  only emits its `message.*` events from inside its own write paths).
+  Previously aiur worked around this with a synthetic-user-message
+  nudge, but that round-trips through opencode's chat-completion
+  pathway and produced a mirror assistant message per nudge —
+  duplicate noise that grew worse the more we nudged.
 
   Transcript events carrying a `turn_id` are grouped into a single
-  assistant message per codex turn — first event opens the message with
-  a `step-start` part, subsequent events append body parts to the same
-  message, and the matching `:turn_event` from `AgentPubSub.broadcast_turn_event/3`
-  appends a `step-finish` and closes the turn. Events with `turn_id: nil`
-  keep the standalone-message shape (step-start + body + step-finish in
-  one transaction).
+  assistant message per codex turn — first event opens the message
+  with a `step-start` part, subsequent events append body parts to
+  the same message, and the matching `:turn_event` appends a
+  `step-finish`. Events with `turn_id: nil` keep the standalone-message
+  shape (step-start + body + step-finish in one transaction).
 
-  Started via `Aiur.Opencode.SessionWriterRegistry.ensure/2`; supervised
-  by `Aiur.Opencode.SessionSupervisor` with `restart: :transient` so a
-  crashed writer doesn't restart-loop on the same bad input.
-
-  See `elixir/docs/notes/opencode-row-shapes-1.15.6.md` for the row JSON
-  shapes this writes — kept in `Aiur.Opencode.Protocol`, not here.
+  See `elixir/docs/notes/opencode-row-shapes-1.15.6.md` for row JSON
+  shapes (kept in `Aiur.Opencode.Protocol`).
   """
 
   use GenServer
@@ -63,9 +69,7 @@ defmodule Aiur.Opencode.SessionWriter do
   The barrier works because `replay_history/1` runs **synchronously**
   inside `handle_continue(:boot, ...)` and the GenServer mailbox is
   strictly FIFO — any `handle_call` arriving after the registry's
-  `ensure/2` returns is queued behind the boot continuation. If
-  `replay_history/1` is ever made async (Tasks, `send(self(), …)`,
-  etc.), this barrier must be revisited.
+  `ensure/2` returns is queued behind the boot continuation.
   """
   @spec await_replay(GenServer.server(), timeout()) :: :ok | {:error, term()}
   def await_replay(server, timeout \\ 5_000) do
@@ -116,14 +120,13 @@ defmodule Aiur.Opencode.SessionWriter do
 
   @impl true
   def handle_continue(:boot, state) do
-    # Replay BEFORE subscribing to AgentPubSub. The previous order
+    # Replay BEFORE subscribing to AgentPubSub. The old order
     # (subscribe → replay) allowed a live transcript event to land in
     # the SessionWriter mailbox while replay was still processing the
-    # same event from IssueLog.history, producing duplicate writes
-    # ("Starting work on issue #N" appearing twice). Replaying first
-    # closes the race window: any live event between init and subscribe
-    # is captured by IssueLog (which subscribes separately and persists
-    # to disk) and will replay on the next attach.
+    # same event from IssueLog.history, producing duplicate writes.
+    # Replay first → any live event between init and subscribe is
+    # captured by IssueLog (separate subscriber) and will replay on
+    # the next attach.
     root_msg_id = replay_history(state)
     :ok = AgentPubSub.subscribe_agent(state.identifier)
 
@@ -140,18 +143,8 @@ defmodule Aiur.Opencode.SessionWriter do
 
   def handle_info({:transcript_event, event}, state) do
     case write_transcript_event(state, event) do
-      {:ok, message_id, new_state, _kind} ->
-        # Nudge on every transcript event — operator sees activity live as
-        # the turn unfolds, matching native opencode's stream-as-you-go
-        # rendering. Each nudge triggers opencode's bridge replay, which
-        # produces a mirror assistant message in the same session. That's
-        # the known trade-off for live visibility on opencode 1.15.6 —
-        # the alternative (nudge only at turn close) leaves the operator
-        # staring at an empty chrome row for the entire turn, which is
-        # worse than seeing a clean live stream with one mirror per
-        # event. Looking into upstream `/session/.../message/.../part`
-        # PATCH/DELETE APIs for a mirror-free path in a follow-up.
-        nudge_tui(state, message_id)
+      {:ok, _message_id, parts, new_state} ->
+        fire_part_updates(state, parts)
         {:noreply, new_state}
 
       {:error, reason} ->
@@ -163,9 +156,9 @@ defmodule Aiur.Opencode.SessionWriter do
 
   def handle_info({:turn_event, _identifier, event_tag, %{turn_id: turn_id}}, state)
       when is_binary(turn_id) do
-    {new_state, nudge_id} = finalize_turn(state, turn_id, step_finish_reason(event_tag))
+    {new_state, finalize_parts} = finalize_turn(state, turn_id, step_finish_reason(event_tag))
 
-    if nudge_id, do: nudge_tui(state, nudge_id)
+    fire_part_updates(state, finalize_parts)
 
     {:noreply, new_state}
   end
@@ -173,9 +166,8 @@ defmodule Aiur.Opencode.SessionWriter do
   def handle_info({:alert, %{message: message}}, state) do
     # Alerts are still standalone messages — no turn grouping.
     case write_standalone(state, %{role: :alert, body: message}) do
-      {:ok, message_id} ->
-        nudge_tui(state, message_id)
-        :ok
+      {:ok, _message_id, parts} ->
+        fire_part_updates(state, parts)
 
       {:error, reason} ->
         Logger.warning("opencode_session_writer alert_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
@@ -206,40 +198,36 @@ defmodule Aiur.Opencode.SessionWriter do
   defp step_finish_reason(_), do: "stop"
 
   # Finalize a turn: append step-finish part if the turn is open. Returns
-  # `{new_state, message_id_to_nudge_or_nil}`. A turn_id we never saw
-  # (event arrived twice, or for a different writer) returns `{state, nil}`.
+  # `{new_state, parts_written}` — caller fires PATCH events.
   defp finalize_turn(state, turn_id, reason) do
     case Map.fetch(state.turns, turn_id) do
       {:ok, %{message_id: message_id}} ->
         write_finish_then_drop(state, turn_id, message_id, reason)
 
       :error ->
-        {state, nil}
+        {state, []}
     end
   end
 
   defp write_finish_then_drop(state, turn_id, message_id, reason) do
+    part_id = Db.prt_id()
+    part_data = Protocol.step_finish_part_data(reason: reason)
+
     write_result =
       Db.with_conn(fn conn ->
-        Db.insert_part(
-          conn,
-          state.session_id,
-          message_id,
-          Db.prt_id(),
-          Protocol.step_finish_part_data(reason: reason)
-        )
+        Db.insert_part(conn, state.session_id, message_id, part_id, part_data)
       end)
 
     state_after = %{state | turns: Map.delete(state.turns, turn_id)}
 
     case write_result do
       :ok ->
-        {state_after, message_id}
+        {state_after, [{message_id, part_id, part_data}]}
 
       {:error, write_err} ->
         Logger.warning("opencode_session_writer step_finish_failed identifier=#{state.identifier} turn=#{turn_id} reason=#{inspect(write_err)}")
 
-        {state_after, nil}
+        {state_after, []}
     end
   end
 
@@ -254,7 +242,8 @@ defmodule Aiur.Opencode.SessionWriter do
       if last < cutoff do
         Logger.info("opencode_session_writer sweep_finalize identifier=#{acc.identifier} turn=#{turn_id} idle_ms=#{System.os_time(:millisecond) - last}")
 
-        {new_state, _} = finalize_turn(acc, turn_id, "stop")
+        {new_state, parts} = finalize_turn(acc, turn_id, "stop")
+        fire_part_updates(state, parts)
         new_state
       else
         acc
@@ -293,17 +282,16 @@ defmodule Aiur.Opencode.SessionWriter do
   defp state_with_root(state, root_msg_id), do: %{state | root_msg_id: root_msg_id}
 
   # Replay path: write each event as a standalone message, ignoring
-  # turn_id grouping. Replay is bounded historical data — at the time of
-  # write the turn boundaries from the live broadcast already played out;
-  # there's no reliable way to reconstruct turn-end signals from disk.
-  # The shape difference is acceptable: chat replay shows historical
-  # turns as flatter messages, the live experience shows them grouped.
+  # turn_id grouping. Replay is historical — turn-boundary signals are
+  # not on disk. The chat shows historical turns flatter than live; live
+  # rendering benefits from turn grouping, replay falls back gracefully.
+  # No PATCH calls during replay — TUI fetches state on attach via GET.
   defp replay_events(conn, state, events) do
     events
     |> Enum.reject(&match?(%{role: :user}, &1))
     |> Enum.reduce(0, fn event, count ->
-      case write_standalone(conn, state, event) do
-        {:ok, _msg_id} -> count + 1
+      case write_standalone_in_txn(conn, state, event) do
+        {:ok, _msg_id, _parts} -> count + 1
         {:error, _reason} -> count
       end
     end)
@@ -312,10 +300,9 @@ defmodule Aiur.Opencode.SessionWriter do
   # --- live transcript write ----------------------------------------------
 
   # Dispatch based on whether the event has a turn_id. Returns
-  # `{:ok, message_id, new_state, :standalone | :turn_part}` or
-  # `{:error, reason}`. The trailing atom tells the handle_info caller
-  # whether to nudge opencode (standalone) or stay silent until turn
-  # finalize (turn_part) — see the duplicate-mirror note there.
+  # `{:ok, message_id, parts_written, new_state}` or `{:error, reason}`.
+  # parts_written is a list of `{message_id, part_id, part_data}` for the
+  # caller to feed into fire_part_updates/2.
   defp write_transcript_event(state, %{turn_id: tid} = event) when is_binary(tid) do
     case Map.fetch(state.turns, tid) do
       {:ok, turn} -> append_to_open_turn(state, turn, tid, event)
@@ -325,21 +312,24 @@ defmodule Aiur.Opencode.SessionWriter do
 
   defp write_transcript_event(state, event) do
     case write_standalone(state, event) do
-      {:ok, message_id} -> {:ok, message_id, state, :standalone}
+      {:ok, message_id, parts} -> {:ok, message_id, parts, state}
       {:error, reason} -> {:error, reason}
     end
   end
 
   defp append_to_open_turn(state, %{message_id: message_id} = turn, tid, event) do
+    parts = build_body_parts(event.role, event.body, event)
+
     write_result =
       Db.with_conn(fn conn ->
-        insert_body_parts(conn, state, message_id, event.role, event.body, event)
+        insert_part_list(conn, state.session_id, message_id, parts)
       end)
 
     case write_result do
       :ok ->
         new_turn = %{turn | last_event_at_ms: System.os_time(:millisecond)}
-        {:ok, message_id, %{state | turns: Map.put(state.turns, tid, new_turn)}, :turn_part}
+
+        {:ok, message_id, tag_parts(message_id, parts), %{state | turns: Map.put(state.turns, tid, new_turn)}}
 
       {:error, reason} ->
         {:error, reason}
@@ -352,30 +342,28 @@ defmodule Aiur.Opencode.SessionWriter do
   defp open_turn(state, %{turn_id: tid, role: role, body: body} = event) do
     message_id = Db.msg_id()
     now_ms = System.os_time(:millisecond)
+    step_start_id = Db.prt_id()
+    body_parts = build_body_parts(role, body, event)
+    all_parts = [{step_start_id, Protocol.step_start_part_data()} | body_parts]
 
-    Db.with_transaction(fn conn ->
-      with :ok <-
-             Db.insert_message(
-               conn,
-               state.session_id,
-               message_id,
-               build_message_data(state, role)
-             ),
-           :ok <-
-             Db.insert_part(
-               conn,
-               state.session_id,
-               message_id,
-               Db.prt_id(),
-               Protocol.step_start_part_data()
-             ) do
-        insert_body_parts(conn, state, message_id, role, body, event)
-      end
-    end)
-    |> case do
+    write_result =
+      Db.with_transaction(fn conn ->
+        with :ok <-
+               Db.insert_message(
+                 conn,
+                 state.session_id,
+                 message_id,
+                 build_message_data(state, role)
+               ) do
+          insert_part_list(conn, state.session_id, message_id, all_parts)
+        end
+      end)
+
+    case write_result do
       :ok ->
         turn = %{message_id: message_id, started_at_ms: now_ms, last_event_at_ms: now_ms}
-        {:ok, message_id, %{state | turns: Map.put(state.turns, tid, turn)}, :turn_part}
+
+        {:ok, message_id, tag_parts(message_id, all_parts), %{state | turns: Map.put(state.turns, tid, turn)}}
 
       {:error, reason} ->
         {:error, reason}
@@ -383,13 +371,24 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   # Standalone message: message + step-start + body + step-finish in one
-  # transaction. Used for turn_id=nil events, alerts, and replay.
-  defp write_standalone(state, event), do: Db.with_conn(&write_standalone(&1, state, event))
+  # transaction. Used for turn_id=nil events and alerts.
+  defp write_standalone(state, event) do
+    Db.with_conn(fn conn -> write_standalone_in_txn(conn, state, event) end)
+  end
 
-  defp write_standalone(conn, state, %{role: role, body: body} = event)
+  defp write_standalone_in_txn(conn, state, %{role: role, body: body} = event)
        when role in [:assistant, :command, :system, :alert, :reasoning, :tool] do
     message_id = Db.msg_id()
     finish = if role in [:command, :tool], do: "tool-calls", else: "stop"
+
+    step_start_id = Db.prt_id()
+    body_parts = build_body_parts(role, body, event)
+    step_finish_id = Db.prt_id()
+
+    all_parts =
+      [{step_start_id, Protocol.step_start_part_data()}] ++
+        body_parts ++
+        [{step_finish_id, Protocol.step_finish_part_data(reason: finish)}]
 
     with :ok <-
            Db.insert_message(
@@ -398,57 +397,19 @@ defmodule Aiur.Opencode.SessionWriter do
              message_id,
              build_message_data(state, role)
            ),
-         :ok <-
-           Db.insert_part(
-             conn,
-             state.session_id,
-             message_id,
-             Db.prt_id(),
-             Protocol.step_start_part_data()
-           ),
-         :ok <- insert_body_parts(conn, state, message_id, role, body, event),
-         :ok <-
-           Db.insert_part(
-             conn,
-             state.session_id,
-             message_id,
-             Db.prt_id(),
-             Protocol.step_finish_part_data(reason: finish)
-           ) do
-      {:ok, message_id}
+         :ok <- insert_part_list(conn, state.session_id, message_id, all_parts) do
+      {:ok, message_id, tag_parts(message_id, all_parts)}
     end
   end
 
-  defp write_standalone(_conn, _state, _event), do: {:error, :unsupported_role}
+  defp write_standalone_in_txn(_conn, _state, _event), do: {:error, :unsupported_role}
 
-  defp build_message_data(state, role) do
-    cwd =
-      Aiur.Config.workspace_root()
-      |> Path.expand()
-      |> Path.join(Aiur.Opencode.Config.safe_identifier(state.identifier))
+  # --- part-data builders --------------------------------------------------
 
-    # For turn-grouped messages the `finish` field is overwritten by the
-    # final step-finish part's reason via opencode's TUI rendering rules;
-    # we still set it on the message row so any reader that consults the
-    # message JSON alone sees a sensible value. "tool-calls" is a safe
-    # default for in-flight turns since step-start signals more parts
-    # are coming.
-    finish = if role in [:command, :tool], do: "tool-calls", else: "stop"
-
-    Protocol.assistant_message_data(%{
-      identifier: state.identifier,
-      parent_id: state.root_msg_id || Db.msg_id(),
-      cwd: cwd,
-      finish: finish
-    })
-  end
-
-  defp insert_body_parts(conn, state, message_id, :command, body, event) do
-    # Native opencode bash row shape: state.input carries clean fields
-    # (command, description, workdir); state.output carries assembled stdout.
-    # We read these from the transcript event's optional :payload (set in
-    # agent_runner.transcript_event_from for commandExecution items) and
-    # fall back to body-only when payload is absent (older events / tests).
+  # Returns a list of `{part_id, part_data}` for the event's body. The
+  # caller inserts these and (in the live path) fires PATCH events on
+  # them.
+  defp build_body_parts(:command, body, event) do
     payload = event[:payload] || %{}
     command = Map.get(payload, :command, body)
     output = Map.get(payload, :output, "")
@@ -467,12 +428,10 @@ defmodule Aiur.Opencode.SessionWriter do
         title: title
       )
 
-    Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), part_data)
+    [{Db.prt_id(), part_data}]
   end
 
-  defp insert_body_parts(conn, state, message_id, :tool, body, event) do
-    # Generic tool transcript event: dynamicToolCall (MCP / aiur tools)
-    # and fileChange. Payload carries the per-tool input/output/title.
+  defp build_body_parts(:tool, body, event) do
     payload = event[:payload] || %{}
     tool = Map.get(payload, :tool, "tool")
     input = Map.get(payload, :input, %{})
@@ -488,38 +447,83 @@ defmodule Aiur.Opencode.SessionWriter do
         title: title
       )
 
-    Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), part_data)
+    [{Db.prt_id(), part_data}]
   end
 
-  defp insert_body_parts(conn, state, message_id, :reasoning, body, _event)
-       when is_binary(body) and body != "" do
-    Db.insert_part(
-      conn,
-      state.session_id,
-      message_id,
-      Db.prt_id(),
-      Protocol.reasoning_part_data(body)
-    )
+  defp build_body_parts(:reasoning, body, _event) when is_binary(body) and body != "" do
+    [{Db.prt_id(), Protocol.reasoning_part_data(body)}]
   end
 
-  defp insert_body_parts(conn, state, message_id, _role, body, _event) when is_binary(body) do
-    Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), Protocol.text_part_data(body))
+  defp build_body_parts(_role, body, _event) when is_binary(body) do
+    [{Db.prt_id(), Protocol.text_part_data(body)}]
   end
 
-  defp insert_body_parts(_conn, _state, _message_id, _role, _body, _event), do: :ok
+  defp build_body_parts(_role, _body, _event), do: []
 
-  # --- nudge opencode to render the just-written rows ----------------------
+  defp insert_part_list(conn, session_id, message_id, parts) do
+    Enum.reduce_while(parts, :ok, fn {part_id, part_data}, _acc ->
+      case Db.insert_part(conn, session_id, message_id, part_id, part_data) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
-  defp nudge_tui(state, message_id) do
-    marker = "__aiur_stream__:" <> message_id
-    payload = %{parts: [Protocol.text_part_data(marker, synthetic: true)]}
+  defp tag_parts(message_id, parts) do
+    Enum.map(parts, fn {part_id, part_data} -> {message_id, part_id, part_data} end)
+  end
 
-    case ApiClient.post_message(state.base_url, state.session_id, payload) do
-      {:ok, _} ->
-        :ok
+  defp build_message_data(state, role) do
+    cwd =
+      Aiur.Config.workspace_root()
+      |> Path.expand()
+      |> Path.join(Aiur.Opencode.Config.safe_identifier(state.identifier))
 
-      {:error, reason} ->
-        Logger.warning("opencode_session_writer nudge_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
-    end
+    # For turn-grouped messages, opencode renders `finish` from the
+    # step-finish part. Set a sensible default on the message row so
+    # any reader that consults message JSON alone sees a useful value.
+    finish = if role in [:command, :tool], do: "tool-calls", else: "stop"
+
+    Protocol.assistant_message_data(%{
+      identifier: state.identifier,
+      parent_id: state.root_msg_id || Db.msg_id(),
+      cwd: cwd,
+      finish: finish
+    })
+  end
+
+  # --- live TUI updates via PATCH /part -----------------------------------
+  #
+  # After a successful SQL write, fire `PATCH /session/:s/message/:m/part/:p`
+  # for each part. opencode's handler upserts the row (no-op against our
+  # own write) AND emits `message.part.updated` on its event bus, which
+  # is forwarded via `/event` SSE to the attached TUI. This is the only
+  # path on opencode 1.15.6 that triggers TUI refresh without going
+  # through chat-completion (which would write a mirror message and
+  # produce the duplicate-row class of bug).
+  #
+  # Errors are non-fatal — if opencode-serve is down (chat pane closed,
+  # agent still running in the background), the PATCH fails and we
+  # continue. The SQL row is the source of truth on next attach.
+
+  defp fire_part_updates(_state, []), do: :ok
+
+  defp fire_part_updates(state, parts) do
+    Enum.each(parts, fn {message_id, part_id, part_data} ->
+      payload = augment_part_for_patch(part_data, state.session_id, message_id, part_id)
+      _ = ApiClient.update_part(state.base_url, state.session_id, message_id, part_id, payload)
+    end)
+
+    :ok
+  end
+
+  # opencode's PATCH handler validates that the payload's id/messageID/
+  # sessionID match the URL params. The part JSON we write to SQL omits
+  # them (they're separate columns); add them for the API call.
+  defp augment_part_for_patch(part_data, session_id, message_id, part_id) do
+    part_data
+    |> Map.put("id", part_id)
+    |> Map.put("sessionID", session_id)
+    |> Map.put("messageID", message_id)
   end
 end
