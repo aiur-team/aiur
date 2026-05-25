@@ -81,7 +81,8 @@ defmodule Aiur.Orchestrator do
       agent_totals: nil,
       agent_rate_limits: nil,
       codex_totals: nil,
-      codex_rate_limits: nil
+      codex_rate_limits: nil,
+      events_etag: nil
     ]
   end
 
@@ -109,9 +110,42 @@ defmodule Aiur.Orchestrator do
     }
 
     run_terminal_workspace_cleanup()
+    install_event_tracked_fn()
     state = schedule_tick(state, 0)
 
     {:ok, state}
+  end
+
+  # Publisher reads this on every publish to decide whether an event
+  # references a ticket Aiur is currently tracking. We update the same
+  # closure every tick so it always sees the latest running/queued sets.
+  defp install_event_tracked_fn do
+    if Process.whereis(Aiur.Events.Publisher) do
+      Aiur.Events.Publisher.set_tracked_fn(&issue_tracked?/1)
+    end
+
+    :ok
+  end
+
+  # Read by the Publisher's persistent-term tracked_fn. Public so the
+  # set_tracked_fn closure stays stable across orchestrator restarts.
+  @doc false
+  def issue_tracked?(nil), do: false
+
+  def issue_tracked?(issue_number) do
+    needle = to_string(issue_number)
+
+    case Process.whereis(__MODULE__) do
+      nil ->
+        true
+
+      pid ->
+        try do
+          GenServer.call(pid, {:issue_tracked?, needle}, 1_000)
+        catch
+          :exit, _ -> true
+        end
+    end
   end
 
   @impl true
@@ -299,8 +333,21 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  defp poll_github_firehose(%State{} = state) do
+    case Aiur.Events.GithubFirehose.poll(etag: state.events_etag) do
+      {:ok, %{etag: etag, count: count}} ->
+        if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
+        %{state | events_etag: etag}
+
+      {:error, _reason} ->
+        # Preserve cached etag so we retry as If-None-Match next tick
+        state
+    end
+  end
+
   defp maybe_dispatch(%State{} = state) do
     state = reconcile_running_issues(state)
+    state = poll_github_firehose(state)
 
     with :ok <- Config.validate!(),
          {:ok, issues} <- Tracker.fetch_candidate_issues() do
@@ -1803,6 +1850,18 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
+  def handle_call({:issue_tracked?, needle}, _from, state) do
+    tracked =
+      state.running
+      |> Map.values()
+      |> Enum.any?(fn entry ->
+        id = entry[:identifier] || Map.get(entry, :identifier)
+        to_string(id) == needle
+      end)
+
+    {:reply, tracked, state}
+  end
+
   def handle_call(:poll_status, _from, state) do
     now_ms = System.monotonic_time(:millisecond)
 
