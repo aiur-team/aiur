@@ -146,6 +146,90 @@ defmodule Aiur.Opencode.SessionWriterTest do
       assert count_messages(session_id) == 0
     end
 
+    test ":command event with payload writes clean bash tool part shape (U3)", %{
+      session_id: session_id
+    } do
+      state = build_state(session_id)
+
+      event = %{
+        role: :command,
+        body: "git status --short",
+        timestamp: DateTime.utc_now(),
+        msg_id: nil,
+        sequence: 1,
+        turn_id: nil,
+        payload: %{
+          command: "git status --short",
+          output: "?? test-sandbox/\n",
+          title: "git status --short",
+          workdir: "/home/dev/repo",
+          exit_code: 0
+        }
+      }
+
+      {:noreply, _state} = SessionWriter.handle_info({:transcript_event, event}, state)
+
+      [tool_part] = parts_of_type(session_id, "tool")
+      decoded = Jason.decode!(tool_part)
+
+      assert decoded["tool"] == "bash"
+      assert decoded["state"]["input"]["command"] == "git status --short"
+      refute String.starts_with?(decoded["state"]["input"]["command"], "$ ")
+      assert decoded["state"]["input"]["workdir"] == "/home/dev/repo"
+      assert decoded["state"]["output"] == "?? test-sandbox/\n"
+      assert decoded["state"]["title"] == "git status --short"
+    end
+
+    test ":tool role events render as tool parts with payload-supplied tool name (U2)",
+         %{session_id: session_id} do
+      state = build_state(session_id)
+
+      event = %{
+        role: :tool,
+        body: "emit_alert · attention.review-ready",
+        timestamp: DateTime.utc_now(),
+        msg_id: nil,
+        sequence: 1,
+        turn_id: nil,
+        payload: %{
+          tool: "emit_alert",
+          input: %{"name" => "attention.review-ready", "message" => "ready"},
+          output: "ok=true",
+          title: "emit_alert · attention.review-ready"
+        }
+      }
+
+      {:noreply, _state} = SessionWriter.handle_info({:transcript_event, event}, state)
+
+      [tool_part] = parts_of_type(session_id, "tool")
+      decoded = Jason.decode!(tool_part)
+
+      assert decoded["tool"] == "emit_alert"
+      assert decoded["state"]["title"] == "emit_alert · attention.review-ready"
+      assert get_in(decoded, ["state", "input", "name"]) == "attention.review-ready"
+    end
+
+    test ":reasoning role events render as reasoning parts (U2)", %{session_id: session_id} do
+      state = build_state(session_id)
+
+      event = %{
+        role: :reasoning,
+        body: "Considering whether to use Map.new/1 vs Enum.into/2.",
+        timestamp: DateTime.utc_now(),
+        msg_id: nil,
+        sequence: 1,
+        turn_id: nil,
+        payload: nil
+      }
+
+      {:noreply, _state} = SessionWriter.handle_info({:transcript_event, event}, state)
+
+      [reasoning_part] = parts_of_type(session_id, "reasoning")
+      decoded = Jason.decode!(reasoning_part)
+
+      assert decoded["text"] == "Considering whether to use Map.new/1 vs Enum.into/2."
+    end
+
     test "two interleaved turn_ids open two distinct messages", %{session_id: session_id} do
       state = build_state(session_id)
 
@@ -260,6 +344,24 @@ defmodule Aiur.Opencode.SessionWriterTest do
 
     Basic.close(conn)
     Enum.map(rows, fn [data] -> Jason.decode!(data)["type"] end)
+  end
+
+  defp parts_of_type(session_id, type) do
+    {:ok, conn} = Basic.open(Db.path())
+
+    {:ok, rows, _} =
+      Basic.exec(
+        conn,
+        "SELECT data FROM part WHERE session_id = '#{session_id}'"
+      )
+      |> Basic.rows()
+
+    Basic.close(conn)
+
+    Enum.flat_map(rows, fn [data] ->
+      decoded = Jason.decode!(data)
+      if decoded["type"] == type, do: [data], else: []
+    end)
   end
 
   defp step_finish_reason(session_id, message_id) do

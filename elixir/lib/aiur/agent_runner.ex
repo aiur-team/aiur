@@ -106,8 +106,30 @@ defmodule Aiur.AgentRunner do
       text = assistant_message_from_codex(message) ->
         {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message), turn_id: turn_id)}
 
-      summary = system_activity_from_codex(message) ->
-        {:ok, AgentEvents.transcript_event(:command, summary, timestamp: timestamp_for(message), turn_id: turn_id)}
+      command_payload = command_payload_from_codex(message) ->
+        {:ok,
+         AgentEvents.transcript_event(
+           :command,
+           command_payload.command,
+           timestamp: timestamp_for(message),
+           turn_id: turn_id,
+           payload: command_payload
+         )}
+
+      reasoning_text = reasoning_text_from_codex(message) ->
+        {:ok,
+         AgentEvents.transcript_event(:reasoning, reasoning_text,
+           timestamp: timestamp_for(message),
+           turn_id: turn_id
+         )}
+
+      tool_payload = tool_payload_from_codex(message) ->
+        {:ok,
+         AgentEvents.transcript_event(:tool, tool_payload.title,
+           timestamp: timestamp_for(message),
+           turn_id: turn_id,
+           payload: tool_payload
+         )}
 
       true ->
         legacy_transcript_event(message, turn_id)
@@ -128,40 +150,28 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  # Surface a compact summary of agent activity (commands run, tool calls)
-  # so the conversation pane shows what the agent is doing between user
-  # input and the next final-answer message. Returns a binary or nil.
-  defp system_activity_from_codex(message) do
-    method = notification_method(message)
-    item = notification_item(message)
-    item_type = if is_map(item), do: get(item, :type), else: nil
+  # Build a rich command payload from codex's item/completed commandExecution.
+  # Codex hands us the assembled stdout in `aggregatedOutput` — no
+  # outputDelta buffering required. Returns a map or nil.
+  defp command_payload_from_codex(message) do
+    with "item/completed" <- notification_method(message),
+         item when is_map(item) <- notification_item(message),
+         "commandExecution" <- get(item, :type),
+         command when is_binary(command) and command != "" <- command_label(item) do
+      output = get(item, :aggregatedOutput) || ""
+      exit_code = get(item, :exitCode)
+      cwd = get(item, :cwd) || ""
 
-    activity_label(method, item_type, item)
-  end
+      title =
+        cond do
+          is_integer(exit_code) and exit_code != 0 -> "#{command} [exit=#{exit_code}]"
+          is_integer(exit_code) -> command
+          true -> command
+        end
 
-  defp activity_label("item/started", "commandExecution", item),
-    do: command_started_label(item)
-
-  defp activity_label("item/completed", "commandExecution", item),
-    do: command_completed_label(item)
-
-  defp activity_label(_method, _item_type, _item), do: nil
-
-  defp command_started_label(item) do
-    case command_label(item) do
-      label when is_binary(label) and label != "" -> "$ " <> label
+      %{command: command, output: output, title: title, workdir: cwd, exit_code: exit_code}
+    else
       _ -> nil
-    end
-  end
-
-  defp command_completed_label(item) do
-    label = command_label(item)
-    exit_code = get(item, :exitCode)
-
-    cond do
-      not (is_binary(label) and label != "") -> nil
-      is_integer(exit_code) -> "$ #{label} [exit=#{exit_code}]"
-      true -> "$ #{label} [done]"
     end
   end
 
@@ -174,6 +184,136 @@ defmodule Aiur.AgentRunner do
 
   defp command_actions_label([first | _]) when is_map(first), do: get(first, :command)
   defp command_actions_label(_), do: nil
+
+  # Codex reasoning items carry the agent's chain-of-thought text. Surface
+  # only when content is non-empty (codex sometimes emits empty reasoning
+  # placeholders in compressed-thinking mode).
+  defp reasoning_text_from_codex(message) do
+    with "item/completed" <- notification_method(message),
+         item when is_map(item) <- notification_item(message),
+         "reasoning" <- get(item, :type),
+         text when is_binary(text) and text != "" <- reasoning_text(item) do
+      text
+    else
+      _ -> nil
+    end
+  end
+
+  defp reasoning_text(item) do
+    case get(item, :summary) do
+      list when is_list(list) and list != [] -> reasoning_join(list)
+      _ -> reasoning_join(get(item, :content))
+    end
+  end
+
+  defp reasoning_join(nil), do: ""
+
+  defp reasoning_join(list) when is_list(list) do
+    list
+    |> Enum.map(fn
+      %{} = item -> get(item, :text) || ""
+      bin when is_binary(bin) -> bin
+      _ -> ""
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp reasoning_join(_), do: ""
+
+  # dynamicToolCall (MCP / aiur tools) and fileChange become tool transcript
+  # events. Returns a payload map (or nil to skip).
+  defp tool_payload_from_codex(message) do
+    with "item/completed" <- notification_method(message),
+         item when is_map(item) <- notification_item(message),
+         type when type in ["dynamicToolCall", "fileChange"] <- get(item, :type) do
+      build_tool_payload(type, item)
+    else
+      _ -> nil
+    end
+  end
+
+  defp build_tool_payload("dynamicToolCall", item) do
+    tool_name = get(item, :tool) || "tool"
+    arguments = decode_codex_json(get(item, :arguments))
+    content = get(item, :contentItems)
+    success = get(item, :success)
+
+    title =
+      case namespace_prefix(item) do
+        nil -> tool_name
+        ns -> "#{ns}:#{tool_name}"
+      end
+
+    %{
+      tool: tool_name,
+      input: arguments || %{},
+      output: format_tool_content(content),
+      title: title,
+      success: success
+    }
+  end
+
+  defp build_tool_payload("fileChange", item) do
+    changes = get(item, :changes) || []
+
+    %{
+      tool: "edit",
+      input: %{"changes" => changes},
+      output: file_change_output(changes),
+      title: file_change_title(changes)
+    }
+  end
+
+  defp file_change_title([first | rest]) when is_map(first) do
+    path = get(first, :path) || get(first, :file) || "file"
+    if rest == [], do: "edit #{path}", else: "edit #{path} (+#{length(rest)} more)"
+  end
+
+  defp file_change_title(_), do: "edit"
+
+  defp file_change_output(changes) when is_list(changes) do
+    changes
+    |> Enum.map(fn
+      %{} = c -> get(c, :diff) || get(c, :content) || ""
+      _ -> ""
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  defp file_change_output(_), do: ""
+
+  defp namespace_prefix(item) do
+    case get(item, :namespace) do
+      ns when is_binary(ns) and ns != "" -> ns
+      _ -> nil
+    end
+  end
+
+  defp decode_codex_json(nil), do: nil
+  defp decode_codex_json(%{} = map), do: map
+
+  defp decode_codex_json(str) when is_binary(str) do
+    case Jason.decode(str) do
+      {:ok, decoded} -> decoded
+      _ -> %{"raw" => str}
+    end
+  end
+
+  defp decode_codex_json(other), do: %{"raw" => inspect(other)}
+
+  defp format_tool_content(nil), do: ""
+
+  defp format_tool_content(list) when is_list(list) do
+    Enum.map_join(list, "\n", fn
+      %{} = item -> get(item, :text) || Jason.encode!(item)
+      bin when is_binary(bin) -> bin
+      other -> inspect(other)
+    end)
+  end
+
+  defp format_tool_content(other), do: inspect(other)
 
   defp notification_method(message) do
     # The `event` discriminator on a codex notification may be either the
@@ -840,8 +980,12 @@ defmodule Aiur.AgentRunner do
 
   defp prefix_with_ticket_namespace(name, issue) when is_binary(name) do
     cond do
-      String.starts_with?(name, "ticket.") -> name
-      String.starts_with?(name, "system.") -> name
+      String.starts_with?(name, "ticket.") ->
+        name
+
+      String.starts_with?(name, "system.") ->
+        name
+
       true ->
         case issue_identifier(issue) do
           id when is_binary(id) and id != "" -> "ticket.#{id}.agent.#{name}"

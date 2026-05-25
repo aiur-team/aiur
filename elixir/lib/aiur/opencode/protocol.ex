@@ -319,6 +319,20 @@ defmodule Aiur.Opencode.Protocol do
   end
 
   @doc """
+  Reasoning part — opencode renders these as the agent's thinking blocks.
+  `time` is optional `%{start, end}` ms-epoch ints.
+  """
+  @spec reasoning_part_data(String.t(), keyword()) :: map()
+  def reasoning_part_data(text, opts \\ []) when is_binary(text) do
+    base = %{"type" => "reasoning", "text" => text}
+
+    case Keyword.get(opts, :time) do
+      %{start: s, end: e} -> Map.put(base, "time", %{"start" => s, "end" => e})
+      _ -> base
+    end
+  end
+
+  @doc """
   Step-start part — opencode wraps each assistant turn with a step-start
   and a step-finish marker. Required for the assistant message's
   rendering to match a real codex turn.

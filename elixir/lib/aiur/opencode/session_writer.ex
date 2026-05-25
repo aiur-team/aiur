@@ -374,9 +374,9 @@ defmodule Aiur.Opencode.SessionWriter do
   defp write_standalone(state, event), do: Db.with_conn(&write_standalone(&1, state, event))
 
   defp write_standalone(conn, state, %{role: role, body: body} = event)
-       when role in [:assistant, :command, :system, :alert] do
+       when role in [:assistant, :command, :system, :alert, :reasoning, :tool] do
     message_id = Db.msg_id()
-    finish = if role == :command, do: "tool-calls", else: "stop"
+    finish = if role in [:command, :tool], do: "tool-calls", else: "stop"
 
     with :ok <-
            Db.insert_message(
@@ -420,7 +420,7 @@ defmodule Aiur.Opencode.SessionWriter do
     # message JSON alone sees a sensible value. "tool-calls" is a safe
     # default for in-flight turns since step-start signals more parts
     # are coming.
-    finish = if role == :command, do: "tool-calls", else: "stop"
+    finish = if role in [:command, :tool], do: "tool-calls", else: "stop"
 
     Protocol.assistant_message_data(%{
       identifier: state.identifier,
@@ -430,17 +430,63 @@ defmodule Aiur.Opencode.SessionWriter do
     })
   end
 
-  defp insert_body_parts(conn, state, message_id, :command, body, _event) do
+  defp insert_body_parts(conn, state, message_id, :command, body, event) do
+    # Native opencode bash row shape: state.input carries clean fields
+    # (command, description, workdir); state.output carries assembled stdout.
+    # We read these from the transcript event's optional :payload (set in
+    # agent_runner.transcript_event_from for commandExecution items) and
+    # fall back to body-only when payload is absent (older events / tests).
+    payload = event[:payload] || %{}
+    command = Map.get(payload, :command, body)
+    output = Map.get(payload, :output, "")
+    title = Map.get(payload, :title, body)
+    workdir = Map.get(payload, :workdir, "")
+
+    input = %{"command" => command}
+    input = if workdir != "", do: Map.put(input, "workdir", workdir), else: input
+
     part_data =
       Protocol.tool_part_data(
         tool: "bash",
         call_id: Db.call_id(),
-        input: %{"command" => body},
-        output: "",
-        title: body
+        input: input,
+        output: output,
+        title: title
       )
 
     Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), part_data)
+  end
+
+  defp insert_body_parts(conn, state, message_id, :tool, body, event) do
+    # Generic tool transcript event: dynamicToolCall (MCP / aiur tools)
+    # and fileChange. Payload carries the per-tool input/output/title.
+    payload = event[:payload] || %{}
+    tool = Map.get(payload, :tool, "tool")
+    input = Map.get(payload, :input, %{})
+    output = Map.get(payload, :output, "")
+    title = Map.get(payload, :title, body)
+
+    part_data =
+      Protocol.tool_part_data(
+        tool: tool,
+        call_id: Db.call_id(),
+        input: input,
+        output: output,
+        title: title
+      )
+
+    Db.insert_part(conn, state.session_id, message_id, Db.prt_id(), part_data)
+  end
+
+  defp insert_body_parts(conn, state, message_id, :reasoning, body, _event)
+       when is_binary(body) and body != "" do
+    Db.insert_part(
+      conn,
+      state.session_id,
+      message_id,
+      Db.prt_id(),
+      Protocol.reasoning_part_data(body)
+    )
   end
 
   defp insert_body_parts(conn, state, message_id, _role, body, _event) when is_binary(body) do

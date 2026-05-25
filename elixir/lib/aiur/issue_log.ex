@@ -272,8 +272,9 @@ defmodule Aiur.IssueLog do
     "[#{tag_for_role(role)}] (##{identifier}) #{summarize(body)}"
   end
 
-  defp tag_for_role(role) when role in [:assistant, :user, :system, :command, :alert],
-    do: AgentEvents.tag_name(role)
+  defp tag_for_role(role)
+       when role in [:assistant, :user, :system, :command, :alert, :reasoning, :tool],
+       do: AgentEvents.tag_name(role)
 
   defp tag_for_role(other), do: to_string(other)
 
