@@ -34,7 +34,6 @@ clear_mode=0
 logs_mode=0
 fresh_mode=0
 test_mode=0
-test_confirm=0
 test_force=0
 test_allow_remote=0
 log_issue_id=""
@@ -71,9 +70,6 @@ for arg in "$@"; do
     --test)
       test_mode=1
       ;;
-    --confirm)
-      test_confirm=1
-      ;;
     --force)
       test_force=1
       ;;
@@ -106,22 +102,30 @@ if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   exit 64
 fi
 
-# --test is a one-shot reset that bypasses the full Aiur launch. Mirrors
-# the --logs short-circuit pattern: parse our flags, dispatch the mix
-# task, and exec out before any tmux/BEAM startup.
+# --test runs the sandbox reset BEFORE launching. Composes with any
+# other flag — e.g. `aiur --test --debug --clear` resets the 3-ticket
+# sandbox then launches normally with debug + clear-logs. Auto-passes
+# `--confirm` so it's a single-command workflow; `--force` /
+# `--allow-remote` are forwarded for the rare overrides. To preview
+# without executing, use `mix aiur.test.reset` directly (no --confirm).
 if [ "$test_mode" -eq 1 ]; then
   if [ -z "$mise_bin" ]; then
     echo "aiur: --test requires mise on PATH" >&2
     exit 1
   fi
 
-  test_args=()
-  [ "$test_confirm" -eq 1 ] && test_args+=("--confirm")
+  test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
 
-  cd "$default_repo_root/elixir"
-  exec "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"
+  echo "aiur: --test resetting sandbox (pinned tickets per .aiur-test-tickets.json)…" >&2
+
+  if ! (cd "$default_repo_root/elixir" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
+    echo "aiur: --test reset failed; refusing to launch. Inspect the output above." >&2
+    exit 1
+  fi
+
+  echo "aiur: --test reset complete; continuing to normal launch…" >&2
 fi
 
 if [ "$expect_port_value" -eq 1 ]; then
@@ -207,6 +211,13 @@ Options:
   --port <N>           override the profile/workflow port for this invocation.
                        Without this, aiur auto-increments up to 9 ports when
                        the configured port is already in use.
+  --test               reset the 3-ticket events sandbox (per
+                       .aiur-test-tickets.json) before launching. Composes
+                       with the other flags, e.g. `aiur --test --debug --clear`
+                       resets then launches with debug + log clear. Auto-confirms;
+                       use `mix aiur.test.reset` for a dry-run preview. Add
+                       `--force` to bypass the clean-git guard or
+                       `--allow-remote` to bypass the expected-remote check.
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
