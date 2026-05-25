@@ -20,6 +20,7 @@ defmodule Aiur.AgentRunner do
   }
 
   alias Aiur.Codex.DynamicTool
+  alias Aiur.Events.Publisher
 
   @type worker_host :: String.t() | nil
 
@@ -768,8 +769,38 @@ defmodule Aiur.AgentRunner do
             workspace: workspace,
             worker_host: worker_host
           )
+        end,
+        event_publisher: fn name, message, payload ->
+          emit_agent_event(issue, name, message, payload)
         end
       )
+    end
+  end
+
+  defp emit_agent_event(issue, name, message, payload) do
+    identifier =
+      cond do
+        is_binary(Map.get(issue, :id)) -> issue.id
+        is_binary(Map.get(issue, :identifier)) -> issue.identifier
+        true -> nil
+      end
+
+    topic =
+      case identifier do
+        nil -> "agent.#{name}"
+        id -> "ticket.#{id}.agent.#{name}"
+      end
+
+    event_payload =
+      payload
+      |> Map.put("message", message)
+      |> Map.put("name", name)
+      |> Map.put("issue", identifier)
+
+    case Publisher.publish(topic, event_payload) do
+      {:ok, id, _subscribers} -> {:ok, %{"id" => id, "topic" => topic}}
+      :filtered -> {:error, :event_filtered}
+      :deduped -> {:error, :event_deduped}
     end
   end
 

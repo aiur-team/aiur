@@ -19,6 +19,37 @@ defmodule Aiur.Codex.DynamicTool do
       "message" => %{"type" => "string", "description" => "Concise log-facing alert message."}
     }
   }
+  @emit_event_tool "emit_event"
+  @emit_event_description """
+  Emit a cross-ticket Aiur event. Routes onto the `Aiur.Events.Exchange`
+  topic exchange where other agents/the operator can subscribe by
+  pattern. The `name` is a scoped vocabulary tag (`progress.<slug>`,
+  `decision.<slug>`, `blocked`, `unblocked`, `attention.<slug>`,
+  `attention.resolved`, `pause.request`, or `custom.<slug>`). The full
+  published topic is `ticket.<your-issue>.agent.<name>`.
+
+  Subscribers see your `message` and optional structured `payload`. Use
+  `emit_event` for coordination signals an agent on another ticket might
+  want to react to; use `emit_alert` for operator-facing audible alerts.
+  """
+  @emit_event_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["name", "message"],
+    "properties" => %{
+      "name" => %{
+        "type" => "string",
+        "description" =>
+          "Vocabulary tag. One of: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
+      },
+      "message" => %{"type" => "string", "description" => "Short human-readable summary."},
+      "payload" => %{
+        "type" => ["object", "null"],
+        "description" => "Optional structured data (e.g. {blocking_issue: 80, function: \"foo\"}).",
+        "additionalProperties" => true
+      }
+    }
+  }
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Aiur's configured auth.
@@ -49,6 +80,9 @@ defmodule Aiur.Codex.DynamicTool do
       @emit_alert_tool ->
         execute_emit_alert(arguments, opts)
 
+      @emit_event_tool ->
+        execute_emit_event(arguments, opts)
+
       other ->
         failure_response(%{
           "error" => %{
@@ -71,8 +105,70 @@ defmodule Aiur.Codex.DynamicTool do
         "name" => @emit_alert_tool,
         "description" => @emit_alert_description,
         "inputSchema" => @emit_alert_input_schema
+      },
+      %{
+        "name" => @emit_event_tool,
+        "description" => @emit_event_description,
+        "inputSchema" => @emit_event_input_schema
       }
     ]
+  end
+
+  defp execute_emit_event(arguments, opts) do
+    event_publisher = Keyword.get(opts, :event_publisher)
+
+    with {:ok, name, message, payload} <- normalize_emit_event_arguments(arguments),
+         :ok <- validate_emit_event_name(name),
+         true <- is_function(event_publisher, 3) || {:error, :event_publisher_unavailable},
+         {:ok, result} <- event_publisher.(name, message, payload) do
+      dynamic_tool_response(
+        true,
+        Jason.encode!(
+          %{"ok" => true, "name" => name, "message" => message, "result" => result},
+          pretty: true
+        )
+      )
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+
+      false ->
+        failure_response(tool_error_payload(:event_publisher_unavailable))
+    end
+  end
+
+  defp normalize_emit_event_arguments(arguments) when is_map(arguments) do
+    with {:ok, name} <- normalize_emit_alert_string(arguments, "name", :missing_event_name),
+         {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_event_message) do
+      payload =
+        case Map.get(arguments, "payload") || Map.get(arguments, :payload) do
+          %{} = map -> map
+          _ -> %{}
+        end
+
+      {:ok, name, message, payload}
+    end
+  end
+
+  defp normalize_emit_event_arguments(_arguments), do: {:error, :invalid_event_arguments}
+
+  # Locked agent vocabulary per the Ticket A brainstorm. Any name not in
+  # this list is rejected before publish — prevents agents from inventing
+  # new event categories that other tickets/agents won't be subscribed to.
+  @agent_event_allowlist [
+    ~r/\Aprogress\.[a-z0-9][a-z0-9.-]{0,63}\z/,
+    ~r/\Adecision\.[a-z0-9][a-z0-9.-]{0,63}\z/,
+    ~r/\Aattention\.[a-z0-9][a-z0-9.-]{0,63}\z/,
+    ~r/\Acustom\.[a-z0-9][a-z0-9.-]{0,63}\z/
+  ]
+  @agent_event_exact ["blocked", "unblocked", "attention.resolved", "pause.request"]
+
+  defp validate_emit_event_name(name) do
+    cond do
+      name in @agent_event_exact -> :ok
+      Enum.any?(@agent_event_allowlist, &Regex.match?(&1, name)) -> :ok
+      true -> {:error, :event_name_not_in_allowlist}
+    end
   end
 
   defp execute_emit_alert(arguments, opts) do
@@ -252,6 +348,53 @@ defmodule Aiur.Codex.DynamicTool do
     %{
       "error" => %{
         "message" => "`emit_alert` is unavailable in the current runtime context."
+      }
+    }
+  end
+
+  defp tool_error_payload(:event_publisher_unavailable) do
+    %{
+      "error" => %{
+        "message" => "`emit_event` is unavailable in the current runtime context."
+      }
+    }
+  end
+
+  defp tool_error_payload(:invalid_event_arguments) do
+    %{
+      "error" => %{
+        "message" => "`emit_event` expects an object with non-empty `name` and `message` strings and optional `payload` object."
+      }
+    }
+  end
+
+  defp tool_error_payload(:missing_event_name),
+    do: %{"error" => %{"message" => "`emit_event.name` is required."}}
+
+  defp tool_error_payload(:missing_event_message),
+    do: %{"error" => %{"message" => "`emit_event.message` is required."}}
+
+  defp tool_error_payload(:event_name_not_in_allowlist) do
+    %{
+      "error" => %{
+        "message" =>
+          "`emit_event.name` must match the agent vocabulary: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
+        "examples" => [
+          "progress.brainstorm-end",
+          "decision.use-amqp-matcher",
+          "blocked",
+          "attention.scope-question",
+          "custom.heartbeat"
+        ]
+      }
+    }
+  end
+
+  defp tool_error_payload(:custom_event_quota_exceeded) do
+    %{
+      "error" => %{
+        "message" =>
+          "`emit_event` over the per-turn custom.* quota. Wait for the next turn or use a non-`custom.*` name."
       }
     }
   end
