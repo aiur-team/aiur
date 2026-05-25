@@ -458,12 +458,20 @@ defmodule Aiur.ExtensionsTest do
              "error" => %{"code" => "issue_not_found", "message" => "Issue not found"}
            }
 
-    conn = post(build_conn(), "/api/v1/refresh", %{})
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/refresh", %{})
 
     assert %{"queued" => true, "coalesced" => false, "operations" => ["poll", "reconcile"]} =
              json_response(conn, 202)
 
-    conn = post(build_conn(), "/api/v1/MT-HTTP/messages", %{"text" => "hello"})
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/MT-HTTP/messages", %{"text" => "hello"})
 
     assert json_response(conn, 202) == %{"issue_identifier" => "MT-HTTP", "request_id" => 1}
   end
@@ -475,7 +483,16 @@ defmodule Aiur.ExtensionsTest do
     assert json_response(post(build_conn(), "/api/v1/state", %{}), 405) ==
              %{"error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}}
 
-    assert json_response(get(build_conn(), "/api/v1/refresh"), 405) ==
+    # CSRF gates on the write scope mean GET-on-write-route hits the CSRF gate
+    # before reaching the method_not_allowed handler — that's correct defense.
+    # Add the bypass headers so we see the underlying 405.
+    refresh_get =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> get("/api/v1/refresh")
+
+    assert json_response(refresh_get, 405) ==
              %{"error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}}
 
     assert json_response(post(build_conn(), "/", %{}), 405) ==
@@ -495,7 +512,13 @@ defmodule Aiur.ExtensionsTest do
                "error" => %{"code" => "snapshot_unavailable", "message" => "Snapshot unavailable"}
              }
 
-    assert json_response(post(build_conn(), "/api/v1/refresh", %{}), 503) ==
+    refresh_conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/refresh", %{})
+
+    assert json_response(refresh_conn, 503) ==
              %{
                "error" => %{
                  "code" => "orchestrator_unavailable",
@@ -503,7 +526,13 @@ defmodule Aiur.ExtensionsTest do
                }
              }
 
-    assert json_response(get(build_conn(), "/api/v1/MT-1/messages"), 405) ==
+    messages_get =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> get("/api/v1/MT-1/messages")
+
+    assert json_response(messages_get, 405) ==
              %{"error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}}
   end
 
@@ -782,7 +811,11 @@ defmodule Aiur.ExtensionsTest do
 
     refresh_response =
       Req.post!("http://127.0.0.1:#{port}/api/v1/refresh",
-        headers: [{"content-type", "application/x-www-form-urlencoded"}],
+        headers: [
+          {"content-type", "application/x-www-form-urlencoded"},
+          {"origin", "http://127.0.0.1:#{port}"},
+          {"x-aiur-request", "1"}
+        ],
         body: ""
       )
 
