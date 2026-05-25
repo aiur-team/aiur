@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned ticket IDs that `aiur --test` is allowed to operate on. The CLI refuses to run if any of these does not exist on GitHub or if the workflow YAML's repo doesn't match the expected_remote below. These tickets are the 3 sandbox tickets that the events-foundation manual test exercises.",
+  "_comment": "Pinned ticket IDs that `aiur --test` is allowed to operate on. The CLI refuses to run if the workflow YAML's repo doesn't match the expected_remote below. These tickets are the 3 sandbox tickets that the events-foundation manual test exercises.",
   "expected_remote": "git@github.com:its-everdred/aiur.git",
-  "tickets": []
+  "tickets": [99, 100, 101]
 }

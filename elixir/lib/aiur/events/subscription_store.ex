@@ -287,6 +287,8 @@ defmodule Aiur.Events.SubscriptionStore do
     end
   end
 
+  def handle_info(_other, state), do: {:noreply, state}
+
   defp advance_cursor_inline(state, event_id) when is_integer(event_id) do
     new_cursor = max(state.last_seen_event_id || 0, event_id)
     new_state = %{state | last_seen_event_id: new_cursor}
@@ -295,8 +297,6 @@ defmodule Aiur.Events.SubscriptionStore do
   end
 
   defp advance_cursor_inline(state, _), do: state
-
-  def handle_info(_other, state), do: {:noreply, state}
 
   defp enqueue_event(identifier, event) do
     case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do
