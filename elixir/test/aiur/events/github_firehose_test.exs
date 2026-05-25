@@ -14,6 +14,9 @@ defmodule Aiur.Events.GithubFirehoseTest do
       tracker_label_prefix: "aiur"
     )
 
+    # Persistent_term outlives test boundaries; reset before each test.
+    Publisher.set_tracked_fn(fn _ -> true end)
+
     on_exit(fn ->
       restore_env("GITHUB_TOKEN", prev_token)
       Publisher.set_tracked_fn(fn _ -> true end)
