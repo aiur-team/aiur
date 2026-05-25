@@ -56,6 +56,8 @@ defmodule Aiur.Application do
         Aiur.WorkflowStore,
         Aiur.Events.IdGenerator,
         Aiur.Events.Exchange,
+        {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
+        Aiur.Events.SubscriptionStoreSupervisor,
         Aiur.Orchestrator,
         Aiur.HttpServer,
         Aiur.Opencode.TokenRegistry,
