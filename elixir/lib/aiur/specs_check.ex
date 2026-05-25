@@ -98,6 +98,13 @@ defmodule Aiur.SpecsCheck do
 
   defp consume_form({:@, _, _}, state, _module_name, _file, _exemptions), do: state
 
+  # `def name(args)` with no body — the default-argument header form
+  # used before clause-pattern-matched definitions, e.g.
+  # `def foo(a, b \\ :default)` followed by `def foo(:a, _), do: ...`.
+  # This header does not introduce a new clause and must not clear the
+  # pending @spec; the spec belongs to the upcoming bodied clauses.
+  defp consume_form({:def, _, [_head_only]}, state, _module_name, _file, _exemptions), do: state
+
   defp consume_form({:def, meta, [head_ast, _]} = _form, state, module_name, file, exemptions) do
     {name, arity} = def_head_to_identifier(head_ast)
 

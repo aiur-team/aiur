@@ -930,6 +930,7 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   @doc false
+  @spec wait_for_paint(String.t(), non_neg_integer()) :: :ok | :timeout
   def wait_for_paint(pane_id, budget_ms) do
     deadline = System.monotonic_time(:millisecond) + budget_ms
     do_wait_for_paint(pane_id, deadline)
