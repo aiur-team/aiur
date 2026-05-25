@@ -69,6 +69,11 @@ for arg in "$@"; do
       ;;
     --test)
       test_mode=1
+      # --test always implies --debug and --clear: when you're testing
+      # you want a fresh, debug-instrumented run by default. Override is
+      # not supported (the test flow assumes both are set).
+      debug_mode=1
+      clear_mode=1
       ;;
     --force)
       test_force=1
@@ -225,11 +230,11 @@ Options:
                        from scratch (~2min). Use when auto-rebuild
                        (mtime check) misses a change.
   --test               reset the 3-ticket events sandbox (per
-                       .aiur-test-tickets.json) before launching. Composes
-                       with the other flags, e.g. `aiur --test --debug --clear`
-                       resets then launches with debug + log clear. Auto-confirms;
-                       use `mix aiur.test.reset` for a dry-run preview. Add
-                       `--force` to bypass the clean-git guard or
+                       .aiur-test-tickets.json) before launching. Automatically
+                       implies --debug --clear (a test run always wants a
+                       fresh, debug-instrumented session). Auto-confirms the
+                       reset; use `mix aiur.test.reset` for a dry-run preview.
+                       Add `--force` to bypass the clean-git guard or
                        `--allow-remote` to bypass the expected-remote check.
 
 Foreground dashboard controls:
