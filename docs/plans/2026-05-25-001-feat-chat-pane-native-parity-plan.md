@@ -29,11 +29,8 @@ See origin: `docs/brainstorms/2026-05-25-aiur-chat-pane-native-parity-requiremen
 - **R1.** One assistant message per codex turn, keyed by `turnId`. Parts append on item completion. `step-start` on first event, `step-finish` on turn termination.
 - **R2.** Translate `reasoning`, `dynamicToolCall`, `fileChange` codex items (currently dropped). Keep `agentMessage` and `commandExecution` translation; preserve unchanged `userMessage` rendering.
 - **R3.** Clean tool-part shape — `state.input.command` without `$ ` prefix, populated `state.output` from accumulated outputDelta, descriptive `state.title`, `state.input.workdir` from agent workspace.
-- **R4.** Cross-ticket received events render inline in chat as standalone synthetic messages — always, independent of `--debug`.
-- **R5.** Outgoing aiur tool calls render in chat:
-  - `emit_alert` — **always visible** (operator-facing audible alerts; chat answers "which agent fired that beep")
-  - `emit_event`, `aiur_subscribe`, `aiur_unsubscribe`, `aiur_declare_blocker`, `aiur_unblock` — visible **only when `--debug` is active** (background coordination plumbing)
-  - All render as tool parts inside the current turn's message when one is open; standalone synthetic message otherwise.
+- **R4.** Cross-ticket received events render inline in chat as **system-role live-ticker rows** — one row per delivered event, always visible. Same SessionWriter shape as `session_writer.ex:131`'s alert path, repurposed for events. (Matches the events brainstorm's "live-as-emitted ticker" decision, which deliberately moved away from turn-boundary digest grouping because agent turns typically span an entire feature and turn-boundary delivery is too slow for coordination signals.)
+- **R5.** Outgoing aiur tool calls (`emit_event`, `emit_alert`, `aiur_subscribe`, `aiur_unsubscribe`, `aiur_declare_blocker`, `aiur_unblock`) render as **system-role live-ticker rows** in chat — one row per published event, always visible (no `--debug` gate). Matches the events-foundation brainstorm's "every published event generates a one-line system-role row" model so cross-ticket coordination signals reach the operator faster than turn-boundary timing allows.
 - **R6.** Resolve the duplicate "Starting work on issue #N…" rendering with a SessionWriter dedup guard, sized to cover the replay window.
 
 **Origin acceptance examples:** AE1 (R1) — one chrome header per turn; AE2 (R2) — file-edit tools render as distinct parts; AE3 (R3) — clean bash shape with real stdout; AE4 (R4) — incoming event card always visible; AE5 (R5) — outgoing aiur calls visible only under `--debug`; AE6 (R6) — opening message appears exactly once after re-attach.
@@ -352,9 +349,9 @@ sequenceDiagram
 
 ---
 
-- [ ] **U5. Inline cross-ticket received-event cards**
+- [ ] **U5. Inline cross-ticket received-event ticker rows**
 
-**Goal:** When the SubscriptionStore delivers a cross-ticket event to an agent's inbox, SessionWriter writes a standalone synthetic assistant message with a leading `📥` text part — always, independent of `--debug`.
+**Goal:** When the SubscriptionStore delivers a cross-ticket event to an agent's inbox, SessionWriter writes a **system-role one-line ticker row** in opencode — always visible, no `--debug` gate. Matches the events brainstorm's "live-as-emitted ticker" decision and the existing alert path at `session_writer.ex:131`.
 
 **Requirements:** R4 (R4.1–R4.4), AE4.
 
@@ -370,13 +367,12 @@ sequenceDiagram
 **Approach:**
 - SubscriptionStore, at the delivery seam (`handle_info({:event, event}, state)` in `subscription_store.ex:276+`), calls `AgentPubSub.broadcast_received_event(identifier, %{topic, id, payload, source_ticket})`. New helper in `agent_pubsub.ex` mirrors `broadcast_transcript/2` and uses the same `Process.whereis(@pubsub)` guard via `do_broadcast/2` — never bypasses to bare `Phoenix.PubSub.broadcast`. Early-boot deliveries before PubSub init no-op safely.
 - SessionWriter receives `{:received_event, e}` on its existing agent-topic subscription (no new subscribe call).
-- On receipt: insert a standalone message with a single text part formatted per the **Event-card visual marker** decision in Key Technical Decisions:
+- On receipt: write a **system-role one-line message** using a new `write_system_ticker_row/2` helper that mirrors `write_standalone/2` but constructs the assistant message with `role: "system"` (not `"assistant"`). Opencode's TUI renders system-role rows with distinct styling — no `▣ Build · ...` chrome header. Format:
   ```
-  📥 <topic> from #<source_ticket>
-  <Jason.encode!(payload) truncated to 200 chars>
-  id=<event_id>
+  📥 <topic> · from #<source_ticket> · id=<event_id>
   ```
-- **Replay idempotency:** dedup key uses `{:received_event, event_id}` and is fed through U4's ring. SubscriptionStore re-delivery on restart hits the dedup ring; doesn't double-write. Single mechanism, not two — supersedes the original "PRIMARY KEY collide OR ring" choice.
+  (Single line — payload details belong in the per-issue log file and dashboard panel, not the chat ticker.)
+- **Replay idempotency:** dedup key uses `{:received_event, event_id}` and is fed through U4's ring. SubscriptionStore re-delivery on restart hits the dedup ring; doesn't double-write.
 
 **Patterns to follow:**
 - `Aiur.AgentPubSub.broadcast_transcript/2` — same broadcast shape, distinct message tag.
@@ -392,41 +388,42 @@ sequenceDiagram
 
 ---
 
-- [ ] **U6. Outgoing aiur tool-call rendering (emit_alert always; others --debug only)**
+- [ ] **U6. Outgoing aiur tool-call ticker rows**
 
-**Goal:** Calls to aiur-owned dynamic tools render as tool parts in the chat pane:
-- `emit_alert` — **always visible** (operator-facing audible alert; chat answers "which agent fired that?")
-- `emit_event`, `aiur_subscribe`, `aiur_unsubscribe`, `aiur_declare_blocker`, `aiur_unblock` — visible **only when `AIUR_DEBUG` is set**
+**Goal:** Every aiur-owned tool emission (`emit_event`, `emit_alert`, `aiur_subscribe`, `aiur_unsubscribe`, `aiur_declare_blocker`, `aiur_unblock`) writes a **system-role one-line ticker row** in the calling agent's chat pane — always visible, no `--debug` gate. Same SessionWriter path as U5 (received events), just from the outgoing side. Matches the events brainstorm's "every published event = live system-row" rule.
 
 **Requirements:** R5, AE5.
 
-**Dependencies:** U1 (uses turn-buffer state for "current turn" lookup), U2 (uses `:aiur_tool` role + tool transcript-event shape), U3 (clean tool shape).
+**Dependencies:** U5 (shares `write_system_ticker_row/2` helper and `:received_event`-style broadcast path).
 
 **Files:**
-- Modify: `elixir/lib/aiur/codex/dynamic_tool.ex` — after each tool handler builds its result map, broadcast a transcript event with role `:aiur_tool` and payload `%{tool: name, input: args, output: result, gate: :always | :debug_only}`. `emit_alert` carries `:always`; the others carry `:debug_only`.
-- Modify: `elixir/lib/aiur/opencode/session_writer.ex` — on `:aiur_tool` transcript events, gate by reading `gate` from payload and (when `:debug_only`) consulting `System.get_env("AIUR_DEBUG")` at write-time. Look up the most-recently-opened, still-open turn in `state.turns` and append the tool part there; if no open turn, standalone message path.
-- Test: `elixir/test/aiur/codex/dynamic_tool_test.exs` (broadcast happens with correct gate value per tool)
-- Test: `elixir/test/aiur/opencode/session_writer_test.exs` (gating logic and turn-lookup behavior)
+- Modify: `elixir/lib/aiur/codex/dynamic_tool.ex` — after each tool handler succeeds, broadcast `{:emitted_event, %{tool, input, output, identifier}}` via a new `AgentPubSub.broadcast_emitted_event/2`. (Distinct PubSub tag from received events so SessionWriter can format the ticker row differently if useful.)
+- Modify: `elixir/lib/aiur/opencode/session_writer.ex` — handle `{:emitted_event, e}` by writing a system-role ticker row via the shared `write_system_ticker_row/2` helper from U5.
+- Modify: `elixir/lib/aiur/agent_pubsub.ex` — add `broadcast_emitted_event/2`, mirror existing guards.
+- Test: `elixir/test/aiur/codex/dynamic_tool_test.exs` (broadcast happens for each aiur tool handler).
+- Test: `elixir/test/aiur/opencode/session_writer_test.exs` (ticker row format).
 
 **Approach:**
-- **Turn-id resolution at SessionWriter (not at broadcast site).** DynamicTool handlers don't have `turn_id` — the broadcast carries the full payload but no turn_id. SessionWriter consults its own `turns` map for the most-recent still-open turn for this identifier and appends there. If no open turn, write a standalone message with its own step-start/body/step-finish.
-- **Dynamic debug check.** Read `System.get_env("AIUR_DEBUG")` (or `Aiur.Config.debug?/0` if that exists; check during impl) at the moment the event is processed. No `debug?` opt threaded through start_link / supervisor / slot — avoids stale-flag bugs if operators toggle.
-- **Standalone-message path for out-of-turn aiur tool calls** uses the same R1.5 code path as `turn_id: nil` transcript events: step-start → tool part → step-finish, `finish: "tool-calls"`. Matches the chrome of other standalone messages.
+- Each successful DynamicTool handler call broadcasts `{:emitted_event, %{tool, input, output, identifier}}`. SessionWriter renders as a single-line system-role ticker row:
+  ```
+  📤 <tool_name> · <one-line input summary>
+  ```
+- No turn-id threading needed — the row is a standalone system-role message (chrome-less per opencode's system styling).
+- No `--debug` gating — emissions are signal, not noise. Operator sees every coordination move the agent makes.
 
 **Patterns to follow:**
-- `Aiur.AgentList.App` `handle_info` reads `AIUR_DEBUG` at decision time.
-- U3 tool shape.
+- U5's `write_system_ticker_row/2` helper.
+- Existing alert path at `session_writer.ex:131` for system-role row construction.
 
 **Test scenarios:**
-- *Happy path:* `emit_alert` handler invoked, `AIUR_DEBUG` unset. Result: SessionWriter writes a tool part for the alert (always visible regardless of debug).
-- *Happy path:* `emit_event` handler invoked, `AIUR_DEBUG=1`. Result: tool part written with `tool: "emit_event"`, input = call args, output = result map. Covers AE5.
-- *Happy path:* `emit_event` handler invoked, `AIUR_DEBUG` unset. Result: no SessionWriter write (DB part count for the turn unchanged).
-- *Edge case:* aiur tool call arrives outside any open turn (e.g., during boot). Result: standalone message with step-start + single tool part + step-finish, `finish: "tool-calls"`.
-- *Edge case:* tool handler returns `{:error, reason}`. Result: tool part with `state.status: "error"`, output = error map.
-- *Edge case:* aiur tool call arrives when multiple turns are concurrently open in `turns` map (rare; shouldn't happen but guard). Result: append to the turn with the highest `started_at_ms`.
-- *Integration:* full turn with `emit_event` + bash + assistant text, `AIUR_DEBUG=1`. Pane shows the `emit_event` block inline between the others.
+- *Happy path:* `emit_event("progress.tests-green", "...")` handler succeeds. Result: SessionWriter writes a system-role row with `📤 emit_event · progress.tests-green`. Covers AE5.
+- *Happy path:* `emit_alert("attention.review-ready", "...")` handler succeeds. Result: system-role row `📤 emit_alert · attention.review-ready`.
+- *Happy path:* `aiur_declare_blocker(99)` handler succeeds. Result: row `📤 aiur_declare_blocker · #99`.
+- *Edge case:* handler returns `{:error, reason}`. Result: row still written, marker prefixed with `⚠ ` to signal failure.
+- *Edge case:* DynamicTool called before SessionWriter is up. Result: broadcast no-ops via the AgentPubSub guard; no crash.
+- *Integration:* agent emits `progress.brainstorm-end` mid-turn. Pane shows the system-row ticker entry between agent-message turns without disturbing the open turn's message structure.
 
-**Verification:** Run aiur with and without `AIUR_DEBUG`. With debug set, chat pane shows aiur tool blocks for emit_event/aiur_subscribe/etc. Without, only `emit_alert` blocks appear. In both modes, the events still fire (verify via the existing debug ticker on agent_list).
+**Verification:** Live aiur run. Any aiur tool call from a running agent produces a one-line `📤 ...` row in that agent's chat pane immediately, regardless of `AIUR_DEBUG`.
 
 ---
 
