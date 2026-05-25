@@ -1192,6 +1192,20 @@ run_in_tmux() {
       rm -f "$sessions_file" 2>/dev/null || true
     fi
 
+    # Belt-and-suspenders: reap any opencode-serve processes orphaned
+    # to PID 1 by the BEAM kill above. Aiur.Opencode.Server.terminate
+    # SIGTERMs each serve when the supervisor stops, but a hard SIGKILL
+    # to the BEAM (or OOM) skips terminate callbacks. The boot reaper
+    # in pre-launch catches these on the NEXT run, but cleaning here
+    # frees ports/RAM immediately and keeps the system tidy between runs.
+    local _trap_serve_pid _trap_serve_ppid
+    for _trap_serve_pid in $(pgrep -f "opencode serve --port 0 --hostname 127.0.0.1" 2>/dev/null || true); do
+      _trap_serve_ppid=$(awk '{print $4}' "/proc/$_trap_serve_pid/stat" 2>/dev/null || echo "")
+      if [ "$_trap_serve_ppid" = "1" ]; then
+        kill -TERM "$_trap_serve_pid" 2>/dev/null || true
+      fi
+    done
+
     return $exit_code
   }
 
@@ -1246,6 +1260,44 @@ run_in_tmux() {
         if [ -d /tmp/aiur-debug ]; then
           rm -rf /tmp/aiur-debug 2>/dev/null || true
           echo "aiur: cleared /tmp/aiur-debug pipe-pane captures" >&2
+        fi
+
+        # Reap orphaned opencode-serve processes from a prior aiur boot.
+        # Aiur spawns each serve via `bash -c "opencode serve --port 0
+        # --hostname 127.0.0.1"`. When aiur shuts down ungracefully or
+        # the BEAM dies before Server.terminate's pkill runs, the serve
+        # is reparented to PID 1 and keeps listening on a port the new
+        # bridge URL won't ever match. AttachPool then times out on every
+        # leadoff and chat panes never launch.
+        #
+        # Discriminator: exact serve argv + ppid=1 (orphaned). Anything
+        # the user launches manually has a different parent.
+        local stale_serve_pids=""
+        local _pid _ppid
+        for _pid in $(pgrep -f "opencode serve --port 0 --hostname 127.0.0.1" 2>/dev/null || true); do
+          _ppid=$(awk '{print $4}' "/proc/$_pid/stat" 2>/dev/null || echo "")
+          if [ "$_ppid" = "1" ]; then
+            stale_serve_pids="$stale_serve_pids $_pid"
+          fi
+        done
+        if [ -n "$stale_serve_pids" ]; then
+          local stale_serve_count
+          stale_serve_count=$(echo $stale_serve_pids | wc -w)
+          echo "aiur: reaping $stale_serve_count orphaned opencode-serve(s) from prior boot" >&2
+          kill -TERM $stale_serve_pids 2>/dev/null || true
+          local wait_iters=0
+          while [ $wait_iters -lt 20 ]; do
+            local still_alive=""
+            for _pid in $stale_serve_pids; do
+              kill -0 "$_pid" 2>/dev/null && still_alive="$still_alive $_pid"
+            done
+            [ -z "$still_alive" ] && break
+            sleep 0.1
+            wait_iters=$((wait_iters + 1))
+          done
+          for _pid in $stale_serve_pids; do
+            kill -KILL "$_pid" 2>/dev/null || true
+          done
         fi
       fi
     fi
