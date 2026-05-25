@@ -1186,33 +1186,35 @@ defmodule Aiur.PaneManager do
             reply_or_noreply({:ok, pane_id}, from, new_state)
 
           {:error, reason} ->
-            cond do
-              pane_already_visible_reason?(reason) ->
-                # The slot's attach pane is already in the visible
-                # window — tmux refuses to move it again. Treat as
-                # success: record the new (identifier, pane_id) and
-                # leave the slot's visible_identifier intact.
-                new_state =
-                  state
-                  |> record_slot_pane(slot_index, pane_id, identifier)
-                  |> Map.put(:last_attached_pane_id, pane_id)
-
-                AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-                bump_next_slot()
-                reply_or_noreply({:ok, pane_id}, from, new_state)
-
-              true ->
-                Logger.warning("aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
-
-                _ = Slot.deselect(slot_pid)
-                reply_or_noreply({:error, reason}, from, state)
-            end
+            handle_pane_move_error(reason, state, slot_index, slot_pid, identifier, pane_id, from)
         end
 
       {:error, reason} ->
         Logger.warning("aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
 
         reply_or_noreply({:error, reason}, from, state)
+    end
+  end
+
+  defp handle_pane_move_error(reason, state, slot_index, slot_pid, identifier, pane_id, from) do
+    if pane_already_visible_reason?(reason) do
+      # tmux refused to move because the slot's attach pane is already
+      # in the visible window. Treat as success: record the new
+      # (identifier, pane_id) and leave the slot's visible_identifier
+      # intact.
+      new_state =
+        state
+        |> record_slot_pane(slot_index, pane_id, identifier)
+        |> Map.put(:last_attached_pane_id, pane_id)
+
+      AgentPubSub.broadcast_status_change(identifier, :pane_opened)
+      bump_next_slot()
+      reply_or_noreply({:ok, pane_id}, from, new_state)
+    else
+      Logger.warning("aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
+
+      _ = Slot.deselect(slot_pid)
+      reply_or_noreply({:error, reason}, from, state)
     end
   end
 
@@ -1369,8 +1371,7 @@ defmodule Aiur.PaneManager do
       slot_panes_summary =
         state.slot_panes
         |> Enum.sort_by(fn {slot, _} -> slot end)
-        |> Enum.map(fn {slot, pane} -> "#{slot}=>#{pane || "_"}" end)
-        |> Enum.join(",")
+        |> Enum.map_join(",", fn {slot, pane} -> "#{slot}=>#{pane || "_"}" end)
 
       Logger.info("aiur_tmux_layout window=#{w}x#{h} slot_panes=#{slot_panes_summary} agent_list=#{state.agent_list_pane} layout=#{inspect(layout_string)}")
     end

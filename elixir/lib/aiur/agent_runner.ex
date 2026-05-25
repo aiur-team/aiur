@@ -20,7 +20,7 @@ defmodule Aiur.AgentRunner do
   }
 
   alias Aiur.Codex.DynamicTool
-  alias Aiur.Events.{Publisher, SubscriptionStore}
+  alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Opencode.{ActiveTurns, ApiClient, Protocol, SessionWriterRegistry}
 
@@ -553,7 +553,7 @@ defmodule Aiur.AgentRunner do
     for event <- events do
       topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
       id = Map.get(event, :id) || Map.get(event, "id")
-      Aiur.Events.DebugLog.broadcast(:read, topic, id: id, identifier: identifier)
+      DebugLog.broadcast(:read, topic, id: id, identifier: identifier)
     end
 
     "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"
@@ -583,20 +583,22 @@ defmodule Aiur.AgentRunner do
   defp queue_item_text(item), do: inspect(item)
 
   defp render_event_line(event) when is_map(event) do
-    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
-    id = Map.get(event, :id) || Map.get(event, "id")
-
-    summary =
-      cond do
-        msg = Map.get(event, "message") || Map.get(event, :message) -> msg
-        msg = Map.get(event, "summary") || Map.get(event, :summary) -> msg
-        true -> ""
-      end
-
-    "[id=#{id}] #{topic}#{if summary != "", do: ": " <> summary, else: ""}"
+    topic = event_field(event, :topic) || "(unknown)"
+    id = event_field(event, :id)
+    summary = event_summary(event)
+    suffix = if summary != "", do: ": " <> summary, else: ""
+    "[id=#{id}] #{topic}#{suffix}"
   end
 
   defp render_event_line(other), do: inspect(other)
+
+  defp event_field(event, key) when is_atom(key) do
+    Map.get(event, key) || Map.get(event, Atom.to_string(key))
+  end
+
+  defp event_summary(event) do
+    event_field(event, :message) || event_field(event, :summary) || ""
+  end
 
   defp send_control_state(recipient, %Issue{id: issue_id}, status)
        when is_pid(recipient) and is_binary(issue_id) and status in [:paused, :working] do

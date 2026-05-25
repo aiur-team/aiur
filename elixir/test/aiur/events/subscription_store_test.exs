@@ -2,7 +2,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Config.Paths
-  alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.Events.{Exchange, IdGenerator, SubscriptionStore}
   alias Aiur.JsonStore
 
   setup do
@@ -70,7 +70,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       floor1 = entry1["subscription_created_at_event_id"]
 
       # Cause IdGenerator to advance so peek would return a different value
-      _ = Aiur.Events.IdGenerator.next_id()
+      _ = IdGenerator.next_id()
 
       :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "second")
       [entry2] = SubscriptionStore.snapshot(id).subscribed_to

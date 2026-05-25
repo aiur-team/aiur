@@ -383,19 +383,17 @@ defmodule Aiur.AgentList.App do
     opened = Map.get(state, :opened_panes, MapSet.new())
     id_str = to_string(identifier)
 
-    cond do
-      # Already open — let PaneManager focus the existing pane (it
-      # returns :pane_open_already_visible).
-      MapSet.member?(opened, id_str) ->
-        true
-
-      # The agent has at least one slot attached → has a slot the
-      # AttachPool can hand back.
-      true ->
-        case Map.get(state.attach_state, id_str) do
-          %{attach_count: n} when n >= 1 -> true
-          _ -> false
-        end
+    # Already open → let PaneManager focus the existing pane (it
+    # returns :pane_open_already_visible).
+    # Otherwise: true iff the agent has at least one slot attached, so
+    # AttachPool can hand the slot back.
+    if MapSet.member?(opened, id_str) do
+      true
+    else
+      case Map.get(state.attach_state, id_str) do
+        %{attach_count: n} when n >= 1 -> true
+        _ -> false
+      end
     end
   end
 

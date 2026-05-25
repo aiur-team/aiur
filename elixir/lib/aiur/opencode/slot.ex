@@ -61,11 +61,13 @@ defmodule Aiur.Opencode.Slot do
   alias Aiur.Boot
 
   alias Aiur.Opencode.{
+    ApiClient,
     Config,
     HiddenWindow,
     Protocol,
     Server,
     SessionGC,
+    SessionSupervisor,
     SessionWriter,
     SessionWriterRegistry,
     SlotRegistry,
@@ -473,6 +475,13 @@ defmodule Aiur.Opencode.Slot do
 
   defp maybe_start_pipe_pane(_slot_index, _pane_id), do: :ok
 
+  defp capture_pane_dump(pane_id) do
+    case Tmux.command(Tmux, "capture-pane -p -t #{pane_id}") do
+      {:ok, lines} -> lines |> Enum.take(8) |> Enum.join(" \\ ")
+      _ -> "capture_failed"
+    end
+  end
+
   defp pipe_pane_path(slot_index),
     do: "/tmp/aiur-debug/slot-#{slot_index}-attach.log"
 
@@ -681,14 +690,7 @@ defmodule Aiur.Opencode.Slot do
         Logger.info("opencode_slot phase=poll_pane_missing slot=#{state.slot_index} pane_id=#{pane_id} attempt=#{bumped}/#{@poll_death_threshold} poll_result=#{inspect(other)}")
 
         if bumped >= @poll_death_threshold do
-          capture_dump =
-            case Tmux.command(Tmux, "capture-pane -p -t #{pane_id}") do
-              {:ok, lines} ->
-                lines |> Enum.take(8) |> Enum.join(" \\ ")
-
-              _ ->
-                "capture_failed"
-            end
+          capture_dump = capture_pane_dump(pane_id)
 
           Logger.warning(
             "opencode_slot phase=pane_died elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{state.active_identifier} pane_id=#{pane_id} consecutive_failures=#{bumped} capture_at_death=#{inspect(capture_dump)}"
@@ -758,23 +760,22 @@ defmodule Aiur.Opencode.Slot do
     # the shared SQLite DB. The writers also hold connection pool slots
     # against a now-dead serve.
     if is_binary(state.base_url) do
-      Aiur.Opencode.SessionWriterRegistry.all()
-      |> Enum.each(fn entry ->
-        if entry.base_url == state.base_url do
-          _ = Aiur.Opencode.ApiClient.delete_session(state.base_url, entry.session_id)
-
-          if is_pid(entry.writer_pid) and Process.alive?(entry.writer_pid) do
-            _ =
-              DynamicSupervisor.terminate_child(
-                Aiur.Opencode.SessionSupervisor,
-                entry.writer_pid
-              )
-          end
-        end
-      end)
+      SessionWriterRegistry.all()
+      |> Enum.filter(fn entry -> entry.base_url == state.base_url end)
+      |> Enum.each(&reap_session_writer(&1, state.base_url))
     end
 
     if is_pid(state.server_pid), do: GenServer.stop(state.server_pid)
+    :ok
+  end
+
+  defp reap_session_writer(%{writer_pid: pid, session_id: session_id}, base_url) do
+    _ = ApiClient.delete_session(base_url, session_id)
+
+    if is_pid(pid) and Process.alive?(pid) do
+      _ = DynamicSupervisor.terminate_child(SessionSupervisor, pid)
+    end
+
     :ok
   end
 
@@ -865,40 +866,38 @@ defmodule Aiur.Opencode.Slot do
   end
 
   defp do_set_visible_call(identifier, from, state) do
-    cond do
-      not identifier_known?(state, identifier) ->
-        Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
+    if identifier_known?(state, identifier) do
+      # `/tui/select-session` was removed: opencode 1.15.6 returns 200
+      # on the call but then exits the attach process 1.5-25 s later,
+      # killing whichever pane was rendering it. Every swap goes
+      # through kill+respawn instead. The user-facing "instant open"
+      # path never hits this — `Enter` opens a new pane via
+      # `AttachPool.consume`, which finds a slot already bound to the
+      # target identifier and returns the existing pane via the fast
+      # path in the `set_visible` handle_call clause above. Only
+      # cross-identifier rebinding on the same slot reaches here.
+      case do_select(identifier, state) do
+        {:ok, _session_id, new_state} ->
+          broadcast_session_changed(new_state.slot_index, identifier)
+          broadcast_visible_changed(new_state.slot_index, identifier, new_state.pane_id)
+          # Also broadcast :slot_attach_added so AttachPool's
+          # attached_slots[identifier] includes this slot.
+          broadcast_attach_added(new_state.slot_index, identifier)
+          {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
 
-        Aiur.Perf.event(:slot_identifier_miss,
-          slot: state.slot_index,
-          identifier: identifier
-        )
+        {:error, _} = err ->
+          {:reply, err, state}
+      end
+    else
+      Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
 
-        pending = {from, identifier}
-        {:noreply, schedule_serve_rebuild(state, pending)}
+      Aiur.Perf.event(:slot_identifier_miss,
+        slot: state.slot_index,
+        identifier: identifier
+      )
 
-      true ->
-        # `/tui/select-session` was removed: opencode 1.15.6 returns 200
-        # on the call but then exits the attach process 1.5-25 s later,
-        # killing whichever pane was rendering it. Every swap goes
-        # through kill+respawn instead. The user-facing "instant open"
-        # path never hits this — `Enter` opens a new pane via
-        # `AttachPool.consume`, which finds a slot already bound to the
-        # target identifier and returns the existing pane via the fast
-        # path in the `set_visible` handle_call clause above. Only
-        # cross-identifier rebinding on the same slot reaches here.
-        case do_select(identifier, state) do
-          {:ok, _session_id, new_state} ->
-            broadcast_session_changed(new_state.slot_index, identifier)
-            broadcast_visible_changed(new_state.slot_index, identifier, new_state.pane_id)
-            # Also broadcast :slot_attach_added so AttachPool's
-            # attached_slots[identifier] includes this slot.
-            broadcast_attach_added(new_state.slot_index, identifier)
-            {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
-
-          {:error, _} = err ->
-            {:reply, err, state}
-        end
+      pending = {from, identifier}
+      {:noreply, schedule_serve_rebuild(state, pending)}
     end
   end
 
@@ -1148,28 +1147,30 @@ defmodule Aiur.Opencode.Slot do
     if MapSet.size(ms) == 0 do
       state
     else
-      Enum.reduce(ms, %{state | pending_attaches: MapSet.new()}, fn id, acc ->
-        case do_attach(id, acc) do
-          {:ok, _session_id, new_acc} ->
-            broadcast_attach_added(new_acc.slot_index, id)
+      Enum.reduce(ms, %{state | pending_attaches: MapSet.new()}, &retry_pending_attach/2)
+    end
+  end
 
-            Aiur.Perf.event(:slot_attach_retry_succeeded,
-              slot: new_acc.slot_index,
-              identifier: id
-            )
+  defp retry_pending_attach(id, acc) do
+    case do_attach(id, acc) do
+      {:ok, _session_id, new_acc} ->
+        broadcast_attach_added(new_acc.slot_index, id)
 
-            new_acc
+        Aiur.Perf.event(:slot_attach_retry_succeeded,
+          slot: new_acc.slot_index,
+          identifier: id
+        )
 
-          {:error, reason} ->
-            Aiur.Perf.event(:slot_attach_retry_failed,
-              slot: acc.slot_index,
-              identifier: id,
-              reason: reason
-            )
+        new_acc
 
-            acc
-        end
-      end)
+      {:error, reason} ->
+        Aiur.Perf.event(:slot_attach_retry_failed,
+          slot: acc.slot_index,
+          identifier: id,
+          reason: reason
+        )
+
+        acc
     end
   end
 

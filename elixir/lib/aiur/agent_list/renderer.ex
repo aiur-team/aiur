@@ -14,6 +14,7 @@ defmodule Aiur.AgentList.Renderer do
   """
 
   alias Aiur.AgentEvents
+  alias Aiur.Opencode.WarmthReport
 
   # Fixed visual width for the state-emoji column. The glyph occupies
   # two terminal columns; we render `<emoji><space>` so the cell is
@@ -456,28 +457,23 @@ defmodule Aiur.AgentList.Renderer do
     attach_state = Map.get(state, :attach_state, %{})
     opened_panes = Map.get(state, :opened_panes, MapSet.new())
 
-    summaries
-    |> Enum.reduce(%{}, fn summary, acc ->
+    Enum.reduce(summaries, %{}, fn summary, acc ->
       id = to_string(Map.get(summary, :identifier) || "")
-
-      cond do
-        MapSet.member?(opened_panes, id) ->
-          Map.put(acc, id, "🟢")
-
-        true ->
-          case Map.get(attach_state, id) do
-            %{visible_in: slot} when not is_nil(slot) ->
-              Map.put(acc, id, "⚪")
-
-            %{attach_count: n} when n >= 1 ->
-              Map.put(acc, id, "🔘")
-
-            _ ->
-              Map.put(acc, id, "⏳")
-          end
-      end
+      Map.put(acc, id, marker_for_identifier(id, opened_panes, attach_state))
     end)
   end
+
+  defp marker_for_identifier(id, opened_panes, attach_state) do
+    if MapSet.member?(opened_panes, id) do
+      "🟢"
+    else
+      marker_from_attach(Map.get(attach_state, id))
+    end
+  end
+
+  defp marker_from_attach(%{visible_in: slot}) when not is_nil(slot), do: "⚪"
+  defp marker_from_attach(%{attach_count: n}) when n >= 1, do: "🔘"
+  defp marker_from_attach(_), do: "⏳"
 
   # `summary_emoji` defers to the precomputed marker for running
   # working agents, and to AgentEvents for paused/error/done states.
@@ -502,23 +498,33 @@ defmodule Aiur.AgentList.Renderer do
   # across warm-up (zero glyphs is valid).
   defp warm_status_row(state, inner_width) do
     if warm_status_enabled?(state) do
-      started = Map.get(state, :started_slots, MapSet.new())
-      finished = Map.get(state, :fully_warmed_slots, MapSet.new())
-      in_progress = MapSet.difference(started, finished)
-
-      {in_progress_glyph, finished_glyph} = warm_status_glyphs(state)
-
-      glyphs =
-        Enum.map_join(Enum.sort(MapSet.to_list(started)), " ", fn slot ->
-          if MapSet.member?(finished, slot), do: finished_glyph, else: in_progress_glyph
-        end)
-
-      _ = in_progress
-      body = "  " <> glyphs
-      [pad_with_ansi(@ansi_dim, body, inner_width), eol()]
+      build_warm_status_row(state, inner_width)
     else
       []
     end
+  end
+
+  defp build_warm_status_row(state, inner_width) do
+    started = Map.get(state, :started_slots, MapSet.new())
+    finished = Map.get(state, :fully_warmed_slots, MapSet.new())
+    {in_progress_glyph, finished_glyph} = warm_status_glyphs(state)
+
+    glyphs = warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph)
+    body = "  " <> glyphs
+    [pad_with_ansi(@ansi_dim, body, inner_width), eol()]
+  end
+
+  defp warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph) do
+    started
+    |> MapSet.to_list()
+    |> Enum.sort()
+    |> Enum.map_join(" ", fn slot ->
+      warm_status_slot_glyph(slot, finished, in_progress_glyph, finished_glyph)
+    end)
+  end
+
+  defp warm_status_slot_glyph(slot, finished, in_progress_glyph, finished_glyph) do
+    if MapSet.member?(finished, slot), do: finished_glyph, else: in_progress_glyph
   end
 
   defp warm_status_glyphs(state) do
@@ -797,7 +803,7 @@ defmodule Aiur.AgentList.Renderer do
     rows =
       state
       |> Map.get(:warmth_events, [])
-      |> Aiur.Opencode.WarmthReport.from_events()
+      |> WarmthReport.from_events()
 
     summary = format_warmth_summary(rows)
     label = "  warmth (loose→strict): " <> summary

@@ -55,7 +55,7 @@ defmodule Aiur.Events.SubscriptionStore do
   require Logger
 
   alias Aiur.Config.Paths
-  alias Aiur.Events.{Exchange, IdGenerator}
+  alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
   alias Aiur.JsonStore
 
   @registry Aiur.Events.SubscriptionStoreRegistry
@@ -278,23 +278,21 @@ defmodule Aiur.Events.SubscriptionStore do
 
     cursor = state.last_seen_event_id || 0
 
-    cond do
-      is_integer(event_id) and event_id <= cursor ->
-        # Redelivery after restart — already consumed.
-        {:noreply, state}
+    if is_integer(event_id) and event_id <= cursor do
+      # Redelivery after restart — already consumed.
+      {:noreply, state}
+    else
+      enqueue_event(state.identifier, event)
+      Aiur.IssueLog.record_event(state.identifier, :consumed, event)
+      topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
 
-      true ->
-        enqueue_event(state.identifier, event)
-        Aiur.IssueLog.record_event(state.identifier, :consumed, event)
-        topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+      DebugLog.broadcast(:receive, topic,
+        id: event_id,
+        identifier: state.identifier
+      )
 
-        Aiur.Events.DebugLog.broadcast(:receive, topic,
-          id: event_id,
-          identifier: state.identifier
-        )
-
-        new_state = advance_cursor_inline(state, event_id)
-        {:noreply, new_state}
+      new_state = advance_cursor_inline(state, event_id)
+      {:noreply, new_state}
     end
   end
 

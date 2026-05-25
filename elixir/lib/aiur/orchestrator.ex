@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
+  alias Aiur.Events.{GithubFirehose, Publisher}
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -121,8 +122,8 @@ defmodule Aiur.Orchestrator do
   # references a ticket Aiur is currently tracking. We update the same
   # closure every tick so it always sees the latest running/queued sets.
   defp install_event_tracked_fn do
-    if Process.whereis(Aiur.Events.Publisher) do
-      Aiur.Events.Publisher.set_tracked_fn(&issue_tracked?/1)
+    if Process.whereis(Publisher) do
+      Publisher.set_tracked_fn(&issue_tracked?/1)
     end
 
     :ok
@@ -379,7 +380,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp poll_github_firehose(%State{} = state) do
-    case Aiur.Events.GithubFirehose.poll(etag: state.events_etag) do
+    case GithubFirehose.poll(etag: state.events_etag) do
       {:ok, %{etag: etag, count: count}} ->
         if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
         %{state | events_etag: etag}
