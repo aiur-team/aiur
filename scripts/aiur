@@ -125,7 +125,15 @@ if [ "$test_mode" -eq 1 ]; then
     exit 1
   fi
 
-  echo "aiur: --test reset complete; continuing to normal launch…" >&2
+  # GitHub's label-search index is eventually consistent: a label
+  # added at t=0 may not appear in `gh issue list --label agent:todo`
+  # for ~3-5 seconds. Without this settle delay, the orchestrator's
+  # first poll (~5s after boot) sometimes misses the most-recently-
+  # labeled ticket — symptom: one of the three sandbox tickets is
+  # absent from the agent list. The next 5s poll picks it up, but
+  # the operator sees a "broken" list for the first 10s.
+  echo "aiur: --test reset complete; waiting 6s for GitHub label index to settle…" >&2
+  sleep 6
 fi
 
 if [ "$expect_port_value" -eq 1 ]; then
