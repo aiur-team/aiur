@@ -15,7 +15,8 @@ defmodule Aiur.IssueLog do
   use GenServer
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, Tracker}
+  alias Aiur.{AgentEvents, AgentPubSub}
+  alias Aiur.Config.Paths
 
   @supervisor Aiur.IssueLog.Supervisor
 
@@ -260,39 +261,7 @@ defmodule Aiur.IssueLog do
     end
   end
 
-  defp log_root_dir do
-    case Application.get_env(:aiur, :log_file) do
-      path when is_binary(path) -> Path.dirname(path)
-      _ -> Path.join(File.cwd!(), "log")
-    end
-  end
-
-  defp repo_name do
-    case safe_project_identity() do
-      identity when is_binary(identity) and identity != "" ->
-        identity
-        |> String.split("/")
-        |> List.last()
-        |> sanitize()
-        |> default_if_empty()
-
-      _ ->
-        "aiur"
-    end
-  end
-
-  defp safe_project_identity do
-    Tracker.project_identity()
-  rescue
-    _ -> nil
-  catch
-    _, _ -> nil
-  end
-
-  defp sanitize(name) when is_binary(name) do
-    String.replace(name, ~r/[^A-Za-z0-9._-]/, "_")
-  end
-
-  defp default_if_empty(""), do: "aiur"
-  defp default_if_empty(value), do: value
+  defp log_root_dir, do: Paths.log_root_dir()
+  defp repo_name, do: Paths.repo_name()
+  defp sanitize(name), do: Paths.sanitize(name)
 end

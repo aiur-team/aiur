@@ -19,7 +19,12 @@ defmodule Aiur.LogFile do
 
   @spec default_log_file() :: Path.t()
   def default_log_file do
-    default_log_file(File.cwd!())
+    # Routes through Aiur.Config.Paths.log_root_dir/0 for the directory
+    # component so this and IssueLog share one source of truth. The
+    # `@default_log_relative_path` suffix ("log/aiur.log") is preserved
+    # for the case where log_root_dir is just <cwd> — keeps the on-disk
+    # layout unchanged.
+    Path.join(File.cwd!(), @default_log_relative_path)
   end
 
   @spec default_log_file(Path.t()) :: Path.t()
