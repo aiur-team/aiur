@@ -270,6 +270,7 @@ defmodule Aiur.Events.SubscriptionStore do
   @impl true
   def handle_info({:event, event}, state) do
     enqueue_event(state.identifier, event)
+    Aiur.IssueLog.record_event(state.identifier, :consumed, event)
     {:noreply, state}
   end
 

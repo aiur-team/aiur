@@ -189,7 +189,34 @@ defmodule Aiur.IssueLog do
     {:noreply, push_history(state, {:alert, event})}
   end
 
+  def handle_info({:aiur_event, kind, event}, state)
+      when kind in [:emit, :emit_alert, :consumed, :self] do
+    write_line(state.file, format_event_marker(kind, event))
+    {:noreply, state}
+  end
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  @doc """
+  Writes an `[event:<kind>]` marker row to the per-issue log file.
+  Called from `Aiur.Events.Publisher.publish/3` (for `:emit`),
+  `Aiur.Events.SubscriptionStore` post-enqueue (`:consumed`), and the
+  agent's own emit path (`:self`) so the operator can `tail -F` the log
+  and see every event for this issue in one place.
+
+  Async cast — never blocks the publisher.
+  """
+  @spec record_event(String.t(), atom(), map()) :: :ok
+  def record_event(identifier, kind, event)
+      when is_binary(identifier) and kind in [:emit, :emit_alert, :consumed, :self] and
+             is_map(event) do
+    case Registry.lookup(Aiur.IssueLog.Registry, identifier) do
+      [{pid, _}] -> send(pid, {:aiur_event, kind, event})
+      [] -> :ok
+    end
+
+    :ok
+  end
 
   defp push_history(state, item) do
     queue = :queue.in(item, state.history)
@@ -229,6 +256,16 @@ defmodule Aiur.IssueLog do
   defp format_alert(name, message, event) do
     ts = timestamp(event)
     "#{ts} [alert] #{name}: #{message}\n"
+  end
+
+  defp format_event_marker(kind, event) do
+    ts = timestamp(event)
+    id = Map.get(event, :id) || Map.get(event, "id") || ""
+    topic = Map.get(event, :topic) || Map.get(event, "topic") || ""
+    msg = Map.get(event, "message") || Map.get(event, :message) || ""
+
+    "#{ts} [event:#{kind}] id=#{id} #{topic}" <>
+      if(msg != "", do: ": " <> summarize(to_string(msg)), else: "") <> "\n"
   end
 
   defp format_log_line(role, body, identifier) do

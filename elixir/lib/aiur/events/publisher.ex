@@ -87,9 +87,41 @@ defmodule Aiur.Events.Publisher do
         id = IdGenerator.next_id()
         event = Map.merge(payload, %{id: id, topic: topic})
         subscribers = Exchange.publish(topic, event)
+        record_emit_marker(topic, event, opts)
         {:ok, id, subscribers}
     end
   end
+
+  defp record_emit_marker(topic, event, opts) do
+    # IssueLog markers — `:emit` for any publish, `:self` when the topic
+    # is the agent's own (ticket.<id>.agent.*). The IssueLog identifier
+    # is the ticket id (string) extracted from the topic for the common
+    # `ticket.<id>.*` shape; system.* topics are repo-wide and don't
+    # belong to a single per-issue log.
+    case extract_ticket_id(topic) do
+      nil ->
+        :ok
+
+      ticket_id ->
+        kind =
+          cond do
+            opts[:self_emit] == true -> :self
+            String.starts_with?(topic, "ticket.#{ticket_id}.agent.") -> :self
+            true -> :emit
+          end
+
+        Aiur.IssueLog.record_event(ticket_id, kind, event)
+    end
+  end
+
+  defp extract_ticket_id("ticket." <> rest) do
+    case String.split(rest, ".", parts: 2) do
+      [id, _] -> id
+      _ -> nil
+    end
+  end
+
+  defp extract_ticket_id(_), do: nil
 
   @doc """
   Marks `(repo, ref, sha)` as seen. Called by the source module that
