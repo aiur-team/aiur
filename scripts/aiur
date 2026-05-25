@@ -119,6 +119,17 @@ if [ "$test_mode" -eq 1 ]; then
     exit 1
   fi
 
+  # Kill any backgrounded aiur (and previous tmux session) before
+  # resetting + relaunching. Without this, --test reruns leave the
+  # prior BEAM running and the new launch either attaches to the
+  # stale session or fights for the same port. The user wants
+  # --test to mean "fresh from scratch", so a stop pass is implicit.
+  # Recursive call into the same script's `stop all` subcommand —
+  # stop_all() lives later in this file, so direct call would hit
+  # bash's forward-reference limitation.
+  echo "aiur: --test stopping any running aiur first…" >&2
+  "$0" stop all >/dev/null 2>&1 || true
+
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
