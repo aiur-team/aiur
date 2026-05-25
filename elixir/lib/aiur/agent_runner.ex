@@ -247,16 +247,21 @@ defmodule Aiur.AgentRunner do
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
-    open_aiur_turn_streams(issue)
+    aiur_turn_id = open_aiur_turn_streams(issue)
 
-    case CodingAgent.run_turn(
-           app_session,
-           prompt,
-           issue,
-           on_message: message_handler,
-           on_safe_checkpoint: safe_checkpoint_handler,
-           tool_executor: tool_executor(issue, workspace, worker_host)
-         ) do
+    result =
+      CodingAgent.run_turn(
+        app_session,
+        prompt,
+        issue,
+        on_message: message_handler,
+        on_safe_checkpoint: safe_checkpoint_handler,
+        tool_executor: tool_executor(issue, workspace, worker_host)
+      )
+
+    close_aiur_turn_streams(issue, aiur_turn_id, turn_done_reason(result))
+
+    case result do
       {:ok, turn_session} ->
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
@@ -285,6 +290,11 @@ defmodule Aiur.AgentRunner do
         {:error, reason}
     end
   end
+
+  defp turn_done_reason({:ok, _session}), do: :done
+  defp turn_done_reason({:paused, _payload}), do: :input_required
+  defp turn_done_reason({:error, reason}), do: {:failed, reason}
+  defp turn_done_reason(_), do: :done
 
   defp finalize_turn_completion(turn_context, app_session, turn_session) do
     %{
@@ -484,16 +494,21 @@ defmodule Aiur.AgentRunner do
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
-    open_aiur_turn_streams(issue)
+    aiur_turn_id = open_aiur_turn_streams(issue)
 
-    case CodingAgent.run_turn(
-           app_session,
-           text,
-           issue,
-           on_message: message_handler,
-           on_safe_checkpoint: safe_checkpoint_handler,
-           tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
-         ) do
+    result =
+      CodingAgent.run_turn(
+        app_session,
+        text,
+        issue,
+        on_message: message_handler,
+        on_safe_checkpoint: safe_checkpoint_handler,
+        tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
+      )
+
+    close_aiur_turn_streams(issue, aiur_turn_id, turn_done_reason(result))
+
+    case result do
       {:ok, _turn_session} ->
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
@@ -618,10 +633,23 @@ defmodule Aiur.AgentRunner do
       end
     end
 
+    aiur_turn_id
+  end
+
+  defp open_aiur_turn_streams(_issue), do: nil
+
+  # Match the close to the marker post — the bridge SSE for this
+  # aiur_turn_id closes on the matching `:aiur_turn_done` broadcast.
+  # `nil` from open_aiur_turn_streams/1 means no marker fired (no
+  # SessionWriter attached or issue had no identifier); no close
+  # broadcast needed.
+  defp close_aiur_turn_streams(%Issue{identifier: identifier}, aiur_turn_id, reason)
+       when is_binary(identifier) and is_binary(aiur_turn_id) do
+    AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
     :ok
   end
 
-  defp open_aiur_turn_streams(_issue), do: :ok
+  defp close_aiur_turn_streams(_issue, _aiur_turn_id, _reason), do: :ok
 
   defp safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->

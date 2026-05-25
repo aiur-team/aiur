@@ -98,62 +98,32 @@ defmodule Aiur.Opencode.ChatCompletions do
       |> Plug.Conn.send_chunked(200)
 
     Process.send_after(self(), {:turn_watchdog, aiur_turn_id}, @watchdog_ms)
-    codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, nil)
+    codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
   end
 
-  # Receive loop for a single codex turn. We don't know codex's `turnId`
-  # at subscription time — we lock onto it from the first transcript
-  # event we see and then only stream events for that turn. Any matching
-  # `:turn_event` closes the stream with the appropriate finish reason.
-  defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id) do
+  # Receive loop for a single aiur turn. Lifecycle is bounded by
+  # `Aiur.AgentRunner`'s `run_turn` call — when that call returns,
+  # agent_runner broadcasts `{:aiur_turn_done, identifier, aiur_turn_id, reason}`
+  # and the bridge closes the SSE with the matching finish reason.
+  # We intentionally do NOT filter transcript events by codex's
+  # `params.turnId`: operator messages injected mid-codex-turn share
+  # the active turnId (verified empirically), and any internal codex
+  # sub-turn boundaries are an implementation detail we render as
+  # one growing assistant message (Approach C.2 per the brainstorm).
+  defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id) do
     receive do
-      {:transcript_event, %{role: role, body: body} = event}
+      {:transcript_event, %{role: role, body: body}}
       when role in [:assistant, :command, :system, :alert, :reasoning, :tool] ->
-        event_turn = Map.get(event, :turn_id)
-
-        case maybe_lock_turn(locked_turn_id, event_turn) do
-          {:ok, new_locked} ->
-            conn = chunk(conn, completion_id, format_delta(role, body), nil)
-            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, new_locked)
-
-          :skip ->
-            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id)
-        end
+        conn = chunk(conn, completion_id, format_delta(role, body), nil)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
 
       {:transcript_event, %{role: :user}} ->
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
 
-      {:turn_event, ^identifier, :turn_completed, %{turn_id: tid}}
-      when locked_turn_id == nil or locked_turn_id == tid ->
-        chunk(conn, completion_id, nil, "stop")
+      {:aiur_turn_done, ^identifier, ^aiur_turn_id, reason} ->
+        Logger.info("opencode_bridge turn_stream_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
 
-      {:turn_event, ^identifier, :turn_failed, %{turn_id: tid} = payload}
-      when locked_turn_id == nil or locked_turn_id == tid ->
-        conn =
-          chunk(
-            conn,
-            completion_id,
-            "**system:** " <> inspect(Map.get(payload, :reason, :failed)),
-            nil
-          )
-
-        chunk(conn, completion_id, nil, "stop")
-
-      {:turn_event, ^identifier, :turn_cancelled, %{turn_id: tid}}
-      when locked_turn_id == nil or locked_turn_id == tid ->
-        chunk(conn, completion_id, nil, "stop")
-
-      {:turn_event, ^identifier, :turn_input_required, %{turn_id: tid}}
-      when locked_turn_id == nil or locked_turn_id == tid ->
-        conn =
-          chunk(
-            conn,
-            completion_id,
-            "**system:** Agent is awaiting approval. Resolve in the dashboard to continue.",
-            nil
-          )
-
-        chunk(conn, completion_id, nil, "tool_calls")
+        finalize_stream(conn, completion_id, reason)
 
       {:turn_watchdog, ^aiur_turn_id} ->
         Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
@@ -162,21 +132,21 @@ defmodule Aiur.Opencode.ChatCompletions do
           chunk(
             conn,
             completion_id,
-            "**system:** No turn activity in 10 minutes; closing stream.",
+            "\n**system:** No turn activity in 10 minutes; closing stream.",
             nil
           )
 
         chunk(conn, completion_id, nil, "timeout")
 
       _other ->
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
     after
       @watchdog_ms ->
         conn =
           chunk(
             conn,
             completion_id,
-            "**system:** No turn activity in 10 minutes; closing stream.",
+            "\n**system:** No turn activity in 10 minutes; closing stream.",
             nil
           )
 
@@ -184,14 +154,25 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
-  # Lock onto codex's turnId from the first event that carries one. Once
-  # locked, ignore transcript events from other turns (which would arrive
-  # if a second turn started before this one closed).
-  defp maybe_lock_turn(nil, nil), do: {:ok, nil}
-  defp maybe_lock_turn(nil, codex_turn) when is_binary(codex_turn), do: {:ok, codex_turn}
-  defp maybe_lock_turn(locked, codex_turn) when locked == codex_turn, do: {:ok, locked}
-  defp maybe_lock_turn(locked, nil) when is_binary(locked), do: {:ok, locked}
-  defp maybe_lock_turn(_locked, _codex_turn), do: :skip
+  defp finalize_stream(conn, completion_id, {:failed, reason}) do
+    conn = chunk(conn, completion_id, "\n**system:** " <> inspect(reason), nil)
+    chunk(conn, completion_id, nil, "stop")
+  end
+
+  defp finalize_stream(conn, completion_id, :input_required) do
+    conn =
+      chunk(
+        conn,
+        completion_id,
+        "\n**system:** Agent is awaiting approval. Resolve in the dashboard to continue.",
+        nil
+      )
+
+    chunk(conn, completion_id, nil, "tool_calls")
+  end
+
+  defp finalize_stream(conn, completion_id, _reason),
+    do: chunk(conn, completion_id, nil, "stop")
 
   # Format a transcript event's body as a chat-completion delta. For
   # `:command` and `:tool` roles, we include the body label (e.g. the

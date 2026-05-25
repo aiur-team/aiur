@@ -85,6 +85,24 @@ defmodule Aiur.AgentPubSub do
     do_broadcast(AgentEvents.agent_topic(identifier), {:turn_event, identifier, event_tag, payload})
   end
 
+  @doc """
+  Aiur-side turn lifecycle signal. `Aiur.AgentRunner` broadcasts this
+  when a single `CodingAgent.run_turn/4` call returns, regardless of
+  how many internal codex turns it contained. The opencode bridge
+  uses it to close the SSE stream tied to that aiur turn so opencode
+  renders ONE assistant message per `run_turn` (Approach C.2).
+  `reason` is `:done`, `{:failed, term}`, `:input_required`, or
+  `:cancelled`.
+  """
+  @spec broadcast_aiur_turn_done(AgentEvents.agent_identifier(), String.t(), term()) :: :ok
+  def broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
+      when is_binary(identifier) and is_binary(aiur_turn_id) do
+    do_broadcast(
+      AgentEvents.agent_topic(identifier),
+      {:aiur_turn_done, identifier, aiur_turn_id, reason}
+    )
+  end
+
   defp do_broadcast(topic, message) do
     case Process.whereis(@pubsub) do
       pid when is_pid(pid) ->
