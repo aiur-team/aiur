@@ -289,7 +289,14 @@ defmodule Aiur.TestReset do
   end
 
   defp workspace_root_with_fallback do
-    Aiur.Config.workspace_root()
+    # Config.workspace_root/0 returns the raw YAML value — when the
+    # operator wrote `~/code/aiur-workspaces`, that's what we get.
+    # Path.expand/1 resolves `~` against $HOME so the rm path actually
+    # points at the real directory. Without this, the rm targets the
+    # literal `~/code/aiur-workspaces` (a directory with a tilde in
+    # its name, which obviously doesn't exist) and the reset silently
+    # leaves the agent's stale workspace in place.
+    Aiur.Config.workspace_root() |> Path.expand()
   rescue
     _ -> Path.join(System.tmp_dir!(), "aiur_workspaces")
   catch
