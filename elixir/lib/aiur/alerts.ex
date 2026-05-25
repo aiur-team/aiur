@@ -7,16 +7,21 @@ defmodule Aiur.Alerts do
   require Logger
 
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue}
+  alias Aiur.Events.Topic
   alias AiurWeb.ObservabilityPubSub
 
   @alerts_path Path.expand("../../../alerts.yaml", __DIR__)
-  @system_scopes ["task.", "agent.", "chat."]
 
   @type definition :: %{
           message: String.t(),
           sound: [String.t()]
         }
 
+  @doc """
+  Returns the raw YAML-derived alert definitions as a map keyed by
+  pattern string. Insertion order is not preserved; for matching, use
+  `definition_for_topic/1` which sorts by specificity.
+  """
   @spec definitions() :: %{optional(String.t()) => definition()}
   def definitions do
     alerts_path()
@@ -25,16 +30,26 @@ defmodule Aiur.Alerts do
     |> normalize_definitions()
   end
 
-  @spec definition(String.t()) :: definition() | nil
-  def definition(name) when is_binary(name), do: Map.get(definitions(), name)
-  def definition(_name), do: nil
-
-  @spec system_owned_name?(String.t()) :: boolean()
-  def system_owned_name?(name) when is_binary(name) do
-    Enum.any?(@system_scopes, &String.starts_with?(name, &1))
+  @doc """
+  Returns the alert definition whose YAML pattern key matches `topic`
+  via `Aiur.Events.Topic.matches?/2`. Walks patterns in specificity
+  order (more literal segments → first); ties broken lexicographically.
+  Returns `nil` if no pattern matches.
+  """
+  @spec definition_for_topic(String.t()) :: definition() | nil
+  def definition_for_topic(topic) when is_binary(topic) do
+    Enum.find_value(sorted_patterns(), fn {pattern, definition} ->
+      if Topic.matches?(pattern, topic), do: definition
+    end)
   end
 
-  def system_owned_name?(_name), do: false
+  def definition_for_topic(_topic), do: nil
+
+  defp sorted_patterns do
+    definitions()
+    |> Enum.to_list()
+    |> Enum.sort_by(fn {pattern, _def} -> {-Topic.specificity_score(pattern), pattern} end)
+  end
 
   @spec emit_system(String.t(), keyword()) :: :ok | {:error, term()}
   def emit_system(name, opts \\ []) when is_binary(name) do
@@ -49,17 +64,13 @@ defmodule Aiur.Alerts do
   @spec emit_custom(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def emit_custom(name, message, opts)
       when is_binary(name) and is_binary(message) do
-    if system_owned_name?(name) do
-      {:error, :system_scope_reserved}
-    else
-      do_emit(name, message, opts)
-    end
+    do_emit(name, message, opts)
   end
 
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
 
   defp do_emit(name, override_message, opts) do
-    config = definition(name)
+    config = definition_for_topic(name)
     message = override_message || config_message(config)
 
     with {:ok, message} <- present_string(message, :missing_message) do

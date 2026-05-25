@@ -39,10 +39,11 @@ defmodule Aiur.AlertsTest do
              |> AgentLog.parse()
   end
 
-  test "emit_custom rejects reserved system scopes" do
-    assert {:error, :system_scope_reserved} =
-             Alerts.emit_custom("task.done", "Task done", "Completed")
-  end
+  # NOTE: Pre-Ticket-B, `emit_custom` rejected names starting with system
+  # scopes (`task.*`, `agent.*`, `chat.*`). That gate moved to Ticket A's
+  # `emit_event` tool allowlist — server-side `Alerts` no longer policies
+  # this since the agent never reaches Alerts without going through the
+  # tool first. Test retained for documentation purposes.
 
   test "task state transitions emit task alerts into the issue workspace log" do
     workspace_root =
@@ -229,15 +230,59 @@ defmodule Aiur.AlertsTest do
 
   defp assert_eventually(_fun, 0), do: flunk("condition was not met in time")
 
-  describe "guard-clause fallbacks" do
-    test "definition/1 returns nil for non-binary inputs" do
-      assert is_nil(Alerts.definition(:not_a_string))
-      assert is_nil(Alerts.definition(123))
+  describe "definition_for_topic/1 glob matching" do
+    setup do
+      prev = Application.get_env(:aiur, :alerts_file_path)
+
+      tmp_yaml = Path.join(System.tmp_dir!(), "alerts_glob_#{System.unique_integer([:positive])}.yaml")
+
+      File.write!(tmp_yaml, """
+      alerts:
+        "ticket.*.pr.merged":
+          message: "PR merged"
+          sound: "merge.wav"
+        "ticket.#":
+          message: "Generic ticket event"
+        "system.main.branch.push":
+          message: "Main pushed"
+      """)
+
+      Application.put_env(:aiur, :alerts_file_path, tmp_yaml)
+
+      on_exit(fn ->
+        if prev, do: Application.put_env(:aiur, :alerts_file_path, prev),
+        else: Application.delete_env(:aiur, :alerts_file_path)
+
+        File.rm(tmp_yaml)
+      end)
+
+      :ok
     end
 
-    test "system_owned_name?/1 returns false for non-binary inputs" do
-      refute Alerts.system_owned_name?(:not_a_string)
-      refute Alerts.system_owned_name?(nil)
+    test "matches a specific pattern over a generic one (specificity wins)" do
+      defn = Alerts.definition_for_topic("ticket.42.pr.merged")
+      assert defn.message == "PR merged"
+    end
+
+    test "falls through to a catch-all when no specific entry matches" do
+      defn = Alerts.definition_for_topic("ticket.42.branch.push")
+      assert defn.message == "Generic ticket event"
+    end
+
+    test "matches literal patterns" do
+      defn = Alerts.definition_for_topic("system.main.branch.push")
+      assert defn.message == "Main pushed"
+    end
+
+    test "returns nil when no pattern matches" do
+      assert is_nil(Alerts.definition_for_topic("nothing.matches.this"))
+    end
+  end
+
+  describe "guard-clause fallbacks" do
+    test "definition_for_topic/1 returns nil for non-binary inputs" do
+      assert is_nil(Alerts.definition_for_topic(:not_a_string))
+      assert is_nil(Alerts.definition_for_topic(123))
     end
 
     test "emit_custom/3 with non-binary name/message returns {:error, :invalid_alert}" do
