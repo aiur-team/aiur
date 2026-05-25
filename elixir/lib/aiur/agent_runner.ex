@@ -22,7 +22,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.Opencode.{ApiClient, Protocol, SessionWriterRegistry}
+  alias Aiur.Opencode.{ActiveTurns, ApiClient, Protocol, SessionWriterRegistry}
 
   @type worker_host :: String.t() | nil
 
@@ -617,6 +617,11 @@ defmodule Aiur.AgentRunner do
   # keeps running (manual override preserved).
   defp open_aiur_turn_streams(%Issue{identifier: identifier}) when is_binary(identifier) do
     aiur_turn_id = "t" <> Integer.to_string(System.unique_integer([:positive, :monotonic]), 36)
+    # Register BEFORE posting so the bridge always observes :active when
+    # it handles the resulting chat-completion. Stale markers replayed
+    # by opencode-serve from a previous boot will be absent from the
+    # table and the bridge will close them as phantom.
+    :ok = ActiveTurns.put(identifier, aiur_turn_id)
 
     for %{session_id: session_id, base_url: base_url} <-
           SessionWriterRegistry.attached(identifier) do
@@ -646,6 +651,10 @@ defmodule Aiur.AgentRunner do
   defp close_aiur_turn_streams(%Issue{identifier: identifier}, aiur_turn_id, reason)
        when is_binary(identifier) and is_binary(aiur_turn_id) do
     AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
+    # mark_closed retains the entry for the cleanup window so a slow
+    # bridge subscribe still finalizes with this reason instead of
+    # waiting on the broadcast it missed.
+    ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
     :ok
   end
 

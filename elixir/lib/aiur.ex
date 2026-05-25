@@ -62,6 +62,7 @@ defmodule Aiur.Application do
         Aiur.Orchestrator,
         Aiur.HttpServer,
         Aiur.Opencode.TokenRegistry,
+        Aiur.Opencode.ActiveTurns,
         Aiur.Opencode.PaneSupervisor,
         Aiur.Opencode.SessionSupervisor,
         Aiur.Opencode.BridgeSupervisor

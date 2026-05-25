@@ -4,7 +4,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   require Logger
 
   alias Aiur.{AgentChat, AgentPubSub}
-  alias Aiur.Opencode.{Config, Db, SessionWriterRegistry, Slot, SlotRegistry, TokenRegistry}
+  alias Aiur.Opencode.{ActiveTurns, Config, Db, SessionWriterRegistry, Slot, SlotRegistry, TokenRegistry}
 
   @stream_marker_prefix "__aiur_stream__:"
   @stream_marker_regex ~r/\A__aiur_stream__:(msg_[A-Z0-9]+)\z/
@@ -88,17 +88,33 @@ defmodule Aiur.Opencode.ChatCompletions do
   # (manual-override preserved: agents work without opencode attached).
   defp stream_codex_turn(conn, identifier, aiur_turn_id) do
     completion_id = "chatcmpl-" <> random_id()
+    # Subscribe first so a close broadcast that races our ActiveTurns
+    # lookup still lands in the mailbox; we drain it inside the loop.
     :ok = AgentPubSub.subscribe_agent(identifier)
-
-    Logger.info("opencode_bridge turn_stream_open identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
 
     conn =
       conn
       |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
       |> Plug.Conn.send_chunked(200)
 
-    Process.send_after(self(), {:turn_watchdog, aiur_turn_id}, @watchdog_ms)
-    codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+    case ActiveTurns.lookup(identifier, aiur_turn_id) do
+      :active ->
+        Logger.info("opencode_bridge turn_stream_open identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
+        Process.send_after(self(), {:turn_watchdog, aiur_turn_id}, @watchdog_ms)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+
+      {:closed, reason} ->
+        Logger.info("opencode_bridge turn_stream_late_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
+        finalize_stream(conn, completion_id, reason)
+
+      :not_found ->
+        # No AgentRunner registered this aiur_turn_id this boot — the
+        # marker was replayed by opencode-serve from a prior session
+        # whose run_turn never completed. Close without rendering the
+        # 10-minute watchdog notice.
+        Logger.info("opencode_bridge turn_stream_phantom identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
+        finalize_stream(conn, completion_id, :done)
+    end
   end
 
   # Receive loop for a single aiur turn. Lifecycle is bounded by
