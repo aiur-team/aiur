@@ -30,8 +30,11 @@ See origin: `docs/brainstorms/2026-05-25-aiur-chat-pane-native-parity-requiremen
 - **R2.** Translate `reasoning`, `dynamicToolCall`, `fileChange` codex items (currently dropped). Keep `agentMessage` and `commandExecution` translation; preserve unchanged `userMessage` rendering.
 - **R3.** Clean tool-part shape — `state.input.command` without `$ ` prefix, populated `state.output` from accumulated outputDelta, descriptive `state.title`, `state.input.workdir` from agent workspace.
 - **R4.** Cross-ticket received events render inline in chat as standalone synthetic messages — always, independent of `--debug`.
-- **R5.** Outgoing aiur tool calls (`emit_event`, `emit_alert`, `aiur_subscribe`, `aiur_declare_blocker`) render as tool parts inside the current turn's message — **only when `--debug` mode is active**.
-- **R6.** Resolve the duplicate "Starting work on issue #N…" rendering with a SessionWriter dedup guard.
+- **R5.** Outgoing aiur tool calls render in chat:
+  - `emit_alert` — **always visible** (operator-facing audible alerts; chat answers "which agent fired that beep")
+  - `emit_event`, `aiur_subscribe`, `aiur_unsubscribe`, `aiur_declare_blocker`, `aiur_unblock` — visible **only when `--debug` is active** (background coordination plumbing)
+  - All render as tool parts inside the current turn's message when one is open; standalone synthetic message otherwise.
+- **R6.** Resolve the duplicate "Starting work on issue #N…" rendering with a SessionWriter dedup guard, sized to cover the replay window.
 
 **Origin acceptance examples:** AE1 (R1) — one chrome header per turn; AE2 (R2) — file-edit tools render as distinct parts; AE3 (R3) — clean bash shape with real stdout; AE4 (R4) — incoming event card always visible; AE5 (R5) — outgoing aiur calls visible only under `--debug`; AE6 (R6) — opening message appears exactly once after re-attach.
 
@@ -78,14 +81,28 @@ None — opencode's row shape doc is in-repo (`elixir/docs/notes/opencode-row-sh
 ## Key Technical Decisions
 
 - **Turn-state lifetime — keep on SessionWriter state, not a separate process.** SessionWriter is already per-identifier (`:via` registry); adding a `current_turn` field plus a small `turns_buffer` map (keyed by `turn_id`) avoids spinning up a second GenServer per chat. Trade-off: SessionWriter mailbox processes turn events serially, which is what we want anyway (events for a single turn are inherently sequential). Rationale: minimum-viable change, no new supervision tree, single owner of part-ordering within a chat.
-- **Turn termination signal — `broadcast_turn_event` already plumbed.** `agent_runner.ex:90` already broadcasts `{:turn_completed, payload}` / `:turn_failed` / `:turn_cancelled` / `:turn_input_required` via `AgentPubSub.broadcast_turn_event`. SessionWriter subscribes to that topic via `AgentPubSub.subscribe_agent`-equivalent and writes a `step-finish` when the turn ends. No new event types required.
-- **Out-of-turn events** (transcript events with `turn_id: nil`) — write a one-off message with its own step-start/step-finish, as today. R1.5 codified.
-- **`fileChange` tool name → `"edit"`.** Native opencode renders `"read" | "write" | "edit"` with built-in TUI styling. `"edit"` is the closest match to codex's `fileChange` semantics (modified file with before/after). Open question 2 resolved.
-- **Event-card visual marker — leading `📥` text part.** R4 cards are a single text part with format `📥 ticket.99.progress.tests-green\n<one-line payload summary>\nid=<event_id>`. Decision: avoid bespoke "received event" tool name in opencode (might fall through to generic rendering). Plain text with a stable marker is readable and trivially testable. Open question 3 resolved.
-- **Mid-turn re-attach replay** — when `replay_history` rebuilds the SQLite for a re-attached chat, *finalize any open turns* with a synthetic `step-finish` (`reason: "stop"`). Open question 4 resolved. Rationale: a re-attached chat showing perpetually "in progress" turns from a previous attach is worse than a finalized record.
-- **R6 dedup strategy — itemId when codex provides it; fallback (turn_id, role, body) hash.** SessionWriter keeps a small `seen_keys` ring (last 200 keys) and drops duplicates. Cheap. Doesn't require knowing the exact race source (replay-vs-live vs codex re-emission) — defends against all of them.
-- **Debug-mode plumbing for SessionWriter** — pass `debug?` through `start_link/1` opts and through `Slot.materialize_slot/6` (the existing call site that spawns SessionWriter). Default to `AIUR_DEBUG` env. Same pattern as `Aiur.AgentList.App`.
-- **Tests for new behavior live alongside existing `session_writer_test.exs` and `protocol_test.exs`.** Use `:meck` if needed for mocking codex events; otherwise direct GenServer calls with synthetic `transcript_event` shapes. Avoid new test scaffolds.
+- **Turn termination signal — `broadcast_turn_event` already on the agent topic.** `agent_runner.ex:90` broadcasts via `AgentPubSub.broadcast_turn_event/3` (`agent_pubsub.ex:80-86`), which fans out on `AgentEvents.agent_topic(identifier)` as **`{:turn_event, identifier, event_tag, %{turn_id, payload}}`** (4-tuple). `event_tag` is one of `:turn_completed | :turn_failed | :turn_cancelled | :turn_input_required`. SessionWriter already subscribes to the agent topic in `handle_continue(:boot, ...)`, so it will receive these messages once a `handle_info({:turn_event, _, tag, payload}, state)` clause is added. No PubSub-layer changes required.
+- **Out-of-turn events** (transcript events with `turn_id: nil`) — write a one-off message with its own step-start/body/step-finish, as today. R1.5 codified. The same code path handles aiur tool calls fired outside any open turn (per R5) and the standalone event cards for R4.
+- **`fileChange` tool name → `"edit"`.** Native opencode renders `"read" | "write" | "edit"` with built-in TUI styling. `"edit"` is the closest match to codex's `fileChange` semantics. Validation step in U2: synthesize one test row with codex's actual `fileChange` payload, capture-pane on a live aiur run, confirm opencode's TUI renders cleanly (or falls back to generic). If the shape doesn't fit, fall back to a neutral tool name like `"fileChange"`.
+- **Event-card visual marker — leading `📥` text part with a fixed format.** R4 cards are a single text part with the format:
+
+  ```
+  📥 <topic> from #<source_ticket>
+  <payload summary>
+  id=<event_id>
+  ```
+
+  Where `<payload summary>` is `Jason.encode!(payload)` truncated to 200 chars (with `…` if truncated). Missing `source_ticket` renders as `from #?`. Missing `payload` renders as `(no payload)`. Decision: avoid a bespoke "received event" tool name in opencode (might fall through to generic rendering). Plain text with a stable marker is readable and trivially testable. Open question 3 resolved.
+- **Event-card chrome distinction — accept that R4 cards share the `▣ Build · issue-N · timing` chrome with turn messages.** The `📥` leading character in the text part is the visual differentiator. The chrome timing reflects only the card write window (sub-second), which is acceptable. If operators find cards hard to distinguish in practice, revisit via a distinct modelID in a follow-up.
+- **Mid-turn re-attach replay** — when `replay_history` rebuilds the SQLite for a re-attached chat, *finalize any open turns* with a synthetic `step-finish` (`reason: "stop"`). Open question 4 resolved. **Replay ordering:** subscribe AFTER replay completes (swap the order in `handle_continue`) to eliminate the live-mailbox-during-replay race. Trade-off: live events that fire during the few-hundred-ms replay window land in PubSub but not in our subscription — they'll arrive in IssueLog regardless (IssueLog subscribes separately) and replay on the *next* attach. Cost is acceptable; benefit is no double step-finish race.
+- **R6 dedup strategy — itemId when codex provides it; fallback (turn_id, role, body, sequence) hash; ring sized to ≥ history pull.** SessionWriter keeps a `seen_keys` ring sized to **600** (above the 500-event replay history cap in `replay_history/1`). Key encoding: prefer `event[:item_id]` (codex's itemId, present on most item types); fall back to `:erlang.phash2({turn_id, role, body, per_turn_sequence})` where `per_turn_sequence` is a monotonic counter scoped to the turn — so a repeated identical command within a turn (`ls` twice) produces distinct keys and isn't dropped. Doesn't require knowing the exact race source (replay-vs-live vs codex re-emission) — defends against all of them.
+- **`outputDelta` accumulator ownership — per-identifier ETS table.** Closure capture can't mutate state across codex callbacks; Process dict belongs to whichever process invokes the on-message callback and is unsafe across concurrent agents. Use a single named ETS table `:aiur_codex_output_buffer`, keyed by `{identifier, item_id}`, holding `iodata` accumulators. Created in `Aiur.Application` start_link, cleared per-key on `item/completed`, and swept on turn termination. 256 KB cap per item with truncation marker per Open Questions.
+- **U6 turn_id threading — read from SessionWriter at write-time, not from the broadcast site.** DynamicTool handlers don't have a turn_id parameter and threading one through every handler is invasive. Instead: when SessionWriter receives an `:aiur_tool` transcript event, it consults its own `turns_buffer` for the *most recently opened, still-open* turn for this identifier and appends the tool part there. If no open turn exists, it writes a standalone message. This puts the "current turn" decision at the only place that has authoritative state.
+- **Turn-buffer leak protection — sweep on a fixed timer in U1, not punted.** SessionWriter installs a 10-minute periodic sweep (`Process.send_after/3`) that finalizes any turn whose first event landed > 10 minutes ago with `step-finish reason: "stop"`. This bounds memory and handles the "codex crashed mid-turn / never sent turn_completed" failure mode at scale, not just under manual verification.
+- **Debug-mode plumbing for SessionWriter — read AIUR_DEBUG env at write-time, not at spawn.** SessionWriter reads `System.get_env("AIUR_DEBUG")` (or `Aiur.Config.debug?/0` if it exists; check during impl) at the moment it processes an `:aiur_tool` event. Avoids the static-flag staleness issue if operators toggle mid-session. Same pattern as how `Aiur.AgentList.App` flips between debug and non-debug rendering at handle_info time.
+- **`AgentEvents.transcript_event/3` role expansion** — the role guard at `agent_events.ex:102` (`when role in [:user, :assistant, :system, :command, :alert]`) plus the `@type role` typespec must add `:reasoning`, `:tool`, and `:aiur_tool`. Additionally `IssueLog.tag_for_role/1` (`elixir/lib/aiur/issue_log.ex:275-278`) carries the same closed set for the disk log format — extend with stable tags (`reasoning`, `tool`, `aiur_tool`). The disk log is operator-readable but not externally consumed; tag stability is a soft constraint.
+- **SubscriptionStore → AgentPubSub coupling for R4** — SubscriptionStore broadcasts `{:received_event, payload}` via `AgentPubSub.broadcast_received_event/2`, which uses the same `Process.whereis(@pubsub)` guard already in `AgentPubSub.do_broadcast/2`. Early-boot deliveries when PubSub isn't yet registered no-op safely. No direct `Phoenix.PubSub.broadcast` calls outside the AgentPubSub module.
+- **Tests for new behavior live alongside existing `session_writer_test.exs` and `protocol_test.exs`.** Use direct GenServer message injection (`send(pid, msg)`) with synthetic `transcript_event` shapes — no `:meck` or codex mocking needed. SessionWriter accepts the protocol directly.
 
 ---
 
@@ -139,8 +156,8 @@ sequenceDiagram
     SW->>DB: INSERT reasoning part (appended to T1's message)
 
     Codex->>AR: turn/completed (turn=T1)
-    AR->>PubSub: broadcast_turn_event(:turn_completed, %{turn_id: T1})
-    PubSub->>SW: {:turn_completed, payload}
+    AR->>PubSub: broadcast_turn_event(id, :turn_completed, %{turn_id: T1, payload: msg})
+    PubSub->>SW: {:turn_event, id, :turn_completed, %{turn_id: T1, ...}}
     SW->>DB: INSERT step-finish part (closes T1's message)
     SW->>SW: drop turn_buffer[T1]
 ```
@@ -179,18 +196,22 @@ sequenceDiagram
 
 **Files:**
 - Modify: `elixir/lib/aiur/opencode/session_writer.ex`
-- Modify: `elixir/lib/aiur/agent_pubsub.ex` (add turn-event subscription path if not already there)
 - Test: `elixir/test/aiur/opencode/session_writer_test.exs`
 
 **Approach:**
-- Add `turns: %{}` to SessionWriter state, keyed by `turn_id`, value = `%{message_id, started_at_ms, part_count}`.
+- Add `turns: %{}` to SessionWriter state, keyed by `turn_id`, value = `%{message_id, started_at_ms, part_count, last_event_at_ms}`.
+- **Swap subscribe/replay order in `handle_continue(:boot, ...)` — replay first, subscribe after.** Eliminates the live-mailbox-during-replay race. Trade-off accepted in Key Technical Decisions.
 - On `{:transcript_event, %{turn_id: tid} = e}` with `tid != nil`:
   - If `turns[tid]` exists, append body part(s) to its `message_id` (no new message, no step-start, no step-finish yet).
-  - If not, INSERT new message + step-start in one transaction, then append body part(s).
-- On `{:turn_completed | :turn_failed | :turn_cancelled | :turn_input_required, %{turn_id: tid}}`: append step-finish with the appropriate reason and drop `turns[tid]`.
-- On `{:transcript_event, %{turn_id: nil}}`: keep today's behavior — single message with step-start/body/step-finish.
-- On replay: same logic, but finalize any open turn buffer at end of replay with a synthetic step-finish (`reason: "stop"`).
-- Subscribe SessionWriter to the turn-event channel (already broadcast via `AgentPubSub.broadcast_turn_event/3` — needs a `subscribe_agent_turns/1` or fold into `subscribe_agent/1`).
+  - If not, INSERT new message + step-start in one transaction, then append body part(s). Record `started_at_ms` and bump `last_event_at_ms`.
+- On `{:turn_event, _identifier, event_tag, %{turn_id: tid}}` (note the actual 4-tuple shape from `AgentPubSub.broadcast_turn_event/3`):
+  - Map `event_tag` to step-finish `reason`: `:turn_completed → "stop"`, `:turn_failed → "error"`, `:turn_cancelled → "cancelled"`, `:turn_input_required → "stop"` (the agent is awaiting operator input; treat the turn as terminated for chat purposes).
+  - Append step-finish; drop `turns[tid]`.
+  - Idempotent: if `turns[tid]` missing, no-op (event arrived twice, or for an unseen turn).
+- On `{:transcript_event, %{turn_id: nil}}`: standalone message path — message with step-start/body/step-finish in one transaction.
+- On `{:transcript_event, %{role: :user}}`: keep today's filter (no-op; user messages render natively via opencode-attach).
+- On replay: process events sequentially as today, but maintain `turns` buffer state during replay. At end of replay, finalize any still-open turn with synthetic step-finish (`reason: "stop"`).
+- **Turn-buffer leak sweep:** on init, install `Process.send_after(self(), :sweep_open_turns, 60_000)` (every 60s). Sweep handler finalizes any turn whose `last_event_at_ms` is older than 10 minutes, then re-arms.
 
 **Patterns to follow:**
 - `Aiur.Opencode.SessionWriter.write_event/3` — same `with` pipeline shape, just split into "write message + step-start" and "append part" variants.
@@ -205,6 +226,9 @@ sequenceDiagram
 - *Edge case:* `turn_completed` arrives twice for the same turn. Result: step-finish written only once; second event no-ops.
 - *Edge case:* `turn_failed` instead of `turn_completed`. Result: step-finish reason is `"error"` (or matching reason — finalize during implementation).
 - *Integration:* `replay_history` with two open turns at history end. Result: both turns get synthetic step-finish; new live events after replay are treated as new turns.
+- *Edge case:* sweep timer fires with a 12-minute-old open turn. Result: that turn gets synthetic step-finish with reason `"stop"` and is dropped from buffer.
+- *Edge case:* `event_tag = :turn_input_required` arrives. Result: step-finish with `reason: "stop"`.
+- *Edge case:* `event_tag = :turn_failed` arrives. Result: step-finish with `reason: "error"`.
 
 **Verification:** Live aiur run shows ONE `▣ Build · issue-N · timing` header per agent turn in the chat pane, not many.
 
@@ -214,23 +238,25 @@ sequenceDiagram
 
 **Goal:** Extend `Aiur.AgentRunner.codex_message_handler/5` so codex items currently dropped (reasoning, dynamicToolCall, fileChange) become transcript events with appropriate shape — and SessionWriter knows how to render each.
 
-**Requirements:** R2 (R2.1–R2.4).
+**Requirements:** R2.
 
 **Dependencies:** U1 (uses the new "append part" path).
 
 **Files:**
 - Modify: `elixir/lib/aiur/agent_runner.ex`
-- Modify: `elixir/lib/aiur/agent_events.ex` (add `:reasoning` to role atom set, or use a richer payload shape — finalize during implementation)
+- Modify: `elixir/lib/aiur/agent_events.ex` — **required**: expand the role guard at line 102 and `@type role` typespec to include `:reasoning`, `:tool`, `:aiur_tool`; add `:payload` opt to `transcript_event/3` for richer per-role data
+- Modify: `elixir/lib/aiur/issue_log.ex` — `tag_for_role/1` needs new tag entries: `reasoning`, `tool`, `aiur_tool` (disk-log format)
 - Modify: `elixir/lib/aiur/opencode/protocol.ex` (add `reasoning_part_data/2` helper)
-- Modify: `elixir/lib/aiur/opencode/session_writer.ex` (route new transcript event shapes to part inserts)
+- Modify: `elixir/lib/aiur/opencode/session_writer.ex` (route new transcript event shapes to part inserts; the existing `write_event(_, _, _) :: {:error, :unsupported_role}` fall-through needs new clauses for the new roles)
 - Test: `elixir/test/aiur/opencode/session_writer_test.exs` (new shape rendering)
 - Test: `elixir/test/aiur/opencode/protocol_test.exs` (new helpers)
+- Test: `elixir/test/aiur/agent_events_test.exs` (role guard accepts new roles)
 
 **Approach:**
 - New `transcript_event_from/2` branches in `agent_runner.ex` for:
   - `item/completed reasoning` → role `:reasoning`, body = text.
   - `item/completed dynamicToolCall` → role `:tool`, payload includes `tool` (name), `input`, `output`, `title`.
-  - `item/completed fileChange` → role `:tool`, payload encodes the file path + change summary; `tool: "edit"`.
+  - `item/completed fileChange` → role `:tool`, payload encodes the file path + change summary; `tool: "edit"`. Implementer validates the rendered shape against opencode's TUI on first dispatch; if fallback to neutral `"fileChange"` is needed, swap in U2.
 - Extend `AgentEvents.transcript_event/3` to accept a `:payload` opt for tool/reasoning details so the body field stays a string and richer data rides in payload.
 - `SessionWriter.insert_body_parts/5` (or its successor): pattern-match on role → emit appropriate part shape.
 - `Protocol.reasoning_part_data/2`: returns `%{"type" => "reasoning", "text" => text, "time" => %{...}}` per the row-shape doc.
@@ -260,16 +286,23 @@ sequenceDiagram
 **Dependencies:** U1.
 
 **Files:**
-- Modify: `elixir/lib/aiur/agent_runner.ex` (outputDelta accumulator keyed by `itemId`; pass workspace path to event payload)
+- Create: `elixir/lib/aiur/codex/output_buffer.ex` — small wrapper around a named ETS table `:aiur_codex_output_buffer` with `append/3`, `take/2`, `purge_identifier/1` helpers. Table is started via `Aiur.Application` supervision tree.
+- Modify: `elixir/lib/aiur/application.ex` (start the ETS table in init/1)
+- Modify: `elixir/lib/aiur/agent_runner.ex` (call OutputBuffer.append on outputDelta; OutputBuffer.take on item/completed; pass workspace path to event payload)
 - Modify: `elixir/lib/aiur/opencode/protocol.ex` (`tool_part_data/1` accepts new opts; or `bash_tool_part_data/1` helper)
+- Test: `elixir/test/aiur/codex/output_buffer_test.exs` (new)
 - Test: `elixir/test/aiur/opencode/protocol_test.exs`
 - Test: `elixir/test/aiur/opencode/session_writer_test.exs` (shape assertion against synthesized rows)
 
 **Approach:**
-- In `codex_message_handler/5`, maintain a `%{item_id => iodata}` map (in the closure or via Process dict) accumulating `item/commandExecution/outputDelta` payloads.
-- On `item/completed commandExecution`, build the tool transcript event with the assembled output (truncated per cap), the agent's workspace cwd, the codex-supplied description as title, and the raw command (no `$ ` prefix).
-- Cap accumulated output at 256 KB per item (decision in Open Questions); replace excess with `\n[...truncated]\n`.
-- Drop the `item_id` from the accumulator after emission.
+- `Aiur.Codex.OutputBuffer` owns a named ETS table (`:set, :public, :named_table`) keyed by `{identifier, item_id}`, values are `iodata` accumulators.
+  - `append/3` — `:ets.update_counter` not applicable for iodata; use `:ets.lookup` + `:ets.insert` with append. Cap individual entry at 256 KB; on overflow, mark `{truncated: true}` and stop appending.
+  - `take/2` — returns assembled binary, deletes the key.
+  - `purge_identifier/1` — sweep all keys matching identifier (used on turn-completed or session-writer terminate).
+- In `codex_message_handler/5`, on `item/commandExecution/outputDelta`: `OutputBuffer.append(identifier, item_id, delta_bytes)`.
+- On `item/completed commandExecution`: `output = OutputBuffer.take(identifier, item_id)`, then build the tool transcript event with the assembled output, the agent's workspace cwd, the codex-supplied description as title, and the raw command (no `$ ` prefix).
+- On turn termination (any reason): `OutputBuffer.purge_identifier(identifier)` evicts any item_ids that never completed (codex crash mid-command). Prevents accumulator leak.
+- Cap accumulated output at 256 KB per item; replace excess with `\n[...truncated]\n`.
 
 **Patterns to follow:**
 - Native opencode bash row in `elixir/docs/notes/opencode-row-shapes-1.15.6.md` — copy field shapes.
@@ -298,9 +331,13 @@ sequenceDiagram
 - Test: `elixir/test/aiur/opencode/session_writer_test.exs`
 
 **Approach:**
-- State adds `seen_keys :: :queue.queue(any())` with cap of last 200 keys.
-- Compute key from event: prefer `event[:item_id]` (added in U2 payload), fall back to `:erlang.phash2({event.turn_id, event.role, event.body})`.
+- State adds `seen_keys :: :queue.queue(term())` with cap of **600** (above the 500 history pull in `replay_history`, comfortable margin).
+- Per-turn monotonic counter (`turn_sequence` in `turns[tid]` state) to disambiguate legitimate repeats of the same command/text within a turn.
+- Compute key from event:
+  - If `event[:item_id]` present (most codex item types carry one): key = `{:item, item_id}`.
+  - Else: key = `{:hash, :erlang.phash2({event.turn_id, event.role, event.body, turn_sequence})}`.
 - Before insert: if key in queue → log debug and `{:noreply, state}`. Otherwise enqueue (with cap eviction) and proceed.
+- Replay populates the ring as it writes, so any cached PubSub event arriving after replay (caught by the swap-subscribe-after-replay change in U1) collides on the key.
 
 **Patterns to follow:**
 - `:queue.in/2` + `:queue.out/1` for a bounded FIFO.
@@ -331,10 +368,15 @@ sequenceDiagram
 - Test: `elixir/test/aiur/events/subscription_store_test.exs` (broadcast happens on delivery)
 
 **Approach:**
-- SubscriptionStore, at the seam where it delivers an event to an agent's "ready to read" queue, also broadcasts `{:received_event, %{topic, id, payload, source_ticket}}` via `AgentPubSub`.
-- SessionWriter subscribes to that channel via `subscribe_agent/1` (fold into the existing subscription).
-- On `{:received_event, e}`: insert a standalone message (per the standalone-message path) with `text_part_data("📥 #{e.topic}\n#{summarize_payload(e.payload)}\nid=#{e.id}")`.
-- Mark these messages with a stable signature so replay never re-emits them (e.g., synthetic `parentID` from `event_id` so duplicate inserts collide on PRIMARY KEY — or use the dedup guard from U4).
+- SubscriptionStore, at the delivery seam (`handle_info({:event, event}, state)` in `subscription_store.ex:276+`), calls `AgentPubSub.broadcast_received_event(identifier, %{topic, id, payload, source_ticket})`. New helper in `agent_pubsub.ex` mirrors `broadcast_transcript/2` and uses the same `Process.whereis(@pubsub)` guard via `do_broadcast/2` — never bypasses to bare `Phoenix.PubSub.broadcast`. Early-boot deliveries before PubSub init no-op safely.
+- SessionWriter receives `{:received_event, e}` on its existing agent-topic subscription (no new subscribe call).
+- On receipt: insert a standalone message with a single text part formatted per the **Event-card visual marker** decision in Key Technical Decisions:
+  ```
+  📥 <topic> from #<source_ticket>
+  <Jason.encode!(payload) truncated to 200 chars>
+  id=<event_id>
+  ```
+- **Replay idempotency:** dedup key uses `{:received_event, event_id}` and is fed through U4's ring. SubscriptionStore re-delivery on restart hits the dedup ring; doesn't double-write. Single mechanism, not two — supersedes the original "PRIMARY KEY collide OR ring" choice.
 
 **Patterns to follow:**
 - `Aiur.AgentPubSub.broadcast_transcript/2` — same broadcast shape, distinct message tag.
@@ -350,38 +392,41 @@ sequenceDiagram
 
 ---
 
-- [ ] **U6. Outgoing aiur tool-call rendering (--debug only)**
+- [ ] **U6. Outgoing aiur tool-call rendering (emit_alert always; others --debug only)**
 
-**Goal:** Calls to `emit_event`, `emit_alert`, `aiur_subscribe`, `aiur_unsubscribe`, `aiur_declare_blocker`, `aiur_unblock` render as tool parts inside the current turn's message — only when `--debug` is active.
+**Goal:** Calls to aiur-owned dynamic tools render as tool parts in the chat pane:
+- `emit_alert` — **always visible** (operator-facing audible alert; chat answers "which agent fired that?")
+- `emit_event`, `aiur_subscribe`, `aiur_unsubscribe`, `aiur_declare_blocker`, `aiur_unblock` — visible **only when `AIUR_DEBUG` is set**
 
-**Requirements:** R5 (R5.1–R5.3), AE5.
+**Requirements:** R5, AE5.
 
-**Dependencies:** U1 (uses append-to-current-turn API), U2 (uses tool transcript-event shape), U3 (clean tool shape).
+**Dependencies:** U1 (uses turn-buffer state for "current turn" lookup), U2 (uses `:aiur_tool` role + tool transcript-event shape), U3 (clean tool shape).
 
 **Files:**
-- Modify: `elixir/lib/aiur/codex/dynamic_tool.ex` (broadcast a transcript event after each tool handler succeeds)
-- Modify: `elixir/lib/aiur/opencode/session_writer.ex` (gate on `debug_mode?`)
-- Modify: SessionWriter `start_link` / supervisor wiring to receive `debug?` opt
-- Test: `elixir/test/aiur/codex/dynamic_tool_test.exs` (broadcast happens; gating works)
+- Modify: `elixir/lib/aiur/codex/dynamic_tool.ex` — after each tool handler builds its result map, broadcast a transcript event with role `:aiur_tool` and payload `%{tool: name, input: args, output: result, gate: :always | :debug_only}`. `emit_alert` carries `:always`; the others carry `:debug_only`.
+- Modify: `elixir/lib/aiur/opencode/session_writer.ex` — on `:aiur_tool` transcript events, gate by reading `gate` from payload and (when `:debug_only`) consulting `System.get_env("AIUR_DEBUG")` at write-time. Look up the most-recently-opened, still-open turn in `state.turns` and append the tool part there; if no open turn, standalone message path.
+- Test: `elixir/test/aiur/codex/dynamic_tool_test.exs` (broadcast happens with correct gate value per tool)
+- Test: `elixir/test/aiur/opencode/session_writer_test.exs` (gating logic and turn-lookup behavior)
 
 **Approach:**
-- After each tool handler builds its `result` map, call `AgentPubSub.broadcast_transcript(identifier, AgentEvents.transcript_event(:aiur_tool, "...", turn_id: turn_id, payload: %{tool: name, input: args, output: result}))`.
-- SessionWriter: on `:aiur_tool` transcript events, gate on `state.debug_mode?` — if true, render as a `tool` part appended to the current turn's message (or as a standalone message when no open turn).
-- Add `debug?` to SessionWriter `start_link` opts, default to `Aiur.Config` / `AIUR_DEBUG` env.
-- Pass `debug?` through wherever Slot spawns SessionWriter (`elixir/lib/aiur/opencode/slot.ex` — verify call site during implementation).
+- **Turn-id resolution at SessionWriter (not at broadcast site).** DynamicTool handlers don't have `turn_id` — the broadcast carries the full payload but no turn_id. SessionWriter consults its own `turns` map for the most-recent still-open turn for this identifier and appends there. If no open turn, write a standalone message with its own step-start/body/step-finish.
+- **Dynamic debug check.** Read `System.get_env("AIUR_DEBUG")` (or `Aiur.Config.debug?/0` if that exists; check during impl) at the moment the event is processed. No `debug?` opt threaded through start_link / supervisor / slot — avoids stale-flag bugs if operators toggle.
+- **Standalone-message path for out-of-turn aiur tool calls** uses the same R1.5 code path as `turn_id: nil` transcript events: step-start → tool part → step-finish, `finish: "tool-calls"`. Matches the chrome of other standalone messages.
 
 **Patterns to follow:**
-- `Aiur.AgentList.App` — same `debug_mode?` pattern (state field + env fallback).
-- Existing tool shape from U3.
+- `Aiur.AgentList.App` `handle_info` reads `AIUR_DEBUG` at decision time.
+- U3 tool shape.
 
 **Test scenarios:**
-- *Happy path:* `emit_event` tool handler invoked, `debug_mode?: true`. Result: SessionWriter writes a tool part with `tool: "emit_event"`, input = call args, output = result map. Covers AE5.
-- *Happy path:* same call with `debug_mode?: false`. Result: no SessionWriter write (DB part count for the turn unchanged).
-- *Edge case:* aiur tool call arrives outside any open turn (e.g., during boot). Result: standalone message with single tool part.
-- *Edge case:* tool handler returns error. Result: tool part with `state.status: "error"` (matches opencode), output = error map.
-- *Integration:* full turn with `emit_event` + bash + assistant text, `--debug` on. Pane shows the `emit_event` block inline between the others.
+- *Happy path:* `emit_alert` handler invoked, `AIUR_DEBUG` unset. Result: SessionWriter writes a tool part for the alert (always visible regardless of debug).
+- *Happy path:* `emit_event` handler invoked, `AIUR_DEBUG=1`. Result: tool part written with `tool: "emit_event"`, input = call args, output = result map. Covers AE5.
+- *Happy path:* `emit_event` handler invoked, `AIUR_DEBUG` unset. Result: no SessionWriter write (DB part count for the turn unchanged).
+- *Edge case:* aiur tool call arrives outside any open turn (e.g., during boot). Result: standalone message with step-start + single tool part + step-finish, `finish: "tool-calls"`.
+- *Edge case:* tool handler returns `{:error, reason}`. Result: tool part with `state.status: "error"`, output = error map.
+- *Edge case:* aiur tool call arrives when multiple turns are concurrently open in `turns` map (rare; shouldn't happen but guard). Result: append to the turn with the highest `started_at_ms`.
+- *Integration:* full turn with `emit_event` + bash + assistant text, `AIUR_DEBUG=1`. Pane shows the `emit_event` block inline between the others.
 
-**Verification:** Run aiur in `--debug` and without `--debug`. With `--debug`, the chat pane shows aiur tool blocks. Without, it doesn't, but the events still fire (verify via the existing debug ticker on agent_list).
+**Verification:** Run aiur with and without `AIUR_DEBUG`. With debug set, chat pane shows aiur tool blocks for emit_event/aiur_subscribe/etc. Without, only `emit_alert` blocks appear. In both modes, the events still fire (verify via the existing debug ticker on agent_list).
 
 ---
 
@@ -403,12 +448,14 @@ sequenceDiagram
 
 | Risk | Mitigation |
 |---|---|
-| Turn-buffer state leaks if `turn_completed` never fires | Implement a timeout sweep in SessionWriter (e.g., turns older than 10 minutes get auto-finalized + dropped) — implementable during U1 if observed during manual verification, otherwise punt. |
+| Turn-buffer state leaks if `turn_completed` never fires | 60s periodic sweep in U1 finalizes turns whose `last_event_at_ms` is > 10 min old with `step-finish reason: "stop"`. Bounded memory regardless of codex behavior. |
 | Mid-turn re-attach replay (OQ4 resolution) misorders parts | Synthetic step-finish is appended *after* the last real part for that turn; ULID monotonicity guarantees ordering since the synthetic finish is generated with the highest timestamp at replay time. |
-| outputDelta accumulator grows unbounded on a runaway agent | 256 KB cap per item with truncation marker. |
-| Dedup ring misses duplicates older than 200 events | Acceptable — the duplicate-render bug only shows up within seconds of boot; 200 events well exceeds that window. |
-| `debug?` opt not threaded through every Slot spawn path | U6 includes Slot wiring as a file modification; manual verification step explicitly toggles `--debug` on/off to confirm. |
+| Replay race writes step-finish twice (real + synthetic) | U1 swaps subscribe/replay order — subscribe AFTER replay completes. Eliminates live-mailbox-during-replay class of duplicate. |
+| outputDelta accumulator grows unbounded on a runaway agent | 256 KB cap per item with truncation marker. Also `OutputBuffer.purge_identifier/1` clears all entries on turn termination. |
+| Dedup ring misses duplicates older than the ring window | Ring sized to 600 (above the 500 history pull). Fallback hash key includes per-turn sequence counter so legitimate repeats aren't dropped. |
+| `AIUR_DEBUG` read at write time instead of at SessionWriter init | Same pattern as `AgentList.App` — read env at decision time, not start. Survives operator toggling and avoids stale-flag bugs. |
 | `:meck` or test-mock setup grows complex | Prefer GenServer-direct `send(pid, msg)` tests over mocking codex; SessionWriter accepts synthetic transcript events natively. |
+| `fileChange` tool name `"edit"` may not match opencode's edit renderer input shape | U2 includes an empirical verification step on first dispatch — capture-pane on a real fileChange and confirm rendering; fall back to a neutral tool name if the shape doesn't fit. |
 
 ---
 
