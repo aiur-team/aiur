@@ -40,6 +40,27 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @doc """
+  Returns the GitHub login that Aiur posts under (PR comments, dependency
+  declarations, etc.). Read from `github.bot_account` in WORKFLOW.md.
+  Returns `nil` when unset — `validate!/0` does not require it, since
+  bot identity is only load-bearing for the events foundation (CODEOWNERS
+  allowlist self-include + native dependency authorship).
+  """
+  @spec bot_account() :: String.t() | nil
+  def bot_account do
+    case section_value("bot_account") do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   @impl Aiur.TrackerConfig
   def validate! do
     cond do
