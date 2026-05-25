@@ -140,8 +140,18 @@ defmodule Aiur.Opencode.SessionWriter do
 
   def handle_info({:transcript_event, event}, state) do
     case write_transcript_event(state, event) do
-      {:ok, message_id, new_state} ->
+      {:ok, message_id, new_state, :standalone} ->
+        # Standalone (turn_id: nil) writes are complete on receipt — fire
+        # the nudge so opencode-attach renders the row immediately.
         nudge_tui(state, message_id)
+        {:noreply, new_state}
+
+      {:ok, _message_id, new_state, :turn_part} ->
+        # In-turn appends do NOT nudge. Each nudge re-streams the message
+        # via the bridge, and opencode writes its own mirror copy. With
+        # many appends per turn that produces N mirror copies of the same
+        # text. The matching `:turn_event` finalize nudges once with the
+        # closed message so opencode renders the full turn exactly once.
         {:noreply, new_state}
 
       {:error, reason} ->
@@ -302,7 +312,10 @@ defmodule Aiur.Opencode.SessionWriter do
   # --- live transcript write ----------------------------------------------
 
   # Dispatch based on whether the event has a turn_id. Returns
-  # `{:ok, message_id_to_nudge, new_state}` or `{:error, reason}`.
+  # `{:ok, message_id, new_state, :standalone | :turn_part}` or
+  # `{:error, reason}`. The trailing atom tells the handle_info caller
+  # whether to nudge opencode (standalone) or stay silent until turn
+  # finalize (turn_part) — see the duplicate-mirror note there.
   defp write_transcript_event(state, %{turn_id: tid} = event) when is_binary(tid) do
     case Map.fetch(state.turns, tid) do
       {:ok, turn} -> append_to_open_turn(state, turn, tid, event)
@@ -312,7 +325,7 @@ defmodule Aiur.Opencode.SessionWriter do
 
   defp write_transcript_event(state, event) do
     case write_standalone(state, event) do
-      {:ok, message_id} -> {:ok, message_id, state}
+      {:ok, message_id} -> {:ok, message_id, state, :standalone}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -326,7 +339,7 @@ defmodule Aiur.Opencode.SessionWriter do
     case write_result do
       :ok ->
         new_turn = %{turn | last_event_at_ms: System.os_time(:millisecond)}
-        {:ok, message_id, %{state | turns: Map.put(state.turns, tid, new_turn)}}
+        {:ok, message_id, %{state | turns: Map.put(state.turns, tid, new_turn)}, :turn_part}
 
       {:error, reason} ->
         {:error, reason}
@@ -362,7 +375,7 @@ defmodule Aiur.Opencode.SessionWriter do
     |> case do
       :ok ->
         turn = %{message_id: message_id, started_at_ms: now_ms, last_event_at_ms: now_ms}
-        {:ok, message_id, %{state | turns: Map.put(state.turns, tid, turn)}}
+        {:ok, message_id, %{state | turns: Map.put(state.turns, tid, turn)}, :turn_part}
 
       {:error, reason} ->
         {:error, reason}
