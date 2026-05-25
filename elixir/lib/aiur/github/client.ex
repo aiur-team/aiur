@@ -147,6 +147,56 @@ defmodule Aiur.GitHub.Client do
     dependency_mutate(blocked_issue_number, blocker_issue_id, :delete, opts)
   end
 
+  @doc """
+  Lists the logins of every member of `team_slug` inside `org`. Used by
+  `Aiur.GitHub.CodeOwners` to expand `@org/team` entries.
+
+  Requires the GitHub token to have `read:org` scope; 403 is returned
+  otherwise and the caller logs + falls back.
+  """
+  @spec fetch_team_members(String.t(), String.t(), keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def fetch_team_members(org, team_slug, opts \\ []) do
+    with {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/orgs/#{org}/teams/#{team_slug}/members?per_page=100"
+      fetch_member_logins(request_fun, token, url, [])
+    end
+  end
+
+  defp fetch_member_logins(_request_fun, _token, nil, acc), do: {:ok, acc}
+
+  defp fetch_member_logins(request_fun, token, url, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        new_logins = Enum.flat_map(body, &member_login_list/1)
+        next = parse_next_page_url(headers)
+        fetch_member_logins(request_fun, token, next, acc ++ new_logins)
+
+      {:ok, %{status: status}} ->
+        {:error, {:github_api_status, status}}
+
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
+    end
+  end
+
+  defp member_login_list(%{"login" => login}) when is_binary(login), do: [login]
+  defp member_login_list(_), do: []
+
+  defp parse_next_page_url(headers) do
+    case header(headers, "link") do
+      value when is_binary(value) ->
+        Regex.run(~r/<([^>]+)>;\s*rel="next"/, value) |> case do
+          [_, next_url] -> next_url
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
       when is_binary(issue_number) and is_binary(state_name) do

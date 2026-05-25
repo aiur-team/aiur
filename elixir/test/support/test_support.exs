@@ -263,11 +263,13 @@ defmodule Aiur.TestSupport do
   defp tracker_backend_yaml("github", config) do
     repo = Keyword.get(config, :tracker_repo)
     label_prefix = Keyword.get(config, :tracker_label_prefix)
+    bot_account = Keyword.get(config, :tracker_bot_account)
 
     [
       "github:",
       repo && "  repo: #{yaml_value(repo)}",
-      label_prefix && "  label_prefix: #{yaml_value(label_prefix)}"
+      label_prefix && "  label_prefix: #{yaml_value(label_prefix)}",
+      bot_account && "  bot_account: #{yaml_value(bot_account)}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
