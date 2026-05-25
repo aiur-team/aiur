@@ -15,6 +15,16 @@ defmodule Aiur.Opencode.ChatCompletions do
   # rendering a "Bad Request: invalid stream marker" toast.
   @nudge_marker_regex ~r/\A__aiur_stream__:nudge:/
 
+  # Turn-start marker posted by Aiur.AgentRunner at the start of every
+  # codex turn so opencode-attach opens a chat-completion request that
+  # the bridge can hold open for the turn's full duration. The bridge
+  # subscribes to AgentPubSub for the identifier and streams every
+  # transcript-event body as an SSE delta until a `turn_event` arrives
+  # — implementing the "bridge as LLM" path described in
+  # docs/plans/2026-05-25-001-feat-chat-pane-native-parity-plan.md.
+  @turn_marker_prefix "__aiur_turn__:"
+  @turn_marker_regex ~r/\A__aiur_turn__:([A-Za-z0-9_-]+)\z/
+
   @max_body_bytes 65_536
   @watchdog_ms 600_000
 
@@ -35,32 +45,165 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp handle_identified(body, conn, identifier) do
-    text = last_user_text(body)
-
-    case text do
-      {:ok, @stream_marker_prefix <> _ = marker} ->
-        cond do
-          Regex.match?(@nudge_marker_regex, marker) ->
-            # Refresh-only nudge — slot sent this to force a TUI redraw.
-            # Reply with an empty SSE stream so opencode commits no rows
-            # and renders no toast.
-            empty_stream(conn)
-
-          match = Regex.run(@stream_marker_regex, marker) ->
-            [_, message_id] = match
-            replay_message_as_stream(conn, identifier, message_id)
-
-          true ->
-            json(conn, 400, %{error: "invalid stream marker"})
-        end
-
-      {:ok, raw_text} ->
-        dispatch_user_text(body, conn, identifier, raw_text)
-
-      {:error, reason} ->
-        json(conn, 400, %{error: inspect(reason)})
+    case last_user_text(body) do
+      {:ok, text} -> handle_identified_text(body, conn, identifier, text)
+      {:error, reason} -> json(conn, 400, %{error: inspect(reason)})
     end
   end
+
+  defp handle_identified_text(_body, conn, identifier, @turn_marker_prefix <> _ = marker) do
+    case Regex.run(@turn_marker_regex, marker) do
+      [_, aiur_turn_id] -> stream_codex_turn(conn, identifier, aiur_turn_id)
+      _ -> json(conn, 400, %{error: "invalid turn marker"})
+    end
+  end
+
+  defp handle_identified_text(_body, conn, identifier, @stream_marker_prefix <> _ = marker) do
+    cond do
+      Regex.match?(@nudge_marker_regex, marker) ->
+        empty_stream(conn)
+
+      match = Regex.run(@stream_marker_regex, marker) ->
+        [_, message_id] = match
+        replay_message_as_stream(conn, identifier, message_id)
+
+      true ->
+        json(conn, 400, %{error: "invalid stream marker"})
+    end
+  end
+
+  defp handle_identified_text(body, conn, identifier, raw_text) do
+    dispatch_user_text(body, conn, identifier, raw_text)
+  end
+
+  # Bridge-as-LLM path: an Aiur.AgentRunner posted `__aiur_turn__:<id>` to
+  # opencode at the start of a codex turn. opencode wrote that as a user
+  # message and now opens this chat-completion request to fetch the
+  # "assistant response". We hold the SSE open and stream every
+  # transcript-event body and turn-event signal that fires on this
+  # identifier's AgentPubSub topic, until the codex turn finishes.
+  # opencode renders ONE assistant message that streams in live —
+  # matching native opencode UX. SessionWriter still writes parts to
+  # SQL in parallel so re-attach renders complete history from disk
+  # (manual-override preserved: agents work without opencode attached).
+  defp stream_codex_turn(conn, identifier, aiur_turn_id) do
+    completion_id = "chatcmpl-" <> random_id()
+    :ok = AgentPubSub.subscribe_agent(identifier)
+
+    Logger.info("opencode_bridge turn_stream_open identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
+
+    conn =
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
+      |> Plug.Conn.send_chunked(200)
+
+    Process.send_after(self(), {:turn_watchdog, aiur_turn_id}, @watchdog_ms)
+    codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, nil)
+  end
+
+  # Receive loop for a single codex turn. We don't know codex's `turnId`
+  # at subscription time — we lock onto it from the first transcript
+  # event we see and then only stream events for that turn. Any matching
+  # `:turn_event` closes the stream with the appropriate finish reason.
+  defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id) do
+    receive do
+      {:transcript_event, %{role: role, body: body} = event}
+      when role in [:assistant, :command, :system, :alert, :reasoning, :tool] ->
+        event_turn = Map.get(event, :turn_id)
+
+        case maybe_lock_turn(locked_turn_id, event_turn) do
+          {:ok, new_locked} ->
+            conn = chunk(conn, completion_id, format_delta(role, body), nil)
+            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, new_locked)
+
+          :skip ->
+            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id)
+        end
+
+      {:transcript_event, %{role: :user}} ->
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id)
+
+      {:turn_event, ^identifier, :turn_completed, %{turn_id: tid}}
+      when locked_turn_id == nil or locked_turn_id == tid ->
+        chunk(conn, completion_id, nil, "stop")
+
+      {:turn_event, ^identifier, :turn_failed, %{turn_id: tid} = payload}
+      when locked_turn_id == nil or locked_turn_id == tid ->
+        conn =
+          chunk(
+            conn,
+            completion_id,
+            "**system:** " <> inspect(Map.get(payload, :reason, :failed)),
+            nil
+          )
+
+        chunk(conn, completion_id, nil, "stop")
+
+      {:turn_event, ^identifier, :turn_cancelled, %{turn_id: tid}}
+      when locked_turn_id == nil or locked_turn_id == tid ->
+        chunk(conn, completion_id, nil, "stop")
+
+      {:turn_event, ^identifier, :turn_input_required, %{turn_id: tid}}
+      when locked_turn_id == nil or locked_turn_id == tid ->
+        conn =
+          chunk(
+            conn,
+            completion_id,
+            "**system:** Agent is awaiting approval. Resolve in the dashboard to continue.",
+            nil
+          )
+
+        chunk(conn, completion_id, nil, "tool_calls")
+
+      {:turn_watchdog, ^aiur_turn_id} ->
+        Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
+
+        conn =
+          chunk(
+            conn,
+            completion_id,
+            "**system:** No turn activity in 10 minutes; closing stream.",
+            nil
+          )
+
+        chunk(conn, completion_id, nil, "timeout")
+
+      _other ->
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, locked_turn_id)
+    after
+      @watchdog_ms ->
+        conn =
+          chunk(
+            conn,
+            completion_id,
+            "**system:** No turn activity in 10 minutes; closing stream.",
+            nil
+          )
+
+        chunk(conn, completion_id, nil, "timeout")
+    end
+  end
+
+  # Lock onto codex's turnId from the first event that carries one. Once
+  # locked, ignore transcript events from other turns (which would arrive
+  # if a second turn started before this one closed).
+  defp maybe_lock_turn(nil, nil), do: {:ok, nil}
+  defp maybe_lock_turn(nil, codex_turn) when is_binary(codex_turn), do: {:ok, codex_turn}
+  defp maybe_lock_turn(locked, codex_turn) when locked == codex_turn, do: {:ok, locked}
+  defp maybe_lock_turn(locked, nil) when is_binary(locked), do: {:ok, locked}
+  defp maybe_lock_turn(_locked, _codex_turn), do: :skip
+
+  # Format a transcript event's body as a chat-completion delta. For
+  # `:command` and `:tool` roles, we include the body label (e.g. the
+  # bash command line) and let SessionWriter's SQL write carry the full
+  # tool-part shape for re-attach rendering. Newlines bracket each event
+  # so opencode shows them as discrete blocks.
+  defp format_delta(:command, body), do: "\n```\n$ #{body}\n```\n"
+  defp format_delta(:tool, body), do: "\n```\n→ #{body}\n```\n"
+  defp format_delta(:reasoning, body), do: "\n_#{body}_\n"
+  defp format_delta(:alert, body), do: "\n> 🔔 #{body}\n"
+  defp format_delta(:system, body), do: "\n> #{body}\n"
+  defp format_delta(_role, body), do: body
 
   defp dispatch_user_text(body, conn, identifier, raw_text) do
     with {:ok, sanitized} <- validate_body(raw_text),
@@ -295,17 +438,13 @@ defmodule Aiur.Opencode.ChatCompletions do
             sid
 
           :not_found ->
-            Logger.warning(
-              "opencode_bridge resolve_session writer_not_found identifier=#{identifier} base_url=#{base_url}"
-            )
+            Logger.warning("opencode_bridge resolve_session writer_not_found identifier=#{identifier} base_url=#{base_url}")
 
             nil
         end
 
       :error ->
-        Logger.warning(
-          "opencode_bridge resolve_session caller_unresolved identifier=#{identifier}"
-        )
+        Logger.warning("opencode_bridge resolve_session caller_unresolved identifier=#{identifier}")
 
         nil
     end

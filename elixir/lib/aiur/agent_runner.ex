@@ -22,6 +22,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
+  alias Aiur.Opencode.{ApiClient, Protocol, SessionWriterRegistry}
 
   @type worker_host :: String.t() | nil
 
@@ -246,6 +247,7 @@ defmodule Aiur.AgentRunner do
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
+    open_aiur_turn_streams(issue)
 
     case CodingAgent.run_turn(
            app_session,
@@ -482,6 +484,7 @@ defmodule Aiur.AgentRunner do
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
+    open_aiur_turn_streams(issue)
 
     case CodingAgent.run_turn(
            app_session,
@@ -587,6 +590,38 @@ defmodule Aiur.AgentRunner do
   end
 
   defp send_control_state(_recipient, _issue, _status), do: :ok
+
+  # Bridge-as-LLM trigger: at the start of each codex turn, fan a
+  # `__aiur_turn__:<id>` marker out to every opencode-serve that has a
+  # SessionWriter attached for this identifier. opencode treats the
+  # marker as a synthetic user message and immediately opens a
+  # chat-completion request to our bridge, which holds it open and
+  # streams the codex turn's events as SSE deltas
+  # (see Aiur.Opencode.ChatCompletions.stream_codex_turn/3).
+  # No SessionWriter attached = no opencode pane open = no-op, agent
+  # keeps running (manual override preserved).
+  defp open_aiur_turn_streams(%Issue{identifier: identifier}) when is_binary(identifier) do
+    aiur_turn_id = "t" <> Integer.to_string(System.unique_integer([:positive, :monotonic]), 36)
+
+    for %{session_id: session_id, base_url: base_url} <-
+          SessionWriterRegistry.attached(identifier) do
+      payload = %{
+        parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
+      }
+
+      case ApiClient.post_message(base_url, session_id, payload) do
+        {:ok, _} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.debug("aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  defp open_aiur_turn_streams(_issue), do: :ok
 
   defp safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->

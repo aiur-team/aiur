@@ -34,7 +34,7 @@ defmodule Aiur.Opencode.SessionWriter do
   require Logger
 
   alias Aiur.{AgentPubSub, IssueLog}
-  alias Aiur.Opencode.{ApiClient, Db, Protocol}
+  alias Aiur.Opencode.{Db, Protocol}
 
   # Sweep open turn buffers every 60s; finalize any whose last event
   # is older than this threshold. Bounds memory if codex never sends
@@ -144,7 +144,7 @@ defmodule Aiur.Opencode.SessionWriter do
   def handle_info({:transcript_event, event}, state) do
     case write_transcript_event(state, event) do
       {:ok, _message_id, parts, new_state} ->
-        fire_part_updates(state, parts)
+        _ = parts
         {:noreply, new_state}
 
       {:error, reason} ->
@@ -156,9 +156,7 @@ defmodule Aiur.Opencode.SessionWriter do
 
   def handle_info({:turn_event, _identifier, event_tag, %{turn_id: turn_id}}, state)
       when is_binary(turn_id) do
-    {new_state, finalize_parts} = finalize_turn(state, turn_id, step_finish_reason(event_tag))
-
-    fire_part_updates(state, finalize_parts)
+    {new_state, _finalize_parts} = finalize_turn(state, turn_id, step_finish_reason(event_tag))
 
     {:noreply, new_state}
   end
@@ -166,8 +164,8 @@ defmodule Aiur.Opencode.SessionWriter do
   def handle_info({:alert, %{message: message}}, state) do
     # Alerts are still standalone messages — no turn grouping.
     case write_standalone(state, %{role: :alert, body: message}) do
-      {:ok, _message_id, parts} ->
-        fire_part_updates(state, parts)
+      {:ok, _message_id, _parts} ->
+        :ok
 
       {:error, reason} ->
         Logger.warning("opencode_session_writer alert_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
@@ -242,8 +240,7 @@ defmodule Aiur.Opencode.SessionWriter do
       if last < cutoff do
         Logger.info("opencode_session_writer sweep_finalize identifier=#{acc.identifier} turn=#{turn_id} idle_ms=#{System.os_time(:millisecond) - last}")
 
-        {new_state, parts} = finalize_turn(acc, turn_id, "stop")
-        fire_part_updates(state, parts)
+        {new_state, _parts} = finalize_turn(acc, turn_id, "stop")
         new_state
       else
         acc
@@ -492,38 +489,10 @@ defmodule Aiur.Opencode.SessionWriter do
     })
   end
 
-  # --- live TUI updates via PATCH /part -----------------------------------
-  #
-  # After a successful SQL write, fire `PATCH /session/:s/message/:m/part/:p`
-  # for each part. opencode's handler upserts the row (no-op against our
-  # own write) AND emits `message.part.updated` on its event bus, which
-  # is forwarded via `/event` SSE to the attached TUI. This is the only
-  # path on opencode 1.15.6 that triggers TUI refresh without going
-  # through chat-completion (which would write a mirror message and
-  # produce the duplicate-row class of bug).
-  #
-  # Errors are non-fatal — if opencode-serve is down (chat pane closed,
-  # agent still running in the background), the PATCH fails and we
-  # continue. The SQL row is the source of truth on next attach.
-
-  defp fire_part_updates(_state, []), do: :ok
-
-  defp fire_part_updates(state, parts) do
-    Enum.each(parts, fn {message_id, part_id, part_data} ->
-      payload = augment_part_for_patch(part_data, state.session_id, message_id, part_id)
-      _ = ApiClient.update_part(state.base_url, state.session_id, message_id, part_id, payload)
-    end)
-
-    :ok
-  end
-
-  # opencode's PATCH handler validates that the payload's id/messageID/
-  # sessionID match the URL params. The part JSON we write to SQL omits
-  # them (they're separate columns); add them for the API call.
-  defp augment_part_for_patch(part_data, session_id, message_id, part_id) do
-    part_data
-    |> Map.put("id", part_id)
-    |> Map.put("sessionID", session_id)
-    |> Map.put("messageID", message_id)
-  end
+  # Live TUI updates flow through `Aiur.Opencode.ChatCompletions`'s
+  # bridge-as-LLM stream now (the `__aiur_turn__:<id>` marker posted by
+  # AgentRunner at turn start opens an SSE that the bridge holds and
+  # streams transcript events to). SessionWriter no longer needs to
+  # poke opencode per-part — its only job is persisting message + part
+  # rows so re-attach renders the full history via GET /messages.
 end
