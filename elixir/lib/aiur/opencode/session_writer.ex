@@ -140,18 +140,18 @@ defmodule Aiur.Opencode.SessionWriter do
 
   def handle_info({:transcript_event, event}, state) do
     case write_transcript_event(state, event) do
-      {:ok, message_id, new_state, :standalone} ->
-        # Standalone (turn_id: nil) writes are complete on receipt — fire
-        # the nudge so opencode-attach renders the row immediately.
+      {:ok, message_id, new_state, _kind} ->
+        # Nudge on every transcript event — operator sees activity live as
+        # the turn unfolds, matching native opencode's stream-as-you-go
+        # rendering. Each nudge triggers opencode's bridge replay, which
+        # produces a mirror assistant message in the same session. That's
+        # the known trade-off for live visibility on opencode 1.15.6 —
+        # the alternative (nudge only at turn close) leaves the operator
+        # staring at an empty chrome row for the entire turn, which is
+        # worse than seeing a clean live stream with one mirror per
+        # event. Looking into upstream `/session/.../message/.../part`
+        # PATCH/DELETE APIs for a mirror-free path in a follow-up.
         nudge_tui(state, message_id)
-        {:noreply, new_state}
-
-      {:ok, _message_id, new_state, :turn_part} ->
-        # In-turn appends do NOT nudge. Each nudge re-streams the message
-        # via the bridge, and opencode writes its own mirror copy. With
-        # many appends per turn that produces N mirror copies of the same
-        # text. The matching `:turn_event` finalize nudges once with the
-        # closed message so opencode renders the full turn exactly once.
         {:noreply, new_state}
 
       {:error, reason} ->
