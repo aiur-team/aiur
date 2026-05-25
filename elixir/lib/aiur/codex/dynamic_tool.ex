@@ -50,6 +50,35 @@ defmodule Aiur.Codex.DynamicTool do
       }
     }
   }
+  @aiur_subscribe_tool "aiur_subscribe"
+  @aiur_subscribe_description """
+  Subscribe the current issue to a topic pattern. Patterns use AMQP topic
+  exchange syntax: `*` matches one segment, `#` matches zero or more.
+  Example: `ticket.42.#` (everything about ticket 42),
+  `*.*.branch.push` (any push on any ticket).
+
+  Persistent: the subscription survives BEAM restarts. Use this for
+  watch use cases; native blocker declarations (`aiur_declare_blocker`)
+  auto-subscribe on their own and shouldn't be paired with manual
+  `aiur_subscribe` calls.
+  """
+  @aiur_subscribe_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["topic_pattern"],
+    "properties" => %{
+      "topic_pattern" => %{
+        "type" => "string",
+        "description" => "AMQP-style topic pattern, e.g. `ticket.42.#`."
+      }
+    }
+  }
+  @aiur_unsubscribe_tool "aiur_unsubscribe"
+  @aiur_unsubscribe_description """
+  Remove a previously-added subscription by exact topic pattern. No-op if
+  the pattern was not subscribed.
+  """
+  @aiur_unsubscribe_input_schema @aiur_subscribe_input_schema
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Aiur's configured auth.
@@ -83,6 +112,12 @@ defmodule Aiur.Codex.DynamicTool do
       @emit_event_tool ->
         execute_emit_event(arguments, opts)
 
+      @aiur_subscribe_tool ->
+        execute_subscription(arguments, opts, :subscribe)
+
+      @aiur_unsubscribe_tool ->
+        execute_subscription(arguments, opts, :unsubscribe)
+
       other ->
         failure_response(%{
           "error" => %{
@@ -110,9 +145,70 @@ defmodule Aiur.Codex.DynamicTool do
         "name" => @emit_event_tool,
         "description" => @emit_event_description,
         "inputSchema" => @emit_event_input_schema
+      },
+      %{
+        "name" => @aiur_subscribe_tool,
+        "description" => @aiur_subscribe_description,
+        "inputSchema" => @aiur_subscribe_input_schema
+      },
+      %{
+        "name" => @aiur_unsubscribe_tool,
+        "description" => @aiur_unsubscribe_description,
+        "inputSchema" => @aiur_unsubscribe_input_schema
       }
     ]
   end
+
+  defp execute_subscription(arguments, opts, action) do
+    handler =
+      case action do
+        :subscribe -> Keyword.get(opts, :subscriber)
+        :unsubscribe -> Keyword.get(opts, :unsubscriber)
+      end
+
+    error_atom =
+      case action do
+        :subscribe -> :subscriber_unavailable
+        :unsubscribe -> :unsubscriber_unavailable
+      end
+
+    with {:ok, pattern} <- normalize_topic_pattern(arguments),
+         true <- is_function(handler, 1) || {:error, error_atom},
+         :ok <- handler.(pattern) do
+      dynamic_tool_response(true, Jason.encode!(%{"ok" => true, "topic_pattern" => pattern}, pretty: true))
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+
+      false ->
+        failure_response(tool_error_payload(error_atom))
+    end
+  end
+
+  defp normalize_topic_pattern(arguments) when is_map(arguments) do
+    case Map.get(arguments, "topic_pattern") || Map.get(arguments, :topic_pattern) do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+
+        cond do
+          trimmed == "" ->
+            {:error, :missing_topic_pattern}
+
+          String.contains?(trimmed, "..") or
+            String.starts_with?(trimmed, ".") or
+              String.ends_with?(trimmed, ".") ->
+            {:error, :invalid_topic_pattern}
+
+          true ->
+            {:ok, trimmed}
+        end
+
+      _ ->
+        {:error, :missing_topic_pattern}
+    end
+  end
+
+  defp normalize_topic_pattern(_), do: {:error, :invalid_topic_pattern}
 
   defp execute_emit_event(arguments, opts) do
     event_publisher = Keyword.get(opts, :event_publisher)
@@ -389,6 +485,27 @@ defmodule Aiur.Codex.DynamicTool do
       }
     }
   end
+
+  defp tool_error_payload(:missing_topic_pattern),
+    do: %{"error" => %{"message" => "`topic_pattern` is required."}}
+
+  defp tool_error_payload(:invalid_topic_pattern),
+    do: %{
+      "error" => %{
+        "message" =>
+          "`topic_pattern` must be non-empty, must not start or end with `.`, and must not contain `..`."
+      }
+    }
+
+  defp tool_error_payload(:subscriber_unavailable),
+    do: %{"error" => %{"message" => "`aiur_subscribe` is unavailable in the current runtime context."}}
+
+  defp tool_error_payload(:unsubscriber_unavailable),
+    do: %{
+      "error" => %{
+        "message" => "`aiur_unsubscribe` is unavailable in the current runtime context."
+      }
+    }
 
   defp tool_error_payload(:custom_event_quota_exceeded) do
     %{

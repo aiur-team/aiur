@@ -20,7 +20,7 @@ defmodule Aiur.AgentRunner do
   }
 
   alias Aiur.Codex.DynamicTool
-  alias Aiur.Events.Publisher
+  alias Aiur.Events.{Publisher, SubscriptionStore}
 
   @type worker_host :: String.t() | nil
 
@@ -772,18 +772,41 @@ defmodule Aiur.AgentRunner do
         end,
         event_publisher: fn name, message, payload ->
           emit_agent_event(issue, name, message, payload)
-        end
+        end,
+        subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
+        unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end
       )
     end
   end
 
+  defp subscribe_for_issue(issue, pattern) do
+    case issue_identifier(issue) do
+      nil ->
+        {:error, :no_issue_identifier}
+
+      id ->
+        :ok = SubscriptionStore.attach(id)
+        SubscriptionStore.add_subscription(id, pattern, "manual:agent")
+    end
+  end
+
+  defp unsubscribe_for_issue(issue, pattern) do
+    case issue_identifier(issue) do
+      nil -> {:error, :no_issue_identifier}
+      id -> SubscriptionStore.remove_subscription(id, pattern)
+    end
+  end
+
+  defp issue_identifier(issue) do
+    cond do
+      is_binary(Map.get(issue, :id)) -> issue.id
+      is_binary(Map.get(issue, :identifier)) -> issue.identifier
+      true -> nil
+    end
+  end
+
   defp emit_agent_event(issue, name, message, payload) do
-    identifier =
-      cond do
-        is_binary(Map.get(issue, :id)) -> issue.id
-        is_binary(Map.get(issue, :identifier)) -> issue.identifier
-        true -> nil
-      end
+    identifier = issue_identifier(issue)
 
     topic =
       case identifier do

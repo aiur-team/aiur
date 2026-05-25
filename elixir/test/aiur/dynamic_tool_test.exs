@@ -42,7 +42,13 @@ defmodule Aiur.Codex.DynamicToolTest do
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql", "emit_alert", "emit_event"]
+               "supportedTools" => [
+                 "linear_graphql",
+                 "emit_alert",
+                 "emit_event",
+                 "aiur_subscribe",
+                 "aiur_unsubscribe"
+               ]
              }
            }
 
@@ -440,6 +446,57 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     test "tool_specs advertises emit_event" do
       assert Enum.any?(DynamicTool.tool_specs(), &(&1["name"] == "emit_event"))
+    end
+  end
+
+  describe "aiur_subscribe / aiur_unsubscribe" do
+    test "subscribe invokes injected closure with the topic pattern" do
+      test_pid = self()
+      stub = fn pattern -> send(test_pid, {:subscribed, pattern}); :ok end
+
+      response =
+        DynamicTool.execute(
+          "aiur_subscribe",
+          %{"topic_pattern" => "ticket.42.#"},
+          subscriber: stub
+        )
+
+      assert response["success"] == true
+      assert_receive {:subscribed, "ticket.42.#"}, 200
+    end
+
+    test "unsubscribe invokes injected closure" do
+      test_pid = self()
+      stub = fn pattern -> send(test_pid, {:unsubscribed, pattern}); :ok end
+
+      DynamicTool.execute(
+        "aiur_unsubscribe",
+        %{"topic_pattern" => "ticket.42.#"},
+        unsubscriber: stub
+      )
+
+      assert_receive {:unsubscribed, "ticket.42.#"}, 200
+    end
+
+    test "rejects empty / malformed patterns" do
+      stub = fn _ -> :ok end
+
+      for bad <- ["", ".bad", "bad.", "ticket..101"] do
+        r = DynamicTool.execute("aiur_subscribe", %{"topic_pattern" => bad}, subscriber: stub)
+        assert r["success"] == false
+      end
+    end
+
+    test "missing pattern returns error" do
+      stub = fn _ -> :ok end
+      r = DynamicTool.execute("aiur_subscribe", %{}, subscriber: stub)
+      assert r["success"] == false
+    end
+
+    test "missing injected closure returns unavailable error" do
+      r = DynamicTool.execute("aiur_subscribe", %{"topic_pattern" => "x"})
+      assert r["success"] == false
+      assert Jason.decode!(r["output"])["error"]["message"] =~ "unavailable"
     end
   end
 end
