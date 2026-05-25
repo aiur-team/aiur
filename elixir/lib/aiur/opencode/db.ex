@@ -264,10 +264,29 @@ defmodule Aiur.Opencode.Db do
   # — opencode only validates the regex `^(msg|prt|call)[A-Z0-9]+`.
   @alphabet ~c"0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
+  # opencode's TUI orders parts by lexical `id`, so multiple parts of the same
+  # message (step-start → body → step-finish) inserted within a single
+  # millisecond must produce IDs that sort in call order. The naive form
+  # (timestamp + random) breaks this when collisions occur within 1 ms —
+  # step-finish can land before the body part, and the renderer never reaches
+  # the body, leaving the assistant message visually empty. Follow the ULID
+  # monotonic rule: when the timestamp matches the prior call from this
+  # process, increment the entropy by 1 instead of regenerating it.
   defp prefixed_id(prefix) do
     time_ms = System.os_time(:millisecond)
-    entropy = :crypto.strong_rand_bytes(10)
-    prefix <> encode_base32(time_ms, 10) <> encode_base32(:binary.decode_unsigned(entropy), 16)
+    entropy = next_entropy(time_ms)
+    prefix <> encode_base32(time_ms, 10) <> encode_base32(entropy, 16)
+  end
+
+  defp next_entropy(time_ms) do
+    entropy =
+      case Process.get(:aiur_opencode_last_id) do
+        {^time_ms, last_entropy} -> last_entropy + 1
+        _ -> :binary.decode_unsigned(:crypto.strong_rand_bytes(10))
+      end
+
+    Process.put(:aiur_opencode_last_id, {time_ms, entropy})
+    entropy
   end
 
   defp encode_base32(value, width) when is_integer(value) and value >= 0 do
