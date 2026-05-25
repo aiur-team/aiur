@@ -22,6 +22,27 @@
   - `phase.review.end`
 - Emit milestone alerts when you actually enter or leave the corresponding phase, not retroactively.
 
+### Cross-ticket events (`emit_event`, `aiur_subscribe`, `aiur_declare_blocker`)
+
+Aiur agents on different tickets coordinate through a topic-exchange event bus. Use these tools to **make blocking explicit, surface decisions, and unblock others early**.
+
+1. **Events fire between turns, not during them.** When you receive an event from another ticket, it lands in your inbox and is delivered at the next turn boundary (or as an urgent mid-turn drain for blocking-critical events). Don't poll mid-turn — keep working, and trust the inbox.
+2. **Blocking another agent is your highest priority.** If you have an open decision or a stub another ticket is waiting on (you've been declared a blocker via `aiur_declare_blocker`), drop unrelated work and resolve that first. Other tickets are paused on you.
+3. **Temp-unblock yourself with stubs.** If you're blocked on a function from another ticket, write a stub matching the agreed signature, emit `unblocked` against your own ticket with `payload: {temporary_stub: true}`, and keep working. When the real implementation lands, swap the stub.
+4. **You can re-block.** If integrating an upstream change reveals a new blocker, call `aiur_declare_blocker(issue)` again. Aiur tracks dependency state via the GitHub native API; declarations are idempotent.
+5. **Close attentions you open.** Every `emit_event("attention.<slug>", ...)` adds a ❗ to your row in the agent list. The operator sees it and may reply via PR comment. When the question is resolved, emit `attention.resolved` with `payload: {slug: "<the-slug>"}` to clear it. Do not let attentions accumulate.
+6. **Subscribe to more than the defaults when useful.** `aiur_declare_blocker` auto-subscribes you to a useful default subset of the blocker's events. If you also want to watch another ticket's progress (e.g., a sibling working in the same area), call `aiur_subscribe("ticket.<id>.#")` explicitly.
+7. **Search before expanding scope.** Before you start work on a ticket-adjacent concern, search the event log (`aiur --logs <id>`) for recent `progress.*` / `decision.*` events on related tickets. Don't duplicate work another agent is already doing.
+
+Event vocabulary (allowlisted — names outside this list are rejected by `emit_event`):
+
+- `progress.<slug>` — milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`)
+- `decision.<slug>` — architectural choice worth broadcasting (`decision.use-amqp-matcher`)
+- `blocked` / `unblocked` — your work blocked / unblocked state changed
+- `attention.<slug>` — opens an operator ❗; resolved via `attention.resolved` with matching slug
+- `pause.request` — request operator pause your turn at the next checkpoint
+- `custom.<slug>` — anything else (capped at 5 per turn)
+
 ### Dev loop
 
 Branch off the latest `main` and run this loop:
