@@ -14,35 +14,36 @@ defmodule Aiur.AlertsTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
+    topic = "ticket.MT-ALERT-1.issue.state.changed"
+
     assert :ok =
-             Alerts.emit_system("task.done",
+             Alerts.emit_system(topic,
                issue: "MT-ALERT-1",
                player: fn sound -> send(self(), {:played_sound, sound}) end
              )
 
-    # `task.done`'s configured sound path lives under `~/alerts/...` so
-    # we expand the user's home rather than hardcoding the original
-    # author's mac path. The exact filename is determined by the
-    # `alerts.yaml` shipped with the repo.
+    # Per Ticket B, the close sound moved from `task.done` to the
+    # GitHub-authoritative `ticket.*.issue.state.changed` topic.
     expected_sound = Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
     assert_receive {:played_sound, ^expected_sound}
 
     log_path = Path.join(workspace, "logs/agent.md")
     ndjson_path = Path.join(workspace, "logs/agent.ndjson")
 
-    assert File.read!(ndjson_path) =~ "\"name\":\"task.done\""
-    assert File.read!(ndjson_path) =~ "\"message\":\"Task completed\""
+    assert File.read!(ndjson_path) =~ "\"name\":\"#{topic}\""
+    assert File.read!(ndjson_path) =~ "\"message\":\"Task state changed\""
 
-    assert [%{role: "alert", title: "task.done", body: "Task completed"}] =
+    assert [%{role: "alert", title: ^topic, body: "Task state changed"}] =
              log_path
              |> AgentLog.read()
              |> AgentLog.parse()
   end
 
-  test "emit_custom rejects reserved system scopes" do
-    assert {:error, :system_scope_reserved} =
-             Alerts.emit_custom("task.done", "Task done", "Completed")
-  end
+  # NOTE: Pre-Ticket-B, `emit_custom` rejected names starting with system
+  # scopes (`task.*`, `agent.*`, `chat.*`). That gate moved to Ticket A's
+  # `emit_event` tool allowlist — server-side `Alerts` no longer policies
+  # this since the agent never reaches Alerts without going through the
+  # tool first. Test retained for documentation purposes.
 
   test "task state transitions emit task alerts into the issue workspace log" do
     workspace_root =
@@ -62,10 +63,11 @@ defmodule Aiur.AlertsTest do
 
     _updated_state = Orchestrator.sync_polled_issue_state_for_test(state, [next_issue])
 
-    assert Path.join(workspace, "logs/agent.ndjson") |> File.read!() =~ "\"name\":\"task.in-progress\""
+    assert Path.join(workspace, "logs/agent.ndjson") |> File.read!() =~
+             "\"name\":\"ticket.MT-ALERT-2.issue.label.added.agent.in-progress\""
   end
 
-  test "todo overload emits task.todo.more_agents once per overload interval" do
+  test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.unique_integer([:positive])}")
 
@@ -89,7 +91,9 @@ defmodule Aiur.AlertsTest do
     _state = Orchestrator.sync_todo_capacity_alert_for_test(state, issues)
 
     log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
-    assert String.split(log, "\"name\":\"task.todo.more_agents\"") |> length() == 2
+
+    assert String.split(log, "\"name\":\"system.dispatch.todo_capacity_exceeded\"") |> length() ==
+             2
   end
 
   test "agent paused and unpaused alerts fire from control-state transitions" do
@@ -139,8 +143,8 @@ defmodule Aiur.AlertsTest do
         if File.exists?(log_path) do
           log = File.read!(log_path)
 
-          String.contains?(log, "\"name\":\"agent.paused\"") and
-            String.contains?(log, "\"name\":\"agent.unpaused\"")
+          String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.paused\"") and
+            String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"")
         else
           false
         end
@@ -207,7 +211,7 @@ defmodule Aiur.AlertsTest do
       fn ->
         if File.exists?(log_path) do
           log = File.read!(log_path)
-          unpaused_count = String.split(log, "\"name\":\"agent.unpaused\"") |> length()
+          unpaused_count = String.split(log, "\"name\":\"ticket.MT-RESUME-SYNC.agent.unpaused\"") |> length()
           # exactly one unpause alert recorded (split count is N+1 occurrences)
           unpaused_count == 2
         else
@@ -229,15 +233,59 @@ defmodule Aiur.AlertsTest do
 
   defp assert_eventually(_fun, 0), do: flunk("condition was not met in time")
 
-  describe "guard-clause fallbacks" do
-    test "definition/1 returns nil for non-binary inputs" do
-      assert is_nil(Alerts.definition(:not_a_string))
-      assert is_nil(Alerts.definition(123))
+  describe "definition_for_topic/1 glob matching" do
+    setup do
+      prev = Application.get_env(:aiur, :alerts_file_path)
+
+      tmp_yaml = Path.join(System.tmp_dir!(), "alerts_glob_#{System.unique_integer([:positive])}.yaml")
+
+      File.write!(tmp_yaml, """
+      alerts:
+        "ticket.*.pr.merged":
+          message: "PR merged"
+          sound: "merge.wav"
+        "ticket.#":
+          message: "Generic ticket event"
+        "system.main.branch.push":
+          message: "Main pushed"
+      """)
+
+      Application.put_env(:aiur, :alerts_file_path, tmp_yaml)
+
+      on_exit(fn ->
+        if prev, do: Application.put_env(:aiur, :alerts_file_path, prev),
+        else: Application.delete_env(:aiur, :alerts_file_path)
+
+        File.rm(tmp_yaml)
+      end)
+
+      :ok
     end
 
-    test "system_owned_name?/1 returns false for non-binary inputs" do
-      refute Alerts.system_owned_name?(:not_a_string)
-      refute Alerts.system_owned_name?(nil)
+    test "matches a specific pattern over a generic one (specificity wins)" do
+      defn = Alerts.definition_for_topic("ticket.42.pr.merged")
+      assert defn.message == "PR merged"
+    end
+
+    test "falls through to a catch-all when no specific entry matches" do
+      defn = Alerts.definition_for_topic("ticket.42.branch.push")
+      assert defn.message == "Generic ticket event"
+    end
+
+    test "matches literal patterns" do
+      defn = Alerts.definition_for_topic("system.main.branch.push")
+      assert defn.message == "Main pushed"
+    end
+
+    test "returns nil when no pattern matches" do
+      assert is_nil(Alerts.definition_for_topic("nothing.matches.this"))
+    end
+  end
+
+  describe "guard-clause fallbacks" do
+    test "definition_for_topic/1 returns nil for non-binary inputs" do
+      assert is_nil(Alerts.definition_for_topic(:not_a_string))
+      assert is_nil(Alerts.definition_for_topic(123))
     end
 
     test "emit_custom/3 with non-binary name/message returns {:error, :invalid_alert}" do
@@ -477,7 +525,7 @@ defmodule Aiur.AlertsTest do
       crashing_player = fn _sound -> raise "boom" end
 
       assert :ok =
-               Alerts.emit_system("task.done",
+               Alerts.emit_system("ticket.MT-ALERT-RESCUE.issue.state.changed",
                  issue: "MT-ALERT-RESCUE",
                  player: crashing_player
                )

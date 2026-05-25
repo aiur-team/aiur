@@ -784,7 +784,10 @@ defmodule Aiur.Orchestrator do
     current_state = state_slug(issue.state)
 
     if previous_state != current_state and current_state != nil do
-      Alerts.emit_system("task.#{current_state}",
+      # Ticket B: label-flip alerts route through the new topic shape so
+      # `alerts.yaml` can glob-match per state without one entry per state.
+      Alerts.emit_system(
+        "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
         issue: issue,
         worker_host: running_worker_host(state, issue.id)
       )
@@ -933,7 +936,8 @@ defmodule Aiur.Orchestrator do
          MapSet.member?(next_state.claimed, issue.id) do
       delay_ms = index * 1_000
       worker_host = running_worker_host(next_state, issue.id)
-      Process.send_after(self(), {:emit_system_alert, "task.todo", issue, worker_host}, delay_ms)
+      topic = "ticket.#{issue.identifier}.issue.label.added.agent.todo"
+      Process.send_after(self(), {:emit_system_alert, topic, issue, worker_host}, delay_ms)
       index + 1
     else
       index
@@ -2285,7 +2289,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_emit_agent_control_alert(:working, :paused, running_entry) when is_map(running_entry) do
-    Alerts.emit_system("agent.paused",
+    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.paused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host)
@@ -2293,7 +2297,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_emit_agent_control_alert(:paused, :working, running_entry) when is_map(running_entry) do
-    Alerts.emit_system("agent.unpaused",
+    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host)
@@ -2737,13 +2741,13 @@ defmodule Aiur.Orchestrator do
   defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
     case List.first(todo_issues) do
       %Issue{} = issue ->
-        Alerts.emit_system("task.todo.more_agents",
+        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
           issue: issue,
           worker_host: running_worker_host(state, issue.id)
         )
 
       _ ->
-        Alerts.emit_system("task.todo.more_agents")
+        Alerts.emit_system("system.dispatch.todo_capacity_exceeded")
     end
   end
 

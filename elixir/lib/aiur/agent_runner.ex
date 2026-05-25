@@ -884,7 +884,12 @@ defmodule Aiur.AgentRunner do
 
   defp maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do
-      Alerts.emit_system("agent.more_tokens", issue: issue, workspace: workspace, worker_host: worker_host)
+      Alerts.emit_system(
+        "ticket.#{issue.identifier}.agent.error.tokens_exhausted",
+        issue: issue,
+        workspace: workspace,
+        worker_host: worker_host
+      )
     end
 
     :ok
