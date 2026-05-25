@@ -1,6 +1,7 @@
 defmodule Aiur.Events.SubscriptionStoreTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Config.Paths
   alias Aiur.Events.{Exchange, SubscriptionStore}
   alias Aiur.JsonStore
 
@@ -42,7 +43,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
   end
 
   describe "add_subscription/3" do
-    test "writes file and registers with Exchange", %{identifier: id, tmp_dir: dir} do
+    test "writes file and registers with Exchange", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)
       :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "auto:test")
 
@@ -52,8 +53,12 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       assert entry["reason"] == "auto:test"
       assert is_integer(entry["subscription_created_at_event_id"])
 
-      # File on disk matches
-      path = Path.join(dir, "aiur." <> safe_id(id) <> ".subscriptions.json")
+      path =
+        Path.join(
+          Paths.log_root_dir(),
+          "#{Paths.repo_name()}.#{safe_id(id)}.subscriptions.json"
+        )
+
       {:ok, json} = JsonStore.read(path)
       assert [%{"topic" => "ticket.42.#"}] = json["subscribed_to"]
     end
@@ -187,30 +192,4 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
-  defp eventually_has_event?(pid, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    eventually_has_event?(pid, deadline, deadline)
-  end
-
-  defp eventually_has_event?(pid, deadline, _) do
-    now = System.monotonic_time(:millisecond)
-
-    cond do
-      now > deadline ->
-        false
-
-      true ->
-        {:messages, msgs} = Process.info(pid, :messages)
-
-        if Enum.any?(msgs, fn
-             {:event, _} -> true
-             _ -> false
-           end) do
-          true
-        else
-          Process.sleep(20)
-          eventually_has_event?(pid, deadline, deadline)
-        end
-    end
-  end
 end

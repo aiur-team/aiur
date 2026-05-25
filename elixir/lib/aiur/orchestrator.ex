@@ -97,7 +97,7 @@ defmodule Aiur.Orchestrator do
     config = Config.settings!()
 
     state = %State{
-      poll_interval_ms: config.polling.interval_ms,
+      poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
@@ -2579,7 +2579,7 @@ defmodule Aiur.Orchestrator do
 
     %{
       state
-      | poll_interval_ms: config.polling.interval_ms,
+      | poll_interval_ms: config.polling.interval_seconds * 1_000,
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
   end

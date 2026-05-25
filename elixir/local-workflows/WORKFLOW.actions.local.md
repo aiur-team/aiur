@@ -15,7 +15,7 @@ github:
   repo: ethereum-optimism/actions
   label_prefix: agent
 polling:
-  interval_ms: 5000
+  interval_seconds: 5
 server:
   host: 100.101.178.116
   port: 4001

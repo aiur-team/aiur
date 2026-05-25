@@ -1066,7 +1066,7 @@ defmodule Aiur.OrchestratorStatusTest do
   test "orchestrator triggers an immediate poll cycle shortly after startup" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      poll_interval_ms: 5_000
+      poll_interval_seconds: 5
     )
 
     orchestrator_name = Module.concat(__MODULE__, :ImmediateStartupOrchestrator)
@@ -1118,7 +1118,7 @@ defmodule Aiur.OrchestratorStatusTest do
   test "orchestrator poll cycle resets next refresh countdown after a check" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      poll_interval_ms: 50
+      poll_interval_seconds: 1
     )
 
     orchestrator_name = Module.concat(__MODULE__, :PollCycleOrchestrator)
@@ -1133,7 +1133,7 @@ defmodule Aiur.OrchestratorStatusTest do
     :sys.replace_state(pid, fn state ->
       %{
         state
-        | poll_interval_ms: 50,
+        | poll_interval_ms: 1_000,
           poll_check_in_progress: true,
           next_poll_due_at_ms: nil
       }
@@ -1143,8 +1143,8 @@ defmodule Aiur.OrchestratorStatusTest do
 
     snapshot =
       wait_for_snapshot(pid, fn
-        %{polling: %{checking?: false, poll_interval_ms: 50, next_poll_in_ms: next_poll_in_ms}}
-        when is_integer(next_poll_in_ms) and next_poll_in_ms <= 50 ->
+        %{polling: %{checking?: false, poll_interval_ms: 1_000, next_poll_in_ms: next_poll_in_ms}}
+        when is_integer(next_poll_in_ms) and next_poll_in_ms <= 1_000 ->
           true
 
         _ ->
@@ -1154,14 +1154,14 @@ defmodule Aiur.OrchestratorStatusTest do
     assert %{
              polling: %{
                checking?: false,
-               poll_interval_ms: 50,
+               poll_interval_ms: 1_000,
                next_poll_in_ms: next_poll_in_ms
              }
            } = snapshot
 
     assert is_integer(next_poll_in_ms)
     assert next_poll_in_ms >= 0
-    assert next_poll_in_ms <= 50
+    assert next_poll_in_ms <= 1_000
   end
 
   test "orchestrator enqueues operator messages and pause requests for the running agent task" do

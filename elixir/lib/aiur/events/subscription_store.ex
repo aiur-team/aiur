@@ -209,11 +209,6 @@ defmodule Aiur.Events.SubscriptionStore do
     end
   end
 
-  defp update_reason(%{"topic" => topic} = entry, topic, reason),
-    do: Map.put(entry, "reason", reason)
-
-  defp update_reason(entry, _topic, _reason), do: entry
-
   def handle_call({:remove_subscription, topic}, _from, state) do
     case Enum.find(state.subscribed_to, &(&1["topic"] == topic)) do
       nil ->
@@ -273,6 +268,11 @@ defmodule Aiur.Events.SubscriptionStore do
     _ = persist(state)
     :ok
   end
+
+  defp update_reason(%{"topic" => topic} = entry, topic, reason),
+    do: Map.put(entry, "reason", reason)
+
+  defp update_reason(entry, _topic, _reason), do: entry
 
   defp via(identifier), do: {:via, Registry, {@registry, identifier}}
 

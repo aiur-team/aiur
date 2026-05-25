@@ -94,9 +94,24 @@ defmodule Aiur.Config do
     settings!().tracker.terminal_states
   end
 
-  @spec poll_interval_ms() :: pos_integer()
-  def poll_interval_ms do
-    settings!().polling.interval_ms
+  @spec poll_interval_seconds() :: pos_integer()
+  def poll_interval_seconds do
+    settings!().polling.interval_seconds
+  end
+
+  @spec events_block_state_debounce_seconds() :: non_neg_integer()
+  def events_block_state_debounce_seconds do
+    settings!().events.block_state_debounce_seconds
+  end
+
+  @spec events_custom_events_per_turn_max() :: pos_integer()
+  def events_custom_events_per_turn_max do
+    settings!().events.custom_events_per_turn_max
+  end
+
+  @spec events_codeowners_refresh_seconds() :: pos_integer()
+  def events_codeowners_refresh_seconds do
+    settings!().events.codeowners_refresh_seconds
   end
 
   @spec workspace_root() :: Path.t()

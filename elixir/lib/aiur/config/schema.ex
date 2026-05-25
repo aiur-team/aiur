@@ -72,14 +72,46 @@ defmodule Aiur.Config.Schema do
 
     @primary_key false
     embedded_schema do
-      field(:interval_ms, :integer, default: 30_000)
+      field(:interval_seconds, :integer, default: 30)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      if Map.has_key?(attrs, "interval_ms") or Map.has_key?(attrs, :interval_ms) do
+        raise ArgumentError,
+              "polling.interval_ms is no longer supported; rename to interval_seconds " <>
+                "(value in seconds, not milliseconds)"
+      end
+
+      schema
+      |> cast(attrs, [:interval_seconds], empty_values: [])
+      |> validate_number(:interval_seconds, greater_than: 0)
+    end
+  end
+
+  defmodule Events do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:block_state_debounce_seconds, :integer, default: 10)
+      field(:custom_events_per_turn_max, :integer, default: 5)
+      field(:codeowners_refresh_seconds, :integer, default: 3_600)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:interval_ms], empty_values: [])
-      |> validate_number(:interval_ms, greater_than: 0)
+      |> cast(
+        attrs,
+        [:block_state_debounce_seconds, :custom_events_per_turn_max, :codeowners_refresh_seconds],
+        empty_values: []
+      )
+      |> validate_number(:block_state_debounce_seconds, greater_than_or_equal_to: 0)
+      |> validate_number(:custom_events_per_turn_max, greater_than: 0)
+      |> validate_number(:codeowners_refresh_seconds, greater_than: 0)
     end
   end
 
@@ -310,6 +342,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -405,6 +438,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
     |> cast_embed(:opencode, with: &Opencode.changeset/2)
+    |> cast_embed(:events, with: &Events.changeset/2)
   end
 
   defp finalize_settings(settings) do

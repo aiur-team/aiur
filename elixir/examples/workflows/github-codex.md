@@ -15,7 +15,7 @@ github:
   repo: your-org/your-repo
   label_prefix: agent
 polling:
-  interval_ms: 30000
+  interval_seconds: 30
 server:
   host: 127.0.0.1
   port: 4000

@@ -121,7 +121,7 @@ defmodule Aiur.TestSupport do
           tracker_label_prefix: nil,
           max_vertical_panes: 3,
           agent_kind: "codex",
-          poll_interval_ms: 30_000,
+          poll_interval_seconds: 30,
           workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
@@ -161,7 +161,7 @@ defmodule Aiur.TestSupport do
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     agent_kind = Keyword.get(config, :agent_kind)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
-    poll_interval_ms = Keyword.get(config, :poll_interval_ms)
+    poll_interval_seconds = Keyword.get(config, :poll_interval_seconds)
     workspace_root = Keyword.get(config, :workspace_root)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
     worker_max_concurrent_agents_per_host = Keyword.get(config, :worker_max_concurrent_agents_per_host)
@@ -212,7 +212,7 @@ defmodule Aiur.TestSupport do
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "polling:",
-        "  interval_ms: #{yaml_value(poll_interval_ms)}",
+        "  interval_seconds: #{yaml_value(poll_interval_seconds)}",
         "workspace:",
         "  root: #{yaml_value(workspace_root)}",
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
