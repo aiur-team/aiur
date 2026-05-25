@@ -211,6 +211,10 @@ Options:
   --port <N>           override the profile/workflow port for this invocation.
                        Without this, aiur auto-increments up to 9 ports when
                        the configured port is already in use.
+  build                force a clean rebuild: wipes _build/dev/ and
+                       re-runs `mix release --overwrite`. Use when the
+                       auto-rebuild (mtime check) misses a change or
+                       you suspect a stale BEAM is being loaded.
   --test               reset the 3-ticket events sandbox (per
                        .aiur-test-tickets.json) before launching. Composes
                        with the other flags, e.g. `aiur --test --debug --clear`
@@ -1364,6 +1368,13 @@ case "${1:-}" in
     exit 0
     ;;
   build)
+    # Force-rebuild: wipe the compiled BEAM cache + release artifacts
+    # before re-running `mix release`. Use this when auto-rebuild (mtime
+    # check on bin/aiur) misses a change, or when you suspect a stale
+    # module is being loaded from _build/. Safe to run anytime; takes
+    # ~30s longer than the mtime-driven path.
+    echo "aiur: clean force-rebuild (wiping _build/dev)…" >&2
+    rm -rf "$repo_root/elixir/_build/dev"
     ensure_elixir_deps "$repo_root/elixir"
     build_aiur "$repo_root/elixir"
     exit 0
