@@ -25,10 +25,10 @@ defmodule Aiur.AgentList.RendererTest do
     )
   end
 
-  test "renders the bordered AIUR STATUS title" do
+  test "renders the bordered AIUR title" do
     out = render(base_state()) |> visible()
 
-    assert out =~ "╭─ AIUR STATUS"
+    assert out =~ "╭─ AIUR"
     assert out =~ "╰"
   end
 

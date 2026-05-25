@@ -210,7 +210,7 @@ defmodule Aiur.AgentList.Renderer do
   # ---------- header / metadata ---------------------------------------------
 
   defp title_row(inner_width, refresh_label) do
-    title = "╭─ AIUR STATUS"
+    title = "╭─ AIUR"
     refresh = refresh_chip(refresh_label)
     refresh_visual = visual_width(refresh)
     title_visual = visual_width(title)
@@ -218,7 +218,7 @@ defmodule Aiur.AgentList.Renderer do
     pad_count = max(inner_width - title_visual - refresh_visual, 1)
     pad = String.duplicate(" ", pad_count)
 
-    # Title bolds the AIUR STATUS text; the refresh chip stays
+    # Title bolds the AIUR text; the refresh chip stays
     # cyan with a leading 🔄 emoji so the eye lands on the live state
     # indicator on the right. The plain ASCII "in" word keeps the
     # phrase readable in any terminal palette.
@@ -638,7 +638,12 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp padding_for(text, inner_width) do
-    visible = String.length(strip_ansi(text))
+    # Use visual_width, not String.length: emoji + CJK glyphs count as
+    # one grapheme but render as TWO terminal columns. Padding by
+    # grapheme count over-pads, the line exceeds inner_width, and the
+    # terminal wraps — which throws off our line-count bookkeeping and
+    # eventually scrolls the top of the pane off-screen.
+    visible = visual_width(strip_ansi(text))
     String.duplicate(" ", max(inner_width - visible, 0))
   end
 
@@ -799,7 +804,7 @@ defmodule Aiur.AgentList.Renderer do
 
   defp ticker_header_row(inner_width) do
     label = "  events (✉️ publish · 📥 receive · 📄 read)"
-    pad = max(inner_width - String.length(label), 0)
+    pad = max(inner_width - visual_width(label), 0)
     [IO.ANSI.faint(), label, String.duplicate(" ", pad), IO.ANSI.reset()]
   end
 
@@ -825,20 +830,39 @@ defmodule Aiur.AgentList.Renderer do
 
     text = "  #{glyph} #{topic}#{id_part}#{identifier_part}"
 
-    # Truncate / pad to inner_width. emoji glyphs are visually two
-    # columns wide in most terminals; we measure with String.length/1
-    # which counts grapheme clusters (1 per emoji), so the actual
-    # rendered width is slightly wider than the padding suggests —
-    # acceptable for a debug ticker.
+    # Measure visual columns (emoji = 2) so we truncate/pad without
+    # causing the terminal to wrap — wrapping would make this line
+    # count as 2 in the pane and overflow the geometry budget.
     truncated =
-      if String.length(text) > inner_width do
-        String.slice(text, 0, max(inner_width - 1, 0)) <> "…"
+      if visual_width(text) > inner_width do
+        truncate_visual(text, max(inner_width - 1, 0)) <> "…"
       else
         text
       end
 
-    pad = max(inner_width - String.length(truncated), 0)
+    pad = max(inner_width - visual_width(truncated), 0)
     [IO.ANSI.faint(), truncated, String.duplicate(" ", pad), IO.ANSI.reset()]
+  end
+
+  # Truncate a string to at most `limit` visual columns, splitting on
+  # grapheme boundaries (so we never cut an emoji mid-codepoint).
+  defp truncate_visual(text, limit) when limit <= 0, do: ""
+
+  defp truncate_visual(text, limit) do
+    {kept, _used} =
+      text
+      |> String.graphemes()
+      |> Enum.reduce_while({"", 0}, fn g, {acc, used} ->
+        w = grapheme_width(g)
+
+        if used + w > limit do
+          {:halt, {acc, used}}
+        else
+          {:cont, {acc <> g, used + w}}
+        end
+      end)
+
+    kept
   end
 
   defp clear_remaining(rows, lines_drawn) do
