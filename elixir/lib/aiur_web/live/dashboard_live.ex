@@ -540,7 +540,10 @@ defmodule AiurWeb.DashboardLive do
   defp format_chat_error(reason), do: inspect(reason)
 
   defp maybe_emit_chat_open(%{identifier: identifier, workspace_path: workspace_path}) do
-    Alerts.emit_system("chat.open", issue: identifier, workspace: workspace_path)
+    Alerts.emit_system("ticket.#{identifier}.chat.opened",
+      issue: identifier,
+      workspace: workspace_path
+    )
   end
 
   defp maybe_emit_chat_open(_entry), do: :ok
@@ -552,7 +555,7 @@ defmodule AiurWeb.DashboardLive do
         log_path -> log_path |> Path.dirname() |> Path.dirname()
       end
 
-    Alerts.emit_system("chat.close", issue: identifier, workspace: workspace)
+    Alerts.emit_system("ticket.#{identifier}.chat.closed", issue: identifier, workspace: workspace)
   end
 
   defp maybe_emit_chat_close(_modal), do: :ok

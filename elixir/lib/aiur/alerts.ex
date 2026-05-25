@@ -7,7 +7,7 @@ defmodule Aiur.Alerts do
   require Logger
 
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue}
-  alias Aiur.Events.Topic
+  alias Aiur.Events.{Publisher, Topic}
   alias AiurWeb.ObservabilityPubSub
 
   @alerts_path Path.expand("../../../alerts.yaml", __DIR__)
@@ -69,9 +69,14 @@ defmodule Aiur.Alerts do
 
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
 
-  defp do_emit(name, override_message, opts) do
-    config = definition_for_topic(name)
+  defp do_emit(topic, override_message, opts) do
+    config = definition_for_topic(topic)
     message = override_message || config_message(config)
+
+    # Always publish through the Exchange — even when there's no matching
+    # alert entry. Subscribers to the topic bus see every alert-emitted
+    # event, regardless of whether the operator-facing sound/badge fires.
+    publish_to_exchange(topic, message, opts)
 
     with {:ok, message} <- present_string(message, :missing_message) do
       selected_sound =
@@ -81,7 +86,7 @@ defmodule Aiur.Alerts do
 
       payload = %{
         "event" => "alert",
-        "name" => name,
+        "name" => topic,
         "message" => message,
         "sound" => selected_sound
       }
@@ -89,21 +94,41 @@ defmodule Aiur.Alerts do
       workspace = Keyword.get(opts, :workspace) || resolve_workspace(Keyword.get(opts, :issue))
       worker_host = Keyword.get(opts, :worker_host)
 
-      Logger.info("[alert]#{identifier_suffix(opts)} #{name}: #{message}")
+      Logger.info("[alert]#{identifier_suffix(opts)} #{topic}: #{message}")
 
       AgentEventLog.write(workspace, worker_host, %{
         event: :alert,
         timestamp: DateTime.utc_now(),
-        name: name,
+        name: topic,
         message: message,
         sound: selected_sound,
         raw: Jason.encode!(payload)
       })
 
       maybe_play_sound(selected_sound, opts)
-      broadcast_agent_alert(name, message, selected_sound, opts)
+      broadcast_agent_alert(topic, message, selected_sound, opts)
       ObservabilityPubSub.broadcast_update()
       :ok
+    end
+  end
+
+  defp publish_to_exchange(topic, message, opts) do
+    Publisher.publish(topic, %{"message" => message || "", "source" => "alert"},
+      issue_number: issue_number_for(opts)
+    )
+
+    :ok
+  rescue
+    # Publisher GenServer may not be running during early-boot or test
+    # configurations — never block the alert pipeline on its absence.
+    _ -> :ok
+  end
+
+  defp issue_number_for(opts) do
+    case Keyword.get(opts, :issue) do
+      %Issue{identifier: id} when is_binary(id) -> id
+      id when is_binary(id) -> id
+      _ -> nil
     end
   end
 

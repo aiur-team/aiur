@@ -14,26 +14,26 @@ defmodule Aiur.AlertsTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
+    topic = "ticket.MT-ALERT-1.issue.state.changed"
+
     assert :ok =
-             Alerts.emit_system("task.done",
+             Alerts.emit_system(topic,
                issue: "MT-ALERT-1",
                player: fn sound -> send(self(), {:played_sound, sound}) end
              )
 
-    # `task.done`'s configured sound path lives under `~/alerts/...` so
-    # we expand the user's home rather than hardcoding the original
-    # author's mac path. The exact filename is determined by the
-    # `alerts.yaml` shipped with the repo.
+    # Per Ticket B, the close sound moved from `task.done` to the
+    # GitHub-authoritative `ticket.*.issue.state.changed` topic.
     expected_sound = Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
     assert_receive {:played_sound, ^expected_sound}
 
     log_path = Path.join(workspace, "logs/agent.md")
     ndjson_path = Path.join(workspace, "logs/agent.ndjson")
 
-    assert File.read!(ndjson_path) =~ "\"name\":\"task.done\""
-    assert File.read!(ndjson_path) =~ "\"message\":\"Task completed\""
+    assert File.read!(ndjson_path) =~ "\"name\":\"#{topic}\""
+    assert File.read!(ndjson_path) =~ "\"message\":\"Task state changed\""
 
-    assert [%{role: "alert", title: "task.done", body: "Task completed"}] =
+    assert [%{role: "alert", title: ^topic, body: "Task state changed"}] =
              log_path
              |> AgentLog.read()
              |> AgentLog.parse()
@@ -63,10 +63,11 @@ defmodule Aiur.AlertsTest do
 
     _updated_state = Orchestrator.sync_polled_issue_state_for_test(state, [next_issue])
 
-    assert Path.join(workspace, "logs/agent.ndjson") |> File.read!() =~ "\"name\":\"task.in-progress\""
+    assert Path.join(workspace, "logs/agent.ndjson") |> File.read!() =~
+             "\"name\":\"ticket.MT-ALERT-2.issue.label.added.agent.in-progress\""
   end
 
-  test "todo overload emits task.todo.more_agents once per overload interval" do
+  test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.unique_integer([:positive])}")
 
@@ -90,7 +91,9 @@ defmodule Aiur.AlertsTest do
     _state = Orchestrator.sync_todo_capacity_alert_for_test(state, issues)
 
     log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
-    assert String.split(log, "\"name\":\"task.todo.more_agents\"") |> length() == 2
+
+    assert String.split(log, "\"name\":\"system.dispatch.todo_capacity_exceeded\"") |> length() ==
+             2
   end
 
   test "agent paused and unpaused alerts fire from control-state transitions" do
@@ -140,8 +143,8 @@ defmodule Aiur.AlertsTest do
         if File.exists?(log_path) do
           log = File.read!(log_path)
 
-          String.contains?(log, "\"name\":\"agent.paused\"") and
-            String.contains?(log, "\"name\":\"agent.unpaused\"")
+          String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.paused\"") and
+            String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"")
         else
           false
         end
@@ -208,7 +211,7 @@ defmodule Aiur.AlertsTest do
       fn ->
         if File.exists?(log_path) do
           log = File.read!(log_path)
-          unpaused_count = String.split(log, "\"name\":\"agent.unpaused\"") |> length()
+          unpaused_count = String.split(log, "\"name\":\"ticket.MT-RESUME-SYNC.agent.unpaused\"") |> length()
           # exactly one unpause alert recorded (split count is N+1 occurrences)
           unpaused_count == 2
         else
@@ -522,7 +525,7 @@ defmodule Aiur.AlertsTest do
       crashing_player = fn _sound -> raise "boom" end
 
       assert :ok =
-               Alerts.emit_system("task.done",
+               Alerts.emit_system("ticket.MT-ALERT-RESCUE.issue.state.changed",
                  issue: "MT-ALERT-RESCUE",
                  player: crashing_player
                )
