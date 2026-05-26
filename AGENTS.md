@@ -106,6 +106,46 @@ Do not commit:
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
 
+## Manual testing — the only definition
+
+When the user (or any doc) says "manually test", "run aiur and try it",
+"verify end to end", "see if it works", or anything in that family, the
+**only acceptable verification** is to drive the real CLI:
+
+1. **Launch the actual CLI**: `scripts/aiur --test --force --allow-remote`
+   (or whichever flags the scenario calls for). This must spawn the real
+   release binary, the tmux session, opencode-serves, and opencode-attach
+   TUI panes — not just the BEAM and not a one-off `mix run`.
+2. **Drive the TUI like a user would.** Press keys, open chat panes
+   (Enter on an agent row), type messages into the chat input, navigate
+   between panes. From a non-TTY agent environment, use `tmux send-keys`
+   on the live `aiur-orangekid` socket — that **is** how a user
+   interacts; `setsid` is fine for spawning, but interaction must hit
+   the running tmux session, not a separate shell.
+3. **Observe what a user actually sees.** Read the rendered chat-pane
+   content via `tmux capture-pane -p -t <pane>`. Look for the intended
+   UX content: real agent prose, `$ command` lines, `→ tool_call`
+   markers, `_reasoning_` text, incoming-event rows, outgoing
+   aiur-tool-call rows, etc. — whatever the feature was supposed to
+   render.
+4. **End-to-end means end-to-end.** Send operator messages through the
+   TUI input box (the path a user takes), not via `curl POST
+   /api/v1/<id>/messages`. The HTTP API exercises a small subset of the
+   delivery path and routinely behaves differently than the TUI input
+   path — verifying the API is verifying the API, not the UX.
+5. **Inspecting logs and SSE bridge events is NOT manual testing.**
+   Logs prove *that internal events fired*. Manual testing proves
+   *that the operator sees the right thing on screen*. Both are useful;
+   only the second satisfies "manually tested".
+
+**Do not report a feature as "working", "verified", or "shipped" until
+you have run `aiur --test` end to end, opened a chat pane, and observed
+the rendered output you'd expect a user to see.** "Tests pass + logs
+look right + tmux capture-pane shows a header" is necessary but not
+sufficient. If you can't run the TUI in your environment (no tmux
+socket, no shell access to `scripts/aiur`), say so explicitly and stop
+— do not silently substitute HTTP or log proxies.
+
 ## Sibling: `aiur-claude`
 
 Claude support is provided by a sibling repository (a Node-based JSON-RPC
