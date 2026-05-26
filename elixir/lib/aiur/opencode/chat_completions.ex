@@ -5,6 +5,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   alias Aiur.{AgentChat, AgentPubSub}
   alias Aiur.Events.DebugLog
+
   alias Aiur.Opencode.{
     ActiveTurns,
     Config,
@@ -13,7 +14,6 @@ defmodule Aiur.Opencode.ChatCompletions do
     SessionWriterRegistry,
     Slot,
     SlotRegistry,
-    Style,
     TokenRegistry
   }
 
@@ -155,21 +155,23 @@ defmodule Aiur.Opencode.ChatCompletions do
         codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
 
       # R2 live render — cross-ticket event ticker row for THIS agent.
-      # DebugLog broadcasts on a global topic; filter by identifier and
-      # silently drop entries scoped to other agents. The row content
-      # is dimmed via `EventRow.from/1`'s `Style.dim/1` wrap.
-      {:event_debug, %{identifier: ^identifier} = entry} ->
-        case EventRow.from(entry) do
-          nil ->
-            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+      # DebugLog broadcasts on a global topic; filter via
+      # `EventRow.matches?/2` (identifier match OR topic prefix match)
+      # and silently drop entries scoped to other agents. The row
+      # content is wrapped via `EventRow.from/1`'s `Style.dim/1`.
+      {:event_debug, entry} ->
+        if EventRow.matches?(entry, identifier) do
+          case EventRow.from(entry) do
+            nil ->
+              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
 
-          body ->
-            conn = chunk(conn, completion_id, "\n#{body}\n", nil)
-            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+            body ->
+              conn = chunk(conn, completion_id, "\n#{body}\n", nil)
+              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+          end
+        else
+          codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
         end
-
-      {:event_debug, _entry} ->
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
 
       {:aiur_turn_done, ^identifier, ^aiur_turn_id, reason} ->
         Logger.info("opencode_bridge turn_stream_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
@@ -230,13 +232,22 @@ defmodule Aiur.Opencode.ChatCompletions do
   # bash command line) and let SessionWriter's SQL write carry the full
   # tool-part shape for re-attach rendering. Newlines bracket each event
   # so opencode shows them as discrete blocks.
-  # `format_delta/2` is public-by-test-need so the U5 dim-wrap assertions
-  # can hit it without going through the Plug.Conn surface.
+  # `format_delta/2` is public-by-test-need so U5 wrap assertions can
+  # hit it without going through the Plug.Conn surface.
+  #
+  # NOTE on R4 dim styling: probe against opencode-attach 1.15.x
+  # showed ANSI dim escapes (`\\e[2m...`) rendering as literal
+  # characters, not as visual dim. Command and tool deltas stay in
+  # Markdown code-fences (which opencode renders subdued); reasoning
+  # stays in Markdown italics (`_..._`). Event ticker rows from
+  # `Aiur.Opencode.EventRow` use `Aiur.Opencode.Style.dim/1` which
+  # wraps in a Markdown blockquote — the same visual vocabulary as
+  # `:system` and `:alert` deltas below.
   @doc false
   @spec format_delta(atom(), String.t()) :: String.t()
-  def format_delta(:command, body), do: "\n" <> Style.dim("$ #{body}") <> "\n"
-  def format_delta(:tool, body), do: "\n" <> Style.dim("→ #{body}") <> "\n"
-  def format_delta(:reasoning, body), do: "\n" <> Style.dim(body) <> "\n"
+  def format_delta(:command, body), do: "\n```\n$ #{body}\n```\n"
+  def format_delta(:tool, body), do: "\n```\n→ #{body}\n```\n"
+  def format_delta(:reasoning, body), do: "\n_#{body}_\n"
   def format_delta(:alert, body), do: "\n> 🔔 #{body}\n"
   def format_delta(:system, body), do: "\n> #{body}\n"
   def format_delta(_role, body), do: body
@@ -318,10 +329,16 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp send_operator(identifier, text, turn_id) do
-    # Chat UX expects messages to interrupt the active turn; `:checkpoint` queues until a safe boundary.
+    # Always queue for the next safe checkpoint. The `:interrupt` policy
+    # races codex's turn boundary: when the active turn settles before the
+    # interrupt RPC lands, codex returns `turn_interrupt_failed: no active
+    # turn to interrupt`, which propagates back through the bridge SSE and
+    # can leave opencode-attach showing the slot sentinel. Queueing is the
+    # same behavior native codex/claude CLIs ship: a user message lands at
+    # the next turn boundary. Wait-time impact is measured by
+    # `Aiur.OperatorWaitLog` so we can revisit if the UX cost is too high.
     AgentChat.send(identifier, text,
-      delivery_policy: :interrupt,
-      fallback: :queue_next,
+      delivery_policy: :checkpoint,
       turn_id: turn_id
     )
   end

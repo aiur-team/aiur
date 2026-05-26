@@ -59,6 +59,7 @@ defmodule Aiur.Application do
         Aiur.Events.Publisher,
         {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
         Aiur.Events.SubscriptionStoreSupervisor,
+        Aiur.OperatorWaitLog,
         Aiur.Orchestrator,
         Aiur.HttpServer,
         Aiur.Opencode.TokenRegistry,

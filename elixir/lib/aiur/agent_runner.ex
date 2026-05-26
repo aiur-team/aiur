@@ -14,6 +14,7 @@ defmodule Aiur.AgentRunner do
     Config,
     Issue,
     IssueLog,
+    OperatorWaitLog,
     PromptBuilder,
     Tracker,
     Workspace
@@ -486,6 +487,7 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_queue_item_turn(app_session, issue, item, _message_handler, orchestrator, codex_update_recipient) do
+    record_operator_delivery(item, issue)
     text = queue_item_text(item)
     turn_id = queue_item_turn_id(item)
     workspace = session_workspace(app_session)
@@ -538,6 +540,13 @@ defmodule Aiur.AgentRunner do
   defp queue_item_turn_id(%{turn_id: turn_id}) when is_binary(turn_id), do: turn_id
   defp queue_item_turn_id(%{body: %{turn_id: turn_id}}) when is_binary(turn_id), do: turn_id
   defp queue_item_turn_id(_item), do: nil
+
+  defp record_operator_delivery(%{category: :operator_message, id: request_id}, %{identifier: identifier})
+       when is_integer(request_id) and is_binary(identifier) do
+    OperatorWaitLog.record_delivered(request_id, identifier)
+  end
+
+  defp record_operator_delivery(_item, _issue), do: :ok
 
   defp queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
 
