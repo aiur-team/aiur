@@ -199,29 +199,16 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   # Cross-ticket event ticker row (R2 of the chat-pane follow-ups plan).
-  # DebugLog broadcasts on a global topic; filter to entries scoped to
-  # THIS agent's identifier. Dedup against re-deliveries by event_id.
-  def handle_info({:event_debug, %{identifier: ident} = entry}, %{identifier: ident} = state)
-      when not is_nil(ident) do
-    id = Map.get(entry, :id)
-
-    cond do
-      is_nil(id) ->
-        # No event id → no dedup possible. Render anyway; the in-memory
-        # MapSet only protects against re-deliveries, not first writes.
-        write_event_row(state, entry)
-
-      MapSet.member?(state.seen_event_ids, id) ->
-        {:noreply, state}
-
-      true ->
-        case write_event_row(state, entry) do
-          {:noreply, new_state} -> {:noreply, remember_event_id(new_state, id)}
-        end
+  # DebugLog broadcasts on a global topic; filter via
+  # `EventRow.matches?/2` (identifier match OR topic prefix match).
+  # Dedup against re-deliveries by event_id.
+  def handle_info({:event_debug, entry}, state) do
+    if EventRow.matches?(entry, state.identifier) do
+      handle_matching_event_debug(state, entry)
+    else
+      {:noreply, state}
     end
   end
-
-  def handle_info({:event_debug, _entry}, state), do: {:noreply, state}
 
   def handle_info(_other, state), do: {:noreply, state}
 
@@ -483,6 +470,25 @@ defmodule Aiur.Opencode.SessionWriter do
 
   # --- event-row helpers (R2 from chat-pane follow-ups plan) ---------------
 
+  defp handle_matching_event_debug(state, entry) do
+    id = Map.get(entry, :id)
+
+    cond do
+      is_nil(id) ->
+        # No event id → no dedup possible. Render anyway; the in-memory
+        # MapSet only protects against re-deliveries, not first writes.
+        write_event_row(state, entry)
+
+      MapSet.member?(state.seen_event_ids, id) ->
+        {:noreply, state}
+
+      true ->
+        case write_event_row(state, entry) do
+          {:noreply, new_state} -> {:noreply, remember_event_id(new_state, id)}
+        end
+    end
+  end
+
   defp write_event_row(state, entry) do
     case EventRow.from(entry) do
       nil ->
@@ -494,9 +500,7 @@ defmodule Aiur.Opencode.SessionWriter do
             {:noreply, state}
 
           {:error, reason} ->
-            Logger.warning(
-              "opencode_session_writer event_row_failed identifier=#{state.identifier} kind=#{inspect(entry[:kind])} reason=#{inspect(reason)}"
-            )
+            Logger.warning("opencode_session_writer event_row_failed identifier=#{state.identifier} kind=#{inspect(entry[:kind])} reason=#{inspect(reason)}")
 
             {:noreply, state}
         end

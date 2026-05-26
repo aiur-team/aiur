@@ -22,6 +22,31 @@ defmodule Aiur.Opencode.EventRow do
   alias Aiur.Opencode.Style
 
   @doc """
+  Does this `DebugLog` entry belong to `identifier`'s chat pane?
+
+  - If the entry carries an explicit `identifier` (the case for
+    `:receive` from SubscriptionStore and `:read` from agent_runner),
+    match on it directly.
+  - If the entry has no identifier (the case for `:publish` from
+    `Aiur.Events.Publisher`, which only knows the topic), match by
+    parsing the topic prefix: `ticket.<id>.<surface>.<verb>` belongs
+    to ticket `<id>`.
+
+  Returns `false` for entries that don't belong to this identifier.
+  """
+  @spec matches?(map(), String.t()) :: boolean()
+  def matches?(%{identifier: ident}, identifier)
+      when not is_nil(ident) and is_binary(identifier),
+      do: ident == identifier
+
+  def matches?(%{topic: topic}, identifier)
+      when is_binary(topic) and is_binary(identifier) do
+    String.starts_with?(topic, "ticket.#{identifier}.")
+  end
+
+  def matches?(_entry, _identifier), do: false
+
+  @doc """
   Format a `DebugLog` entry as a chat-pane ticker row, dimmed.
 
   Returns the rendered string ready for chunking via SSE or for
