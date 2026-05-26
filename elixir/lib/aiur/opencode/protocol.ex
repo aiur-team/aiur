@@ -278,6 +278,47 @@ defmodule Aiur.Opencode.Protocol do
   end
 
   @doc """
+  System-role message data — used for one-line ticker rows that should
+  render without the `▣ Build · issue-N` chrome that `assistant_message_data/1`
+  produces. Used by `SessionWriter` for cross-ticket event rows
+  (📥/📤/📄) so the operator can distinguish coordination signals from
+  agent turn output.
+
+  Omits `mode` and `agent` (which together drive the build chrome in
+  opencode-attach). The probe in U3 of the chat-pane follow-ups plan
+  confirms this renders distinctly; if opencode-attach renders these
+  the same as assistant rows, fall back to a distinct `modelID` (e.g.
+  `"events"`) to differentiate.
+
+  `attrs` keys: `identifier`, `parent_id`, optional `cwd`, optional `finish`.
+  """
+  @spec system_message_data(map()) :: map()
+  def system_message_data(%{identifier: identifier, parent_id: parent_id} = attrs) do
+    now_ms = System.os_time(:millisecond)
+    safe_id = Config.safe_identifier(identifier)
+    cwd = Map.get(attrs, :cwd, "/")
+    finish = Map.get(attrs, :finish, "stop")
+
+    %{
+      "parentID" => parent_id,
+      "role" => "system",
+      "path" => %{"cwd" => cwd, "root" => "/"},
+      "cost" => 0,
+      "tokens" => %{
+        "total" => 0,
+        "input" => 0,
+        "output" => 0,
+        "reasoning" => 0,
+        "cache" => %{"write" => 0, "read" => 0}
+      },
+      "modelID" => "events-#{safe_id}",
+      "providerID" => "aiur",
+      "time" => %{"created" => now_ms, "completed" => now_ms},
+      "finish" => finish
+    }
+  end
+
+  @doc """
   Plain text part data. `opts[:synthetic]` marks the part synthetic so
   opencode's TUI styles it differently (or hides it, depending on theme).
   """

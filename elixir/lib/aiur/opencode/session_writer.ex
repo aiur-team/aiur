@@ -34,7 +34,8 @@ defmodule Aiur.Opencode.SessionWriter do
   require Logger
 
   alias Aiur.{AgentPubSub, IssueLog}
-  alias Aiur.Opencode.{Db, Protocol}
+  alias Aiur.Events.DebugLog
+  alias Aiur.Opencode.{Db, EventRow, Protocol}
 
   # Sweep open turn buffers every 60s; finalize any whose last event
   # is older than this threshold. Bounds memory if codex never sends
@@ -47,8 +48,20 @@ defmodule Aiur.Opencode.SessionWriter do
     :session_id,
     :base_url,
     :root_msg_id,
-    turns: %{}
+    turns: %{},
+    # Tracks event_ids we've already persisted as cross-ticket ticker
+    # rows (R2 from the chat-pane follow-ups plan). SubscriptionStore's
+    # at-least-once delivery may re-broadcast `:receive`; the agent's
+    # queue may re-deliver `events_digest`. The MapSet caps memory and
+    # keeps double-writes out of opencode SQL.
+    seen_event_ids: MapSet.new()
   ]
+
+  # Soft cap for `seen_event_ids` — matches the IssueLog history-pull
+  # window. Older ids may evict; very-late re-deliveries beyond the cap
+  # could double-write (acceptable failure mode given DebugLog's
+  # in-process broadcast contract).
+  @seen_event_ids_cap 500
 
   @spec child_spec(map()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -129,6 +142,12 @@ defmodule Aiur.Opencode.SessionWriter do
     # the next attach.
     root_msg_id = replay_history(state)
     :ok = AgentPubSub.subscribe_agent(state.identifier)
+    # Subscribe to the cross-ticket event debug stream so we can persist
+    # 📥/📤/📄 ticker rows for this agent on every DebugLog mark whose
+    # `identifier` matches ours. The filter happens in handle_info —
+    # DebugLog's topic is process-global so we receive every agent's
+    # marks and skip the ones that aren't ours.
+    :ok = DebugLog.subscribe()
 
     schedule_turn_sweep()
 
@@ -178,6 +197,31 @@ defmodule Aiur.Opencode.SessionWriter do
     schedule_turn_sweep()
     {:noreply, sweep_stale_turns(state)}
   end
+
+  # Cross-ticket event ticker row (R2 of the chat-pane follow-ups plan).
+  # DebugLog broadcasts on a global topic; filter to entries scoped to
+  # THIS agent's identifier. Dedup against re-deliveries by event_id.
+  def handle_info({:event_debug, %{identifier: ident} = entry}, %{identifier: ident} = state)
+      when not is_nil(ident) do
+    id = Map.get(entry, :id)
+
+    cond do
+      is_nil(id) ->
+        # No event id → no dedup possible. Render anyway; the in-memory
+        # MapSet only protects against re-deliveries, not first writes.
+        write_event_row(state, entry)
+
+      MapSet.member?(state.seen_event_ids, id) ->
+        {:noreply, state}
+
+      true ->
+        case write_event_row(state, entry) do
+          {:noreply, new_state} -> {:noreply, remember_event_id(new_state, id)}
+        end
+    end
+  end
+
+  def handle_info({:event_debug, _entry}, state), do: {:noreply, state}
 
   def handle_info(_other, state), do: {:noreply, state}
 
@@ -400,6 +444,88 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   defp write_standalone_in_txn(_conn, _state, _event), do: {:error, :unsupported_role}
+
+  # System-role standalone message — used for cross-ticket event ticker
+  # rows (R2 of the chat-pane follow-ups plan). Bypasses
+  # `assistant_message_data`'s `mode: build` / `agent: build` fields so
+  # opencode-attach renders the row without the `▣ Build · issue-N`
+  # chrome that wraps codex turn messages.
+  defp write_system_standalone(state, body) when is_binary(body) do
+    Db.with_conn(fn conn -> write_system_standalone_in_txn(conn, state, body) end)
+  end
+
+  defp write_system_standalone_in_txn(conn, state, body) do
+    message_id = Db.msg_id()
+    step_start_id = Db.prt_id()
+    text_part_id = Db.prt_id()
+    step_finish_id = Db.prt_id()
+
+    all_parts = [
+      {step_start_id, Protocol.step_start_part_data()},
+      {text_part_id, Protocol.text_part_data(body)},
+      {step_finish_id, Protocol.step_finish_part_data(reason: "stop")}
+    ]
+
+    with :ok <-
+           Db.insert_message(
+             conn,
+             state.session_id,
+             message_id,
+             Protocol.system_message_data(%{
+               identifier: state.identifier,
+               parent_id: state.root_msg_id || Db.msg_id()
+             })
+           ),
+         :ok <- insert_part_list(conn, state.session_id, message_id, all_parts) do
+      {:ok, message_id}
+    end
+  end
+
+  # --- event-row helpers (R2 from chat-pane follow-ups plan) ---------------
+
+  defp write_event_row(state, entry) do
+    case EventRow.from(entry) do
+      nil ->
+        {:noreply, state}
+
+      body ->
+        case write_system_standalone(state, body) do
+          {:ok, _message_id} ->
+            {:noreply, state}
+
+          {:error, reason} ->
+            Logger.warning(
+              "opencode_session_writer event_row_failed identifier=#{state.identifier} kind=#{inspect(entry[:kind])} reason=#{inspect(reason)}"
+            )
+
+            {:noreply, state}
+        end
+    end
+  end
+
+  defp remember_event_id(state, id) do
+    seen = MapSet.put(state.seen_event_ids, id)
+
+    seen =
+      if MapSet.size(seen) > @seen_event_ids_cap do
+        # Cap exceeded — drop a single arbitrary element. MapSet eviction
+        # isn't strictly ordered but the cap exists only to bound memory;
+        # very-late re-deliveries beyond the cap could double-write
+        # (acceptable per the plan's risk table).
+        {dropped, smaller} = pop_any(seen)
+        _ = dropped
+        smaller
+      else
+        seen
+      end
+
+    %{state | seen_event_ids: seen}
+  end
+
+  defp pop_any(set) do
+    [first | _] = MapSet.to_list(set)
+    {first, MapSet.delete(set, first)}
+  end
 
   # --- part-data builders --------------------------------------------------
 

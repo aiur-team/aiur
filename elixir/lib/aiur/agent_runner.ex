@@ -566,6 +566,17 @@ defmodule Aiur.AgentRunner do
        })
        when is_list(events) do
     rendered_events = Enum.map_join(events, "\n", &render_event_line/1)
+
+    # Mirror the broadcast loop from the target_issue_identifier clause
+    # above. Without this, events folded via the fallback path produce
+    # zero `📄` rows in the chat pane / agent_list ticker.
+    # (R2.4 of the chat-pane follow-ups plan.)
+    for event <- events do
+      topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+      id = Map.get(event, :id) || Map.get(event, "id")
+      DebugLog.broadcast(:read, topic, id: id, identifier: nil)
+    end
+
     "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"
   end
 

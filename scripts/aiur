@@ -69,11 +69,14 @@ for arg in "$@"; do
       ;;
     --test)
       test_mode=1
-      # --test always implies --debug and --clear: when you're testing
-      # you want a fresh, debug-instrumented run by default. Override is
-      # not supported (the test flow assumes both are set).
+      # --test always implies --debug, --clear, AND --force: when you're
+      # testing you want a fresh, debug-instrumented, rebuilt run by
+      # default. Stale _build/ silently masking shipped work was a
+      # repeated source of "feature didn't ship" confusion; force-rebuild
+      # is the right default. Override is not supported.
       debug_mode=1
       clear_mode=1
+      test_force=1
       ;;
     --force)
       test_force=1
@@ -210,7 +213,9 @@ With run, stop a profile's background service and run that profile in the foregr
 With a profile name, attach to its existing session or run that profile's workflow in the foreground.
 With --bg, restart background services only and return. Defaults to the default profile.
 With all, restart the other configured services and run the default profile in the foreground.
-With stop, stop a profile, every profile, or ad hoc foreground Aiur processes.
+With stop, stop a backgrounded profile (`aiur --bg ...`) or every profile.
+Foregrounded runs (`aiur`, `aiur --test`, etc.) self-clean on exit via the
+script's EXIT/INT/TERM/HUP trap — `aiur stop` is not needed for those.
 
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).

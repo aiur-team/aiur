@@ -4,7 +4,18 @@ defmodule Aiur.Opencode.ChatCompletions do
   require Logger
 
   alias Aiur.{AgentChat, AgentPubSub}
-  alias Aiur.Opencode.{ActiveTurns, Config, Db, SessionWriterRegistry, Slot, SlotRegistry, TokenRegistry}
+  alias Aiur.Events.DebugLog
+  alias Aiur.Opencode.{
+    ActiveTurns,
+    Config,
+    Db,
+    EventRow,
+    SessionWriterRegistry,
+    Slot,
+    SlotRegistry,
+    Style,
+    TokenRegistry
+  }
 
   @stream_marker_prefix "__aiur_stream__:"
   @stream_marker_regex ~r/\A__aiur_stream__:(msg_[A-Z0-9]+)\z/
@@ -91,6 +102,11 @@ defmodule Aiur.Opencode.ChatCompletions do
     # Subscribe first so a close broadcast that races our ActiveTurns
     # lookup still lands in the mailbox; we drain it inside the loop.
     :ok = AgentPubSub.subscribe_agent(identifier)
+    # Subscribe to the cross-ticket event debug stream for the duration
+    # of this codex turn so 📥/📤/📄 ticker rows for THIS agent get
+    # chunked inline in the active assistant message (R2 live render).
+    # Filtering by identifier happens in the receive clause.
+    :ok = DebugLog.subscribe()
 
     conn =
       conn
@@ -105,6 +121,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
       {:closed, reason} ->
         Logger.info("opencode_bridge turn_stream_late_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
+        _ = DebugLog.unsubscribe()
         finalize_stream(conn, completion_id, reason)
 
       :not_found ->
@@ -113,6 +130,7 @@ defmodule Aiur.Opencode.ChatCompletions do
         # whose run_turn never completed. Close without rendering the
         # 10-minute watchdog notice.
         Logger.info("opencode_bridge turn_stream_phantom identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
+        _ = DebugLog.unsubscribe()
         finalize_stream(conn, completion_id, :done)
     end
   end
@@ -136,9 +154,26 @@ defmodule Aiur.Opencode.ChatCompletions do
       {:transcript_event, %{role: :user}} ->
         codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
 
+      # R2 live render — cross-ticket event ticker row for THIS agent.
+      # DebugLog broadcasts on a global topic; filter by identifier and
+      # silently drop entries scoped to other agents. The row content
+      # is dimmed via `EventRow.from/1`'s `Style.dim/1` wrap.
+      {:event_debug, %{identifier: ^identifier} = entry} ->
+        case EventRow.from(entry) do
+          nil ->
+            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+
+          body ->
+            conn = chunk(conn, completion_id, "\n#{body}\n", nil)
+            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+        end
+
+      {:event_debug, _entry} ->
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+
       {:aiur_turn_done, ^identifier, ^aiur_turn_id, reason} ->
         Logger.info("opencode_bridge turn_stream_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
-
+        _ = DebugLog.unsubscribe()
         finalize_stream(conn, completion_id, reason)
 
       {:turn_watchdog, ^aiur_turn_id} ->
@@ -195,12 +230,16 @@ defmodule Aiur.Opencode.ChatCompletions do
   # bash command line) and let SessionWriter's SQL write carry the full
   # tool-part shape for re-attach rendering. Newlines bracket each event
   # so opencode shows them as discrete blocks.
-  defp format_delta(:command, body), do: "\n```\n$ #{body}\n```\n"
-  defp format_delta(:tool, body), do: "\n```\n→ #{body}\n```\n"
-  defp format_delta(:reasoning, body), do: "\n_#{body}_\n"
-  defp format_delta(:alert, body), do: "\n> 🔔 #{body}\n"
-  defp format_delta(:system, body), do: "\n> #{body}\n"
-  defp format_delta(_role, body), do: body
+  # `format_delta/2` is public-by-test-need so the U5 dim-wrap assertions
+  # can hit it without going through the Plug.Conn surface.
+  @doc false
+  @spec format_delta(atom(), String.t()) :: String.t()
+  def format_delta(:command, body), do: "\n" <> Style.dim("$ #{body}") <> "\n"
+  def format_delta(:tool, body), do: "\n" <> Style.dim("→ #{body}") <> "\n"
+  def format_delta(:reasoning, body), do: "\n" <> Style.dim(body) <> "\n"
+  def format_delta(:alert, body), do: "\n> 🔔 #{body}\n"
+  def format_delta(:system, body), do: "\n> #{body}\n"
+  def format_delta(_role, body), do: body
 
   defp dispatch_user_text(body, conn, identifier, raw_text) do
     with {:ok, sanitized} <- validate_body(raw_text),
@@ -236,10 +275,17 @@ defmodule Aiur.Opencode.ChatCompletions do
     }
   end
 
+  # The operator-message SSE no longer waits for the agent to reply. As
+  # soon as `AgentChat.send` accepts the message (either delivers via
+  # `:interrupt` or queues via `:queue_next`), we close the SSE with
+  # `finish_reason: "stop"` so opencode-attach clears the `QUEUED`
+  # indicator within ~1s. The agent's response streams back through the
+  # per-turn marker bridge (`stream_codex_turn`) when the next codex
+  # turn fires — no need to hold this SSE open on a bridge-local turn_id
+  # pin that codex transcript events would never match.
   defp stream_turn(conn, identifier, text) do
     turn_id = random_id()
     completion_id = "chatcmpl-" <> random_id()
-    :ok = AgentPubSub.subscribe_agent(identifier)
 
     conn =
       conn
@@ -248,8 +294,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
     case send_operator(identifier, text, turn_id) do
       {:ok, _request_id} ->
-        Process.send_after(self(), {:turn_watchdog, turn_id}, @watchdog_ms)
-        stream_loop(conn, identifier, turn_id, completion_id)
+        chunk(conn, completion_id, nil, "stop")
 
       {:error, reason} ->
         emit_error_and_close(conn, completion_id, reason)
@@ -258,16 +303,13 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   defp non_stream_turn(conn, identifier, text) do
     turn_id = random_id()
-    :ok = AgentPubSub.subscribe_agent(identifier)
 
     case send_operator(identifier, text, turn_id) do
       {:ok, _request_id} ->
-        body = collect_turn(identifier, turn_id, [])
-
         json(conn, 200, %{
           id: "chatcmpl-" <> random_id(),
           object: "chat.completion",
-          choices: [%{index: 0, message: %{role: "assistant", content: body}, finish_reason: "stop"}]
+          choices: [%{index: 0, message: %{role: "assistant", content: ""}, finish_reason: "stop"}]
         })
 
       {:error, reason} ->
@@ -282,54 +324,6 @@ defmodule Aiur.Opencode.ChatCompletions do
       fallback: :queue_next,
       turn_id: turn_id
     )
-  end
-
-  defp stream_loop(conn, identifier, turn_id, completion_id) do
-    receive do
-      {:transcript_event, %{role: role, body: body, turn_id: ^turn_id}} when role in [:assistant, :command] ->
-        conn = chunk(conn, completion_id, body, nil)
-        stream_loop(conn, identifier, turn_id, completion_id)
-
-      {:transcript_event, %{role: :user}} ->
-        stream_loop(conn, identifier, turn_id, completion_id)
-
-      {:turn_event, ^identifier, :turn_completed, %{turn_id: ^turn_id}} ->
-        chunk(conn, completion_id, nil, "stop")
-
-      {:turn_event, ^identifier, :turn_failed, %{turn_id: ^turn_id} = payload} ->
-        conn = chunk(conn, completion_id, "**system:** " <> inspect(Map.get(payload, :reason, :failed)), nil)
-        chunk(conn, completion_id, nil, "stop")
-
-      {:turn_event, ^identifier, :turn_input_required, %{turn_id: ^turn_id}} ->
-        conn = chunk(conn, completion_id, "**system:** Agent is awaiting approval. Resolve in the dashboard to continue.", nil)
-        chunk(conn, completion_id, nil, "tool_calls")
-
-      {:turn_watchdog, ^turn_id} ->
-        conn = chunk(conn, completion_id, "**system:** Agent appears to have hung - no response in 10 minutes. Reload the pane to try again.", nil)
-        chunk(conn, completion_id, nil, "timeout")
-
-      _other ->
-        stream_loop(conn, identifier, turn_id, completion_id)
-    after
-      @watchdog_ms ->
-        conn = chunk(conn, completion_id, "**system:** Agent appears to have hung - no response in 10 minutes. Reload the pane to try again.", nil)
-        chunk(conn, completion_id, nil, "timeout")
-    end
-  end
-
-  defp collect_turn(identifier, turn_id, acc) do
-    receive do
-      {:transcript_event, %{role: role, body: body, turn_id: ^turn_id}} when role in [:assistant, :command] ->
-        collect_turn(identifier, turn_id, [body | acc])
-
-      {:turn_event, ^identifier, :turn_completed, %{turn_id: ^turn_id}} ->
-        acc |> Enum.reverse() |> Enum.join("\n")
-
-      _other ->
-        collect_turn(identifier, turn_id, acc)
-    after
-      @watchdog_ms -> acc |> Enum.reverse() |> Enum.join("\n")
-    end
   end
 
   defp emit_error_and_close(conn, completion_id, reason) do
