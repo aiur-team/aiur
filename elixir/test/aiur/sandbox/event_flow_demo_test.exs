@@ -10,4 +10,10 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
   test "function_b returns one more than function_a" do
     assert EventFlowDemo.function_b() == EventFlowDemo.function_a() + 1
   end
+
+  test "function_c squares function_b" do
+    result = EventFlowDemo.function_b()
+
+    assert EventFlowDemo.function_c() == result * result
+  end
 end
