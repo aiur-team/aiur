@@ -490,7 +490,7 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   defp write_event_row(state, entry) do
-    case EventRow.from(entry) do
+    case EventRow.from(entry, state.identifier) do
       nil ->
         {:noreply, state}
 

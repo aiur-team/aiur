@@ -288,7 +288,8 @@ defmodule Aiur.Events.SubscriptionStore do
 
       DebugLog.broadcast(:receive, topic,
         id: event_id,
-        identifier: state.identifier
+        identifier: state.identifier,
+        body: event
       )
 
       new_state = advance_cursor_inline(state, event_id)

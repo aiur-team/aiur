@@ -29,6 +29,7 @@ defmodule Aiur.Events.DebugLog do
           required(:topic) => String.t(),
           required(:id) => non_neg_integer() | nil,
           required(:identifier) => String.t() | nil,
+          required(:body) => map() | nil,
           required(:at) => integer()
         }
 
@@ -49,6 +50,7 @@ defmodule Aiur.Events.DebugLog do
       topic: topic,
       id: Keyword.get(opts, :id),
       identifier: Keyword.get(opts, :identifier),
+      body: Keyword.get(opts, :body),
       at: System.monotonic_time(:millisecond)
     }
 

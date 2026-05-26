@@ -562,7 +562,7 @@ defmodule Aiur.AgentRunner do
     for event <- events do
       topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
       id = Map.get(event, :id) || Map.get(event, "id")
-      DebugLog.broadcast(:read, topic, id: id, identifier: identifier)
+      DebugLog.broadcast(:read, topic, id: id, identifier: identifier, body: event)
     end
 
     "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"
@@ -583,7 +583,7 @@ defmodule Aiur.AgentRunner do
     for event <- events do
       topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
       id = Map.get(event, :id) || Map.get(event, "id")
-      DebugLog.broadcast(:read, topic, id: id, identifier: nil)
+      DebugLog.broadcast(:read, topic, id: id, identifier: nil, body: event)
     end
 
     "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"

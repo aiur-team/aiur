@@ -88,7 +88,7 @@ defmodule Aiur.Events.Publisher do
         event = Map.merge(payload, %{id: id, topic: topic})
         subscribers = Exchange.publish(topic, event)
         record_emit_marker(topic, event, opts)
-        DebugLog.broadcast(:publish, topic, id: id)
+        DebugLog.broadcast(:publish, topic, id: id, body: payload)
         {:ok, id, subscribers}
     end
   end

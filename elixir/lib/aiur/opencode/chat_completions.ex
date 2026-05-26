@@ -158,10 +158,12 @@ defmodule Aiur.Opencode.ChatCompletions do
       # DebugLog broadcasts on a global topic; filter via
       # `EventRow.matches?/2` (identifier match OR topic prefix match)
       # and silently drop entries scoped to other agents. The row
-      # content is wrapped via `EventRow.from/1`'s `Style.dim/1`.
+      # content is wrapped via `EventRow.from/2`'s `Style.dim/1`. The
+      # rendering identifier is passed so :publish entries on this
+      # agent's own topics render in first person.
       {:event_debug, entry} ->
         if EventRow.matches?(entry, identifier) do
-          case EventRow.from(entry) do
+          case EventRow.from(entry, identifier) do
             nil ->
               codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
 
