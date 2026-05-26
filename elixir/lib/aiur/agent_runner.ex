@@ -705,6 +705,8 @@ defmodule Aiur.AgentRunner do
   defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint) do
     Logger.info("Queueing operator message into active turn for #{issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
+    record_operator_delivery(item, issue)
+
     {:deliver_text, queue_item_text(item), fn _payload -> :ok end,
      fn reason ->
        handle_checkpoint_delivery_failure(orchestrator, item.id, reason)
