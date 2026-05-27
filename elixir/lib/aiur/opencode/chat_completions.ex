@@ -272,17 +272,11 @@ defmodule Aiur.Opencode.ChatCompletions do
   """
   @spec format_delta(atom(), String.t(), map()) :: String.t()
   def format_delta(:command, body, _event) do
-    # Single-line commands wrap the whole `$ <command>` in inline
-    # backticks so glamour applies `markdownCode` styling — that's
-    # the only theme key we can color independently from prose
-    # (glamour's BlockQuote colors only the prefix bar, not the
-    # text inside). Multi-line bodies (heredocs etc.) can't ride
-    # inline code; they fall back to the bar-only blockquote.
-    if String.contains?(body, "\n") do
-      "\n" <> Style.dim("$ " <> body) <> "\n"
-    else
-      "\n> `$ #{body}`\n"
-    end
+    # Convert literal `\n` sequences from codex's transcript JSON
+    # into real newlines so multi-line heredocs render as multiple
+    # rows in the chat pane instead of showing the escape glyphs.
+    normalized = normalize_escaped_newlines(body)
+    render_dim_blockquote("$ ", normalized)
   end
 
   def format_delta(:tool, body, event) do
@@ -290,27 +284,25 @@ defmodule Aiur.Opencode.ChatCompletions do
       String.starts_with?(body, "edit ") ->
         diff = edit_diff_from_payload(event)
         path = String.trim_leading(body, "edit ")
+        summary = render_dim_blockquote("✏️  ", "edit " <> path)
 
         if diff == "" do
-          "\n> ✏️  `edit #{path}`\n"
+          summary
         else
           # Show the summary then the actual diff hunks. Glamour
           # renders ```diff fences with red/green highlighting on
           # +/- lines — close to the native opencode edit-tool look
           # without forking opencode.
-          "\n> ✏️  `edit #{path}`\n\n```diff\n#{diff}\n```\n"
+          String.trim_trailing(summary) <> "\n\n```diff\n#{diff}\n```\n"
         end
 
       String.starts_with?(body, "read ") ->
         path = String.trim_leading(body, "read ")
-        "\n> 📖 `read #{path}`\n"
+        render_dim_blockquote("📖 ", "read " <> path)
 
       true ->
-        if String.contains?(body, "\n") do
-          "\n" <> Style.dim("→ " <> body) <> "\n"
-        else
-          "\n> `→ #{body}`\n"
-        end
+        normalized = normalize_escaped_newlines(body)
+        render_dim_blockquote("→ ", normalized)
     end
   end
 
@@ -318,6 +310,38 @@ defmodule Aiur.Opencode.ChatCompletions do
   def format_delta(:alert, body, _event), do: "\n> 🔔 #{body}\n"
   def format_delta(:system, body, _event), do: "\n> #{body}\n"
   def format_delta(_role, body, _event), do: body
+
+  # Render a command-style line as `> <prefix>\`<body>\`` so the
+  # leading prefix (emoji + space, or `$ `) stays OUTSIDE the
+  # inline-code span. Glamour paints inline code via `markdownCode`
+  # (theme: `darkStep11` grey), giving us a visibly-dim body while
+  # the emoji prefix and the blockquote bar keep their normal
+  # colors.
+  #
+  # When the body contains literal newlines OR backticks, falls
+  # back to the bar-only blockquote via `Style.dim/1`. Inline code
+  # can't wrap content with `\``s (they'd close the span midway)
+  # or `\n`s (inline code is a one-line construct).
+  defp render_dim_blockquote(prefix, body) do
+    cond do
+      String.contains?(body, "\n") or String.contains?(body, "`") ->
+        "\n" <> Style.dim(prefix <> body) <> "\n"
+
+      true ->
+        "\n> #{prefix}`#{body}`\n"
+    end
+  end
+
+  # Codex transcripts arrive as JSON-decoded strings. A shell
+  # `$'…\n…'` heredoc gets stored as a single Elixir string where
+  # the `\n` characters are real newlines (JSON decoded them) — but
+  # SOMETIMES the agent sees them as escape sequences (literal
+  # `\` followed by `n`), so we normalise the literal form too.
+  defp normalize_escaped_newlines(body) do
+    body
+    |> String.replace("\\n", "\n")
+    |> String.replace("\\t", "\t")
+  end
 
   # Pull the diff content out of a `:tool` transcript event for the
   # `edit` tool. `Aiur.Codex.Transcript.build_tool_payload/2` stuffs

@@ -19,12 +19,14 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
   describe "format_delta/2" do
     test ":command renders as a blockquote with inline-code body" do
-      # Wrapping `$ <command>` in backticks lets glamour apply the
-      # theme's `markdownCode` color independently from blockquote
-      # bar color (BlockQuote only colors the bar, not the text
-      # inside). The whole line still carries the `> ` prefix.
+      # Wrapping the command body in backticks lets glamour apply
+      # the theme's `markdownCode` color (darkStep11 grey)
+      # independently from blockquote bar color (BlockQuote only
+      # colors the bar, not the text inside). The `$ ` prefix
+      # stays OUTSIDE the code span so it renders in default
+      # color, not as code.
       out = ChatCompletions.format_delta(:command, "git status --short")
-      assert out == "\n> `$ git status --short`\n"
+      assert out == "\n> $ `git status --short`\n"
     end
 
     test ":command with multi-line body falls back to bar-only blockquote" do
@@ -39,6 +41,39 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       assert String.contains?(out, "\n> first\n")
       assert String.contains?(out, "\n> second\n")
       assert String.contains?(out, "\n> EOF\n")
+    end
+
+    test ":command with backticks in body falls back to bar-only blockquote" do
+      # Real-world case: `gh issue comment 99 --body $'…```text…'`
+      # carries literal backticks inside a `$'...'` heredoc. Wrapping
+      # such a body in inline-code would close the span mid-content
+      # and the rest renders in normal-color, breaking the dim
+      # styling halfway through. Detect backticks and route to the
+      # bar-only blockquote where Style.dim handles them safely.
+      body = ~s(gh issue comment 99 --body $'```text\\nfoo\\n```')
+      out = ChatCompletions.format_delta(:command, body)
+
+      # The bar-only path doesn't wrap with `> $ \`…\`` syntax —
+      # check the absence of that specific pattern. Backticks
+      # in the body itself are allowed to pass through as text.
+      refute String.starts_with?(out, "\n> $ `"),
+             "must not wrap backtick-containing body in inline code"
+
+      assert String.contains?(out, "> $ gh issue comment 99")
+    end
+
+    test ":command normalizes literal `\\n` to real newlines so heredocs render multi-row" do
+      # When codex's transcript captures a `$'…\\n…'` heredoc, the
+      # command string contains a literal backslash-n pair rather
+      # than a real newline. The bridge converts those so the chat
+      # pane shows the heredoc body on multiple rows instead of
+      # printing the escape glyphs.
+      body = "gh issue comment 99 --body $'## Header\\nfirst line\\nsecond'"
+      out = ChatCompletions.format_delta(:command, body)
+
+      refute String.contains?(out, "\\n"), "literal `\\n` should be converted to real newlines"
+      assert String.contains?(out, "first line")
+      assert String.contains?(out, "second")
     end
 
     test ":tool with 'edit <path>' body renders as a file-edit blockquote with inline-code path" do
@@ -75,6 +110,8 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
     test ":tool 'edit' without a diff payload falls back to summary-only" do
       out = ChatCompletions.format_delta(:tool, "edit lib/foo.ex", %{})
+      # Emoji + space stays outside the code span; only the file
+      # path + verb ride inline code so glamour can paint them dim.
       assert out == "\n> ✏️  `edit lib/foo.ex`\n"
     end
 
@@ -110,7 +147,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
     test ":tool with a non-file-op title falls back to a dim inline-code blockquote" do
       out = ChatCompletions.format_delta(:tool, "emit_alert")
-      assert out == "\n> `→ emit_alert`\n"
+      assert out == "\n> → `emit_alert`\n"
     end
 
     test ":reasoning renders as markdown italic" do
