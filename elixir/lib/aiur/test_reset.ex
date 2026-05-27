@@ -83,7 +83,7 @@ defmodule Aiur.TestReset do
 
     case JsonStore.read(path) do
       {:ok, nil} ->
-        emit("--test ABORT: #{@tickets_file} not found at #{path}", :error)
+        abort("#{@tickets_file} not found at #{path}")
         {:error, :tickets_file_missing}
 
       {:ok, data} when is_map(data) ->
@@ -98,11 +98,10 @@ defmodule Aiur.TestReset do
   end
 
   defp validate_pinned_tickets(%{"tickets" => []}) do
-    emit(
-      "--test ABORT: #{@tickets_file} has no tickets. " <>
+    abort(
+      "#{@tickets_file} has no tickets. " <>
         "Populate `tickets: [<id1>, <id2>, <id3>]` after creating the 3 sandbox tickets " <>
-        "with `gh issue create ...`. See aiur skill docs for the runbook.",
-      :error
+        "with `gh issue create ...`. See aiur skill docs for the runbook."
     )
 
     {:error, :no_tickets_pinned}
@@ -114,7 +113,7 @@ defmodule Aiur.TestReset do
         {:ok, Enum.map(tickets, &normalize_id/1)}
 
       invalid ->
-        emit("--test ABORT: invalid ticket ids in #{@tickets_file}: #{inspect(invalid)}", :error)
+        abort("invalid ticket ids in #{@tickets_file}: #{inspect(invalid)}")
         {:error, {:invalid_ticket_ids, invalid}}
     end
   end
@@ -134,16 +133,15 @@ defmodule Aiur.TestReset do
         :ok
 
       {output, 0} ->
-        emit(
-          "--test ABORT: working tree is not clean.\n" <>
-            output <> "\nCommit/stash changes or re-run with --force.",
-          :error
+        abort(
+          "working tree is not clean.\n" <>
+            output <> "\nCommit/stash changes or re-run with --force."
         )
 
         {:error, :dirty_working_tree}
 
       {output, _} ->
-        emit("--test ABORT: git status failed: #{output}", :error)
+        abort("git status failed: #{output}")
         {:error, :git_status_failed}
     end
   end
@@ -166,12 +164,11 @@ defmodule Aiur.TestReset do
         if expected == nil or actual == expected do
           :ok
         else
-          emit(
-            "--test ABORT: git remote mismatch.\n" <>
+          abort(
+            "git remote mismatch.\n" <>
               "  expected: #{expected}\n" <>
               "  actual:   #{actual}\n" <>
-              "Re-run with --allow-remote if you're sure.",
-            :error
+              "Re-run with --allow-remote if you're sure."
           )
 
           {:error, :remote_mismatch}
@@ -196,10 +193,9 @@ defmodule Aiur.TestReset do
         :ok
 
       _ ->
-        emit(
-          "--test ABORT: sandbox baseline missing from HEAD: #{inspect(missing)}\n" <>
-            "Commit U24's baseline files first.",
-          :error
+        abort(
+          "sandbox baseline missing from HEAD: #{inspect(missing)}\n" <>
+            "Commit U24's baseline files first."
         )
 
         {:error, {:baseline_missing, missing}}
@@ -207,52 +203,121 @@ defmodule Aiur.TestReset do
   end
 
   defp maybe_execute(tickets, %{confirm: false}) do
-    emit("--test DRY-RUN. Pass --confirm to execute.\n", :info)
+    say("--test DRY-RUN. Pass --confirm to execute.\n")
     print_plan(tickets)
     :ok
   end
 
   defp maybe_execute(tickets, %{confirm: true} = opts) do
-    emit("--test executing reset for #{length(tickets)} tickets...\n", :info)
+    say("🧪 aiur --test resetting sandbox (#{length(tickets)} tickets)")
     Enum.each(tickets, &reset_one(&1, opts))
     restore_baseline(opts)
-    emit("--test reset complete.", :info)
+    say("✅ --test reset complete")
     :ok
   end
 
   defp print_plan(tickets) do
-    emit("Tickets to reset:", :info)
-    Enum.each(tickets, fn id -> emit("  - #{id}", :info) end)
+    say("Tickets to reset:")
+    Enum.each(tickets, fn id -> say("  - #{id}") end)
 
-    emit("\nPer-ticket actions:", :info)
-    emit("  - Delete subscriptions file for <id>", :info)
-    emit("  - Remove workspace at <workspace_root>/<id> (fans across worker.ssh_hosts)", :info)
-    emit("  - Delete remote branch aiur/<id>", :info)
-    emit("  - Close any open PR from aiur/<id>", :info)
-    emit("  - Strip every agent:* label, re-add agent:todo", :info)
-    emit("\nAlways:", :info)
-    emit("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "), :info)
-    emit("  - Preserve <repo>.event_id (IdGenerator counter)", :info)
+    say("\nPer-ticket actions:")
+    say("  - Delete subscriptions file for <id>")
+    say("  - Remove workspace at <workspace_root>/<id> (fans across worker.ssh_hosts)")
+    say("  - Delete remote branch aiur/<id>")
+    say("  - Close any open PR from aiur/<id>")
+    say("  - Delete agent-workpad comments (`## Agent Workpad` bodies) on the issue")
+    say("  - Strip every agent:* label, re-add agent:todo")
+    say("\nAlways:")
+    say("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "))
+    say("  - Preserve <repo>.event_id (IdGenerator counter)")
   end
 
   defp reset_one(id, _opts) do
-    Logger.info("aiur_test_reset starting ticket=#{id}")
-
     delete_subscriptions_file(id)
     delete_workspace(id)
     delete_remote_branch(id)
     close_open_pr(id)
+    delete_workpad_comments(id)
     reset_labels(id)
-    Logger.info("aiur_test_reset finished ticket=#{id}")
   end
+
+  # The agent records its plan/handoff state as a comment on the issue
+  # whose body starts with `## Agent Workpad`. `aiur --test` previously
+  # left these alone, so each fresh sandbox run started with the
+  # previous run's workpad sitting in the issue — agents would dutifully
+  # reconcile against it instead of treating the ticket as a clean slate.
+  defp delete_workpad_comments(id) do
+    case System.cmd(
+           "gh",
+           ["api", "repos/{owner}/{repo}/issues/#{id}/comments", "--paginate"],
+           stderr_to_stdout: true
+         ) do
+      {body, 0} ->
+        case Jason.decode(body) do
+          {:ok, comments} when is_list(comments) ->
+            delete_each_workpad(id, Enum.filter(comments, &workpad_comment?/1))
+
+          _ ->
+            warn("##{id} workpad scan: could not parse `gh api` JSON")
+        end
+
+      {output, _} ->
+        warn("##{id} workpad scan failed: #{String.trim(output)}")
+    end
+  end
+
+  defp delete_each_workpad(id, []) do
+    ok("##{id} workpad clear (no comments to remove)")
+  end
+
+  defp delete_each_workpad(id, comments) do
+    failures =
+      Enum.reduce(comments, 0, fn comment, acc ->
+        case System.cmd(
+               "gh",
+               [
+                 "api",
+                 "-X",
+                 "DELETE",
+                 "repos/{owner}/{repo}/issues/comments/#{Map.get(comment, "id")}"
+               ],
+               stderr_to_stdout: true
+             ) do
+          {_, 0} -> acc
+          {_, _} -> acc + 1
+        end
+      end)
+
+    count = length(comments)
+
+    if failures == 0 do
+      ok("##{id} workpad comments removed (#{count})")
+    else
+      warn("##{id} workpad comments: #{count - failures}/#{count} removed; #{failures} failed")
+    end
+  end
+
+  @doc """
+  Predicate identifying an agent-workpad comment. The canonical shape
+  is a comment whose body starts with `## Agent Workpad` (optionally
+  preceded by whitespace). Mid-body references to the workpad header
+  in a human review comment must NOT match — only the leading-header
+  form is a workpad.
+  """
+  @spec workpad_comment?(map()) :: boolean()
+  def workpad_comment?(%{"body" => body}) when is_binary(body) do
+    String.starts_with?(String.trim_leading(body), "## Agent Workpad")
+  end
+
+  def workpad_comment?(_), do: false
 
   defp delete_subscriptions_file(id) do
     path = subscriptions_path(id)
 
     case File.rm(path) do
-      :ok -> emit("  rm #{path}", :info)
+      :ok -> ok("##{id} subscriptions cleared")
       {:error, :enoent} -> :ok
-      {:error, reason} -> emit("  WARN rm #{path} failed: #{inspect(reason)}", :warning)
+      {:error, reason} -> warn("##{id} subscriptions clear failed: #{inspect(reason)}")
     end
   end
 
@@ -278,13 +343,13 @@ defmodule Aiur.TestReset do
 
     case File.rm_rf(path) do
       {:ok, []} ->
-        emit("  workspace for #{id} already absent (#{path})", :info)
+        ok("##{id} workspace already clean")
 
       {:ok, _} ->
-        emit("  rm workspace for #{id} (#{path})", :info)
+        ok("##{id} workspace removed")
 
       {:error, reason, file} ->
-        emit("  WARN workspace cleanup for #{id} failed at #{file}: #{inspect(reason)}", :warning)
+        warn("##{id} workspace cleanup failed at #{file}: #{inspect(reason)}")
     end
   end
 
@@ -307,8 +372,15 @@ defmodule Aiur.TestReset do
     branch = "aiur/#{id}"
 
     case System.cmd("git", ["push", "origin", "--delete", branch], stderr_to_stdout: true) do
-      {_, 0} -> emit("  deleted origin/#{branch}", :info)
-      {output, _} -> emit("  remote branch #{branch}: #{String.trim(output)}", :info)
+      {_, 0} ->
+        ok("##{id} remote branch deleted")
+
+      {output, _} ->
+        if String.contains?(output, "remote ref does not exist") do
+          ok("##{id} remote branch already gone")
+        else
+          warn("##{id} remote branch: #{String.trim(output)}")
+        end
     end
   end
 
@@ -316,7 +388,7 @@ defmodule Aiur.TestReset do
     branch = "aiur/#{id}"
 
     case System.cmd("gh", ["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true) do
-      {_, 0} -> emit("  closed PR on #{branch}", :info)
+      {_, 0} -> ok("##{id} PR closed")
       {_, _} -> :ok
     end
   end
@@ -326,18 +398,42 @@ defmodule Aiur.TestReset do
   # tickets that the previous run flipped to agent:in-progress (or
   # agent:human-review, agent:done) stay in that state and either
   # never re-enter the dispatch set or skip the queue logic entirely.
+  #
+  # Issue this as TWO `gh` calls: one to strip every agent:* label,
+  # then one to add agent:todo. The combined form
+  # `gh issue edit N --remove-label "agent:todo,…" --add-label "agent:todo"`
+  # is unsafe — when the same label appears in both the remove and add
+  # sets, GitHub's PATCH ordering resolves the remove last, stripping
+  # the label entirely. That left issues in an unlabeled state, which
+  # made the orchestrator skip dispatching them and the user's chat
+  # pane render no agent text (no codex turn → no transcript events).
   defp reset_labels(id) do
+    [remove_argv, add_argv] = reset_labels_command_args(id)
+
+    with {_, 0} <- System.cmd("gh", remove_argv, stderr_to_stdout: true),
+         {_, 0} <- System.cmd("gh", add_argv, stderr_to_stdout: true) do
+      ok("##{id} labels → agent:todo")
+    else
+      {output, _} -> warn("##{id} label reset: #{String.trim(output)}")
+    end
+  end
+
+  @doc """
+  Pure helper returning the argv pair (`--remove-label …`, then
+  `--add-label agent:todo`) used by `reset_labels/1`. Exposed so tests
+  can lock in the two-call contract that prevents GitHub from stripping
+  `agent:todo` when remove and add target the same label in a single
+  invocation.
+  """
+  @spec reset_labels_command_args(integer() | String.t()) :: [[String.t()]]
+  def reset_labels_command_args(id) do
     agent_labels =
       "agent:todo,agent:in-progress,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled"
 
-    case System.cmd(
-           "gh",
-           ["issue", "edit", to_string(id), "--remove-label", agent_labels, "--add-label", "agent:todo"],
-           stderr_to_stdout: true
-         ) do
-      {_, 0} -> emit("  reset labels on ##{id} → agent:todo", :info)
-      {output, _} -> emit("  WARN label reset on ##{id}: #{String.trim(output)}", :warning)
-    end
+    [
+      ["issue", "edit", to_string(id), "--remove-label", agent_labels],
+      ["issue", "edit", to_string(id), "--add-label", "agent:todo"]
+    ]
   end
 
   defp restore_baseline(opts) do
@@ -349,8 +445,8 @@ defmodule Aiur.TestReset do
     args = ["checkout", "HEAD", "--"] ++ @baseline_files
 
     case System.cmd("git", args, stderr_to_stdout: true, cd: opts.repo_root) do
-      {_, 0} -> emit("  restored sandbox baseline from HEAD", :info)
-      {output, code} -> emit("  WARN baseline restore exit=#{code}: #{output}", :warning)
+      {_, 0} -> ok("sandbox baseline restored")
+      {output, code} -> warn("baseline restore exit=#{code}: #{output}")
     end
   end
 
@@ -362,11 +458,10 @@ defmodule Aiur.TestReset do
         :ok
 
       {dirty, _} ->
-        emit(
-          "  WARN --force with uncommitted sandbox edits:\n" <>
+        warn(
+          "--force with uncommitted sandbox edits:\n" <>
             dirty <>
-            "Stashing before checkout.",
-          :warning
+            "Stashing before checkout."
         )
 
         stash_msg = "aiur-test-reset auto-stash #{DateTime.utc_now() |> DateTime.to_iso8601()}"
@@ -384,13 +479,12 @@ defmodule Aiur.TestReset do
     Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.#{id}.subscriptions.json")
   end
 
-  defp emit(msg, level) do
-    IO.puts(:stderr, msg)
+  defp say(msg), do: IO.puts(:stderr, msg)
+  defp ok(msg), do: say("✅ #{msg}")
+  defp warn(msg), do: say("⚠️  #{msg}")
 
-    case level do
-      :error -> Logger.error(msg)
-      :warning -> Logger.warning(msg)
-      _ -> Logger.info(msg)
-    end
+  defp abort(msg) do
+    say("❌ --test ABORT: #{msg}")
+    Logger.error("--test ABORT: #{msg}")
   end
 end
