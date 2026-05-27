@@ -200,7 +200,8 @@ defmodule Aiur.AgentList.RendererTest do
       render(
         base_state(%{
           summaries: summaries,
-          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}}
+          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}},
+          agents_with_content: MapSet.new(["MT-WORK"])
         })
       )
       |> visible()
@@ -210,6 +211,7 @@ defmodule Aiur.AgentList.RendererTest do
         base_state(%{
           summaries: summaries,
           attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}},
+          agents_with_content: MapSet.new(["MT-WORK"]),
           opened_panes: MapSet.new(["MT-WORK"])
         })
       )
@@ -220,7 +222,7 @@ defmodule Aiur.AgentList.RendererTest do
     refute attached =~ "🟡"
   end
 
-  test "running working agents transition ⏳ → 🔘 → ⚪ → 🟢" do
+  test "running working agents transition ⏳ → 🔘 → ⚪ → 🟢 based on slot warmup + agent content" do
     summaries = [
       %{
         identifier: "MT-WARM",
@@ -239,20 +241,12 @@ defmodule Aiur.AgentList.RendererTest do
     hourglass =
       render(base_state(%{summaries: summaries, attach_state: %{}})) |> visible()
 
-    only_attached =
-      render(
-        base_state(%{
-          summaries: summaries,
-          attach_state: %{
-            "MT-WARM" => %{attach_count: 1, visible_in: nil},
-            "MT-OPEN" => %{attach_count: 1, visible_in: 1}
-          },
-          opened_panes: MapSet.new(["MT-OPEN"])
-        })
-      )
-      |> visible()
-
-    full_headroom =
+    # Slot painted for MT-WARM but the agent hasn't emitted any
+    # transcript content yet — instant-open but pane will show only
+    # Build chrome until the codex turn produces something. That's
+    # the 🔘 case under the new semantics (was the old ⚪ trap that
+    # promised "instant useful open" and delivered an empty pane).
+    primed_empty =
       render(
         base_state(%{
           summaries: summaries,
@@ -260,6 +254,22 @@ defmodule Aiur.AgentList.RendererTest do
             "MT-WARM" => %{attach_count: 1, visible_in: 2},
             "MT-OPEN" => %{attach_count: 1, visible_in: 1}
           },
+          agents_with_content: MapSet.new(["MT-OPEN"]),
+          opened_panes: MapSet.new(["MT-OPEN"])
+        })
+      )
+      |> visible()
+
+    # MT-WARM now has content too → promotes to ⚪.
+    primed_with_content =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{
+            "MT-WARM" => %{attach_count: 1, visible_in: 2},
+            "MT-OPEN" => %{attach_count: 1, visible_in: 1}
+          },
+          agents_with_content: MapSet.new(["MT-WARM", "MT-OPEN"]),
           opened_panes: MapSet.new(["MT-OPEN"])
         })
       )
@@ -268,14 +278,56 @@ defmodule Aiur.AgentList.RendererTest do
     assert hourglass =~ "⏳"
     refute hourglass =~ "🟢"
 
-    # MT-WARM has a session attached but no leadoff paint yet → 🔘.
-    # MT-OPEN's pane is actually open (opened_panes) → 🟢.
-    assert only_attached =~ "🔘"
-    assert only_attached =~ "🟢"
+    # MT-WARM: pane painted, no content → 🔘
+    # MT-OPEN: pane open in window 0 → 🟢
+    assert primed_empty =~ "🔘"
+    assert primed_empty =~ "🟢"
 
-    # MT-WARM's leadoff slot has painted (visible_in: 2) → ⚪.
-    # MT-OPEN's pane is open in window 0 → 🟢.
-    assert full_headroom =~ "⚪"
+    # MT-WARM: pane painted AND has content → ⚪
+    # MT-OPEN: still 🟢 (open in window 0)
+    assert primed_with_content =~ "⚪"
+    assert primed_with_content =~ "🟢"
+    refute primed_with_content =~ "🔘"
+  end
+
+  test "🔘 fires when slot painted but agent has not emitted content" do
+    summaries = [
+      %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{"MT-A" => %{attach_count: 1, visible_in: 1}},
+          agents_with_content: MapSet.new()
+        })
+      )
+      |> visible()
+
+    assert out =~ "🔘"
+    refute out =~ "⚪"
+  end
+
+  test "⚪ requires both slot paint AND agent content; missing either yields a less-ready glyph" do
+    summaries = [
+      %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    # Content but no slot paint → slow-open case → ⏳ (slot isn't
+    # instant-open even though the agent is talking).
+    no_paint =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{"MT-A" => %{attach_count: 1, visible_in: nil}},
+          agents_with_content: MapSet.new(["MT-A"])
+        })
+      )
+      |> visible()
+
+    assert no_paint =~ "⏳"
+    refute no_paint =~ "⚪"
   end
 
   test "warm status row renders in-progress vs finished glyphs per started slot" do
@@ -389,6 +441,7 @@ defmodule Aiur.AgentList.RendererTest do
             "MT-1" => %{attach_count: 1, visible_in: 1},
             "MT-2" => %{attach_count: 1, visible_in: 2}
           },
+          agents_with_content: MapSet.new(["MT-1", "MT-2"]),
           opened_panes: MapSet.new(["MT-1"])
         })
       )
@@ -400,7 +453,7 @@ defmodule Aiur.AgentList.RendererTest do
     mt2_line = Enum.find(lines, fn line -> line =~ "MT-2" end)
 
     # MT-1's pane is open in window 0 → 🟢.
-    # MT-2's leadoff slot has painted but pane isn't open → ⚪, not 🟢.
+    # MT-2's leadoff slot has painted AND it has emitted content → ⚪.
     assert mt1_line =~ "🟢"
     refute mt2_line =~ "🟢"
     assert mt2_line =~ "⚪"

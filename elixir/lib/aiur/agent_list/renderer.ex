@@ -442,38 +442,48 @@ defmodule Aiur.AgentList.Renderer do
   #   🟢  agent's pane is open in window 0 right now
   #       (`opened_panes`, populated by PaneManager pane_opened/closed events)
   #   ⚪  agent's leadoff slot has finished painting in the hidden window
-  #       — open is instant (move-pane only, no respawn).
-  #       (`attach_state[id].visible_in` is set, but the pane hasn't been
-  #       moved to window 0 yet)
-  #   🔘  agent has a session attached to some slot, but the slot hasn't
-  #       finished its leadoff paint — open requires a respawn (5-7 s).
-  #   ⏳  no slot has attached this identifier yet.
+  #       AND the agent has emitted at least one transcript event —
+  #       opening shows meaningful content immediately.
+  #       (`attach_state[id].visible_in` is set, AND `id` is in
+  #       `agents_with_content`)
+  #   🔘  agent's leadoff slot has painted (instant-open) but the codex
+  #       turn hasn't produced any transcript content yet — opening
+  #       shows just Build chrome and a blank pane until content
+  #       streams in. This is the "pre-warmed, agent still warming up"
+  #       in-between state.
+  #   ⏳  no instant-open path yet: slot hasn't painted (or no slot has
+  #       attached this identifier at all). Opening requires a respawn.
   #
-  # Previous semantics treated `visible_in` as 🟢, which lied to the
-  # user: leadoff-paint and user-visible-open got the same emoji, so
-  # ⚪ never appeared and the user couldn't tell a slow-open agent from
-  # an instant-open agent.
+  # `agents_with_content` is mirrored from per-agent transcript
+  # broadcasts: once any transcript_event fires for an identifier, the
+  # AgentList state adds it to this set and the marker promotes ⚪.
   defp compute_markers(state, summaries) do
     attach_state = Map.get(state, :attach_state, %{})
     opened_panes = Map.get(state, :opened_panes, MapSet.new())
+    agents_with_content = Map.get(state, :agents_with_content, MapSet.new())
 
     Enum.reduce(summaries, %{}, fn summary, acc ->
       id = to_string(Map.get(summary, :identifier) || "")
-      Map.put(acc, id, marker_for_identifier(id, opened_panes, attach_state))
+
+      Map.put(
+        acc,
+        id,
+        marker_for_identifier(id, opened_panes, attach_state, agents_with_content)
+      )
     end)
   end
 
-  defp marker_for_identifier(id, opened_panes, attach_state) do
+  defp marker_for_identifier(id, opened_panes, attach_state, agents_with_content) do
     if MapSet.member?(opened_panes, id) do
       "🟢"
     else
-      marker_from_attach(Map.get(attach_state, id))
+      marker_from_attach(Map.get(attach_state, id), MapSet.member?(agents_with_content, id))
     end
   end
 
-  defp marker_from_attach(%{visible_in: slot}) when not is_nil(slot), do: "⚪"
-  defp marker_from_attach(%{attach_count: n}) when n >= 1, do: "🔘"
-  defp marker_from_attach(_), do: "⏳"
+  defp marker_from_attach(%{visible_in: slot}, true) when not is_nil(slot), do: "⚪"
+  defp marker_from_attach(%{visible_in: slot}, _has_content) when not is_nil(slot), do: "🔘"
+  defp marker_from_attach(_attach, _has_content), do: "⏳"
 
   # `summary_emoji` defers to the precomputed marker for running
   # working agents, and to AgentEvents for paused/error/done states.

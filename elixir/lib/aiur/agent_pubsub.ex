@@ -59,7 +59,22 @@ defmodule Aiur.AgentPubSub do
   def broadcast_transcript(identifier, %{role: _, body: _, timestamp: _} = event)
       when is_binary(identifier) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:transcript_event, event})
+    do_broadcast(agent_chat_active_topic(), {:agent_chat_active, identifier})
   end
+
+  @doc """
+  Single global topic that fires `{:agent_chat_active, identifier}`
+  every time an agent emits any transcript event. AgentList uses this
+  to promote its 🔘 → ⚪ marker once the agent has actually produced
+  visible content — duplicates are harmless because subscribers
+  dedup with `MapSet.put`.
+  """
+  @spec subscribe_agent_chat_active() :: :ok | {:error, term()}
+  def subscribe_agent_chat_active do
+    Phoenix.PubSub.subscribe(@pubsub, agent_chat_active_topic())
+  end
+
+  defp agent_chat_active_topic, do: "agents:chat_active"
 
   @spec broadcast_alert(AgentEvents.agent_identifier(), AgentEvents.alert_event()) :: :ok
   def broadcast_alert(identifier, %{name: _, message: _, timestamp: _} = event)

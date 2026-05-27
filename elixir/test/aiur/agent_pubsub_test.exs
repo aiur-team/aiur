@@ -19,6 +19,15 @@ defmodule Aiur.AgentPubSubTest do
 
       refute_receive {:transcript_event, _}, 50
     end
+
+    test "broadcast_transcript also fires :agent_chat_active on the global topic" do
+      :ok = AgentPubSub.subscribe_agent_chat_active()
+      event = AgentEvents.transcript_event(:assistant, "first words")
+
+      :ok = AgentPubSub.broadcast_transcript("MT-77", event)
+
+      assert_receive {:agent_chat_active, "MT-77"}, 200
+    end
   end
 
   describe "alert round-trip" do

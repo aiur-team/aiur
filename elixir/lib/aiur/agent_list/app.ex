@@ -140,6 +140,7 @@ defmodule Aiur.AgentList.App do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
       AgentPubSub.subscribe_poll_state()
+      AgentPubSub.subscribe_agent_chat_active()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
@@ -195,6 +196,13 @@ defmodule Aiur.AgentList.App do
       # field actually means "slot's leadoff was painted in the hidden
       # window", which is the ⚪ state from the user's perspective.
       opened_panes: MapSet.new(),
+      # Identifiers that have emitted at least one transcript event in
+      # this run. Promotes the marker from 🔘 (pane painted but empty)
+      # to ⚪ (pane painted AND opening will show useful content).
+      # Populated from the global `agents:chat_active` topic that
+      # AgentPubSub fires on every transcript event; duplicates are
+      # harmless because MapSet.put is idempotent.
+      agents_with_content: MapSet.new(),
       warm_status_dark_mode?: warm_status_dark_mode_default(),
       # Ring buffer of warmth-related aiur_perf events (debug mode
       # only). Capped at @warmth_event_cap to avoid unbounded growth.
@@ -459,8 +467,32 @@ defmodule Aiur.AgentList.App do
       |> Enum.reject(&is_nil/1)
 
     _ = safely_seed_attach_pool(active_ids)
+    # Trim `agents_with_content` so a stopped agent doesn't keep its
+    # ⚪ glyph if it returns later — it'll re-earn ⚪ on the next
+    # transcript event after re-dispatch.
+    active_set = MapSet.new(Enum.map(active_ids, &to_string/1))
+
+    new_state = %{
+      new_state
+      | agents_with_content: MapSet.intersection(new_state.agents_with_content, active_set)
+    }
+
     render(new_state)
     {:noreply, new_state}
+  end
+
+  # Global `agents:chat_active` broadcast — fires every time any
+  # agent emits a transcript event. Promotes the marker from 🔘
+  # (pane painted, empty) to ⚪ (pane painted, has content). MapSet
+  # dedups so repeated broadcasts are no-ops.
+  def handle_info({:agent_chat_active, identifier}, state) when is_binary(identifier) do
+    if MapSet.member?(state.agents_with_content, identifier) do
+      {:noreply, state}
+    else
+      new_state = update_in(state.agents_with_content, &MapSet.put(&1, identifier))
+      render(new_state)
+      {:noreply, new_state}
+    end
   end
 
   # The agent-list circle indicator no longer tracks "pane has ever
@@ -881,6 +913,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:started_slots, Map.get(state, :started_slots, MapSet.new()))
       |> Map.put(:fully_warmed_slots, Map.get(state, :fully_warmed_slots, MapSet.new()))
       |> Map.put(:opened_panes, Map.get(state, :opened_panes, MapSet.new()))
+      |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
       |> Map.put(
         :warm_status_dark_mode?,
         Map.get(state, :warm_status_dark_mode?, true)
