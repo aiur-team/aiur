@@ -550,43 +550,15 @@ defmodule Aiur.AgentRunner do
 
   defp queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
 
-  defp queue_item_text(%{
-         category: :coordination_event,
-         event_type: :events_digest,
-         target_issue_identifier: identifier,
-         body: %{events: events}
-       })
+  defp queue_item_text(
+         %{
+           category: :coordination_event,
+           event_type: :events_digest,
+           body: %{events: events}
+         } = item
+       )
        when is_list(events) do
-    rendered_events = Enum.map_join(events, "\n", &render_event_line/1)
-
-    for event <- events do
-      topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
-      id = Map.get(event, :id) || Map.get(event, "id")
-      DebugLog.broadcast(:read, topic, id: id, identifier: identifier, body: event)
-    end
-
-    "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"
-  end
-
-  defp queue_item_text(%{
-         category: :coordination_event,
-         event_type: :events_digest,
-         body: %{events: events}
-       })
-       when is_list(events) do
-    rendered_events = Enum.map_join(events, "\n", &render_event_line/1)
-
-    # Mirror the broadcast loop from the target_issue_identifier clause
-    # above. Without this, events folded via the fallback path produce
-    # zero `📄` rows in the chat pane / agent_list ticker.
-    # (R2.4 of the chat-pane follow-ups plan.)
-    for event <- events do
-      topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
-      id = Map.get(event, :id) || Map.get(event, "id")
-      DebugLog.broadcast(:read, topic, id: id, identifier: nil, body: event)
-    end
-
-    "<aiur:events>\n" <> rendered_events <> "\n</aiur:events>"
+    render_events_digest(events, Map.get(item, :target_issue_identifier))
   end
 
   defp queue_item_text(%{category: :coordination_event, event_type: event_type, body: body}) do
@@ -601,6 +573,19 @@ defmodule Aiur.AgentRunner do
   end
 
   defp queue_item_text(item), do: inspect(item)
+
+  defp render_events_digest(events, identifier) do
+    for event <- events do
+      DebugLog.broadcast(:read, event_field(event, :topic) || "(unknown)",
+        id: event_field(event, :id),
+        identifier: identifier,
+        body: event
+      )
+    end
+
+    rendered = Enum.map_join(events, "\n", &render_event_line/1)
+    "<aiur:events>\n" <> rendered <> "\n</aiur:events>"
+  end
 
   defp render_event_line(event) when is_map(event) do
     topic = event_field(event, :topic) || "(unknown)"
@@ -645,25 +630,64 @@ defmodule Aiur.AgentRunner do
     # table and the bridge will close them as phantom.
     :ok = ActiveTurns.put(identifier, aiur_turn_id)
 
-    for %{session_id: session_id, base_url: base_url} <-
-          SessionWriterRegistry.attached(identifier) do
-      payload = %{
-        parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
-      }
-
-      case ApiClient.post_message(base_url, session_id, payload) do
-        {:ok, _} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.debug("aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}")
-      end
-    end
+    writers = SessionWriterRegistry.attached(identifier)
+    :ok = post_aiur_turn_markers(identifier, aiur_turn_id, writers)
 
     aiur_turn_id
   end
 
   defp open_aiur_turn_streams(_issue), do: nil
+
+  @doc """
+  Fire `__aiur_turn__:<id>` marker posts to every attached opencode-serve
+  asynchronously. Returns `:ok` immediately so the calling codex turn
+  is not blocked on the round-trip.
+
+  opencode's `POST /session/X/message` is synchronous from its caller's
+  perspective — it holds the request open until the LLM (our bridge)
+  finishes responding, which for an active codex turn can be minutes.
+  A naive synchronous fan-out blocked the next codex turn from even
+  starting for ~30 s per attached server (Req's `receive_timeout`),
+  so chat panes sat empty for ~90 s after dispatch with 3 slots.
+
+  Fire-and-forget is safe here because the marker post is purely a
+  trigger: once opencode receives the synthetic user message, it
+  opens its chat-completion request to our bridge endpoint, and the
+  bridge's `stream_codex_turn/3` subscribes to `AgentPubSub` directly
+  — agent_runner never needs the post's return value.
+
+  The `post_fn` argument is injectable for testing; in production it
+  defaults to `Aiur.Opencode.ApiClient.post_message/3`.
+  """
+  @spec post_aiur_turn_markers(
+          String.t(),
+          String.t(),
+          [%{session_id: String.t(), base_url: String.t()}],
+          (String.t(), String.t(), map() -> {:ok, term()} | {:error, term()})
+        ) :: :ok
+  def post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn \\ &ApiClient.post_message/3)
+      when is_binary(identifier) and is_binary(aiur_turn_id) and is_list(writers) and
+             is_function(post_fn, 3) do
+    payload = %{
+      parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
+    }
+
+    for %{session_id: session_id, base_url: base_url} <- writers do
+      Task.start(fn ->
+        case post_fn.(base_url, session_id, payload) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.debug(
+              "aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}"
+            )
+        end
+      end)
+    end
+
+    :ok
+  end
 
   # Match the close to the marker post — the bridge SSE for this
   # aiur_turn_id closes on the matching `:aiur_turn_done` broadcast.
