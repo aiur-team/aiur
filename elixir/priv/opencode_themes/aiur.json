@@ -166,8 +166,8 @@
       "light": "lightCyan"
     },
     "markdownCode": {
-      "dark": "darkGreen",
-      "light": "lightGreen"
+      "dark": "darkStep11",
+      "light": "lightStep11"
     },
     "markdownBlockQuote": {
       "dark": "darkStep11",

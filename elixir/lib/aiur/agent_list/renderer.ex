@@ -45,8 +45,13 @@ defmodule Aiur.AgentList.Renderer do
   @min_id_width 4
   @min_age_width 4
   @min_title_width 6
+  # When the terminal can't fit the full natural title + Latest at
+  # @max_latest_width, cap the title at this many chars so other
+  # columns aren't pushed off screen. With a wide enough terminal,
+  # the constraint doesn't trigger and the title renders in full.
+  @title_constrained_cap 25
 
-  @id_age_gap_width 3
+  @id_age_gap_width 2
 
   # Warm-status row glyphs, shown beneath the bottom nav. One glyph
   # per opencode slot. Dark-mode pair is the default; light mode is
@@ -485,7 +490,7 @@ defmodule Aiur.AgentList.Renderer do
     title = Map.get(summary, :title) || ""
     age = age_string(summary)
 
-    id_cell = cell(id_str, layout.id_width)
+    id_cell = id_cell_with_link(id_str, layout)
     age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary, markers), @state_cell_width)
     attention_cell = attention_cell(id_str, layout)
@@ -533,15 +538,49 @@ defmodule Aiur.AgentList.Renderer do
     row = [body, pad]
 
     if selected? do
-      # Wrap the whole row in a subtle background so the selected
-      # agent is visually obvious. The `▶ ` marker stays as the
-      # primary cue; the background reinforces it without
-      # competing with text colors used in cells.
-      [@ansi_selected_bg, row, @ansi_reset, @ansi_gray, "│", @ansi_reset]
+      # Fill the entire row width with a subtle background so the
+      # selected agent is visually obvious end-to-end. Each cell's
+      # `\e[0m` reset would otherwise clear the bg mid-row and
+      # leave a fragmented highlight; we re-apply
+      # `@ansi_selected_bg` immediately after every reset so the
+      # bg paints continuously through the whole row.
+      painted =
+        row
+        |> IO.iodata_to_binary()
+        |> String.replace(@ansi_reset, @ansi_reset <> @ansi_selected_bg)
+
+      [@ansi_selected_bg, painted, @ansi_reset, @ansi_gray, "│", @ansi_reset]
     else
       [row, @ansi_gray, "│", @ansi_reset]
     end
   end
+
+  # Wrap a padded ID cell in an OSC 8 hyperlink to the ticket's
+  # web page when the renderer knows the project (e.g.
+  # "its-everdred/aiur") AND the identifier looks like a GitHub
+  # issue number. Terminals that support OSC 8 (iTerm2, WezTerm,
+  # Ghostty, etc.) render the cell as a click-to-open link; those
+  # that don't ignore the escapes and display the digits as plain
+  # text. Width calculations are unaffected because OSC sequences
+  # have zero visual width.
+  defp id_cell_with_link(id_str, layout) do
+    padded = cell(id_str, layout.id_width)
+    project = Map.get(layout, :project_label)
+
+    case ticket_url(project, id_str) do
+      nil -> padded
+      url -> "\e]8;;" <> url <> "\e\\" <> padded <> "\e]8;;\e\\"
+    end
+  end
+
+  defp ticket_url(project, id_str) when is_binary(project) and is_binary(id_str) do
+    case Integer.parse(id_str) do
+      {n, ""} when n > 0 -> "https://github.com/" <> project <> "/issues/" <> Integer.to_string(n)
+      _ -> nil
+    end
+  end
+
+  defp ticket_url(_project, _id_str), do: nil
 
   # `❗` cell: blank-but-allocated when zero attentions open; `❗`
   # alone (two terminal columns + space) when one; `❗N` when more.
@@ -819,13 +858,20 @@ defmodule Aiur.AgentList.Renderer do
     id_width = min(natural_id_width, max_id_width)
 
     # Title gets its natural width when there's room. Latest takes
-    # whatever's left (capped at @max_latest_width). When the terminal
-    # is too narrow to seat both at their minimums, title wins — the
-    # ID/title columns are the primary scan target; Latest is a
-    # secondary signal that can collapse to zero on very narrow
-    # screens without losing the row's purpose.
+    # whatever's left (capped at @max_latest_width). When the
+    # terminal can't fit both naturally, title caps at
+    # @title_constrained_cap (25 chars) — that leaves more room for
+    # Latest and avoids long titles pushing other columns off
+    # screen. With a wide enough terminal there's no constraint and
+    # the title shows full.
     remaining_after_id = max(inner_width - fixed_non_id_overhead - id_width - 1, 0)
-    title_target = min(natural_title_width, max(remaining_after_id - @min_latest_width, 0))
+
+    constrained? = natural_title_width + @max_latest_width > remaining_after_id
+
+    title_cap =
+      if constrained?, do: min(@title_constrained_cap, natural_title_width), else: natural_title_width
+
+    title_target = min(title_cap, max(remaining_after_id - @min_latest_width, 0))
     title_width = max(min(title_target, remaining_after_id), 0)
     latest_width =
       min(@max_latest_width, max(remaining_after_id - title_width, @min_latest_width))

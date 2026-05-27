@@ -18,26 +18,32 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "format_delta/2" do
-    test ":command renders as a dim blockquote" do
+    test ":command renders as a blockquote with inline-code body" do
+      # Wrapping `$ <command>` in backticks lets glamour apply the
+      # theme's `markdownCode` color independently from blockquote
+      # bar color (BlockQuote only colors the bar, not the text
+      # inside). The whole line still carries the `> ` prefix.
       out = ChatCompletions.format_delta(:command, "git status --short")
-      assert out == "\n> $ git status --short\n"
+      assert out == "\n> `$ git status --short`\n"
     end
 
-    test ":command with multi-line body keeps the blockquote bar on every line" do
+    test ":command with multi-line body falls back to bar-only blockquote" do
+      # Inline code spans don't wrap across newlines, so heredoc-style
+      # multi-line commands can't ride the inline-code dim path. The
+      # bar-on-every-line treatment via Style.dim keeps them visually
+      # grouped even if their text doesn't carry the inline-code color.
       heredoc = "gh issue comment 101 --body-file - <<'EOF'\nfirst\nsecond\nEOF"
       out = ChatCompletions.format_delta(:command, heredoc)
 
-      # Every line of the body gets the `> ` prefix so opencode's
-      # glamour pipeline keeps the dim bar unbroken across the heredoc.
       assert String.starts_with?(out, "\n> $ gh issue comment")
       assert String.contains?(out, "\n> first\n")
       assert String.contains?(out, "\n> second\n")
       assert String.contains?(out, "\n> EOF\n")
     end
 
-    test ":tool with 'edit <path>' body renders as a file-edit blockquote" do
+    test ":tool with 'edit <path>' body renders as a file-edit blockquote with inline-code path" do
       out = ChatCompletions.format_delta(:tool, "edit lib/foo.ex")
-      assert out == "\n> ✏️  edit lib/foo.ex\n"
+      assert out == "\n> ✏️  `edit lib/foo.ex`\n"
     end
 
     test ":tool 'edit' with a diff payload appends a ```diff fenced block" do
@@ -61,7 +67,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
       out = ChatCompletions.format_delta(:tool, "edit lib/foo.ex", event)
 
-      assert String.starts_with?(out, "\n> ✏️  edit lib/foo.ex\n")
+      assert String.starts_with?(out, "\n> ✏️  `edit lib/foo.ex`\n")
       assert out =~ "```diff"
       assert out =~ "+world!"
       assert out =~ "-world"
@@ -69,7 +75,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
     test ":tool 'edit' without a diff payload falls back to summary-only" do
       out = ChatCompletions.format_delta(:tool, "edit lib/foo.ex", %{})
-      assert out == "\n> ✏️  edit lib/foo.ex\n"
+      assert out == "\n> ✏️  `edit lib/foo.ex`\n"
     end
 
     test ":tool 'edit' with whole-file content (no diff markers) gets + prefixes" do
@@ -99,12 +105,12 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
     test ":tool with 'read <path>' body renders as a file-read blockquote" do
       out = ChatCompletions.format_delta(:tool, "read lib/foo.ex")
-      assert out == "\n> 📖 read lib/foo.ex\n"
+      assert out == "\n> 📖 `read lib/foo.ex`\n"
     end
 
-    test ":tool with a non-file-op title falls back to a dim blockquote" do
+    test ":tool with a non-file-op title falls back to a dim inline-code blockquote" do
       out = ChatCompletions.format_delta(:tool, "emit_alert")
-      assert out == "\n> → emit_alert\n"
+      assert out == "\n> `→ emit_alert`\n"
     end
 
     test ":reasoning renders as markdown italic" do

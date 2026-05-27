@@ -271,28 +271,46 @@ defmodule Aiur.Opencode.ChatCompletions do
   ```diff block beneath the summary line.
   """
   @spec format_delta(atom(), String.t(), map()) :: String.t()
-  def format_delta(:command, body, _event), do: "\n" <> Style.dim("$ " <> body) <> "\n"
+  def format_delta(:command, body, _event) do
+    # Single-line commands wrap the whole `$ <command>` in inline
+    # backticks so glamour applies `markdownCode` styling — that's
+    # the only theme key we can color independently from prose
+    # (glamour's BlockQuote colors only the prefix bar, not the
+    # text inside). Multi-line bodies (heredocs etc.) can't ride
+    # inline code; they fall back to the bar-only blockquote.
+    if String.contains?(body, "\n") do
+      "\n" <> Style.dim("$ " <> body) <> "\n"
+    else
+      "\n> `$ #{body}`\n"
+    end
+  end
 
   def format_delta(:tool, body, event) do
     cond do
       String.starts_with?(body, "edit ") ->
         diff = edit_diff_from_payload(event)
+        path = String.trim_leading(body, "edit ")
 
         if diff == "" do
-          "\n> ✏️  #{body}\n"
+          "\n> ✏️  `edit #{path}`\n"
         else
           # Show the summary then the actual diff hunks. Glamour
           # renders ```diff fences with red/green highlighting on
           # +/- lines — close to the native opencode edit-tool look
           # without forking opencode.
-          "\n> ✏️  #{body}\n\n```diff\n#{diff}\n```\n"
+          "\n> ✏️  `edit #{path}`\n\n```diff\n#{diff}\n```\n"
         end
 
       String.starts_with?(body, "read ") ->
-        "\n> 📖 #{body}\n"
+        path = String.trim_leading(body, "read ")
+        "\n> 📖 `read #{path}`\n"
 
       true ->
-        "\n" <> Style.dim("→ " <> body) <> "\n"
+        if String.contains?(body, "\n") do
+          "\n" <> Style.dim("→ " <> body) <> "\n"
+        else
+          "\n> `→ #{body}`\n"
+        end
     end
   end
 
