@@ -1362,7 +1362,6 @@ run_in_tmux() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'capture=%q\n' "$startup_capture"
-    printf 'trap '\''st=$?; printf "\\n[aiur exited at %%s status=%%s]\\n" "$(date +%%Y-%%m-%%dT%%H:%%M:%%S%%z)" "$st" >> "$capture"'\'' EXIT HUP TERM INT\n'
     printf 'cd %q || exit 1\n' "$elixir_dir"
     printf 'set -o pipefail\n'
     printf '%q' "$mise_bin"
@@ -1404,13 +1403,6 @@ run_in_tmux() {
   # NOT `exec` into tmux — replacing the bash process would tear down our
   # EXIT/INT/TERM/HUP trap before it could run the session reaper. Instead
   # we run tmux as a child and propagate its exit status after cleanup.
-  #
-  # We keep `$startup_capture` alive across the attach (was previously
-  # rm'd before attach). The inner_cmd's tee writes everything — including
-  # the trailing `[aiur exited at ...]` timestamped banner — to that
-  # file. tmux runs the pane in the alternate screen buffer, so the
-  # banner is invisible to the parent terminal once tmux exits. We
-  # replay the banner here so the user always sees it.
 
   # tmux prints `[server exited]` to stderr when the inner session dies
   # (i.e. the user quits aiur via `q`). It is unhelpful noise on quit;
@@ -1418,48 +1410,12 @@ run_in_tmux() {
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
   local tmux_status=$?
 
-  # Replay the timestamped exit banner from the pane capture. tmux
-  # runs the pane in the alternate screen buffer, so the banner the
-  # launcher prints on exit disappears with the screen when tmux
-  # detaches. Re-emit it on the parent terminal so the user always
-  # sees when (and with what status) aiur exited.
-  #
-  # `tmux attach` returns the moment the session is destroyed, but
-  # the pane's launcher bash is still running its `trap … EXIT HUP
-  # TERM INT` body. Without a short poll the wrapper races the trap
-  # and finds an empty (or pre-banner) capture file. Poll up to ~1 s
-  # for the banner to appear — long enough to win the race
-  # comfortably, short enough that a genuinely never-emitted banner
-  # falls through to the diagnostic path without a noticeable pause.
-  #
-  # `grep -F ... || true` swallows grep's exit=1 when no banner line
-  # is present yet; without `|| true`, the global `set -euo pipefail`
-  # would abort the script before we reach `exit $tmux_status` below.
-  local exit_banner=""
-  local banner_attempts
-  for ((banner_attempts = 0; banner_attempts < 20; banner_attempts++)); do
-    if [ -s "$startup_capture" ]; then
-      exit_banner="$(grep -F '[aiur exited at ' "$startup_capture" 2>/dev/null | tail -n 1 || true)"
-      [ -n "$exit_banner" ] && break
-    fi
-    sleep 0.05
-  done
-
-  if [ -n "$exit_banner" ]; then
-    printf '%s\n' "$exit_banner" >&2
-    rm -f "$startup_capture" "$launcher"
-  else
-    # Banner missing — preserve the launcher and capture so the user
-    # can inspect what actually got written. This path is the
-    # diagnostic for the recurring "banner never appears" case.
-    printf '🔬 banner missing — launcher=%s capture=%s\n' "$launcher" "$startup_capture" >&2
-    if [ -s "$startup_capture" ]; then
-      printf '🔬 capture tail:\n' >&2
-      tail -n 5 "$startup_capture" | sed 's/^/   /' >&2
-    else
-      printf '🔬 capture is empty or missing\n' >&2
-    fi
-  fi
+  # Cleanup. Startup_capture only needs to survive long enough for
+  # `print_startup_failure` above to replay it on early-grace crashes;
+  # by the time `tmux attach` has returned, the user either saw the
+  # session render correctly (success) or read the captured output
+  # via the grace-failure path. Either way we can drop it now.
+  rm -f "$startup_capture" "$launcher"
 
   # Trap fires on `exit` below — let it reap sessions before we leave.
   exit $tmux_status
