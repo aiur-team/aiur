@@ -212,8 +212,18 @@ defmodule Aiur.TestReset do
     say("🧪 aiur --test resetting sandbox (#{length(tickets)} tickets)")
     Enum.each(tickets, &reset_one(&1, opts))
     restore_baseline(opts)
+    ensure_opencode_theme()
     say("✅ --test reset complete")
     :ok
+  end
+
+  # Install + activate the aiur opencode theme so command/tool
+  # blockquotes render dim. Idempotent — re-running `aiur --test`
+  # is a no-op once the theme is in place and active. Respects any
+  # custom theme the user has selected (won't overwrite).
+  defp ensure_opencode_theme do
+    :ok = Aiur.OpencodeTheme.ensure_active()
+    ok("opencode theme `aiur` active (dim blockquotes)")
   end
 
   defp print_plan(tickets) do
