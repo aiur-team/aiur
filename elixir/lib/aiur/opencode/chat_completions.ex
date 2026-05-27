@@ -155,9 +155,9 @@ defmodule Aiur.Opencode.ChatCompletions do
   # one growing assistant message (Approach C.2 per the brainstorm).
   defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role) do
     receive do
-      {:transcript_event, %{role: role, body: body}}
+      {:transcript_event, %{role: role, body: body} = event}
       when role in [:assistant, :command, :system, :alert, :reasoning, :tool] ->
-        delta = bar_connector(last_role, role) <> format_delta(role, body)
+        delta = bar_connector(last_role, role) <> format_delta(role, body, event)
         conn = chunk(conn, completion_id, delta, nil)
         codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, role)
 
@@ -260,20 +260,56 @@ defmodule Aiur.Opencode.ChatCompletions do
   # and shares one visual language across non-agent content.
   @doc false
   @spec format_delta(atom(), String.t()) :: String.t()
-  def format_delta(:command, body), do: "\n" <> Style.dim("$ " <> body) <> "\n"
+  def format_delta(role, body), do: format_delta(role, body, %{})
 
-  def format_delta(:tool, body) do
+  @doc """
+  Format a transcript event into an SSE chunk-ready string. The
+  optional `event` map carries the full transcript event (role, body,
+  payload, …) so role-specific formatters can pick up payload fields
+  the body string alone doesn't carry. Currently used by `:tool`'s
+  `edit` branch to surface the file-change diff hunks via a fenced
+  ```diff block beneath the summary line.
+  """
+  @spec format_delta(atom(), String.t(), map()) :: String.t()
+  def format_delta(:command, body, _event), do: "\n" <> Style.dim("$ " <> body) <> "\n"
+
+  def format_delta(:tool, body, event) do
     cond do
-      String.starts_with?(body, "edit ") -> "\n> ✏️  #{body}\n"
-      String.starts_with?(body, "read ") -> "\n> 📖 #{body}\n"
-      true -> "\n" <> Style.dim("→ " <> body) <> "\n"
+      String.starts_with?(body, "edit ") ->
+        diff = edit_diff_from_payload(event)
+
+        if diff == "" do
+          "\n> ✏️  #{body}\n"
+        else
+          # Show the summary then the actual diff hunks. Glamour
+          # renders ```diff fences with red/green highlighting on
+          # +/- lines — close to the native opencode edit-tool look
+          # without forking opencode.
+          "\n> ✏️  #{body}\n\n```diff\n#{diff}\n```\n"
+        end
+
+      String.starts_with?(body, "read ") ->
+        "\n> 📖 #{body}\n"
+
+      true ->
+        "\n" <> Style.dim("→ " <> body) <> "\n"
     end
   end
 
-  def format_delta(:reasoning, body), do: "\n_#{body}_\n"
-  def format_delta(:alert, body), do: "\n> 🔔 #{body}\n"
-  def format_delta(:system, body), do: "\n> #{body}\n"
-  def format_delta(_role, body), do: body
+  def format_delta(:reasoning, body, _event), do: "\n_#{body}_\n"
+  def format_delta(:alert, body, _event), do: "\n> 🔔 #{body}\n"
+  def format_delta(:system, body, _event), do: "\n> #{body}\n"
+  def format_delta(_role, body, _event), do: body
+
+  # Pull the diff content out of a `:tool` transcript event for the
+  # `edit` tool. `Aiur.Codex.Transcript.build_tool_payload/2` stuffs
+  # the joined diff into the payload's `:output` field; we surface
+  # it here when present.
+  defp edit_diff_from_payload(%{payload: %{output: output, tool: "edit"}})
+       when is_binary(output) and output != "",
+       do: output
+
+  defp edit_diff_from_payload(_), do: ""
 
   @doc """
   Inter-chunk connector for the chat-completion delta stream. Two

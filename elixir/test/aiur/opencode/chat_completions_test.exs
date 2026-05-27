@@ -40,6 +40,38 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       assert out == "\n> ✏️  edit lib/foo.ex\n"
     end
 
+    test ":tool 'edit' with a diff payload appends a ```diff fenced block" do
+      # R4: when the codex transcript carries the file-change diff
+      # (Aiur.Codex.Transcript.build_tool_payload/2 stuffs it in
+      # `payload.output`), the bridge surfaces the diff hunks as a
+      # fenced `diff` block so glamour renders +/- with color.
+      diff = """
+      @@ -1,3 +1,4 @@
+       hello
+      -world
+      +world!
+      +new line
+      """
+
+      event = %{
+        role: :tool,
+        body: "edit lib/foo.ex",
+        payload: %{tool: "edit", output: diff}
+      }
+
+      out = ChatCompletions.format_delta(:tool, "edit lib/foo.ex", event)
+
+      assert String.starts_with?(out, "\n> ✏️  edit lib/foo.ex\n")
+      assert out =~ "```diff"
+      assert out =~ "+world!"
+      assert out =~ "-world"
+    end
+
+    test ":tool 'edit' without a diff payload falls back to summary-only" do
+      out = ChatCompletions.format_delta(:tool, "edit lib/foo.ex", %{})
+      assert out == "\n> ✏️  edit lib/foo.ex\n"
+    end
+
     test ":tool with 'read <path>' body renders as a file-read blockquote" do
       out = ChatCompletions.format_delta(:tool, "read lib/foo.ex")
       assert out == "\n> 📖 read lib/foo.ex\n"
