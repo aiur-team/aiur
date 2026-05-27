@@ -96,7 +96,7 @@ defmodule ScriptsAiurTest do
     command_log = await_command_log(ctx, "NOHUP:")
 
     assert output =~
-             "aiur: aiur systemd service unavailable; starting with nohup background runner"
+             "⚠️  aiur systemd service unavailable; starting with nohup background runner"
 
     assert output =~ "aiur started in background"
     assert command_log =~ "SYSTEMCTL:--user restart aiur\n"
@@ -141,7 +141,7 @@ defmodule ScriptsAiurTest do
     assert {output, 0} = run_aiur(ctx, [], tmux_has_session: true)
     command_log = command_log(ctx)
 
-    assert output =~ "aiur: attaching to existing default session"
+    assert output =~ "🪟 attaching to existing default session"
     assert command_log =~ "TMUX:-L #{aiur_tmux_socket()} -f "
     assert command_log =~ "has-session -t #{session}"
     assert command_log =~ "attach -t #{session}"
@@ -157,7 +157,7 @@ defmodule ScriptsAiurTest do
     assert {output, 0} = run_aiur(ctx, ["actions"], tmux_has_session: true)
     command_log = command_log(ctx)
 
-    assert output =~ "aiur: attaching to existing actions session"
+    assert output =~ "🪟 attaching to existing actions session"
     assert command_log =~ "has-session -t #{session}"
     assert command_log =~ "attach -t #{session}"
     refute command_log =~ "new-session"
@@ -171,7 +171,7 @@ defmodule ScriptsAiurTest do
     assert {output, 0} = run_aiur(ctx, ["--fresh"], tmux_has_session: true)
     command_log = command_log(ctx)
 
-    refute output =~ "aiur: attaching to existing"
+    refute output =~ "🪟 attaching to existing"
     assert command_log =~ "kill-session -t #{session}"
     assert command_log =~ "new-session -d -s #{session}"
     assert output =~ "MISE:exec -- ./bin/aiur"
@@ -187,7 +187,7 @@ defmodule ScriptsAiurTest do
     command_log = command_log(ctx)
 
     assert output =~
-             "aiur: no attachable default tmux session found; replacing background aiur with a foreground session"
+             "⚠️  no attachable default tmux session found; replacing background aiur with a foreground session"
 
     assert command_log =~ "SYSTEMCTL:--user is-active --quiet aiur\n"
     assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
@@ -319,7 +319,7 @@ defmodule ScriptsAiurTest do
              run_aiur(ctx, ["actions"], env: [{"AIUR_TEST_BUSY_PORTS", "4101,4102"}])
 
     assert output =~
-             "aiur: port 4101 in use; bound to 4103 instead (run with `--port` to override)"
+             "⚠️  port 4101 in use; bound to 4103 instead (run with `--port` to override)"
 
     assert output =~ "MISE:exec -- ./bin/aiur --logs-root #{ctx.logs_root}/actions --port 4103"
   end
@@ -341,7 +341,7 @@ defmodule ScriptsAiurTest do
              run_aiur(ctx, ["aiur"], env: [{"AIUR_TEST_BUSY_PORTS", "4000"}])
 
     assert output =~
-             "aiur: port 4000 in use; bound to 4001 instead (run with `--port` to override)"
+             "⚠️  port 4000 in use; bound to 4001 instead (run with `--port` to override)"
 
     assert output =~ "MISE:exec -- ./bin/aiur --port 4001"
   end
@@ -363,7 +363,7 @@ defmodule ScriptsAiurTest do
                ]
              )
 
-    assert output =~ "aiur: Aiur exited during startup"
+    assert output =~ "❌ Aiur exited during startup"
     assert output =~ "Failed to start Aiur: {:shutdown, :eaddrinuse}"
     assert output =~ "Hint: port already in use."
     assert output =~ "try `aiur --port <N>`"
@@ -377,10 +377,10 @@ defmodule ScriptsAiurTest do
     # ensure_built should fetch deps, compile, then build the escript.
     assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
 
-    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "🔨 fetching and compiling Hex dependencies"
     assert output =~ "MISE:exec -- mix deps.get"
     assert output =~ "MISE:exec -- mix compile"
-    assert output =~ "aiur: rebuilding bin/aiur"
+    assert output =~ "🔨 rebuilding bin/aiur"
     assert output =~ "MISE:exec -- mix release --overwrite"
     # The real Aiur invocation still runs after the rebuild step.
     assert output =~ "MISE:exec -- ./bin/aiur"
@@ -398,7 +398,7 @@ defmodule ScriptsAiurTest do
 
     assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
 
-    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "🔨 fetching and compiling Hex dependencies"
     assert output =~ "MISE:exec -- mix deps.get"
     assert output =~ "MISE:exec -- mix compile"
     assert output =~ "MISE:exec -- ./bin/aiur"
@@ -410,10 +410,10 @@ defmodule ScriptsAiurTest do
 
     assert {output, 0} = run_aiur(ctx, ["build"], skip_build: false)
 
-    assert output =~ "aiur: fetching and compiling Hex dependencies"
+    assert output =~ "🔨 fetching and compiling Hex dependencies"
     assert output =~ "MISE:exec -- mix deps.get"
     assert output =~ "MISE:exec -- mix compile"
-    assert output =~ "aiur: rebuilding bin/aiur"
+    assert output =~ "🔨 rebuilding bin/aiur"
     assert output =~ "MISE:exec -- mix release --overwrite"
     refute output =~ "MISE:exec -- ./bin/aiur"
   end

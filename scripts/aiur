@@ -74,9 +74,17 @@ for arg in "$@"; do
       # default. Stale _build/ silently masking shipped work was a
       # repeated source of "feature didn't ship" confusion; force-rebuild
       # is the right default. Override is not supported.
+      #
+      # `fresh_mode=1` is the launch-side equivalent of typing `--force`
+      # on the command line: skip "attach to existing session" and tear
+      # down any stale tmux/BEAM before starting. Without it, `--test`
+      # alone would reset the sandbox then try to attach to a stale
+      # session, which was the source of repeated `aiur --test` →
+      # `aiur --test --force` muscle-memory.
       debug_mode=1
       clear_mode=1
       test_force=1
+      fresh_mode=1
       ;;
     --force)
       test_force=1
@@ -106,7 +114,7 @@ for arg in "$@"; do
 done
 
 if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
-  echo "aiur: --clear requires --debug (e.g. \`aiur --debug --clear\`)" >&2
+  echo "❌ --clear requires --debug (e.g. \`aiur --debug --clear\`)" >&2
   exit 64
 fi
 
@@ -118,7 +126,7 @@ fi
 # without executing, use `mix aiur.test.reset` directly (no --confirm).
 if [ "$test_mode" -eq 1 ]; then
   if [ -z "$mise_bin" ]; then
-    echo "aiur: --test requires mise on PATH" >&2
+    echo "❌ --test requires mise on PATH" >&2
     exit 1
   fi
 
@@ -130,38 +138,63 @@ if [ "$test_mode" -eq 1 ]; then
   # Recursive call into the same script's `stop all` subcommand —
   # stop_all() lives later in this file, so direct call would hit
   # bash's forward-reference limitation.
-  echo "aiur: --test stopping any running aiur first…" >&2
+  echo "🛑 stopping any running aiur" >&2
   "$0" stop all >/dev/null 2>&1 || true
 
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
 
-  echo "aiur: --test resetting sandbox (pinned tickets per .aiur-test-tickets.json)…" >&2
-
   if ! (cd "$default_repo_root/elixir" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
-    echo "aiur: --test reset failed; refusing to launch. Inspect the output above." >&2
+    echo "❌ --test reset failed; refusing to launch. Inspect the output above." >&2
     exit 1
   fi
 
   # GitHub's label-search index is eventually consistent: a label
   # added at t=0 may not appear in `gh issue list --label agent:todo`
-  # for ~3-5 seconds. Without this settle delay, the orchestrator's
-  # first poll (~5s after boot) sometimes misses the most-recently-
-  # labeled ticket — symptom: one of the three sandbox tickets is
-  # absent from the agent list. The next 5s poll picks it up, but
-  # the operator sees a "broken" list for the first 10s.
-  echo "aiur: --test reset complete; waiting 6s for GitHub label index to settle…" >&2
-  sleep 6
+  # for ~3-30+ seconds. A fixed sleep is fragile — too short and the
+  # orchestrator's first poll misses a ticket (one sandbox agent shows
+  # up MIA in the list), too long and every --test wastes time on the
+  # happy path. Poll until all pinned tickets are visible under the
+  # label, or fall through after the deadline with a warning so a slow
+  # index doesn't block the launch entirely.
+  echo "⏳ settling GitHub label index" >&2
+  tickets_file="$default_repo_root/.aiur-test-tickets.json"
+  if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
+    expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
+  else
+    expected_count=0
+  fi
+
+  if [ "$expected_count" -gt 0 ]; then
+    settle_deadline=$((SECONDS + 30))
+    actual_count=0
+    while [ "$SECONDS" -lt "$settle_deadline" ]; do
+      actual_count="$(gh issue list --label agent:todo --json number 2>/dev/null | jq -r 'length' 2>/dev/null || echo 0)"
+      if [ "$actual_count" -ge "$expected_count" ]; then
+        break
+      fi
+      sleep 1
+    done
+
+    if [ "$actual_count" -ge "$expected_count" ]; then
+      echo "✅ GitHub label index settled ($actual_count/$expected_count tickets visible)" >&2
+    else
+      echo "⚠️  GitHub label index slow — only $actual_count/$expected_count visible after 30s; proceeding" >&2
+    fi
+  else
+    # No tickets file / no jq — fall back to the legacy fixed sleep.
+    sleep 6
+  fi
 fi
 
 if [ "$expect_port_value" -eq 1 ]; then
-  echo "aiur: --port requires a port number (e.g. --port 4099)" >&2
+  echo "❌ --port requires a port number (e.g. --port 4099)" >&2
   exit 64
 fi
 
 if [ "$expect_log_value" -eq 1 ]; then
-  echo "aiur: --log requires an issue identifier (e.g. --log 25)" >&2
+  echo "❌ --log requires an issue identifier (e.g. --log 25)" >&2
   exit 64
 fi
 
@@ -169,7 +202,7 @@ validate_port() {
   local port="$1"
 
   if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-    echo "aiur: invalid --port value '$port' (expected 1-65535)" >&2
+    echo "❌ invalid --port value '$port' (expected 1-65535)" >&2
     exit 64
   fi
 }
@@ -186,7 +219,7 @@ fi
 # isolated tmux on a dedicated socket and does not nest cleanly. Detected
 # via the `$TMUX` env var, which is set inside every shell tmux owns.
 if [ -n "${TMUX:-}" ]; then
-  echo "aiur: already inside a tmux session (\$TMUX is set)" >&2
+  echo "❌ already inside a tmux session (\$TMUX is set)" >&2
   echo "Open a fresh terminal without tmux and try again." >&2
   exit 1
 fi
@@ -476,7 +509,7 @@ launch_port_for_profile() {
 
     if ! port_in_use "$candidate"; then
       if [ "$offset" -gt 0 ]; then
-        echo "aiur: port $configured_port in use; bound to $candidate instead (run with \`--port\` to override)" >&2
+        echo "⚠️  port $configured_port in use; bound to $candidate instead (run with \`--port\` to override)" >&2
       fi
 
       printf '%s' "$candidate"
@@ -529,7 +562,7 @@ load_env_file() {
 
 require_mise() {
   if [ -z "$mise_bin" ] || [ ! -x "$mise_bin" ]; then
-    echo "aiur: mise not found on PATH. Install mise (https://mise.jdx.dev) or set AIUR_MISE_BIN." >&2
+    echo "❌ mise not found on PATH. Install mise (https://mise.jdx.dev) or set AIUR_MISE_BIN." >&2
     exit 64
   fi
 }
@@ -568,7 +601,7 @@ ensure_elixir_deps() {
 
   if ! elixir_deps_ready "$elixir_dir"; then
     require_mise
-    echo "aiur: fetching and compiling Hex dependencies…" >&2
+    echo "🔨 fetching and compiling Hex dependencies" >&2
     (cd "$elixir_dir" && "$mise_bin" exec -- mix deps.get && "$mise_bin" exec -- mix compile) >&2
   fi
 }
@@ -599,7 +632,7 @@ build_aiur() {
   local elixir_dir="$1"
 
   require_mise
-  echo "aiur: rebuilding bin/aiur (release)…" >&2
+  echo "🔨 rebuilding bin/aiur (release)" >&2
   # `mix release --overwrite` ships priv/ directories on disk so NIFs
   # (e.g. exqlite/priv/sqlite3_nif.so) load correctly — escript zips
   # cannot host NIFs. The post-assemble step in mix.exs writes a thin
@@ -642,12 +675,12 @@ ensure_erlang_cookie() {
   fi
 
   if [ ! -r "$cookie_file" ]; then
-    echo "aiur: ~/.erlang.cookie is not readable" >&2
+    echo "❌ ~/.erlang.cookie is not readable" >&2
     return 1
   fi
 
   if [ "$(stat -c '%U' "$cookie_file" 2>/dev/null || stat -f '%Su' "$cookie_file")" != "$USER" ]; then
-    echo "aiur: ~/.erlang.cookie is not owned by $USER" >&2
+    echo "❌ ~/.erlang.cookie is not owned by $USER" >&2
     return 1
   fi
 
@@ -655,7 +688,7 @@ ensure_erlang_cookie() {
   size="$(wc -c <"$cookie_file" | tr -d ' ')"
 
   if [ "$size" -lt 16 ]; then
-    echo "aiur: ~/.erlang.cookie is shorter than 16 bytes" >&2
+    echo "❌ ~/.erlang.cookie is shorter than 16 bytes" >&2
     return 1
   fi
 }
@@ -695,7 +728,7 @@ ensure_aiur_state_dir() {
 
 check_tmux() {
   if ! "$tmux_bin" -V >/dev/null 2>&1; then
-    echo "aiur: tmux is not installed or not executable; install tmux >= 3.3 before launching" >&2
+    echo "❌ tmux is not installed or not executable; install tmux >= 3.3 before launching" >&2
     return 1
   fi
 
@@ -882,7 +915,7 @@ restart_one_background_service() {
       if command -v "$systemctl_bin" >/dev/null 2>&1 && "$systemctl_bin" --user restart "$service"; then
         "$systemctl_bin" --user status "$service" --no-pager || true
       else
-        echo "aiur: $service systemd service unavailable; starting with nohup background runner" >&2
+        echo "⚠️  $service systemd service unavailable; starting with nohup background runner" >&2
         start_bg_nohup "$profile"
       fi
       ;;
@@ -1018,21 +1051,21 @@ run_or_attach_foreground() {
   service="$(profile_value service "$profile")"
 
   if [ "$fresh_mode" -eq 0 ] && background_running "$profile"; then
-    echo "aiur: no attachable $profile tmux session found; replacing background $service with a foreground session" >&2
+    echo "⚠️  no attachable $profile tmux session found; replacing background $service with a foreground session" >&2
   fi
 
   run_foreground "$profile"
 }
 
 die() {
-  echo "aiur: $*" >&2
+  echo "❌ $*" >&2
   exit 1
 }
 
 print_startup_failure() {
   local startup_capture="$1"
 
-  echo "aiur: Aiur exited during startup — captured pane output:" >&2
+  echo "❌ Aiur exited during startup — captured pane output:" >&2
   echo >&2
 
   if [ -s "$startup_capture" ]; then
@@ -1242,7 +1275,7 @@ run_in_tmux() {
       log_dir="$(dirname "$log_path")"
       if [ -d "$log_dir" ]; then
         find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
-        echo "aiur: cleared previous logs in $log_dir" >&2
+        echo "✅ cleared previous logs ($log_dir)" >&2
       fi
 
       # Reap BEAM hot-load shared libraries and debug pipe-pane captures.
@@ -1259,12 +1292,12 @@ run_in_tmux() {
         if [ "$stale_so_count" -gt 0 ]; then
           find /tmp -maxdepth 1 -name ".*.so" -user "${USER:-$(id -un)}" -delete 2>/dev/null || true
           find /tmp -maxdepth 1 -name ".*.node" -user "${USER:-$(id -un)}" -delete 2>/dev/null || true
-          echo "aiur: reaped $stale_so_count stale BEAM hot-load files in /tmp" >&2
+          echo "✅ reaped $stale_so_count stale BEAM hot-load files in /tmp" >&2
         fi
 
         if [ -d /tmp/aiur-debug ]; then
           rm -rf /tmp/aiur-debug 2>/dev/null || true
-          echo "aiur: cleared /tmp/aiur-debug pipe-pane captures" >&2
+          echo "✅ cleared /tmp/aiur-debug pipe-pane captures" >&2
         fi
 
         # Reap orphaned opencode-serve processes from a prior aiur boot.
@@ -1288,7 +1321,7 @@ run_in_tmux() {
         if [ -n "$stale_serve_pids" ]; then
           local stale_serve_count
           stale_serve_count=$(echo $stale_serve_pids | wc -w)
-          echo "aiur: reaping $stale_serve_count orphaned opencode-serve(s) from prior boot" >&2
+          echo "🛑 reaping $stale_serve_count orphaned opencode-serve(s) from prior boot" >&2
           kill -TERM $stale_serve_pids 2>/dev/null || true
           local wait_iters=0
           while [ $wait_iters -lt 20 ]; do
@@ -1306,30 +1339,52 @@ run_in_tmux() {
         fi
       fi
     fi
-    echo "aiur: debug logging enabled" >&2
-    echo "aiur: tail logs with -> tail -F $log_path" >&2
-    echo "aiur: tmux socket=$socket conf=$conf" >&2
+    echo "✅ debug logging enabled" >&2
+    echo "📜 tail: tail -F $log_path" >&2
+    echo "🪟 tmux socket=$socket conf=$conf" >&2
   fi
 
   if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
     "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
   fi
 
-  # Build the inner command as a single string for tmux to run inside its
-  # pane. Output is tee'd to a temp file so a startup crash can be replayed
-  # after tmux tears down the pane.
-  local inner_cmd
-  printf -v inner_cmd 'cd %q && set -o pipefail && %q' "$elixir_dir" "$mise_bin"
+  # Build a tiny launcher script the tmux pane will exec. The launcher
+  # installs a trap on EXIT/HUP/TERM/INT so the timestamped exit banner
+  # gets written to `$startup_capture` even when tmux's `kill-session`
+  # SIGHUP-tears down the pane mid-run (the default action for a
+  # non-interactive bash receiving SIGHUP is to terminate without
+  # running any inline post-pipe commands). Inline `{ … } | tee` did
+  # not survive Ctrl-C kill-session for that reason — only a trap will.
+  local launcher
+  launcher="$(mktemp "${TMPDIR:-/tmp}/aiur-launcher.${profile}.XXXXXX")"
+  chmod +x "$launcher"
 
-  local arg
-  for arg in "$@"; do
-    printf -v inner_cmd '%s %q' "$inner_cmd" "$arg"
-  done
-  printf -v inner_cmd '%s 2>&1 | tee -a %q; exit ${PIPESTATUS[0]}' "$inner_cmd" "$startup_capture"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'capture=%q\n' "$startup_capture"
+    printf 'trap '\''st=$?; printf "\\n[aiur exited at %%s status=%%s]\\n" "$(date +%%Y-%%m-%%dT%%H:%%M:%%S%%z)" "$st" >> "$capture"'\'' EXIT HUP TERM INT\n'
+    printf 'cd %q || exit 1\n' "$elixir_dir"
+    printf 'set -o pipefail\n'
+    printf '%q' "$mise_bin"
+    local arg
+    for arg in "$@"; do
+      printf ' %q' "$arg"
+    done
+    printf ' 2>&1 | tee -a "$capture"\n'
+    printf 'exit ${PIPESTATUS[0]}\n'
+  } > "$launcher"
+
+  # `inner_cmd` runs the launcher and propagates its exit status —
+  # the trailing `rm -f` cleans up the temp script but we capture
+  # the launcher's status first so a startup failure (e.g. port
+  # in-use) doesn't get masked as a clean exit by `rm`'s zero.
+  local inner_cmd
+  printf -v inner_cmd '%q; rc=$?; rm -f %q; exit $rc' "$launcher" "$launcher"
 
   if ! "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     print_startup_failure "$startup_capture"
+    rm -f "$launcher"
     exit 1
   fi
 
@@ -1349,13 +1404,62 @@ run_in_tmux() {
   # NOT `exec` into tmux — replacing the bash process would tear down our
   # EXIT/INT/TERM/HUP trap before it could run the session reaper. Instead
   # we run tmux as a child and propagate its exit status after cleanup.
-  rm -f "$startup_capture"
+  #
+  # We keep `$startup_capture` alive across the attach (was previously
+  # rm'd before attach). The inner_cmd's tee writes everything — including
+  # the trailing `[aiur exited at ...]` timestamped banner — to that
+  # file. tmux runs the pane in the alternate screen buffer, so the
+  # banner is invisible to the parent terminal once tmux exits. We
+  # replay the banner here so the user always sees it.
 
   # tmux prints `[server exited]` to stderr when the inner session dies
   # (i.e. the user quits aiur via `q`). It is unhelpful noise on quit;
   # the BEAM has already cleanly shut down by this point. Filter it.
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
   local tmux_status=$?
+
+  # Replay the timestamped exit banner from the pane capture. tmux
+  # runs the pane in the alternate screen buffer, so the banner the
+  # launcher prints on exit disappears with the screen when tmux
+  # detaches. Re-emit it on the parent terminal so the user always
+  # sees when (and with what status) aiur exited.
+  #
+  # `tmux attach` returns the moment the session is destroyed, but
+  # the pane's launcher bash is still running its `trap … EXIT HUP
+  # TERM INT` body. Without a short poll the wrapper races the trap
+  # and finds an empty (or pre-banner) capture file. Poll up to ~1 s
+  # for the banner to appear — long enough to win the race
+  # comfortably, short enough that a genuinely never-emitted banner
+  # falls through to the diagnostic path without a noticeable pause.
+  #
+  # `grep -F ... || true` swallows grep's exit=1 when no banner line
+  # is present yet; without `|| true`, the global `set -euo pipefail`
+  # would abort the script before we reach `exit $tmux_status` below.
+  local exit_banner=""
+  local banner_attempts
+  for ((banner_attempts = 0; banner_attempts < 20; banner_attempts++)); do
+    if [ -s "$startup_capture" ]; then
+      exit_banner="$(grep -F '[aiur exited at ' "$startup_capture" 2>/dev/null | tail -n 1 || true)"
+      [ -n "$exit_banner" ] && break
+    fi
+    sleep 0.05
+  done
+
+  if [ -n "$exit_banner" ]; then
+    printf '%s\n' "$exit_banner" >&2
+    rm -f "$startup_capture" "$launcher"
+  else
+    # Banner missing — preserve the launcher and capture so the user
+    # can inspect what actually got written. This path is the
+    # diagnostic for the recurring "banner never appears" case.
+    printf '🔬 banner missing — launcher=%s capture=%s\n' "$launcher" "$startup_capture" >&2
+    if [ -s "$startup_capture" ]; then
+      printf '🔬 capture tail:\n' >&2
+      tail -n 5 "$startup_capture" | sed 's/^/   /' >&2
+    else
+      printf '🔬 capture is empty or missing\n' >&2
+    fi
+  fi
 
   # Trap fires on `exit` below — let it reap sessions before we leave.
   exit $tmux_status
@@ -1376,7 +1480,7 @@ attach_existing_tmux_session() {
   check_tmux || die "tmux >= 3.3 is required; install tmux before running aiur"
 
   if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
-    echo "aiur: attaching to existing $profile session" >&2
+    echo "🪟 attaching to existing $profile session" >&2
     exec "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session"
   fi
 
@@ -1436,7 +1540,7 @@ if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
     : >>"$log_target" 2>/dev/null || true
   fi
 
-  echo "aiur: tailing $log_target (Ctrl+C to stop)" >&2
+  echo "📜 tailing $log_target (Ctrl+C to stop)" >&2
   exec tail -F "$log_target"
 fi
 
@@ -1462,10 +1566,10 @@ case "${1:-}" in
     # If you suspect a stale dep, pass `--deps` to wipe the whole
     # _build/dev/ — then expect ~2min.
     if [ "${2:-}" = "--deps" ]; then
-      echo "aiur: clean force-rebuild incl. deps (wiping _build/dev)…" >&2
+      echo "🔨 clean force-rebuild incl. deps (wiping _build/dev)" >&2
       rm -rf "$repo_root/elixir/_build/dev"
     else
-      echo "aiur: force-rebuild aiur app + release (keeping dep artifacts)…" >&2
+      echo "🔨 force-rebuild aiur app + release (keeping dep artifacts)" >&2
       rm -rf "$repo_root/elixir/_build/dev/rel"
       require_mise
       (cd "$repo_root/elixir" && "$mise_bin" exec -- mix compile --force) >&2
