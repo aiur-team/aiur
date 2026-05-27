@@ -66,4 +66,26 @@ defmodule Aiur.OperatorWaitLogTest do
     assert second["request_id"] == 2
     assert second["identifier"] == "101"
   end
+
+  test "two agents with the same request_id don't collide", %{path: path} do
+    # Composite key {identifier, request_id} keeps these distinct so each
+    # agent's wait_ms is computed against its own queued_at.
+    OperatorWaitLog.record_queued(1, "100", 10)
+    OperatorWaitLog.record_queued(1, "101", 20)
+    OperatorWaitLog.record_delivered(1, "100")
+    OperatorWaitLog.record_delivered(1, "101")
+
+    [a, b] = path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    assert a["identifier"] == "100" and a["text_bytes"] == 10
+    assert b["identifier"] == "101" and b["text_bytes"] == 20
+  end
+
+  test "record_delivered with mismatched identifier preserves the queued row", %{path: path} do
+    OperatorWaitLog.record_queued(1, "100", 10)
+    OperatorWaitLog.record_delivered(1, "999")
+    refute File.exists?(path)
+
+    OperatorWaitLog.record_delivered(1, "100")
+    assert File.exists?(path)
+  end
 end
