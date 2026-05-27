@@ -435,8 +435,22 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   defp chunk(conn, completion_id, content, finish_reason) do
     payload = build_chunk(completion_id, %{content: content, finish_reason: finish_reason})
-    {:ok, conn} = Plug.Conn.chunk(conn, "data: " <> Jason.encode!(payload) <> "\n\n")
-    conn
+
+    case Plug.Conn.chunk(conn, "data: " <> Jason.encode!(payload) <> "\n\n") do
+      {:ok, conn} ->
+        conn
+
+      {:error, reason} ->
+        # opencode disconnected the SSE — common when it kills/respawns
+        # the attach pane or hits its read timeout. Crashing the bridge
+        # handler with a MatchError takes down the whole codex turn
+        # rendering; instead, log once and return the conn unchanged so
+        # the loop can finish via the `:aiur_turn_done` close broadcast
+        # (subsequent writes will fast-fail the same way and be silently
+        # dropped here).
+        Logger.debug("opencode_bridge chunk_write_closed reason=#{inspect(reason)}")
+        conn
+    end
   end
 
   defp delta(nil), do: %{}
