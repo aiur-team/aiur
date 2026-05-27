@@ -515,4 +515,151 @@ defmodule Aiur.AgentList.RendererTest do
       assert String.length(line) <= 29, "line too long: #{inspect(line)}"
     end)
   end
+
+  describe "❗ attention slot + Latest column (R5 / U21)" do
+    # State column expands so the status emoji and the `❗` slot
+    # render side by side. The slot is reserved blank space when no
+    # attention is open, so layout doesn't jitter when state flips.
+    test "renders status emoji + ❗ when an attention is open on the ticket" do
+      summaries = [
+        %{
+          identifier: "MT-A",
+          status: :running,
+          alert_count: 0,
+          work_state: :working
+        }
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-A" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-A"]),
+            open_attentions_by_id: %{"MT-A" => 1},
+            columns: 100
+          })
+        )
+        |> visible()
+
+      # ⚪ status emoji AND ❗ attention emoji both present on the row
+      mt_a_line = Enum.find(String.split(out, ["\r\n", "\n"]), fn l -> l =~ "MT-A" end)
+      assert mt_a_line, "expected to find MT-A row"
+      assert mt_a_line =~ "⚪", "expected status emoji ⚪"
+      assert mt_a_line =~ "❗", "expected attention emoji ❗"
+    end
+
+    test "renders ❗N when multiple attentions are open" do
+      summaries = [
+        %{identifier: "MT-B", status: :running, alert_count: 0, work_state: :working}
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-B" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-B"]),
+            open_attentions_by_id: %{"MT-B" => 3},
+            columns: 100
+          })
+        )
+        |> visible()
+
+      assert out =~ "❗3"
+    end
+
+    test "reserves attention slot as blank when no attention is open (no jitter)" do
+      # When attention count is zero, the row's *visual* width must
+      # match the with-attention case so the Latest column doesn't
+      # shift left/right when state flips. `String.length` is the
+      # wrong metric here because `❗` is one code point but two
+      # terminal columns — we measure visual width directly.
+      summaries = [
+        %{
+          identifier: "MT-C",
+          status: :running,
+          alert_count: 0,
+          work_state: :working,
+          title: "a-title"
+        }
+      ]
+
+      base = %{
+        summaries: summaries,
+        attach_state: %{"MT-C" => %{attach_count: 1, visible_in: 1}},
+        agents_with_content: MapSet.new(["MT-C"]),
+        columns: 100
+      }
+
+      without_attention =
+        render(base_state(Map.put(base, :open_attentions_by_id, %{"MT-C" => 0}))) |> visible()
+
+      with_attention =
+        render(base_state(Map.put(base, :open_attentions_by_id, %{"MT-C" => 1}))) |> visible()
+
+      [no_line | _] = Enum.filter(String.split(without_attention, ["\r\n", "\n"]), &(&1 =~ "MT-C"))
+      [yes_line | _] = Enum.filter(String.split(with_attention, ["\r\n", "\n"]), &(&1 =~ "MT-C"))
+
+      # Treat each emoji grapheme as 2 visual columns, everything else
+      # as 1. Both rows should render to the same total visual width.
+      visual_width = fn s ->
+        s
+        |> String.graphemes()
+        |> Enum.map(fn g -> if byte_size(g) >= 3, do: 2, else: 1 end)
+        |> Enum.sum()
+      end
+
+      assert visual_width.(no_line) == visual_width.(yes_line),
+             "row visual width drifted when ❗ flipped:\n  no=#{inspect(no_line)}\n  yes=#{inspect(yes_line)}"
+    end
+
+    test "Latest column shows most recent event message for the ticket" do
+      summaries = [
+        %{identifier: "MT-D", status: :running, alert_count: 0, work_state: :working}
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-D" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-D"]),
+            latest_event_by_id: %{
+              "MT-D" => %{
+                topic: "ticket.MT-D.branch.push",
+                message: "pushed abc1234",
+                timestamp: DateTime.utc_now()
+              }
+            },
+            columns: 120
+          })
+        )
+        |> visible()
+
+      assert out =~ "pushed abc1234", "expected Latest column to carry the event message"
+    end
+
+    test "Latest column is empty when no event has been seen for the ticket" do
+      summaries = [
+        %{identifier: "MT-E", status: :running, alert_count: 0, work_state: :working}
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-E" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-E"]),
+            latest_event_by_id: %{},
+            columns: 120
+          })
+        )
+        |> visible()
+
+      mt_e_line = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-E"))
+      assert mt_e_line, "expected to find MT-E row"
+      # No event content surfaces — but the row still renders cleanly.
+    end
+  end
 end

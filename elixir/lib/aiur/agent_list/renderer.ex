@@ -20,6 +20,20 @@ defmodule Aiur.AgentList.Renderer do
   # two terminal columns; we render `<emoji><space>` so the cell is
   # exactly 3 wide in every terminal we care about.
   @state_cell_width 3
+
+  # Reserved slot to the right of the status emoji for the `❗` (or
+  # `❗N`) attention indicator. Always allocated even when no
+  # attention is open, so the Latest column never shifts when state
+  # flips. 4 columns: emoji (2 terminal columns) + up to one digit +
+  # trailing space.
+  @attention_cell_width 4
+
+  # Maximum width allotted to the Latest column. The column takes
+  # remaining inner width up to this cap; if there's less room
+  # available, the column shrinks (and the message truncates with `…`).
+  @max_latest_width 60
+  @min_latest_width 0
+
   @min_id_width 4
   @min_age_width 4
   @min_title_width 6
@@ -67,7 +81,11 @@ defmodule Aiur.AgentList.Renderer do
       # so that the visual row order matches the index used by :activate.
       summaries = Map.get(state, :summaries, [])
 
-      layout = compute_layout(summaries, inner_width)
+      layout =
+        summaries
+        |> compute_layout(inner_width)
+        |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
+        |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
 
       debug_footer = debug_perf_footer(state, inner_width)
       markers = compute_markers(state, summaries)
@@ -363,7 +381,10 @@ defmodule Aiur.AgentList.Renderer do
       cell("AGE", layout.age_width),
       "  ",
       cell("", @state_cell_width),
-      cell("TITLE", layout.title_width)
+      cell("", @attention_cell_width),
+      cell("TITLE", layout.title_width),
+      " ",
+      cell("LATEST", layout.latest_width)
     ]
 
     pad_with_ansi(@ansi_gray, IO.iodata_to_binary(body), inner_width)
@@ -372,7 +393,7 @@ defmodule Aiur.AgentList.Renderer do
   defp table_separator_row(inner_width, layout) do
     width =
       layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        layout.title_width
+        @attention_cell_width + layout.title_width + 1 + layout.latest_width
 
     body = "│   " <> String.duplicate("─", max(min(width, inner_width - 4), 0))
     pad_with_ansi(@ansi_gray, body, inner_width)
@@ -411,7 +432,9 @@ defmodule Aiur.AgentList.Renderer do
     id_cell = cell(id_str, layout.id_width)
     age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary, markers), @state_cell_width)
+    attention_cell = attention_cell(id_str, layout)
     title_cell = cell(title, layout.title_width)
+    latest_cell = latest_cell(id_str, layout)
     gap = String.duplicate(" ", @id_age_gap_width)
 
     body = [
@@ -426,16 +449,61 @@ defmodule Aiur.AgentList.Renderer do
       @ansi_reset,
       "  ",
       state_cell,
-      title_cell
+      attention_cell,
+      title_cell,
+      " ",
+      @ansi_dim,
+      latest_cell,
+      @ansi_reset
     ]
 
     plain_visual =
       4 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        layout.title_width
+        @attention_cell_width + layout.title_width + 1 + layout.latest_width
 
     pad = String.duplicate(" ", max(inner_width - plain_visual, 0))
     [body, pad]
   end
+
+  # `❗` cell: blank-but-allocated when zero attentions open; `❗`
+  # alone (two terminal columns + space) when one; `❗N` when more.
+  # Width stays @attention_cell_width either way so the Latest
+  # column never shifts horizontally on flip.
+  defp attention_cell(id, layout) do
+    count = layout |> Map.get(:open_attentions_by_id, %{}) |> Map.get(id, 0)
+
+    text =
+      cond do
+        count <= 0 -> ""
+        count == 1 -> "❗"
+        count >= 10 -> "❗9+"
+        true -> "❗#{count}"
+      end
+
+    emoji_cell(text, @attention_cell_width)
+  end
+
+  # Latest column cell — current most-recent event message for the
+  # ticket, truncated with `…` when wider than the column. Empty
+  # padded string when nothing has been observed yet.
+  defp latest_cell(id, layout) do
+    if layout.latest_width <= 0 do
+      ""
+    else
+      message =
+        layout
+        |> Map.get(:latest_event_by_id, %{})
+        |> Map.get(id)
+        |> latest_event_message()
+
+      cell(message, layout.latest_width)
+    end
+  end
+
+  defp latest_event_message(nil), do: ""
+  defp latest_event_message(%{message: msg}) when is_binary(msg), do: msg
+  defp latest_event_message(%{"message" => msg}) when is_binary(msg), do: msg
+  defp latest_event_message(_), do: ""
 
   # Per-identifier marker, ordered most-ready-first:
   #
@@ -570,10 +638,23 @@ defmodule Aiur.AgentList.Renderer do
 
   defp warm_row_line_count(state), do: warm_status_row_line_count(state)
 
+  defp emoji_cell("", width) do
+    # Reserved-but-empty cell: pad to the full visual width.
+    String.duplicate(" ", max(width, 0))
+  end
+
   defp emoji_cell(glyph, width) do
-    # `glyph` is a single grapheme that renders as 2 terminal columns.
-    # Pad to the cell's *visual* width by emitting (width - 2) spaces.
-    pad = String.duplicate(" ", max(width - 2, 0))
+    # The leading grapheme is a 2-terminal-column emoji; everything
+    # after (digits, suffix) is 1 column per char. `❗3` reads as
+    # visual_width = 2 + 1 = 3; `❗9+` reads as 2 + 2 = 4. Pad with
+    # the remainder so the cell is exactly `width` columns wide.
+    visual =
+      case String.next_grapheme(glyph) do
+        {_first, rest} -> 2 + String.length(rest)
+        nil -> 0
+      end
+
+    pad = String.duplicate(" ", max(width - visual, 0))
     glyph <> pad
   end
 
@@ -611,18 +692,45 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_id_width)
 
-    # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) + state +
-    # title
-    fixed_non_id_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width
+    natural_title_width =
+      summaries
+      |> Enum.map(fn s -> String.length(to_string(Map.get(s, :title) || "")) end)
+      |> Enum.max(fn -> 0 end)
+      |> max(@min_title_width)
 
-    # Cap id so the row never bleeds past `inner_width` — title still
-    # gets at least @min_title_width regardless of identifier length.
-    max_id_width = max(inner_width - fixed_non_id_overhead - @min_title_width, @min_id_width)
+    # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) +
+    # state (3) + attention (4) + title + ` ` (1) + latest
+    fixed_non_id_overhead =
+      2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width + @attention_cell_width
+
+    # Cap id so the row never bleeds past `inner_width` — title and
+    # latest still get their minimums regardless of identifier length.
+    max_id_width =
+      max(
+        inner_width - fixed_non_id_overhead - @min_title_width - @min_latest_width - 1,
+        @min_id_width
+      )
+
     id_width = min(natural_id_width, max_id_width)
 
-    title_width = max(inner_width - fixed_non_id_overhead - id_width, @min_title_width)
+    # Title gets its natural width when there's room. Latest takes
+    # whatever's left (capped at @max_latest_width). When the terminal
+    # is too narrow to seat both at their minimums, title wins — the
+    # ID/title columns are the primary scan target; Latest is a
+    # secondary signal that can collapse to zero on very narrow
+    # screens without losing the row's purpose.
+    remaining_after_id = max(inner_width - fixed_non_id_overhead - id_width - 1, 0)
+    title_target = min(natural_title_width, max(remaining_after_id - @min_latest_width, 0))
+    title_width = max(min(title_target, remaining_after_id), 0)
+    latest_width =
+      min(@max_latest_width, max(remaining_after_id - title_width, @min_latest_width))
 
-    %{id_width: id_width, age_width: age_width, title_width: title_width}
+    %{
+      id_width: id_width,
+      age_width: age_width,
+      title_width: title_width,
+      latest_width: latest_width
+    }
   end
 
   # ---------- helpers --------------------------------------------------------

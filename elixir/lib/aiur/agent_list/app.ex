@@ -143,10 +143,14 @@ defmodule Aiur.AgentList.App do
       AgentPubSub.subscribe_agent_chat_active()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
+      # DebugLog feeds the per-row Latest column (R5/U21) by populating
+      # `latest_event_by_id` from every event publish. Subscribed
+      # unconditionally — the debug-ticker code path is still gated on
+      # debug_mode?, but Latest is always-on.
+      DebugLog.subscribe()
 
       if debug_mode? do
         Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
-        DebugLog.subscribe()
       end
     end
 
@@ -203,6 +207,19 @@ defmodule Aiur.AgentList.App do
       # AgentPubSub fires on every transcript event; duplicates are
       # harmless because MapSet.put is idempotent.
       agents_with_content: MapSet.new(),
+      # Per-identifier most recent event for the agent-list `Latest`
+      # column (R5/U21). Populated from `DebugLog` broadcasts —
+      # every published event on a `ticket.<id>.…` topic updates the
+      # entry for that ticket. Map value shape:
+      # `%{topic: String.t(), message: String.t(), timestamp: DateTime.t()}`.
+      latest_event_by_id: %{},
+      # Per-identifier count of currently-open `attention.*` slugs,
+      # driving the `❗` / `❗N` slot in the State column. Refreshed
+      # from `Aiur.Events.SubscriptionStore.snapshot/1` on every
+      # `running_changed` broadcast (agents come and go infrequently
+      # enough that polling on summary updates beats per-event
+      # incremental tracking).
+      open_attentions_by_id: %{},
       warm_status_dark_mode?: warm_status_dark_mode_default(),
       # Ring buffer of warmth-related aiur_perf events (debug mode
       # only). Capped at @warmth_event_cap to avoid unbounded growth.
@@ -474,11 +491,39 @@ defmodule Aiur.AgentList.App do
 
     new_state = %{
       new_state
-      | agents_with_content: MapSet.intersection(new_state.agents_with_content, active_set)
+      | agents_with_content: MapSet.intersection(new_state.agents_with_content, active_set),
+        # Refresh the `❗` counts from SubscriptionStore on every
+        # running_changed — agents come and go infrequently enough
+        # that polling here beats threading a separate broadcast
+        # through the attention-emit path.
+        open_attentions_by_id: refresh_open_attentions(active_set),
+        # Trim Latest column entries to the active set too; a stale
+        # entry for an issue that's no longer tracked just wastes
+        # row space and is misleading.
+        latest_event_by_id:
+          Map.take(new_state.latest_event_by_id, MapSet.to_list(active_set))
     }
 
     render(new_state)
     {:noreply, new_state}
+  end
+
+  defp refresh_open_attentions(active_set) do
+    Enum.reduce(MapSet.to_list(active_set), %{}, fn id, acc ->
+      case attention_count_for(id) do
+        n when is_integer(n) -> Map.put(acc, id, n)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp attention_count_for(id) do
+    case Aiur.Events.SubscriptionStore.snapshot(id) do
+      %{open_attentions: list} when is_list(list) -> length(list)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
   end
 
   # Global `agents:chat_active` broadcast — fires every time any
@@ -638,14 +683,73 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
 
-  def handle_info({:event_debug, entry}, %{debug_mode?: true} = state) do
-    new_events = [entry | state.debug_events] |> Enum.take(@debug_event_cap)
-    new_state = %{state | debug_events: new_events}
-    render(new_state)
-    {:noreply, new_state}
+  def handle_info({:event_debug, entry}, state) do
+    state = record_latest_event(state, entry)
+
+    state =
+      if state.debug_mode? do
+        new_events = [entry | state.debug_events] |> Enum.take(@debug_event_cap)
+        %{state | debug_events: new_events}
+      else
+        state
+      end
+
+    render(state)
+    {:noreply, state}
   end
 
-  def handle_info({:event_debug, _entry}, state), do: {:noreply, state}
+  # Map an `event_debug` entry onto the per-id `Latest` column store.
+  # Only `:publish` and `:receive` kinds advance the entry — `:read`
+  # is a downstream marker that doesn't represent a new event landing
+  # on the ticket. Topic shape is `ticket.<id>.<surface>.<verb>`;
+  # anything else (system topics, etc.) is ignored.
+  defp record_latest_event(state, %{kind: kind, topic: topic, body: body})
+       when kind in [:publish, :receive] and is_binary(topic) do
+    case extract_ticket_id(topic) do
+      nil ->
+        state
+
+      id ->
+        latest = %{
+          topic: topic,
+          message: event_message(topic, body),
+          timestamp: DateTime.utc_now()
+        }
+
+        %{state | latest_event_by_id: Map.put(state.latest_event_by_id, id, latest)}
+    end
+  end
+
+  defp record_latest_event(state, _entry), do: state
+
+  defp extract_ticket_id("ticket." <> rest) do
+    case String.split(rest, ".", parts: 2) do
+      [id, _] -> id
+      _ -> nil
+    end
+  end
+
+  defp extract_ticket_id(_), do: nil
+
+  # Best-effort one-line message for the Latest column. Prefers an
+  # explicit `:message` field on the event body; falls back to the
+  # last verb segment of the topic (e.g. `branch.push` → `branch push`).
+  defp event_message(topic, body) when is_map(body) do
+    cond do
+      is_binary(body[:message]) -> body[:message]
+      is_binary(body["message"]) -> body["message"]
+      true -> topic_verb(topic)
+    end
+  end
+
+  defp event_message(topic, _body), do: topic_verb(topic)
+
+  defp topic_verb(topic) do
+    case String.split(topic, ".") do
+      ["ticket", _id | rest] -> Enum.join(rest, " ")
+      parts -> Enum.join(parts, " ")
+    end
+  end
 
   def handle_info(_other, state), do: {:noreply, state}
 
@@ -914,6 +1018,8 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:fully_warmed_slots, Map.get(state, :fully_warmed_slots, MapSet.new()))
       |> Map.put(:opened_panes, Map.get(state, :opened_panes, MapSet.new()))
       |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
+      |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
+      |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
       |> Map.put(
         :warm_status_dark_mode?,
         Map.get(state, :warm_status_dark_mode?, true)
