@@ -72,6 +72,31 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       assert out == "\n> ✏️  edit lib/foo.ex\n"
     end
 
+    test ":tool 'edit' with whole-file content (no diff markers) gets + prefixes" do
+      # When codex creates a new file or whole-file-replaces, it
+      # emits the full new content without `@@`/`+`/`-` markers.
+      # The bridge prefixes every line with `+ ` so glamour's
+      # ```diff renderer paints them green.
+      new_file = """
+      defmodule Hello do
+        def world, do: :ok
+      end
+      """
+
+      event = %{
+        role: :tool,
+        body: "edit lib/hello.ex",
+        payload: %{tool: "edit", output: new_file}
+      }
+
+      out = ChatCompletions.format_delta(:tool, "edit lib/hello.ex", event)
+
+      assert out =~ "```diff"
+      assert out =~ "+ defmodule Hello do"
+      assert out =~ "+   def world, do: :ok"
+      assert out =~ "+ end"
+    end
+
     test ":tool with 'read <path>' body renders as a file-read blockquote" do
       out = ChatCompletions.format_delta(:tool, "read lib/foo.ex")
       assert out == "\n> 📖 read lib/foo.ex\n"

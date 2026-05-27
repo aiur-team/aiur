@@ -305,11 +305,38 @@ defmodule Aiur.Opencode.ChatCompletions do
   # `edit` tool. `Aiur.Codex.Transcript.build_tool_payload/2` stuffs
   # the joined diff into the payload's `:output` field; we surface
   # it here when present.
+  #
+  # Codex emits two shapes for file edits:
+  #   1. A unified diff (lines start with `@@`, `+`, `-`, ` `) when
+  #      the edit was a patch.
+  #   2. The full new file content with no diff markers when the
+  #      edit was a whole-file replace or new-file create.
+  #
+  # Glamour renders ```diff blocks by coloring lines based on their
+  # leading character: `+` → green, `-` → red, ` ` → context. Shape
+  # 1 already paints correctly. For shape 2, every line is treated
+  # as context (no color). We detect shape 2 and prefix each line
+  # with `+ ` so the whole block reads as additions (green), making
+  # the change visible at a glance.
   defp edit_diff_from_payload(%{payload: %{output: output, tool: "edit"}})
-       when is_binary(output) and output != "",
-       do: output
+       when is_binary(output) and output != "" do
+    if looks_like_unified_diff?(output) do
+      output
+    else
+      output
+      |> String.split("\n")
+      |> Enum.map_join("\n", &("+ " <> &1))
+    end
+  end
 
   defp edit_diff_from_payload(_), do: ""
+
+  defp looks_like_unified_diff?(text) do
+    String.contains?(text, "\n@@ ") or
+      String.starts_with?(text, "@@ ") or
+      String.contains?(text, "\n+++") or
+      String.contains?(text, "\n--- ")
+  end
 
   @doc """
   Inter-chunk connector for the chat-completion delta stream. Two
