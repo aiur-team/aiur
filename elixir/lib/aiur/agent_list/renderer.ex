@@ -15,6 +15,7 @@ defmodule Aiur.AgentList.Renderer do
 
   alias Aiur.AgentEvents
   alias Aiur.Opencode.WarmthReport
+  alias Aiur.ProgressTracker
 
   # Fixed visual width for the state-emoji column. The glyph occupies
   # two terminal columns; we render `<emoji><space>` so the cell is
@@ -33,6 +34,13 @@ defmodule Aiur.AgentList.Renderer do
   # available, the column shrinks (and the message truncates with `…`).
   @max_latest_width 60
   @min_latest_width 0
+
+  # Fixed-width progress bar + ETA columns. Sized so they always
+  # render regardless of terminal width (collapse Latest first).
+  # Layout: `<bar 8> <eta 5>` = 8 + 1 + 5 = 14 cols.
+  @progress_bar_width 8
+  @eta_width 5
+  @progress_cell_width 14
 
   @min_id_width 4
   @min_age_width 4
@@ -374,6 +382,9 @@ defmodule Aiur.AgentList.Renderer do
   # ---------- table ----------------------------------------------------------
 
   defp table_header_row(inner_width, layout) do
+    progress_header =
+      if layout.show_progress?, do: [cell("PROGRESS", @progress_cell_width), " "], else: []
+
     body = [
       "│   ",
       cell("ID", layout.id_width),
@@ -384,6 +395,7 @@ defmodule Aiur.AgentList.Renderer do
       cell("", @attention_cell_width),
       cell("TITLE", layout.title_width),
       " ",
+      progress_header,
       cell("LATEST", layout.latest_width)
     ]
 
@@ -391,9 +403,11 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp table_separator_row(inner_width, layout) do
+    progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
+
     width =
       layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        @attention_cell_width + layout.title_width + 1 + layout.latest_width
+        @attention_cell_width + layout.title_width + 1 + progress_width + layout.latest_width
 
     body = "│   " <> String.duplicate("─", max(min(width, inner_width - 4), 0))
     pad_with_ansi(@ansi_gray, body, inner_width)
@@ -437,6 +451,13 @@ defmodule Aiur.AgentList.Renderer do
     latest_cell = latest_cell(id_str, layout)
     gap = String.duplicate(" ", @id_age_gap_width)
 
+    progress_block =
+      if layout.show_progress? do
+        [@ansi_dim, progress_cell(id_str, layout), " "]
+      else
+        []
+      end
+
     body = [
       "│ ",
       marker,
@@ -452,14 +473,17 @@ defmodule Aiur.AgentList.Renderer do
       attention_cell,
       title_cell,
       " ",
+      progress_block,
       @ansi_dim,
       latest_cell,
       @ansi_reset
     ]
 
+    progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
+
     plain_visual =
       4 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        @attention_cell_width + layout.title_width + 1 + layout.latest_width
+        @attention_cell_width + layout.title_width + 1 + progress_width + layout.latest_width
 
     pad = String.duplicate(" ", max(inner_width - plain_visual, 0))
     [body, pad]
@@ -481,6 +505,26 @@ defmodule Aiur.AgentList.Renderer do
       end
 
     emoji_cell(text, @attention_cell_width)
+  end
+
+  # Progress + ETA pair, rendered as one cell of fixed width 14:
+  # `<bar 8> <eta 5>`. Empty placeholders (`░░░░░░░░    —`) when
+  # the tracker has no samples for this id — width stays the same.
+  defp progress_cell(id, layout) do
+    samples = layout |> Map.get(:progress_by_id, %{}) |> Map.get(id, [])
+    now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
+
+    {bar, eta_text} =
+      case ProgressTracker.estimate(samples, now_ms) do
+        :unknown ->
+          {ProgressTracker.bar(0, @progress_bar_width), "—"}
+
+        %{percent: pct, eta_seconds: eta} ->
+          {ProgressTracker.bar(pct, @progress_bar_width), ProgressTracker.format_eta(eta)}
+      end
+
+    eta_padded = String.pad_trailing(eta_text, @eta_width)
+    bar <> " " <> eta_padded
   end
 
   # Latest column cell — current most-recent event message for the
@@ -699,9 +743,13 @@ defmodule Aiur.AgentList.Renderer do
       |> max(@min_title_width)
 
     # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) +
-    # state (3) + attention (4) + title + ` ` (1) + latest
-    fixed_non_id_overhead =
-      2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width + @attention_cell_width
+    # state (3) + attention (4) + title + ` ` (1) + [progress block].
+    # The progress block (14 + 1 = 15) is included when terminal width
+    # allows it; on very narrow terminals it collapses to zero.
+    base_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width + @attention_cell_width
+    show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
+    progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
+    fixed_non_id_overhead = base_overhead + progress_block_width
 
     # Cap id so the row never bleeds past `inner_width` — title and
     # latest still get their minimums regardless of identifier length.
@@ -729,7 +777,8 @@ defmodule Aiur.AgentList.Renderer do
       id_width: id_width,
       age_width: age_width,
       title_width: title_width,
-      latest_width: latest_width
+      latest_width: latest_width,
+      show_progress?: show_progress?
     }
   end
 

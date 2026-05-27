@@ -220,6 +220,13 @@ defmodule Aiur.AgentList.App do
       # enough that polling on summary updates beats per-event
       # incremental tracking).
       open_attentions_by_id: %{},
+      # Per-identifier ring of recent progress samples for the
+      # `[bar] ETA` column (R2). Agents publish
+      # `ticket.<id>.agent.progress` with `%{percent: 0..100}` payload
+      # and `Aiur.ProgressTracker` derives the bar + ETA on render.
+      # Sample shape: `[{percent, monotonic_ms}, …]` newest first,
+      # bounded by ProgressTracker.@max_samples.
+      progress_by_id: %{},
       warm_status_dark_mode?: warm_status_dark_mode_default(),
       # Ring buffer of warmth-related aiur_perf events (debug mode
       # only). Capped at @warmth_event_cap to avoid unbounded growth.
@@ -501,7 +508,9 @@ defmodule Aiur.AgentList.App do
         # entry for an issue that's no longer tracked just wastes
         # row space and is misleading.
         latest_event_by_id:
-          Map.take(new_state.latest_event_by_id, MapSet.to_list(active_set))
+          Map.take(new_state.latest_event_by_id, MapSet.to_list(active_set)),
+        progress_by_id:
+          Map.take(new_state.progress_by_id, MapSet.to_list(active_set))
     }
 
     render(new_state)
@@ -684,7 +693,10 @@ defmodule Aiur.AgentList.App do
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
 
   def handle_info({:event_debug, entry}, state) do
-    state = record_latest_event(state, entry)
+    state =
+      state
+      |> record_latest_event(entry)
+      |> record_progress_sample(entry)
 
     state =
       if state.debug_mode? do
@@ -696,6 +708,31 @@ defmodule Aiur.AgentList.App do
 
     render(state)
     {:noreply, state}
+  end
+
+  # Folds `ticket.<id>.agent.progress` publishes into the per-id
+  # ProgressTracker sample ring. Reads `percent` from the event body.
+  defp record_progress_sample(state, %{kind: :publish, topic: topic, body: body})
+       when is_binary(topic) and is_map(body) do
+    with [_, id] <- Regex.run(~r{\Aticket\.([^.]+)\.agent\.progress\z}, topic),
+         percent when is_integer(percent) or is_float(percent) <- progress_percent(body) do
+      now_ms = System.monotonic_time(:millisecond)
+      existing = Map.get(state.progress_by_id, id, [])
+      updated = Aiur.ProgressTracker.record(existing, trunc(percent), now_ms)
+      %{state | progress_by_id: Map.put(state.progress_by_id, id, updated)}
+    else
+      _ -> state
+    end
+  end
+
+  defp record_progress_sample(state, _entry), do: state
+
+  defp progress_percent(body) do
+    cond do
+      is_number(body[:percent]) -> body[:percent]
+      is_number(body["percent"]) -> body["percent"]
+      true -> nil
+    end
   end
 
   # Map an `event_debug` entry onto the per-id `Latest` column store.
@@ -1020,6 +1057,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
       |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
       |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
+      |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
       |> Map.put(
         :warm_status_dark_mode?,
         Map.get(state, :warm_status_dark_mode?, true)
