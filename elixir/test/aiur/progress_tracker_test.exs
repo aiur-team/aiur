@@ -135,8 +135,8 @@ defmodule Aiur.ProgressTrackerTest do
       assert ProgressTracker.format_eta(3700) == "1h 1m"
     end
 
-    test "renders — for :unknown" do
-      assert ProgressTracker.format_eta(:unknown) == "—"
+    test "renders empty string for :unknown so the column reads as blank" do
+      assert ProgressTracker.format_eta(:unknown) == ""
     end
   end
 end

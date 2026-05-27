@@ -85,11 +85,12 @@ defmodule Aiur.ProgressTracker do
 
   @doc """
   Format an `eta_seconds` value as a short human-readable string.
-  Returns `"—"` for `:unknown`, otherwise a compact `MM:SS` or
-  `Hh MMm` form depending on magnitude.
+  Returns `""` for `:unknown` so the column reads as empty space
+  rather than a placeholder glyph. For concrete durations: compact
+  `MM:SS` or `Hh MMm` depending on magnitude.
   """
   @spec format_eta(non_neg_integer() | :unknown) :: String.t()
-  def format_eta(:unknown), do: "—"
+  def format_eta(:unknown), do: ""
   def format_eta(s) when is_integer(s) and s >= 3600 do
     h = div(s, 3600)
     m = div(rem(s, 3600), 60)
@@ -102,7 +103,7 @@ defmodule Aiur.ProgressTracker do
     "#{m}:#{String.pad_leading(Integer.to_string(sec), 2, "0")}"
   end
 
-  def format_eta(_), do: "—"
+  def format_eta(_), do: ""
 
   defp clamp_percent(p) when is_integer(p), do: min(max(p, 0), 100)
   defp clamp_percent(p) when is_float(p), do: clamp_percent(trunc(p))

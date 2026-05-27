@@ -64,6 +64,11 @@ defmodule Aiur.AgentList.Renderer do
   @ansi_gray IO.ANSI.light_black()
   @ansi_red IO.ANSI.red()
   @ansi_reverse IO.ANSI.reverse()
+  # 256-color background for the selected agent-list row. 236 is a
+  # dark grey one or two shades lighter than the default terminal
+  # background — visible enough to mark the row without competing
+  # with text colors.
+  @ansi_selected_bg "\e[48;5;236m"
 
   @type state :: %{
           required(:summaries) => [AgentEvents.agent_summary()],
@@ -136,7 +141,13 @@ defmodule Aiur.AgentList.Renderer do
         warm_row,
         debug_footer,
         ticker_iodata,
-        clear_remaining(rows, base_lines + ticker_line_count)
+        clear_remaining(rows, base_lines + ticker_line_count),
+        # Re-emit cursor-hide AFTER all painting so other processes
+        # (tmux refresh, focus changes) that flip the cursor back on
+        # get countered on every render tick. Park the cursor in the
+        # top-left corner so any brief flash lands at a stable place.
+        "\e[H",
+        "\e[?25l"
       ]
     end
   end
@@ -231,7 +242,7 @@ defmodule Aiur.AgentList.Renderer do
 
   defp help_footer_row(inner_width) do
     text = "  ? close help   q quit"
-    pad_with_ansi(@ansi_dim, text, inner_width)
+    pad_with_ansi(@ansi_dim, text, inner_width, " ")
   end
 
   # ---------- header / metadata ---------------------------------------------
@@ -387,16 +398,20 @@ defmodule Aiur.AgentList.Renderer do
   defp footer_iodata(inner_width) do
     full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
 
+    # Footer + help rows render BELOW the bordered agent-list box,
+    # so they don't carry the right `│` border. Pass " " as the
+    # right_border to keep the column reserved for autowrap safety
+    # without painting the bar character.
     if visual_width(full) <= inner_width do
-      pad_with_ansi(@ansi_dim, full, inner_width)
+      pad_with_ansi(@ansi_dim, full, inner_width, " ")
     else
       primary = "  ↑/↓ select   enter open   space pause/resume   ? help   q quit"
       secondary = "  v layout"
 
       [
-        pad_with_ansi(@ansi_dim, primary, inner_width),
+        pad_with_ansi(@ansi_dim, primary, inner_width, " "),
         eol(),
-        pad_with_ansi(@ansi_dim, secondary, inner_width)
+        pad_with_ansi(@ansi_dim, secondary, inner_width, " ")
       ]
     end
   end
@@ -410,7 +425,7 @@ defmodule Aiur.AgentList.Renderer do
 
   defp table_header_row(inner_width, layout) do
     progress_header =
-      if layout.show_progress?, do: [cell("PROGRESS", @progress_cell_width), " "], else: []
+      if layout.show_progress?, do: [" ", cell("PROGRESS", @progress_cell_width)], else: []
 
     body = [
       "│   ",
@@ -422,8 +437,8 @@ defmodule Aiur.AgentList.Renderer do
       cell("", @attention_cell_width),
       cell("TITLE", layout.title_width),
       " ",
-      progress_header,
-      cell("LATEST", layout.latest_width)
+      cell("LATEST", layout.latest_width),
+      progress_header
     ]
 
     pad_with_ansi(@ansi_gray, IO.iodata_to_binary(body), inner_width)
@@ -480,7 +495,7 @@ defmodule Aiur.AgentList.Renderer do
 
     progress_block =
       if layout.show_progress? do
-        [@ansi_dim, progress_cell(id_str, layout), " "]
+        [" ", @ansi_dim, progress_cell(id_str, layout), @ansi_reset]
       else
         []
       end
@@ -500,10 +515,10 @@ defmodule Aiur.AgentList.Renderer do
       attention_cell,
       title_cell,
       " ",
-      progress_block,
       @ansi_dim,
       latest_cell,
-      @ansi_reset
+      @ansi_reset,
+      progress_block
     ]
 
     progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
@@ -515,7 +530,17 @@ defmodule Aiur.AgentList.Renderer do
     # Reserve the last column for the right `│` border so each row
     # closes cleanly. Pad to (inner_width - 1) then append the bar.
     pad = String.duplicate(" ", max(inner_width - 1 - plain_visual, 0))
-    [body, pad, @ansi_gray, "│", @ansi_reset]
+    row = [body, pad]
+
+    if selected? do
+      # Wrap the whole row in a subtle background so the selected
+      # agent is visually obvious. The `▶ ` marker stays as the
+      # primary cue; the background reinforces it without
+      # competing with text colors used in cells.
+      [@ansi_selected_bg, row, @ansi_reset, @ansi_gray, "│", @ansi_reset]
+    else
+      [row, @ansi_gray, "│", @ansi_reset]
+    end
   end
 
   # `❗` cell: blank-but-allocated when zero attentions open; `❗`
@@ -537,8 +562,10 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   # Progress + ETA pair, rendered as one cell of fixed width 14:
-  # `<bar 8> <eta 5>`. Empty placeholders (`░░░░░░░░    —`) when
-  # the tracker has no samples for this id — width stays the same.
+  # `<bar 8> <eta 5>`. Empty bar + empty ETA when the tracker has
+  # no samples for the id — width stays the same so the column
+  # never jitters. No `—` placeholder; the absence is conveyed by
+  # the empty bar alone.
   defp progress_cell(id, layout) do
     samples = layout |> Map.get(:progress_by_id, %{}) |> Map.get(id, [])
     now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
@@ -546,7 +573,7 @@ defmodule Aiur.AgentList.Renderer do
     {bar, eta_text} =
       case ProgressTracker.estimate(samples, now_ms) do
         :unknown ->
-          {ProgressTracker.bar(0, @progress_bar_width), "—"}
+          {ProgressTracker.bar(0, @progress_bar_width), ""}
 
         %{percent: pct, eta_seconds: eta} ->
           {ProgressTracker.bar(pct, @progress_bar_width), ProgressTracker.format_eta(eta)}
@@ -662,7 +689,7 @@ defmodule Aiur.AgentList.Renderer do
 
     glyphs = warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph)
     body = "  " <> glyphs
-    [pad_with_ansi(@ansi_dim, body, inner_width), eol()]
+    [pad_with_ansi(@ansi_dim, body, inner_width, " "), eol()]
   end
 
   defp warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph) do
@@ -998,7 +1025,9 @@ defmodule Aiur.AgentList.Renderer do
         format_perf_ms(Map.get(summary, :chat_pane_visible_ms)) <>
         " · render " <> format_perf_ms(Map.get(summary, :opencode_render_ms))
 
-    [IO.ANSI.faint(), clip_and_pad(text, inner_width), IO.ANSI.reset()]
+    # Pad to inner_width - 1 to leave the autowrap-safety column;
+    # no right border because this row sits below the bordered box.
+    [IO.ANSI.faint(), clip_and_pad(text, max(inner_width - 1, 0)), IO.ANSI.reset()]
   end
 
   defp format_perf_ms(nil), do: "…"
