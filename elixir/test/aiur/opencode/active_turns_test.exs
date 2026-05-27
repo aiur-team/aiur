@@ -92,4 +92,50 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
       end
     end
   end
+
+  describe "register_subscriber/3" do
+    test "returns nil when the slot is empty (first bridge to claim it)" do
+      id = "rs-#{System.unique_integer()}"
+      turn = "t-#{System.unique_integer()}"
+      :ok = ActiveTurns.put(id, turn)
+
+      assert {:ok, nil} = ActiveTurns.register_subscriber(id, turn, self())
+    end
+
+    test "returns the prior pid when a new bridge claims an already-held slot" do
+      id = "rs-#{System.unique_integer()}"
+      turn = "t-#{System.unique_integer()}"
+      :ok = ActiveTurns.put(id, turn)
+
+      first = spawn(fn -> Process.sleep(:infinity) end)
+      {:ok, nil} = ActiveTurns.register_subscriber(id, turn, first)
+
+      assert {:ok, ^first} = ActiveTurns.register_subscriber(id, turn, self())
+    after
+      :ok
+    end
+
+    test "preserves the turn state when displacing a subscriber" do
+      id = "rs-#{System.unique_integer()}"
+      turn = "t-#{System.unique_integer()}"
+      :ok = ActiveTurns.put(id, turn)
+
+      first = spawn(fn -> Process.sleep(:infinity) end)
+      {:ok, nil} = ActiveTurns.register_subscriber(id, turn, first)
+      {:ok, ^first} = ActiveTurns.register_subscriber(id, turn, self())
+
+      assert ActiveTurns.lookup(id, turn) == :active
+    end
+
+    test "register_subscriber works even if put/2 was never called (raced before AgentRunner registered)" do
+      # Defensive: bridge may receive the marker before AgentRunner's
+      # `put/2`. register_subscriber should still create the row in
+      # `:active` state so the slot is owned.
+      id = "rs-#{System.unique_integer()}"
+      turn = "t-#{System.unique_integer()}"
+
+      assert {:ok, nil} = ActiveTurns.register_subscriber(id, turn, self())
+      assert ActiveTurns.lookup(id, turn) == :active
+    end
+  end
 end

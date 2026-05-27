@@ -14,6 +14,17 @@ defmodule Aiur.Opencode.ActiveTurns do
   bridge that subscribes slightly after the close broadcast still
   observes `{:closed, reason}` and finalizes cleanly with the actual
   finish reason rather than the 10-minute watchdog message.
+
+  ## Subscriber displacement
+
+  Each entry also tracks the pid of the single bridge process that
+  owns the live SSE stream. `register_subscriber/3` atomically swaps
+  the pid and returns whatever pid was there before, so the caller can
+  tell the old bridge to finalize. Opencode periodically reconnects
+  the chat-completion HTTP request (read timeout, ~30s of silence) and
+  without displacement every reconnect grows another subscriber on the
+  agent's PubSub topic — each new broadcast fans out N copies into the
+  chat pane.
   """
 
   use GenServer
@@ -35,7 +46,7 @@ defmodule Aiur.Opencode.ActiveTurns do
   def put(identifier, aiur_turn_id)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
     ensure_table()
-    :ets.insert(@table, {{identifier, aiur_turn_id}, :active})
+    :ets.insert(@table, {{identifier, aiur_turn_id}, :active, nil})
     :ok
   end
 
@@ -49,7 +60,8 @@ defmodule Aiur.Opencode.ActiveTurns do
   def mark_closed(identifier, aiur_turn_id, reason)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
     ensure_table()
-    :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}})
+    prior_pid = current_subscriber_pid({identifier, aiur_turn_id})
+    :ets.insert(@table, {{identifier, aiur_turn_id}, {:closed, reason}, prior_pid})
     schedule_cleanup({identifier, aiur_turn_id})
     :ok
   end
@@ -65,15 +77,48 @@ defmodule Aiur.Opencode.ActiveTurns do
     ensure_table()
 
     case :ets.lookup(@table, {identifier, aiur_turn_id}) do
-      [{_, state}] -> state
+      [{_, state, _pid}] -> state
       [] -> :not_found
     end
+  end
+
+  @doc """
+  Atomically claim the single subscriber slot for `(identifier,
+  aiur_turn_id)`. Returns the pid that previously held the slot (or
+  `nil` if none). Callers should send the returned pid a `:displaced`
+  message so it stops streaming.
+
+  Serialized through the GenServer so two concurrent reconnects can't
+  both observe an empty slot and both write themselves into it.
+  """
+  @spec register_subscriber(String.t(), String.t(), pid()) :: {:ok, pid() | nil}
+  def register_subscriber(identifier, aiur_turn_id, pid)
+      when is_binary(identifier) and is_binary(aiur_turn_id) and is_pid(pid) do
+    GenServer.call(__MODULE__, {:register_subscriber, identifier, aiur_turn_id, pid})
   end
 
   @impl true
   def init(_opts) do
     ensure_table()
     {:ok, %{}}
+  end
+
+  @impl true
+  def handle_call({:register_subscriber, identifier, aiur_turn_id, pid}, _from, state) do
+    key = {identifier, aiur_turn_id}
+
+    prior_pid =
+      case :ets.lookup(@table, key) do
+        [{_, turn_state, prior}] ->
+          :ets.insert(@table, {key, turn_state, pid})
+          prior
+
+        [] ->
+          :ets.insert(@table, {key, :active, pid})
+          nil
+      end
+
+    {:reply, {:ok, prior_pid}, state}
   end
 
   @impl true
@@ -89,6 +134,13 @@ defmodule Aiur.Opencode.ActiveTurns do
     end
 
     :ok
+  end
+
+  defp current_subscriber_pid(key) do
+    case :ets.lookup(@table, key) do
+      [{_, _state, pid}] -> pid
+      [] -> nil
+    end
   end
 
   defp ensure_table do
