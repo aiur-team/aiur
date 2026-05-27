@@ -14,6 +14,7 @@ defmodule Aiur.Opencode.ChatCompletions do
     SessionWriterRegistry,
     Slot,
     SlotRegistry,
+    Style,
     TokenRegistry
   }
 
@@ -38,6 +39,13 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   @max_body_bytes 65_536
   @watchdog_ms 600_000
+  # SSE keepalive interval. Empirically opencode-attach's HTTP client
+  # times out the chat-completion request after ~28-30s of silence and
+  # reopens it, which used to create multiple bridge subscribers (3x
+  # rendering of every transcript event). Sending an empty-delta chunk
+  # well under that timeout keeps the connection warm so each turn has
+  # exactly one bridge process.
+  @heartbeat_ms 15_000
 
   @spec handle(map(), Plug.Conn.t()) :: Plug.Conn.t()
   def handle(body, conn) do
@@ -117,7 +125,8 @@ defmodule Aiur.Opencode.ChatCompletions do
       :active ->
         Logger.info("opencode_bridge turn_stream_open identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
         Process.send_after(self(), {:turn_watchdog, aiur_turn_id}, @watchdog_ms)
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+        Process.send_after(self(), :heartbeat, @heartbeat_ms)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, nil)
 
       {:closed, reason} ->
         Logger.info("opencode_bridge turn_stream_late_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
@@ -144,15 +153,16 @@ defmodule Aiur.Opencode.ChatCompletions do
   # the active turnId (verified empirically), and any internal codex
   # sub-turn boundaries are an implementation detail we render as
   # one growing assistant message (Approach C.2 per the brainstorm).
-  defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id) do
+  defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role) do
     receive do
       {:transcript_event, %{role: role, body: body}}
       when role in [:assistant, :command, :system, :alert, :reasoning, :tool] ->
-        conn = chunk(conn, completion_id, format_delta(role, body), nil)
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+        delta = bar_connector(last_role, role) <> format_delta(role, body)
+        conn = chunk(conn, completion_id, delta, nil)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, role)
 
       {:transcript_event, %{role: :user}} ->
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
 
       # R2 live render — cross-ticket event ticker row for THIS agent.
       # DebugLog broadcasts on a global topic; filter via
@@ -165,20 +175,29 @@ defmodule Aiur.Opencode.ChatCompletions do
         if EventRow.matches?(entry, identifier) do
           case EventRow.from(entry, identifier) do
             nil ->
-              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
 
             body ->
-              conn = chunk(conn, completion_id, "\n#{body}\n", nil)
-              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+              delta = bar_connector(last_role, :event_debug) <> "\n#{body}\n"
+              conn = chunk(conn, completion_id, delta, nil)
+              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, :event_debug)
           end
         else
-          codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+          codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
         end
 
       {:aiur_turn_done, ^identifier, ^aiur_turn_id, reason} ->
         Logger.info("opencode_bridge turn_stream_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
         _ = DebugLog.unsubscribe()
         finalize_stream(conn, completion_id, reason)
+
+      :heartbeat ->
+        # Empty-delta chunk keeps opencode's HTTP client from timing
+        # out and reopening the chat-completion request mid-turn. The
+        # chunk renders as nothing in the chat pane.
+        conn = chunk(conn, completion_id, nil, nil)
+        Process.send_after(self(), :heartbeat, @heartbeat_ms)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
 
       {:turn_watchdog, ^aiur_turn_id} ->
         Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
@@ -194,7 +213,7 @@ defmodule Aiur.Opencode.ChatCompletions do
         chunk(conn, completion_id, nil, "timeout")
 
       _other ->
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
     after
       @watchdog_ms ->
         conn =
@@ -229,30 +248,64 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp finalize_stream(conn, completion_id, _reason),
     do: chunk(conn, completion_id, nil, "stop")
 
-  # Format a transcript event's body as a chat-completion delta. For
-  # `:command` and `:tool` roles, we include the body label (e.g. the
-  # bash command line) and let SessionWriter's SQL write carry the full
-  # tool-part shape for re-attach rendering. Newlines bracket each event
-  # so opencode shows them as discrete blocks.
-  # `format_delta/2` is public-by-test-need so U5 wrap assertions can
-  # hit it without going through the Plug.Conn surface.
+  # Format a transcript event's body as a chat-completion delta. The
+  # SQL part written by SessionWriter is authoritative; this is the
+  # live-stream summary. Public so tests can exercise it without going
+  # through Plug.Conn.
   #
-  # NOTE on R4 dim styling: probe against opencode-attach 1.15.x
-  # showed ANSI dim escapes (`\\e[2m...`) rendering as literal
-  # characters, not as visual dim. Command and tool deltas stay in
-  # Markdown code-fences (which opencode renders subdued); reasoning
-  # stays in Markdown italics (`_..._`). Event ticker rows from
-  # `Aiur.Opencode.EventRow` use `Aiur.Opencode.Style.dim/1` which
-  # wraps in a Markdown blockquote — the same visual vocabulary as
-  # `:system` and `:alert` deltas below.
+  # Commands and generic tools render through `Style.dim/1` so opencode's
+  # glamour pipeline draws them as a dim blockquote with a left-margin
+  # bar — same visual vocabulary as :system/:alert and the edit/read
+  # tool rows. This subordinates command chatter under the agent's prose
+  # and shares one visual language across non-agent content.
   @doc false
   @spec format_delta(atom(), String.t()) :: String.t()
-  def format_delta(:command, body), do: "\n```\n$ #{body}\n```\n"
-  def format_delta(:tool, body), do: "\n```\n→ #{body}\n```\n"
+  def format_delta(:command, body), do: "\n" <> Style.dim("$ " <> body) <> "\n"
+
+  def format_delta(:tool, body) do
+    cond do
+      String.starts_with?(body, "edit ") -> "\n> ✏️  #{body}\n"
+      String.starts_with?(body, "read ") -> "\n> 📖 #{body}\n"
+      true -> "\n" <> Style.dim("→ " <> body) <> "\n"
+    end
+  end
+
   def format_delta(:reasoning, body), do: "\n_#{body}_\n"
   def format_delta(:alert, body), do: "\n> 🔔 #{body}\n"
   def format_delta(:system, body), do: "\n> #{body}\n"
   def format_delta(_role, body), do: body
+
+  @doc """
+  Inter-chunk connector for the chat-completion delta stream. Two
+  cases that need handling:
+
+  1. **blockquote → blockquote** — the blank line between them must
+     carry the `>` bar or glamour renders two separate blockquotes
+     with a visible gap. Connector: `"> "`. Combined with the
+     trailing `\\n` of the previous chunk and the leading `\\n` of
+     the next, this produces a `> ` line on its own (continuous
+     vertical bar through the gap).
+
+  2. **blockquote → prose** — without a connector here, markdown's
+     lazy-continuation rule pulls the next prose line INTO the
+     prior blockquote because only one `\\n` separates them.
+     Connector: `"\\n"` (extra blank line to terminate the
+     blockquote before prose starts).
+
+  All other transitions return `""`. `nil` previous role means
+  "first chunk of the turn" — never a connector.
+  """
+  @spec bar_connector(atom() | nil, atom()) :: String.t()
+  def bar_connector(prev_role, curr_role) do
+    cond do
+      blockquote_role?(prev_role) and blockquote_role?(curr_role) -> "> "
+      blockquote_role?(prev_role) and not blockquote_role?(curr_role) -> "\n"
+      true -> ""
+    end
+  end
+
+  defp blockquote_role?(role) when role in [:command, :tool, :system, :alert, :event_debug], do: true
+  defp blockquote_role?(_), do: false
 
   defp dispatch_user_text(body, conn, identifier, raw_text) do
     with {:ok, sanitized} <- validate_body(raw_text),
@@ -330,15 +383,9 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
+  # Queue at the next safe checkpoint; mirrors native codex/claude CLI
+  # UX. Wait time is captured by `Aiur.OperatorWaitLog`.
   defp send_operator(identifier, text, turn_id) do
-    # Always queue for the next safe checkpoint. The `:interrupt` policy
-    # races codex's turn boundary: when the active turn settles before the
-    # interrupt RPC lands, codex returns `turn_interrupt_failed: no active
-    # turn to interrupt`, which propagates back through the bridge SSE and
-    # can leave opencode-attach showing the slot sentinel. Queueing is the
-    # same behavior native codex/claude CLIs ship: a user message lands at
-    # the next turn boundary. Wait-time impact is measured by
-    # `Aiur.OperatorWaitLog` so we can revisit if the UX cost is too high.
     AgentChat.send(identifier, text,
       delivery_policy: :checkpoint,
       turn_id: turn_id
