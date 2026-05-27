@@ -104,6 +104,9 @@ defmodule Aiur.AgentList.Renderer do
         |> compute_layout(inner_width)
         |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
         |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
+        |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
+        |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
+        |> Map.put(:now_ms, System.monotonic_time(:millisecond))
 
       debug_footer = debug_perf_footer(state, inner_width)
       markers = compute_markers(state, summaries)
@@ -514,7 +517,7 @@ defmodule Aiur.AgentList.Renderer do
     state_cell = emoji_cell(summary_emoji(summary, markers), @state_cell_width)
     attention_cell = attention_cell(id_str, layout)
     title_cell = cell(title, layout.title_width)
-    latest_cell = latest_cell(id_str, layout)
+    latest_cell = latest_cell(id_str, layout, summary)
     gap = String.duplicate(" ", @id_age_gap_width)
 
     progress_block =
@@ -648,20 +651,56 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   # Latest column cell — current most-recent event message for the
-  # ticket, truncated with `…` when wider than the column. Empty
-  # padded string when nothing has been observed yet.
-  defp latest_cell(id, layout) do
+  # ticket. When no event has landed yet, shows a phase-aware
+  # placeholder with an animated spinner so the row feels alive
+  # while the agent is queued/warming/starting. Truncated with `…`
+  # when wider than the column.
+  defp latest_cell(id, layout, summary) do
     if layout.latest_width <= 0 do
       ""
     else
-      message =
-        layout
-        |> Map.get(:latest_event_by_id, %{})
-        |> Map.get(id)
-        |> latest_event_message()
+      text =
+        case Map.get(layout, :latest_event_by_id, %{}) |> Map.get(id) do
+          nil -> phase_placeholder(id, layout, summary)
+          event -> latest_event_message(event)
+        end
 
-      cell(message, layout.latest_width)
+      cell(text, layout.latest_width)
     end
+  end
+
+  # Braille spinner that advances ~10 frames per second so the
+  # placeholder reads as "alive" even though our render tick is
+  # 1 Hz — `now_ms / 100` rolls through the frame list as the
+  # millisecond clock advances. Same frame within a single render
+  # because `:now_ms` is captured once at the top of render/1.
+  @spinner_frames ~w(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+
+  defp spinner_frame(layout) do
+    now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
+    idx = rem(div(now_ms, 100), length(@spinner_frames))
+    Enum.at(@spinner_frames, idx)
+  end
+
+  # Decide what phase text to show in the LATEST column when no
+  # real event has landed for this agent yet. Mirrors the marker
+  # state machine so the placeholder advances visibly as the
+  # agent's slot/codex come online.
+  defp phase_placeholder(id, layout, summary) do
+    spinner = spinner_frame(layout)
+    attach = Map.get(layout, :attach_state, %{}) |> Map.get(id)
+    has_content = MapSet.member?(Map.get(layout, :agents_with_content, MapSet.new()), id)
+
+    phrase =
+      cond do
+        Map.get(summary, :status) == :queued -> "Queueing agent…"
+        is_nil(attach) -> "Warming up…"
+        match?(%{visible_in: nil}, attach) -> "Warming up…"
+        not has_content -> "Starting codex…"
+        true -> ""
+      end
+
+    if phrase == "", do: "", else: spinner <> " " <> phrase
   end
 
   defp latest_event_message(nil), do: ""
