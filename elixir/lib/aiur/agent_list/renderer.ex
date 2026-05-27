@@ -449,15 +449,20 @@ defmodule Aiur.AgentList.Renderer do
     pad_with_ansi(@ansi_gray, IO.iodata_to_binary(body), inner_width)
   end
 
-  defp table_separator_row(inner_width, layout) do
-    progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
-
-    width =
-      layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        @attention_cell_width + layout.title_width + 1 + progress_width + layout.latest_width
-
-    body = "│   " <> String.duplicate("─", max(min(width, inner_width - 4), 0))
-    pad_with_ansi(@ansi_gray, body, inner_width)
+  defp table_separator_row(inner_width, _layout) do
+    # Full-width horizontal rule from `├` to `┤`, matching the
+    # other section dividers above and below so the box closes
+    # cleanly on both sides. Previously the dashes stopped at the
+    # column-totals width and the rest of the row was blank space —
+    # the right `│` border ended up disconnected from the divider.
+    [
+      pad_with_ansi(
+        @ansi_gray,
+        "├" <> String.duplicate("─", max(inner_width - 2, 0)),
+        inner_width,
+        "┤"
+      )
+    ]
   end
 
   defp render_rows([], _idx, _selection_focus, inner_width, _layout, _markers) do
@@ -528,9 +533,15 @@ defmodule Aiur.AgentList.Renderer do
 
     progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
 
+    # Visual columns consumed by the body, in order:
+    #   `│ ` (2) + marker (2) + id_cell + gap + age_cell + `  ` (2)
+    #   + state_cell (3) + attention_cell (4) + title_cell + ` ` (1)
+    #   + latest_cell + progress_block.
+    # Sum the parts directly so the right `│` border lands at the
+    # same column as the metadata/separator rows above.
     plain_visual =
-      4 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        @attention_cell_width + layout.title_width + 1 + progress_width + layout.latest_width
+      2 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
+        @attention_cell_width + layout.title_width + 1 + layout.latest_width + progress_width
 
     # Reserve the last column for the right `│` border so each row
     # closes cleanly. Pad to (inner_width - 1) then append the bar.
