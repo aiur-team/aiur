@@ -137,9 +137,10 @@ defmodule Aiur.Events.GithubFirehoseTest do
              %{
                "type" => "IssueCommentEvent",
                "actor" => %{"login" => "dan"},
+               "repo" => %{"name" => "owner/repo"},
                "payload" => %{
                  "issue" => %{"number" => 42},
-                 "comment" => %{"body" => "looks good"}
+                 "comment" => %{"id" => 555, "body" => "looks good"}
                }
              }
            ]
@@ -148,6 +149,58 @@ defmodule Aiur.Events.GithubFirehoseTest do
 
       assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
       assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    end
+
+    # Regression: the Events API returns the same historical event on
+    # every poll within its ~24h window. Without dedup, a single
+    # `pr.opened` becomes one `📤 opened a PR` row per poll cycle.
+    test "PullRequestEvent action=opened is deduped across polls by (repo, pr_number, head_sha)" do
+      :ok = Exchange.subscribe("ticket.55.pr.opened")
+
+      event = %{
+        "type" => "PullRequestEvent",
+        "actor" => %{"login" => "eve"},
+        "repo" => %{"name" => "owner/repo"},
+        "payload" => %{
+          "action" => "opened",
+          "pull_request" => %{
+            "number" => 901,
+            "head" => %{"ref" => "aiur/55", "sha" => "deadbeef"}
+          }
+        }
+      }
+
+      stub = fn _ -> {:ok, %{status: 200, headers: [{"ETag", ~s("e5")}], body: [event]}} end
+
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+      assert_receive {:event, %{topic: "ticket.55.pr.opened"}}, 500
+
+      # Subsequent poll returns the same event (e.g. ETag missed, restart).
+      # Publisher should drop it via the dedup window.
+      assert {:ok, %{count: 0}} = GithubFirehose.poll(request_fun: stub)
+      refute_receive {:event, %{topic: "ticket.55.pr.opened"}}, 200
+    end
+
+    test "IssueCommentEvent is deduped across polls by (repo, issue_number, comment_id)" do
+      :ok = Exchange.subscribe("ticket.66.issue.commented")
+
+      event = %{
+        "type" => "IssueCommentEvent",
+        "actor" => %{"login" => "frank"},
+        "repo" => %{"name" => "owner/repo"},
+        "payload" => %{
+          "issue" => %{"number" => 66},
+          "comment" => %{"id" => 777, "body" => "ping"}
+        }
+      }
+
+      stub = fn _ -> {:ok, %{status: 200, headers: [{"ETag", ~s("e6")}], body: [event]}} end
+
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+      assert_receive {:event, %{topic: "ticket.66.issue.commented"}}, 500
+
+      assert {:ok, %{count: 0}} = GithubFirehose.poll(request_fun: stub)
+      refute_receive {:event, %{topic: "ticket.66.issue.commented"}}, 200
     end
 
     test "drops events for untracked tickets when tracked_fn rejects" do

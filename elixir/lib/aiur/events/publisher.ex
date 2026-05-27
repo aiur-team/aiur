@@ -42,7 +42,13 @@ defmodule Aiur.Events.Publisher do
   alias Aiur.GitHub.Config, as: GitHubConfig
 
   @table __MODULE__.Dedup
-  @default_ttl_ms 300_000
+  # 1-hour dedup window. GitHub's Events API returns the same event
+  # for hours, so a short window (originally 5 min) caused the same
+  # `pr.opened` / `issue.commented` event to re-emit on every poll
+  # cycle after the entry was swept. 1 hour comfortably covers
+  # GitHub's polling-window re-emissions; the only cost is a few KB
+  # of ETS state per dedupe key.
+  @default_ttl_ms 3_600_000
   @sweep_interval_ms 60_000
 
   @spec start_link(keyword()) :: GenServer.on_start()

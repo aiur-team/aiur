@@ -130,57 +130,72 @@ defmodule Aiur.Events.GithubFirehose do
     end
   end
 
-  defp translate(%{"type" => "PullRequestEvent"} = event, _opts) do
+  defp translate(%{"type" => "PullRequestEvent"} = event, opts) do
     action = get_in(event, ["payload", "action"])
     pr = get_in(event, ["payload", "pull_request"]) || %{}
-    ref = "refs/heads/" <> (Map.get(pr, "head", %{}) |> Map.get("ref", ""))
+    head_ref = get_in(pr, ["head", "ref"]) || ""
+    head_sha = get_in(pr, ["head", "sha"]) || ""
     actor = get_in(event, ["actor", "login"])
+    repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
+    pr_number = Map.get(pr, "number")
 
-    case ref_to_topic(ref) do
-      {:ticket, id, _push_topic} ->
-        topic =
-          cond do
-            action == "opened" -> "ticket.#{id}.pr.opened"
-            action == "closed" and Map.get(pr, "merged") == true -> "ticket.#{id}.pr.merged"
-            true -> nil
-          end
+    with {:ticket, id, _push_topic} <- ref_to_topic("refs/heads/" <> head_ref),
+         topic when is_binary(topic) <- pr_topic(id, action, Map.get(pr, "merged")) do
+      publish_opts = [
+        actor: actor,
+        issue_number: id,
+        dedup_key: pr_dedup_key(repo_name, pr_number, action, head_sha)
+      ]
 
-        if topic do
-          {topic, %{action: action, pr: pr}, actor: actor, issue_number: id}
-        end
-
-      _ ->
-        nil
+      {topic, %{action: action, pr: pr}, publish_opts}
+    else
+      _ -> nil
     end
   end
 
-  defp translate(%{"type" => "IssueCommentEvent"} = event, _opts) do
+  defp translate(%{"type" => "IssueCommentEvent"} = event, opts) do
     issue = get_in(event, ["payload", "issue"]) || %{}
     number = Map.get(issue, "number")
     comment = get_in(event, ["payload", "comment"]) || %{}
     actor = get_in(event, ["actor", "login"])
+    repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
+    comment_id = Map.get(comment, "id")
 
     if is_integer(number) do
-      topic = "ticket.#{number}.issue.commented"
-      payload = %{issue_number: number, comment: comment}
-      {topic, payload, actor: actor, issue_number: number}
+      publish_opts = [
+        actor: actor,
+        issue_number: number,
+        dedup_key: comment_dedup_key(repo_name, "issue_comment", number, comment_id)
+      ]
+
+      {"ticket.#{number}.issue.commented", %{issue_number: number, comment: comment}, publish_opts}
     end
   end
 
-  defp translate(%{"type" => "PullRequestReviewCommentEvent"} = event, _opts) do
+  defp translate(%{"type" => "PullRequestReviewCommentEvent"} = event, opts) do
     pr = get_in(event, ["payload", "pull_request"]) || %{}
     number = Map.get(pr, "number")
     comment = get_in(event, ["payload", "comment"]) || %{}
     actor = get_in(event, ["actor", "login"])
+    repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
+    comment_id = Map.get(comment, "id")
 
     if is_integer(number) do
-      topic = "ticket.#{number}.pr.review_comment"
-      payload = %{issue_number: number, comment: comment}
-      {topic, payload, actor: actor, issue_number: number}
+      publish_opts = [
+        actor: actor,
+        issue_number: number,
+        dedup_key: comment_dedup_key(repo_name, "pr_review_comment", number, comment_id)
+      ]
+
+      {"ticket.#{number}.pr.review_comment", %{issue_number: number, comment: comment}, publish_opts}
     end
   end
 
   defp translate(_event, _opts), do: nil
+
+  defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
+  defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
+  defp pr_topic(_id, _action, _merged), do: nil
 
   defp ref_to_topic(ref) when is_binary(ref) do
     case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
@@ -196,4 +211,21 @@ defmodule Aiur.Events.GithubFirehose do
   end
 
   defp ref_to_topic(_), do: nil
+
+  # Dedup keys reuse Publisher's {binary, binary, binary} triple shape.
+  # GitHub Events API returns the same historical event on every poll
+  # within its ~24h window. Without these keys, opening a PR shows
+  # `📤 opened a PR` once per poll cycle.
+  defp pr_dedup_key(repo, pr_number, action, head_sha)
+       when is_binary(repo) and is_integer(pr_number) and is_binary(action) and is_binary(head_sha),
+       do: {repo, "pr:#{action}:#{pr_number}", head_sha}
+
+  defp pr_dedup_key(_, _, _, _), do: nil
+
+  defp comment_dedup_key(repo, kind, parent_number, comment_id)
+       when is_binary(repo) and is_binary(kind) and is_integer(parent_number) and
+              is_integer(comment_id),
+       do: {repo, "#{kind}:#{parent_number}", Integer.to_string(comment_id)}
+
+  defp comment_dedup_key(_, _, _, _), do: nil
 end
