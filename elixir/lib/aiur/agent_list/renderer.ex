@@ -242,14 +242,27 @@ defmodule Aiur.AgentList.Renderer do
     refresh_visual = visual_width(refresh)
     title_visual = visual_width(title)
 
-    pad_count = max(inner_width - title_visual - refresh_visual, 1)
+    # `╮` rounded corner reserved at the far right; padding fills the
+    # gap between the AIUR title and the refresh chip + corner.
+    pad_count = max(inner_width - title_visual - refresh_visual - 1, 1)
     pad = String.duplicate(" ", pad_count)
 
     # Title bolds the AIUR text; the refresh chip stays
     # cyan with a leading 🔄 emoji so the eye lands on the live state
     # indicator on the right. The plain ASCII "in" word keeps the
     # phrase readable in any terminal palette.
-    [@ansi_bold, title, @ansi_reset, pad, @ansi_cyan, refresh, @ansi_reset]
+    [
+      @ansi_bold,
+      title,
+      @ansi_reset,
+      pad,
+      @ansi_cyan,
+      refresh,
+      @ansi_reset,
+      @ansi_gray,
+      "╮",
+      @ansi_reset
+    ]
   end
 
   defp refresh_chip(nil), do: "🔄 in 0s"
@@ -347,11 +360,25 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp separator_row(inner_width) do
-    [pad_with_ansi(@ansi_gray, "├" <> String.duplicate("─", max(inner_width - 1, 0)), inner_width)]
+    [
+      pad_with_ansi(
+        @ansi_gray,
+        "├" <> String.duplicate("─", max(inner_width - 2, 0)),
+        inner_width,
+        "┤"
+      )
+    ]
   end
 
   defp bottom_border(inner_width) do
-    [pad_with_ansi(@ansi_gray, "╰" <> String.duplicate("─", max(inner_width - 1, 0)), inner_width)]
+    [
+      pad_with_ansi(
+        @ansi_gray,
+        "╰" <> String.duplicate("─", max(inner_width - 2, 0)),
+        inner_width,
+        "╯"
+      )
+    ]
   end
 
   # Footer keybinds. `v layout` rides on the primary row when there's
@@ -485,8 +512,10 @@ defmodule Aiur.AgentList.Renderer do
       4 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
         @attention_cell_width + layout.title_width + 1 + progress_width + layout.latest_width
 
-    pad = String.duplicate(" ", max(inner_width - plain_visual, 0))
-    [body, pad]
+    # Reserve the last column for the right `│` border so each row
+    # closes cleanly. Pad to (inner_width - 1) then append the bar.
+    pad = String.duplicate(" ", max(inner_width - 1 - plain_visual, 0))
+    [body, pad, @ansi_gray, "│", @ansi_reset]
   end
 
   # `❗` cell: blank-but-allocated when zero attentions open; `❗`
@@ -743,10 +772,11 @@ defmodule Aiur.AgentList.Renderer do
       |> max(@min_title_width)
 
     # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) +
-    # state (3) + attention (4) + title + ` ` (1) + [progress block].
+    # state (3) + attention (4) + title + ` ` (1) + [progress block]
+    # + ` │` (1 for the right border the row closes with).
     # The progress block (14 + 1 = 15) is included when terminal width
     # allows it; on very narrow terminals it collapses to zero.
-    base_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width + @attention_cell_width
+    base_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width + @attention_cell_width + 1
     show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
     fixed_non_id_overhead = base_overhead + progress_block_width
@@ -804,11 +834,17 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  defp pad_with_ansi(ansi, text, inner_width) do
-    # clip_and_pad guarantees visual width == inner_width, so the
-    # terminal can never wrap and our line-count bookkeeping stays
-    # accurate.
-    [ansi, clip_and_pad(text, inner_width), @ansi_reset]
+  defp pad_with_ansi(ansi, text, inner_width, right_border \\ "│") do
+    # clip_and_pad fills to inner_width - 1 visual cols and then appends
+    # `right_border` so every row carries a closing vertical bar on the
+    # right side (matching the leading `│` on the left). Specific row
+    # types pass `╮` / `╯` / `┤` for corner / divider variants.
+    [
+      ansi,
+      clip_and_pad(text, max(inner_width - 1, 0)),
+      right_border,
+      @ansi_reset
+    ]
   end
 
   defp padding_for(text, inner_width) do
@@ -817,8 +853,13 @@ defmodule Aiur.AgentList.Renderer do
     # grapheme count over-pads, the line exceeds inner_width, and the
     # terminal wraps — which throws off our line-count bookkeeping and
     # eventually scrolls the top of the pane off-screen.
+    #
+    # Reserve the last visual column for the right `│` border so each
+    # metadata row closes cleanly. The iodata returned here ends with
+    # the border glyph; callers don't need to append it themselves.
     visible = visual_width(strip_ansi(text))
-    String.duplicate(" ", max(inner_width - visible, 0))
+    pad = String.duplicate(" ", max(inner_width - visible - 1, 0))
+    [pad, @ansi_gray, "│", @ansi_reset]
   end
 
   # Visual column width of `text` in terminal cells. Wide-grapheme

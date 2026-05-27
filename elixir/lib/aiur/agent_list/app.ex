@@ -517,24 +517,6 @@ defmodule Aiur.AgentList.App do
     {:noreply, new_state}
   end
 
-  defp refresh_open_attentions(active_set) do
-    Enum.reduce(MapSet.to_list(active_set), %{}, fn id, acc ->
-      case attention_count_for(id) do
-        n when is_integer(n) -> Map.put(acc, id, n)
-        _ -> acc
-      end
-    end)
-  end
-
-  defp attention_count_for(id) do
-    case Aiur.Events.SubscriptionStore.snapshot(id) do
-      %{open_attentions: list} when is_list(list) -> length(list)
-      _ -> 0
-    end
-  rescue
-    _ -> 0
-  end
-
   # Global `agents:chat_active` broadcast — fires every time any
   # agent emits a transcript event. Promotes the marker from 🔘
   # (pane painted, empty) to ⚪ (pane painted, has content). MapSet
@@ -710,6 +692,30 @@ defmodule Aiur.AgentList.App do
     {:noreply, state}
   end
 
+  def handle_info(_other, state), do: {:noreply, state}
+
+  # ---------------------------------------------------------------------------
+  # Private helpers used by the handle_info clauses above.
+  # ---------------------------------------------------------------------------
+
+  defp refresh_open_attentions(active_set) do
+    Enum.reduce(MapSet.to_list(active_set), %{}, fn id, acc ->
+      case attention_count_for(id) do
+        n when is_integer(n) -> Map.put(acc, id, n)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp attention_count_for(id) do
+    case Aiur.Events.SubscriptionStore.snapshot(id) do
+      %{open_attentions: list} when is_list(list) -> length(list)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
   # Folds `ticket.<id>.agent.progress` publishes into the per-id
   # ProgressTracker sample ring. Reads `percent` from the event body.
   defp record_progress_sample(state, %{kind: :publish, topic: topic, body: body})
@@ -787,8 +793,6 @@ defmodule Aiur.AgentList.App do
       parts -> Enum.join(parts, " ")
     end
   end
-
-  def handle_info(_other, state), do: {:noreply, state}
 
   # Pull the three milestones the debug footer cares about out of the
   # aiur_perf stream. Everything else is ignored — the user asked for
