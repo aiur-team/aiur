@@ -120,7 +120,19 @@ defmodule Aiur.AgentList.Renderer do
       {ticker_iodata, ticker_line_count} = debug_events_ticker(state, inner_width, ticker_budget)
 
       [
+        # Cursor controls at frame start:
+        #   `\e[?25l`  hide cursor
+        #   `\e[?12l`  disable cursor blinking (some terminals show
+        #              the cursor "phantom" via blink even when set
+        #              to hidden via `?25l`; killing blink prevents
+        #              that)
+        #   `\e[H`     park at home so any brief visibility (during
+        #              the write itself) lands at row 1 col 1
+        # The same triplet repeats at the END of the frame to
+        # counter any other process or tmux event that might have
+        # re-enabled the cursor between frames.
         "\e[?25l",
+        "\e[?12l",
         "\e[H",
         title_row(inner_width, Map.get(state, :refresh_label)),
         eol(),
@@ -147,12 +159,14 @@ defmodule Aiur.AgentList.Renderer do
         debug_footer,
         ticker_iodata,
         clear_remaining(rows, base_lines + ticker_line_count),
-        # Re-emit cursor-hide AFTER all painting so other processes
-        # (tmux refresh, focus changes) that flip the cursor back on
-        # get countered on every render tick. Park the cursor in the
-        # top-left corner so any brief flash lands at a stable place.
-        "\e[H",
-        "\e[?25l"
+        # Re-emit hide + no-blink + park-home AFTER all painting,
+        # so any tmux refresh, focus change, or sibling process
+        # that flipped the cursor back on gets countered on every
+        # render tick. Multiple consecutive emits are no-ops; the
+        # cost is six bytes per tick.
+        "\e[?25l",
+        "\e[?12l",
+        "\e[H"
       ]
     end
   end
