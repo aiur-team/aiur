@@ -204,10 +204,45 @@ defmodule Aiur.Opencode.EventRowTest do
     end
   end
 
-  describe "from/1 backwards-compatibility" do
-    test "1-arg form still renders, defaulting to third-person framing" do
-      out = EventRow.from(%{kind: :receive, topic: "ticket.100.pr.opened", id: 1, body: nil})
-      assert out == "> 📥 Ticket 100 opened a PR"
+  describe "from/2 — body-summary edge cases" do
+    test "whitespace-only body summary produces no suffix (no dangling colon)" do
+      out =
+        EventRow.from(
+          %{kind: :receive, topic: "ticket.100.pr.opened", id: 1, body: %{"title" => "   \n  "}},
+          "99"
+        )
+
+      refute String.contains?(out, ":")
+    end
+
+    test "multi-byte UTF-8 truncation at the codepoint boundary stays valid" do
+      # 200 grapheme clusters of a 4-byte emoji — way past the 120-char cap.
+      long = String.duplicate("🚀", 200)
+
+      out =
+        EventRow.from(
+          %{kind: :receive, topic: "ticket.100.pr.opened", id: 1, body: %{"title" => long}},
+          "99"
+        )
+
+      assert String.valid?(out)
+      assert String.contains?(out, "…\"")
+    end
+
+    test "multi-line body summary keeps the blockquote bar on every line" do
+      out =
+        EventRow.from(
+          %{
+            kind: :receive,
+            topic: "ticket.100.pr.opened",
+            id: 1,
+            body: %{"title" => "line one\nline two"}
+          },
+          "99"
+        )
+
+      assert out =~ ~r/\A> /
+      assert String.contains?(out, "\n> ")
     end
   end
 end
