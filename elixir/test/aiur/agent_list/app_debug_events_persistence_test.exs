@@ -53,7 +53,7 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       Process.sleep(100)
       latest_with_event = drain_latest()
 
-      assert latest_with_event =~ "💬 42 pushed:", "events box should render the event"
+      assert latest_with_event =~ "💬 42 pushed", "events box should render the event"
 
       # Trigger a subsequent render via :refresh_tick. This is the bug
       # surface: if debug_events is stripped from render_state, the
@@ -62,7 +62,7 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       Process.sleep(100)
       latest_after_refresh = drain_latest()
 
-      assert latest_after_refresh =~ "💬 42 pushed:",
+      assert latest_after_refresh =~ "💬 42 pushed",
              "events box MUST still show event after refresh_tick"
     end
 
@@ -86,13 +86,13 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       Process.sleep(100)
       final = drain_latest()
 
-      assert final =~ "💬 1 pushed:"
-      assert final =~ "💬 2 pushed:"
-      assert final =~ "💬 3 pushed:"
+      assert final =~ "💬 1 pushed"
+      assert final =~ "💬 2 pushed"
+      assert final =~ "💬 3 pushed"
 
-      pos_1 = :binary.match(final, "💬 1 pushed:") |> elem(0)
-      pos_2 = :binary.match(final, "💬 2 pushed:") |> elem(0)
-      pos_3 = :binary.match(final, "💬 3 pushed:") |> elem(0)
+      pos_1 = :binary.match(final, "💬 1 pushed") |> elem(0)
+      pos_2 = :binary.match(final, "💬 2 pushed") |> elem(0)
+      pos_3 = :binary.match(final, "💬 3 pushed") |> elem(0)
       assert pos_1 < pos_2 and pos_2 < pos_3
     end
 
@@ -103,13 +103,13 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       Process.sleep(100)
       latest_with_event = drain_latest()
 
-      assert latest_with_event =~ "💬 7"
+      assert latest_with_event =~ "💬 7 merged a PR"
 
       send(pid, :refresh_tick)
       Process.sleep(100)
       latest_after_refresh = drain_latest()
 
-      assert latest_after_refresh =~ "💬 7",
+      assert latest_after_refresh =~ "💬 7 merged a PR",
              "event MUST persist across refresh tick"
     end
   end
@@ -123,8 +123,10 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
     end
   end
 
-  # Drain all pending {:rendered, _} and return the most recent payload.
-  defp drain_latest, do: drain_latest(nil)
+  # Drain all pending {:rendered, _} and return the most recent payload
+  # with ANSI / OSC 8 hyperlink escapes stripped so string-match
+  # assertions stay readable.
+  defp drain_latest, do: drain_latest(nil) |> visible()
 
   defp drain_latest(acc) do
     receive do
@@ -132,5 +134,13 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
     after
       50 -> acc
     end
+  end
+
+  defp visible(nil), do: nil
+
+  defp visible(text) when is_binary(text) do
+    text
+    |> String.replace(~r/\e\[[0-9;?]*[A-Za-z]/, "")
+    |> String.replace(~r/\e\]8;;[^\e\a]*(\e\\|\a)/, "")
   end
 end

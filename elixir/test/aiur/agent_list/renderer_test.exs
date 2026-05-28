@@ -123,10 +123,11 @@ defmodule Aiur.AgentList.RendererTest do
       render(base_state(%{summaries: [%{identifier: "MT-1", status: :running, alert_count: 0}]}))
       |> visible()
 
-    # ID and AGE are labelled; TAG and STATE columns use emoji-only
-    # cells and therefore have no header text. Column order is
-    # ID → AGE → tag-circle → state-circle → TITLE.
-    assert out =~ ~r/ID\s+AGE\s+TITLE/
+    # ID is labelled; tag-circle and state-circle columns use
+    # emoji-only cells and therefore have no header text. Column
+    # order is ID → tag-circle → state-circle → TITLE → LATEST →
+    # PROGRESS → TIME.
+    assert out =~ ~r/ID\s+TITLE\s+LATEST\s+PROGRESS\s+TIME/
   end
 
   test "shows '(no agents running)' when the list is empty" do
@@ -351,7 +352,7 @@ defmodule Aiur.AgentList.RendererTest do
     refute out =~ "🔳"
   end
 
-  test "renders an age column from runtime_seconds and turn_count" do
+  test "renders a runtime ticker (M:SS / H:MM:SS) from runtime_seconds" do
     summaries = [
       %{
         identifier: "MT-A",
@@ -364,7 +365,18 @@ defmodule Aiur.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    assert out =~ "2m/3t"
+    assert out =~ "2:05"
+    refute out =~ "AGE", "AGE column should be gone"
+    refute out =~ "/3t", "turn-count suffix should be gone with the AGE column"
+  end
+
+  test "runtime ticker formats hour-scale runs as H:MM:SS" do
+    summaries = [
+      %{identifier: "MT-A", status: :running, alert_count: 0, runtime_seconds: 3725}
+    ]
+
+    out = render(base_state(%{summaries: summaries})) |> visible()
+    assert out =~ "1:02:05"
   end
 
   test "title column flexes to fill the remaining width" do

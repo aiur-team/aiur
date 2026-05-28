@@ -40,19 +40,20 @@ defmodule Aiur.AgentList.Renderer do
   # is 10 cells wide so each 10% step the agent emits maps to
   # exactly one filled cell on screen.
   @progress_bar_width 10
-  @eta_width 5
-  @progress_cell_width 16
+  @progress_cell_width @progress_bar_width
+
+  # Runtime ticker: width 7 fits `h:MM:SS` for runs up to 9h59m59s.
+  # Beyond that, format_runtime/1 rolls over to `Nh` so the column
+  # still fits.
+  @runtime_cell_width 7
 
   @min_id_width 4
-  @min_age_width 4
   @min_title_width 6
   # When the terminal can't fit the full natural title + Latest at
   # @max_latest_width, cap the title at this many chars so other
   # columns aren't pushed off screen. With a wide enough terminal,
   # the constraint doesn't trigger and the title renders in full.
   @title_constrained_cap 25
-
-  @id_age_gap_width 2
 
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
@@ -399,14 +400,44 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp bottom_border(inner_width) do
-    [
-      pad_with_ansi(
+    # Inject a "newest" label at the far-left of the bottom border so
+    # the operator can read the timeline direction in the events log:
+    #   `╰─ newest ──...──╯`
+    # The label sits between the `╰` corner and the trailing fill. When
+    # the box is too narrow (`< 14` cols) for label + chrome, fall back
+    # to the plain border so we never truncate the corner glyphs.
+    label_text = "newest"
+    label_visual = String.length(label_text)
+    # ╰ + ─ + space + label + space + 1 trailing ─ minimum + ╯ = label_visual + 5
+    min_for_label = label_visual + 6
+
+    if inner_width >= min_for_label do
+      trailing_fill = String.duplicate("─", max(inner_width - label_visual - 5, 0))
+
+      [
         @ansi_gray,
-        "╰" <> String.duplicate("─", max(inner_width - 2, 0)),
-        inner_width,
-        "╯"
-      )
-    ]
+        "╰─ ",
+        @ansi_reset,
+        @ansi_gray,
+        IO.ANSI.italic(),
+        label_text,
+        @ansi_reset,
+        @ansi_gray,
+        " ",
+        trailing_fill,
+        "╯",
+        @ansi_reset
+      ]
+    else
+      [
+        pad_with_ansi(
+          @ansi_gray,
+          "╰" <> String.duplicate("─", max(inner_width - 2, 0)),
+          inner_width,
+          "╯"
+        )
+      ]
+    end
   end
 
   # Footer keybinds. `v layout` rides on the primary row when there's
@@ -509,18 +540,19 @@ defmodule Aiur.AgentList.Renderer do
     progress_header =
       if layout.show_progress?, do: [" ", cell("PROGRESS", @progress_cell_width)], else: []
 
+    runtime_header = [" ", cell("TIME", @runtime_cell_width)]
+
     body = [
       "│   ",
       cell("ID", layout.id_width),
-      String.duplicate(" ", @id_age_gap_width),
-      cell("AGE", layout.age_width),
       "  ",
       cell("", @state_cell_width),
       cell("", @attention_cell_width),
       cell("TITLE", layout.title_width),
       " ",
       cell("LATEST", layout.latest_width),
-      progress_header
+      progress_header,
+      runtime_header
     ]
 
     pad_with_ansi(@ansi_gray, IO.iodata_to_binary(body), inner_width)
@@ -570,15 +602,12 @@ defmodule Aiur.AgentList.Renderer do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
     title = Map.get(summary, :title) || ""
-    age = age_string(summary)
 
     id_cell = id_cell_with_link(id_str, layout)
-    age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary, markers), @state_cell_width)
     attention_cell = attention_cell(id_str, layout)
     title_cell = cell(title, layout.title_width)
     latest_cell = latest_cell(id_str, layout, summary)
-    gap = String.duplicate(" ", @id_age_gap_width)
 
     progress_block =
       if layout.show_progress? do
@@ -587,15 +616,13 @@ defmodule Aiur.AgentList.Renderer do
         []
       end
 
+    runtime_block = [" ", @ansi_dim, runtime_cell(summary), @ansi_reset]
+
     body = [
       "│ ",
       marker,
       @ansi_cyan,
       id_cell,
-      @ansi_reset,
-      gap,
-      @ansi_dim,
-      age_cell,
       @ansi_reset,
       "  ",
       state_cell,
@@ -605,20 +632,22 @@ defmodule Aiur.AgentList.Renderer do
       @ansi_dim,
       latest_cell,
       @ansi_reset,
-      progress_block
+      progress_block,
+      runtime_block
     ]
 
     progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
+    runtime_width = @runtime_cell_width + 1
 
     # Visual columns consumed by the body, in order:
-    #   `│ ` (2) + marker (2) + id_cell + gap + age_cell + `  ` (2)
-    #   + state_cell (3) + attention_cell (4) + title_cell + ` ` (1)
-    #   + latest_cell + progress_block.
+    #   `│ ` (2) + marker (2) + id_cell + `  ` (2) + state_cell (3)
+    #   + attention_cell (4) + title_cell + ` ` (1) + latest_cell
+    #   + progress_block + runtime_block.
     # Sum the parts directly so the right `│` border lands at the
     # same column as the metadata/separator rows above.
     plain_visual =
-      2 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        @attention_cell_width + layout.title_width + 1 + layout.latest_width + progress_width
+      2 + 2 + layout.id_width + 2 + @state_cell_width + @attention_cell_width +
+        layout.title_width + 1 + layout.latest_width + progress_width + runtime_width
 
     # Reserve the last column for the right `│` border so each row
     # closes cleanly. Pad to (inner_width - 1) then append the bar.
@@ -705,22 +734,53 @@ defmodule Aiur.AgentList.Renderer do
     samples = layout |> Map.get(:progress_by_id, %{}) |> Map.get(id, [])
     now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
 
-    {bar, eta_text} =
-      case ProgressTracker.estimate(samples, now_ms) do
-        :unknown ->
-          {ProgressTracker.bar(0, @progress_bar_width), ""}
+    case ProgressTracker.estimate(samples, now_ms) do
+      :unknown ->
+        ProgressTracker.bar(0, @progress_bar_width)
 
-        %{percent: 100} ->
-          full_bar = ProgressTracker.bar(100, @progress_bar_width)
-          {@ansi_reset <> @ansi_green <> full_bar <> @ansi_reset <> @ansi_dim, ""}
+      %{percent: 100} ->
+        full_bar = ProgressTracker.bar(100, @progress_bar_width)
+        @ansi_reset <> @ansi_green <> full_bar <> @ansi_reset <> @ansi_dim
 
-        %{percent: pct, eta_seconds: eta} ->
-          {ProgressTracker.bar(pct, @progress_bar_width), ProgressTracker.format_eta(eta)}
-      end
-
-    eta_padded = String.pad_trailing(eta_text, @eta_width)
-    bar <> " " <> eta_padded
+      %{percent: pct} ->
+        ProgressTracker.bar(pct, @progress_bar_width)
+    end
   end
+
+  # Cumulative wall-clock the agent has been running. Always-on; ticks
+  # up every render. Source: `summary.runtime_seconds`, already kept
+  # current by AgentList.App on every poll. Format chosen so the
+  # column never widens:
+  #   * <60s   → `0:01` … `0:59`
+  #   * <60m   → `1:23` … `59:59`
+  #   * <10h   → `1:02:03` (h:MM:SS — fits @runtime_cell_width 7)
+  #   * ≥10h   → `Nh` short form (rare; stays inside the cell)
+  defp runtime_cell(summary) do
+    seconds = Map.get(summary, :runtime_seconds) || 0
+    cell(format_runtime(seconds), @runtime_cell_width)
+  end
+
+  defp format_runtime(seconds) when is_integer(seconds) and seconds < 0, do: "0:00"
+
+  defp format_runtime(seconds) when is_integer(seconds) and seconds < 3600 do
+    mins = div(seconds, 60)
+    secs = rem(seconds, 60)
+    "#{mins}:#{pad2(secs)}"
+  end
+
+  defp format_runtime(seconds) when is_integer(seconds) and seconds < 36_000 do
+    hours = div(seconds, 3600)
+    mins = div(rem(seconds, 3600), 60)
+    secs = rem(seconds, 60)
+    "#{hours}:#{pad2(mins)}:#{pad2(secs)}"
+  end
+
+  defp format_runtime(seconds) when is_integer(seconds), do: "#{div(seconds, 3600)}h"
+
+  defp format_runtime(_), do: "0:00"
+
+  defp pad2(n) when is_integer(n) and n < 10, do: "0#{n}"
+  defp pad2(n), do: "#{n}"
 
   # Latest column cell — current most-recent event message for the
   # ticket. When no event has landed yet, shows a phase-aware
@@ -865,34 +925,11 @@ defmodule Aiur.AgentList.Renderer do
     glyph <> pad
   end
 
-  defp age_string(summary) do
-    seconds = Map.get(summary, :runtime_seconds) || 0
-    turns = Map.get(summary, :turn_count) || 0
-    "#{format_duration(seconds)}/#{turns}t"
-  end
-
-  defp format_duration(seconds) when is_integer(seconds) and seconds >= 3600,
-    do: "#{div(seconds, 3600)}h"
-
-  defp format_duration(seconds) when is_integer(seconds) and seconds >= 60,
-    do: "#{div(seconds, 60)}m"
-
-  defp format_duration(seconds) when is_integer(seconds) and seconds >= 0,
-    do: "#{seconds}s"
-
-  defp format_duration(_), do: "0s"
-
-  # Compute per-frame column widths so identifiers and age strings only
-  # take as much space as they actually need, leaving the rest for the
-  # title. Recomputed on every render so a wider pane reflows
-  # immediately when tmux resizes.
+  # Compute per-frame column widths so identifiers only take as much
+  # space as they actually need, leaving the rest for the title.
+  # Recomputed on every render so a wider pane reflows immediately
+  # when tmux resizes.
   defp compute_layout(summaries, inner_width) do
-    age_width =
-      summaries
-      |> Enum.map(fn s -> String.length(age_string(s)) end)
-      |> Enum.max(fn -> 0 end)
-      |> max(@min_age_width)
-
     natural_id_width =
       summaries
       |> Enum.map(fn s -> String.length(to_string(Map.get(s, :identifier) || "")) end)
@@ -905,12 +942,11 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_title_width)
 
-    # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) +
-    # state (3) + attention (4) + title + ` ` (1) + [progress block]
-    # + ` │` (1 for the right border the row closes with).
-    # The progress block (14 + 1 = 15) is included when terminal width
-    # allows it; on very narrow terminals it collapses to zero.
-    base_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width + @attention_cell_width + 1
+    # `│ ` (2) + marker (2) + id + `  ` (2) + state (3) + attention (4)
+    # + title + ` ` (1) + [progress block] + runtime_block (8) + ` │`
+    # (1 for the right border the row closes with).
+    runtime_block_width = @runtime_cell_width + 1
+    base_overhead = 2 + 2 + 2 + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
     show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
     fixed_non_id_overhead = base_overhead + progress_block_width
@@ -947,7 +983,6 @@ defmodule Aiur.AgentList.Renderer do
 
     %{
       id_width: id_width,
-      age_width: age_width,
       title_width: title_width,
       latest_width: latest_width,
       show_progress?: show_progress?
@@ -1142,7 +1177,6 @@ defmodule Aiur.AgentList.Renderer do
     events = state |> Map.get(:debug_events, []) |> Enum.reject(&is_nil/1)
 
     cond do
-      events == [] -> {[], 0}
       budget < 2 -> {[], 0}
       inner_width < 4 -> {[], 0}
       true -> render_events_block(state, events, inner_width, budget)
@@ -1151,6 +1185,10 @@ defmodule Aiur.AgentList.Renderer do
 
   defp render_events_block(state, events, inner_width, budget) do
     # Divider eats 1 row; remaining budget is the event capacity.
+    # The block ALWAYS uses the full budget — when there are fewer
+    # events than rows, empty `│ ... │` rows pad ABOVE the events so
+    # the newest line sits flush with the bottom border (chat-log
+    # layout: new at bottom, old scrolls up).
     capacity = max(budget - 1, 0)
     rendering_identifier = selected_identifier(state)
     repo = repo_identity(state)
@@ -1165,20 +1203,20 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.take(capacity)
       |> Enum.reverse()
 
-    if visible_lines == [] do
-      {[], 0}
-    else
-      event_rows =
-        Enum.flat_map(visible_lines, &[event_box_inner_row(&1, inner_width), eol()])
+    deficit = max(capacity - length(visible_lines), 0)
+    empty_rows = for _ <- 1..deficit//1, do: [empty_event_row(inner_width), eol()]
 
-      iodata = [
-        events_divider_row(inner_width),
-        eol(),
-        event_rows
-      ]
+    event_rows =
+      Enum.flat_map(visible_lines, &[event_box_inner_row(&1, inner_width), eol()])
 
-      {iodata, 1 + length(visible_lines)}
-    end
+    iodata = [
+      events_divider_row(inner_width),
+      eol(),
+      empty_rows,
+      event_rows
+    ]
+
+    {iodata, 1 + capacity}
   end
 
   defp selected_identifier(%{selection_index: idx, summaries: summaries}) when is_list(summaries) do
@@ -1191,8 +1229,36 @@ defmodule Aiur.AgentList.Renderer do
   defp selected_identifier(_state), do: nil
 
   defp events_divider_row(inner_width) do
-    fill = String.duplicate("─", max(inner_width - 2, 0))
-    [@ansi_gray, "├", fill, "┤", @ansi_reset]
+    # Inject an "oldest" label at the far-right of the divider so the
+    # operator can read the timeline direction:
+    #   `├──...── oldest ─┤`
+    # When the box is too narrow (`< 14` cols) for label + chrome, fall
+    # back to the plain divider so we never truncate the corner glyphs.
+    label_text = "oldest"
+    label_visual = String.length(label_text)
+    min_for_label = label_visual + 6
+
+    if inner_width >= min_for_label do
+      leading_fill = String.duplicate("─", max(inner_width - label_visual - 5, 0))
+
+      [
+        @ansi_gray,
+        "├",
+        leading_fill,
+        " ",
+        @ansi_reset,
+        @ansi_gray,
+        IO.ANSI.italic(),
+        label_text,
+        @ansi_reset,
+        @ansi_gray,
+        " ─┤",
+        @ansi_reset
+      ]
+    else
+      fill = String.duplicate("─", max(inner_width - 2, 0))
+      [@ansi_gray, "├", fill, "┤", @ansi_reset]
+    end
   end
 
   # `│ <text padded> │` — the `│ ` + ` │` chrome eats 4 visual columns.
@@ -1200,6 +1266,13 @@ defmodule Aiur.AgentList.Renderer do
     body_width = max(inner_width - 4, 0)
     padded = clip_and_pad(text, body_width)
     [IO.ANSI.faint(), "│ ", padded, " │", IO.ANSI.reset()]
+  end
+
+  # Empty `│       │` row used to pad the events block up to its full
+  # budget when there are fewer events than rows available.
+  defp empty_event_row(inner_width) do
+    fill = String.duplicate(" ", max(inner_width - 2, 0))
+    [@ansi_gray, "│", @ansi_reset, fill, @ansi_gray, "│", @ansi_reset]
   end
 
   # Format an event-ticker entry as a natural-language line.
@@ -1331,8 +1404,20 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   # --- Read events (digest ingestion) ----------------------------------
-  defp describe_event(:read, _subject_id, _source_id, _suffix, _body) do
-    {"Agent ingested", ""}
+  # A read entry is the receiver digesting an event from its inbox.
+  # The line reads `📄 <receiver> ingested <source>: <publish-verb>"<body>"`
+  # so the operator can see what the agent actually picked up. We
+  # reuse `publish_event_phrase/2` for the verb + body so reads share
+  # the same vocabulary as the originating publish line.
+  defp describe_event(:read, subject_id, source_id, suffix, body)
+       when is_binary(source_id) and source_id != subject_id do
+    {verb, summary} = publish_event_phrase(suffix, body)
+    {"ingested #{source_id}: #{verb}", summary}
+  end
+
+  defp describe_event(:read, _subject_id, _source_id, suffix, body) do
+    {verb, summary} = publish_event_phrase(suffix, body)
+    {"ingested: #{verb}", summary}
   end
 
   # --- Publishes -------------------------------------------------------
@@ -1343,15 +1428,46 @@ defmodule Aiur.AgentList.Renderer do
   defp describe_event(_kind, _subject_id, _source_id, _suffix, _body), do: {"", ""}
 
   # ── Publish topic → {verb_phrase, summary} ─────────────────────────────
+  # Verbs are written so the ID prefix reads as the implicit subject:
+  #   `💬 99 started work: "..."` — not `💬 99 Agent started work: "..."`.
+  # The leading "Agent" was dead weight that pushed real content off the
+  # right edge in the bordered event log.
 
   defp publish_event_phrase("agent.phase." <> phase_step, body),
-    do: {"Agent " <> phrase_for_phase(phase_step) <> ":", inline_summary(body)}
+    do: {phrase_for_phase(phase_step) <> ":", inline_summary(body)}
+
+  # The agent-driven progress sample. Carries `%{percent, label}`; the
+  # label *is* the natural-language summary, so render the explicit
+  # percent and let the operator read both.
+  defp publish_event_phrase("agent.progress.checkin", body),
+    do: progress_phrase("Check-in:", body)
+
+  defp publish_event_phrase("agent.progress.phase", body),
+    do: progress_phrase("Estimated progress:", body)
 
   defp publish_event_phrase("agent.progress", body),
-    do: {"Agent progress:", inline_summary(body)}
+    do: progress_phrase("Estimated progress:", body)
+
+  defp publish_event_phrase("agent.blocked", body),
+    do: {"blocked:", inline_summary(body)}
+
+  defp publish_event_phrase("agent.unblocked", body),
+    do: {"unblocked", inline_summary(body)}
+
+  defp publish_event_phrase("agent.pause.request", body),
+    do: {"requested pause", inline_summary(body)}
+
+  defp publish_event_phrase("agent.attention." <> _slug, body),
+    do: {"raised attention:", inline_summary(body)}
+
+  defp publish_event_phrase("agent.decision." <> slug, body),
+    do: {"decided #{slug}:", inline_summary(body)}
 
   defp publish_event_phrase("agent." <> name, body),
-    do: {"Agent #{name}:", inline_summary(body)}
+    do: {name <> ":", inline_summary(body)}
+
+  defp publish_event_phrase("operator.progress_request", _body),
+    do: {"check-in requested", ""}
 
   defp publish_event_phrase("issue.label.added.agent." <> state, body),
     do: {"labelled #{state}:", inline_summary(body)}
@@ -1373,6 +1489,42 @@ defmodule Aiur.AgentList.Renderer do
 
   defp publish_event_phrase(other, body),
     do: {other, inline_summary(body)}
+
+  # Renders `<verb> N% done "label"` so the bar update reads in plain
+  # English. Falls back to the raw inline_summary when the body has no
+  # percent field (defensive — shouldn't happen in practice).
+  defp progress_phrase(verb, body) do
+    case progress_percent_from(body) do
+      nil ->
+        {verb, inline_summary(body)}
+
+      pct ->
+        suffix =
+          case progress_label_from(body) do
+            nil -> ""
+            label -> " \"" <> clip_summary(label) <> "\""
+          end
+
+        {"#{verb} #{trunc(pct)}% done", suffix}
+    end
+  end
+
+  defp progress_percent_from(body) when is_map(body) do
+    cond do
+      is_number(body[:percent]) -> body[:percent]
+      is_number(body["percent"]) -> body["percent"]
+      true -> nil
+    end
+  end
+
+  defp progress_percent_from(_), do: nil
+
+  defp progress_label_from(body) when is_map(body) do
+    candidate = body[:label] || body["label"]
+    if is_binary(candidate) and String.trim(candidate) != "", do: candidate
+  end
+
+  defp progress_label_from(_), do: nil
 
   defp pr_event_phrase(verb, body) do
     case pr_title(body) do

@@ -65,7 +65,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       #   - read uses minimal "Agent ingested".
       assert output =~ "💬 42 pushed"
       assert output =~ "📬 99 ← 42: pushed"
-      assert output =~ "📄 42 Agent ingested"
+      assert output =~ "📄 42 ingested: pushed"
 
       # Legend now renders in the footer (outside the box), not above the events.
       assert output =~ "💬 publish · 📬 receive · 📄 read"
@@ -83,7 +83,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
 
       publish_pos = :binary.match(output, "💬 42 pushed") |> elem(0)
       receive_pos = :binary.match(output, "📬 99 ← 42: pushed") |> elem(0)
-      read_pos = :binary.match(output, "📄 42 Agent ingested") |> elem(0)
+      read_pos = :binary.match(output, "📄 42 ingested: pushed") |> elem(0)
 
       assert publish_pos < receive_pos
       assert receive_pos < read_pos
@@ -153,7 +153,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       state = build_state(debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      assert output =~ "💬 140 Agent started work"
+      assert output =~ "💬 140 started work"
       refute output =~ "📬 140 ← 140"
       refute output =~ "Agent received from 140"
     end
@@ -174,6 +174,105 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "📬 140 new Issue comment: \"Looks good to me\""
     end
 
+    test "agent.progress renders as `Estimated progress: N% done`" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.101.agent.progress",
+          id: 1,
+          body: %{"percent" => 80, "label" => "work: starting impl"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 101 Estimated progress: 80% done \"work: starting impl\""
+      refute output =~ "Agent progress"
+    end
+
+    test "agent.progress.checkin renders as `Check-in: N% done`" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.140.agent.progress.checkin",
+          id: 1,
+          body: %{"percent" => 30, "label" => "work: implementing"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 140 Check-in: 30% done"
+    end
+
+    test "agent.phase.work.start drops `Agent ` prefix" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.99.agent.phase.work.start",
+          id: 1,
+          body: %{"message" => "implementing"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 99 started work:"
+      refute output =~ "Agent started"
+    end
+
+    test "operator.progress_request renders as `check-in requested`" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.99.operator.progress_request",
+          id: 1,
+          body: %{"message" => "operator ping"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 99 check-in requested"
+      refute output =~ "operator.progress_request"
+    end
+
+    test "read events show source ticket and body summary" do
+      events = [
+        debug_entry(:read,
+          topic: "ticket.100.branch.push",
+          id: 1,
+          identifier: "99",
+          body: %{
+            "commits" => [%{"message" => "Add function_a/0 returning 42"}]
+          }
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~
+               "📄 99 ingested 100: pushed 1 commit, last: \"Add function_a/0 returning 42\""
+    end
+
+    test "read events of the agent's own publish drop the source id" do
+      events = [
+        debug_entry(:read,
+          topic: "ticket.42.branch.push",
+          id: 1,
+          identifier: "42",
+          body: %{"commits" => [%{"message" => "hi"}]}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "📄 42 ingested: pushed 1 commit, last: \"hi\""
+      refute output =~ "ingested 42:"
+    end
+
     test "multi-line comment bodies collapse to one line with ellipsis" do
       events = [
         debug_entry(:receive,
@@ -182,8 +281,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
           identifier: "140",
           body: %{
             "comment" => %{
-              "body" =>
-                "## Agent Workpad\n\n```text\nd:/home/orangekid/code/aiur-workspaces/100\napplekid:/home/orangekid/code/aiur-workspaces/100\n```"
+              "body" => "## Agent Workpad\n\n```text\nd:/home/orangekid/code/aiur-workspaces/100\napplekid:/home/orangekid/code/aiur-workspaces/100\n```"
             }
           }
         )
