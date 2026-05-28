@@ -41,6 +41,10 @@ Event vocabulary (allowlisted — names outside this list are rejected by `emit_
 - `pause.request` — request operator pause your turn at the next checkpoint
 - `custom.<slug>` — anything else (capped at 5 per turn)
 
+### Tooling environment
+
+Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for you, pointing at per-workspace directories. `mise trust` has already been run for the workspace's `mise.toml`. Run `mix` and `mise exec -- mix ...` directly — do not prefix commands with `HEX_HOME=/tmp/...` or `MISE_TRUSTED_CONFIG_PATHS=...`. Inventing your own paths bypasses the pre-warmed Hex cache and forces a re-fetch of every dependency.
+
 ### Dev loop
 
 Branch off the latest `main` and run this loop:

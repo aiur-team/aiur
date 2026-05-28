@@ -35,6 +35,10 @@ hooks:
       issue_id="$(basename "$PWD")"
       git checkout -b "aiur/${issue_id}" origin/main
     fi
+    mkdir -p ./.aiur-hex ./.aiur-mix
+    if [ -f elixir/mise.toml ]; then
+      mise trust elixir/mise.toml >/dev/null 2>&1 || true
+    fi
   before_remove: |
     git status --short
 agent:

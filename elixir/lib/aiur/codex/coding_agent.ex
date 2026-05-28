@@ -251,6 +251,7 @@ defmodule Aiur.Codex.CodingAgent do
             :stderr_to_stdout,
             args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command()))],
             cd: String.to_charlist(workspace),
+            env: AgentEnvironment.workspace_env(workspace),
             line: @port_line_bytes
           ]
         )
@@ -264,7 +265,12 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp remote_launch_command(workspace) do
-    ["cd #{shell_escape(workspace)}", AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command(), exec: true)]
+    [
+      AgentEnvironment.workspace_env_export_prefix(workspace),
+      "cd #{shell_escape(workspace)}",
+      AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command(), exec: true)
+    ]
+    |> Enum.reject(&(&1 == ""))
     |> Enum.join(" && ")
   end
 
