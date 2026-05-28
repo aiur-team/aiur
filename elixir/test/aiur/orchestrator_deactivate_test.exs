@@ -212,4 +212,121 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert Aiur.AgentEvents.state_emoji("done") == "🏁"
     end
   end
+
+  describe "slot counting on the public status snapshot" do
+    test "deactivated entries do not consume a slot in the (N/M) counter" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-slot-counting-#{System.unique_integer([:positive])}"
+        )
+
+      issue_working = "issue-slot-working"
+      issue_paused = "issue-slot-paused"
+      issue_deactivated = "issue-slot-deactivated"
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        running = %{
+          issue_working => %{
+            pid: self(),
+            ref: nil,
+            identifier: "SLOT-1",
+            issue: %Issue{id: issue_working, state: "in-progress", identifier: "SLOT-1"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          },
+          issue_paused => %{
+            pid: self(),
+            ref: nil,
+            identifier: "SLOT-2",
+            issue: %Issue{id: issue_paused, state: "in-progress", identifier: "SLOT-2"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :paused}
+          },
+          issue_deactivated => %{
+            pid: nil,
+            ref: nil,
+            identifier: "SLOT-3",
+            issue: %Issue{id: issue_deactivated, state: "human-review", identifier: "SLOT-3"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :deactivated}
+          }
+        }
+
+        state = %Orchestrator.State{
+          running: running,
+          claimed: MapSet.new(Map.keys(running)),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        # `active` counts entries holding a slot. After U3, that's
+        # :working only — :paused holds a slot too today (existing
+        # behaviour, exposed as `paused`), and :deactivated holds NONE.
+        status = Orchestrator.slot_status_for_test(state)
+
+        assert status.active == 1
+        assert status.paused == 1
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "all-:deactivated running map frees every slot" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-slot-all-deact-#{System.unique_integer([:positive])}"
+        )
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        running =
+          for n <- 1..3, into: %{} do
+            id = "issue-deact-all-#{n}"
+
+            {id,
+             %{
+               pid: nil,
+               ref: nil,
+               identifier: "ALL-#{n}",
+               issue: %Issue{id: id, state: "human-review", identifier: "ALL-#{n}"},
+               started_at: DateTime.utc_now(),
+               control: %{status: :deactivated}
+             }}
+          end
+
+        state = %Orchestrator.State{
+          running: running,
+          claimed: MapSet.new(Map.keys(running)),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        status = Orchestrator.slot_status_for_test(state)
+
+        assert status.active == 0
+        assert status.paused == 0
+      after
+        File.rm_rf(test_root)
+      end
+    end
+  end
 end

@@ -502,6 +502,15 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec slot_status_for_test(State.t()) :: %{active: non_neg_integer(), paused: non_neg_integer()}
+  def slot_status_for_test(%State{} = state) do
+    %{
+      active: active_running_count(state.running),
+      paused: paused_running_count(state.running)
+    }
+  end
+
+  @doc false
   @spec sync_polled_issue_state_for_test(State.t(), [Issue.t()]) :: State.t()
   def sync_polled_issue_state_for_test(%State{} = state, issues) when is_list(issues) do
     sync_polled_issue_state(state, issues)
@@ -1689,7 +1698,10 @@ defmodule Aiur.Orchestrator do
 
   defp paused_running_count(_running), do: 0
 
-  defp active_running_entry?(entry) when is_map(entry), do: not paused_running_entry?(entry)
+  defp active_running_entry?(entry) when is_map(entry) do
+    not (paused_running_entry?(entry) or deactivated_running_entry?(entry))
+  end
+
   defp active_running_entry?(_entry), do: false
 
   defp paused_running_entry?(entry) when is_map(entry) do
@@ -1697,6 +1709,12 @@ defmodule Aiur.Orchestrator do
   end
 
   defp paused_running_entry?(_entry), do: false
+
+  defp deactivated_running_entry?(entry) when is_map(entry) do
+    get_in(entry, [:control, :status]) == :deactivated
+  end
+
+  defp deactivated_running_entry?(_entry), do: false
 
   defp max_concurrent_agent_limit(%State{} = state) do
     cond do
