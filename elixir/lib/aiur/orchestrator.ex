@@ -745,6 +745,16 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec apply_stall_check_for_test(State.t(), pos_integer()) :: State.t()
+  def apply_stall_check_for_test(%State{} = state, timeout_ms) when is_integer(timeout_ms) do
+    now = DateTime.utc_now()
+
+    Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+      restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
+    end)
+  end
+
+  @doc false
   @spec sync_polled_issue_state_for_test(State.t(), [Issue.t()]) :: State.t()
   def sync_polled_issue_state_for_test(%State{} = state, issues) when is_list(issues) do
     sync_polled_issue_state(state, issues)
@@ -1046,6 +1056,31 @@ defmodule Aiur.Orchestrator do
   end
 
   defp restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
+    cond do
+      # Paused agents are INTENTIONALLY idle — the agent emitted
+      # pause.request because it declared a blocker and has nothing to
+      # do until the blocker emits. The stall watchdog must not
+      # interpret deliberate idleness as a stuck codex stream. The
+      # auto-resume hook in handle_info({:event, ...}) will reawaken
+      # the entry when its blocker pushes; if no push ever arrives, an
+      # operator-driven resume (label flip or chat) is the path
+      # forward, not a restart that throws away the agent's workpad.
+      paused_running_entry?(running_entry) ->
+        state
+
+      # Deactivated entries don't have a live codex stream to stall on
+      # in the first place — the worker task was killed when the entry
+      # was deactivated. Skip them; the reactivate path is the only
+      # transition back to :working.
+      deactivated_running_entry?(running_entry) ->
+        state
+
+      true ->
+        maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
+    end
+  end
+
+  defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
     elapsed_ms = stall_elapsed_ms(running_entry, now)
 
     if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do

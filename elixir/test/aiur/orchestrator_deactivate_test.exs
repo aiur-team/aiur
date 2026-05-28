@@ -753,6 +753,103 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "stall watchdog skips paused / deactivated entries" do
+    test "paused entry with stale last_codex_timestamp is NOT restarted" do
+      issue_id = "issue-stall-paused"
+      identifier = "STALL-P"
+
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: spawn_link(fn -> Process.sleep(:infinity) end),
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: stale_at,
+            last_codex_timestamp: stale_at,
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      # 1ms timeout would trip on any entry whose elapsed > 1ms — but
+      # the paused short-circuit must skip it BEFORE elapsed is computed.
+      next = Orchestrator.apply_stall_check_for_test(state, 1)
+      assert Map.has_key?(next.running, issue_id), "paused entry must not be restarted"
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+      assert next.retry_attempts == %{}, "no retry should be scheduled"
+    end
+
+    test "deactivated entry with stale last_codex_timestamp is NOT restarted" do
+      issue_id = "issue-stall-deact"
+      identifier = "STALL-D"
+
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "human-review", identifier: identifier},
+            started_at: stale_at,
+            last_codex_timestamp: stale_at,
+            control: %{status: :deactivated}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_stall_check_for_test(state, 1)
+      assert Map.has_key?(next.running, issue_id)
+      assert get_in(next.running, [issue_id, :control, :status]) == :deactivated
+      assert next.retry_attempts == %{}
+    end
+
+    test "actively-working entry with stale last_codex_timestamp IS restarted" do
+      issue_id = "issue-stall-working"
+      identifier = "STALL-W"
+
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+
+      worker_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: worker_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: stale_at,
+            last_codex_timestamp: stale_at,
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_stall_check_for_test(state, 1)
+      refute Map.has_key?(next.running, issue_id), "working+stale entry must be restarted"
+
+      assert %{identifier: ^identifier, error: "stalled" <> _} =
+               Map.get(next.retry_attempts, issue_id)
+    end
+  end
+
   describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
     setup do
       identifier = "BLOCKEE-#{System.unique_integer([:positive])}"
