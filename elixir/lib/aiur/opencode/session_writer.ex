@@ -35,7 +35,7 @@ defmodule Aiur.Opencode.SessionWriter do
 
   alias Aiur.{AgentPubSub, IssueLog}
   alias Aiur.Events.DebugLog
-  alias Aiur.Opencode.{Db, EventRow, Protocol}
+  alias Aiur.Opencode.{ActiveTurns, ApiClient, Db, EventRow, Protocol}
 
   # Sweep open turn buffers every 60s; finalize any whose last event
   # is older than this threshold. Bounds memory if codex never sends
@@ -304,7 +304,40 @@ defmodule Aiur.Opencode.SessionWriter do
 
     Logger.info("opencode_session_writer phase=ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{state.identifier} session_id=#{state.session_id} replayed=#{replayed}")
 
+    catch_up_active_turn_markers(state)
+
     root_msg_id
+  end
+
+  # On `--debug` resume, SessionWriter replay can take ~6s while the codex
+  # turn fires its `__aiur_turn__:<id>` markers at t=0 — those markers find
+  # zero writers in `SessionWriterRegistry.attached/1` and silently no-op,
+  # so the bridge never opens the live SSE stream and the chat pane gets no
+  # deltas for the rest of the run (transcript content arrives via SQL
+  # replay only). Once this writer reaches `phase=ready`, check ActiveTurns
+  # for any in-flight aiur turn on its identifier and fire the marker
+  # against its own session so the bridge sees the chat-completion request.
+  # Fire-and-forget Task.start — same pattern as AgentRunner.post_aiur_turn_markers/4.
+  defp catch_up_active_turn_markers(state) do
+    for aiur_turn_id <- ActiveTurns.active_turn_ids(state.identifier) do
+      Task.start(fn -> post_catchup_marker(state, aiur_turn_id) end)
+    end
+
+    :ok
+  end
+
+  defp post_catchup_marker(state, aiur_turn_id) do
+    payload = %{
+      parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
+    }
+
+    case ApiClient.post_message(state.base_url, state.session_id, payload) do
+      {:ok, _} ->
+        Logger.debug("session_writer_marker_catchup_posted identifier=#{state.identifier} aiur_turn=#{aiur_turn_id} base_url=#{state.base_url}")
+
+      {:error, reason} ->
+        Logger.debug("session_writer_marker_catchup_failed identifier=#{state.identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
+    end
   end
 
   defp state_with_root(state, root_msg_id), do: %{state | root_msg_id: root_msg_id}
