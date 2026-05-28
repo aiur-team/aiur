@@ -34,7 +34,8 @@ Aiur agents on different tickets coordinate through a topic-exchange event bus. 
 
 Event vocabulary (allowlisted — names outside this list are rejected by `emit_event`):
 
-- `progress` — numeric percent sample for the agent-list bar; payload `%{percent: 10..100, label: "<phase>: <what>, <tail>"}` (capped at 2 per turn — see "Progress emits" below)
+- `progress` — numeric percent sample for the agent-list bar; payload `%{percent: 10..100, label: "<phase>: <what>, <tail>"}` (capped at 2 per turn — see "Progress emits" below). Treated as a phase guess by the ratchet — can ratchet UP only.
+- `progress.checkin` — the response to an `operator.progress_request` ping. Same payload shape as `progress`, but always overrides the bar even when it lowers the previous value. See "Operator check-ins" below.
 - `progress.<slug>` — milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`)
 - `decision.<slug>` — architectural choice worth broadcasting (`decision.use-amqp-matcher`)
 - `blocked` / `unblocked` — your work blocked / unblocked state changed
@@ -83,6 +84,27 @@ emit_event(name: "progress", payload: %{
 ```
 
 Two emits this turn; cap respected.
+
+### Operator check-ins (`operator.progress_request`)
+
+Every five minutes, Aiur publishes `operator.progress_request` to each active agent's event subscription. You see it as one event line in the digest the next time your turn boundary drains — exactly like a firehose comment, never mid-tool-call.
+
+When you see it, reply with a single `emit_event` call:
+
+```
+emit_event(name: "progress.checkin", payload: %{
+  percent: <N * 10>,
+  label: "<phase>: <what you're doing now>, <tail you're budgeting>"
+})
+```
+
+Rules:
+
+- `percent` is your **current** 1-of-10 estimate, expressed as `N * 10` (so a "6 out of 10" sends `percent: 60`).
+- Your check-in **trumps** any prior phase guess, even when it lowers the bar. The renderer treats the check-in as the new floor.
+- Do not change your work plan, do not ask the operator anything, do not narrate the ping in chat. It's a silent status request.
+- One check-in per request — don't fan out multiple. If two requests arrived in the same digest, reply to the most recent.
+- After replying, continue whatever you were doing.
 
 ### Tooling environment
 

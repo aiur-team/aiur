@@ -2113,6 +2113,31 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc """
+  Returns identifiers whose running entry is currently "active" —
+  not paused, not deactivated. Used by `Aiur.ProgressCheckin.Worker`
+  so the 5-min check-in publishes only to agents that should be
+  making progress; pausing/deactivation already signal "don't work".
+  """
+  @spec list_running_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
+  def list_running_active_identifiers(server \\ __MODULE__, timeout \\ 1_000) do
+    if alive?(server) do
+      try do
+        GenServer.call(server, :list_running_active_identifiers, timeout)
+      catch
+        :exit, _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  defp alive?(pid) when is_pid(pid), do: Process.alive?(pid)
+  defp alive?(name) when is_atom(name), do: Process.whereis(name) != nil
+  defp alive?({:via, _, _}), do: true
+  defp alive?({:global, _}), do: true
+  defp alive?(_), do: false
+
+  @doc """
   Lightweight read of the polling clock so UI surfaces (the agent-list
   pane) can render a "Next refresh: Ns" countdown without doing a full
   `snapshot/0` every tick. Returns `%{checking?: boolean, next_poll_in_ms: integer | nil}`,
@@ -2217,6 +2242,17 @@ defmodule Aiur.Orchestrator do
     identifiers =
       state.running
       |> Map.values()
+      |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
+      |> Enum.reject(&is_nil/1)
+
+    {:reply, identifiers, state}
+  end
+
+  def handle_call(:list_running_active_identifiers, _from, state) do
+    identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.filter(&active_running_entry?/1)
       |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
       |> Enum.reject(&is_nil/1)
 

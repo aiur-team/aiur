@@ -777,22 +777,56 @@ defmodule Aiur.AgentList.App do
     _ -> 0
   end
 
-  # Folds `ticket.<id>.agent.progress` publishes into the per-id
-  # ProgressTracker sample ring. Reads `percent` from the event body.
+  # Folds `ticket.<id>.agent.progress[.<source>]` publishes into the
+  # per-id ProgressTracker sample ring with a source-aware ratchet:
+  #
+  #   - `agent.progress.checkin` (operator-driven check-in) ALWAYS
+  #     records — the agent's attested 1–10 estimate trumps prior
+  #     phase guesses, even when it lowers the current value.
+  #   - `agent.progress.phase` (phase boundary) and the legacy bare
+  #     `agent.progress` topic record only when `percent` is greater
+  #     than or equal to the current head — phase guesses can ratchet
+  #     up over an agent estimate (e.g. pr.opened → 100) but cannot
+  #     drag it back down.
   defp record_progress_sample(state, %{kind: :publish, topic: topic, body: body})
        when is_binary(topic) and is_map(body) do
-    with [_, id] <- Regex.run(~r{\Aticket\.([^.]+)\.agent\.progress\z}, topic),
+    with {:ok, id, source} <- parse_progress_topic(topic),
          percent when is_integer(percent) or is_float(percent) <- progress_percent(body) do
-      now_ms = System.monotonic_time(:millisecond)
-      existing = Map.get(state.progress_by_id, id, [])
-      updated = Aiur.ProgressTracker.record(existing, trunc(percent), now_ms)
-      %{state | progress_by_id: Map.put(state.progress_by_id, id, updated)}
+      maybe_push_progress(state, id, trunc(percent), source)
     else
       _ -> state
     end
   end
 
   defp record_progress_sample(state, _entry), do: state
+
+  defp parse_progress_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.progress(?:\.(checkin|phase))?\z}, topic) do
+      [_, id, "checkin"] -> {:ok, id, :checkin}
+      [_, id, "phase"] -> {:ok, id, :phase}
+      [_, id] -> {:ok, id, :phase}
+      _ -> :error
+    end
+  end
+
+  defp maybe_push_progress(state, id, percent, source) do
+    existing = Map.get(state.progress_by_id, id, [])
+
+    if accept_progress?(source, percent, existing) do
+      now_ms = System.monotonic_time(:millisecond)
+      updated = Aiur.ProgressTracker.record(existing, percent, now_ms)
+      %{state | progress_by_id: Map.put(state.progress_by_id, id, updated)}
+    else
+      state
+    end
+  end
+
+  defp accept_progress?(:checkin, _percent, _samples), do: true
+  defp accept_progress?(:phase, percent, samples), do: percent >= head_percent(samples)
+  defp accept_progress?(_source, _percent, _samples), do: false
+
+  defp head_percent([{percent, _ts} | _]) when is_integer(percent), do: percent
+  defp head_percent(_), do: 0
 
   defp progress_percent(body) do
     cond do

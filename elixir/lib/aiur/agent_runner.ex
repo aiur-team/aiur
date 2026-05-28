@@ -118,7 +118,11 @@ defmodule Aiur.AgentRunner do
       # (PullRequestReviewCommentEvent). Exchange routes by literal
       # segment match, so the strings must align exactly.
       {"ticket." <> identifier <> ".issue.commented", "own_comments:auto"},
-      {"ticket." <> identifier <> ".pr.review_comment", "own_comments:auto"}
+      {"ticket." <> identifier <> ".pr.review_comment", "own_comments:auto"},
+      # Operator-initiated 5-minute check-in published by
+      # Aiur.ProgressCheckin.Worker. Drained at the next turn boundary;
+      # agent replies by emitting `progress.checkin`.
+      {"ticket." <> identifier <> ".operator.progress_request", "progress_checkin:auto"}
     ]
 
     Enum.each(topics, fn {topic, reason} ->
