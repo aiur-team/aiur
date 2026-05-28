@@ -34,12 +34,55 @@ Aiur agents on different tickets coordinate through a topic-exchange event bus. 
 
 Event vocabulary (allowlisted — names outside this list are rejected by `emit_event`):
 
+- `progress` — numeric percent sample for the agent-list bar; payload `%{percent: 10..100, label: "<phase>: <what>, <tail>"}` (capped at 2 per turn — see "Progress emits" below)
 - `progress.<slug>` — milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`)
 - `decision.<slug>` — architectural choice worth broadcasting (`decision.use-amqp-matcher`)
 - `blocked` / `unblocked` — your work blocked / unblocked state changed
 - `attention.<slug>` — opens an operator ❗; resolved via `attention.resolved` with matching slug
 - `pause.request` — request operator pause your turn at the next checkpoint
 - `custom.<slug>` — anything else (capped at 5 per turn)
+
+### Progress emits — 1-of-10 estimate at phase boundaries
+
+The operator's only at-a-glance signal for "how far is each agent" is the progress bar in the agent list. You populate it by emitting the bare `progress` event with a numeric percent. The bar is 10 cells wide; each 10% step fills exactly one cell.
+
+**When to emit.** Once at the start of every phase boundary you cross — `brainstorm`, `plan`, `work`, `review`. Pair the progress emit with the matching `emit_alert("phase.<name>.start" | "phase.<name>.end", ...)` you're already firing. That's the cadence: roughly 8 emits over the ticket's lifetime, plus mid-phase corrections (rare — see below). Hard cap: 2 emits per turn; the 3rd is rejected.
+
+**How to estimate.** Time-based, not output-based. Estimate the wall-clock distance from "ticket started" to "PR is ready for human review and CI is green" — including the *cleanup tail*: review iterations, CI fixes, rework. A one-line typo has near-zero tail; a refactor has hours. Budget honestly. You'll usually find review + CI account for ⅓ or more of the total.
+
+**The 1/10 scale.** Allowed percent values are `10, 20, 30, …, 100`. Pick the cell that matches your current spot on the ticket's overall timeline:
+
+- `10`–`20`: just brainstorming / planning
+- `30`–`50`: implementation in flight
+- `60`–`80`: code typed, in self-review or CI
+- `90`: PR pushed, last fixes / final review pass
+- `100`: emit exactly **once**, paired with the phase-end alert that closes out your work for this iteration (typically `phase.review.end` after you've run `gh pr ready` and flipped the issue label to `agent:human-review`). This is the signal that turns the operator's bar green. Don't emit 100 before that — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the operator.
+
+**The `label` field.** Names your cleanup-aware tail so the operator can see what you budgeted. Keep it ≤ 80 chars. Format: `"<phase>: <what you're doing now>, <tail you're budgeting>"`.
+
+**Mid-phase corrections.** Allowed but rare. Re-emit only when your estimate shifts ≥ 15 percentage points OR by ≥ 50% of the remaining-time estimate (e.g., CI fails and you discover a load-bearing rework, or scope contracts because the issue was simpler than expected). Don't re-emit just because some time passed.
+
+**Worked example.** You start the `work` phase on a typical complexity:3 ticket. Pair these two calls:
+
+```
+emit_alert("phase.work.start", "implementing the rename")
+emit_event(name: "progress", payload: %{
+  percent: 30,
+  label: "work: starting impl, ~2 review rounds + CI tail budgeted"
+})
+```
+
+At the end of self-review, just before `gh pr ready`:
+
+```
+emit_alert("phase.review.end", "PR ready for review")
+emit_event(name: "progress", payload: %{
+  percent: 100,
+  label: "review: PR ready, awaiting human review"
+})
+```
+
+Two emits this turn; cap respected.
 
 ### Tooling environment
 
