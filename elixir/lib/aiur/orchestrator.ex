@@ -115,20 +115,32 @@ defmodule Aiur.Orchestrator do
     run_terminal_workspace_cleanup()
     init_tracked_set_table()
     install_event_tracked_fn()
-    subscribe_to_pr_review_comments()
+    subscribe_to_orchestrator_topics()
     state = schedule_tick(state, 0)
 
     {:ok, state}
   end
 
-  # Subscribe to PR review-comment events for every ticket. On match,
-  # `handle_info({:event, %{topic: …}}, state)` looks up the running
-  # entry and routes to `reactivate_issue/2` if the entry is
-  # `:deactivated`. `Aiur.Events.Publisher.bot_self_loop?/1` already
-  # drops self-comments upstream, so no actor filter needed here.
-  defp subscribe_to_pr_review_comments do
+  # Subscribe to the topics the orchestrator routes itself:
+  #
+  #   * `ticket.*.pr.review_comment` — reactivate a `:deactivated`
+  #     entry when a PR review comment lands.
+  #   * `ticket.*.agent.pause.request` — when an agent emits
+  #     pause.request it has decided to stop working. Flip its
+  #     control status to `:paused` so `list_running_active_identifiers/0`
+  #     stops counting it as active and the 5-min check-in worker
+  #     stops spamming it.
+  #   * `ticket.*.branch.push` — when a blocker pushes its branch,
+  #     auto-resume any paused blockee that subscribed to that topic
+  #     via `aiur_declare_blocker`. Without this hook the blockee's
+  #     SubscriptionStore inbox accumulates the push event but the
+  #     blockee process is idle until the next manual chat or label
+  #     change.
+  defp subscribe_to_orchestrator_topics do
     if Process.whereis(Exchange) do
       Exchange.subscribe("ticket.*.pr.review_comment")
+      Exchange.subscribe("ticket.*.agent.pause.request")
+      Exchange.subscribe("ticket.*.branch.push")
     end
 
     :ok
@@ -395,11 +407,20 @@ defmodule Aiur.Orchestrator do
   # already in the loop and will see the comment via its own per-ticket
   # subscription).
   def handle_info({:event, %{topic: topic} = _event}, state) when is_binary(topic) do
-    case parse_pr_review_comment_topic(topic) do
-      {:ok, issue_number} ->
-        {:noreply, maybe_reactivate_on_pr_comment(state, issue_number)}
+    cond do
+      match?({:ok, _}, parse_pr_review_comment_topic(topic)) ->
+        {:ok, identifier} = parse_pr_review_comment_topic(topic)
+        {:noreply, maybe_reactivate_on_pr_comment(state, identifier)}
 
-      :nomatch ->
+      match?({:ok, _}, parse_pause_request_topic(topic)) ->
+        {:ok, identifier} = parse_pause_request_topic(topic)
+        {:noreply, maybe_pause_on_request(state, identifier)}
+
+      match?({:ok, _}, parse_branch_push_topic(topic)) ->
+        {:ok, blocker_identifier} = parse_branch_push_topic(topic)
+        {:noreply, maybe_resume_blockees_on_push(state, blocker_identifier, topic)}
+
+      true ->
         {:noreply, state}
     end
   end
@@ -416,6 +437,20 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  defp parse_pause_request_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.pause\.request\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
+  defp parse_branch_push_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.branch\.push\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
   defp maybe_reactivate_on_pr_comment(%State{} = state, issue_number) do
     case find_running_by_identifier(state.running, issue_number) do
       running_entry when is_map(running_entry) ->
@@ -423,6 +458,113 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         state
+    end
+  end
+
+  # When an agent emits `agent.pause.request` it has decided to stop
+  # working — usually because it declared a blocker and has nothing
+  # left to do until the blocker emits. Flip the control status to
+  # `:paused` so the rest of the orchestrator (slot accounting,
+  # check-in worker fan-out) treats the entry as not actively
+  # working. The agent's own task loop is already idle by the time
+  # this event lands; we don't send an interrupt.
+  defp maybe_pause_on_request(%State{} = state, identifier) do
+    case find_running_by_identifier(state.running, identifier) do
+      running_entry when is_map(running_entry) ->
+        existing_status = (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
+
+        cond do
+          existing_status == :paused ->
+            state
+
+          deactivated_running_entry?(running_entry) ->
+            state
+
+          true ->
+            transition_control_status(state, running_entry, :paused, "agent.pause.request")
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  # `ticket.<blocker>.branch.push` arrived. For every paused running
+  # entry that has this exact topic in its SubscriptionStore.snapshot
+  # (i.e. it declared this ticket as a blocker via
+  # `aiur_declare_blocker`), flip control back to `:working` and
+  # re-dispatch so the bootstrap digest delivers the push and the
+  # agent picks up the unblock signal on its next turn.
+  defp maybe_resume_blockees_on_push(%State{} = state, blocker_identifier, topic) do
+    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
+      cond do
+        not is_map(entry) -> acc
+        not paused_running_entry?(entry) -> acc
+        deactivated_running_entry?(entry) -> acc
+        true -> maybe_resume_for_topic(acc, entry, blocker_identifier, topic)
+      end
+    end)
+  end
+
+  defp maybe_resume_for_topic(state, entry, blocker_identifier, topic) do
+    identifier = Map.get(entry, :identifier)
+
+    cond do
+      not is_binary(identifier) ->
+        state
+
+      identifier == blocker_identifier ->
+        state
+
+      subscribed_to_topic?(identifier, topic) ->
+        Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+
+        {_reply, next_state} = resume_paused_issue(state, entry)
+        next_state
+
+      true ->
+        state
+    end
+  end
+
+  defp subscribed_to_topic?(identifier, topic) do
+    case SubscriptionStore.snapshot(identifier) do
+      %{subscribed_to: subs} when is_list(subs) ->
+        Enum.any?(subs, fn
+          %{"topic" => t} -> t == topic
+          %{topic: t} -> t == topic
+          _ -> false
+        end)
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
+  end
+
+  # Flip an entry's control.status. Used by `maybe_pause_on_request/2`
+  # to record the agent-initiated pause without going through the
+  # `pause_agent_reply -> send_running_control_message` path, which is
+  # for operator-initiated pauses against a running agent loop. The
+  # agent is already idle when we get here.
+  defp transition_control_status(state, running_entry, new_status, reason) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    identifier = Map.get(running_entry, :identifier)
+    existing = Map.get(running_entry, :control, %{})
+    old_status = Map.get(existing, :status, :working)
+
+    if old_status == new_status do
+      state
+    else
+      Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
+
+      next_entry =
+        Map.put(running_entry, :control, Map.put(existing, :status, new_status))
+
+      next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
+      maybe_emit_agent_control_alert(old_status, new_status, next_entry)
+      next_state
     end
   end
 
@@ -574,6 +716,32 @@ defmodule Aiur.Orchestrator do
   @spec parse_pr_review_comment_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pr_review_comment_topic_for_test(topic) when is_binary(topic) do
     parse_pr_review_comment_topic(topic)
+  end
+
+  @doc false
+  @spec parse_pause_request_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_pause_request_topic_for_test(topic) when is_binary(topic) do
+    parse_pause_request_topic(topic)
+  end
+
+  @doc false
+  @spec parse_branch_push_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_branch_push_topic_for_test(topic) when is_binary(topic) do
+    parse_branch_push_topic(topic)
+  end
+
+  @doc false
+  @spec apply_pause_request_for_test(State.t(), String.t()) :: State.t()
+  def apply_pause_request_for_test(%State{} = state, identifier) when is_binary(identifier) do
+    maybe_pause_on_request(state, identifier)
+  end
+
+  @doc false
+  @spec apply_branch_push_for_test(State.t(), String.t()) :: State.t()
+  def apply_branch_push_for_test(%State{} = state, blocker_identifier)
+      when is_binary(blocker_identifier) do
+    topic = "ticket." <> blocker_identifier <> ".branch.push"
+    maybe_resume_blockees_on_push(state, blocker_identifier, topic)
   end
 
   @doc false

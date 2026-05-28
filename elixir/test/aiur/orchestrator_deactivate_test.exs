@@ -643,4 +643,297 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
   end
+
+  describe "pause-request topic parser (subscriber wiring)" do
+    test "extracts the identifier from a valid agent.pause.request topic" do
+      assert {:ok, "100"} =
+               Orchestrator.parse_pause_request_topic_for_test("ticket.100.agent.pause.request")
+
+      assert {:ok, "ABC-42"} =
+               Orchestrator.parse_pause_request_topic_for_test("ticket.ABC-42.agent.pause.request")
+    end
+
+    test "rejects unrelated topics" do
+      for unrelated <- [
+            "ticket.100.agent.pause",
+            "ticket.100.agent.pause.requested",
+            "ticket.100.pr.review_comment",
+            "system.main.branch.push"
+          ] do
+        assert :nomatch = Orchestrator.parse_pause_request_topic_for_test(unrelated)
+      end
+    end
+  end
+
+  describe "agent.pause.request flips control.status to :paused" do
+    test "running entry transitions from :working → :paused" do
+      issue_id = "issue-pause-1"
+      identifier = "PAUSE-1"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_pause_request_for_test(state, identifier)
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+    end
+
+    test "no-op when entry is already paused" do
+      issue_id = "issue-pause-2"
+      identifier = "PAUSE-2"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      assert ^state = Orchestrator.apply_pause_request_for_test(state, identifier)
+    end
+
+    test "no-op when entry is :deactivated (don't bring back from the dead)" do
+      issue_id = "issue-pause-3"
+      identifier = "PAUSE-3"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "human-review", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :deactivated}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_pause_request_for_test(state, identifier)
+      assert get_in(next.running, [issue_id, :control, :status]) == :deactivated
+    end
+
+    test "no-op when identifier isn't running" do
+      state = %Orchestrator.State{
+        running: %{},
+        claimed: MapSet.new(),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      assert ^state = Orchestrator.apply_pause_request_for_test(state, "UNKNOWN")
+    end
+  end
+
+  describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
+    setup do
+      identifier = "BLOCKEE-#{System.unique_integer([:positive])}"
+      :ok = Aiur.Events.SubscriptionStore.attach(identifier)
+      on_exit(fn -> :ok = Aiur.Events.SubscriptionStore.stop(identifier) end)
+
+      fake_pid = spawn_link(fn -> fake_agent_loop() end)
+
+      %{identifier: identifier, fake_pid: fake_pid}
+    end
+
+    defp fake_agent_loop do
+      receive do
+        _ -> fake_agent_loop()
+      end
+    end
+
+    test "paused blockee subscribed to ticket.99.branch.push flips to :working", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      :ok =
+        Aiur.Events.SubscriptionStore.add_subscription(
+          identifier,
+          "ticket.99.branch.push",
+          "blocker:auto"
+        )
+
+      issue_id = "issue-blockee-1"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: fake_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      assert get_in(next.running, [issue_id, :control, :status]) == :working
+    end
+
+    test "running blockee (not paused) is unchanged", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      :ok =
+        Aiur.Events.SubscriptionStore.add_subscription(
+          identifier,
+          "ticket.99.branch.push",
+          "blocker:auto"
+        )
+
+      issue_id = "issue-blockee-2"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: fake_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      assert get_in(next.running, [issue_id, :control, :status]) == :working
+    end
+
+    test "paused blockee NOT subscribed to this blocker stays paused", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      # Subscribe to a DIFFERENT blocker's push; the 99 push should be
+      # treated as not relevant to this entry.
+      :ok =
+        Aiur.Events.SubscriptionStore.add_subscription(
+          identifier,
+          "ticket.42.branch.push",
+          "blocker:auto"
+        )
+
+      issue_id = "issue-blockee-3"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: fake_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+    end
+
+    test "blocker's own entry is never resumed against its own push", %{
+      identifier: blocker_identifier,
+      fake_pid: fake_pid
+    } do
+      # An agent could theoretically be subscribed to its own push topic
+      # (via aiur_subscribe). Defensive: don't resume the publisher itself.
+      :ok =
+        Aiur.Events.SubscriptionStore.add_subscription(
+          blocker_identifier,
+          "ticket.#{blocker_identifier}.branch.push",
+          "manual:agent"
+        )
+
+      issue_id = "issue-blocker-self"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: fake_pid,
+            ref: nil,
+            identifier: blocker_identifier,
+            issue: %Issue{
+              id: issue_id,
+              state: "in-progress",
+              identifier: blocker_identifier
+            },
+            started_at: DateTime.utc_now(),
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_branch_push_for_test(state, blocker_identifier)
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+    end
+  end
+
+  describe "branch-push topic parser (subscriber wiring)" do
+    test "extracts the identifier from a valid ticket.<id>.branch.push topic" do
+      assert {:ok, "99"} =
+               Orchestrator.parse_branch_push_topic_for_test("ticket.99.branch.push")
+    end
+
+    test "rejects system-branch pushes (not ticket-scoped)" do
+      assert :nomatch =
+               Orchestrator.parse_branch_push_topic_for_test("system.main.branch.push")
+    end
+
+    test "rejects nearby topics" do
+      for unrelated <- [
+            "ticket.99.branch.force-push",
+            "ticket.99.pr.opened",
+            "ticket.99.agent.pause.request"
+          ] do
+        assert :nomatch = Orchestrator.parse_branch_push_topic_for_test(unrelated)
+      end
+    end
+  end
 end

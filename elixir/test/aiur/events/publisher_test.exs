@@ -32,8 +32,12 @@ defmodule Aiur.Events.PublisherTest do
   describe "publish/3" do
     test "publishes a happy-path event for a tracked issue" do
       :ok = Exchange.subscribe("ticket.42.branch.push")
-      assert {:ok, id, 1} = Publisher.publish("ticket.42.branch.push", %{sha: "abc"})
+      # The orchestrator subscribes to `ticket.*.branch.push` at boot
+      # for blockee auto-resume, so the subscriber count includes it
+      # alongside the per-test subscriber.
+      assert {:ok, id, count} = Publisher.publish("ticket.42.branch.push", %{sha: "abc"})
       assert is_integer(id)
+      assert count >= 1
       assert_receive {:event, %{id: ^id, sha: "abc", topic: "ticket.42.branch.push"}}, 500
     end
 

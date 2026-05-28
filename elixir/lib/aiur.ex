@@ -62,6 +62,7 @@ defmodule Aiur.Application do
         Aiur.Events.SubscriptionStoreSupervisor,
         Aiur.OperatorWaitLog,
         Aiur.Orchestrator,
+        Aiur.Events.LsRemoteTicker,
         Aiur.ProgressCheckin.Worker,
         Aiur.HttpServer,
         Aiur.Opencode.TokenRegistry,
