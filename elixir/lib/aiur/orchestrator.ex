@@ -687,6 +687,9 @@ defmodule Aiur.Orchestrator do
 
   defp close_active_chat_streams(_identifier, _reason), do: :ok
 
+  defp terminate_reason(true), do: :terminal
+  defp terminate_reason(false), do: :replaced
+
   # Label flipped back to an active state. If the running entry is
   # currently `:deactivated`, route through `reactivate_issue/2` so a
   # fresh agent task is spawned. Otherwise just refresh the stored
@@ -765,6 +768,15 @@ defmodule Aiur.Orchestrator do
         if cleanup_workspace do
           cleanup_issue_workspace(identifier, worker_host)
         end
+
+        # Close any open chat-completion SSE streams BEFORE killing the
+        # task. `terminate_task/1` brutally kills the AgentRunner,
+        # bypassing the normal `close_aiur_turn_streams` path; without
+        # the explicit close the bridge streams stay subscribed at the
+        # old `aiur_turn_id` and miss every event the next-dispatched
+        # agent emits. The operator sees an empty chat pane until the
+        # 10-minute watchdog fires.
+        close_active_chat_streams(identifier, terminate_reason(cleanup_workspace))
 
         if is_pid(pid) do
           terminate_task(pid)
@@ -1277,9 +1289,22 @@ defmodule Aiur.Orchestrator do
     MapSet.member?(active_states, normalize_issue_state(state_name))
   end
 
+  # Nil / non-binary state happens when the GitHub poll returns an
+  # issue with no `agent:*` label — extract_state returns nil. Treat
+  # as 'not active' so the reconcile cond falls through to the
+  # catch-all instead of crashing the orchestrator GenServer.
+  defp active_issue_state?(_state_name, _active_states), do: false
+
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     String.downcase(String.trim(state_name))
   end
+
+  # Same nil-safety reasoning as `active_issue_state?/2` above.
+  # Direct callers (routable_todo_issues, state_slots_available?,
+  # effective_state_limit, running_issue_count_for_state) all feed
+  # `issue.state` here without a binary guard; without this clause
+  # any unlabeled issue crashes the orchestrator.
+  defp normalize_issue_state(_state_name), do: ""
 
   defp state_slug(state_name) when is_binary(state_name) do
     state_name

@@ -6,6 +6,83 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
 
+  describe "reconcile with nil / non-binary issue state (crash regression)" do
+    # Live crash signature (from production logs):
+    #   ** (FunctionClauseError) no function clause matching in
+    #      Aiur.Orchestrator.active_issue_state?(nil, MapSet.new(...))
+    #   ** (FunctionClauseError) no function clause matching in
+    #      Aiur.Orchestrator.normalize_issue_state(nil)
+    #
+    # GitHub poll can return an Issue with state=nil whenever no
+    # `agent:*` label is set. Each predicate guarded by
+    # `when is_binary(state_name)` MUST also accept the non-binary
+    # case or the entire orchestrator GenServer crashes on the next
+    # reconcile/poll cycle.
+
+    test "nil issue.state does not crash reconcile_issue_state cond" do
+      issue_id = "issue-nil-state"
+      issue_identifier = "NS-1"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      state = %Orchestrator.State{
+        running: %{},
+        claimed: MapSet.new(),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{}
+      }
+
+      # State derives nil whenever no agent:* label is present on
+      # the polled issue.
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        state: nil,
+        title: "label-less issue",
+        description: "",
+        labels: []
+      }
+
+      # Must NOT raise FunctionClauseError. State unchanged is fine —
+      # the orchestrator just leaves the issue alone until a recognized
+      # label appears.
+      result = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+      assert result == state
+    end
+
+    test "empty string issue.state also survives" do
+      issue_id = "issue-empty-state"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      state = %Orchestrator.State{
+        running: %{},
+        claimed: MapSet.new(),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{}
+      }
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "ES-1",
+        state: "",
+        title: "blank state",
+        description: "",
+        labels: []
+      }
+
+      result = Orchestrator.reconcile_issue_states_for_test([issue], state)
+      assert result == state
+    end
+  end
+
   describe "reconcile on agent:human-review label" do
     test "human-review state keeps the running entry, kills the task, marks :deactivated" do
       test_root =
@@ -132,6 +209,78 @@ defmodule Aiur.OrchestratorDeactivateTest do
         entry = Map.fetch!(updated_state.running, issue_id)
         assert is_nil(entry.pid)
         assert get_in(entry, [:control, :status]) == :deactivated
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "terminate (terminal label) also broadcasts aiur_turn_done for every active chat stream" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-terminate-stream-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-terminate-stream"
+      issue_identifier = "TS-1"
+      turn_a = "t-term-a"
+      turn_b = "t-term-b"
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        # Same two-stream prewarm-race shape as the deactivate test.
+        ActiveTurns.put(issue_identifier, turn_a)
+        ActiveTurns.put(issue_identifier, turn_b)
+
+        :ok = AgentPubSub.subscribe_agent(issue_identifier)
+
+        agent_pid =
+          spawn(fn ->
+            receive do
+              :stop -> :ok
+            end
+          end)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        # Terminal label → terminate_running_issue with cleanup_workspace=true
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "done",
+          title: "merged",
+          description: "",
+          labels: []
+        }
+
+        _ = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_a, :terminal}, 500
+        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_b, :terminal}, 500
+
+        assert {:closed, :terminal} = ActiveTurns.lookup(issue_identifier, turn_a)
+        assert {:closed, :terminal} = ActiveTurns.lookup(issue_identifier, turn_b)
       after
         File.rm_rf(test_root)
       end
