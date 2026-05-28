@@ -15,6 +15,34 @@ defmodule Aiur.OrchestratorAutoSubscribeTest do
 
   alias Aiur.Events.SubscriptionStore
 
+  describe "SubscriptionStore.add_subscription/3 (first-write-wins reason)" do
+    setup do
+      identifier = "test-fww-#{System.unique_integer([:positive])}"
+      :ok = SubscriptionStore.attach(identifier)
+      on_exit(fn -> :ok = SubscriptionStore.stop(identifier) end)
+      %{identifier: identifier}
+    end
+
+    test "second add for same topic does NOT overwrite reason", %{identifier: id} do
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.branch.push", "manual:agent")
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.branch.push", "blocker:auto")
+
+      [entry] = SubscriptionStore.snapshot(id).subscribed_to
+      assert entry["reason"] == "manual:agent"
+    end
+
+    test "auto-sub-then-manual leaves reason as auto so reason-filtered remove drops it", %{identifier: id} do
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.branch.push", "blocker:auto")
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.branch.push", "manual:agent")
+
+      [entry] = SubscriptionStore.snapshot(id).subscribed_to
+      assert entry["reason"] == "blocker:auto"
+
+      :ok = SubscriptionStore.remove_subscription(id, "ticket.42.branch.push", "blocker:auto")
+      assert SubscriptionStore.snapshot(id).subscribed_to == []
+    end
+  end
+
   describe "SubscriptionStore.remove_subscription/3 (reason filter)" do
     setup do
       identifier = "test-rsa-#{System.unique_integer([:positive])}"

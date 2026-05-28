@@ -228,10 +228,13 @@ defmodule Aiur.Events.SubscriptionStore do
         {:reply, :ok, new_state}
 
       _existing ->
-        updated = Enum.map(state.subscribed_to, &update_reason(&1, topic, reason))
-        new_state = %{state | subscribed_to: updated}
-        :ok = persist(new_state)
-        {:reply, :ok, new_state}
+        # First-write-wins on `reason`. Overwriting the reason would let
+        # an auto-sub pass (e.g., `blocker:auto`) clobber a prior manual
+        # `manual:agent` claim — then `remove_subscription/3` scoped by
+        # reason on the next dependency change would drop the manual
+        # subscription as collateral. The original write wins; later
+        # adds are no-ops at the persistence layer.
+        {:reply, :ok, state}
     end
   end
 
