@@ -2,7 +2,7 @@ defmodule Aiur.Opencode.EventRow do
   @moduledoc """
   Formats `Aiur.Events.DebugLog` entries as one-line chat-pane ticker
   rows. Each row is a natural-language sentence (`📤 opened a PR:
-  "…"` / `📥 Ticket 100 pushed to its branch: "…"` / `📄 Ingested
+  "…"` / `📬 Ticket 100 pushed to its branch: "…"` / `📄 Ingested
   event from Ticket 100`) wrapped in `Aiur.Opencode.Style.dim/1`.
 
   Used by both `Aiur.Opencode.SessionWriter` (SQL writes for
@@ -88,7 +88,7 @@ defmodule Aiur.Opencode.EventRow do
   end
 
   defp receive_sentence(topic, source_id, body) do
-    "📥 " <> subject(source_id, nil) <> verb_phrase(topic, body) <> summary_suffix(body)
+    "📬 " <> subject(source_id, nil) <> verb_phrase(topic, body) <> summary_suffix(body)
   end
 
   defp read_sentence(topic, source_id) do

@@ -32,7 +32,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       state = build_state(debug_mode?: false, debug_events: [debug_entry(:publish)])
       output = state |> Renderer.render() |> IO.iodata_to_binary()
       refute output =~ "events ("
-      refute output =~ "✉️"
+      refute output =~ "💬"
     end
 
     test "renders header + recent events when debug_mode? is true" do
@@ -46,8 +46,8 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
       assert output =~ "events ("
-      assert output =~ "✉️ ticket.42.branch.push id=4287"
-      assert output =~ "📥 ticket.42.branch.push id=4287 (#42)"
+      assert output =~ "💬 ticket.42.branch.push id=4287"
+      assert output =~ "📬 ticket.42.branch.push id=4287 (#42)"
       assert output =~ "📄 ticket.42.branch.push id=4290 (#42)"
     end
 
@@ -101,17 +101,17 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
 
       # Render once — event appears.
       first = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert first =~ "✉️ ticket.42.branch.push id=42"
+      assert first =~ "💬 ticket.42.branch.push id=42"
 
       # Render again with identical state — event MUST still appear.
       second = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert second =~ "✉️ ticket.42.branch.push id=42"
+      assert second =~ "💬 ticket.42.branch.push id=42"
 
       # Render a third time after simulating something that updates other
       # state but preserves debug_events (e.g., perf summary update).
       bumped = %{state | perf_summary: Map.put(state.perf_summary, :opencode_render_ms, 500)}
       third = bumped |> Renderer.render() |> IO.iodata_to_binary()
-      assert third =~ "✉️ ticket.42.branch.push id=42"
+      assert third =~ "💬 ticket.42.branch.push id=42"
     end
   end
 

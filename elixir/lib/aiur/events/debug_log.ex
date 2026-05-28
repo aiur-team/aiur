@@ -17,7 +17,7 @@ defmodule Aiur.Events.DebugLog do
     * `:read`    — the agent's queue consumed an `events_digest` item
       (the digest reached the agent's prompt)
 
-  The renderer maps these to ✉️ / 📥 / 📄 respectively.
+  The renderer maps these to 💬 / 📬 / 📄 respectively.
   """
 
   @topic "aiur:events:debug"

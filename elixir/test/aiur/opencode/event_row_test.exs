@@ -67,7 +67,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📥 Ticket 100 opened a PR: \"Add function_b\""
+      assert out == "> 📬 Ticket 100 opened a PR: \"Add function_b\""
     end
 
     test "incoming push event includes commit summary from body 'message'" do
@@ -83,7 +83,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📥 Ticket 100 pushed to its branch: \"Add abc function\""
+      assert out == "> 📬 Ticket 100 pushed to its branch: \"Add abc function\""
     end
 
     test "no body means no summary suffix" do
@@ -93,7 +93,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📥 Ticket 100 declared itself blocked"
+      assert out == "> 📬 Ticket 100 declared itself blocked"
     end
 
     test "long body summary is truncated with an ellipsis" do
@@ -106,7 +106,7 @@ defmodule Aiur.Opencode.EventRowTest do
         )
 
       assert String.contains?(out, "…\"")
-      assert byte_size(out) < byte_size("> 📥 Ticket 100 opened a PR: \"") + 200
+      assert byte_size(out) < byte_size("> 📬 Ticket 100 opened a PR: \"") + 200
     end
   end
 

@@ -111,7 +111,7 @@ defmodule Aiur.Opencode.ChatCompletions do
     # lookup still lands in the mailbox; we drain it inside the loop.
     :ok = AgentPubSub.subscribe_agent(identifier)
     # Subscribe to the cross-ticket event debug stream for the duration
-    # of this codex turn so 📥/📤/📄 ticker rows for THIS agent get
+    # of this codex turn so 📬/📤/📄 ticker rows for THIS agent get
     # chunked inline in the active assistant message (R2 live render).
     # Filtering by identifier happens in the receive clause.
     :ok = DebugLog.subscribe()

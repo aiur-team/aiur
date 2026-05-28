@@ -1196,8 +1196,8 @@ defmodule Aiur.AgentList.Renderer do
   # most recent event lifecycle marks. Three kinds, in three columns of
   # visual weight:
   #
-  #   ✉️  publish — Aiur.Events.Publisher.publish/3 accepted the event
-  #   📥  receive — Aiur.Events.SubscriptionStore enqueued the event
+  #   💬  publish — Aiur.Events.Publisher.publish/3 accepted the event
+  #   📬  receive — Aiur.Events.SubscriptionStore enqueued the event
   #                  for a specific subscribing identifier
   #   📄  read    — the agent's queue consumed an `events_digest` item
   #                  (the digest reached the agent's prompt)
@@ -1242,8 +1242,8 @@ defmodule Aiur.AgentList.Renderer do
   defp ticker_header_row(inner_width) do
     # Two label variants: full and compact. Pick the widest that fits
     # so a narrow tmux split doesn't wrap the header.
-    full = "  events (✉️ publish · 📥 receive · 📄 read)"
-    compact = "  events  ✉️ 📥 📄"
+    full = "  events (💬 publish · 📬 receive · 📄 read)"
+    compact = "  events  💬 📬 📄"
 
     label =
       cond do
@@ -1258,8 +1258,8 @@ defmodule Aiur.AgentList.Renderer do
   defp ticker_event_row(%{kind: kind, topic: topic} = entry, inner_width) do
     glyph =
       case kind do
-        :publish -> "✉️"
-        :receive -> "📥"
+        :publish -> "💬"
+        :receive -> "📬"
         :read -> "📄"
       end
 
