@@ -222,6 +222,14 @@ defmodule Aiur.Events.Publisher do
     end
   end
 
+  # Catch-all: a partially-populated dedup_key (e.g. `{nil, ref, sha}`
+  # from a caller that couldn't resolve the repo) MUST NOT crash the
+  # publish path. Drop the dedup signal and let the event through —
+  # losing cross-source dedup in that rare window is strictly better
+  # than crashing the caller (e.g. Aiur.Events.LsRemoteTicker) and
+  # rolling its bootstrap cache.
+  defp deduped?(_other), do: false
+
   defp ttl_ms do
     :persistent_term.get({__MODULE__, :ttl_ms}, @default_ttl_ms)
   end

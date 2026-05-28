@@ -101,7 +101,13 @@ defmodule Aiur.Events.LsRemoteTicker do
 
       {:error, reason} ->
         Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
-        state
+        # Mark `bootstrapped?: true` even on a failed first tick so the
+        # next *successful* poll publishes for any ref it sees as new.
+        # Otherwise tick 1 (error) + tick 2 (success) would silently
+        # absorb every aiur/<id> push that happened during that window
+        # — the agent we most want to wake up is exactly the one that
+        # pushed right after a transient ls-remote failure.
+        %{state | bootstrapped?: true}
     end
   end
 
@@ -131,22 +137,32 @@ defmodule Aiur.Events.LsRemoteTicker do
     case ref_to_topic(ref) do
       {:ticket, id, topic} ->
         payload = %{ref: ref, sha: sha, actor: nil, commits: [], repo: repo}
-
-        publish_opts = [
-          issue_number: id,
-          dedup_key: {repo, ref, sha}
-        ]
-
+        publish_opts = build_publish_opts(repo, ref, sha, issue_number: id)
         do_publish(state, topic, payload, publish_opts)
 
       {:system, topic} ->
         payload = %{ref: ref, sha: sha, actor: nil, commits: [], repo: repo}
-        do_publish(state, topic, payload, dedup_key: {repo, ref, sha})
+        do_publish(state, topic, payload, build_publish_opts(repo, ref, sha))
 
       nil ->
         :ignore
     end
   end
+
+  # Only attach the `(repo, ref, sha)` dedup_key when the repo is a
+  # non-empty string. `Aiur.Events.Publisher.deduped?/1` matches on
+  # `{repo, ref, sha}` with three binaries; a `nil` repo (e.g.
+  # `Aiur.Tracker.project_identity/0` returning nil during a config
+  # gap) would have raised FunctionClauseError before the catch-all
+  # was added to Publisher. Suppressing the key here keeps the
+  # contract clean.
+  defp build_publish_opts(repo, ref, sha, extra \\ [])
+
+  defp build_publish_opts(repo, ref, sha, extra) when is_binary(repo) and repo != "" do
+    Keyword.put(extra, :dedup_key, {repo, ref, sha})
+  end
+
+  defp build_publish_opts(_repo, _ref, _sha, extra), do: extra
 
   defp do_publish(%{publisher: nil}, topic, payload, opts) do
     Publisher.publish(topic, payload, opts)

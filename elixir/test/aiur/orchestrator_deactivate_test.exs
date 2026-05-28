@@ -751,6 +751,36 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert ^state = Orchestrator.apply_pause_request_for_test(state, "UNKNOWN")
     end
+
+    test "stamps paused_at on the entry so the runtime clock freezes" do
+      issue_id = "issue-pause-clock"
+      identifier = "PAUSE-CLOCK"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.add(DateTime.utc_now(), -120, :second),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      next = Orchestrator.apply_pause_request_for_test(state, identifier)
+      entry = next.running[issue_id]
+
+      assert entry.control.status == :paused
+
+      assert %DateTime{} = entry.paused_at,
+             "paused_at must be stamped so resume can thaw the clock and exclude the paused interval from running_seconds"
+    end
   end
 
   describe "stall watchdog skips paused / deactivated entries" do

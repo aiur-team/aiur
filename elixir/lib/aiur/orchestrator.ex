@@ -545,9 +545,17 @@ defmodule Aiur.Orchestrator do
 
   # Flip an entry's control.status. Used by `maybe_pause_on_request/2`
   # to record the agent-initiated pause without going through the
-  # `pause_agent_reply -> send_running_control_message` path, which is
-  # for operator-initiated pauses against a running agent loop. The
-  # agent is already idle when we get here.
+  # `pause_agent_reply -> send_running_control_message` path, which
+  # is for operator-initiated pauses against a running agent loop.
+  # The agent is already idle when we get here.
+  #
+  # Also stamps the pause-clock side-effect (`apply_pause_runtime_clock`)
+  # so the runtime ticker freezes while paused — without it the
+  # subsequent auto-resume in `maybe_resume_blockees_on_push` would
+  # find no `paused_at` to thaw against, and the agent's running
+  # clock would include the paused interval. Then notifies the
+  # dashboard so the agent list reflects the new state without
+  # waiting for the next poll tick.
   defp transition_control_status(state, running_entry, new_status, reason) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
@@ -559,11 +567,16 @@ defmodule Aiur.Orchestrator do
     else
       Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
 
+      now = DateTime.utc_now()
+
       next_entry =
-        Map.put(running_entry, :control, Map.put(existing, :status, new_status))
+        running_entry
+        |> Map.put(:control, Map.put(existing, :status, new_status))
+        |> apply_pause_runtime_clock(old_status, new_status, now)
 
       next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
       maybe_emit_agent_control_alert(old_status, new_status, next_entry)
+      notify_dashboard(next_state)
       next_state
     end
   end

@@ -178,4 +178,73 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert_receive :polled, 500
     assert_receive {:published, "ticket.99.branch.push", _, _}, 500
   end
+
+  test "first tick errors, then second tick succeeds → push is detected (not re-bootstrapped)",
+       %{publisher: publisher} do
+    parent = self()
+
+    {:ok, agent} = Agent.start_link(fn -> {:error, :git_ls_remote_failed} end)
+
+    ls_remote_fun = fn _remote, _patterns ->
+      send(parent, :polled)
+      Agent.get(agent, & &1)
+    end
+
+    {:ok, pid} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: ls_remote_fun,
+        publisher: publisher,
+        repo: "owner/aiur",
+        start_paused?: true
+      )
+
+    # Tick 1 errors. The bootstrap flag must flip to true anyway so
+    # tick 2's success path treats unknown refs as "new push", not as
+    # "first observation, just record".
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/99" => "sha-new"}} end)
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    assert_receive {:published, "ticket.99.branch.push", _, _}, 500
+  end
+
+  test "empty-string repo → dedup_key is omitted from publish opts (no Publisher crash)",
+       %{publisher: publisher} do
+    parent = self()
+
+    {:ok, agent} = Agent.start_link(fn -> {:ok, %{}} end)
+
+    ls_remote_fun = fn _remote, _patterns ->
+      send(parent, :polled)
+      Agent.get(agent, & &1)
+    end
+
+    # `repo: ""` exercises the same `not is_binary or empty` branch as
+    # `repo: nil` would, without relying on `Aiur.Tracker.project_identity/0`
+    # returning nil in the test environment.
+    {:ok, pid} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: ls_remote_fun,
+        publisher: publisher,
+        repo: "",
+        start_paused?: true
+      )
+
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/99" => "sha1"}} end)
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    assert_receive {:published, "ticket.99.branch.push", _, opts}, 500
+
+    refute Keyword.has_key?(opts, :dedup_key),
+           "dedup_key must be omitted when repo is empty/nil so Publisher.deduped? does not see a malformed key"
+  end
 end
