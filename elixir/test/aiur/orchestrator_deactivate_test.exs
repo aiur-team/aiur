@@ -480,4 +480,25 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert state.running == %{}
     end
   end
+
+  describe "PR review-comment firehose reactivation (subscriber wiring)" do
+    test "topic parser extracts the issue number from a valid topic" do
+      # Helper covers the regex shape used by the orchestrator's
+      # handle_info({:event, ...}) clause. Anchors guard against
+      # accidental match drift if other ticket subtopics are added.
+      assert {:ok, "140"} =
+               Orchestrator.parse_pr_review_comment_topic_for_test("ticket.140.pr.review_comment")
+    end
+
+    test "topic parser rejects unrelated topics" do
+      for unrelated <- [
+            "ticket.140.issue.commented",
+            "ticket.140.pr.opened",
+            "ticket.140.agent.progress",
+            "system.repo.branch.push"
+          ] do
+        assert :nomatch = Orchestrator.parse_pr_review_comment_topic_for_test(unrelated)
+      end
+    end
+  end
 end

@@ -21,7 +21,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
-  alias Aiur.Events.{GithubFirehose, Publisher, SubscriptionStore}
+  alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -114,9 +114,23 @@ defmodule Aiur.Orchestrator do
     run_terminal_workspace_cleanup()
     init_tracked_set_table()
     install_event_tracked_fn()
+    subscribe_to_pr_review_comments()
     state = schedule_tick(state, 0)
 
     {:ok, state}
+  end
+
+  # Subscribe to PR review-comment events for every ticket. On match,
+  # `handle_info({:event, %{topic: …}}, state)` looks up the running
+  # entry and routes to `reactivate_issue/2` if the entry is
+  # `:deactivated`. `Aiur.Events.Publisher.bot_self_loop?/1` already
+  # drops self-comments upstream, so no actor filter needed here.
+  defp subscribe_to_pr_review_comments do
+    if Process.whereis(Exchange) do
+      Exchange.subscribe("ticket.*.pr.review_comment")
+    end
+
+    :ok
   end
 
   # Publisher reads this on every publish to decide whether an event
@@ -372,9 +386,54 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_issue, _issue_id}, state), do: {:noreply, state}
 
+  # PR review-comment fan-out from `Aiur.Events.Exchange`. The publisher's
+  # `bot_self_loop?` filter drops self-comments before they reach here,
+  # so any event arriving is from an external actor (a human reviewer,
+  # another agent, etc.). Reactivate the matching `:deactivated` row;
+  # `:working` / `:paused` entries are left alone (the live agent is
+  # already in the loop and will see the comment via its own per-ticket
+  # subscription).
+  def handle_info({:event, %{topic: topic} = _event}, state) when is_binary(topic) do
+    case parse_pr_review_comment_topic(topic) do
+      {:ok, issue_number} ->
+        {:noreply, maybe_reactivate_on_pr_comment(state, issue_number)}
+
+      :nomatch ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp parse_pr_review_comment_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.pr\.review_comment\z}, topic) do
+      [_, number] -> {:ok, number}
+      _ -> :nomatch
+    end
+  end
+
+  defp maybe_reactivate_on_pr_comment(%State{} = state, issue_number) do
+    case find_running_by_identifier(state.running, issue_number) do
+      running_entry when is_map(running_entry) ->
+        reactivate_if_deactivated(state, running_entry, issue_number)
+
+      _ ->
+        state
+    end
+  end
+
+  defp reactivate_if_deactivated(state, running_entry, issue_number) do
+    if deactivated_running_entry?(running_entry) do
+      Logger.info("PR review comment reactivating: identifier=#{issue_number}")
+
+      {_reply, next_state} = reactivate_issue(state, running_entry)
+      next_state
+    else
+      state
+    end
   end
 
   defp event_digest_summary(event) when is_map(event) do
@@ -521,6 +580,12 @@ defmodule Aiur.Orchestrator do
   @spec revive_human_review_issues_for_test(State.t(), [Issue.t()]) :: State.t()
   def revive_human_review_issues_for_test(%State{} = state, issues) when is_list(issues) do
     Enum.reduce(issues, state, &materialize_synthetic_entry/2)
+  end
+
+  @doc false
+  @spec parse_pr_review_comment_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_pr_review_comment_topic_for_test(topic) when is_binary(topic) do
+    parse_pr_review_comment_topic(topic)
   end
 
   @doc false
