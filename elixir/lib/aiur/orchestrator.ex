@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator do
     AgentEvents,
     AgentPubSub,
     AgentQueue,
+    AgentQueueItem,
     AgentQueueStore,
     AgentRunner,
     Alerts,
@@ -3266,8 +3267,8 @@ defmodule Aiur.Orchestrator do
   end
 
   defp merge_events_digest_items(first, next) do
-    first_events = (first.body || %{}) |> Map.get(:events, []) |> List.wrap()
-    next_events = (next.body || %{}) |> Map.get(:events, []) |> List.wrap()
+    first_events = first.body |> Map.get(:events, []) |> List.wrap()
+    next_events = next.body |> Map.get(:events, []) |> List.wrap()
 
     sorted = Enum.sort_by(first_events ++ next_events, &event_sort_key/1)
 
@@ -3368,7 +3369,10 @@ defmodule Aiur.Orchestrator do
   defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
   defp blocker_identifier_for(_), do: nil
 
-  # Mid-turn-drain helpers.
+  # Mid-turn-drain helpers. Returns the list of direct-blocker
+  # identifiers for the running ticket (small — typically 0-3).
+  # Kept as a list rather than a MapSet so the consumer doesn't have
+  # to navigate dialyzer's opaque-type complaints on MapSet.member?.
   defp direct_blockers_for(%State{last_polled_issues: polled}, identifier)
        when is_map(polled) do
     case Enum.find(polled, fn {_id, %Issue{identifier: i}} -> i == identifier end) do
@@ -3378,14 +3382,13 @@ defmodule Aiur.Orchestrator do
         |> Map.values()
         |> Enum.map(&blocker_identifier_for/1)
         |> Enum.reject(&is_nil/1)
-        |> MapSet.new()
 
       _ ->
-        MapSet.new()
+        []
     end
   end
 
-  defp direct_blockers_for(_state, _identifier), do: MapSet.new()
+  defp direct_blockers_for(_state, _identifier), do: []
 
   defp blocker_critical_digest?(%{category: :coordination_event, event_type: :events_digest, body: body}, direct_blockers) do
     events = Map.get(body || %{}, :events, [])
@@ -3399,7 +3402,7 @@ defmodule Aiur.Orchestrator do
 
     cond do
       not is_binary(topic) -> false
-      MapSet.size(direct_blockers) == 0 -> false
+      Enum.empty?(direct_blockers) -> false
       true -> blocker_critical_topic?(topic, direct_blockers)
     end
   end
@@ -3408,10 +3411,10 @@ defmodule Aiur.Orchestrator do
 
   defp blocker_critical_topic?(topic, direct_blockers) do
     case String.split(topic, ".") do
-      ["ticket", id, "branch", "push"] -> MapSet.member?(direct_blockers, id)
-      ["ticket", id, "branch", "force-push"] -> MapSet.member?(direct_blockers, id)
-      ["ticket", id, "agent", "unblocked"] -> MapSet.member?(direct_blockers, id)
-      ["ticket", id, "agent", "decision", _slug] -> MapSet.member?(direct_blockers, id)
+      ["ticket", id, "branch", "push"] -> id in direct_blockers
+      ["ticket", id, "branch", "force-push"] -> id in direct_blockers
+      ["ticket", id, "agent", "unblocked"] -> id in direct_blockers
+      ["ticket", id, "agent", "decision", _slug] -> id in direct_blockers
       _ -> false
     end
   end

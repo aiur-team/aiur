@@ -180,7 +180,6 @@ defmodule Aiur.Events.Sanitizer do
   defp truncate(text, :commit_subject), do: codepoint_truncate(text, @commit_subject_max)
   defp truncate(text, :comment_body), do: codepoint_truncate(text, @comment_body_max)
   defp truncate(text, :pr_review_body), do: codepoint_truncate(text, @pr_review_body_max)
-  defp truncate(text, _other), do: text
 
   defp codepoint_truncate(text, max) do
     if String.length(text) > max do

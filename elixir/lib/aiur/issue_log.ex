@@ -131,8 +131,8 @@ defmodule Aiur.IssueLog do
   defp parse_event_line(line) do
     # Matches the optional `src=…` / `trust=…` flag segments between
     # `id=…` and the topic. Flags are surfaced as fields on the parsed
-    # event so U2 bootstrap replays carry the same author_trusted? +
-    # source signal that U7's render-side filter and `<external-content>`
+    # event so bootstrap replays carry the same `author_trusted?` +
+    # `source` signal that the render-side filter and `<external-content>`
     # wrapper depend on (a missing flag is treated as untrusted /
     # non-github respectively).
     case Regex.run(
@@ -158,9 +158,9 @@ defmodule Aiur.IssueLog do
       id: String.to_integer(id_str),
       topic: topic,
       ts: ts,
-      summary: summary || "",
-      source: Map.get(flags, "src") |> maybe_atomize_source(),
-      author_trusted?: Map.get(flags, "trust") |> maybe_atomize_bool()
+      summary: summary,
+      source: flags |> Map.get("src") |> maybe_atomize_source(),
+      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool()
     }
   end
 
