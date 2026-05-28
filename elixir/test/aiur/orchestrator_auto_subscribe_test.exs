@@ -51,6 +51,6 @@ defmodule Aiur.OrchestratorAutoSubscribeTest do
 
   defp assert_subscribed?(identifier, topic, expected) do
     topics = identifier |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to) |> Enum.map(& &1["topic"])
-    assert (topic in topics) == expected
+    assert topic in topics == expected
   end
 end
