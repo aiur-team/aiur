@@ -51,15 +51,46 @@ defmodule Aiur.TestReset do
           optional(:confirm) => boolean(),
           optional(:force) => boolean(),
           optional(:allow_remote) => boolean(),
+          optional(:single) => boolean(),
           optional(:repo_root) => Path.t()
         }
+
+  # Single-ticket mode — the new `aiur --test` flag. One auto-created
+  # complexity:1 ticket asking for a one-line const in the sandbox so
+  # the operator can manually exercise the progress emits without the
+  # 3-ticket blocker chain's overhead.
+  @single_ticket_title "[sandbox] Set @hello in Aiur.Sandbox.EventFlowDemo"
+  @single_ticket_body """
+  Add a single module attribute `@hello \"world\"` inside `Aiur.Sandbox.EventFlowDemo` at `elixir/lib/aiur/sandbox/event_flow_demo.ex`. That's it — one line inside the module body.
+
+  No new behavior, no tests required (no functions are being added). Open a PR when the line is in place. The `aiur --test` reset restores the sandbox baseline between runs so this delta is always the asked change.
+
+  ### Complexity routing
+
+  - Signal: `complexity:1`
+  - Skip `ce-brainstorm`, `ce-plan`, and `ce-work`. Edit the file directly, commit, push, open the draft PR, self-read the diff, mark ready for review.
+  """
+  @single_ticket_labels ["agent:todo", "complexity:1"]
 
   @spec run(map() | keyword()) :: :ok | {:error, term()}
   def run(opts \\ %{}) do
     opts = normalize_opts(opts)
 
-    with {:ok, tickets_data} <- read_tickets_file(opts.repo_root),
-         {:ok, tickets} <- validate_pinned_tickets(tickets_data),
+    with {:ok, tickets_data} <- read_tickets_file(opts.repo_root) do
+      dispatch_reset(tickets_data, opts)
+    end
+  end
+
+  defp dispatch_reset(tickets_data, %{single: true} = opts) do
+    with :ok <- guard_clean_git(opts),
+         :ok <- guard_expected_remote(tickets_data, opts),
+         :ok <- guard_baseline_committed(opts.repo_root) do
+      execute_single(tickets_data, opts)
+    end
+  end
+
+  defp dispatch_reset(tickets_data, opts) do
+    with {:ok, tickets} <- validate_pinned_tickets(tickets_data),
          :ok <- guard_clean_git(opts),
          :ok <- guard_expected_remote(tickets_data, opts),
          :ok <- guard_baseline_committed(opts.repo_root) do
@@ -74,6 +105,7 @@ defmodule Aiur.TestReset do
       confirm: Map.get(opts, :confirm, false),
       force: Map.get(opts, :force, false),
       allow_remote: Map.get(opts, :allow_remote, false),
+      single: Map.get(opts, :single, false),
       repo_root: Map.get(opts, :repo_root, File.cwd!())
     }
   end
@@ -209,12 +241,134 @@ defmodule Aiur.TestReset do
   end
 
   defp maybe_execute(tickets, %{confirm: true} = opts) do
-    say("🧪 aiur --test resetting sandbox (#{length(tickets)} tickets)")
+    say("🧪 aiur --test3 resetting sandbox (#{length(tickets)} tickets)")
     Enum.each(tickets, &reset_one(&1, opts))
     restore_baseline(opts)
     ensure_opencode_theme()
-    say("✅ --test reset complete")
+    say("✅ --test3 reset complete")
     :ok
+  end
+
+  defp execute_single(_tickets_data, %{confirm: false}) do
+    say("--test DRY-RUN. Pass --confirm to execute.\n")
+    say("Single-ticket sandbox (minimum-overhead, complexity:1).")
+    say("Plan:")
+    say("  - Read `single_ticket` from #{@tickets_file}")
+    say("  - If missing or null, `gh issue create` a complexity:1 ticket and persist the ID back")
+    say("  - Reset workpad / workspace / labels for that one ticket")
+    say("  - Restore sandbox baseline (always)")
+    :ok
+  end
+
+  defp execute_single(tickets_data, %{confirm: true} = opts) do
+    say("🧪 aiur --test (single-ticket) starting")
+
+    case resolve_single_ticket(tickets_data, opts) do
+      {:ok, id} ->
+        reset_one(id, opts)
+        restore_baseline(opts)
+        ensure_opencode_theme()
+        say("✅ --test reset complete (single ticket ##{id})")
+        :ok
+
+      {:error, reason} ->
+        abort("single-ticket resolution failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  # If the JSON already pins a `single_ticket`, just verify the issue
+  # still exists; otherwise create a fresh complexity:1 ticket and
+  # write the new ID back to the JSON so the next run reuses it.
+  defp resolve_single_ticket(tickets_data, opts) do
+    case Map.get(tickets_data, "single_ticket") do
+      id when is_integer(id) and id > 0 ->
+        if issue_exists?(id) do
+          ok("##{id} reuses existing pinned single ticket")
+          {:ok, id}
+        else
+          warn("##{id} pinned but missing on GitHub — creating a fresh single ticket")
+          create_and_persist_single(tickets_data, opts)
+        end
+
+      _ ->
+        create_and_persist_single(tickets_data, opts)
+    end
+  end
+
+  defp issue_exists?(id) do
+    case System.cmd(
+           "gh",
+           ["issue", "view", to_string(id), "--json", "number"],
+           stderr_to_stdout: true
+         ) do
+      {_, 0} -> true
+      _ -> false
+    end
+  end
+
+  defp create_and_persist_single(tickets_data, opts) do
+    with {:ok, id} <- create_single_issue(),
+         :ok <- persist_single_ticket(tickets_data, id, opts) do
+      ok("##{id} created and persisted to #{@tickets_file}")
+      {:ok, id}
+    end
+  end
+
+  defp create_single_issue do
+    argv = [
+      "issue",
+      "create",
+      "--title",
+      @single_ticket_title,
+      "--body",
+      @single_ticket_body,
+      "--label",
+      Enum.join(@single_ticket_labels, ",")
+    ]
+
+    case System.cmd("gh", argv, stderr_to_stdout: true) do
+      {output, 0} ->
+        case parse_issue_number(output) do
+          {:ok, id} -> {:ok, id}
+          :error -> {:error, {:parse_issue_url, output}}
+        end
+
+      {output, _} ->
+        {:error, {:gh_issue_create_failed, String.trim(output)}}
+    end
+  end
+
+  # `gh issue create` prints the new issue URL on a line of its own,
+  # e.g. `https://github.com/owner/repo/issues/142`. The trailing
+  # path segment is the issue number.
+  defp parse_issue_number(output) do
+    output
+    |> String.split(["\n", "\r"], trim: true)
+    |> Enum.find_value(:error, &issue_number_from_line/1)
+  end
+
+  defp issue_number_from_line(line) do
+    case Regex.run(~r{/issues/(\d+)}, String.trim(line)) do
+      [_, n] -> parse_positive_integer(n)
+      _ -> nil
+    end
+  end
+
+  defp parse_positive_integer(raw) do
+    case Integer.parse(raw) do
+      {id, _} when id > 0 -> {:ok, id}
+      _ -> nil
+    end
+  end
+
+  defp persist_single_ticket(tickets_data, id, opts) do
+    path = Path.join(opts.repo_root, @tickets_file)
+    updated = Map.put(tickets_data, "single_ticket", id)
+    JsonStore.write!(path, updated)
+    :ok
+  rescue
+    e -> {:error, {:tickets_file_write_failed, Exception.message(e)}}
   end
 
   # Install + activate the aiur opencode theme so command/tool

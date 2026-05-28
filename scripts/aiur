@@ -34,6 +34,7 @@ clear_mode=0
 logs_mode=0
 fresh_mode=0
 test_mode=0
+test3_mode=0
 test_force=0
 test_allow_remote=0
 log_issue_id=""
@@ -69,18 +70,25 @@ for arg in "$@"; do
       ;;
     --test)
       test_mode=1
-      # --test always implies --debug, --clear, AND --force: when you're
-      # testing you want a fresh, debug-instrumented, rebuilt run by
-      # default. Stale _build/ silently masking shipped work was a
-      # repeated source of "feature didn't ship" confusion; force-rebuild
-      # is the right default. Override is not supported.
+      # --test (single-ticket) and --test3 (3-ticket blocker chain)
+      # both imply --debug, --clear, AND --force: when you're testing
+      # you want a fresh, debug-instrumented, rebuilt run by default.
+      # Stale _build/ silently masking shipped work was a repeated
+      # source of "feature didn't ship" confusion; force-rebuild is
+      # the right default. Override is not supported.
       #
-      # `fresh_mode=1` is the launch-side equivalent of typing `--force`
-      # on the command line: skip "attach to existing session" and tear
-      # down any stale tmux/BEAM before starting. Without it, `--test`
-      # alone would reset the sandbox then try to attach to a stale
-      # session, which was the source of repeated `aiur --test` →
-      # `aiur --test --force` muscle-memory.
+      # `fresh_mode=1` is the launch-side equivalent of typing
+      # `--force` on the command line: skip "attach to existing
+      # session" and tear down any stale tmux/BEAM before starting.
+      # Without it, --test alone would reset the sandbox then try to
+      # attach to a stale session.
+      debug_mode=1
+      clear_mode=1
+      test_force=1
+      fresh_mode=1
+      ;;
+    --test3)
+      test3_mode=1
       debug_mode=1
       clear_mode=1
       test_force=1
@@ -118,15 +126,17 @@ if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   exit 64
 fi
 
-# --test runs the sandbox reset BEFORE launching. Composes with any
-# other flag — e.g. `aiur --test --debug --clear` resets the 3-ticket
-# sandbox then launches normally with debug + clear-logs. Auto-passes
-# `--confirm` so it's a single-command workflow; `--force` /
-# `--allow-remote` are forwarded for the rare overrides. To preview
-# without executing, use `mix aiur.test.reset` directly (no --confirm).
-if [ "$test_mode" -eq 1 ]; then
+# --test (single-ticket) and --test3 (3-ticket blocker chain) both
+# run the sandbox reset BEFORE launching. They compose with any
+# other flag — e.g. `aiur --test --debug --clear` resets the single
+# sandbox ticket then launches normally with debug + clear-logs.
+# Auto-passes `--confirm` so it's a single-command workflow;
+# `--force` / `--allow-remote` are forwarded for the rare overrides.
+# To preview without executing, use `mix aiur.test.reset` directly
+# (no --confirm).
+if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   if [ -z "$mise_bin" ]; then
-    echo "❌ --test requires mise on PATH" >&2
+    echo "❌ --test/--test3 requires mise on PATH" >&2
     exit 1
   fi
 
@@ -144,9 +154,10 @@ if [ "$test_mode" -eq 1 ]; then
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
+  [ "$test_mode" -eq 1 ] && test_args+=("--single")
 
   if ! (cd "$default_repo_root/elixir" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
-    echo "❌ --test reset failed; refusing to launch. Inspect the output above." >&2
+    echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
     exit 1
   fi
 
@@ -161,7 +172,14 @@ if [ "$test_mode" -eq 1 ]; then
   echo "⏳ settling GitHub label index" >&2
   tickets_file="$default_repo_root/.aiur-test-tickets.json"
   if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
-    expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
+    if [ "$test_mode" -eq 1 ]; then
+      # Single-ticket mode: expect exactly one ticket to land under
+      # agent:todo. The reset workflow either reused the pinned
+      # single_ticket or just created a fresh one.
+      expected_count=1
+    else
+      expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
+    fi
   else
     expected_count=0
   fi
@@ -278,13 +296,23 @@ Options:
                        compiled artifacts and recompile everything
                        from scratch (~2min). Use when auto-rebuild
                        (mtime check) misses a change.
-  --test               reset the 3-ticket events sandbox (per
-                       .aiur-test-tickets.json) before launching. Automatically
-                       implies --debug --clear (a test run always wants a
-                       fresh, debug-instrumented session). Auto-confirms the
-                       reset; use `mix aiur.test.reset` for a dry-run preview.
-                       Add `--force` to bypass the clean-git guard or
-                       `--allow-remote` to bypass the expected-remote check.
+  --test               reset (or auto-create) the single-ticket sandbox
+                       — one complexity:1 issue asking for a one-line
+                       const in the sandbox baseline. Smallest possible
+                       surface for manually exercising agent behavior
+                       (progress emits, label flips, etc.) without the
+                       3-ticket blocker chain's overhead. Auto-confirms
+                       the reset; reuses `single_ticket` from
+                       .aiur-test-tickets.json (or creates+persists a
+                       fresh one). Implies --debug --clear and rebuilds.
+  --test3              reset the 3-ticket events sandbox (per
+                       .aiur-test-tickets.json) before launching.
+                       Automatically implies --debug --clear (a test run
+                       always wants a fresh, debug-instrumented session).
+                       Auto-confirms the reset; use `mix aiur.test.reset`
+                       for a dry-run preview. Add `--force` to bypass the
+                       clean-git guard or `--allow-remote` to bypass the
+                       expected-remote check.
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
@@ -1300,8 +1328,30 @@ run_in_tmux() {
       local log_dir
       log_dir="$(dirname "$log_path")"
       if [ -d "$log_dir" ]; then
-        find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
-        echo "✅ cleared previous logs ($log_dir)" >&2
+        if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+          # Scoped clear: only nuke logs for the tickets THIS test mode
+          # actually resets. The main aiur.log is also cleared since a
+          # fresh test run always wants a clean orchestrator log.
+          # Unrelated per-issue logs (operator's other work) survive.
+          tickets_file="$default_repo_root/.aiur-test-tickets.json"
+          rm -f "$log_dir/aiur.log" 2>/dev/null || true
+          if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
+            ids=""
+            if [ "$test_mode" -eq 1 ]; then
+              ids="$(jq -r '.single_ticket // empty' "$tickets_file" 2>/dev/null)"
+            else
+              ids="$(jq -r '.tickets[]?' "$tickets_file" 2>/dev/null)"
+            fi
+            for id in $ids; do
+              rm -f "$log_dir/aiur.$id.log" 2>/dev/null || true
+            done
+          fi
+          echo "✅ cleared test-scoped logs ($log_dir)" >&2
+        else
+          # Plain --clear --debug: blanket nuke.
+          find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
+          echo "✅ cleared previous logs ($log_dir)" >&2
+        fi
       fi
 
       # Reap BEAM hot-load shared libraries and debug pipe-pane captures.
