@@ -96,7 +96,8 @@ Continuation context:
 ## Required Setup
 
 - Use the local tracker and repository auth already configured for this environment.
-- Work in the current workspace checkout.
+- Work in the current workspace checkout. The `.git` directory IS writable here — do NOT copy it to `.git-writable` (that's a pattern from the GitHub Actions workflow, not this one). Use `git` directly with no `GIT_DIR=...` prefix.
+- `mise exec -- mix` and `mise exec -- rg` work out of the box — `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` are pre-set per workspace and `mise trust` has already been run on the workspace `elixir/mise.toml`. Do not redeclare these env vars on individual commands.
 - For real implementation tickets, branch from `origin/main`, keep changes small, add tests, run compile and lint, push to `origin`, and open a PR.
 - For test tickets that explicitly say not to change code, do not create commits or PRs.
 
