@@ -10,4 +10,8 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
   test "function_b/0 calls function_a/0 and adds one" do
     assert EventFlowDemo.function_b() == EventFlowDemo.function_a() + 1
   end
+
+  test "function_c/0 squares function_b/0" do
+    assert EventFlowDemo.function_c() == EventFlowDemo.function_b() * EventFlowDemo.function_b()
+  end
 end
