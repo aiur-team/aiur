@@ -1,7 +1,9 @@
 defmodule Aiur.OrchestratorDeactivateTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentPubSub
   alias Aiur.Issue
+  alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
 
   describe "reconcile on agent:human-review label" do
@@ -130,6 +132,83 @@ defmodule Aiur.OrchestratorDeactivateTest do
         entry = Map.fetch!(updated_state.running, issue_id)
         assert is_nil(entry.pid)
         assert get_in(entry, [:control, :status]) == :deactivated
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "deactivate broadcasts aiur_turn_done for every active chat-completion stream" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-deactivate-stream-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-deactivate-stream"
+      issue_identifier = "DS-1"
+      turn_a = "t-stream-a"
+      turn_b = "t-stream-b"
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        # Simulate two pre-warmed chat completion SSE streams for the
+        # same identifier (the real-world cause of the duplicate
+        # "No turn activity" messages).
+        ActiveTurns.put(issue_identifier, turn_a)
+        ActiveTurns.put(issue_identifier, turn_b)
+
+        :ok = AgentPubSub.subscribe_agent(issue_identifier)
+
+        agent_pid =
+          spawn(fn ->
+            receive do
+              :stop -> :ok
+            end
+          end)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR up for review",
+          description: "",
+          labels: []
+        }
+
+        _ = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        # Both streams receive the close broadcast.
+        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_a, :deactivated}, 500
+        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_b, :deactivated}, 500
+
+        # The ActiveTurns entries are marked closed so any late SSE
+        # subscribe finalizes with the same reason instead of waiting
+        # on the broadcast it missed.
+        assert {:closed, :deactivated} = ActiveTurns.lookup(issue_identifier, turn_a)
+        assert {:closed, :deactivated} = ActiveTurns.lookup(issue_identifier, turn_b)
       after
         File.rm_rf(test_root)
       end

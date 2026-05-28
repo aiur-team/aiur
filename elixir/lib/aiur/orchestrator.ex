@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator do
   }
 
   alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
+  alias Aiur.Opencode.ActiveTurns
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -668,6 +669,24 @@ defmodule Aiur.Orchestrator do
 
   defp human_review_state?(_), do: false
 
+  # Broadcast `aiur_turn_done` for every currently-active aiur turn on
+  # `identifier`. The opencode bridge's chat-completion SSE handlers
+  # subscribe to `agent:<identifier>` and rely on this broadcast to
+  # close cleanly. Without it, killing the AgentRunner mid-turn (via
+  # `terminate_task/1`) leaves the SSE streams subscribed until their
+  # 10-minute watchdog fires, then they dump duplicate system messages
+  # into the chat pane (one per pre-warmed opencode slot).
+  defp close_active_chat_streams(identifier, reason) when is_binary(identifier) do
+    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
+      AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
+      ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
+    end
+
+    :ok
+  end
+
+  defp close_active_chat_streams(_identifier, _reason), do: :ok
+
   # Label flipped back to an active state. If the running entry is
   # currently `:deactivated`, route through `reactivate_issue/2` so a
   # fresh agent task is spawned. Otherwise just refresh the stored
@@ -790,6 +809,15 @@ defmodule Aiur.Orchestrator do
         Logger.info(
           "Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot"
         )
+
+        # Close any open chat-completion SSE streams for this identifier
+        # BEFORE killing the task. `terminate_task/1` brutally kills the
+        # AgentRunner, bypassing the normal `close_aiur_turn_streams`
+        # path — without an explicit close, the bridge streams stay
+        # subscribed for 10 minutes, hit their watchdog, and dump
+        # duplicate "No turn activity in 10 minutes" system messages
+        # into the chat pane (one per pre-warm slot).
+        close_active_chat_streams(identifier, :deactivated)
 
         if is_pid(pid) do
           terminate_task(pid)
