@@ -54,8 +54,17 @@ defmodule Aiur.Opencode.SessionWriter do
     # at-least-once delivery may re-broadcast `:receive`; the agent's
     # queue may re-deliver `events_digest`. The MapSet caps memory and
     # keeps double-writes out of opencode SQL.
-    seen_event_ids: MapSet.new()
+    seen_event_ids: MapSet.new(),
+    # Stop after N consecutive FOREIGN KEY violations — those mean the
+    # opencode SQL session row was reaped (slot respawn, Aiur.Shutdown
+    # cleanup, manual session_gc) and no future write will ever
+    # succeed. Without this guard the writer logs an FK debug line on
+    # every transcript event for the remainder of the BEAM's life,
+    # filling aiur.log with noise. Counter resets on any success.
+    consecutive_fk_failures: 0
   ]
+
+  @fk_failure_stop_threshold 5
 
   # Soft cap for `seen_event_ids` — matches the IssueLog history-pull
   # window. Older ids may evict; very-late re-deliveries beyond the cap
@@ -164,12 +173,11 @@ defmodule Aiur.Opencode.SessionWriter do
     case write_transcript_event(state, event) do
       {:ok, _message_id, parts, new_state} ->
         _ = parts
-        {:noreply, new_state}
+        {:noreply, reset_fk_failures(new_state)}
 
       {:error, reason} ->
         log_session_write_failure("write_failed", state.identifier, reason)
-
-        {:noreply, state}
+        handle_write_failure(state, reason)
     end
   end
 
@@ -566,6 +574,32 @@ defmodule Aiur.Opencode.SessionWriter do
     do: String.contains?(msg, "FOREIGN KEY")
 
   defp foreign_key_violation?(_), do: false
+
+  # Bump the FK-failure counter when the failure was an FK violation
+  # (session gone), stop the writer once we cross the threshold.
+  # Non-FK errors are transient — log and keep running.
+  defp handle_write_failure(state, reason) do
+    if foreign_key_violation?(reason) do
+      bumped = Map.update(state, :consecutive_fk_failures, 1, &(&1 + 1))
+
+      if bumped.consecutive_fk_failures >= @fk_failure_stop_threshold do
+        Logger.info("opencode_session_writer stopping identifier=#{state.identifier} reason=session_reaped fk_failures=#{bumped.consecutive_fk_failures}")
+
+        {:stop, :normal, bumped}
+      else
+        {:noreply, bumped}
+      end
+    else
+      {:noreply, state}
+    end
+  end
+
+  defp reset_fk_failures(state) do
+    case Map.get(state, :consecutive_fk_failures, 0) do
+      0 -> state
+      _ -> Map.put(state, :consecutive_fk_failures, 0)
+    end
+  end
 
   defp remember_event_id(state, id) do
     seen = MapSet.put(state.seen_event_ids, id)
