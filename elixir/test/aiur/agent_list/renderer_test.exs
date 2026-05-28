@@ -330,50 +330,25 @@ defmodule Aiur.AgentList.RendererTest do
     refute no_paint =~ "⚪"
   end
 
-  test "warm status row renders in-progress vs finished glyphs per started slot" do
+  test "warm-status row removed entirely (no ⬜️/🔲 glyphs in any render)" do
     summaries = [
       %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
     ]
 
-    none = render(base_state(%{summaries: summaries, warm_status_row?: true})) |> visible()
-
-    # The warm status row is debug-only by default (renders only when
-    # AIUR_DEBUG=1). Explicit `warm_status_row?: true` overrides the
-    # env check so this glyph-rendering test stays deterministic
-    # without mucking with process env.
-    mixed =
+    out =
       render(
         base_state(%{
           summaries: summaries,
-          warm_status_row?: true,
           started_slots: MapSet.new([1, 2, 3]),
           fully_warmed_slots: MapSet.new([1])
         })
       )
       |> visible()
 
-    light =
-      render(
-        base_state(%{
-          summaries: summaries,
-          warm_status_row?: true,
-          started_slots: MapSet.new([1, 2]),
-          fully_warmed_slots: MapSet.new([1]),
-          warm_status_dark_mode?: false
-        })
-      )
-      |> visible()
-
-    refute none =~ "🔲"
-    refute none =~ "⬜️"
-
-    # Dark mode default: slot 1 finished (⬜️), slots 2 and 3 in progress (🔲).
-    assert mixed =~ "⬜️"
-    assert mixed =~ "🔲"
-
-    # Light mode: slot 1 finished (⬛️), slot 2 in progress (🔳).
-    assert light =~ "⬛️"
-    assert light =~ "🔳"
+    refute out =~ "⬜️"
+    refute out =~ "⬛️"
+    refute out =~ "🔲"
+    refute out =~ "🔳"
   end
 
   test "renders an age column from runtime_seconds and turn_count" do

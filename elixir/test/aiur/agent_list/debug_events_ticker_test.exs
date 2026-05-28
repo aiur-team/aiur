@@ -28,16 +28,24 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
   end
 
   describe "events section (always on, bordered)" do
-    test "renders the events box even when debug_mode? is false (always-on now)" do
+    test "renders events inside the AgentList box even when debug_mode? is false (always-on now)" do
       state = build_state(debug_mode?: false, debug_events: [debug_entry(:publish, topic: "ticket.42.branch.push")])
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      assert output =~ "╭─ Events"
+      # Single box: AgentList top + bottom curved corners.
+      assert output =~ "╭─ AIUR"
       assert output =~ "╰"
+
+      # No separate "Events" box header anymore.
+      refute output =~ "╭─ Events"
+
+      # Event line renders inside the box, separated from the table
+      # rows by a `├──┤` divider.
+      assert output =~ "├"
       assert output =~ "💬 42"
     end
 
-    test "renders bordered box with legend at the bottom" do
+    test "events render inline with the agent table; legend lives in the footer" do
       events = [
         debug_entry(:read, topic: "ticket.42.branch.push", id: 4290, identifier: "42"),
         debug_entry(:receive, topic: "ticket.42.branch.push", id: 4287, identifier: "99"),
@@ -47,18 +55,16 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       state = build_state(debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      # Box chrome.
-      assert output =~ "╭─ Events"
-      assert output =~ "╰"
-
-      # Legend renders inside the box, separated by a horizontal line.
+      # Inside the same box; divider above the events block.
       assert output =~ "├"
-      assert output =~ "💬 publish · 📬 receive · 📄 read"
 
-      # New per-line format: `💬 <id> pushed:`.
+      # Per-line format:
       assert output =~ "💬 42 pushed:"
       assert output =~ "📬 99 Agent received from 42:"
       assert output =~ "📄 42 Agent ingested:"
+
+      # Legend now renders in the footer (outside the box), not above the events.
+      assert output =~ "💬 publish · 📬 receive · 📄 read"
     end
 
     test "newest event renders BELOW older events (anchored to bottom)" do
@@ -94,14 +100,14 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       refute output =~ "💬 1 pushed:"
     end
 
-    test "collapses entirely when pane has no remaining vertical budget" do
-      # Tiny pane — chrome alone fills it; events section needs at
-      # least 5 rows (top, bottom, legend separator, legend, one event).
+    test "events block collapses when pane has no remaining vertical budget" do
+      # Tiny pane — chrome alone fills it; the events block needs at
+      # least 2 rows (divider + one event line) and won't render here.
       events = [debug_entry(:publish, topic: "ticket.1.branch.push", id: 1)]
       state = build_state(rows: 6, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      refute output =~ "╭─ Events"
+      refute output =~ "💬 1 pushed:"
     end
   end
 

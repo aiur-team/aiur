@@ -54,14 +54,6 @@ defmodule Aiur.AgentList.Renderer do
 
   @id_age_gap_width 2
 
-  # Warm-status row glyphs, shown beneath the bottom nav. One glyph
-  # per opencode slot. Dark-mode pair is the default; light mode is
-  # opt-in via `warm_status_dark_mode?: false` in render state.
-  @warm_status_glyph_dark_in_progress "🔲"
-  @warm_status_glyph_dark_finished "⬜️"
-  @warm_status_glyph_light_in_progress "🔳"
-  @warm_status_glyph_light_finished "⬛️"
-
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
@@ -112,18 +104,21 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
 
       markers = compute_markers(state, summaries)
-      warm_row = warm_status_row(state, inner_width)
 
-      base_lines =
-        lines_emitted(state, inner_width) + warm_row_line_count(state)
+      # Footer split: keybinds on left, event emoji legend on right.
+      # When width doesn't fit both, legend wraps to its own row.
+      footer_render = footer_split(inner_width)
+      footer_lines = footer_render.line_count
+
+      base_lines = lines_emitted(state, inner_width, footer_lines)
 
       # Reserve at least one row of breathing room before the bottom of
-      # the pane so the events box never overflows tmux's scroll region.
-      # The events section is always-on (no debug gate); when budget is
-      # too tight to draw the box chrome, the section collapses to zero
-      # rows automatically.
+      # the pane so the events block never overflows tmux's scroll
+      # region. Events are inside the AgentList box now, separated by
+      # a horizontal divider when present. When the budget is too tight
+      # the events block collapses to zero rows automatically.
       events_budget = max(rows - base_lines - 1, 0)
-      {ticker_iodata, ticker_line_count} = events_section(state, inner_width, events_budget)
+      {events_iodata, events_line_count} = events_block(state, inner_width, events_budget)
 
       [
         # Cursor controls at frame start:
@@ -157,13 +152,11 @@ defmodule Aiur.AgentList.Renderer do
           layout,
           markers
         ),
+        events_iodata,
         bottom_border(inner_width),
         eol(),
-        footer_iodata(inner_width),
-        eol(),
-        warm_row,
-        ticker_iodata,
-        clear_remaining(rows, base_lines + ticker_line_count),
+        footer_render.iodata,
+        clear_remaining(rows, base_lines + events_line_count),
         # Re-emit hide + no-blink + park-home AFTER all painting,
         # so any tmux refresh, focus change, or sibling process
         # that flipped the cursor back on gets countered on every
@@ -419,30 +412,95 @@ defmodule Aiur.AgentList.Renderer do
   # Footer keybinds. `v layout` rides on the primary row when there's
   # room, otherwise wraps to a second row so we don't truncate the more
   # frequently used keybinds (select/open/pause/help/quit).
-  defp footer_iodata(inner_width) do
-    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+  @keybinds_full "↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+  @keybinds_primary "↑/↓ select   enter open   space pause/resume   ? help   q quit"
+  @keybinds_secondary "v layout"
+  @events_legend "💬 publish · 📬 receive · 📄 read"
+  @footer_left_padding 2
+  @footer_left_padding_str "  "
+  @footer_gap 2
 
-    # Footer + help rows render BELOW the bordered agent-list box,
-    # so they don't carry the right `│` border. Pass " " as the
-    # right_border to keep the column reserved for autowrap safety
-    # without painting the bar character.
-    if visual_width(full) <= inner_width do
-      pad_with_ansi(@ansi_dim, full, inner_width, " ")
-    else
-      primary = "  ↑/↓ select   enter open   space pause/resume   ? help   q quit"
-      secondary = "  v layout"
+  # Bottom rows: keybinds on the left, event legend on the right. Both
+  # render BELOW the bordered AgentList box (no right `│` wall). The
+  # cascade prefers fewer rows when width permits and always keeps both
+  # the keybinds and the legend visible.
+  #
+  # - 1 row: full keybinds + legend fit side-by-side
+  # - 2 rows: full keybinds alone on row 1, legend below
+  #          OR primary keybinds + legend, "v layout" below
+  # - 3 rows: primary keybinds, "v layout", legend (extremely narrow)
+  defp footer_split(inner_width) do
+    legend = @events_legend
 
-      [
-        pad_with_ansi(@ansi_dim, primary, inner_width, " "),
-        eol(),
-        pad_with_ansi(@ansi_dim, secondary, inner_width, " ")
-      ]
+    cond do
+      fits_on_one_row?(@keybinds_full, legend, inner_width) ->
+        %{iodata: [side_by_side_row(@keybinds_full, legend, inner_width), eol()], line_count: 1}
+
+      visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width ->
+        %{
+          iodata: [
+            left_only_row(@keybinds_full, inner_width),
+            eol(),
+            left_only_row(legend, inner_width),
+            eol()
+          ],
+          line_count: 2
+        }
+
+      fits_on_one_row?(@keybinds_primary, legend, inner_width) ->
+        %{
+          iodata: [
+            side_by_side_row(@keybinds_primary, legend, inner_width),
+            eol(),
+            left_only_row(@keybinds_secondary, inner_width),
+            eol()
+          ],
+          line_count: 2
+        }
+
+      true ->
+        %{
+          iodata: [
+            left_only_row(@keybinds_primary, inner_width),
+            eol(),
+            left_only_row(@keybinds_secondary, inner_width),
+            eol(),
+            left_only_row(legend, inner_width),
+            eol()
+          ],
+          line_count: 3
+        }
     end
   end
 
-  defp footer_line_count(inner_width) do
-    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
-    if visual_width(full) <= inner_width, do: 1, else: 2
+  defp fits_on_one_row?(left, right, inner_width) do
+    needed = @footer_left_padding + visual_width(left) + @footer_gap + visual_width(right) + 1
+    needed <= inner_width
+  end
+
+  # `  <left>   …gap…   <right> ` padded to inner_width.
+  defp side_by_side_row(left, right, inner_width) do
+    pad = String.duplicate(" ", @footer_left_padding)
+    body = pad <> left
+
+    body_width = visual_width(body)
+    right_width = visual_width(right)
+    # Reserve trailing column for autowrap safety; spacer fills the rest.
+    spacer = String.duplicate(" ", max(inner_width - body_width - right_width - 1, 1))
+
+    [
+      @ansi_dim,
+      body,
+      spacer,
+      right,
+      " ",
+      @ansi_reset
+    ]
+  end
+
+  defp left_only_row(text, inner_width) do
+    body = String.duplicate(" ", @footer_left_padding) <> text
+    pad_with_ansi(@ansi_dim, body, inner_width, " ")
   end
 
   # ---------- table ----------------------------------------------------------
@@ -787,74 +845,6 @@ defmodule Aiur.AgentList.Renderer do
   defp summary_emoji(%{work_state: work_state}, _markers), do: AgentEvents.state_emoji(work_state)
   defp summary_emoji(_, _markers), do: "⚫"
 
-  # Status row beneath the bottom nav. One glyph per started opencode
-  # slot: in-progress glyph for slots still warming, finished glyph for
-  # slots that have every active agent attached. Geometry stays stable
-  # across warm-up (zero glyphs is valid).
-  defp warm_status_row(state, inner_width) do
-    if warm_status_enabled?(state) do
-      build_warm_status_row(state, inner_width)
-    else
-      []
-    end
-  end
-
-  defp build_warm_status_row(state, inner_width) do
-    started = Map.get(state, :started_slots, MapSet.new())
-    finished = Map.get(state, :fully_warmed_slots, MapSet.new())
-    {in_progress_glyph, finished_glyph} = warm_status_glyphs(state)
-
-    glyphs = warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph)
-    body = "  " <> glyphs
-    [pad_with_ansi(@ansi_dim, body, inner_width, " "), eol()]
-  end
-
-  defp warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph) do
-    started
-    |> MapSet.to_list()
-    |> Enum.sort()
-    |> Enum.map_join(" ", fn slot ->
-      warm_status_slot_glyph(slot, finished, in_progress_glyph, finished_glyph)
-    end)
-  end
-
-  defp warm_status_slot_glyph(slot, finished, in_progress_glyph, finished_glyph) do
-    if MapSet.member?(finished, slot), do: finished_glyph, else: in_progress_glyph
-  end
-
-  defp warm_status_glyphs(state) do
-    if Map.get(state, :warm_status_dark_mode?, true) do
-      {@warm_status_glyph_dark_in_progress, @warm_status_glyph_dark_finished}
-    else
-      {@warm_status_glyph_light_in_progress, @warm_status_glyph_light_finished}
-    end
-  end
-
-  defp warm_status_row_line_count(state) do
-    if warm_status_enabled?(state), do: 1, else: 0
-  end
-
-  defp warm_status_enabled?(state) do
-    # Bottom warmth row (🔲 starting / ⬜ ready) is a debug-only
-    # observability surface, not a user-facing feature. Hidden when
-    # AIUR_DEBUG is off so the default agent list stays focused on
-    # per-ticket markers. State-level override (`warm_status_row?`)
-    # still wins for tests that explicitly want to render it.
-    case Map.get(state, :warm_status_row?) do
-      nil -> debug_enabled?()
-      explicit -> explicit
-    end
-  end
-
-  defp debug_enabled? do
-    case System.get_env("AIUR_DEBUG") do
-      v when is_binary(v) -> String.downcase(String.trim(v)) in ["1", "true", "yes"]
-      _ -> false
-    end
-  end
-
-  defp warm_row_line_count(state), do: warm_status_row_line_count(state)
-
   defp emoji_cell("", width) do
     # Reserved-but-empty cell: pad to the full visual width.
     String.duplicate(" ", max(width, 0))
@@ -1108,10 +1098,10 @@ defmodule Aiur.AgentList.Renderer do
   # = 8. Footer is 1 or 2 rows depending on width. Body rows come
   # straight from state.summaries since `Aiur.AgentList.App` now
   # pre-filters the list before passing it in.
-  defp lines_emitted(state, inner_width) do
+  defp lines_emitted(state, _inner_width, footer_lines) do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
-    8 + footer_line_count(inner_width) + body_rows
+    8 + footer_lines + body_rows
   end
 
   # --- Debug perf footer ---------------------------------------------
@@ -1123,8 +1113,10 @@ defmodule Aiur.AgentList.Renderer do
   #
   # Each row shows the last measured value or `…` while we wait.
 
-  # --- Events section (always on) ----------------------------------------
-  # Below the agent-list table sits a bordered events box. Three kinds:
+  # --- Events block (inside the AgentList box) ---------------------------
+  # The events block renders INSIDE the AgentList box, separated from the
+  # agent rows by a `├──...──┤` divider when there are events to show.
+  # Three kinds:
   #
   #   💬  publish — `Aiur.Events.Publisher.publish/3` accepted the event
   #   📬  receive — `Aiur.Events.SubscriptionStore` delivered the event
@@ -1135,106 +1127,61 @@ defmodule Aiur.AgentList.Renderer do
   # Line format:
   #   `💬 99 Agent: "<message>"` (publish — source ticket is the agent)
   #   `📬 100 Agent received from 99: "<message>"` (cross-ticket receive)
-  #   `📄 100 Agent ingested: <topic>` (read — minimal context)
+  #   `📄 100 Agent ingested:` (read — minimal context)
   #
-  # The table takes precedence for space: when `budget` is too small to
-  # draw the box chrome (top + bottom + legend separator + at least one
-  # content row), the events section renders nothing. When budget
-  # allows, the box expands to fit the available rows; the newest event
-  # always sits at the bottom of the visible window.
+  # The table takes precedence for space: when `budget` is too small for
+  # the divider + a single event row, the block collapses to nothing.
 
-  # Minimum overhead the box chrome needs: top border + legend
-  # separator + legend row + bottom border = 4.
-  @events_chrome_rows 4
+  defp events_block(state, inner_width, budget) do
+    events = state |> Map.get(:debug_events, []) |> Enum.reject(&is_nil/1)
 
-  defp events_section(state, inner_width, budget) do
     cond do
-      budget < @events_chrome_rows + 1 ->
-        # Not enough room for the box chrome plus a single event row —
-        # collapse the section entirely so the table breathes.
-        {[], 0}
-
-      inner_width < 4 ->
-        # Pane is degenerate; skip the box.
-        {[], 0}
-
-      true ->
-        render_events_box(state, inner_width, budget)
+      events == [] -> {[], 0}
+      budget < 2 -> {[], 0}
+      inner_width < 4 -> {[], 0}
+      true -> render_events_block(state, events, inner_width, budget)
     end
   end
 
-  defp render_events_box(state, inner_width, budget) do
-    events_capacity = max(budget - @events_chrome_rows, 0)
+  defp render_events_block(state, events, inner_width, budget) do
+    # Divider eats 1 row; remaining budget is the event capacity.
+    capacity = max(budget - 1, 0)
+    rendering_identifier = selected_identifier(state)
 
-    events =
-      state
-      |> Map.get(:debug_events, [])
-      |> Enum.take(events_capacity)
+    # state.debug_events is newest-first. Take the newest `capacity`,
+    # reverse so newest sits at the bottom of the visible block.
+    visible =
+      events
+      |> Enum.take(capacity)
       |> Enum.reverse()
 
-    pad_count = max(events_capacity - length(events), 0)
-    rendering_identifier = state |> Map.get(:summaries, []) |> selected_identifier(state)
-
-    blank = event_box_blank_row(inner_width)
-    blank_rows = List.duplicate([blank, eol()], pad_count)
-    event_rows = Enum.flat_map(events, &[event_box_event_row(&1, inner_width, rendering_identifier), eol()])
+    event_rows =
+      Enum.flat_map(visible, &[event_inner_row(&1, inner_width, rendering_identifier), eol()])
 
     iodata = [
-      events_box_top(inner_width),
+      events_divider_row(inner_width),
       eol(),
-      blank_rows,
-      event_rows,
-      events_box_legend_separator(inner_width),
-      eol(),
-      events_box_legend_row(inner_width),
-      eol(),
-      events_box_bottom(inner_width)
+      event_rows
     ]
 
-    {iodata, @events_chrome_rows + pad_count + length(events)}
+    {iodata, 1 + length(visible)}
   end
 
-  defp selected_identifier(_summaries, %{selection_index: idx, summaries: summaries}) when is_list(summaries) do
+  defp selected_identifier(%{selection_index: idx, summaries: summaries}) when is_list(summaries) do
     case Enum.at(summaries, idx) do
       %{identifier: id} when is_binary(id) -> id
       _ -> nil
     end
   end
 
-  defp selected_identifier(_summaries, _state), do: nil
+  defp selected_identifier(_state), do: nil
 
-  defp events_box_top(inner_width) do
-    label = " Events "
-    label_width = visual_width(label)
-    # `╭─ Events ──...──╮`
-    left = "╭─" <> label
-    right = "╮"
-    fill = String.duplicate("─", max(inner_width - label_width - 3, 0))
-    [IO.ANSI.faint(), left, fill, right, IO.ANSI.reset()]
-  end
-
-  defp events_box_bottom(inner_width) do
+  defp events_divider_row(inner_width) do
     fill = String.duplicate("─", max(inner_width - 2, 0))
-    [IO.ANSI.faint(), "╰", fill, "╯", IO.ANSI.reset()]
+    [@ansi_gray, "├", fill, "┤", @ansi_reset]
   end
 
-  defp events_box_legend_separator(inner_width) do
-    fill = String.duplicate("─", max(inner_width - 2, 0))
-    [IO.ANSI.faint(), "├", fill, "┤", IO.ANSI.reset()]
-  end
-
-  defp events_box_legend_row(inner_width) do
-    full = "💬 publish · 📬 receive · 📄 read"
-    compact = "💬 · 📬 · 📄"
-    text = if visual_width("│ " <> full <> " │") <= inner_width, do: full, else: compact
-    event_box_inner_row(text, inner_width)
-  end
-
-  defp event_box_blank_row(inner_width) do
-    event_box_inner_row("", inner_width)
-  end
-
-  defp event_box_event_row(entry, inner_width, rendering_identifier) do
+  defp event_inner_row(entry, inner_width, rendering_identifier) do
     text = format_event_line(entry, rendering_identifier)
     event_box_inner_row(text, inner_width)
   end
