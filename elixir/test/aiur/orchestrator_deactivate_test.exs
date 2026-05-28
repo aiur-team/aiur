@@ -1,0 +1,215 @@
+defmodule Aiur.OrchestratorDeactivateTest do
+  use Aiur.TestSupport
+
+  alias Aiur.Issue
+  alias Aiur.Orchestrator
+
+  describe "reconcile on agent:human-review label" do
+    test "human-review state keeps the running entry, kills the task, marks :deactivated" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-deactivate-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-deactivate-1"
+      issue_identifier = "DA-1"
+      workspace = Path.join(test_root, issue_identifier)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        File.mkdir_p!(workspace)
+
+        agent_pid =
+          spawn(fn ->
+            receive do
+              :stop -> :ok
+            end
+          end)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR up for review",
+          description: "",
+          labels: []
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        # Entry survives — this is the whole point of the deactivate path.
+        assert Map.has_key?(updated_state.running, issue_id)
+        assert MapSet.member?(updated_state.claimed, issue_id)
+
+        # Codex task pid was killed (mirror terminate_running_issue's teardown).
+        refute Process.alive?(agent_pid)
+
+        # Entry shape: pid cleared, control.status flipped to :deactivated.
+        entry = Map.fetch!(updated_state.running, issue_id)
+        assert is_nil(entry.pid)
+        assert get_in(entry, [:control, :status]) == :deactivated
+
+        # Workspace not cleaned up (deactivation is non-terminal).
+        assert File.exists?(workspace)
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "human-review on an already-deactivated entry is a no-op" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-deactivate-noop-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-deactivate-2"
+      issue_identifier = "DA-2"
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR up for review",
+          description: "",
+          labels: []
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        # Same shape after the second observation — no spurious task kill,
+        # no double-deactivate side effect.
+        entry = Map.fetch!(updated_state.running, issue_id)
+        assert is_nil(entry.pid)
+        assert get_in(entry, [:control, :status]) == :deactivated
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "terminal label still terminates and cleans workspace (not intercepted by deactivate)" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-deactivate-terminal-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-deactivate-3"
+      issue_identifier = "DA-3"
+      workspace = Path.join(test_root, issue_identifier)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        File.mkdir_p!(workspace)
+
+        agent_pid =
+          spawn(fn ->
+            receive do
+              :stop -> :ok
+            end
+          end)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        # Terminal state — the deactivate branch must NOT intercept.
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "done",
+          title: "Closed",
+          description: "",
+          labels: []
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        refute Map.has_key?(updated_state.running, issue_id)
+        refute MapSet.member?(updated_state.claimed, issue_id)
+        refute Process.alive?(agent_pid)
+        refute File.exists?(workspace)
+      after
+        File.rm_rf(test_root)
+      end
+    end
+  end
+
+  describe "Aiur.AgentEvents.state_emoji/1" do
+    test ":deactivated maps to the 🏁 glyph" do
+      assert Aiur.AgentEvents.state_emoji(:deactivated) == "🏁"
+      assert Aiur.AgentEvents.state_emoji("deactivated") == "🏁"
+    end
+
+    test ":done still maps to 🏁 (existing semantic preserved)" do
+      assert Aiur.AgentEvents.state_emoji(:done) == "🏁"
+      assert Aiur.AgentEvents.state_emoji("done") == "🏁"
+    end
+  end
+end

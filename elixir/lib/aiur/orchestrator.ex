@@ -170,11 +170,18 @@ defmodule Aiur.Orchestrator do
   # Refreshes the tracked set with the current running issues. Called
   # after every poll cycle so the contamination filter sees the latest
   # set without crossing the GenServer mailbox boundary.
+  #
+  # `:deactivated` entries are excluded so late events from a killed
+  # codex task don't pass the publisher gate after deactivation. The
+  # entry stays in `state.running` for AgentList visibility, but the
+  # publisher's view is "we are no longer accepting events for this id".
   defp refresh_tracked_set(state) do
     needles =
       state.running
-      |> Map.values()
-      |> Enum.map(fn entry ->
+      |> Enum.reject(fn {_id, entry} ->
+        get_in(entry, [:control, :status]) == :deactivated
+      end)
+      |> Enum.map(fn {_id, entry} ->
         id = entry[:identifier] || Map.get(entry, :identifier)
         if id, do: to_string(id)
       end)
@@ -564,6 +571,9 @@ defmodule Aiur.Orchestrator do
       active_issue_state?(issue.state, active_states) ->
         refresh_running_issue_state(state, issue)
 
+      human_review_state?(issue.state) ->
+        deactivate_running_issue(state, issue.id)
+
       true ->
         Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
 
@@ -572,6 +582,17 @@ defmodule Aiur.Orchestrator do
   end
 
   defp reconcile_issue_state(_issue, state, _active_states, _terminal_states), do: state
+
+  # Matches the `agent:human-review` label (after `normalize_issue_state`,
+  # this is `"human-review"`). Reserved for the deactivate path — keeps the
+  # running entry visible at 🏁 / 100% while releasing the slot and chat
+  # pane, instead of dropping it the way the catch-all `true →` branch
+  # would.
+  defp human_review_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == "human-review"
+  end
+
+  defp human_review_state?(_), do: false
 
   defp reconcile_missing_running_issue_ids(%State{} = state, requested_issue_ids, issues)
        when is_list(requested_issue_ids) and is_list(issues) do
@@ -647,6 +668,59 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         release_issue_claim(state, issue_id)
+    end
+  end
+
+  # Mirrors `terminate_running_issue/3`'s task-teardown half (kill the
+  # codex pid, demonitor the ref) but KEEPS the entry in `state.running`
+  # with `control.status: :deactivated` and `pid: nil`. The row stays
+  # visible in the AgentList at 🏁 / 100% green while the slot is freed.
+  # Idempotent — re-running on an already-deactivated entry is a no-op.
+  #
+  # Mutates the entry directly via `put_in/2` rather than calling
+  # `put_running_control_status/3`, whose guard whitelist only accepts
+  # `[:paused, :working]` (it gates pause/resume control messages, which
+  # `:deactivated` is not).
+  defp deactivate_running_issue(%State{} = state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      nil ->
+        state
+
+      %{control: %{status: :deactivated}} ->
+        # Already deactivated — observed the same label again.
+        state
+
+      %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
+        Logger.info(
+          "Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot"
+        )
+
+        if is_pid(pid) do
+          terminate_task(pid)
+        end
+
+        if is_reference(ref) do
+          Process.demonitor(ref, [:flush])
+        end
+
+        existing_control = Map.get(running_entry, :control, %{})
+
+        new_entry =
+          running_entry
+          |> Map.put(:pid, nil)
+          |> Map.put(:ref, nil)
+          |> Map.put(:control, Map.put(existing_control, :status, :deactivated))
+
+        new_state = %{
+          state
+          | running: Map.put(state.running, issue_id, new_entry),
+            retry_attempts: Map.delete(state.retry_attempts, issue_id)
+        }
+
+        # Drop the id from the publisher's tracked set so in-flight events
+        # from the just-killed codex task don't pass the gate and overwrite
+        # the synthetic 100 bar sample U4 seeds.
+        refresh_tracked_set(new_state)
     end
   end
 

@@ -156,10 +156,11 @@ defmodule Aiur.AgentEvents do
   function so a state-rename is a one-line change.
 
   Mapping:
-    * `:working` — `🟢` actively working
-    * `:paused`  — `⏸️` paused by the operator
-    * `:error`   — `🔴` agent reported an error
-    * `:done`    — `🏁` agent has fully finished
+    * `:working`     — `🟢` actively working
+    * `:paused`      — `⏸️` paused by the operator
+    * `:error`       — `🔴` agent reported an error
+    * `:done`        — `🏁` agent has fully finished (turn-completion broadcast reason)
+    * `:deactivated` — `🏁` agent has stopped working for this iteration; ticket lives at 100% awaiting reactivation (PR comment, chat input, pause/resume, or label flip back to an active state)
     * anything else (queued, idle, unknown) — `⚫` no live work state
   """
   @spec state_emoji(atom() | String.t() | nil) :: String.t()
@@ -171,6 +172,8 @@ defmodule Aiur.AgentEvents do
   def state_emoji("error"), do: "🔴"
   def state_emoji(:done), do: "🏁"
   def state_emoji("done"), do: "🏁"
+  def state_emoji(:deactivated), do: "🏁"
+  def state_emoji("deactivated"), do: "🏁"
   def state_emoji(_), do: "⚫"
 
   @spec agent_topic(agent_identifier()) :: String.t()
