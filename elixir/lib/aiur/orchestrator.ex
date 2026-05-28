@@ -3300,6 +3300,14 @@ defmodule Aiur.Orchestrator do
   defp default_blockee_subscriptions(blocker_identifier) when is_binary(blocker_identifier) do
     base = "ticket." <> blocker_identifier
 
+    # Topic strings must match what GithubFirehose publishes literally
+    # (Exchange routes by literal segment match). See Aiur.Events.GithubFirehose
+    # `translate/2` clauses for the canonical names:
+    #   PushEvent             -> ticket.<N>.branch.push
+    #   IssuesEvent           -> ticket.<N>.issue.*
+    #   IssueCommentEvent     -> ticket.<N>.issue.commented
+    #   PullRequestEvent      -> ticket.<N>.pr.{opened,merged,closed,…}
+    #   PullRequestReviewComment -> ticket.<N>.pr.review_comment
     [
       base <> ".branch.push",
       base <> ".branch.force-push",
@@ -3309,7 +3317,7 @@ defmodule Aiur.Orchestrator do
       base <> ".agent.blocked",
       base <> ".agent.unblocked",
       base <> ".agent.attention.*",
-      base <> ".issue.comment.posted"
+      base <> ".issue.commented"
     ]
   end
 

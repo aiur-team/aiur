@@ -108,8 +108,12 @@ defmodule Aiur.AgentRunner do
 
     topics = [
       {"system." <> base_branch <> ".branch.push", "base_branch:auto"},
-      {"ticket." <> identifier <> ".issue.comment.posted", "own_comments:auto"},
-      {"ticket." <> identifier <> ".pr.comment.posted", "own_comments:auto"}
+      # Topic names match what GithubFirehose actually publishes:
+      # `.issue.commented` (IssueCommentEvent) and `.pr.review_comment`
+      # (PullRequestReviewCommentEvent). Exchange routes by literal
+      # segment match, so the strings must align exactly.
+      {"ticket." <> identifier <> ".issue.commented", "own_comments:auto"},
+      {"ticket." <> identifier <> ".pr.review_comment", "own_comments:auto"}
     ]
 
     Enum.each(topics, fn {topic, reason} ->
@@ -816,8 +820,25 @@ defmodule Aiur.AgentRunner do
   defp maybe_wrap_external_content(text, _event), do: text
 
   defp wrap_external(text, author) do
-    attr = if is_binary(author) and author != "", do: " author=\"#{author}\"", else: ""
+    attr =
+      if is_binary(author) and author != "",
+        do: " author=\"#{html_attr_escape(author)}\"",
+        else: ""
+
     "<external-content source=\"github\"#{attr}>#{text}</external-content>"
+  end
+
+  # The author login comes from GitHub. The standard charset is
+  # `[A-Za-z0-9-]` with no `"` allowed, but an attacker who controls a
+  # GitHub login claim (or any future code path that synthesizes the
+  # field) could embed quote / angle / ampersand characters. Escape
+  # defensively so the attribute boundary always holds.
+  defp html_attr_escape(value) do
+    value
+    |> String.replace("&", "&amp;")
+    |> String.replace("\"", "&quot;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
   end
 
   defp send_control_state(recipient, %Issue{id: issue_id}, status)

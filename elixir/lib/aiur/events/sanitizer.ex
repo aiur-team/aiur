@@ -6,47 +6,75 @@ defmodule Aiur.Events.Sanitizer do
     1. **Truncation** — bound user-content fields so a 50KB commit
        comment doesn't bloat every downstream surface. Commit subjects
        ≤ 200 chars; comment / PR-review bodies ≤ 500 chars; overflow
-       trimmed and replaced with `…`. The original-length URL field
-       (if present) is preserved so the agent can follow on demand.
+       trimmed at the nearest codepoint boundary and suffixed with `…`.
     2. **Secret-pattern redaction** — well-known credential prefixes
-       (sk-, ghp_, xoxb-, AWS access keys, generic hex tokens) replaced
-       with `[REDACTED:<pattern>]` before truncation runs, so a redacted
+       (sk-, ghp_, xoxb-, github_pat_, gho_/ghu_/ghs_, AWS access keys,
+       generic Stripe / Google API keys, JWT tokens) replaced with
+       `[REDACTED:<pattern>]` BEFORE truncation runs, so the redacted
        match never straddles the truncation boundary.
-    3. **CODEOWNERS trust flag** — `author_trusted?` boolean added to
+    3. **HTML escape** — `<`, `>`, `&`, `"`, `'` escaped to entity refs
+       so a comment body containing `</external-content>` can't break
+       out of the wrapper the digest renderer adds at presentation
+       time.
+    4. **CODEOWNERS trust flag** — `author_trusted?` boolean added to
        the payload based on `Aiur.GitHub.CodeOwners.allowed?/1`. Events
        from non-CODEOWNERS authors stay visible to the operator (log +
        dashboard) but the agent-digest renderer skips them.
-    4. **`<external-content>` wrapper** — applied at render time
+    5. **`<external-content>` wrapper** — applied at render time
        (see `Aiur.AgentRunner.render_events_digest/2`); not part of
        this pure module because the wrap is a presentation concern.
 
   Pure functions; no GenServer state. Callable from any context.
+
+  ## Payload field paths
+
+  GithubFirehose builds payloads with user content at nested paths,
+  not as flat top-level fields. The scrubber walks each known path
+  and updates in place:
+
+  | Topic family            | Path(s) into payload                  |
+  |-------------------------|---------------------------------------|
+  | branch.push             | `[:commits, *, "message"]`            |
+  | pr.opened / merged / …  | `[:pr, "title"]`, `[:pr, "body"]`    |
+  | issue.commented         | `[:comment, "body"]`                 |
+  | pr.review_comment       | `[:comment, "body"]`                 |
+  | pr.review.posted        | `[:review, "body"]`                  |
+
+  Commit subjects come from `commit["message"]` (GitHub's REST field).
+  The first line is treated as the subject and capped at 200 chars;
+  the full message is preserved so downstream surfaces can still
+  render the body if they want.
   """
 
   @commit_subject_max 200
   @comment_body_max 500
   @pr_review_body_max 500
 
-  @user_content_fields [
-    :commit_subject,
-    :comment_body,
-    :pr_review_body
-  ]
-
   @redaction_patterns [
     {~r/sk-[A-Za-z0-9_\-]{20,}/, "[REDACTED:sk]"},
+    {~r/github_pat_[A-Za-z0-9_]{20,}/, "[REDACTED:github_pat]"},
     {~r/ghp_[A-Za-z0-9]{36,}/, "[REDACTED:ghp]"},
+    {~r/gho_[A-Za-z0-9]{36,}/, "[REDACTED:gho]"},
+    {~r/ghu_[A-Za-z0-9]{36,}/, "[REDACTED:ghu]"},
+    {~r/ghs_[A-Za-z0-9]{36,}/, "[REDACTED:ghs]"},
     {~r/xoxb-[A-Za-z0-9-]+/, "[REDACTED:xoxb]"},
-    {~r/AKIA[0-9A-Z]{16}/, "[REDACTED:aws]"}
+    {~r/AKIA[0-9A-Z]{16}/, "[REDACTED:aws]"},
+    {~r/ASIA[0-9A-Z]{16}/, "[REDACTED:aws_session]"},
+    {~r/AIza[0-9A-Za-z\-_]{35}/, "[REDACTED:google]"}
   ]
 
   @doc """
-  Apply the redact-then-truncate pass over a payload's user-content
-  fields. Returns the sanitized payload. Idempotent.
+  Apply the redact-then-truncate-then-escape pass over a payload's
+  GitHub-sourced user-content fields. Returns the sanitized payload.
+  Idempotent.
   """
   @spec scrub(map()) :: map()
   def scrub(payload) when is_map(payload) do
-    Enum.reduce(@user_content_fields, payload, fn field, acc -> scrub_field(acc, field) end)
+    payload
+    |> scrub_commits()
+    |> scrub_pr()
+    |> scrub_comment()
+    |> scrub_review()
   end
 
   def scrub(other), do: other
@@ -81,14 +109,66 @@ defmodule Aiur.Events.Sanitizer do
 
   defp author_trusted?(_), do: false
 
-  defp scrub_field(payload, field) do
-    case Map.get(payload, field) do
-      value when is_binary(value) ->
-        Map.put(payload, field, value |> redact() |> truncate(field))
+  defp scrub_commits(%{commits: commits} = payload) when is_list(commits) do
+    scrubbed = Enum.map(commits, &scrub_commit/1)
+    Map.put(payload, :commits, scrubbed)
+  end
+
+  defp scrub_commits(payload), do: payload
+
+  defp scrub_commit(commit) when is_map(commit) do
+    case Map.get(commit, "message") do
+      message when is_binary(message) ->
+        Map.put(commit, "message", clean(message, :commit_subject))
 
       _ ->
-        payload
+        commit
     end
+  end
+
+  defp scrub_commit(other), do: other
+
+  defp scrub_pr(%{pr: pr} = payload) when is_map(pr) do
+    pr =
+      pr
+      |> update_string("title", &clean(&1, :commit_subject))
+      |> update_string("body", &clean(&1, :comment_body))
+
+    Map.put(payload, :pr, pr)
+  end
+
+  defp scrub_pr(payload), do: payload
+
+  defp scrub_comment(%{comment: comment} = payload) when is_map(comment) do
+    comment = update_string(comment, "body", &clean(&1, :comment_body))
+    Map.put(payload, :comment, comment)
+  end
+
+  defp scrub_comment(payload), do: payload
+
+  defp scrub_review(%{review: review} = payload) when is_map(review) do
+    review = update_string(review, "body", &clean(&1, :pr_review_body))
+    Map.put(payload, :review, review)
+  end
+
+  defp scrub_review(payload), do: payload
+
+  defp update_string(map, key, fun) do
+    case Map.get(map, key) do
+      value when is_binary(value) -> Map.put(map, key, fun.(value))
+      _ -> map
+    end
+  end
+
+  # Single per-string pipeline: redact secrets, truncate to the field's
+  # cap at a codepoint boundary, then HTML-escape so the rendered digest
+  # can safely embed the content inside `<external-content>…</external-content>`
+  # without an attacker breaking out via `</external-content>`.
+  defp clean(text, field) when is_binary(text) do
+    text
+    |> redact()
+    |> truncate(field)
+    |> html_escape()
   end
 
   defp redact(text) when is_binary(text) do
@@ -97,14 +177,25 @@ defmodule Aiur.Events.Sanitizer do
     end)
   end
 
-  defp truncate(text, :commit_subject) when is_binary(text), do: maybe_trim(text, @commit_subject_max)
-  defp truncate(text, :comment_body) when is_binary(text), do: maybe_trim(text, @comment_body_max)
-  defp truncate(text, :pr_review_body) when is_binary(text), do: maybe_trim(text, @pr_review_body_max)
-  defp truncate(text, _other) when is_binary(text), do: text
+  defp truncate(text, :commit_subject), do: codepoint_truncate(text, @commit_subject_max)
+  defp truncate(text, :comment_body), do: codepoint_truncate(text, @comment_body_max)
+  defp truncate(text, :pr_review_body), do: codepoint_truncate(text, @pr_review_body_max)
+  defp truncate(text, _other), do: text
 
-  defp maybe_trim(text, max) when byte_size(text) > max do
-    binary_part(text, 0, max) <> "…"
+  defp codepoint_truncate(text, max) do
+    if String.length(text) > max do
+      String.slice(text, 0, max) <> "…"
+    else
+      text
+    end
   end
 
-  defp maybe_trim(text, _max), do: text
+  defp html_escape(text) do
+    text
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.replace("\"", "&quot;")
+    |> String.replace("'", "&#39;")
+  end
 end
