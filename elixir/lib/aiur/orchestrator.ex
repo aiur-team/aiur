@@ -757,11 +757,13 @@ defmodule Aiur.Orchestrator do
 
       state =
         Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
+          auto_subscribe_for_dependency(issue, current_blockers[blocker_id])
           enqueue_dependency_event(state_acc, issue, current_blockers[blocker_id], :dependency_added)
         end)
 
       state =
         Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
+          auto_unsubscribe_for_dependency(issue, previous_blockers[blocker_id])
           enqueue_dependency_event(state_acc, issue, previous_blockers[blocker_id], :dependency_removed)
         end)
 
@@ -3207,4 +3209,81 @@ defmodule Aiur.Orchestrator do
   defp event_sort_key(%{id: id}) when is_integer(id), do: id
   defp event_sort_key(%{"id" => id}) when is_integer(id), do: id
   defp event_sort_key(_), do: 0
+
+  # Plan U4: when the orchestrator's poll observes a new blocker on
+  # `issue.blocked_by`, asymmetrically auto-subscribe both sides:
+  # - blockee subscribes to the actionable subset of the blocker's events
+  # - blocker subscribes to blockee's block-state events only
+  # See origin: docs/brainstorms/2026-05-24-aiur-event-publishing-
+  # subscriptions-requirements.md (Subscriptions section). Idempotent via
+  # SubscriptionStore.add_subscription's existing duplicate short-circuit.
+  defp auto_subscribe_for_dependency(blockee, blocker) when is_map(blocker) do
+    with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
+      attach_and_subscribe(blockee_identifier, default_blockee_subscriptions(blocker_identifier), "blocker:auto")
+      attach_and_subscribe(blocker_identifier, default_blocker_subscriptions(blockee_identifier), "blockee:auto")
+    end
+
+    :ok
+  end
+
+  defp auto_subscribe_for_dependency(_blockee, _blocker), do: :ok
+
+  defp auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
+    with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
+      remove_auto_subscriptions(blockee_identifier, default_blockee_subscriptions(blocker_identifier), "blocker:auto")
+      remove_auto_subscriptions(blocker_identifier, default_blocker_subscriptions(blockee_identifier), "blockee:auto")
+    end
+
+    :ok
+  end
+
+  defp auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
+
+  defp attach_and_subscribe(identifier, topics, reason) do
+    :ok = Aiur.Events.SubscriptionStore.attach(identifier)
+
+    Enum.each(topics, fn topic ->
+      _ = Aiur.Events.SubscriptionStore.add_subscription(identifier, topic, reason)
+    end)
+  end
+
+  defp remove_auto_subscriptions(identifier, topics, expected_reason) do
+    Enum.each(topics, fn topic ->
+      _ = Aiur.Events.SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
+    end)
+  end
+
+  defp default_blockee_subscriptions(blocker_identifier) when is_binary(blocker_identifier) do
+    base = "ticket." <> blocker_identifier
+
+    [
+      base <> ".branch.push",
+      base <> ".branch.force-push",
+      base <> ".pr.opened",
+      base <> ".pr.merged",
+      base <> ".agent.decision.*",
+      base <> ".agent.blocked",
+      base <> ".agent.unblocked",
+      base <> ".agent.attention.*",
+      base <> ".issue.comment.posted"
+    ]
+  end
+
+  defp default_blocker_subscriptions(blockee_identifier) when is_binary(blockee_identifier) do
+    base = "ticket." <> blockee_identifier
+
+    [
+      base <> ".agent.blocked",
+      base <> ".agent.unblocked"
+    ]
+  end
+
+  defp blockee_identifier_for(%Issue{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp blockee_identifier_for(_), do: nil
+
+  defp blocker_identifier_for(%{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
+  defp blocker_identifier_for(_), do: nil
 end

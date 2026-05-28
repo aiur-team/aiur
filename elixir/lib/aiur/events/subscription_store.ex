@@ -137,6 +137,19 @@ defmodule Aiur.Events.SubscriptionStore do
   end
 
   @doc """
+  Remove an existing subscription only if its recorded `reason` matches
+  `expected_reason`. Used by the orchestrator's auto-subscribe path
+  (Plan U4) so a `:dependency_removed` event tears down the auto-added
+  `blocker:auto` / `blockee:auto` entries without accidentally dropping
+  a manual subscription on the same topic.
+  """
+  @spec remove_subscription(String.t(), String.t(), String.t()) :: :ok
+  def remove_subscription(identifier, topic, expected_reason)
+      when is_binary(identifier) and is_binary(topic) and is_binary(expected_reason) do
+    GenServer.call(via(identifier), {:remove_subscription, topic, expected_reason})
+  end
+
+  @doc """
   Advances `last_seen_event_id` to `last_id` if it's larger than the
   current value. Monotonic; never rewinds.
   """
@@ -224,6 +237,20 @@ defmodule Aiur.Events.SubscriptionStore do
 
   def handle_call({:remove_subscription, topic}, _from, state) do
     case Enum.find(state.subscribed_to, &(&1["topic"] == topic)) do
+      nil ->
+        {:reply, :ok, state}
+
+      _entry ->
+        updated = Enum.reject(state.subscribed_to, &(&1["topic"] == topic))
+        new_state = %{state | subscribed_to: updated}
+        :ok = persist(new_state)
+        :ok = Exchange.unsubscribe(topic)
+        {:reply, :ok, new_state}
+    end
+  end
+
+  def handle_call({:remove_subscription, topic, expected_reason}, _from, state) do
+    case Enum.find(state.subscribed_to, &(&1["topic"] == topic and &1["reason"] == expected_reason)) do
       nil ->
         {:reply, :ok, state}
 
