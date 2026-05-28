@@ -129,17 +129,64 @@ defmodule Aiur.IssueLog do
   end
 
   defp parse_event_line(line) do
-    case Regex.run(~r/\A([0-9T:\-\.Z]+) \[event:([a-z_]+)\] id=(\d+) ([^:\s]+)(?:: (.*))?\z/, line) do
-      [_, ts, kind, id_str, topic, summary] ->
-        %{kind: kind, id: String.to_integer(id_str), topic: topic, ts: ts, summary: summary || ""}
+    # Matches the optional `src=…` / `trust=…` flag segments between
+    # `id=…` and the topic. Flags are surfaced as fields on the parsed
+    # event so U2 bootstrap replays carry the same author_trusted? +
+    # source signal that U7's render-side filter and `<external-content>`
+    # wrapper depend on (a missing flag is treated as untrusted /
+    # non-github respectively).
+    case Regex.run(
+           ~r/\A([0-9T:\-\.Z]+) \[event:([a-z_]+)\] id=(\d+)((?: \w+=[^\s]+)*) ([^:\s]+)(?:: (.*))?\z/,
+           line
+         ) do
+      [_, ts, kind, id_str, flag_segment, topic, summary] ->
+        build_parsed_event(ts, kind, id_str, flag_segment, topic, summary)
 
-      [_, ts, kind, id_str, topic] ->
-        %{kind: kind, id: String.to_integer(id_str), topic: topic, ts: ts, summary: ""}
+      [_, ts, kind, id_str, flag_segment, topic] ->
+        build_parsed_event(ts, kind, id_str, flag_segment, topic, "")
 
       _ ->
         nil
     end
   end
+
+  defp build_parsed_event(ts, kind, id_str, flag_segment, topic, summary) do
+    flags = parse_flags(flag_segment)
+
+    %{
+      kind: kind,
+      id: String.to_integer(id_str),
+      topic: topic,
+      ts: ts,
+      summary: summary || "",
+      source: Map.get(flags, "src") |> maybe_atomize_source(),
+      author_trusted?: Map.get(flags, "trust") |> maybe_atomize_bool()
+    }
+  end
+
+  defp parse_flags(flag_segment) when is_binary(flag_segment) do
+    flag_segment
+    |> String.split(" ", trim: true)
+    |> Enum.flat_map(fn token ->
+      case String.split(token, "=", parts: 2) do
+        [k, v] -> [{k, v}]
+        _ -> []
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp parse_flags(_), do: %{}
+
+  defp maybe_atomize_source(nil), do: nil
+  defp maybe_atomize_source("github"), do: :github
+  defp maybe_atomize_source(other) when is_binary(other), do: other
+  defp maybe_atomize_source(_), do: nil
+
+  defp maybe_atomize_bool(nil), do: nil
+  defp maybe_atomize_bool("true"), do: true
+  defp maybe_atomize_bool("false"), do: false
+  defp maybe_atomize_bool(_), do: nil
 
   defp parse_line(line) do
     case Regex.run(~r/\A([0-9T:\-\.Z]+) \[([a-z]+)\] (.*)\z/, line) do
@@ -309,14 +356,38 @@ defmodule Aiur.IssueLog do
   end
 
   defp format_event_marker(kind, event) do
-    ts = timestamp(event)
-    id = Map.get(event, :id) || Map.get(event, "id") || ""
-    topic = Map.get(event, :topic) || Map.get(event, "topic") || ""
-    msg = Map.get(event, "message") || Map.get(event, :message) || ""
-
-    "#{ts} [event:#{kind}] id=#{id} #{topic}" <>
-      if(msg != "", do: ": " <> summarize(to_string(msg)), else: "") <> "\n"
+    "#{timestamp(event)} [event:#{kind}] id=#{event_field(event, :id, "")}" <>
+      flag_segment(event) <>
+      " #{event_field(event, :topic, "")}" <>
+      message_suffix(event) <>
+      "\n"
   end
+
+  defp event_field(event, key, default) do
+    Map.get(event, key) || Map.get(event, Atom.to_string(key)) || default
+  end
+
+  # `src=`/`trust=` are appended in a fixed order before the `topic`
+  # so `Aiur.IssueLog.event_history/2` can reconstruct the security-
+  # sensitive flags on bootstrap. Without them, U2 replays would
+  # bypass the U7 CODEOWNERS filter and `<external-content>` wrapper.
+  defp flag_segment(event) do
+    flags =
+      []
+      |> append_flag("src", event_field(event, :source, nil))
+      |> append_flag("trust", event_field(event, :author_trusted?, nil))
+      |> Enum.join(" ")
+
+    if flags == "", do: "", else: " " <> flags
+  end
+
+  defp message_suffix(event) do
+    msg = event_field(event, :message, "")
+    if msg == "", do: "", else: ": " <> summarize(to_string(msg))
+  end
+
+  defp append_flag(acc, _name, nil), do: acc
+  defp append_flag(acc, name, value), do: acc ++ ["#{name}=#{value}"]
 
   defp format_log_line(role, body, identifier) do
     "[#{tag_for_role(role)}] (##{identifier}) #{summarize(body)}"

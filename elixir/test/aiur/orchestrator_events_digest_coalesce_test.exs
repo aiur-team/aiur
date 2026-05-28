@@ -1,6 +1,6 @@
 defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
   @moduledoc """
-  Plan U1: pending `:events_digest` queue items for the same identifier
+  Drain-time coalesce: pending `:events_digest` queue items for the same identifier
   fold into a single delivery at drain checkpoint. Per-event granularity
   stays at the enqueue boundary (one queue item per publish) so
   `[event:consumed]` markers and cursor advance still see each event;

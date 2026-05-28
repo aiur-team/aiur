@@ -1,7 +1,7 @@
 defmodule Aiur.Events.Sanitizer do
   @moduledoc """
-  Plan U7. Four-layer scrub of GitHub-sourced event payloads before they
-  reach any consumer (per-issue log, dashboard panel, agent digest):
+  Four-layer scrub of GitHub-sourced event payloads before they reach
+  any consumer (per-issue log, dashboard panel, agent digest):
 
     1. **Truncation** — bound user-content fields so a 50KB commit
        comment doesn't bloat every downstream surface. Commit subjects

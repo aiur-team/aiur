@@ -1,6 +1,6 @@
 defmodule Aiur.OrchestratorAutoSubscribeTest do
   @moduledoc """
-  Plan U4: when the orchestrator's poll observes a `blocked_by` change,
+  Asymmetric auto-subscribe: when the orchestrator's poll observes a `blocked_by` change,
   asymmetric auto-subscriptions are added (added blocker -> blockee gets
   default subset, blocker gets blockee's block-state) or removed
   (removed blocker tears down the auto-added entries scoped by reason).

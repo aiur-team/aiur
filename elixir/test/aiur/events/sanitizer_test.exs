@@ -1,6 +1,6 @@
 defmodule Aiur.Events.SanitizerTest do
   @moduledoc """
-  Plan U7. `Aiur.Events.Sanitizer` is pure functional — no GenServer,
+  `Aiur.Events.Sanitizer` is pure functional — no GenServer,
   no I/O. Covers redaction + truncation + HTML-escape interactions over
   the nested payload shapes GithubFirehose actually publishes (commits,
   pr.body/title, comment.body, review.body) plus the CODEOWNERS author

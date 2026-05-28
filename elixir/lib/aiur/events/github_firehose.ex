@@ -84,8 +84,8 @@ defmodule Aiur.Events.GithubFirehose do
         :ignored
 
       {topic, payload, publish_opts} ->
-        # Plan U7: scrub user-content (truncate + redact + html-escape)
-        # and stamp the CODEOWNERS trust flag + `source: :github` BEFORE
+        # Scrub user-content (truncate + redact + html-escape) and
+        # stamp the CODEOWNERS trust flag + `source: :github` BEFORE
         # publish. Sanitization is universal for truncation/redaction;
         # the agent-digest renderer reads `author_trusted?` to decide
         # whether to surface the event to the agent prompt (operator-

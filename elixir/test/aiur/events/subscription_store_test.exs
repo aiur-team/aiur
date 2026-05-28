@@ -63,7 +63,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       assert [%{"topic" => "ticket.42.#"}] = json["subscribed_to"]
     end
 
-    test "idempotent: re-add updates reason but preserves floor", %{identifier: id} do
+    test "idempotent: re-add preserves both reason and floor (first-write-wins)", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)
       :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "first")
       [entry1] = SubscriptionStore.snapshot(id).subscribed_to
@@ -75,7 +75,10 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "second")
       [entry2] = SubscriptionStore.snapshot(id).subscribed_to
 
-      assert entry2["reason"] == "second"
+      # First write wins on both reason and floor — overwriting either
+      # would let an auto-sub pass clobber a manual claim and break
+      # reason-scoped removal.
+      assert entry2["reason"] == "first"
       assert entry2["subscription_created_at_event_id"] == floor1
     end
   end

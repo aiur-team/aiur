@@ -1777,7 +1777,7 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc """
-  Plan U3: claim ONLY events_digest queue items whose events include at
+  Mid-turn drain: claim ONLY events_digest queue items whose events include at
   least one blocker-critical topic from a direct blocker of `issue_identifier`.
   Used by `Aiur.AgentRunner.safe_checkpoint_handler/2` to drain blocker-
   critical events into the running turn as `<aiur:events urgent="true">`
@@ -1923,6 +1923,37 @@ defmodule Aiur.Orchestrator do
     body = %{
       summary: event_digest_summary(event),
       events: [event]
+    }
+
+    {queue_store, item} =
+      AgentQueue.coordination_event(identifier, :events_digest, body, source: :system)
+      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+    next_state = %{state | queue_store: queue_store}
+
+    case find_running_by_identifier(state.running, identifier) do
+      nil ->
+        :ok
+
+      running_entry ->
+        notify_running_queue_update(running_entry, item)
+    end
+
+    {:reply, :ok, next_state}
+  end
+
+  # Bootstrap-digest batched enqueue: a single queue item carries every missed
+  # event in one queue item. Previously the runner looped N
+  # GenServer.call(:enqueue_event_digest), blocking the orchestrator's
+  # mailbox in series — a long-offline agent with hundreds of missed
+  # events stalled every other agent's claim/poll/dispatch behind it.
+  # U1's coalesce path still folds this digest at drain time with any
+  # other events_digest items that landed since.
+  def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
+      when is_binary(identifier) and is_list(events) do
+    body = %{
+      summary: event_digest_summary(%{events: events}),
+      events: events
     }
 
     {queue_store, item} =
@@ -2126,12 +2157,13 @@ defmodule Aiur.Orchestrator do
     {:reply, reply, state}
   end
 
-  # Plan U1: pending `:events_digest` items for the same identifier coalesce
-  # into a single delivery at drain time, so an agent that had three events
-  # subscribed during a long turn sees ONE `<aiur:events>` block, not three
-  # separate ones. Granularity is preserved upstream (one queue item per
-  # publish so `[event:consumed]` markers and cursor advance still reflect
-  # individual events); coalescing happens only at the drain boundary.
+  # Drain-time coalescing: pending `:events_digest` items for the same
+  # identifier fold into a single delivery, so an agent that had three
+  # events subscribed during a long turn sees ONE `<aiur:events>` block,
+  # not three separate ones. Granularity is preserved upstream (one
+  # queue item per publish so `[event:consumed]` markers and cursor
+  # advance still reflect individual events); coalescing happens only
+  # at the drain boundary.
   def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier) do
     {queue_store, item} =
@@ -2152,7 +2184,7 @@ defmodule Aiur.Orchestrator do
     {:reply, reply, state}
   end
 
-  # Plan U3: claim ONLY events_digest queue items whose events include
+  # Mid-turn drain: claim ONLY events_digest queue items whose events include
   # at least one blocker-critical topic from a direct blocker of
   # `issue_identifier`. Delivered mid-turn at safe checkpoints; everything
   # else continues to drain at turn boundary via the regular claim path.
@@ -3206,12 +3238,13 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Plan U1: pending `:events_digest` items for the same identifier coalesce
-  # into a single delivery at drain time, so an agent that had three events
-  # subscribed during a long turn sees ONE `<aiur:events>` block, not three
-  # separate ones. Granularity is preserved upstream (one queue item per
-  # publish so `[event:consumed]` markers and cursor advance still reflect
-  # individual events); coalescing happens only at the drain boundary.
+  # Drain-time coalescing: pending `:events_digest` items for the same
+  # identifier fold into a single delivery, so an agent that had three
+  # events subscribed during a long turn sees ONE `<aiur:events>` block,
+  # not three separate ones. Granularity is preserved upstream (one
+  # queue item per publish so `[event:consumed]` markers and cursor
+  # advance still reflect individual events); coalescing happens only
+  # at the drain boundary.
   defp coalesce_events_digests(queue_store, issue_identifier, first_item) do
     do_coalesce_events_digests(queue_store, issue_identifier, first_item)
   end
@@ -3252,7 +3285,7 @@ defmodule Aiur.Orchestrator do
   defp event_sort_key(%{"id" => id}) when is_integer(id), do: id
   defp event_sort_key(_), do: 0
 
-  # Plan U4: when the orchestrator's poll observes a new blocker on
+  # Asymmetric auto-subscribe: when the orchestrator's poll observes a new blocker on
   # `issue.blocked_by`, asymmetrically auto-subscribe both sides:
   # - blockee subscribes to the actionable subset of the blocker's events
   # - blocker subscribes to blockee's block-state events only
@@ -3337,7 +3370,7 @@ defmodule Aiur.Orchestrator do
   defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
   defp blocker_identifier_for(_), do: nil
 
-  # Plan U3 helpers.
+  # Mid-turn-drain helpers.
   defp direct_blockers_for(%State{last_polled_issues: polled}, identifier)
        when is_map(polled) do
     case Enum.find(polled, fn {_id, %Issue{identifier: i}} -> i == identifier end) do

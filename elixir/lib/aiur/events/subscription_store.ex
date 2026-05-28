@@ -139,7 +139,7 @@ defmodule Aiur.Events.SubscriptionStore do
   @doc """
   Remove an existing subscription only if its recorded `reason` matches
   `expected_reason`. Used by the orchestrator's auto-subscribe path
-  (Plan U4) so a `:dependency_removed` event tears down the auto-added
+  so a `:dependency_removed` event tears down the auto-added
   `blocker:auto` / `blockee:auto` entries without accidentally dropping
   a manual subscription on the same topic.
   """
@@ -372,11 +372,6 @@ defmodule Aiur.Events.SubscriptionStore do
     _ = persist(state)
     :ok
   end
-
-  defp update_reason(%{"topic" => topic} = entry, topic, reason),
-    do: Map.put(entry, "reason", reason)
-
-  defp update_reason(entry, _topic, _reason), do: entry
 
   defp via(identifier), do: {:via, Registry, {@registry, identifier}}
 

@@ -1,6 +1,6 @@
 defmodule Aiur.IssueLogEventHistoryTest do
   @moduledoc """
-  Plan U2 dependency: `Aiur.IssueLog.event_history/2` parses
+  Bootstrap-digest dependency: `Aiur.IssueLog.event_history/2` parses
   `[event:emit]` / `[event:emit_alert]` / `[event:self]` / `[event:consumed]`
   lines from the on-disk per-issue log into partial event maps. Used by
   `AgentRunner.maybe_enqueue_bootstrap_digest/1` to build the bootstrap
@@ -100,5 +100,21 @@ defmodule Aiur.IssueLogEventHistoryTest do
     events = Aiur.IssueLog.event_history(id)
 
     assert [%{id: 5, topic: "ticket.99.branch.push", summary: ""}] = events
+  end
+
+  test "parses src= and trust= flags into typed event fields", %{identifier: id} do
+    write_log(id, [
+      "2026-05-27T10:00:00Z [event:emit] id=7 src=github trust=true ticket.99.issue.commented: comment body",
+      "2026-05-27T10:00:01Z [event:emit] id=8 src=github trust=false ticket.99.issue.commented: comment body",
+      "2026-05-27T10:00:02Z [event:emit] id=9 ticket.99.branch.push: push abc"
+    ])
+
+    events = Aiur.IssueLog.event_history(id)
+
+    assert [
+             %{id: 7, source: :github, author_trusted?: true},
+             %{id: 8, source: :github, author_trusted?: false},
+             %{id: 9, source: nil, author_trusted?: nil}
+           ] = events
   end
 end
