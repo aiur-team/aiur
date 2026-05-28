@@ -225,7 +225,7 @@ defmodule Aiur.AgentList.Renderer do
          "🟢  agent actively working — pane ready to open",
          "⏸️  agent paused by operator",
          "🔴  agent in error state",
-         "🏁  agent fully finished",
+         "🏁  awaiting human review — space or chat to reactivate",
          "⚫  agent waiting (queued, idle, or label only)"
        ]},
       {"Tips",

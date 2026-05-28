@@ -367,4 +367,77 @@ defmodule Aiur.AgentList.AppTest do
     App.activate(app)
     assert_receive {:mock_open, "MT-B", "echo open MT-B"}, 500
   end
+
+  describe "deactivated state visibility" do
+    test "deactivated summaries stay in the list and get a synthetic 100 progress sample", %{app: app} do
+      send_running_change(app, [
+        AgentEvents.agent_summary("DA-WORK", :running, 0, %{work_state: :working}),
+        AgentEvents.agent_summary("DA-DEACT", :running, 0, %{work_state: :deactivated})
+      ])
+
+      assert_receive {:rendered, _output}, 500
+
+      snapshot = App.snapshot(app)
+
+      # Both rows visible in summaries (no compaction drop).
+      identifiers = Enum.map(snapshot.summaries, & &1.identifier)
+      assert "DA-WORK" in identifiers
+      assert "DA-DEACT" in identifiers
+
+      # Synthetic 100 sample seeded for the :deactivated row.
+      progress_samples = Map.get(snapshot.progress_by_id, "DA-DEACT", [])
+      assert match?([{100, _ts} | _], progress_samples)
+
+      # :working row gets no synthetic seed (still empty unless it
+      # has emitted one).
+      assert Map.get(snapshot.progress_by_id, "DA-WORK", []) == []
+    end
+
+    test "agents_with_content preserved across :working → :deactivated transition", %{app: app} do
+      send_running_change(app, [
+        AgentEvents.agent_summary("DA-CONTENT", :running, 0, %{work_state: :working})
+      ])
+
+      assert_receive {:rendered, _}, 500
+
+      # Promote to 'has content' via the chat_active broadcast.
+      send(GenServer.whereis(app), {:agent_chat_active, "DA-CONTENT"})
+
+      wait_until(fn ->
+        snapshot = App.snapshot(app)
+        MapSet.member?(snapshot.agents_with_content, "DA-CONTENT")
+      end)
+
+      # Now flip the same id to :deactivated. The ⚪ glyph state
+      # (agents_with_content membership) must survive.
+      send_running_change(app, [
+        AgentEvents.agent_summary("DA-CONTENT", :running, 0, %{work_state: :deactivated})
+      ])
+
+      assert_receive {:rendered, _}, 500
+
+      snapshot = App.snapshot(app)
+      assert MapSet.member?(snapshot.agents_with_content, "DA-CONTENT")
+    end
+
+    test "running map of only :deactivated rows still shows them all", %{app: app} do
+      send_running_change(app, [
+        AgentEvents.agent_summary("DA-1", :running, 0, %{work_state: :deactivated}),
+        AgentEvents.agent_summary("DA-2", :running, 0, %{work_state: :deactivated}),
+        AgentEvents.agent_summary("DA-3", :running, 0, %{work_state: :deactivated})
+      ])
+
+      assert_receive {:rendered, _}, 500
+
+      snapshot = App.snapshot(app)
+      identifiers = Enum.map(snapshot.summaries, & &1.identifier)
+
+      assert Enum.sort(identifiers) == ["DA-1", "DA-2", "DA-3"]
+
+      # All three have a synthetic 100 sample.
+      for id <- identifiers do
+        assert match?([{100, _ts} | _], Map.get(snapshot.progress_by_id, id, []))
+      end
+    end
+  end
 end

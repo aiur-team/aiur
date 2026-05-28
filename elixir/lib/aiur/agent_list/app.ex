@@ -478,38 +478,70 @@ defmodule Aiur.AgentList.App do
     selection_focus = if state.summaries == [] and summaries != [], do: :agents, else: state.selection_focus
     new_state = clamp_selection(%{state | summaries: summaries, selection_focus: selection_focus})
 
-    # Tell AttachPool which identifiers should have warm opencode-
-    # attach panes ready. Paused agents (`work_state == :paused`) are
-    # still status=:running per the orchestrator's view — they kept
-    # their slot during pause. Exclude them so AttachPool frees the
-    # slot for newly-queued agents the user starts in their place.
-    active_ids =
+    # Two derived sets:
+    #
+    # - `visible_ids` (every :running summary): drives per-id map
+    #   compaction. `:deactivated` rows stay in the AgentList so their
+    #   bar / latest / attention chips survive across the human-review
+    #   transition.
+    # - `slot_ids` (visible minus :paused minus :deactivated): drives
+    #   AttachPool seeding so the warmed opencode pane is released for
+    #   `:paused` and `:deactivated` rows. AttachPool reclaims their
+    #   slot for newly-queued agents the user starts in their place.
+    visible_ids =
+      summaries
+      |> Enum.filter(fn s -> Map.get(s, :status) == :running end)
+      |> Enum.map(&Map.get(&1, :identifier))
+      |> Enum.reject(&is_nil/1)
+
+    slot_ids =
       summaries
       |> Enum.filter(fn s ->
-        Map.get(s, :status) == :running and not paused_summary?(s)
+        Map.get(s, :status) == :running and
+          not paused_summary?(s) and
+          not deactivated_summary?(s)
       end)
       |> Enum.map(&Map.get(&1, :identifier))
       |> Enum.reject(&is_nil/1)
 
-    _ = safely_seed_attach_pool(active_ids)
-    # Trim `agents_with_content` so a stopped agent doesn't keep its
-    # ⚪ glyph if it returns later — it'll re-earn ⚪ on the next
-    # transcript event after re-dispatch.
-    active_set = MapSet.new(Enum.map(active_ids, &to_string/1))
+    _ = safely_seed_attach_pool(slot_ids)
+
+    visible_set = MapSet.new(Enum.map(visible_ids, &to_string/1))
+
+    # Seed a synthetic (100, now) progress sample for every
+    # `:deactivated` summary that doesn't already have a 100-percent
+    # head. Covers two cases:
+    #   - Live `:working → :deactivated` transitions where the agent
+    #     never emitted a 100% sample (U1's prompt fixes this going
+    #     forward, but pre-U1 agents and complexity:1 fast-paths may
+    #     still flip the label without an explicit emit).
+    #   - Boot-revived `:deactivated` entries (U6) that have never
+    #     emitted any progress samples at all.
+    progress_by_id =
+      seed_deactivated_progress_samples(
+        Map.take(new_state.progress_by_id, MapSet.to_list(visible_set)),
+        summaries
+      )
 
     new_state = %{
       new_state
-      | agents_with_content: MapSet.intersection(new_state.agents_with_content, active_set),
+      | # Trim `agents_with_content` so a stopped agent doesn't keep
+        # its ⚪ glyph if it returns later — it'll re-earn ⚪ on the
+        # next transcript event after re-dispatch. Use visible_set so
+        # `:deactivated` rows preserve the ⚪ glyph they earned while
+        # working.
+        agents_with_content: MapSet.intersection(new_state.agents_with_content, visible_set),
         # Refresh the `❗` counts from SubscriptionStore on every
         # running_changed — agents come and go infrequently enough
         # that polling here beats threading a separate broadcast
         # through the attention-emit path.
-        open_attentions_by_id: refresh_open_attentions(active_set),
-        # Trim Latest column entries to the active set too; a stale
-        # entry for an issue that's no longer tracked just wastes
-        # row space and is misleading.
-        latest_event_by_id: Map.take(new_state.latest_event_by_id, MapSet.to_list(active_set)),
-        progress_by_id: Map.take(new_state.progress_by_id, MapSet.to_list(active_set))
+        open_attentions_by_id: refresh_open_attentions(visible_set),
+        # Trim Latest column entries to visible_set so `:deactivated`
+        # rows keep their most-recent event message; a stale entry for
+        # an id that's no longer running just wastes row space and is
+        # misleading.
+        latest_event_by_id: Map.take(new_state.latest_event_by_id, MapSet.to_list(visible_set)),
+        progress_by_id: progress_by_id
     }
 
     render(new_state)
@@ -910,6 +942,45 @@ defmodule Aiur.AgentList.App do
     Map.get(summary, :work_state) in [:paused, "paused"]
   end
 
+  defp deactivated_summary?(summary) do
+    Map.get(summary, :work_state) in [:deactivated, "deactivated"]
+  end
+
+  # For each `:deactivated` summary, ensure its `progress_by_id` ring
+  # contains a 100-percent sample as the head. Inserts via
+  # `Aiur.ProgressTracker.record/3`, which dedups by monotonic time —
+  # repeated insertions of the same 100 sample do not accumulate.
+  defp seed_deactivated_progress_samples(progress_by_id, summaries) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    Enum.reduce(summaries, progress_by_id, fn summary, acc ->
+      maybe_seed_deactivated_sample(summary, acc, now_ms)
+    end)
+  end
+
+  defp maybe_seed_deactivated_sample(summary, progress_by_id, now_ms) do
+    id = Map.get(summary, :identifier)
+
+    cond do
+      not deactivated_summary?(summary) ->
+        progress_by_id
+
+      not is_binary(id) ->
+        progress_by_id
+
+      head_at_100?(Map.get(progress_by_id, id)) ->
+        progress_by_id
+
+      true ->
+        existing = Map.get(progress_by_id, id, [])
+        updated = Aiur.ProgressTracker.record(existing, 100, now_ms)
+        Map.put(progress_by_id, id, updated)
+    end
+  end
+
+  defp head_at_100?([{100, _ts} | _]), do: true
+  defp head_at_100?(_), do: false
+
   defp toggle_selected_agent_pause(%{selection_focus: :agents} = state) do
     state.summaries
     |> Enum.at(state.selection_index)
@@ -1016,6 +1087,11 @@ defmodule Aiur.AgentList.App do
       :paused -> 1
       # 🔴 error — surface above queued but below healthy
       :error -> 2
+      # 🏁 deactivated (awaiting human review) — finished work, lives
+      # at 100% green; same bucket as :error so 🏁 sits between active
+      # work and the catch-all (a later iteration may sink 🏁 to the
+      # bottom — see plan scope "Deferred for later").
+      :deactivated -> 2
       _ -> 3
     end
   end
