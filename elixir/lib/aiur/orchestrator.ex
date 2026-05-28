@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
-  alias Aiur.Events.{GithubFirehose, Publisher}
+  alias Aiur.Events.{GithubFirehose, Publisher, SubscriptionStore}
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -3315,16 +3315,16 @@ defmodule Aiur.Orchestrator do
   defp auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
 
   defp attach_and_subscribe(identifier, topics, reason) do
-    :ok = Aiur.Events.SubscriptionStore.attach(identifier)
+    :ok = SubscriptionStore.attach(identifier)
 
     Enum.each(topics, fn topic ->
-      _ = Aiur.Events.SubscriptionStore.add_subscription(identifier, topic, reason)
+      _ = SubscriptionStore.add_subscription(identifier, topic, reason)
     end)
   end
 
   defp remove_auto_subscriptions(identifier, topics, expected_reason) do
     Enum.each(topics, fn topic ->
-      _ = Aiur.Events.SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
+      _ = SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
     end)
   end
 

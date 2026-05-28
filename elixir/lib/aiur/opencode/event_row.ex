@@ -113,8 +113,6 @@ defmodule Aiur.Opencode.EventRow do
 
   # ── Topic → verb phrase ────────────────────────────────────────────
 
-  defp verb_phrase(topic, body \\ nil)
-
   defp verb_phrase("ticket." <> rest, body) do
     case String.split(rest, ".", parts: 2) do
       [_id, suffix] -> phrase_for_suffix_with_body(suffix, body) || phrase_for_suffix(suffix)
@@ -134,11 +132,6 @@ defmodule Aiur.Opencode.EventRow do
   defp phrase_for_suffix("agent.blocked"), do: "declared itself blocked"
   defp phrase_for_suffix("agent.error.tokens_exhausted"), do: "ran out of tokens"
 
-  # Hook for verb phrases that depend on payload contents (e.g., to
-  # disambiguate semantically-different payloads under one topic).
-  # Default fall-through is nil so the standard phrase wins.
-  defp phrase_for_suffix_with_body(_suffix, _body), do: nil
-
   defp phrase_for_suffix("issue.label.added.agent." <> state),
     do: "was labeled #{state}"
 
@@ -153,6 +146,11 @@ defmodule Aiur.Opencode.EventRow do
   defp phrase_for_suffix("agent." <> name), do: "emitted #{name}"
 
   defp phrase_for_suffix(other), do: other
+
+  # Hook for verb phrases that depend on payload contents (e.g., to
+  # disambiguate semantically-different payloads under one topic).
+  # Default fall-through is nil so the standard phrase wins.
+  defp phrase_for_suffix_with_body(_suffix, _body), do: nil
 
   # ── Body summary suffix ────────────────────────────────────────────
 
@@ -205,11 +203,9 @@ defmodule Aiur.Opencode.EventRow do
   defp get_path(_other, _path), do: nil
 
   defp safe_atom_lookup(map, key) when is_binary(key) do
-    try do
-      Map.get(map, String.to_existing_atom(key))
-    rescue
-      ArgumentError -> nil
-    end
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 
   defp normalize_text(text) when is_binary(text) do

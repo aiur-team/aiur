@@ -21,7 +21,7 @@ defmodule Aiur.AgentRunner do
   }
 
   alias Aiur.Codex.DynamicTool
-  alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore}
+  alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore, Topic}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Opencode.{ActiveTurns, ApiClient, Protocol, SessionWriterRegistry}
 
@@ -84,7 +84,7 @@ defmodule Aiur.AgentRunner do
   # an issue log today; they're listed in the residual risks (operator-
   # facing system events can't be replayed on restart yet).
   defp maybe_enqueue_bootstrap_digest(%Issue{identifier: identifier}) when is_binary(identifier) do
-    snapshot = Aiur.Events.SubscriptionStore.snapshot(identifier)
+    snapshot = SubscriptionStore.snapshot(identifier)
 
     case snapshot do
       %{last_seen_event_id: cursor, subscribed_to: subs} when is_integer(cursor) and subs != [] ->
@@ -107,7 +107,7 @@ defmodule Aiur.AgentRunner do
   # `add_subscription/3` short-circuits on duplicate so this is idempotent
   # across restarts. Reasons: `base_branch:auto`, `own_comments:auto`.
   defp maybe_attach_universal_subscriptions(%Issue{identifier: identifier}) when is_binary(identifier) do
-    :ok = Aiur.Events.SubscriptionStore.attach(identifier)
+    :ok = SubscriptionStore.attach(identifier)
 
     base_branch = base_branch_name()
 
@@ -122,7 +122,7 @@ defmodule Aiur.AgentRunner do
     ]
 
     Enum.each(topics, fn {topic, reason} ->
-      _ = Aiur.Events.SubscriptionStore.add_subscription(identifier, topic, reason)
+      _ = SubscriptionStore.add_subscription(identifier, topic, reason)
     end)
 
     :ok
@@ -181,7 +181,7 @@ defmodule Aiur.AgentRunner do
 
   defp matches_any_pattern?(topic, patterns) when is_binary(topic) do
     Enum.any?(patterns, fn pattern ->
-      is_binary(pattern) and Aiur.Events.Topic.matches?(pattern, topic)
+      is_binary(pattern) and Topic.matches?(pattern, topic)
     end)
   end
 

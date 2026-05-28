@@ -1,4 +1,6 @@
 defmodule Aiur.Events.Sanitizer do
+  alias Aiur.GitHub.CodeOwners
+
   @moduledoc """
   Four-layer scrub of GitHub-sourced event payloads before they reach
   any consumer (per-issue log, dashboard panel, agent digest):
@@ -96,15 +98,13 @@ defmodule Aiur.Events.Sanitizer do
   defp author_trusted?(nil), do: false
 
   defp author_trusted?(author) when is_binary(author) do
-    if Process.whereis(Aiur.GitHub.CodeOwners) do
-      try do
-        Aiur.GitHub.CodeOwners.allowed?(author)
-      catch
-        :exit, _ -> false
-      end
+    if Process.whereis(CodeOwners) do
+      CodeOwners.allowed?(author)
     else
       false
     end
+  catch
+    :exit, _ -> false
   end
 
   defp author_trusted?(_), do: false
