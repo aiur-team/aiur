@@ -110,6 +110,74 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert_receive {:published, "ticket.101.branch.push", _, _}, 500
   end
 
+  test "aiur/<id>-<slug> workaround branches still route to ticket.<id>.branch.push",
+       %{publisher: publisher} do
+    parent = self()
+
+    {:ok, agent} = Agent.start_link(fn -> {:ok, %{}} end)
+
+    ls_remote_fun = fn _remote, _patterns ->
+      send(parent, :polled)
+      Agent.get(agent, & &1)
+    end
+
+    {:ok, pid} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: ls_remote_fun,
+        publisher: publisher,
+        repo: "owner/aiur",
+        start_paused?: true
+      )
+
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    # An agent that hit GitHub's auto-delete-on-close branch will
+    # invent a workaround branch like aiur/99-pr. The regex must still
+    # extract the ticket id so the blockee's auto-resume fires.
+    Agent.update(agent, fn _ ->
+      {:ok, %{"refs/heads/aiur/99-pr" => "sha-workaround"}}
+    end)
+
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    assert_receive {:published, "ticket.99.branch.push", payload, opts}, 500
+    assert payload.ref == "refs/heads/aiur/99-pr"
+    assert opts[:issue_number] == "99"
+  end
+
+  test "non-numeric branch suffix (aiur/abc) is NOT treated as a ticket push",
+       %{publisher: publisher} do
+    parent = self()
+
+    {:ok, agent} = Agent.start_link(fn -> {:ok, %{}} end)
+
+    ls_remote_fun = fn _remote, _patterns ->
+      send(parent, :polled)
+      Agent.get(agent, & &1)
+    end
+
+    {:ok, pid} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: ls_remote_fun,
+        publisher: publisher,
+        repo: "owner/aiur",
+        start_paused?: true
+      )
+
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/abc" => "shaA"}} end)
+    send(pid, :tick)
+    assert_receive :polled, 500
+
+    refute_receive {:published, "ticket." <> _rest, _, _}, 200
+  end
+
   test "system branch (non-aiur ref) publishes to system.<branch>.branch.push", %{
     publisher: publisher
   } do

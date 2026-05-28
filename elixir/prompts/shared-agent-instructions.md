@@ -112,15 +112,17 @@ Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for 
 
 ### Dev loop
 
-Branch off the latest `main` and run this loop:
+The branch already exists when your workspace boots: it is exactly `aiur/<issue-number>`. Do not invent a new branch name, do not append a slug, do not rename. If a previously-closed PR exists for `aiur/<N>`, push to the same branch anyway and open a **new** PR (`gh pr create --head aiur/<N>`). GitHub allows multiple PRs against the same head ref over time; closed PRs do not block new ones. Inventing a workaround branch like `aiur/<N>-pr` breaks Aiur's blocker→blockee push detection because the canonical `branch.push` event is keyed on `aiur/<N>` — downstream blockees waiting on you will never wake.
+
+Run this loop:
 
 1. Implement
 2. Add / update / run tests
 3. Build
 4. Lint (with autofix)
 5. Commit using short, 3–7 word messages
-6. Push
-7. **Open the PR as a draft** (not ready for review yet)
+6. Push to `origin aiur/<issue-number>` — the same branch your workspace was set up on
+7. **Open the PR as a draft** with `--head aiur/<issue-number>` (not ready for review yet)
 8. **Self-review the draft PR with `ce-code-review`** against the diff you just pushed
 9. Implement any issues `ce-code-review` surfaces (commit + push the fixes)
 10. If you still believe the work is complete and correct, **mark the PR ready for review** and add the `agent:human-review` label

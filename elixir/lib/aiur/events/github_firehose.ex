@@ -210,8 +210,14 @@ defmodule Aiur.Events.GithubFirehose do
   defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
   defp pr_topic(_id, _action, _merged), do: nil
 
+  # Match `aiur/<id>` AND `aiur/<id>-<slug>` / `aiur/<id>/<slug>` so an
+  # agent's `aiur/99-pr` workaround branch (which it may invent when
+  # GitHub's auto-delete-on-close removed the canonical `aiur/99` ref)
+  # still routes to ticket 99's branch.push topic. Mirrors the regex
+  # in `Aiur.Events.LsRemoteTicker.ref_to_topic/1` so both push
+  # detectors classify identical refs identically.
   defp ref_to_topic(ref) when is_binary(ref) do
-    case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
+    case Regex.run(~r{\Arefs/heads/aiur/(\d+)(?:[-_/].*)?\z}, ref) do
       [_, id] ->
         {:ticket, id, "ticket.#{id}.branch.push"}
 

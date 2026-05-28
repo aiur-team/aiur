@@ -133,6 +133,12 @@ defmodule Aiur.Events.LsRemoteTicker do
       Enum.each(current_refs, &maybe_publish_change(state, &1, repo))
       %{state | refs: current_refs}
     else
+      # First successful tick: log so an operator can tell the ticker
+      # is alive AND see the ref baseline it locked in. Silent ticker
+      # is indistinguishable from a dead one in production, which
+      # masked the first --test3 regression hunt.
+      Logger.info("aiur_perf ls_remote_ticker phase=bootstrap_done refs=#{map_size(current_refs)} remote=#{state.remote} pattern=#{state.ref_pattern}")
+
       %{state | refs: current_refs, bootstrapped?: true}
     end
   end
@@ -151,11 +157,15 @@ defmodule Aiur.Events.LsRemoteTicker do
   defp publish_push(state, ref, sha, repo) do
     case ref_to_topic(ref) do
       {:ticket, id, topic} ->
+        Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic} ticket=#{id}")
+
         payload = %{ref: ref, sha: sha, actor: nil, commits: [], repo: repo}
         publish_opts = build_publish_opts(repo, ref, sha, issue_number: id)
         do_publish(state, topic, payload, publish_opts)
 
       {:system, topic} ->
+        Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
+
         payload = %{ref: ref, sha: sha, actor: nil, commits: [], repo: repo}
         do_publish(state, topic, payload, build_publish_opts(repo, ref, sha))
 
@@ -187,8 +197,14 @@ defmodule Aiur.Events.LsRemoteTicker do
     fun.(topic, payload, opts)
   end
 
+  # Match `aiur/<id>` AND `aiur/<id>-<slug>` / `aiur/<id>/<slug>` so an
+  # agent's `aiur/99-pr` workaround branch (which it may invent when
+  # GitHub's auto-delete-on-close removed the canonical `aiur/99` ref)
+  # still routes to ticket 99's auto-resume hook. The id is anchored
+  # to digits; a separator (`-`, `_`, `/`) must follow if any slug is
+  # present, so `aiur/123x` never matches as ticket 123.
   defp ref_to_topic(ref) when is_binary(ref) do
-    case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
+    case Regex.run(~r{\Arefs/heads/aiur/(\d+)(?:[-_/].*)?\z}, ref) do
       [_, id] ->
         {:ticket, id, "ticket.#{id}.branch.push"}
 
