@@ -19,6 +19,19 @@ defmodule Aiur.Opencode.EventRow do
   alias Aiur.Opencode.Style
 
   @body_summary_keys ~w(message title summary subject name label commit_message)
+
+  # GithubFirehose payloads keep user content under nested maps —
+  # `:comment.body` for issue/PR comments, `:pr.title`/`:pr.body` for
+  # PRs, `:review.body` for reviews, `:commits[*].message` for pushes.
+  # Walk these in order so the ticker row surfaces the actual content
+  # instead of "got an issue comment" with no quoted text.
+  @nested_body_paths [
+    [:comment, "body"],
+    [:review, "body"],
+    [:pr, "title"],
+    [:pr, "body"]
+  ]
+
   @body_summary_max 120
 
   @doc """
@@ -71,11 +84,11 @@ defmodule Aiur.Opencode.EventRow do
   # ── Per-kind sentence builders ─────────────────────────────────────
 
   defp publish_sentence(topic, source_id, body, rendering_identifier) do
-    "📤 " <> subject(source_id, rendering_identifier) <> verb_phrase(topic) <> summary_suffix(body)
+    "📤 " <> subject(source_id, rendering_identifier) <> verb_phrase(topic, body) <> summary_suffix(body)
   end
 
   defp receive_sentence(topic, source_id, body) do
-    "📥 " <> subject(source_id, nil) <> verb_phrase(topic) <> summary_suffix(body)
+    "📥 " <> subject(source_id, nil) <> verb_phrase(topic, body) <> summary_suffix(body)
   end
 
   defp read_sentence(topic, source_id) do
@@ -100,14 +113,16 @@ defmodule Aiur.Opencode.EventRow do
 
   # ── Topic → verb phrase ────────────────────────────────────────────
 
-  defp verb_phrase("ticket." <> rest) do
+  defp verb_phrase(topic, body \\ nil)
+
+  defp verb_phrase("ticket." <> rest, body) do
     case String.split(rest, ".", parts: 2) do
-      [_id, suffix] -> phrase_for_suffix(suffix)
+      [_id, suffix] -> phrase_for_suffix_with_body(suffix, body) || phrase_for_suffix(suffix)
       _ -> rest
     end
   end
 
-  defp verb_phrase(topic), do: topic
+  defp verb_phrase(topic, _body), do: topic
 
   defp phrase_for_suffix("pr.opened"), do: "opened a PR"
   defp phrase_for_suffix("pr.merged"), do: "merged its PR"
@@ -118,6 +133,11 @@ defmodule Aiur.Opencode.EventRow do
   defp phrase_for_suffix("agent.unpaused"), do: "was resumed"
   defp phrase_for_suffix("agent.blocked"), do: "declared itself blocked"
   defp phrase_for_suffix("agent.error.tokens_exhausted"), do: "ran out of tokens"
+
+  # Hook for verb phrases that depend on payload contents (e.g., to
+  # disambiguate semantically-different payloads under one topic).
+  # Default fall-through is nil so the standard phrase wins.
+  defp phrase_for_suffix_with_body(_suffix, _body), do: nil
 
   defp phrase_for_suffix("issue.label.added.agent." <> state),
     do: "was labeled #{state}"
@@ -137,7 +157,7 @@ defmodule Aiur.Opencode.EventRow do
   # ── Body summary suffix ────────────────────────────────────────────
 
   defp summary_suffix(body) when is_map(body) do
-    case first_present_string(body, @body_summary_keys) do
+    case extract_body_text(body) do
       nil -> ""
       text -> ": \"#{truncate(text, @body_summary_max)}\""
     end
@@ -145,18 +165,61 @@ defmodule Aiur.Opencode.EventRow do
 
   defp summary_suffix(_), do: ""
 
+  # Walk the top-level @body_summary_keys first (where event-payload
+  # writers put `:message`, `:summary`, etc.), then fall through to
+  # the nested paths GithubFirehose's payload uses (comment.body,
+  # pr.title, pr.body, review.body). Returns the first non-empty
+  # binary or nil.
+  defp extract_body_text(map) do
+    first_present_string(map, @body_summary_keys) || first_present_nested(map, @nested_body_paths)
+  end
+
   defp first_present_string(map, keys) do
     Enum.find_value(keys, fn key ->
       raw = Map.get(map, key) || Map.get(map, String.to_atom(key))
-
-      with text when is_binary(text) <- raw,
-           trimmed when trimmed != "" <- String.trim(text) do
-        trimmed
-      else
-        _ -> nil
-      end
+      normalize_text(raw)
     end)
   end
+
+  defp first_present_nested(map, paths) do
+    Enum.find_value(paths, fn path -> map |> get_path(path) |> normalize_text() end)
+  end
+
+  defp get_path(map, []) when is_map(map), do: nil
+  defp get_path(nil, _path), do: nil
+
+  defp get_path(map, [key | rest]) when is_map(map) do
+    value =
+      cond do
+        is_atom(key) -> Map.get(map, key) || Map.get(map, Atom.to_string(key))
+        is_binary(key) -> Map.get(map, key) || safe_atom_lookup(map, key)
+        true -> nil
+      end
+
+    case rest do
+      [] -> value
+      _ -> get_path(value, rest)
+    end
+  end
+
+  defp get_path(_other, _path), do: nil
+
+  defp safe_atom_lookup(map, key) when is_binary(key) do
+    try do
+      Map.get(map, String.to_existing_atom(key))
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp normalize_text(text) when is_binary(text) do
+    case String.trim(text) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_text(_), do: nil
 
   # Codepoint-safe truncation — `binary_part` could cut a multi-byte
   # UTF-8 character in half and produce invalid binary.
