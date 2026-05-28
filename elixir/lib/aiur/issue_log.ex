@@ -91,6 +91,103 @@ defmodule Aiur.IssueLog do
     end
   end
 
+  @doc """
+  Parse `[event:emit]` / `[event:emit_alert]` / `[event:self]` / `[event:consumed]`
+  lines from the per-issue log. Returns a list of partial event maps with
+  `id`, `topic`, `kind`, `summary`, `ts` fields. Used by `Aiur.AgentRunner`
+  to build the bootstrap digest on agent (re)start — events with
+  `id > last_seen_event_id` represent activity the agent missed while
+  inactive.
+
+  Options:
+    * `:since_id` — only return events with `id > since_id` (default 0)
+    * `:kinds` — list of kinds to include (default `[:emit, :emit_alert]`)
+    * `:limit` — max number of returned events (default `@history_limit`)
+  """
+  @spec event_history(AgentEvents.agent_identifier(), keyword()) :: [map()]
+  def event_history(identifier, opts \\ []) when is_binary(identifier) do
+    since_id = Keyword.get(opts, :since_id, 0)
+    kinds = Keyword.get(opts, :kinds, [:emit, :emit_alert])
+    limit = Keyword.get(opts, :limit, @history_limit)
+    kind_set = MapSet.new(Enum.map(kinds, &Atom.to_string/1))
+    path = log_path(identifier)
+
+    case File.read(path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse_event_line/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.filter(fn ev ->
+          MapSet.member?(kind_set, ev.kind) and is_integer(ev.id) and ev.id > since_id
+        end)
+        |> Enum.take(-limit)
+
+      _ ->
+        []
+    end
+  end
+
+  defp parse_event_line(line) do
+    # Matches the optional `src=…` / `trust=…` flag segments between
+    # `id=…` and the topic. Flags are surfaced as fields on the parsed
+    # event so bootstrap replays carry the same `author_trusted?` +
+    # `source` signal that the render-side filter and `<external-content>`
+    # wrapper depend on (a missing flag is treated as untrusted /
+    # non-github respectively).
+    case Regex.run(
+           ~r/\A([0-9T:\-\.Z]+) \[event:([a-z_]+)\] id=(\d+)((?: \w+=[^\s]+)*) ([^:\s]+)(?:: (.*))?\z/,
+           line
+         ) do
+      [_, ts, kind, id_str, flag_segment, topic, summary] ->
+        build_parsed_event(ts, kind, id_str, flag_segment, topic, summary)
+
+      [_, ts, kind, id_str, flag_segment, topic] ->
+        build_parsed_event(ts, kind, id_str, flag_segment, topic, "")
+
+      _ ->
+        nil
+    end
+  end
+
+  defp build_parsed_event(ts, kind, id_str, flag_segment, topic, summary) do
+    flags = parse_flags(flag_segment)
+
+    %{
+      kind: kind,
+      id: String.to_integer(id_str),
+      topic: topic,
+      ts: ts,
+      summary: summary,
+      source: flags |> Map.get("src") |> maybe_atomize_source(),
+      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool()
+    }
+  end
+
+  defp parse_flags(flag_segment) when is_binary(flag_segment) do
+    flag_segment
+    |> String.split(" ", trim: true)
+    |> Enum.flat_map(fn token ->
+      case String.split(token, "=", parts: 2) do
+        [k, v] -> [{k, v}]
+        _ -> []
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp parse_flags(_), do: %{}
+
+  defp maybe_atomize_source(nil), do: nil
+  defp maybe_atomize_source("github"), do: :github
+  defp maybe_atomize_source(other) when is_binary(other), do: other
+  defp maybe_atomize_source(_), do: nil
+
+  defp maybe_atomize_bool(nil), do: nil
+  defp maybe_atomize_bool("true"), do: true
+  defp maybe_atomize_bool("false"), do: false
+  defp maybe_atomize_bool(_), do: nil
+
   defp parse_line(line) do
     case Regex.run(~r/\A([0-9T:\-\.Z]+) \[([a-z]+)\] (.*)\z/, line) do
       [_, _ts, tag, body] ->
@@ -259,14 +356,38 @@ defmodule Aiur.IssueLog do
   end
 
   defp format_event_marker(kind, event) do
-    ts = timestamp(event)
-    id = Map.get(event, :id) || Map.get(event, "id") || ""
-    topic = Map.get(event, :topic) || Map.get(event, "topic") || ""
-    msg = Map.get(event, "message") || Map.get(event, :message) || ""
-
-    "#{ts} [event:#{kind}] id=#{id} #{topic}" <>
-      if(msg != "", do: ": " <> summarize(to_string(msg)), else: "") <> "\n"
+    "#{timestamp(event)} [event:#{kind}] id=#{event_field(event, :id, "")}" <>
+      flag_segment(event) <>
+      " #{event_field(event, :topic, "")}" <>
+      message_suffix(event) <>
+      "\n"
   end
+
+  defp event_field(event, key, default) do
+    Map.get(event, key) || Map.get(event, Atom.to_string(key)) || default
+  end
+
+  # `src=`/`trust=` are appended in a fixed order before the `topic`
+  # so `Aiur.IssueLog.event_history/2` can reconstruct the security-
+  # sensitive flags on bootstrap. Without them, U2 replays would
+  # bypass the U7 CODEOWNERS filter and `<external-content>` wrapper.
+  defp flag_segment(event) do
+    flags =
+      []
+      |> append_flag("src", event_field(event, :source, nil))
+      |> append_flag("trust", event_field(event, :author_trusted?, nil))
+      |> Enum.join(" ")
+
+    if flags == "", do: "", else: " " <> flags
+  end
+
+  defp message_suffix(event) do
+    msg = event_field(event, :message, "")
+    if msg == "", do: "", else: ": " <> summarize(to_string(msg))
+  end
+
+  defp append_flag(acc, _name, nil), do: acc
+  defp append_flag(acc, name, value), do: acc ++ ["#{name}=#{value}"]
 
   defp format_log_line(role, body, identifier) do
     "[#{tag_for_role(role)}] (##{identifier}) #{summarize(body)}"

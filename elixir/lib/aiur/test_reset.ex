@@ -379,26 +379,80 @@ defmodule Aiur.TestReset do
   end
 
   defp delete_remote_branch(id) do
-    branch = "aiur/#{id}"
+    # Agents sometimes create suffix-variant branches (e.g.,
+    # `aiur/99-event-flow-1`) instead of the canonical `aiur/<id>`. The
+    # reset has to delete ALL of them so a re-run starts clean. Walk
+    # remote refs matching `aiur/<id>` AND `aiur/<id>-*`.
+    branches = list_remote_branches_for(id)
 
+    if branches == [] do
+      ok("##{id} remote branch already gone")
+    else
+      Enum.each(branches, &delete_one_remote_branch(id, &1))
+    end
+  end
+
+  defp list_remote_branches_for(id) do
+    pattern = "refs/heads/aiur/#{id}*"
+
+    case System.cmd("git", ["ls-remote", "--heads", "origin", pattern], stderr_to_stdout: true) do
+      {output, 0} -> parse_remote_branches(id, output)
+      _ -> []
+    end
+  end
+
+  defp parse_remote_branches(id, output) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.flat_map(&extract_branch_from_ls_remote_line(id, &1))
+  end
+
+  defp extract_branch_from_ls_remote_line(id, line) do
+    case String.split(line, "refs/heads/", parts: 2) do
+      [_, branch] -> filter_id_match(id, String.trim(branch))
+      _ -> []
+    end
+  end
+
+  # `git ls-remote --heads origin refs/heads/aiur/99*` could match
+  # `aiur/999` (different ticket). Tighten to exact + dash-suffix.
+  defp filter_id_match(id, "aiur/" <> rest) do
+    cond do
+      rest == to_string(id) -> ["aiur/#{id}"]
+      String.starts_with?(rest, "#{id}-") -> ["aiur/#{rest}"]
+      true -> []
+    end
+  end
+
+  defp filter_id_match(_id, _branch), do: []
+
+  defp delete_one_remote_branch(id, branch) do
     case System.cmd("git", ["push", "origin", "--delete", branch], stderr_to_stdout: true) do
       {_, 0} ->
-        ok("##{id} remote branch deleted")
+        ok("##{id} remote branch #{branch} deleted")
 
       {output, _} ->
         if String.contains?(output, "remote ref does not exist") do
-          ok("##{id} remote branch already gone")
+          :ok
         else
-          warn("##{id} remote branch: #{String.trim(output)}")
+          warn("##{id} remote branch #{branch}: #{String.trim(output)}")
         end
     end
   end
 
   defp close_open_pr(id) do
-    branch = "aiur/#{id}"
+    # Close PRs targeting any branch in `aiur/<id>` and any `aiur/<id>-*`
+    # suffix variant. `gh pr close <branch>` resolves the branch name to
+    # the open PR head; safe to call when no PR exists (silent no-op).
+    case list_remote_branches_for(id) do
+      [] -> close_pr_for_branch(id, "aiur/#{id}")
+      branches -> Enum.each(branches, &close_pr_for_branch(id, &1))
+    end
+  end
 
+  defp close_pr_for_branch(id, branch) do
     case System.cmd("gh", ["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true) do
-      {_, 0} -> ok("##{id} PR closed")
+      {_, 0} -> ok("##{id} PR on #{branch} closed")
       {_, _} -> :ok
     end
   end

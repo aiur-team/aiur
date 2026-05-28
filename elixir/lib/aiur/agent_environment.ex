@@ -26,4 +26,50 @@ defmodule Aiur.AgentEnvironment do
       "esac; " <>
       "done"
   end
+
+  @doc """
+  Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
+  per-workspace `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS`. The agent
+  inherits these so it does not redeclare them as inline prefixes on every
+  `mix`/`mise` invocation (logs showed 48+ instances of agents inventing
+  variant paths like `/tmp/aiur-100-hex`, `/tmp/aiur-hex`, `/tmp/hex-100`
+  across one session — wasting 20-30s per agent on env+trust setup).
+
+  Returns an empty list when `workspace` is not a binary so callers can splat
+  the result into Port.open env opts unconditionally.
+  """
+  @spec workspace_env(any()) :: [{charlist(), charlist()}]
+  def workspace_env(workspace) when is_binary(workspace) do
+    hex = Path.join(workspace, ".aiur-hex")
+    mix = Path.join(workspace, ".aiur-mix")
+    mise = Path.join([workspace, "elixir", "mise.toml"])
+
+    [
+      {~c"HEX_HOME", String.to_charlist(hex)},
+      {~c"MIX_HOME", String.to_charlist(mix)},
+      {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(mise)}
+    ]
+  end
+
+  def workspace_env(_), do: []
+
+  @doc """
+  Shell-export prefix for the same vars `workspace_env/1` injects into
+  Port.open env. Used by the SSH-launch path which has no `env:` option
+  available — exports are inlined into the remote bash command instead.
+  """
+  @spec workspace_env_export_prefix(any()) :: String.t()
+  def workspace_env_export_prefix(workspace) when is_binary(workspace) do
+    hex = Path.join(workspace, ".aiur-hex")
+    mix = Path.join(workspace, ".aiur-mix")
+    mise = Path.join([workspace, "elixir", "mise.toml"])
+
+    "export HEX_HOME=#{shell_escape(hex)} MIX_HOME=#{shell_escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{shell_escape(mise)}"
+  end
+
+  def workspace_env_export_prefix(_), do: ""
+
+  defp shell_escape(value) when is_binary(value) do
+    "'" <> String.replace(value, "'", "'\\''") <> "'"
+  end
 end

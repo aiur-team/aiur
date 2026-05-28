@@ -26,7 +26,7 @@ Aiur agents on different tickets coordinate through a topic-exchange event bus. 
 
 1. **Events fire between turns, not during them.** When you receive an event from another ticket, it lands in your inbox and is delivered at the next turn boundary (or as an urgent mid-turn drain for blocking-critical events). Don't poll mid-turn — keep working, and trust the inbox.
 2. **Blocking another agent is your highest priority.** If you have an open decision or a stub another ticket is waiting on (you've been declared a blocker via `aiur_declare_blocker`), drop unrelated work and resolve that first. Other tickets are paused on you.
-3. **Temp-unblock yourself with stubs.** If you're blocked on a function from another ticket, write a stub matching the agreed signature, emit `unblocked` against your own ticket with `payload: {temporary_stub: true}`, and keep working. When the real implementation lands, swap the stub.
+3. **Code around the blocker; don't claim unblocked.** If you're blocked on a function or value from another ticket, write a stub matching the agreed signature (or hardcode an obvious placeholder, or carve the call site out behind a feature flag — whatever's safe and quickly reversible) and keep working on the rest of your ticket. Do **not** emit `unblocked` while you're still depending on a workaround — `unblocked` means the real upstream change has landed and you've integrated it. Stay `blocked` in event terms until upstream's `branch.push` arrives and you swap your stub for the real thing; then emit `unblocked` with `payload: {was_blocked_by, mechanism}`.
 4. **You can re-block.** If integrating an upstream change reveals a new blocker, call `aiur_declare_blocker(issue)` again. Aiur tracks dependency state via the GitHub native API; declarations are idempotent.
 5. **Close attentions you open.** Every `emit_event("attention.<slug>", ...)` adds a ❗ to your row in the agent list. The operator sees it and may reply via PR comment. When the question is resolved, emit `attention.resolved` with `payload: {slug: "<the-slug>"}` to clear it. Do not let attentions accumulate.
 6. **Subscribe to more than the defaults when useful.** `aiur_declare_blocker` auto-subscribes you to a useful default subset of the blocker's events. If you also want to watch another ticket's progress (e.g., a sibling working in the same area), call `aiur_subscribe("ticket.<id>.#")` explicitly.
@@ -40,6 +40,10 @@ Event vocabulary (allowlisted — names outside this list are rejected by `emit_
 - `attention.<slug>` — opens an operator ❗; resolved via `attention.resolved` with matching slug
 - `pause.request` — request operator pause your turn at the next checkpoint
 - `custom.<slug>` — anything else (capped at 5 per turn)
+
+### Tooling environment
+
+Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for you, pointing at per-workspace directories. `mise trust` has already been run for the workspace's `mise.toml`. Run `mix` and `mise exec -- mix ...` directly — do not prefix commands with `HEX_HOME=/tmp/...` or `MISE_TRUSTED_CONFIG_PATHS=...`. Inventing your own paths bypasses the pre-warmed Hex cache and forces a re-fetch of every dependency.
 
 ### Dev loop
 
@@ -57,6 +61,8 @@ Branch off the latest `main` and run this loop:
 10. If you still believe the work is complete and correct, **mark the PR ready for review** and add the `agent:human-review` label
 
 Do **not** self-merge. Always await user review after marking the PR ready.
+
+**When you flip the label to `agent:human-review`, your turn loop ends naturally.** Do not keep polling `gh pr view` / `gh issue view` waiting for review comments — that wastes turns. Aiur will resume you when the label flips back to `agent:in-progress` (for rework) or `merging`. If you have nothing left to do on the current turn but the label is still `agent:in-progress` (e.g., you're blocked on an upstream PR merging), emit `pause.request` instead of looping; the operator will see the ❗ and reply when ready.
 
 ### Manual CLI verification before opening a PR
 

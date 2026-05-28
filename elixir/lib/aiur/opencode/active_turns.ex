@@ -83,6 +83,31 @@ defmodule Aiur.Opencode.ActiveTurns do
   end
 
   @doc """
+  Return every `aiur_turn_id` currently in `:active` state for the given
+  `identifier`. Used by `Aiur.Opencode.SessionWriter` on `phase=ready` to
+  catch up on in-flight aiur turns: when a session writer registers after
+  the agent's codex turn has already started (the `--debug` session-resume
+  race — replay takes ~6 s, codex turn fires markers at t=0 and finds
+  zero writers), the writer needs to post a marker to its own session so
+  the bridge sees the new chat-completion request and opens the live
+  stream. Without this, the chat pane gets no live deltas for the rest
+  of the run; content lands via SQL replay only.
+  """
+  @spec active_turn_ids(String.t()) :: [String.t()]
+  def active_turn_ids(identifier) when is_binary(identifier) do
+    ensure_table()
+
+    :ets.foldl(
+      fn
+        {{^identifier, aiur_turn_id}, :active, _pid}, acc -> [aiur_turn_id | acc]
+        _, acc -> acc
+      end,
+      [],
+      @table
+    )
+  end
+
+  @doc """
   Atomically claim the single subscriber slot for `(identifier,
   aiur_turn_id)`. Returns the pid that previously held the slot (or
   `nil` if none). Callers should send the returned pid a `:displaced`

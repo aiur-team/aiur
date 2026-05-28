@@ -1,10 +1,15 @@
 ---
 tracker:
   kind: github
+  # `human-review` is intentionally NOT in active_states: once the agent
+  # flips the label after pushing a PR, its turn loop should end so it
+  # doesn't burn turns polling `gh pr view` / `gh issue view` waiting
+  # for a human review that may take hours. The issue stays open in
+  # GitHub; the orchestrator picks the agent back up when the label
+  # flips back to `agent:in-progress` (rework) or `merging`.
   active_states:
     - todo
     - in-progress
-    - human-review
     - rework
     - merging
   terminal_states:
@@ -28,12 +33,32 @@ hooks:
     git clone https://github.com/its-everdred/aiur.git .
     issue_id="$(basename "$PWD")"
     git checkout -b "aiur/${issue_id}" origin/main
+    mkdir -p ./.aiur-hex ./.aiur-mix
+    if [ -f elixir/mise.toml ]; then
+      mise trust elixir/mise.toml >/dev/null 2>&1 || true
+      mise install >/dev/null 2>&1 || true
+    fi
+    # Warm Hex + dep compile caches so the agent's first `mix` call
+    # doesn't waste 30-60s on cold deps.get + first-time-compile.
+    # Failures are non-fatal: if the workspace can't fetch deps now
+    # (network blip, dep change), the agent's first `mix deps.get`
+    # will pick it up.
+    if [ -f elixir/mix.exs ]; then
+      HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
+        MISE_TRUSTED_CONFIG_PATHS="$PWD/elixir/mise.toml" \
+        bash -c 'cd elixir && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
+        >/dev/null 2>&1 || true
+    fi
   before_run: |
     if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
       git clone https://github.com/its-everdred/aiur.git .
       issue_id="$(basename "$PWD")"
       git checkout -b "aiur/${issue_id}" origin/main
+    fi
+    mkdir -p ./.aiur-hex ./.aiur-mix
+    if [ -f elixir/mise.toml ]; then
+      mise trust elixir/mise.toml >/dev/null 2>&1 || true
     fi
   before_remove: |
     git status --short
@@ -87,7 +112,9 @@ Continuation context:
 ## Required Setup
 
 - Use the local tracker and repository auth already configured for this environment.
-- Work in the current workspace checkout.
+- Work in the current workspace checkout. The `.git` directory IS writable here — do NOT copy it to `.git-writable` (that's a pattern from the GitHub Actions workflow, not this one). Use `git` directly with no `GIT_DIR=...` prefix.
+- `mise exec -- mix` and `mise exec -- rg` work out of the box — `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` are pre-set per workspace and `mise trust` has already been run on the workspace `elixir/mise.toml`. Do not redeclare these env vars on individual commands.
+- For module-only verification (pure function calls, no app supervision needed), use `mix run --no-start -e ...`. Plain `mix run -e ...` tries to start the full Aiur application and fails in agent workspaces (no local `WORKFLOW.md`).
 - For real implementation tickets, branch from `origin/main`, keep changes small, add tests, run compile and lint, push to `origin`, and open a PR.
 - For test tickets that explicitly say not to change code, do not create commits or PRs.
 

@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator do
     AgentEvents,
     AgentPubSub,
     AgentQueue,
+    AgentQueueItem,
     AgentQueueStore,
     AgentRunner,
     Alerts,
@@ -20,7 +21,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
-  alias Aiur.Events.{GithubFirehose, Publisher}
+  alias Aiur.Events.{GithubFirehose, Publisher, SubscriptionStore}
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -757,11 +758,13 @@ defmodule Aiur.Orchestrator do
 
       state =
         Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
+          auto_subscribe_for_dependency(issue, current_blockers[blocker_id])
           enqueue_dependency_event(state_acc, issue, current_blockers[blocker_id], :dependency_added)
         end)
 
       state =
         Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
+          auto_unsubscribe_for_dependency(issue, previous_blockers[blocker_id])
           enqueue_dependency_event(state_acc, issue, previous_blockers[blocker_id], :dependency_removed)
         end)
 
@@ -1774,6 +1777,22 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @doc """
+  Mid-turn drain: claim ONLY events_digest queue items whose events include at
+  least one blocker-critical topic from a direct blocker of `issue_identifier`.
+  Used by `Aiur.AgentRunner.safe_checkpoint_handler/2` to drain blocker-
+  critical events into the running turn as `<aiur:events urgent="true">`
+  before falling back to the regular operator-message queue.
+  """
+  @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_blocker_critical_events_digest(server, issue_identifier)
+      when is_binary(issue_identifier) do
+    GenServer.call(server, {:claim_blocker_critical_events_digest, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec claim_next_operator_queue_item(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_operator_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
@@ -1905,6 +1924,35 @@ defmodule Aiur.Orchestrator do
     body = %{
       summary: event_digest_summary(event),
       events: [event]
+    }
+
+    {queue_store, item} =
+      AgentQueue.coordination_event(identifier, :events_digest, body, source: :system)
+      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+    next_state = %{state | queue_store: queue_store}
+
+    case find_running_by_identifier(state.running, identifier) do
+      nil ->
+        :ok
+
+      running_entry ->
+        notify_running_queue_update(running_entry, item)
+    end
+
+    {:reply, :ok, next_state}
+  end
+
+  # Bootstrap-digest batched enqueue: one queue item carries every
+  # missed event, so a long-offline agent's bootstrap doesn't fan out
+  # into N serial GenServer.calls through the orchestrator mailbox.
+  # The drain-time coalesce path still folds this digest with any
+  # other events_digest items that arrive between enqueue and drain.
+  def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
+      when is_binary(identifier) and is_list(events) do
+    body = %{
+      summary: event_digest_summary(%{events: events}),
+      events: events
     }
 
     {queue_store, item} =
@@ -2087,6 +2135,16 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) when is_binary(issue_identifier) do
     {queue_store, item} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
+
+    {queue_store, item} =
+      case item do
+        %{category: :coordination_event, event_type: :events_digest} ->
+          coalesce_events_digests(queue_store, issue_identifier, item)
+
+        other ->
+          {queue_store, other}
+      end
+
     state = %{state | queue_store: queue_store}
 
     reply =
@@ -2098,6 +2156,13 @@ defmodule Aiur.Orchestrator do
     {:reply, reply, state}
   end
 
+  # Drain-time coalescing: pending `:events_digest` items for the same
+  # identifier fold into a single delivery, so an agent that had three
+  # events subscribed during a long turn sees ONE `<aiur:events>` block,
+  # not three separate ones. Granularity is preserved upstream (one
+  # queue item per publish so `[event:consumed]` markers and cursor
+  # advance still reflect individual events); coalescing happens only
+  # at the drain boundary.
   def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier) do
     {queue_store, item} =
@@ -2113,6 +2178,32 @@ defmodule Aiur.Orchestrator do
       case item do
         nil -> :empty
         _ -> {:ok, item}
+      end
+
+    {:reply, reply, state}
+  end
+
+  # Mid-turn drain: claim ONLY events_digest queue items whose events include
+  # at least one blocker-critical topic from a direct blocker of
+  # `issue_identifier`. Delivered mid-turn at safe checkpoints; everything
+  # else continues to drain at turn boundary via the regular claim path.
+  def handle_call({:claim_blocker_critical_events_digest, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    direct_blockers = direct_blockers_for(state, issue_identifier)
+
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        state.queue_store,
+        issue_identifier,
+        fn item -> blocker_critical_digest?(item, direct_blockers) end
+      )
+
+    state = %{state | queue_store: queue_store}
+
+    reply =
+      case item do
+        nil -> :empty
+        item -> {:ok, item}
       end
 
     {:reply, reply, state}
@@ -3128,4 +3219,203 @@ defmodule Aiur.Orchestrator do
   end
 
   defp integer_like(_value), do: nil
+
+  # Test seam — exposed so unit tests can exercise the coalescing pipeline
+  # without spinning up the full orchestrator GenServer + supervision tree.
+  @doc false
+  @spec coalesce_for_test(AgentQueueStore.t(), String.t()) ::
+          {AgentQueueStore.t(), AgentQueueItem.t() | nil}
+  def coalesce_for_test(queue_store, issue_identifier) when is_binary(issue_identifier) do
+    {queue_store, item} = AgentQueueStore.claim_next_deliverable(queue_store, issue_identifier)
+
+    case item do
+      %{category: :coordination_event, event_type: :events_digest} ->
+        coalesce_events_digests(queue_store, issue_identifier, item)
+
+      other ->
+        {queue_store, other}
+    end
+  end
+
+  # Drain-time coalescing: pending `:events_digest` items for the same
+  # identifier fold into a single delivery, so an agent that had three
+  # events subscribed during a long turn sees ONE `<aiur:events>` block,
+  # not three separate ones. Granularity is preserved upstream (one
+  # queue item per publish so `[event:consumed]` markers and cursor
+  # advance still reflect individual events); coalescing happens only
+  # at the drain boundary.
+  defp coalesce_events_digests(queue_store, issue_identifier, first_item) do
+    do_coalesce_events_digests(queue_store, issue_identifier, first_item)
+  end
+
+  defp do_coalesce_events_digests(queue_store, issue_identifier, acc_item) do
+    {next_store, next_item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        queue_store,
+        issue_identifier,
+        fn item -> match?(%{category: :coordination_event, event_type: :events_digest}, item) end
+      )
+
+    case next_item do
+      nil ->
+        {next_store, acc_item}
+
+      %{} = item ->
+        merged = merge_events_digest_items(acc_item, item)
+        do_coalesce_events_digests(next_store, issue_identifier, merged)
+    end
+  end
+
+  defp merge_events_digest_items(first, next) do
+    first_events = first.body |> Map.get(:events, []) |> List.wrap()
+    next_events = next.body |> Map.get(:events, []) |> List.wrap()
+
+    sorted = Enum.sort_by(first_events ++ next_events, &event_sort_key/1)
+
+    new_body =
+      first.body
+      |> Map.put(:events, sorted)
+      |> Map.put(:summary, event_digest_summary(%{events: sorted}))
+
+    %{first | body: new_body}
+  end
+
+  defp event_sort_key(%{id: id}) when is_integer(id), do: id
+  defp event_sort_key(%{"id" => id}) when is_integer(id), do: id
+  defp event_sort_key(_), do: 0
+
+  # Asymmetric auto-subscribe: when the orchestrator's poll observes a new blocker on
+  # `issue.blocked_by`, asymmetrically auto-subscribe both sides:
+  # - blockee subscribes to the actionable subset of the blocker's events
+  # - blocker subscribes to blockee's block-state events only
+  # See origin: docs/brainstorms/2026-05-24-aiur-event-publishing-
+  # subscriptions-requirements.md (Subscriptions section). Idempotent via
+  # SubscriptionStore.add_subscription's existing duplicate short-circuit.
+  defp auto_subscribe_for_dependency(blockee, blocker) when is_map(blocker) do
+    with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
+      attach_and_subscribe(blockee_identifier, default_blockee_subscriptions(blocker_identifier), "blocker:auto")
+      attach_and_subscribe(blocker_identifier, default_blocker_subscriptions(blockee_identifier), "blockee:auto")
+    end
+
+    :ok
+  end
+
+  defp auto_subscribe_for_dependency(_blockee, _blocker), do: :ok
+
+  defp auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
+    with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
+      remove_auto_subscriptions(blockee_identifier, default_blockee_subscriptions(blocker_identifier), "blocker:auto")
+      remove_auto_subscriptions(blocker_identifier, default_blocker_subscriptions(blockee_identifier), "blockee:auto")
+    end
+
+    :ok
+  end
+
+  defp auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
+
+  defp attach_and_subscribe(identifier, topics, reason) do
+    :ok = SubscriptionStore.attach(identifier)
+
+    Enum.each(topics, fn topic ->
+      _ = SubscriptionStore.add_subscription(identifier, topic, reason)
+    end)
+  end
+
+  defp remove_auto_subscriptions(identifier, topics, expected_reason) do
+    Enum.each(topics, fn topic ->
+      _ = SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
+    end)
+  end
+
+  defp default_blockee_subscriptions(blocker_identifier) when is_binary(blocker_identifier) do
+    base = "ticket." <> blocker_identifier
+
+    # Topic strings must match what GithubFirehose publishes literally
+    # (Exchange routes by literal segment match). See Aiur.Events.GithubFirehose
+    # `translate/2` clauses for the canonical names:
+    #   PushEvent             -> ticket.<N>.branch.push
+    #   IssuesEvent           -> ticket.<N>.issue.*
+    #   IssueCommentEvent     -> ticket.<N>.issue.commented
+    #   PullRequestEvent      -> ticket.<N>.pr.{opened,merged,closed,…}
+    #   PullRequestReviewComment -> ticket.<N>.pr.review_comment
+    [
+      base <> ".branch.push",
+      base <> ".branch.force-push",
+      base <> ".pr.opened",
+      base <> ".pr.merged",
+      base <> ".agent.decision.*",
+      base <> ".agent.blocked",
+      base <> ".agent.unblocked",
+      base <> ".agent.attention.*",
+      base <> ".issue.commented"
+    ]
+  end
+
+  defp default_blocker_subscriptions(blockee_identifier) when is_binary(blockee_identifier) do
+    base = "ticket." <> blockee_identifier
+
+    [
+      base <> ".agent.blocked",
+      base <> ".agent.unblocked"
+    ]
+  end
+
+  defp blockee_identifier_for(%Issue{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp blockee_identifier_for(_), do: nil
+
+  defp blocker_identifier_for(%{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
+  defp blocker_identifier_for(_), do: nil
+
+  # Mid-turn-drain helpers. Returns the list of direct-blocker
+  # identifiers for the running ticket (small — typically 0-3).
+  # Kept as a list rather than a MapSet so the consumer doesn't have
+  # to navigate dialyzer's opaque-type complaints on MapSet.member?.
+  defp direct_blockers_for(%State{last_polled_issues: polled}, identifier)
+       when is_map(polled) do
+    case Enum.find(polled, fn {_id, %Issue{identifier: i}} -> i == identifier end) do
+      {_id, %Issue{} = issue} ->
+        issue
+        |> blocker_map()
+        |> Map.values()
+        |> Enum.map(&blocker_identifier_for/1)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp direct_blockers_for(_state, _identifier), do: []
+
+  defp blocker_critical_digest?(%{category: :coordination_event, event_type: :events_digest, body: body}, direct_blockers) do
+    events = Map.get(body || %{}, :events, [])
+    Enum.any?(events, fn event -> blocker_critical_event?(event, direct_blockers) end)
+  end
+
+  defp blocker_critical_digest?(_item, _direct_blockers), do: false
+
+  defp blocker_critical_event?(event, direct_blockers) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic")
+
+    cond do
+      not is_binary(topic) -> false
+      Enum.empty?(direct_blockers) -> false
+      true -> blocker_critical_topic?(topic, direct_blockers)
+    end
+  end
+
+  defp blocker_critical_event?(_event, _direct_blockers), do: false
+
+  defp blocker_critical_topic?(topic, direct_blockers) do
+    case String.split(topic, ".") do
+      ["ticket", id, "branch", "push"] -> id in direct_blockers
+      ["ticket", id, "branch", "force-push"] -> id in direct_blockers
+      ["ticket", id, "agent", "unblocked"] -> id in direct_blockers
+      ["ticket", id, "agent", "decision", _slug] -> id in direct_blockers
+      _ -> false
+    end
+  end
 end
