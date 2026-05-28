@@ -1,10 +1,15 @@
 ---
 tracker:
   kind: github
+  # `human-review` is intentionally NOT in active_states: once the agent
+  # flips the label after pushing a PR, its turn loop should end so it
+  # doesn't burn turns polling `gh pr view` / `gh issue view` waiting
+  # for a human review that may take hours. The issue stays open in
+  # GitHub; the orchestrator picks the agent back up when the label
+  # flips back to `agent:in-progress` (rework) or `merging`.
   active_states:
     - todo
     - in-progress
-    - human-review
     - rework
     - merging
   terminal_states:

@@ -62,6 +62,8 @@ Branch off the latest `main` and run this loop:
 
 Do **not** self-merge. Always await user review after marking the PR ready.
 
+**When you flip the label to `agent:human-review`, your turn loop ends naturally.** Do not keep polling `gh pr view` / `gh issue view` waiting for review comments — that wastes turns. Aiur will resume you when the label flips back to `agent:in-progress` (for rework) or `merging`. If you have nothing left to do on the current turn but the label is still `agent:in-progress` (e.g., you're blocked on an upstream PR merging), emit `pause.request` instead of looping; the operator will see the ❗ and reply when ready.
+
 ### Manual CLI verification before opening a PR
 
 Before opening the draft PR, run the CLI locally and manually exercise all new functionality end-to-end. If the CLI fails to run, debug and fix the issues — do not skip verification or give up. Only open the draft PR once the requested functionality is confirmed working in the CLI.
