@@ -803,12 +803,13 @@ defmodule Aiur.AgentList.App do
   end
 
   # Map an `event_debug` entry onto the per-id `Latest` column store.
-  # Only `:publish` and `:receive` kinds advance the entry — `:read`
-  # is a downstream marker that doesn't represent a new event landing
-  # on the ticket. Topic shape is `ticket.<id>.<surface>.<verb>`;
-  # anything else (system topics, etc.) is ignored.
-  defp record_latest_event(state, %{kind: kind, topic: topic, body: body})
-       when kind in [:publish, :receive] and is_binary(topic) do
+  # Only `:publish` advances the entry — `:receive` is a fan-out echo
+  # of the same event the publisher already recorded, and `:read` is a
+  # downstream marker that doesn't represent a new event landing on
+  # the ticket. Topic shape is `ticket.<id>.<surface>.<verb>`; anything
+  # else (system topics, etc.) is ignored.
+  defp record_latest_event(state, %{kind: :publish, topic: topic, body: body})
+       when is_binary(topic) do
     case extract_ticket_id(topic) do
       nil ->
         state
