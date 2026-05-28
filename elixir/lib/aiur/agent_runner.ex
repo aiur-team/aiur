@@ -394,6 +394,8 @@ defmodule Aiur.AgentRunner do
     send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = open_aiur_turn_streams(issue)
 
+    :ok = DynamicTool.reset_turn_quotas()
+
     result =
       CodingAgent.run_turn(
         app_session,
@@ -641,6 +643,8 @@ defmodule Aiur.AgentRunner do
 
     send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = open_aiur_turn_streams(issue)
+
+    :ok = DynamicTool.reset_turn_quotas()
 
     result =
       CodingAgent.run_turn(
