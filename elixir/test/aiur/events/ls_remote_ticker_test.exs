@@ -110,7 +110,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert_receive {:published, "ticket.101.branch.push", _, _}, 500
   end
 
-  test "aiur/<id>-<slug> workaround branches still route to ticket.<id>.branch.push",
+  test "non-canonical aiur/<id>-<slug> branches do NOT route to ticket.<id>.branch.push",
        %{publisher: publisher} do
     parent = self()
 
@@ -133,19 +133,27 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     send(pid, :tick)
     assert_receive :polled, 500
 
-    # An agent that hit GitHub's auto-delete-on-close branch will
-    # invent a workaround branch like aiur/99-pr. The regex must still
-    # extract the ticket id so the blockee's auto-resume fires.
+    # The branch-name lock in shared-agent-instructions.md keeps
+    # agents on canonical aiur/<id>. If they invent a workaround
+    # branch (aiur/99-pr, aiur/99-test-fixture, aiur/99/sub) the
+    # regex must NOT route those to ticket.99 — a dev push to a
+    # fixture branch would otherwise falsely wake blockees waiting
+    # on the real ticket's work.
     Agent.update(agent, fn _ ->
-      {:ok, %{"refs/heads/aiur/99-pr" => "sha-workaround"}}
+      {:ok,
+       %{
+         "refs/heads/aiur/99-pr" => "sha-pr",
+         "refs/heads/aiur/99-test-fixture" => "sha-fixture",
+         "refs/heads/aiur/99/sub" => "sha-sub",
+         "refs/heads/aiur/99_v2" => "sha-v2"
+       }}
     end)
 
     send(pid, :tick)
     assert_receive :polled, 500
 
-    assert_receive {:published, "ticket.99.branch.push", payload, opts}, 500
-    assert payload.ref == "refs/heads/aiur/99-pr"
-    assert opts[:issue_number] == "99"
+    refute_receive {:published, "ticket.99.branch.push", _, _}, 200
+    refute_receive {:published, "ticket." <> _, _, _}, 100
   end
 
   test "non-numeric branch suffix (aiur/abc) is NOT treated as a ticket push",
@@ -247,7 +255,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert_receive {:published, "ticket.99.branch.push", _, _}, 500
   end
 
-  test "first tick errors, then second tick succeeds → push is detected (not re-bootstrapped)",
+  test "first tick errors, then second tick succeeds → bootstrap on the success, no phantom publishes",
        %{publisher: publisher} do
     parent = self()
 
@@ -267,17 +275,46 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         start_paused?: true
       )
 
-    # Tick 1 errors. The bootstrap flag must flip to true anyway so
-    # tick 2's success path treats unknown refs as "new push", not as
-    # "first observation, just record".
+    # Tick 1 errors. `bootstrapped?` must STAY false. The previous
+    # behavior of marking bootstrapped on error caused tick 2 to
+    # treat every existing aiur/* ref as a new push and fan-out
+    # phantom auto-resumes for every paused blockee. The lost-push
+    # window between an error and the next success is recovered by
+    # the firehose as the second detection source.
     send(pid, :tick)
     assert_receive :polled, 500
 
-    Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/99" => "sha-new"}} end)
+    # Tick 2 succeeds with multiple refs that LOOK new because the
+    # cache is still empty. Bootstrap fires — refs are recorded but
+    # NOT published.
+    Agent.update(agent, fn _ ->
+      {:ok,
+       %{
+         "refs/heads/aiur/99" => "sha-99",
+         "refs/heads/aiur/100" => "sha-100",
+         "refs/heads/aiur/101" => "sha-101"
+       }}
+    end)
+
     send(pid, :tick)
     assert_receive :polled, 500
+    refute_receive {:published, _topic, _payload, _opts}, 200
 
+    # Tick 3 with a CHANGED ref on aiur/99 publishes exactly one push.
+    Agent.update(agent, fn _ ->
+      {:ok,
+       %{
+         "refs/heads/aiur/99" => "sha-99-changed",
+         "refs/heads/aiur/100" => "sha-100",
+         "refs/heads/aiur/101" => "sha-101"
+       }}
+    end)
+
+    send(pid, :tick)
+    assert_receive :polled, 500
     assert_receive {:published, "ticket.99.branch.push", _, _}, 500
+    refute_receive {:published, "ticket.100.branch.push", _, _}, 100
+    refute_receive {:published, "ticket.101.branch.push", _, _}, 100
   end
 
   test "empty-string repo → dedup_key is omitted from publish opts (no Publisher crash)",

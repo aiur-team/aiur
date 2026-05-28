@@ -783,7 +783,7 @@ defmodule Aiur.AgentList.App do
   #   - `agent.progress.checkin` (operator-driven check-in) ALWAYS
   #     records — the agent's attested 1–10 estimate trumps prior
   #     phase guesses, even when it lowers the current value.
-  #   - `agent.progress.phase` (phase boundary) and the legacy bare
+  #   - `agent.progress.phase` (phase boundary) and the bare
   #     `agent.progress` topic record only when `percent` is greater
   #     than or equal to the current head — phase guesses can ratchet
   #     up over an agent estimate (e.g. pr.opened → 100) but cannot

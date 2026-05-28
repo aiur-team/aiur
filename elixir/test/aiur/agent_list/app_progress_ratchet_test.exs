@@ -5,7 +5,7 @@ defmodule Aiur.AgentList.AppProgressRatchetTest do
     - `agent.progress.checkin` (operator-driven 1–10 estimate)
       ALWAYS records, even when the new percent is lower than the
       current head — the agent's attested value trumps phase guesses.
-    - `agent.progress.phase` and the legacy bare `agent.progress`
+    - `agent.progress.phase` and the bare `agent.progress`
       topic only record when the new percent is greater than or equal
       to the current head — phase events can ratchet up (pr.opened →
       100) but cannot drag a checkin-attested floor back down.
@@ -36,7 +36,7 @@ defmodule Aiur.AgentList.AppProgressRatchetTest do
       case source do
         :checkin -> "ticket.#{id}.agent.progress.checkin"
         :phase -> "ticket.#{id}.agent.progress.phase"
-        :legacy -> "ticket.#{id}.agent.progress"
+        :bare -> "ticket.#{id}.agent.progress"
       end
 
     send(
@@ -96,14 +96,14 @@ defmodule Aiur.AgentList.AppProgressRatchetTest do
     assert head_percent(pid, "R3") == 100, "phase above the floor still ratchets up"
   end
 
-  test "legacy bare `agent.progress` topic behaves like phase", %{pid: pid} do
-    send_progress(pid, "R4", 50, :legacy)
+  test "bare `agent.progress` topic behaves like phase", %{pid: pid} do
+    send_progress(pid, "R4", 50, :bare)
     assert head_percent(pid, "R4") == 50
 
-    send_progress(pid, "R4", 30, :legacy)
-    assert head_percent(pid, "R4") == 50, "legacy below head must be ignored"
+    send_progress(pid, "R4", 30, :bare)
+    assert head_percent(pid, "R4") == 50, "bare progress below head must be ignored"
 
-    send_progress(pid, "R4", 90, :legacy)
+    send_progress(pid, "R4", 90, :bare)
     assert head_percent(pid, "R4") == 90
   end
 end

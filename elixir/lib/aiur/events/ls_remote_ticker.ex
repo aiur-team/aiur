@@ -95,12 +95,17 @@ defmodule Aiur.Events.LsRemoteTicker do
   end
 
   defp run_tick(state) do
-    # The shell-out and Publisher.publish are both wrapped here because
-    # a raise would crash the GenServer; the supervisor would restart
-    # with empty `refs` AND `bootstrapped?: false`, so the next real
-    # push would be silently absorbed by the bootstrap-skip — defeating
-    # the entire reason this ticker exists. Catch everything, log, mark
-    # bootstrapped so the next success treats new refs as pushes.
+    # The shell-out and Publisher.publish are wrapped to keep the
+    # GenServer alive across transport hiccups and rare upstream
+    # raises. Error paths intentionally leave `bootstrapped?`
+    # untouched: until a successful poll records a real ref baseline,
+    # the ticker stays in bootstrap mode. Marking bootstrapped on an
+    # error with an empty refs cache would make the next successful
+    # tick treat every existing ticket branch as a brand-new push and
+    # fan-out a phantom auto-resume for every paused blockee. A push
+    # that lands between a transient error and the next success is
+    # lost, but the GitHub firehose covers that window as the second
+    # detection source.
     try do
       case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
         {:ok, refs} when is_map(refs) ->
@@ -108,21 +113,21 @@ defmodule Aiur.Events.LsRemoteTicker do
 
         {:error, reason} ->
           Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
-          %{state | bootstrapped?: true}
+          state
 
         other ->
           Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
-          %{state | bootstrapped?: true}
+          state
       end
     rescue
       error ->
         Logger.warning("LsRemoteTicker tick raised: #{Exception.message(error)} (#{inspect(error.__struct__)})")
 
-        %{state | bootstrapped?: true}
+        state
     catch
       kind, reason ->
         Logger.warning("LsRemoteTicker tick caught #{kind}: #{inspect(reason)}")
-        %{state | bootstrapped?: true}
+        state
     end
   end
 
@@ -197,14 +202,17 @@ defmodule Aiur.Events.LsRemoteTicker do
     fun.(topic, payload, opts)
   end
 
-  # Match `aiur/<id>` AND `aiur/<id>-<slug>` / `aiur/<id>/<slug>` so an
-  # agent's `aiur/99-pr` workaround branch (which it may invent when
-  # GitHub's auto-delete-on-close removed the canonical `aiur/99` ref)
-  # still routes to ticket 99's auto-resume hook. The id is anchored
-  # to digits; a separator (`-`, `_`, `/`) must follow if any slug is
-  # present, so `aiur/123x` never matches as ticket 123.
+  # Match exactly `refs/heads/aiur/<id>` where `<id>` is digits only.
+  # A wider pattern that also accepted `aiur/<id>-<slug>` would route
+  # unrelated dev branches like `aiur/99-test-fixture`,
+  # `aiur/99_v2`, or `aiur/99/sub` to ticket 99's auto-resume hook —
+  # pushes to those would falsely wake blockees waiting on the real
+  # ticket. The branch-name lock in `shared-agent-instructions.md`
+  # keeps agents on the canonical name; if they invent a workaround
+  # the push is missed (the firehose still gets it) but the auto-
+  # resume path stays correct.
   defp ref_to_topic(ref) when is_binary(ref) do
-    case Regex.run(~r{\Arefs/heads/aiur/(\d+)(?:[-_/].*)?\z}, ref) do
+    case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
       [_, id] ->
         {:ticket, id, "ticket.#{id}.branch.push"}
 
