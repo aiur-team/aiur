@@ -677,8 +677,92 @@ defmodule Aiur.AgentRunner do
       )
     end
 
-    rendered = Enum.map_join(events, "\n", &render_event_line/1)
+    debounced = debounce_block_state_events(events)
+    rendered = Enum.map_join(debounced, "\n", &render_event_line/1)
     "<aiur:events>\n" <> rendered <> "\n</aiur:events>"
+  end
+
+  # Plan U8: group block/unblock events by (ticket_id, kind); within the
+  # configured debounce window (default 10s), only the latest survives in
+  # the rendered digest. DebugLog `:read` broadcasts (above) and IssueLog
+  # `[event:consumed]` markers (recorded elsewhere) keep the full audit
+  # trail intact — only the agent-visible render is debounced.
+  defp debounce_block_state_events(events) do
+    window_seconds = block_state_debounce_seconds()
+
+    {block_state, other} =
+      Enum.split_with(events, fn ev ->
+        topic = event_field(ev, :topic) || ""
+        String.ends_with?(topic, ".agent.blocked") or String.ends_with?(topic, ".agent.unblocked")
+      end)
+
+    survivors =
+      block_state
+      |> Enum.group_by(&block_state_group_key/1)
+      |> Enum.flat_map(fn {_key, group} -> debounce_group(group, window_seconds) end)
+
+    Enum.sort_by(survivors ++ other, &event_field(&1, :id))
+  end
+
+  defp block_state_group_key(event) do
+    topic = event_field(event, :topic) || ""
+    # Group all block/unblock events for the same ticket together so the
+    # latest state wins across both kinds within the window.
+    case String.split(topic, ".") do
+      ["ticket", id, "agent", _kind] -> id
+      _ -> topic
+    end
+  end
+
+  defp debounce_group(events, window_seconds) when is_list(events) do
+    sorted = Enum.sort_by(events, &event_field(&1, :id))
+
+    # Latest event in the chain dominates anything within the window
+    # leading up to it.
+    {survivors, _} =
+      sorted
+      |> Enum.reverse()
+      |> Enum.reduce({[], nil}, fn ev, {acc, latest_id} ->
+        case latest_id do
+          nil -> {[ev], event_field(ev, :id)}
+          id when is_integer(id) -> debounce_keep_or_drop(ev, acc, id, window_seconds)
+          _ -> {[ev | acc], event_field(ev, :id)}
+        end
+      end)
+
+    survivors
+  end
+
+  defp debounce_keep_or_drop(ev, acc, latest_id, window_seconds) do
+    ev_id = event_field(ev, :id)
+
+    if is_integer(ev_id) and within_debounce_window?(ev, acc, window_seconds) do
+      {acc, latest_id}
+    else
+      {[ev | acc], ev_id}
+    end
+  end
+
+  defp within_debounce_window?(_ev, [], _window), do: false
+
+  defp within_debounce_window?(ev, [next | _], window) do
+    case {event_field(ev, :emitted_at), event_field(next, :emitted_at)} do
+      {%DateTime{} = a, %DateTime{} = b} ->
+        DateTime.diff(b, a, :second) <= window
+
+      _ ->
+        # Without timestamps, fall back to the always-collapse behavior
+        # so the latest event still wins — matches the intent of "block
+        # cycling within a turn coalesces".
+        true
+    end
+  end
+
+  defp block_state_debounce_seconds do
+    case Config.settings!() do
+      %{events: %{block_state_debounce_seconds: n}} when is_integer(n) and n >= 0 -> n
+      _ -> 10
+    end
   end
 
   defp render_event_line(event) when is_map(event) do
