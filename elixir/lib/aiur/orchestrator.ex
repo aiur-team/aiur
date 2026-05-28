@@ -1776,6 +1776,22 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @doc """
+  Plan U3: claim ONLY events_digest queue items whose events include at
+  least one blocker-critical topic from a direct blocker of `issue_identifier`.
+  Used by `Aiur.AgentRunner.safe_checkpoint_handler/2` to drain blocker-
+  critical events into the running turn as `<aiur:events urgent="true">`
+  before falling back to the regular operator-message queue.
+  """
+  @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_blocker_critical_events_digest(server, issue_identifier)
+      when is_binary(issue_identifier) do
+    GenServer.call(server, {:claim_blocker_critical_events_digest, issue_identifier}, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec claim_next_operator_queue_item(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_operator_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
@@ -2131,6 +2147,32 @@ defmodule Aiur.Orchestrator do
       case item do
         nil -> :empty
         _ -> {:ok, item}
+      end
+
+    {:reply, reply, state}
+  end
+
+  # Plan U3: claim ONLY events_digest queue items whose events include
+  # at least one blocker-critical topic from a direct blocker of
+  # `issue_identifier`. Delivered mid-turn at safe checkpoints; everything
+  # else continues to drain at turn boundary via the regular claim path.
+  def handle_call({:claim_blocker_critical_events_digest, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    direct_blockers = direct_blockers_for(state, issue_identifier)
+
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        state.queue_store,
+        issue_identifier,
+        fn item -> blocker_critical_digest?(item, direct_blockers) end
+      )
+
+    state = %{state | queue_store: queue_store}
+
+    reply =
+      case item do
+        nil -> :empty
+        item -> {:ok, item}
       end
 
     {:reply, reply, state}
@@ -3286,4 +3328,52 @@ defmodule Aiur.Orchestrator do
   defp blocker_identifier_for(%{identifier: identifier}) when is_binary(identifier), do: identifier
   defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
   defp blocker_identifier_for(_), do: nil
+
+  # Plan U3 helpers.
+  defp direct_blockers_for(%State{last_polled_issues: polled}, identifier)
+       when is_map(polled) do
+    case Enum.find(polled, fn {_id, %Issue{identifier: i}} -> i == identifier end) do
+      {_id, %Issue{} = issue} ->
+        issue
+        |> blocker_map()
+        |> Map.values()
+        |> Enum.map(&blocker_identifier_for/1)
+        |> Enum.reject(&is_nil/1)
+        |> MapSet.new()
+
+      _ ->
+        MapSet.new()
+    end
+  end
+
+  defp direct_blockers_for(_state, _identifier), do: MapSet.new()
+
+  defp blocker_critical_digest?(%{category: :coordination_event, event_type: :events_digest, body: body}, direct_blockers) do
+    events = Map.get(body || %{}, :events, [])
+    Enum.any?(events, fn event -> blocker_critical_event?(event, direct_blockers) end)
+  end
+
+  defp blocker_critical_digest?(_item, _direct_blockers), do: false
+
+  defp blocker_critical_event?(event, direct_blockers) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic")
+
+    cond do
+      not is_binary(topic) -> false
+      MapSet.size(direct_blockers) == 0 -> false
+      true -> blocker_critical_topic?(topic, direct_blockers)
+    end
+  end
+
+  defp blocker_critical_event?(_event, _direct_blockers), do: false
+
+  defp blocker_critical_topic?(topic, direct_blockers) do
+    case String.split(topic, ".") do
+      ["ticket", id, "branch", "push"] -> MapSet.member?(direct_blockers, id)
+      ["ticket", id, "branch", "force-push"] -> MapSet.member?(direct_blockers, id)
+      ["ticket", id, "agent", "unblocked"] -> MapSet.member?(direct_blockers, id)
+      ["ticket", id, "agent", "decision", _slug] -> MapSet.member?(direct_blockers, id)
+      _ -> false
+    end
+  end
 end

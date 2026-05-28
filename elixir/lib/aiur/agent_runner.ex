@@ -886,13 +886,49 @@ defmodule Aiur.AgentRunner do
 
   defp safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->
-      case claim_next_checkpoint_queue_item(orchestrator, issue.identifier) do
+      case claim_blocker_critical_events_digest(orchestrator, issue.identifier) do
         {:ok, item} ->
-          safe_checkpoint_delivery(issue, orchestrator, item, checkpoint)
+          urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint)
 
         :empty ->
-          :noop
+          fallback_checkpoint_claim(issue, orchestrator, checkpoint)
       end
+    end
+  end
+
+  defp fallback_checkpoint_claim(issue, orchestrator, checkpoint) do
+    case claim_next_checkpoint_queue_item(orchestrator, issue.identifier) do
+      {:ok, item} ->
+        safe_checkpoint_delivery(issue, orchestrator, item, checkpoint)
+
+      :empty ->
+        :noop
+    end
+  end
+
+  defp urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint) do
+    Logger.info("Urgent blocker-critical events delivered mid-turn for #{issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
+
+    record_operator_delivery(item, issue)
+
+    text = render_urgent_events_digest(item)
+
+    {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(orchestrator, item.id, reason) end}
+  end
+
+  # Reuse the renderer infrastructure but with the urgent="true" attribute.
+  defp render_urgent_events_digest(%{body: %{events: events}} = item) do
+    rendered = render_events_digest(events, Map.get(item, :target_issue_identifier))
+    String.replace(rendered, "<aiur:events>", "<aiur:events urgent=\"true\">", global: false)
+  end
+
+  defp render_urgent_events_digest(item), do: queue_item_text(item)
+
+  defp claim_blocker_critical_events_digest(orchestrator, issue_identifier) when is_binary(issue_identifier) do
+    case Aiur.Orchestrator.claim_blocker_critical_events_digest(orchestrator, issue_identifier) do
+      {:ok, item} -> {:ok, item}
+      :empty -> :empty
+      {:error, _reason} -> :empty
     end
   end
 
