@@ -1228,8 +1228,28 @@ defmodule Aiur.AgentRunner do
 
   defp declare_blocker_for_issue(issue, blocker_number) do
     case issue_number_of(issue) do
-      nil -> {:error, :no_issue_number}
-      current -> IssueDependencies.declare(current, blocker_number)
+      nil ->
+        {:error, :no_issue_number}
+
+      current ->
+        result = IssueDependencies.declare(current, blocker_number)
+
+        # Add the SubscriptionStore subscription IMMEDIATELY on a
+        # successful (or `:already_present`) declare, instead of
+        # waiting for the orchestrator's poll-driven
+        # `auto_subscribe_for_dependency`. GitHub state can lag, drop,
+        # or already-present the dependency due to PR open/close
+        # cycles; without the direct subscribe, the blockee's
+        # SubscriptionStore never gets `ticket.<blocker>.branch.push`
+        # and the blockee never auto-resumes. Idempotent.
+        case result do
+          {:ok, _} ->
+            Aiur.Orchestrator.subscribe_for_declared_blocker(current, blocker_number)
+            result
+
+          other ->
+            other
+        end
     end
   end
 

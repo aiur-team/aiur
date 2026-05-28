@@ -4014,6 +4014,46 @@ defmodule Aiur.Orchestrator do
 
   defp auto_subscribe_for_dependency(_blockee, _blocker), do: :ok
 
+  @doc """
+  Attach the standard blocker→blockee subscription pair WITHOUT
+  going through GitHub poll detection. Called from
+  `Aiur.AgentRunner.declare_blocker_for_issue/2` so the subscription
+  goes in the SubscriptionStore at declare-time, not on the next
+  reconcile tick after GitHub eventually surfaces the dependency.
+
+  This matters because:
+    * `IssueDependencies.declare/2` posts to GitHub's `/issues/.../dependencies`
+      API and may return `:already_present` for a stale dependency
+      that GitHub later mutates away (PR close + open cycle has been
+      observed to drop the dependency).
+    * Without the direct subscribe, the blockee's SubscriptionStore
+      never receives `ticket.<blocker>.branch.push`, so when the
+      blocker pushes the orchestrator's `subscribed_to_topic?/2`
+      check returns false and the blockee never auto-resumes.
+
+  Idempotent: SubscriptionStore.add_subscription short-circuits on
+  duplicate `(identifier, topic)`.
+  """
+  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier) do
+    blockee_str = to_string(blockee_identifier)
+    blocker_str = to_string(blocker_identifier)
+
+    attach_and_subscribe(
+      blockee_str,
+      default_blockee_subscriptions(blocker_str),
+      "blocker:auto"
+    )
+
+    attach_and_subscribe(
+      blocker_str,
+      default_blocker_subscriptions(blockee_str),
+      "blockee:auto"
+    )
+
+    :ok
+  end
+
   defp auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
          blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do

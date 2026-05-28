@@ -783,6 +783,66 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "subscribe_for_declared_blocker/2 (called from agent_runner on declare)" do
+    test "blockee gets ticket.<blocker>.branch.push subscription immediately" do
+      blockee = "BSDB-blockee-#{System.unique_integer([:positive])}"
+      blocker = "BSDB-blocker-#{System.unique_integer([:positive])}"
+
+      on_exit(fn ->
+        :ok = Aiur.Events.SubscriptionStore.stop(blockee)
+        :ok = Aiur.Events.SubscriptionStore.stop(blocker)
+      end)
+
+      :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker)
+
+      %{subscribed_to: subs} = Aiur.Events.SubscriptionStore.snapshot(blockee)
+
+      topics = Enum.map(subs, fn entry -> entry["topic"] || entry[:topic] end)
+
+      assert "ticket.#{blocker}.branch.push" in topics,
+             "blockee must subscribe to blocker's branch.push so auto-resume can fire"
+    end
+
+    test "second call is idempotent (no duplicate subscriptions)" do
+      blockee = "BSDB-idem-blockee-#{System.unique_integer([:positive])}"
+      blocker = "BSDB-idem-blocker-#{System.unique_integer([:positive])}"
+
+      on_exit(fn ->
+        :ok = Aiur.Events.SubscriptionStore.stop(blockee)
+        :ok = Aiur.Events.SubscriptionStore.stop(blocker)
+      end)
+
+      :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker)
+      :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker)
+
+      %{subscribed_to: subs} = Aiur.Events.SubscriptionStore.snapshot(blockee)
+
+      push_subs =
+        Enum.filter(subs, fn e ->
+          (e["topic"] || e[:topic]) == "ticket.#{blocker}.branch.push"
+        end)
+
+      assert length(push_subs) == 1
+    end
+
+    test "accepts integer identifiers (the GitHub API path)" do
+      blockee = "BSDB-int-#{System.unique_integer([:positive])}"
+      blocker_int = System.unique_integer([:positive])
+
+      on_exit(fn ->
+        :ok = Aiur.Events.SubscriptionStore.stop(blockee)
+        :ok = Aiur.Events.SubscriptionStore.stop(to_string(blocker_int))
+      end)
+
+      :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker_int)
+
+      %{subscribed_to: subs} = Aiur.Events.SubscriptionStore.snapshot(blockee)
+      topics = Enum.map(subs, fn e -> e["topic"] || e[:topic] end)
+
+      assert "ticket.#{blocker_int}.branch.push" in topics
+    end
+  end
+
   describe "stall watchdog skips paused / deactivated entries" do
     test "paused entry with stale last_codex_timestamp is NOT restarted" do
       issue_id = "issue-stall-paused"
