@@ -84,6 +84,8 @@ codex:
     type: workspaceWrite
     writableRoots:
       - /home/applekid/code/aiur-workspaces
+      - /home/orangekid/code/aiur-workspaces
+      - /tmp
     networkAccess: true
 opencode:
   command: opencode
