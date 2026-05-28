@@ -167,7 +167,7 @@ defmodule Aiur.Opencode.SessionWriter do
         {:noreply, new_state}
 
       {:error, reason} ->
-        Logger.warning("opencode_session_writer write_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
+        log_session_write_failure("write_failed", state.identifier, reason)
 
         {:noreply, state}
     end
@@ -187,7 +187,7 @@ defmodule Aiur.Opencode.SessionWriter do
         :ok
 
       {:error, reason} ->
-        Logger.warning("opencode_session_writer alert_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
+        log_session_write_failure("alert_failed", state.identifier, reason)
     end
 
     {:noreply, state}
@@ -533,12 +533,39 @@ defmodule Aiur.Opencode.SessionWriter do
             {:noreply, state}
 
           {:error, reason} ->
-            Logger.warning("opencode_session_writer event_row_failed identifier=#{state.identifier} kind=#{inspect(entry[:kind])} reason=#{inspect(reason)}")
+            log_session_write_failure(
+              "event_row_failed",
+              state.identifier,
+              reason,
+              kind: inspect(entry[:kind])
+            )
 
             {:noreply, state}
         end
     end
   end
+
+  # FOREIGN KEY violations land here when opencode's SQL session row has
+  # been deleted out from under us — usually because Aiur.Shutdown is
+  # tearing down sessions while events are still in flight, or because
+  # the slot respawned and the writer hasn't been notified yet. Neither
+  # is a real failure; demote those to debug so the warning-level
+  # surface stays signal-only. Other write failures still warn.
+  defp log_session_write_failure(tag, identifier, reason, extra \\ []) do
+    extras = extra |> Enum.map_join(" ", fn {k, v} -> "#{k}=#{v}" end)
+    msg = "opencode_session_writer #{tag} identifier=#{identifier} #{extras} reason=#{inspect(reason)}"
+
+    if foreign_key_violation?(reason) do
+      Logger.debug(msg)
+    else
+      Logger.warning(msg)
+    end
+  end
+
+  defp foreign_key_violation?(%Exqlite.Error{message: msg}) when is_binary(msg),
+    do: String.contains?(msg, "FOREIGN KEY")
+
+  defp foreign_key_violation?(_), do: false
 
   defp remember_event_id(state, id) do
     seen = MapSet.put(state.seen_event_ids, id)
