@@ -28,7 +28,7 @@ This brainstorm scopes a new visual + lifecycle state to close the loop: the age
 - **G2.** Deactivated agents do not hold agent slots — another ticket can take the slot the moment the agent flips to 🏁.
 - **G3.** The same three reactivation triggers that wake any agent today also wake a 🏁 agent: pause/resume key, chat input, PR comment.
 - **G4.** Resource economy: deactivated tickets do not hold persistent opencode chat panes.
-- **G5.** State survives aiur restart: a ticket already in `agent:human-review` on next boot renders as 🏁 immediately, without needing to re-run the agent.
+- **G5.** ~~State survives aiur restart: a ticket already in `agent:human-review` on next boot renders as 🏁 immediately, without needing to re-run the agent.~~ **Dropped after implementation.** The 🏁 state only appears for tickets that transition to `agent:human-review` within the current aiur session. Tickets already in `agent:human-review` at boot stay out of the AgentList; flipping their GitHub label back to an active state re-enters them through the normal dispatch path.
 
 ---
 
@@ -73,13 +73,11 @@ R4.2. When the operator opens the chat pane on a 🏁 row (Enter), aiur re-warms
 
 R4.3. Re-warming the chat pane does **not** by itself reactivate the agent (no codex turn fires). The agent reactivates only on the triggers in R3.
 
-### R5. Persistence across aiur restart
+### R5. Persistence across aiur restart — **DROPPED**
 
-R5.1. When aiur boots and polls GitHub, any issue with label `agent:human-review` renders as a 🏁 row with 100% green bar. Operator does not need to re-run the agent to see the "done" state.
+~~R5.1. When aiur boots and polls GitHub, any issue with label `agent:human-review` renders as a 🏁 row with 100% green bar.~~ Dropped during implementation. Boot revival was implemented and immediately reverted — the operator prefers a clean list at boot. The `:deactivated` state is per-session: it only exists for tickets the orchestrator personally observed transitioning into `agent:human-review`.
 
-R5.2. The "Latest" column on a restart-revived 🏁 row may show empty if the per-issue log doesn't preserve event history. Acceptable — the glyph + full bar communicate the state.
-
-R5.3. The progress sample at 100% is **derived** from the label on restart, not loaded from persistent storage. No new storage tier needed; the label IS the persistence.
+To re-enter a previously-deactivated ticket into the list, flip its GitHub label back to an active state (`agent:in-progress`, `agent:rework`, `agent:merging`) — it then enters via the normal dispatch path.
 
 ### R6. Companion fix to the progress prompt
 
@@ -103,7 +101,7 @@ R6.3. This is a 5-line prompt edit. Land it together with the deactivated-state 
 
 - **AE4.** Three issues are simultaneously in `agent:human-review`. None hold slots. Operator triggers reactivation on all three within a second. Orchestrator queues all three; the first runs immediately, the other two wait for slots to free (per R2.3).
 
-- **AE5.** Operator restarts aiur. On boot, the issue from AE1 (still labelled `agent:human-review` on GitHub) renders as 🏁 with 100% green bar. No new turn fires.
+- ~~**AE5.** Operator restarts aiur. On boot, the issue from AE1 (still labelled `agent:human-review` on GitHub) renders as 🏁 with 100% green bar.~~ **Dropped** — per the revised R5, restart drops the 🏁 row. The operator flips the label back to an active state if they want the agent to wake on the next run.
 
 ---
 

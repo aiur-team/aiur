@@ -483,13 +483,6 @@ defmodule Aiur.Orchestrator do
           state
         end
 
-      state =
-        if state.initial_dispatch_cycle == true do
-          revive_human_review_issues(state)
-        else
-          state
-        end
-
       %{state | initial_dispatch_cycle: false}
     else
       {:error, :missing_linear_api_token} ->
@@ -574,12 +567,6 @@ defmodule Aiur.Orchestrator do
       active: active_running_count(state.running),
       paused: paused_running_count(state.running)
     }
-  end
-
-  @doc false
-  @spec revive_human_review_issues_for_test(State.t(), [Issue.t()]) :: State.t()
-  def revive_human_review_issues_for_test(%State{} = state, issues) when is_list(issues) do
-    Enum.reduce(issues, state, &materialize_synthetic_entry/2)
   end
 
   @doc false
@@ -680,54 +667,6 @@ defmodule Aiur.Orchestrator do
   end
 
   defp human_review_state?(_), do: false
-
-  # Boot revival (U6): on the first dispatch cycle, fetch any open
-  # issues currently labelled `agent:human-review` and materialize
-  # synthetic running entries for each one NOT already claimed by
-  # the regular dispatch path. Synthetic entries have `pid: nil`,
-  # `control.status: :deactivated`, and no `started_at` — the
-  # AgentList renders them as 🏁 / 100% green immediately so the
-  # operator sees the work-in-review state across aiur restarts.
-  #
-  # Single-pass on `initial_dispatch_cycle: true` only. Post-boot,
-  # `human-review` issues only appear in the list via U2's
-  # live-transition path.
-  defp revive_human_review_issues(%State{} = state) do
-    case Tracker.fetch_issues_by_states(["human-review"]) do
-      {:ok, issues} when is_list(issues) ->
-        Enum.reduce(issues, state, &materialize_synthetic_entry/2)
-
-      {:error, reason} ->
-        Logger.warning("Boot revival skipped — could not fetch human-review issues: #{inspect(reason)}")
-        state
-    end
-  end
-
-  defp materialize_synthetic_entry(%Issue{id: issue_id} = issue, %State{} = state)
-       when is_binary(issue_id) do
-    if Map.has_key?(state.running, issue_id) do
-      # Regular dispatch (or a prior boot poll) already claimed this id.
-      state
-    else
-      Logger.info(
-        "Boot revival: materializing :deactivated entry for #{issue_context(issue)}"
-      )
-
-      synthetic_entry = %{
-        pid: nil,
-        ref: nil,
-        identifier: issue.identifier,
-        issue: issue,
-        started_at: nil,
-        last_codex_timestamp: nil,
-        control: %{status: :deactivated}
-      }
-
-      %{state | running: Map.put(state.running, issue_id, synthetic_entry)}
-    end
-  end
-
-  defp materialize_synthetic_entry(_issue, state), do: state
 
   # Label flipped back to an active state. If the running entry is
   # currently `:deactivated`, route through `reactivate_issue/2` so a

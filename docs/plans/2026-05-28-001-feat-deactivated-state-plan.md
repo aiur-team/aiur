@@ -42,7 +42,7 @@ The fix is two-layered:
 - R2. (R2.1–R2.3) Slot economics: `:deactivated` rows do not consume an agent slot; `Agents: codex (N/M)` drops on entry. Distinct from `:paused` which still holds a slot. Reactivation queues for a slot (no preemption).
 - R3. (R3.1–R3.4) Reactivation triggers: pause/resume key, chat input, **PR review comment** firehose, and any label flip back to an active state. (Issue-body comments are explicitly excluded per the brainstorm's "Outside this product's identity" boundary — see "Scope Boundaries".)
 - R4. (R4.1–R4.3) Chat pane lifecycle: pane killed on entry to `:deactivated`, re-warmed on demand when the operator opens the row. Re-warm alone does not fire a new codex turn — only the R3 triggers do. The AgentList paints a transient "rewarming" affordance during the cold-start gap (see U4).
-- R5. (R5.1–R5.3) Persistence across aiur restart: an issue labeled `agent:human-review` at boot renders as 🏁 + 100% green immediately. Derived from the label, not a new storage tier.
+- ~~R5.~~ **Dropped after implementation.** Boot revival was shipped (U6) and immediately reverted on operator feedback — the cluttered list at boot was worse than the missing 🏁 row. The `:deactivated` state is now strictly per-session: only tickets that transition during the live aiur run get the 🏁 row.
 - R6. (R6.1–R6.3) Prompt fix: 100% emit is stop-work-anchored, not `phase.review.end`-anchored. Land in the same pass.
 
 **Origin acceptance examples:** AE1 (live end-to-end on `aiur --test`), AE2 (chat-input reactivation), AE3 (PR-comment reactivation — review-comment topic only per scope tightening), AE4 (multiple deactivated rows do not hold slots; queueing on reactivation), AE5 (boot revives 🏁 row from label).
@@ -400,7 +400,7 @@ The reactivation funnel:
 
 ---
 
-- [ ] U6. **Boot revival from `agent:human-review` label — explicit fetch + synthetic entry (R5)**
+- [x] ~~U6.~~ **Boot revival — reverted on operator feedback (was R5)**
 
 **Goal:** When the orchestrator boots and polls GitHub, the existing fetcher only returns `agent:todo` + `agent:in-progress` issues. Extend the fetcher (or call a sibling function) to also return `agent:human-review` issues, then materialize a synthetic running entry (`pid: nil`, `control.status: :deactivated`, no claim) for each one NOT already in `state.running`. The row renders as 🏁 + 100% green immediately. No new turn fires.
 
