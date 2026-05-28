@@ -662,4 +662,72 @@ defmodule Aiur.AgentList.RendererTest do
       # No event content surfaces — but the row still renders cleanly.
     end
   end
+
+  describe "progress column" do
+    @ansi_green IO.ANSI.green()
+
+    defp row_for(out, id) do
+      Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ id))
+    end
+
+    test "mid-progress samples render the bar without the green tint" do
+      summaries = [%{identifier: "MT-P", status: :running, alert_count: 0}]
+      now_ms = System.monotonic_time(:millisecond)
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            progress_by_id: %{"MT-P" => [{50, now_ms}]},
+            now_ms: now_ms
+          })
+        )
+
+      row = row_for(out, "MT-P")
+      assert row, "expected MT-P row"
+      assert visible(row) =~ "█████░░░░░"
+      refute String.contains?(row, @ansi_green)
+    end
+
+    test "percent: 100 tints the bar green and fills all 10 cells" do
+      summaries = [%{identifier: "MT-DONE", status: :running, alert_count: 0}]
+      now_ms = System.monotonic_time(:millisecond)
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            progress_by_id: %{"MT-DONE" => [{100, now_ms}]},
+            now_ms: now_ms
+          })
+        )
+
+      row = row_for(out, "MT-DONE")
+      assert row, "expected MT-DONE row"
+      assert visible(row) =~ "██████████"
+
+      assert String.contains?(row, @ansi_green),
+             "expected green ANSI wrap around the full bar at percent: 100"
+    end
+
+    test "rows without progress samples render an empty bar (no green)" do
+      summaries = [%{identifier: "MT-IDLE", status: :running, alert_count: 0}]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            progress_by_id: %{}
+          })
+        )
+
+      row = row_for(out, "MT-IDLE")
+      assert row, "expected MT-IDLE row"
+      assert visible(row) =~ "░░░░░░░░░░"
+      refute String.contains?(row, @ansi_green)
+    end
+  end
 end

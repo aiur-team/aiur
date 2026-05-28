@@ -37,10 +37,12 @@ defmodule Aiur.AgentList.Renderer do
 
   # Fixed-width progress bar + ETA columns. Sized so they always
   # render regardless of terminal width (collapse Latest first).
-  # Layout: `<bar 8> <eta 5>` = 8 + 1 + 5 = 14 cols.
-  @progress_bar_width 8
+  # Layout: `<bar 10> <eta 5>` = 10 + 1 + 5 = 16 cols. The bar
+  # is 10 cells wide so each 10% step the agent emits maps to
+  # exactly one filled cell on screen.
+  @progress_bar_width 10
   @eta_width 5
-  @progress_cell_width 14
+  @progress_cell_width 16
 
   @min_id_width 4
   @min_age_width 4
@@ -67,6 +69,7 @@ defmodule Aiur.AgentList.Renderer do
   @ansi_dim IO.ANSI.faint()
   @ansi_cyan IO.ANSI.cyan()
   @ansi_gray IO.ANSI.light_black()
+  @ansi_green IO.ANSI.green()
   @ansi_red IO.ANSI.red()
   @ansi_reverse IO.ANSI.reverse()
   # 256-color background for the selected agent-list row. 236 is a
@@ -106,7 +109,8 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
         |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
         |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
-        |> Map.put(:now_ms, System.monotonic_time(:millisecond))
+        |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
+        |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
 
       debug_footer = debug_perf_footer(state, inner_width)
       markers = compute_markers(state, summaries)
@@ -628,11 +632,19 @@ defmodule Aiur.AgentList.Renderer do
     emoji_cell(text, @attention_cell_width)
   end
 
-  # Progress + ETA pair, rendered as one cell of fixed width 14:
-  # `<bar 8> <eta 5>`. Empty bar + empty ETA when the tracker has
+  # Progress + ETA pair, rendered as one cell of fixed width 16:
+  # `<bar 10> <eta 5>`. Empty bar + empty ETA when the tracker has
   # no samples for the id — width stays the same so the column
   # never jitters. No `—` placeholder; the absence is conveyed by
   # the empty bar alone.
+  #
+  # At percent: 100 (the agent's stop-work signal — see
+  # `elixir/prompts/shared-agent-instructions.md`'s "Progress emits"
+  # section), the bar is tinted green so the operator sees at a
+  # glance that the agent is done for this iteration. The cell is
+  # otherwise wrapped in `@ansi_dim` at the call site; we reset and
+  # re-apply dim around the green wrap so terminals render the
+  # color cleanly.
   defp progress_cell(id, layout) do
     samples = layout |> Map.get(:progress_by_id, %{}) |> Map.get(id, [])
     now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
@@ -641,6 +653,10 @@ defmodule Aiur.AgentList.Renderer do
       case ProgressTracker.estimate(samples, now_ms) do
         :unknown ->
           {ProgressTracker.bar(0, @progress_bar_width), ""}
+
+        %{percent: 100} ->
+          full_bar = ProgressTracker.bar(100, @progress_bar_width)
+          {@ansi_reset <> @ansi_green <> full_bar <> @ansi_reset <> @ansi_dim, ""}
 
         %{percent: pct, eta_seconds: eta} ->
           {ProgressTracker.bar(pct, @progress_bar_width), ProgressTracker.format_eta(eta)}
