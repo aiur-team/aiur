@@ -578,7 +578,7 @@ defmodule Aiur.Orchestrator do
         terminate_running_issue(state, issue.id, false)
 
       active_issue_state?(issue.state, active_states) ->
-        refresh_running_issue_state(state, issue)
+        maybe_reactivate_or_refresh(state, issue)
 
       human_review_state?(issue.state) ->
         deactivate_running_issue(state, issue.id)
@@ -602,6 +602,28 @@ defmodule Aiur.Orchestrator do
   end
 
   defp human_review_state?(_), do: false
+
+  # Label flipped back to an active state. If the running entry is
+  # currently `:deactivated`, route through `reactivate_issue/2` so a
+  # fresh agent task is spawned. Otherwise just refresh the stored
+  # issue (existing behaviour for `:working` / `:paused` entries).
+  defp maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{control: %{status: :deactivated}} = running_entry ->
+        # Update the stored issue first so the dispatched agent sees
+        # the freshest label state.
+        new_entry = Map.put(running_entry, :issue, issue)
+        state = %{state | running: Map.put(state.running, issue.id, new_entry)}
+
+        case reactivate_issue(state, new_entry) do
+          {{:ok, :reactivated}, next_state} -> next_state
+          {{:error, _reason}, next_state} -> next_state
+        end
+
+      _ ->
+        refresh_running_issue_state(state, issue)
+    end
+  end
 
   defp reconcile_missing_running_issue_ids(%State{} = state, requested_issue_ids, issues)
        when is_list(requested_issue_ids) and is_list(issues) do
@@ -2185,11 +2207,7 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_call({:pause_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
-    reply =
-      send_running_control_message(state, issue_identifier, fn request_id ->
-        {:pause_agent, request_id}
-      end)
-
+    reply = pause_agent_reply(state, issue_identifier)
     {:reply, reply, state}
   end
 
@@ -2385,18 +2403,46 @@ defmodule Aiur.Orchestrator do
   # operator uses. If no slot is free, the cap error propagates and the
   # conversation pane surfaces it.
   defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
-    if paused_running_entry?(running_entry) do
-      enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
-    else
-      do_enqueue_running_operator_message(
-        state,
-        running_entry,
-        issue_identifier,
-        text,
-        delivery_policy,
-        fallback,
-        turn_id
-      )
+    cond do
+      deactivated_running_entry?(running_entry) ->
+        enqueue_after_reactivate(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+
+      paused_running_entry?(running_entry) ->
+        enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+
+      true ->
+        do_enqueue_running_operator_message(
+          state,
+          running_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
+    end
+  end
+
+  # Mirrors `enqueue_after_resume/7` for the `:deactivated → :working`
+  # transition. The fresh agent task spawned by `reactivate_issue/2`
+  # will pick up the queued operator message when it boots.
+  defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
+    case reactivate_issue(state, running_entry) do
+      {{:ok, :reactivated}, next_state} ->
+        reactivated_entry = find_running_by_identifier(next_state.running, issue_identifier)
+
+        do_enqueue_running_operator_message(
+          next_state,
+          reactivated_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
+
+      {{:error, _reason} = error, next_state} ->
+        {error, next_state}
     end
   end
 
@@ -2535,15 +2581,87 @@ defmodule Aiur.Orchestrator do
   defp resume_issue(%State{} = state, issue_identifier) do
     case find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
-        if paused_running_entry?(running_entry) do
-          resume_paused_issue(state, running_entry)
-        else
-          {{:ok, :resumed}, state}
+        cond do
+          deactivated_running_entry?(running_entry) ->
+            reactivate_issue(state, running_entry)
+
+          paused_running_entry?(running_entry) ->
+            resume_paused_issue(state, running_entry)
+
+          true ->
+            {{:ok, :resumed}, state}
         end
 
       nil ->
         resume_queued_issue(state, issue_identifier)
     end
+  end
+
+  # Wake a `:deactivated` running entry: flip its control status to
+  # `:working`, re-add the id to the publisher tracked set, and spawn
+  # a fresh agent task on the same issue. Mirrors `resume_paused_issue`
+  # in shape but uses `do_dispatch_issue` because the deactivated
+  # entry has no live pid to send a resume-control message to.
+  #
+  # Capacity check: returns `{:error, :max_concurrent_agents_reached}`
+  # without flipping state when all slots are full. The operator can
+  # retry once a slot opens (a working agent flips to `:deactivated`
+  # or merges its PR). No `pending_reactivation` flag — the existing
+  # `max_concurrent_agents` gate is the natural backpressure.
+  defp reactivate_issue(%State{} = state, running_entry) do
+    if active_running_count(state.running) >= max_concurrent_agent_limit(state) do
+      {{:error, :max_concurrent_agents_reached}, state}
+    else
+      do_reactivate(state, running_entry)
+    end
+  end
+
+  # Pause-key behaviour, split out so the GenServer clause stays at
+  # max-depth 2. A `:deactivated` row has no live pid to pause; we
+  # return `:already_inactive` and rely on `:resume_agent` to handle
+  # the wake path on the same space-key.
+  defp pause_agent_reply(state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      running_entry when is_map(running_entry) ->
+        pause_running_or_inactive(state, running_entry, issue_identifier)
+
+      _ ->
+        send_pause_control_message(state, issue_identifier)
+    end
+  end
+
+  defp pause_running_or_inactive(state, running_entry, issue_identifier) do
+    if deactivated_running_entry?(running_entry) do
+      {:error, :already_inactive}
+    else
+      send_pause_control_message(state, issue_identifier)
+    end
+  end
+
+  defp send_pause_control_message(state, issue_identifier) do
+    send_running_control_message(state, issue_identifier, fn request_id ->
+      {:pause_agent, request_id}
+    end)
+  end
+
+  defp do_reactivate(%State{} = state, running_entry) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    existing_control = Map.get(running_entry, :control, %{})
+    worker_host = Map.get(running_entry, :worker_host)
+    issue = Map.get(running_entry, :issue)
+
+    # Flip the entry to :working before dispatch so any concurrent
+    # slot-count lookups see this entry as holding a slot (prevents a
+    # double-claim race against another dispatch tick).
+    new_entry = Map.put(running_entry, :control, Map.put(existing_control, :status, :working))
+    state = %{state | running: Map.put(state.running, issue_id, new_entry)}
+    state = refresh_tracked_set(state)
+
+    Logger.info(
+      "Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task"
+    )
+
+    {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
   end
 
   defp resume_paused_issue(%State{} = state, running_entry) do

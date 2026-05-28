@@ -329,4 +329,69 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
   end
+
+  describe "label-flip back to active reactivates a :deactivated entry" do
+    test "human-review → in-progress on a :deactivated entry routes through reactivate_issue" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-relabel-active-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-relabel-1"
+      issue_identifier = "RL-1"
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        # Start with a :deactivated entry (the post-U2 shape).
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        # Label flips back to in-progress (e.g., operator requested rework).
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "in-progress",
+          title: "Rework requested",
+          description: "",
+          labels: []
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        # The entry's stored issue is refreshed to the new state.
+        entry = Map.fetch!(updated_state.running, issue_id)
+        assert entry.issue.state == "in-progress"
+
+        # The entry is no longer :deactivated — reactivate_issue cleared
+        # the status (may or may not have a pid yet depending on the
+        # dispatcher's worker-host check, but it should NOT still be
+        # `:deactivated`).
+        refute get_in(entry, [:control, :status]) == :deactivated
+      after
+        File.rm_rf(test_root)
+      end
+    end
+  end
 end
