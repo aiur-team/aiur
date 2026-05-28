@@ -215,13 +215,12 @@ defmodule Aiur.Config.Schema do
       field(:turn_sandbox_policy, :map)
       field(:turn_timeout_ms, :integer, default: 3_600_000)
       field(:read_timeout_ms, :integer, default: 5_000)
-      # Trip the stall watchdog at 2 min instead of 5. When opencode-serve
-      # goes unresponsive the bridge keeps spamming aiur_turn_marker
-      # post_failed transport-timeout errors; a 5-minute wait between
-      # detection and slot respawn costs more than a false-positive
-      # restart of a legitimately long command (mix deps.get, full
-      # compile). Workflow can override.
-      field(:stall_timeout_ms, :integer, default: 120_000)
+      # Stall watchdog timeout for codex turns. 2-minute default was
+      # too aggressive: codex agents legitimately go silent for 2+ min
+      # during gh API rate limits, long ripgreps, CI waits, and large
+      # mix compiles — the watchdog was killing healthy agents. 5 min
+      # is the safe default; workflow can override per repo.
+      field(:stall_timeout_ms, :integer, default: 300_000)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
