@@ -675,6 +675,13 @@ defmodule Aiur.PaneManager do
             new_state = forget_pane_by_identifier(state, pane_id)
             _ = apply_layout(new_state)
 
+            # Broadcast so the agent list drops 🟢 back to ⚪/🔘. The other
+            # close paths (`handle_pane_closed/2` for tmux-driven dies and
+            # `release_stale_visible_pane/2` for reconcile drops) already
+            # broadcast — only the user-initiated close-hide path was
+            # missing the signal, leaving the emoji stuck on green.
+            AgentPubSub.broadcast_status_change(identifier, :pane_closed)
+
             Logger.info("aiur_pane_manager phase=close_hide elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}")
 
             {:reply, :ok, new_state}
