@@ -31,6 +31,11 @@ aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 expose_host=0
 debug_mode=0
 clear_mode=0
+# Distinguishes an explicit `--clear` (operator typed it) from the
+# implicit clear set by `--test` / `--test3`. Explicit --clear always
+# means blanket-nuke every aiur*.log; implicit test-mode clear is
+# scoped to just the tickets that mode resets.
+explicit_clear=0
 logs_mode=0
 fresh_mode=0
 test_mode=0
@@ -64,6 +69,7 @@ for arg in "$@"; do
       ;;
     --clear)
       clear_mode=1
+      explicit_clear=1
       ;;
     --logs)
       logs_mode=1
@@ -1328,11 +1334,19 @@ run_in_tmux() {
       local log_dir
       log_dir="$(dirname "$log_path")"
       if [ -d "$log_dir" ]; then
-        if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
-          # Scoped clear: only nuke logs for the tickets THIS test mode
-          # actually resets. The main aiur.log is also cleared since a
-          # fresh test run always wants a clean orchestrator log.
-          # Unrelated per-issue logs (operator's other work) survive.
+        if [ "$explicit_clear" -eq 1 ]; then
+          # User typed --clear: blanket nuke every aiur*.log,
+          # regardless of whether --test/--test3 is also present.
+          # Explicit clear means "I want all the logs gone."
+          find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
+          echo "✅ cleared previous logs ($log_dir)" >&2
+        elif [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+          # Implicit clear from --test / --test3: scope to just the
+          # tickets THIS test mode actually resets, plus the main
+          # aiur.log (fresh test runs always want a clean orchestrator
+          # log). Unrelated per-issue logs (operator's other work)
+          # survive. To force a blanket nuke alongside a test run,
+          # pass --clear explicitly: `aiur --test --clear`.
           tickets_file="$default_repo_root/.aiur-test-tickets.json"
           rm -f "$log_dir/aiur.log" 2>/dev/null || true
           if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
@@ -1347,10 +1361,6 @@ run_in_tmux() {
             done
           fi
           echo "✅ cleared test-scoped logs ($log_dir)" >&2
-        else
-          # Plain --clear --debug: blanket nuke.
-          find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
-          echo "✅ cleared previous logs ($log_dir)" >&2
         fi
       fi
 
