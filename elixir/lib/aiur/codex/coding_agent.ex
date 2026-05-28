@@ -461,7 +461,22 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)
        when request_id == state.pending_interrupt_request_id do
-    {:error, {:turn_interrupt_failed, error}}
+    if no_active_turn_error?(error) do
+      # Codex says "no active turn to interrupt" (-32600). The turn
+      # ended on its own between us deciding to interrupt and codex
+      # processing the request. There's nothing left to interrupt —
+      # treat it the same as a successful interrupt so the operator
+      # message / pause request gets handled on the next cycle.
+      # Without this, the AgentRunner Task crashes with
+      # `{:turn_interrupt_failed, ...}` and the orchestrator dumps a
+      # `system:` line into the chat pane (recurrent issue
+      # triggered by U5's reactivation flow, where a fresh agent
+      # task receives an operator-queue update before its first
+      # codex turn has spawned).
+      {:continue, %{state | pending_interrupt_request_id: nil}}
+    else
+      {:error, {:turn_interrupt_failed, error}}
+    end
   end
 
   defp handle_decoded_incoming(session, state, %{"id" => request_id, "result" => _} = payload, payload_string, _port, _on_message)
@@ -860,6 +875,18 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp interrupt_turn(_session, _turn_id), do: {:error, :invalid_session}
+
+  # Codex's "no active turn to interrupt" response. Treated as a
+  # successful interrupt by `handle_decoded_incoming/6` because the
+  # turn has already ended — there's nothing to wait for, the
+  # operator message / pause request can proceed on the next cycle.
+  defp no_active_turn_error?(%{"code" => -32_600}), do: true
+
+  defp no_active_turn_error?(%{"message" => message}) when is_binary(message) do
+    String.contains?(message, "no active turn")
+  end
+
+  defp no_active_turn_error?(_), do: false
 
   defp turn_completion_status(%{"params" => %{"turn" => %{"status" => status}}}) when is_binary(status),
     do: status
