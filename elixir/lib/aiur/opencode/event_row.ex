@@ -75,22 +75,20 @@ defmodule Aiur.Opencode.EventRow do
     source_id = source_ticket_id(topic)
     body = Map.get(entry, :body)
 
-    cond do
-      self_receive?(kind, source_id, rendering_identifier) ->
-        # Agent's own subscription fanned an event back to itself.
-        # The matching :publish row already rendered above; the
-        # self-receive is duplicate noise.
-        nil
+    if self_receive?(kind, source_id, rendering_identifier) do
+      # Agent's own subscription fanned an event back to itself.
+      # The matching :publish row already rendered above; the
+      # self-receive is duplicate noise.
+      nil
+    else
+      sentence =
+        case kind do
+          :publish -> publish_sentence(topic, source_id, body, rendering_identifier)
+          :receive -> receive_sentence(topic, source_id, body)
+          :read -> read_sentence(topic, source_id)
+        end
 
-      true ->
-        sentence =
-          case kind do
-            :publish -> publish_sentence(topic, source_id, body, rendering_identifier)
-            :receive -> receive_sentence(topic, source_id, body)
-            :read -> read_sentence(topic, source_id)
-          end
-
-        Style.dim(sentence)
+      Style.dim(sentence)
     end
   end
 

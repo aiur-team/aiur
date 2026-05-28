@@ -53,17 +53,17 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       Process.sleep(100)
       latest_with_event = drain_latest()
 
-      assert latest_with_event =~ "id=4287", "ticker should render the event"
+      assert latest_with_event =~ "💬 42 pushed:", "events box should render the event"
 
       # Trigger a subsequent render via :refresh_tick. This is the bug
       # surface: if debug_events is stripped from render_state, the
-      # ticker goes empty here.
+      # events box goes empty here.
       send(pid, :refresh_tick)
       Process.sleep(100)
       latest_after_refresh = drain_latest()
 
-      assert latest_after_refresh =~ "id=4287",
-             "ticker MUST still show event after refresh_tick"
+      assert latest_after_refresh =~ "💬 42 pushed:",
+             "events box MUST still show event after refresh_tick"
     end
 
     test "multiple events accumulate (newest at bottom)", %{pid: pid} do
@@ -86,13 +86,13 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       Process.sleep(100)
       final = drain_latest()
 
-      assert final =~ "id=1"
-      assert final =~ "id=2"
-      assert final =~ "id=3"
+      assert final =~ "💬 1 pushed:"
+      assert final =~ "💬 2 pushed:"
+      assert final =~ "💬 3 pushed:"
 
-      pos_1 = :binary.match(final, "id=1") |> elem(0)
-      pos_2 = :binary.match(final, "id=2") |> elem(0)
-      pos_3 = :binary.match(final, "id=3") |> elem(0)
+      pos_1 = :binary.match(final, "💬 1 pushed:") |> elem(0)
+      pos_2 = :binary.match(final, "💬 2 pushed:") |> elem(0)
+      pos_3 = :binary.match(final, "💬 3 pushed:") |> elem(0)
       assert pos_1 < pos_2 and pos_2 < pos_3
     end
 
@@ -103,13 +103,13 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       Process.sleep(100)
       latest_with_event = drain_latest()
 
-      assert latest_with_event =~ "id=99"
+      assert latest_with_event =~ "💬 7"
 
       send(pid, :refresh_tick)
       Process.sleep(100)
       latest_after_refresh = drain_latest()
 
-      assert latest_after_refresh =~ "id=99",
+      assert latest_after_refresh =~ "💬 7",
              "event MUST persist across refresh tick"
     end
   end

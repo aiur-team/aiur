@@ -14,7 +14,6 @@ defmodule Aiur.AgentList.Renderer do
   """
 
   alias Aiur.AgentEvents
-  alias Aiur.Opencode.WarmthReport
   alias Aiur.ProgressTracker
 
   # Fixed visual width for the state-emoji column. The glyph occupies
@@ -112,19 +111,19 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
         |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
 
-      debug_footer = debug_perf_footer(state, inner_width)
       markers = compute_markers(state, summaries)
       warm_row = warm_status_row(state, inner_width)
 
       base_lines =
-        lines_emitted(state, inner_width) + debug_footer_line_count(state) +
-          warm_row_line_count(state)
+        lines_emitted(state, inner_width) + warm_row_line_count(state)
 
       # Reserve at least one row of breathing room before the bottom of
-      # the pane so the ticker never overflows tmux's scroll region. If
-      # there's no room left, render nothing.
-      ticker_budget = max(rows - base_lines - 1, 0)
-      {ticker_iodata, ticker_line_count} = debug_events_ticker(state, inner_width, ticker_budget)
+      # the pane so the events box never overflows tmux's scroll region.
+      # The events section is always-on (no debug gate); when budget is
+      # too tight to draw the box chrome, the section collapses to zero
+      # rows automatically.
+      events_budget = max(rows - base_lines - 1, 0)
+      {ticker_iodata, ticker_line_count} = events_section(state, inner_width, events_budget)
 
       [
         # Cursor controls at frame start:
@@ -163,7 +162,6 @@ defmodule Aiur.AgentList.Renderer do
         footer_iodata(inner_width),
         eol(),
         warm_row,
-        debug_footer,
         ticker_iodata,
         clear_remaining(rows, base_lines + ticker_line_count),
         # Re-emit hide + no-blink + park-home AFTER all painting,
@@ -1125,158 +1123,253 @@ defmodule Aiur.AgentList.Renderer do
   #
   # Each row shows the last measured value or `…` while we wait.
 
-  defp debug_perf_footer(state, inner_width) do
-    if Map.get(state, :debug_mode?, false) do
-      summary = Map.get(state, :perf_summary, %{})
-
-      [
-        perf_compact_row(summary, inner_width),
-        eol(),
-        warmth_footer_row(state, inner_width),
-        eol()
-      ]
-    else
-      []
-    end
-  end
-
-  defp debug_footer_line_count(state) do
-    if Map.get(state, :debug_mode?, false), do: 2, else: 0
-  end
-
-  defp perf_compact_row(summary, inner_width) do
-    text =
-      "  perf  list " <>
-        format_perf_ms(Map.get(summary, :agent_list_ready_ms)) <>
-        " · pane " <>
-        format_perf_ms(Map.get(summary, :chat_pane_visible_ms)) <>
-        " · render " <> format_perf_ms(Map.get(summary, :opencode_render_ms))
-
-    # Pad to inner_width - 1 to leave the autowrap-safety column;
-    # no right border because this row sits below the bordered box.
-    [IO.ANSI.faint(), clip_and_pad(text, max(inner_width - 1, 0)), IO.ANSI.reset()]
-  end
-
-  defp format_perf_ms(nil), do: "…"
-  defp format_perf_ms(ms) when ms < 1_000, do: "#{ms}ms"
-
-  defp format_perf_ms(ms),
-    do: :io_lib.format("~.1fs", [ms / 1000]) |> IO.iodata_to_binary()
-
-  defp warmth_footer_row(state, inner_width) do
-    rows =
-      state
-      |> Map.get(:warmth_events, [])
-      |> WarmthReport.from_events()
-
-    summary = format_warmth_summary(rows)
-    label = "  warmth (loose→strict): " <> summary
-    [IO.ANSI.faint(), clip_and_pad(label, inner_width), IO.ANSI.reset()]
-  end
-
-  defp format_warmth_summary([]), do: "no attach events yet"
-
-  defp format_warmth_summary(rows) do
-    rows
-    |> Enum.take(3)
-    |> Enum.map_join("  ", fn r ->
-      delta =
-        case r.loose_to_strict_delta_ms do
-          n when is_integer(n) -> "#{n}ms"
-          :strict_never_reached -> "never"
-          other -> Atom.to_string(other)
-        end
-
-      "#{r.identifier}=#{delta}"
-    end)
-  end
-
-  # --- Debug events ticker ------------------------------------------------
-  # When `--debug` is on, the bottom of the agent-list pane shows the
-  # most recent event lifecycle marks. Three kinds, in three columns of
-  # visual weight:
+  # --- Events section (always on) ----------------------------------------
+  # Below the agent-list table sits a bordered events box. Three kinds:
   #
-  #   💬  publish — Aiur.Events.Publisher.publish/3 accepted the event
-  #   📬  receive — Aiur.Events.SubscriptionStore enqueued the event
-  #                  for a specific subscribing identifier
+  #   💬  publish — `Aiur.Events.Publisher.publish/3` accepted the event
+  #   📬  receive — `Aiur.Events.SubscriptionStore` delivered the event
+  #                  to a subscribing ticket
   #   📄  read    — the agent's queue consumed an `events_digest` item
   #                  (the digest reached the agent's prompt)
   #
-  # The buffer is newest-first. Renderer trims to `budget` lines so
-  # the ticker never overflows the pane height; older events are
-  # silently dropped from the visible window.
+  # Line format:
+  #   `💬 99 Agent: "<message>"` (publish — source ticket is the agent)
+  #   `📬 100 Agent received from 99: "<message>"` (cross-ticket receive)
+  #   `📄 100 Agent ingested: <topic>` (read — minimal context)
+  #
+  # The table takes precedence for space: when `budget` is too small to
+  # draw the box chrome (top + bottom + legend separator + at least one
+  # content row), the events section renders nothing. When budget
+  # allows, the box expands to fit the available rows; the newest event
+  # always sits at the bottom of the visible window.
 
-  defp debug_events_ticker(state, inner_width, budget) do
-    if Map.get(state, :debug_mode?, false) and budget > 0 do
-      header_line = ticker_header_row(inner_width)
-      # Header eats one row; remaining is the visible event capacity.
-      capacity = max(budget - 1, 0)
+  # Minimum overhead the box chrome needs: top border + legend
+  # separator + legend row + bottom border = 4.
+  @events_chrome_rows 4
 
-      # state.debug_events is newest-first. Keep the newest `capacity`
-      # (drop the oldest beyond that), then reverse so we render
-      # oldest-at-top → newest-at-bottom. Events anchor to the BOTTOM
-      # of the ticker section: when fewer than `capacity` exist, blank
-      # padding fills the rows above so the newest event always sits
-      # at the bottom of the pane.
-      events =
-        state
-        |> Map.get(:debug_events, [])
-        |> Enum.take(capacity)
-        |> Enum.reverse()
+  defp events_section(state, inner_width, budget) do
+    cond do
+      budget < @events_chrome_rows + 1 ->
+        # Not enough room for the box chrome plus a single event row —
+        # collapse the section entirely so the table breathes.
+        {[], 0}
 
-      pad_count = max(capacity - length(events), 0)
-      blank = ticker_blank_row(inner_width)
-      blank_rows = List.duplicate([blank, eol()], pad_count)
-      event_rows = Enum.flat_map(events, &[ticker_event_row(&1, inner_width), eol()])
+      inner_width < 4 ->
+        # Pane is degenerate; skip the box.
+        {[], 0}
 
-      {[header_line, eol(), blank_rows, event_rows], 1 + pad_count + length(events)}
-    else
-      {[], 0}
+      true ->
+        render_events_box(state, inner_width, budget)
     end
   end
 
-  defp ticker_blank_row(inner_width) do
-    String.duplicate(" ", inner_width)
+  defp render_events_box(state, inner_width, budget) do
+    events_capacity = max(budget - @events_chrome_rows, 0)
+
+    events =
+      state
+      |> Map.get(:debug_events, [])
+      |> Enum.take(events_capacity)
+      |> Enum.reverse()
+
+    pad_count = max(events_capacity - length(events), 0)
+    rendering_identifier = state |> Map.get(:summaries, []) |> selected_identifier(state)
+
+    blank = event_box_blank_row(inner_width)
+    blank_rows = List.duplicate([blank, eol()], pad_count)
+    event_rows = Enum.flat_map(events, &[event_box_event_row(&1, inner_width, rendering_identifier), eol()])
+
+    iodata = [
+      events_box_top(inner_width),
+      eol(),
+      blank_rows,
+      event_rows,
+      events_box_legend_separator(inner_width),
+      eol(),
+      events_box_legend_row(inner_width),
+      eol(),
+      events_box_bottom(inner_width)
+    ]
+
+    {iodata, @events_chrome_rows + pad_count + length(events)}
   end
 
-  defp ticker_header_row(inner_width) do
-    # Two label variants: full and compact. Pick the widest that fits
-    # so a narrow tmux split doesn't wrap the header.
-    full = "  events (💬 publish · 📬 receive · 📄 read)"
-    compact = "  events  💬 📬 📄"
-
-    label =
-      cond do
-        visual_width(full) <= inner_width -> full
-        visual_width(compact) <= inner_width -> compact
-        true -> "  events"
-      end
-
-    [IO.ANSI.faint(), clip_and_pad(label, inner_width), IO.ANSI.reset()]
+  defp selected_identifier(_summaries, %{selection_index: idx, summaries: summaries}) when is_list(summaries) do
+    case Enum.at(summaries, idx) do
+      %{identifier: id} when is_binary(id) -> id
+      _ -> nil
+    end
   end
 
-  defp ticker_event_row(%{kind: kind, topic: topic} = entry, inner_width) do
-    glyph =
-      case kind do
-        :publish -> "💬"
-        :receive -> "📬"
-        :read -> "📄"
-      end
+  defp selected_identifier(_summaries, _state), do: nil
 
-    id_part =
-      case Map.get(entry, :id) do
-        n when is_integer(n) -> " id=#{n}"
-        _ -> ""
-      end
+  defp events_box_top(inner_width) do
+    label = " Events "
+    label_width = visual_width(label)
+    # `╭─ Events ──...──╮`
+    left = "╭─" <> label
+    right = "╮"
+    fill = String.duplicate("─", max(inner_width - label_width - 3, 0))
+    [IO.ANSI.faint(), left, fill, right, IO.ANSI.reset()]
+  end
 
-    identifier_part =
-      case Map.get(entry, :identifier) do
-        id when is_binary(id) and id != "" -> " (##{id})"
-        _ -> ""
-      end
+  defp events_box_bottom(inner_width) do
+    fill = String.duplicate("─", max(inner_width - 2, 0))
+    [IO.ANSI.faint(), "╰", fill, "╯", IO.ANSI.reset()]
+  end
 
-    text = "  #{glyph} #{topic}#{id_part}#{identifier_part}"
-    [IO.ANSI.faint(), clip_and_pad(text, inner_width), IO.ANSI.reset()]
+  defp events_box_legend_separator(inner_width) do
+    fill = String.duplicate("─", max(inner_width - 2, 0))
+    [IO.ANSI.faint(), "├", fill, "┤", IO.ANSI.reset()]
+  end
+
+  defp events_box_legend_row(inner_width) do
+    full = "💬 publish · 📬 receive · 📄 read"
+    compact = "💬 · 📬 · 📄"
+    text = if visual_width("│ " <> full <> " │") <= inner_width, do: full, else: compact
+    event_box_inner_row(text, inner_width)
+  end
+
+  defp event_box_blank_row(inner_width) do
+    event_box_inner_row("", inner_width)
+  end
+
+  defp event_box_event_row(entry, inner_width, rendering_identifier) do
+    text = format_event_line(entry, rendering_identifier)
+    event_box_inner_row(text, inner_width)
+  end
+
+  # `│ <text padded> │` — the `│ ` + ` │` chrome eats 4 visual columns.
+  defp event_box_inner_row(text, inner_width) do
+    body_width = max(inner_width - 4, 0)
+    padded = clip_and_pad(text, body_width)
+    [IO.ANSI.faint(), "│ ", padded, " │", IO.ANSI.reset()]
+  end
+
+  # Format an event-ticker entry as a natural-language line. Reuses
+  # `Aiur.Opencode.EventRow`'s topic parsing semantics where possible
+  # so the agent-list ticker stays consistent with the chat pane.
+  defp format_event_line(%{kind: kind, topic: topic} = entry, rendering_identifier) do
+    glyph = event_glyph(kind)
+    body = Map.get(entry, :body)
+    source_id = event_source_ticket_id(topic)
+    subject_id = event_subject_id(kind, entry, source_id, rendering_identifier)
+    verb_phrase = event_verb_phrase(topic, kind, source_id)
+    summary = event_summary_suffix(body)
+
+    "#{glyph} #{subject_id} #{verb_phrase}#{summary}"
+  end
+
+  defp format_event_line(_entry, _rendering_identifier), do: ""
+
+  defp event_glyph(:publish), do: "💬"
+  defp event_glyph(:receive), do: "📬"
+  defp event_glyph(:read), do: "📄"
+  defp event_glyph(_), do: "·"
+
+  defp event_source_ticket_id(topic) when is_binary(topic) do
+    case Regex.run(~r/^ticket\.([^.]+)\./, topic) do
+      [_, id] -> id
+      _ -> nil
+    end
+  end
+
+  defp event_source_ticket_id(_), do: nil
+
+  # For publishes, the subject is the source ticket itself.
+  # For receives, the subject is the receiving ticket (entry.identifier).
+  defp event_subject_id(:publish, _entry, source_id, _rendering_identifier) when is_binary(source_id),
+    do: source_id
+
+  defp event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
+    do: id
+
+  defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
+    do: id
+
+  # Read events from raw DebugLog may not carry an identifier — fall
+  # back to the source ticket so the line still has a subject.
+  defp event_subject_id(:read, _entry, source_id, _rendering_identifier) when is_binary(source_id),
+    do: source_id
+
+  defp event_subject_id(_kind, _entry, _source_id, rendering_identifier) when is_binary(rendering_identifier),
+    do: rendering_identifier
+
+  defp event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
+
+  defp event_verb_phrase(_topic, :receive, source_id) when is_binary(source_id),
+    do: "Agent received from #{source_id}:"
+
+  defp event_verb_phrase(_topic, :receive, _source_id), do: "Agent received:"
+
+  defp event_verb_phrase(_topic, :read, _source_id), do: "Agent ingested:"
+
+  defp event_verb_phrase(topic, :publish, _source_id) when is_binary(topic) do
+    publish_verb_phrase(topic_suffix(topic))
+  end
+
+  defp event_verb_phrase(_topic, _kind, _source_id), do: ""
+
+  defp publish_verb_phrase("agent.phase." <> phase_step), do: "Agent " <> phrase_for_phase(phase_step) <> ":"
+  defp publish_verb_phrase("agent.progress"), do: "Agent progress:"
+  defp publish_verb_phrase("agent." <> name), do: "Agent #{name}:"
+  defp publish_verb_phrase("issue.label.added.agent." <> state), do: "labelled #{state}:"
+  defp publish_verb_phrase("pr.opened"), do: "opened a PR:"
+  defp publish_verb_phrase("pr.merged"), do: "merged a PR:"
+  defp publish_verb_phrase("pr.review_comment"), do: "got a PR review comment:"
+  defp publish_verb_phrase("branch.push"), do: "pushed:"
+  defp publish_verb_phrase("issue.commented"), do: "got an issue comment:"
+  defp publish_verb_phrase(other), do: other <> ":"
+
+  defp topic_suffix("ticket." <> rest) do
+    case String.split(rest, ".", parts: 2) do
+      [_id, suffix] -> suffix
+      _ -> rest
+    end
+  end
+
+  defp topic_suffix(topic) when is_binary(topic), do: topic
+  defp topic_suffix(_), do: ""
+
+  defp phrase_for_phase("brainstorm.start"), do: "started brainstorm"
+  defp phrase_for_phase("brainstorm.end"), do: "finished brainstorm"
+  defp phrase_for_phase("plan.start"), do: "started plan"
+  defp phrase_for_phase("plan.end"), do: "finished plan"
+  defp phrase_for_phase("work.start"), do: "started work"
+  defp phrase_for_phase("work.end"), do: "finished work"
+  defp phrase_for_phase("review.start"), do: "started review"
+  defp phrase_for_phase("review.end"), do: "finished review"
+  defp phrase_for_phase(other), do: "phase " <> other
+
+  @summary_keys ~w(message title summary subject name label commit_message)
+
+  defp event_summary_suffix(body) when is_map(body) do
+    case extract_event_text(body) do
+      nil -> ""
+      text -> " \"" <> clip_summary(text) <> "\""
+    end
+  end
+
+  defp event_summary_suffix(_body), do: ""
+
+  defp extract_event_text(body) do
+    Enum.find_value(@summary_keys, fn k ->
+      val = Map.get(body, k) || Map.get(body, String.to_atom(k))
+
+      if is_binary(val) and String.trim(val) != "" do
+        String.trim(val)
+      end
+    end)
+  end
+
+  defp clip_summary(text) when is_binary(text) do
+    trimmed = String.trim(text)
+
+    if String.length(trimmed) > 80 do
+      String.slice(trimmed, 0, 79) <> "…"
+    else
+      trimmed
+    end
   end
 
   defp clear_remaining(rows, lines_drawn) do

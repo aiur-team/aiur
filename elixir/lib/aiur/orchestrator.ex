@@ -818,9 +818,7 @@ defmodule Aiur.Orchestrator do
         state
 
       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
-        Logger.info(
-          "Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot"
-        )
+        Logger.info("Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot")
 
         # Close any open chat-completion SSE streams for this identifier
         # BEFORE killing the task. `terminate_task/1` brutally kills the
@@ -2775,9 +2773,7 @@ defmodule Aiur.Orchestrator do
     state = %{state | running: Map.put(state.running, issue_id, new_entry)}
     state = refresh_tracked_set(state)
 
-    Logger.info(
-      "Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task"
-    )
+    Logger.info("Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task")
 
     {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
   end

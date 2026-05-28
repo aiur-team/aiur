@@ -27,108 +27,108 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
     |> Map.merge(Map.new(overrides))
   end
 
-  describe "debug events ticker" do
-    test "renders nothing when debug_mode? is false" do
-      state = build_state(debug_mode?: false, debug_events: [debug_entry(:publish)])
+  describe "events section (always on, bordered)" do
+    test "renders the events box even when debug_mode? is false (always-on now)" do
+      state = build_state(debug_mode?: false, debug_events: [debug_entry(:publish, topic: "ticket.42.branch.push")])
       output = state |> Renderer.render() |> IO.iodata_to_binary()
-      refute output =~ "events ("
-      refute output =~ "💬"
+
+      assert output =~ "╭─ Events"
+      assert output =~ "╰"
+      assert output =~ "💬 42"
     end
 
-    test "renders header + recent events when debug_mode? is true" do
+    test "renders bordered box with legend at the bottom" do
       events = [
         debug_entry(:read, topic: "ticket.42.branch.push", id: 4290, identifier: "42"),
-        debug_entry(:receive, topic: "ticket.42.branch.push", id: 4287, identifier: "42"),
+        debug_entry(:receive, topic: "ticket.42.branch.push", id: 4287, identifier: "99"),
         debug_entry(:publish, topic: "ticket.42.branch.push", id: 4287)
       ]
 
       state = build_state(debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      assert output =~ "events ("
-      assert output =~ "💬 ticket.42.branch.push id=4287"
-      assert output =~ "📬 ticket.42.branch.push id=4287 (#42)"
-      assert output =~ "📄 ticket.42.branch.push id=4290 (#42)"
+      # Box chrome.
+      assert output =~ "╭─ Events"
+      assert output =~ "╰"
+
+      # Legend renders inside the box, separated by a horizontal line.
+      assert output =~ "├"
+      assert output =~ "💬 publish · 📬 receive · 📄 read"
+
+      # New per-line format: `💬 <id> pushed:`.
+      assert output =~ "💬 42 pushed:"
+      assert output =~ "📬 99 Agent received from 42:"
+      assert output =~ "📄 42 Agent ingested:"
     end
 
     test "newest event renders BELOW older events (anchored to bottom)" do
       events = [
-        debug_entry(:read, topic: "ticket.42.read", id: 3),
-        debug_entry(:receive, topic: "ticket.42.receive", id: 2),
-        debug_entry(:publish, topic: "ticket.42.publish", id: 1)
+        debug_entry(:read, topic: "ticket.42.branch.push", id: 3),
+        debug_entry(:receive, topic: "ticket.42.branch.push", id: 2, identifier: "99"),
+        debug_entry(:publish, topic: "ticket.42.branch.push", id: 1)
       ]
 
       state = build_state(debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      publish_pos = :binary.match(output, "ticket.42.publish") |> elem(0)
-      receive_pos = :binary.match(output, "ticket.42.receive") |> elem(0)
-      read_pos = :binary.match(output, "ticket.42.read") |> elem(0)
+      publish_pos = :binary.match(output, "💬 42 pushed:") |> elem(0)
+      receive_pos = :binary.match(output, "📬 99 Agent received from 42:") |> elem(0)
+      read_pos = :binary.match(output, "📄 42 Agent ingested:") |> elem(0)
 
       assert publish_pos < receive_pos
       assert receive_pos < read_pos
     end
 
-    test "hides oldest events when ticker would exceed budget" do
-      # 24 rows total, header + table chrome eats most; the ticker gets
-      # a small remaining budget. Generate more events than can fit and
-      # verify the OLDEST are dropped, not the newest.
+    test "hides oldest events when section would exceed budget" do
+      # 24 rows total, table chrome eats some; the events box gets a
+      # bounded budget. Generate more events than can fit and verify
+      # OLDEST are dropped, not the newest.
       events =
-        for i <- 100..1, do: debug_entry(:publish, topic: "ticket.#{i}.x", id: i)
+        for i <- 100..1, do: debug_entry(:publish, topic: "ticket.#{i}.branch.push", id: i)
 
       state = build_state(rows: 24, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      # Newest (id=100) MUST appear; oldest (id=1) MUST NOT.
-      assert output =~ "id=100"
-      refute output =~ "id=1 "
+      # Newest (ticket 100) MUST appear; oldest (ticket 1) MUST NOT.
+      assert output =~ "💬 100 pushed:"
+      refute output =~ "💬 1 pushed:"
     end
 
-    test "renders empty when pane has no remaining vertical budget" do
-      # Tiny pane — chrome alone fills it.
+    test "collapses entirely when pane has no remaining vertical budget" do
+      # Tiny pane — chrome alone fills it; events section needs at
+      # least 5 rows (top, bottom, legend separator, legend, one event).
       events = [debug_entry(:publish, topic: "ticket.1.branch.push", id: 1)]
       state = build_state(rows: 6, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      refute output =~ "events ("
+      refute output =~ "╭─ Events"
     end
   end
 
   describe "persistence across render cycles" do
-    test "events survive a render → other_event_with_unchanged_debug_events → render cycle" do
+    test "events survive consecutive renders with unchanged debug_events" do
       events = [debug_entry(:publish, topic: "ticket.42.branch.push", id: 42)]
       state = build_state(debug_events: events)
 
-      # Render once — event appears.
       first = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert first =~ "💬 ticket.42.branch.push id=42"
+      assert first =~ "💬 42 pushed:"
 
-      # Render again with identical state — event MUST still appear.
       second = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert second =~ "💬 ticket.42.branch.push id=42"
-
-      # Render a third time after simulating something that updates other
-      # state but preserves debug_events (e.g., perf summary update).
-      bumped = %{state | perf_summary: Map.put(state.perf_summary, :opencode_render_ms, 500)}
-      third = bumped |> Renderer.render() |> IO.iodata_to_binary()
-      assert third =~ "💬 ticket.42.branch.push id=42"
+      assert second =~ "💬 42 pushed:"
     end
   end
 
   describe "App render() pipes debug_events through" do
-    # Regression: the previous bug was that defp render/1 in app.ex
-    # built a render_state via Map.take + Map.put and didn't include
-    # debug_events. This test locks in that render_state must carry it.
     test "Renderer reads debug_events from the state map" do
-      events = [debug_entry(:publish, topic: "t", id: 1)]
+      events = [debug_entry(:publish, topic: "ticket.7.branch.push", id: 7)]
       with_events = build_state(debug_events: events)
       without_events = build_state(debug_events: [])
 
       with_out = with_events |> Renderer.render() |> IO.iodata_to_binary()
       without_out = without_events |> Renderer.render() |> IO.iodata_to_binary()
 
-      assert with_out =~ "id=1"
-      refute without_out =~ "id=1"
+      assert with_out =~ "💬 7 pushed:"
+      refute without_out =~ "💬 7 pushed:"
     end
   end
 
