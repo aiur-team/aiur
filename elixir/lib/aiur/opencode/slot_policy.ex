@@ -100,9 +100,7 @@ defmodule Aiur.Opencode.SlotPolicy do
   def handle_info(:start_all_slots, %{target_count: target} = state) do
     Aiur.Perf.event(:slot_policy_start_first, target_count: target)
 
-    Logger.info(
-      "opencode_slot_policy phase=parallel_boot_start elapsed_ms=#{Boot.elapsed_ms()} target=#{target}"
-    )
+    Logger.info("opencode_slot_policy phase=parallel_boot_start elapsed_ms=#{Boot.elapsed_ms()} target=#{target}")
 
     highest =
       1..target
@@ -118,17 +116,13 @@ defmodule Aiur.Opencode.SlotPolicy do
             max(acc, slot_index)
 
           {:error, reason} ->
-            Logger.warning(
-              "opencode_slot_policy phase=parallel_boot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}"
-            )
+            Logger.warning("opencode_slot_policy phase=parallel_boot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}")
 
             acc
         end
       end)
 
-    Logger.info(
-      "opencode_slot_policy phase=parallel_boot_dispatched elapsed_ms=#{Boot.elapsed_ms()} highest=#{highest}"
-    )
+    Logger.info("opencode_slot_policy phase=parallel_boot_dispatched elapsed_ms=#{Boot.elapsed_ms()} highest=#{highest}")
 
     {:noreply, %{state | highest_started: highest}}
   end

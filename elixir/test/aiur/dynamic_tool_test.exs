@@ -42,7 +42,15 @@ defmodule Aiur.Codex.DynamicToolTest do
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql", "emit_alert"]
+               "supportedTools" => [
+                 "linear_graphql",
+                 "emit_alert",
+                 "emit_event",
+                 "aiur_subscribe",
+                 "aiur_unsubscribe",
+                 "aiur_declare_blocker",
+                 "aiur_unblock"
+               ]
              }
            }
 
@@ -358,5 +366,151 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert response["success"] == true
     assert response["output"] == ":ok"
+  end
+
+  describe "emit_event" do
+    test "publishes a progress.<slug> event for a valid name" do
+      published = self()
+
+      stub_publisher = fn name, message, payload ->
+        send(published, {:published, name, message, payload})
+        {:ok, %{"id" => 12_345, "topic" => "ticket.42.agent.progress.brainstorm-end"}}
+      end
+
+      response =
+        DynamicTool.execute(
+          "emit_event",
+          %{"name" => "progress.brainstorm-end", "message" => "Done"},
+          event_publisher: stub_publisher
+        )
+
+      assert response["success"] == true
+      assert Jason.decode!(response["output"])["name"] == "progress.brainstorm-end"
+      assert_receive {:published, "progress.brainstorm-end", "Done", %{}}, 200
+    end
+
+    test "passes through optional payload" do
+      published = self()
+
+      stub = fn _, _, payload ->
+        send(published, {:payload, payload})
+        {:ok, %{}}
+      end
+
+      DynamicTool.execute(
+        "emit_event",
+        %{"name" => "blocked", "message" => "x", "payload" => %{"blocking_issue" => 80}},
+        event_publisher: stub
+      )
+
+      assert_receive {:payload, %{"blocking_issue" => 80}}, 200
+    end
+
+    test "rejects names outside the agent allowlist" do
+      stub = fn _, _, _ -> {:ok, %{}} end
+
+      response =
+        DynamicTool.execute(
+          "emit_event",
+          %{"name" => "system.weird.thing", "message" => "no"},
+          event_publisher: stub
+        )
+
+      assert response["success"] == false
+
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "agent vocabulary"
+    end
+
+    test "accepts every documented exact-match name" do
+      stub = fn _, _, _ -> {:ok, %{}} end
+
+      for name <- ["blocked", "unblocked", "attention.resolved", "pause.request"] do
+        assert %{"success" => true} =
+                 DynamicTool.execute(
+                   "emit_event",
+                   %{"name" => name, "message" => "ok"},
+                   event_publisher: stub
+                 )
+      end
+    end
+
+    test "requires name and message" do
+      stub = fn _, _, _ -> {:ok, %{}} end
+
+      r1 = DynamicTool.execute("emit_event", %{"message" => "x"}, event_publisher: stub)
+      r2 = DynamicTool.execute("emit_event", %{"name" => "blocked"}, event_publisher: stub)
+
+      assert r1["success"] == false
+      assert r2["success"] == false
+    end
+
+    test "returns error when publisher is missing from opts" do
+      response = DynamicTool.execute("emit_event", %{"name" => "blocked", "message" => "x"})
+      assert response["success"] == false
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "unavailable"
+    end
+
+    test "tool_specs advertises emit_event" do
+      assert Enum.any?(DynamicTool.tool_specs(), &(&1["name"] == "emit_event"))
+    end
+  end
+
+  describe "aiur_subscribe / aiur_unsubscribe" do
+    test "subscribe invokes injected closure with the topic pattern" do
+      test_pid = self()
+
+      stub = fn pattern ->
+        send(test_pid, {:subscribed, pattern})
+        :ok
+      end
+
+      response =
+        DynamicTool.execute(
+          "aiur_subscribe",
+          %{"topic_pattern" => "ticket.42.#"},
+          subscriber: stub
+        )
+
+      assert response["success"] == true
+      assert_receive {:subscribed, "ticket.42.#"}, 200
+    end
+
+    test "unsubscribe invokes injected closure" do
+      test_pid = self()
+
+      stub = fn pattern ->
+        send(test_pid, {:unsubscribed, pattern})
+        :ok
+      end
+
+      DynamicTool.execute(
+        "aiur_unsubscribe",
+        %{"topic_pattern" => "ticket.42.#"},
+        unsubscriber: stub
+      )
+
+      assert_receive {:unsubscribed, "ticket.42.#"}, 200
+    end
+
+    test "rejects empty / malformed patterns" do
+      stub = fn _ -> :ok end
+
+      for bad <- ["", ".bad", "bad.", "ticket..101"] do
+        r = DynamicTool.execute("aiur_subscribe", %{"topic_pattern" => bad}, subscriber: stub)
+        assert r["success"] == false
+      end
+    end
+
+    test "missing pattern returns error" do
+      stub = fn _ -> :ok end
+      r = DynamicTool.execute("aiur_subscribe", %{}, subscriber: stub)
+      assert r["success"] == false
+    end
+
+    test "missing injected closure returns unavailable error" do
+      r = DynamicTool.execute("aiur_subscribe", %{"topic_pattern" => "x"})
+      assert r["success"] == false
+      assert Jason.decode!(r["output"])["error"]["message"] =~ "unavailable"
+    end
   end
 end

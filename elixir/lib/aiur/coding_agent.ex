@@ -28,6 +28,20 @@ defmodule Aiur.CodingAgent do
     end
   end
 
+  @doc """
+  Backend-specific module that knows how to turn a raw notification
+  message into a transcript event (or skip it). Keeps the codex / Claude
+  notification-shape differences out of `Aiur.AgentRunner`. Each module
+  exposes `extract(message, fallback_turn_id) :: {:ok, transcript_event} | :skip`.
+  """
+  @spec transcript_module() :: module()
+  def transcript_module do
+    case Config.agent_kind() do
+      "codex" -> Aiur.Codex.Transcript
+      _ -> Aiur.Claude.Transcript
+    end
+  end
+
   @spec start_session(Path.t()) :: {:ok, map()} | {:error, term()}
   @spec start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def start_session(workspace, opts \\ []), do: adapter().start_session(workspace, opts)

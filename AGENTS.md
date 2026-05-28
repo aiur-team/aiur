@@ -106,6 +106,124 @@ Do not commit:
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
 
+## Manual testing — the only definition
+
+When the user (or any doc) says "manually test", "run aiur and try it",
+"verify end to end", "see if it works", or anything in that family, the
+**only acceptable verification** is to drive the real CLI:
+
+1. **Launch the actual CLI**: `scripts/aiur --test --force --allow-remote`
+   (or whichever flags the scenario calls for). This must spawn the real
+   release binary, the tmux session, opencode-serves, and opencode-attach
+   TUI panes — not just the BEAM and not a one-off `mix run`.
+2. **Drive the TUI like a user would.** Press keys, open chat panes
+   (Enter on an agent row), type messages into the chat input, navigate
+   between panes. From a non-TTY agent environment, use `tmux send-keys`
+   on the live `aiur-orangekid` socket — that **is** how a user
+   interacts; `setsid` is fine for spawning, but interaction must hit
+   the running tmux session, not a separate shell.
+3. **Observe what a user actually sees.** Read the rendered chat-pane
+   content via `tmux capture-pane -p -t <pane>`. Look for the intended
+   UX content: real agent prose, `$ command` lines, `→ tool_call`
+   markers, `_reasoning_` text, incoming-event rows, outgoing
+   aiur-tool-call rows, etc. — whatever the feature was supposed to
+   render.
+4. **End-to-end means end-to-end.** Send operator messages through the
+   TUI input box (the path a user takes), not via `curl POST
+   /api/v1/<id>/messages`. The HTTP API exercises a small subset of the
+   delivery path and routinely behaves differently than the TUI input
+   path — verifying the API is verifying the API, not the UX.
+5. **Inspecting logs and SSE bridge events is NOT manual testing.**
+   Logs prove *that internal events fired*. Manual testing proves
+   *that the operator sees the right thing on screen*. Both are useful;
+   only the second satisfies "manually tested".
+
+**Do not report a feature as "working", "verified", or "shipped" until
+you have run `aiur --test` end to end, opened a chat pane, and observed
+the rendered output you'd expect a user to see.** "Tests pass + logs
+look right + tmux capture-pane shows a header" is necessary but not
+sufficient. If you can't run the TUI in your environment (no tmux
+socket, no shell access to `scripts/aiur`), say so explicitly and stop
+— do not silently substitute HTTP or log proxies.
+
+### Driving the TUI from a non-TTY agent environment
+
+When a coding agent (no real terminal) needs to drive aiur manually,
+use a wrapper tmux session as the agent's "fake terminal," then
+`send-keys` and `capture-pane` against aiur's own inner tmux socket.
+This pattern was validated live and is the canonical recipe — do not
+substitute HTTP, curl, mix scripts, or background-mode launches.
+
+1. **Spawn aiur inside a wrapper tmux on a separate socket.** The
+   wrapper supplies the pty `scripts/aiur` needs for its internal
+   `tmux attach`. Unset `$TMUX` before launching or aiur refuses to
+   nest:
+
+   ```bash
+   tmux -L claude-driver new-session -d -s aiur-driver -x 220 -y 60 \
+     "bash -c 'unset TMUX; AIUR_DEBUG=1 exec mise exec -- ./scripts/aiur --test' 2>&1 \
+        | tee /tmp/aiur-driver-startup.log; sleep 3600"
+   ```
+
+   The trailing `sleep 3600` keeps the wrapper pane alive after aiur
+   exits so post-mortem captures still work.
+
+2. **Wait for aiur's inner tmux session to come up** (sandbox reset
+   + build + boot take ~30-60s):
+
+   ```bash
+   until tmux -L aiur-orangekid has-session -t aiur-orangekid-default 2>/dev/null
+   do sleep 3; done
+   ```
+
+3. **Navigate the AgentList.** It lives at inner pane `0.0`. Press
+   `Enter` to open the selected agent's chat pane (it appears as
+   pane `0.1`, active):
+
+   ```bash
+   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.0 Enter
+   ```
+
+4. **Type into the chat pane** (the user's input path). Send the
+   message text as a single argument, then `Enter` separately:
+
+   ```bash
+   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.1 \
+     "your operator message here"
+   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.1 Enter
+   ```
+
+   Verify it landed by `capture-pane -p` on `0.1` — you should see
+   the text followed by `QUEUED` (if the agent is mid-turn) or it
+   immediately transitioning to delivered.
+
+5. **Capture what the user sees** at any time:
+
+   ```bash
+   tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.1 -p -S -200
+   ```
+
+6. **Inner pane layout reference** (from `list-panes -a`):
+   - `0.0` — AgentList TUI (the user-facing window)
+   - `0.1` — chat pane swapped in after Enter on an agent
+   - `1.0` — agent list state (hidden background)
+   - `1.1`, `1.2`, `1.3` — opencode chat slots (hidden until swapped
+     into window 0)
+
+7. **Cleanup**: `mise exec -- ./scripts/aiur stop` from a fresh shell
+   (it kills both the inner BEAM and tmux session). Then
+   `tmux -L claude-driver kill-server`.
+
+Gotchas worth remembering:
+- `--bg` mode does **not** start the workflow/agents (no chat panes,
+  no live activity). Always use foreground `aiur --test` for manual
+  testing.
+- The wrapper-tmux socket name (e.g. `claude-driver`) is the agent's
+  choice and must NOT collide with `aiur-orangekid` (aiur's own
+  internal socket).
+- `send-keys` accepts both literal strings and tmux key names
+  (`Enter`, `Tab`, `Up`, etc.) — pass them as separate arguments.
+
 ## Sibling: `aiur-claude`
 
 Claude support is provided by a sibling repository (a Node-based JSON-RPC

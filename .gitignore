@@ -7,3 +7,12 @@ AGENTS.local.md
 .env.swp
 .agent-label-snapshot.json
 .agent-label-restore.sh
+elixir/WORKFLOW.md
+
+# Per-machine scratch folder agents create while exercising opencode/codex.
+# Created by ad hoc smoke tests, not tracked.
+test-sandbox/
+
+# Local runtime artifacts
+.claude/scheduled_tasks.lock
+.context/

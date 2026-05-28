@@ -104,6 +104,26 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   end
 
   @doc """
+  All live (session_id, base_url) pairs registered for `identifier`. Used
+  by `Aiur.AgentRunner` to fan a `__aiur_turn__:<id>` marker prompt out
+  to every attached opencode-serve at the start of a codex turn so each
+  chat-pane TUI opens a chat-completion request that the bridge can
+  hold open and stream live.
+  """
+  @spec attached(String.t()) :: [%{session_id: String.t(), base_url: String.t()}]
+  def attached(identifier) when is_binary(identifier) do
+    @registry
+    |> Registry.lookup(identifier)
+    |> Enum.flat_map(fn
+      {pid, %{session_id: sid, base_url: url}} when is_pid(pid) and is_binary(sid) ->
+        if Process.alive?(pid), do: [%{session_id: sid, base_url: url}], else: []
+
+      _ ->
+        []
+    end)
+  end
+
+  @doc """
   Synchronously walk the registry: stop each writer and DELETE its
   opencode session via `ApiClient.delete_session/2`. Idempotent — both
   `Aiur.Shutdown.shutdown/2` and `Aiur.Application.stop/1` may call this.

@@ -22,7 +22,7 @@ defmodule Aiur.AgentEvents do
   (intro, errors, status); `:command` is a shell/tool command the agent
   issues; `:alert` is an operator-facing notification.
   """
-  @type role :: :user | :assistant | :system | :command | :alert
+  @type role :: :user | :assistant | :system | :command | :alert | :reasoning | :tool
 
   @typedoc "One line of an agent conversation transcript."
   @type transcript_event :: %{
@@ -31,7 +31,8 @@ defmodule Aiur.AgentEvents do
           timestamp: DateTime.t(),
           msg_id: String.t() | nil,
           sequence: integer(),
-          turn_id: String.t() | nil
+          turn_id: String.t() | nil,
+          payload: map() | nil
         }
 
   @typedoc "Alert payload broadcast on the per-agent topic."
@@ -78,13 +79,17 @@ defmodule Aiur.AgentEvents do
   stay in sync.
 
   Tag-to-meaning map:
-    * `agent` — `:assistant` — words from the agent
-    * `user`  — `:user`      — operator's typed message
-    * `sys`   — `:system`    — external context (intro, errors)
-    * `cmd`   — `:command`   — commands the agent runs
-    * `alert` — `:alert`     — operator-facing notifications
+    * `agent`     — `:assistant` — words from the agent
+    * `user`      — `:user`      — operator's typed message
+    * `sys`       — `:system`    — external context (intro, errors)
+    * `cmd`       — `:command`   — commands the agent runs
+    * `alert`     — `:alert`     — operator-facing notifications
+    * `reasoning` — `:reasoning` — agent reasoning / thinking blocks
+    * `tool`      — `:tool`      — non-shell tool calls (MCP, file edits)
   """
   @spec tag_name(role()) :: String.t()
+  def tag_name(:reasoning), do: "reasoning"
+  def tag_name(:tool), do: "tool"
   def tag_name(:assistant), do: "agent"
   def tag_name(:user), do: "user"
   def tag_name(:system), do: "sys"
@@ -99,14 +104,16 @@ defmodule Aiur.AgentEvents do
 
   @spec transcript_event(role(), String.t(), keyword()) :: transcript_event()
   def transcript_event(role, body, opts \\ [])
-      when role in [:user, :assistant, :system, :command, :alert] and is_binary(body) do
+      when role in [:user, :assistant, :system, :command, :alert, :reasoning, :tool] and
+             is_binary(body) do
     %{
       role: role,
       body: body,
       timestamp: Keyword.get(opts, :timestamp) || DateTime.utc_now(),
       msg_id: Keyword.get(opts, :msg_id),
       sequence: Keyword.get(opts, :sequence) || :erlang.unique_integer([:positive, :monotonic]),
-      turn_id: Keyword.get(opts, :turn_id)
+      turn_id: Keyword.get(opts, :turn_id),
+      payload: Keyword.get(opts, :payload)
     }
   end
 

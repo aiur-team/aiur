@@ -6,7 +6,7 @@ defmodule Aiur.OrchestratorBroadcastTest do
   test "orchestrator broadcasts a running-set change on its first tick" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      poll_interval_ms: 5_000
+      poll_interval_seconds: 5
     )
 
     :ok = AgentPubSub.subscribe_running()

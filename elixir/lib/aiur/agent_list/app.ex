@@ -26,6 +26,7 @@ defmodule Aiur.AgentList.App do
 
   alias Aiur.AgentList.Renderer
   alias Aiur.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
+  alias Aiur.Events.{DebugLog, SubscriptionStore}
   alias Aiur.Opencode.{AttachPool, Slot}
 
   # `init/1` and `render/1` go through GenServer-side and IO callbacks
@@ -36,6 +37,10 @@ defmodule Aiur.AgentList.App do
 
   @refresh_tick_ms 1_000
   @warmth_event_cap 500
+  # Cap on the in-memory debug-event ticker buffer. The renderer trims
+  # further based on available pane height, but this stops unbounded
+  # growth if the operator leaves --debug on for hours.
+  @debug_event_cap 200
   # Geometry-watch interval. Far faster than the refresh tick so that
   # tmux resizes (caused by another pane opening/closing in the same
   # window) reflow the agent list within a quarter-second — the old
@@ -123,6 +128,7 @@ defmodule Aiur.AgentList.App do
 
   @impl true
   def init(opts) do
+    Logger.info("aiur_agent_list phase=init os_pid=#{System.pid()}")
     write_fun = Keyword.get(opts, :write_fun, &IO.write/1)
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
     orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
@@ -135,8 +141,14 @@ defmodule Aiur.AgentList.App do
       AgentPubSub.subscribe_running()
       AgentPubSub.subscribe_status()
       AgentPubSub.subscribe_poll_state()
+      AgentPubSub.subscribe_agent_chat_active()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
+      # DebugLog feeds the per-row Latest column (R5/U21) by populating
+      # `latest_event_by_id` from every event publish. Subscribed
+      # unconditionally — the debug-ticker code path is still gated on
+      # debug_mode?, but Latest is always-on.
+      DebugLog.subscribe()
 
       if debug_mode? do
         Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
@@ -189,6 +201,33 @@ defmodule Aiur.AgentList.App do
       # field actually means "slot's leadoff was painted in the hidden
       # window", which is the ⚪ state from the user's perspective.
       opened_panes: MapSet.new(),
+      # Identifiers that have emitted at least one transcript event in
+      # this run. Promotes the marker from 🔘 (pane painted but empty)
+      # to ⚪ (pane painted AND opening will show useful content).
+      # Populated from the global `agents:chat_active` topic that
+      # AgentPubSub fires on every transcript event; duplicates are
+      # harmless because MapSet.put is idempotent.
+      agents_with_content: MapSet.new(),
+      # Per-identifier most recent event for the agent-list `Latest`
+      # column (R5/U21). Populated from `DebugLog` broadcasts —
+      # every published event on a `ticket.<id>.…` topic updates the
+      # entry for that ticket. Map value shape:
+      # `%{topic: String.t(), message: String.t(), timestamp: DateTime.t()}`.
+      latest_event_by_id: %{},
+      # Per-identifier count of currently-open `attention.*` slugs,
+      # driving the `❗` / `❗N` slot in the State column. Refreshed
+      # from `Aiur.Events.SubscriptionStore.snapshot/1` on every
+      # `running_changed` broadcast (agents come and go infrequently
+      # enough that polling on summary updates beats per-event
+      # incremental tracking).
+      open_attentions_by_id: %{},
+      # Per-identifier ring of recent progress samples for the
+      # `[bar] ETA` column (R2). Agents publish
+      # `ticket.<id>.agent.progress` with `%{percent: 0..100}` payload
+      # and `Aiur.ProgressTracker` derives the bar + ETA on render.
+      # Sample shape: `[{percent, monotonic_ms}, …]` newest first,
+      # bounded by ProgressTracker.@max_samples.
+      progress_by_id: %{},
       warm_status_dark_mode?: warm_status_dark_mode_default(),
       # Ring buffer of warmth-related aiur_perf events (debug mode
       # only). Capped at @warmth_event_cap to avoid unbounded growth.
@@ -203,7 +242,12 @@ defmodule Aiur.AgentList.App do
         agent_list_ready_ms: nil,
         chat_pane_visible_ms: nil,
         opencode_render_ms: nil
-      }
+      },
+      # Ring buffer of debug-only event lifecycle marks (publish /
+      # receive / read). Newest first; capped at @debug_event_cap.
+      # Empty in non-debug mode. Renderer further trims to available
+      # pane height.
+      debug_events: []
     }
 
     schedule_refresh_tick()
@@ -221,13 +265,8 @@ defmodule Aiur.AgentList.App do
     {:ok, state}
   end
 
-  defp schedule_refresh_tick do
-    Process.send_after(self(), :refresh_tick, @refresh_tick_ms)
-  end
-
-  defp schedule_geometry_tick do
-    Process.send_after(self(), :geometry_tick, @geometry_tick_ms)
-  end
+  @impl true
+  def handle_call(:snapshot, _from, state), do: {:reply, state, state}
 
   @impl true
   def handle_cast(:select_previous, state) do
@@ -266,6 +305,43 @@ defmodule Aiur.AgentList.App do
   def handle_cast(:attach_selected, state) do
     if state.selection_focus == :agents do
       attach_selected_agent(state)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_cast(:toggle_pause, state) do
+    state = toggle_selected_agent_pause(state)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_cast({:adjust_max_concurrent_agents, delta}, state) do
+    # ←/→ adjusts the session max regardless of current selection focus —
+    # the keybind is global so the operator does not have to navigate to
+    # the max chip first. Focus-gating silently swallowed the keypress
+    # and made the cap feel un-editable from the agent list.
+    Logger.info("[user-action] adjust_max delta=#{delta} source=agent_list")
+    result = Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta)
+    Logger.info("[user-action] adjust_max result=#{inspect(result)}")
+    state = handle_max_adjust_result(state, result)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_cast(:toggle_help, state) do
+    new_state = %{state | help_visible?: not Map.get(state, :help_visible?, false)}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_cast(:toggle_layout_orientation, state) do
+    case safe_call(fn -> PaneManager.toggle_orientation(state.pane_manager) end) do
+      {:ok, orientation} ->
+        Logger.info("[user-action] toggle_layout orientation=#{orientation} source=agent_list")
+
+      _ ->
+        :ok
     end
 
     {:noreply, state}
@@ -340,19 +416,17 @@ defmodule Aiur.AgentList.App do
     opened = Map.get(state, :opened_panes, MapSet.new())
     id_str = to_string(identifier)
 
-    cond do
-      # Already open — let PaneManager focus the existing pane (it
-      # returns :pane_open_already_visible).
-      MapSet.member?(opened, id_str) ->
-        true
-
-      # The agent has at least one slot attached → has a slot the
-      # AttachPool can hand back.
-      true ->
-        case Map.get(state.attach_state, id_str) do
-          %{attach_count: n} when n >= 1 -> true
-          _ -> false
-        end
+    # Already open → let PaneManager focus the existing pane (it
+    # returns :pane_open_already_visible).
+    # Otherwise: true iff the agent has at least one slot attached, so
+    # AttachPool can hand the slot back.
+    if MapSet.member?(opened, id_str) do
+      true
+    else
+      case Map.get(state.attach_state, id_str) do
+        %{attach_count: n} when n >= 1 -> true
+        _ -> false
+      end
     end
   end
 
@@ -398,46 +472,6 @@ defmodule Aiur.AgentList.App do
     end
   end
 
-  def handle_cast(:toggle_pause, state) do
-    state = toggle_selected_agent_pause(state)
-    render(state)
-    {:noreply, state}
-  end
-
-  def handle_cast({:adjust_max_concurrent_agents, delta}, state) do
-    # ←/→ adjusts the session max regardless of current selection focus —
-    # the keybind is global so the operator does not have to navigate to
-    # the max chip first. Focus-gating silently swallowed the keypress
-    # and made the cap feel un-editable from the agent list.
-    Logger.info("[user-action] adjust_max delta=#{delta} source=agent_list")
-    result = Orchestrator.adjust_max_concurrent_agents(state.orchestrator, delta)
-    Logger.info("[user-action] adjust_max result=#{inspect(result)}")
-    state = handle_max_adjust_result(state, result)
-    render(state)
-    {:noreply, state}
-  end
-
-  def handle_cast(:toggle_help, state) do
-    new_state = %{state | help_visible?: not Map.get(state, :help_visible?, false)}
-    render(new_state)
-    {:noreply, new_state}
-  end
-
-  def handle_cast(:toggle_layout_orientation, state) do
-    case safe_call(fn -> PaneManager.toggle_orientation(state.pane_manager) end) do
-      {:ok, orientation} ->
-        Logger.info("[user-action] toggle_layout orientation=#{orientation} source=agent_list")
-
-      _ ->
-        :ok
-    end
-
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_call(:snapshot, _from, state), do: {:reply, state, state}
-
   @impl true
   def handle_info({:running_changed, summaries}, state) do
     summaries = visible_summaries(summaries)
@@ -458,8 +492,42 @@ defmodule Aiur.AgentList.App do
       |> Enum.reject(&is_nil/1)
 
     _ = safely_seed_attach_pool(active_ids)
+    # Trim `agents_with_content` so a stopped agent doesn't keep its
+    # ⚪ glyph if it returns later — it'll re-earn ⚪ on the next
+    # transcript event after re-dispatch.
+    active_set = MapSet.new(Enum.map(active_ids, &to_string/1))
+
+    new_state = %{
+      new_state
+      | agents_with_content: MapSet.intersection(new_state.agents_with_content, active_set),
+        # Refresh the `❗` counts from SubscriptionStore on every
+        # running_changed — agents come and go infrequently enough
+        # that polling here beats threading a separate broadcast
+        # through the attention-emit path.
+        open_attentions_by_id: refresh_open_attentions(active_set),
+        # Trim Latest column entries to the active set too; a stale
+        # entry for an issue that's no longer tracked just wastes
+        # row space and is misleading.
+        latest_event_by_id: Map.take(new_state.latest_event_by_id, MapSet.to_list(active_set)),
+        progress_by_id: Map.take(new_state.progress_by_id, MapSet.to_list(active_set))
+    }
+
     render(new_state)
     {:noreply, new_state}
+  end
+
+  # Global `agents:chat_active` broadcast — fires every time any
+  # agent emits a transcript event. Promotes the marker from 🔘
+  # (pane painted, empty) to ⚪ (pane painted, has content). MapSet
+  # dedups so repeated broadcasts are no-ops.
+  def handle_info({:agent_chat_active, identifier}, state) when is_binary(identifier) do
+    if MapSet.member?(state.agents_with_content, identifier) do
+      {:noreply, state}
+    else
+      new_state = update_in(state.agents_with_content, &MapSet.put(&1, identifier))
+      render(new_state)
+      {:noreply, new_state}
+    end
   end
 
   # The agent-list circle indicator no longer tracks "pane has ever
@@ -605,6 +673,132 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
 
+  def handle_info({:event_debug, entry}, state) do
+    state =
+      state
+      |> record_latest_event(entry)
+      |> record_progress_sample(entry)
+
+    state =
+      if state.debug_mode? do
+        new_events = [entry | state.debug_events] |> Enum.take(@debug_event_cap)
+        %{state | debug_events: new_events}
+      else
+        state
+      end
+
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_info(_other, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(reason, _state) do
+    Logger.info("aiur_agent_list phase=terminate reason=#{inspect(reason)} os_pid=#{System.pid()}")
+    :ok
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private helpers used by the handle_info clauses above.
+  # ---------------------------------------------------------------------------
+
+  defp refresh_open_attentions(active_set) do
+    Enum.reduce(MapSet.to_list(active_set), %{}, fn id, acc ->
+      case attention_count_for(id) do
+        n when is_integer(n) -> Map.put(acc, id, n)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp attention_count_for(id) do
+    case SubscriptionStore.snapshot(id) do
+      %{open_attentions: list} when is_list(list) -> length(list)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  # Folds `ticket.<id>.agent.progress` publishes into the per-id
+  # ProgressTracker sample ring. Reads `percent` from the event body.
+  defp record_progress_sample(state, %{kind: :publish, topic: topic, body: body})
+       when is_binary(topic) and is_map(body) do
+    with [_, id] <- Regex.run(~r{\Aticket\.([^.]+)\.agent\.progress\z}, topic),
+         percent when is_integer(percent) or is_float(percent) <- progress_percent(body) do
+      now_ms = System.monotonic_time(:millisecond)
+      existing = Map.get(state.progress_by_id, id, [])
+      updated = Aiur.ProgressTracker.record(existing, trunc(percent), now_ms)
+      %{state | progress_by_id: Map.put(state.progress_by_id, id, updated)}
+    else
+      _ -> state
+    end
+  end
+
+  defp record_progress_sample(state, _entry), do: state
+
+  defp progress_percent(body) do
+    cond do
+      is_number(body[:percent]) -> body[:percent]
+      is_number(body["percent"]) -> body["percent"]
+      true -> nil
+    end
+  end
+
+  # Map an `event_debug` entry onto the per-id `Latest` column store.
+  # Only `:publish` and `:receive` kinds advance the entry — `:read`
+  # is a downstream marker that doesn't represent a new event landing
+  # on the ticket. Topic shape is `ticket.<id>.<surface>.<verb>`;
+  # anything else (system topics, etc.) is ignored.
+  defp record_latest_event(state, %{kind: kind, topic: topic, body: body})
+       when kind in [:publish, :receive] and is_binary(topic) do
+    case extract_ticket_id(topic) do
+      nil ->
+        state
+
+      id ->
+        latest = %{
+          topic: topic,
+          message: event_message(topic, body),
+          timestamp: DateTime.utc_now()
+        }
+
+        %{state | latest_event_by_id: Map.put(state.latest_event_by_id, id, latest)}
+    end
+  end
+
+  defp record_latest_event(state, _entry), do: state
+
+  defp extract_ticket_id("ticket." <> rest) do
+    case String.split(rest, ".", parts: 2) do
+      [id, _] -> id
+      _ -> nil
+    end
+  end
+
+  defp extract_ticket_id(_), do: nil
+
+  # Best-effort one-line message for the Latest column. Prefers an
+  # explicit `:message` field on the event body; falls back to the
+  # last verb segment of the topic (e.g. `branch.push` → `branch push`).
+  defp event_message(topic, body) when is_map(body) do
+    cond do
+      is_binary(body[:message]) -> body[:message]
+      is_binary(body["message"]) -> body["message"]
+      true -> topic_verb(topic)
+    end
+  end
+
+  defp event_message(topic, _body), do: topic_verb(topic)
+
+  defp topic_verb(topic) do
+    case String.split(topic, ".") do
+      ["ticket", _id | rest] -> Enum.join(rest, " ")
+      parts -> Enum.join(parts, " ")
+    end
+  end
+
   # Pull the three milestones the debug footer cares about out of the
   # aiur_perf stream. Everything else is ignored — the user asked for
   # a compact 3-row footer, not a rolling event log.
@@ -644,7 +838,13 @@ defmodule Aiur.AgentList.App do
 
   defp absorb_warmth_event(events, _other), do: events
 
-  def handle_info(_other, state), do: {:noreply, state}
+  defp schedule_refresh_tick do
+    Process.send_after(self(), :refresh_tick, @refresh_tick_ms)
+  end
+
+  defp schedule_geometry_tick do
+    Process.send_after(self(), :geometry_tick, @geometry_tick_ms)
+  end
 
   defp warm_status_dark_mode_default do
     Application.get_env(:aiur, :warm_status_dark_mode?, true)
@@ -858,10 +1058,15 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:debug_mode?, Map.get(state, :debug_mode?, false))
       |> Map.put(:perf_summary, Map.get(state, :perf_summary, %{}))
       |> Map.put(:warmth_events, Map.get(state, :warmth_events, []))
+      |> Map.put(:debug_events, Map.get(state, :debug_events, []))
       |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
       |> Map.put(:started_slots, Map.get(state, :started_slots, MapSet.new()))
       |> Map.put(:fully_warmed_slots, Map.get(state, :fully_warmed_slots, MapSet.new()))
       |> Map.put(:opened_panes, Map.get(state, :opened_panes, MapSet.new()))
+      |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
+      |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
+      |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
+      |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
       |> Map.put(
         :warm_status_dark_mode?,
         Map.get(state, :warm_status_dark_mode?, true)

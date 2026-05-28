@@ -99,8 +99,36 @@ defmodule Aiur.Opencode.Server do
 
   @impl true
   def terminate(_reason, state) do
-    if is_port(state.port_ref), do: Port.close(state.port_ref)
+    if is_port(state.port_ref) do
+      reap_opencode_children(state.port_ref)
+      Port.close(state.port_ref)
+    end
+
     :ok
+  end
+
+  # `Port.close/1` only closes the file descriptors — Node-based
+  # opencode-serve ignores SIGPIPE on stdout, so EOF alone does not
+  # terminate it. Without explicit `kill -TERM`, opencode survives as
+  # an orphan reparented to init, the next aiur boot finds stale serves
+  # bound to dead bridge ports, and `Aiur.Opencode.AttachPool` leadoff
+  # times out talking to them.
+  #
+  # `bash -c "<single command>"` implicitly execs into the command, so
+  # the port's `os_pid` IS the opencode-serve PID (not a bash wrapper
+  # PID). Signal it directly.
+  defp reap_opencode_children(port_ref) do
+    case Port.info(port_ref, :os_pid) do
+      {:os_pid, pid} ->
+        try do
+          System.cmd("kill", ["-TERM", to_string(pid)], stderr_to_stdout: true)
+        catch
+          _, _ -> :ok
+        end
+
+      _ ->
+        :ok
+    end
   end
 
   defp os_pid(port_ref) do

@@ -63,7 +63,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
       # handler doesn't fire a second time after the signal-triggered
       # exit. Without that split, Ctrl+C reproduces the bash error
       # `pop_var_context: head of shell_variables not a function context`.
-      assert source =~ ~r/trap '__aiur_cleanup' EXIT\b/,
+      assert source =~ ~r/trap '[^']*__aiur_cleanup[^']*' EXIT\b/,
              "EXIT trap must register __aiur_cleanup on its own."
 
       for signal <- ["INT", "TERM", "HUP"] do

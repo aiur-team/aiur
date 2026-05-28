@@ -14,12 +14,16 @@ defmodule Aiur.AgentRunner do
     Config,
     Issue,
     IssueLog,
+    OperatorWaitLog,
     PromptBuilder,
     Tracker,
     Workspace
   }
 
   alias Aiur.Codex.DynamicTool
+  alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore}
+  alias Aiur.GitHub.IssueDependencies
+  alias Aiur.Opencode.{ActiveTurns, ApiClient, Protocol, SessionWriterRegistry}
 
   @type worker_host :: String.t() | nil
 
@@ -99,98 +103,13 @@ defmodule Aiur.AgentRunner do
 
   defp maybe_broadcast_turn_event(_issue, _message, _turn_id), do: :ok
 
+  # Dispatch to the active backend's transcript extractor (codex or
+  # Claude). Falls back to the universal legacy event-kind mapping for
+  # non-notification shapes (older agent_message / task_finished events).
   defp transcript_event_from(message, turn_id) when is_map(message) do
-    cond do
-      text = assistant_message_from_codex(message) ->
-        {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp_for(message), turn_id: turn_id)}
-
-      summary = system_activity_from_codex(message) ->
-        {:ok, AgentEvents.transcript_event(:command, summary, timestamp: timestamp_for(message), turn_id: turn_id)}
-
-      true ->
-        legacy_transcript_event(message, turn_id)
-    end
-  end
-
-  # Codex's `notification` events wrap the actual method inside `payload`.
-  # `item/completed` with an `item.type == "agentMessage"` is the canonical
-  # "agent finished a chunk of natural-language output" signal.
-  defp assistant_message_from_codex(message) do
-    with method when method in ["item/completed"] <- notification_method(message),
-         item when is_map(item) <- notification_item(message),
-         "agentMessage" <- get(item, :type),
-         text when is_binary(text) and text != "" <- get(item, :text) do
-      text
-    else
-      _ -> nil
-    end
-  end
-
-  # Surface a compact summary of agent activity (commands run, tool calls)
-  # so the conversation pane shows what the agent is doing between user
-  # input and the next final-answer message. Returns a binary or nil.
-  defp system_activity_from_codex(message) do
-    method = notification_method(message)
-    item = notification_item(message)
-    item_type = if is_map(item), do: get(item, :type), else: nil
-
-    activity_label(method, item_type, item)
-  end
-
-  defp activity_label("item/started", "commandExecution", item),
-    do: command_started_label(item)
-
-  defp activity_label("item/completed", "commandExecution", item),
-    do: command_completed_label(item)
-
-  defp activity_label(_method, _item_type, _item), do: nil
-
-  defp command_started_label(item) do
-    case command_label(item) do
-      label when is_binary(label) and label != "" -> "$ " <> label
-      _ -> nil
-    end
-  end
-
-  defp command_completed_label(item) do
-    label = command_label(item)
-    exit_code = get(item, :exitCode)
-
-    cond do
-      not (is_binary(label) and label != "") -> nil
-      is_integer(exit_code) -> "$ #{label} [exit=#{exit_code}]"
-      true -> "$ #{label} [done]"
-    end
-  end
-
-  defp command_label(item) do
-    case command_actions_label(get(item, :commandActions)) do
-      label when is_binary(label) and label != "" -> label
-      _ -> get(item, :command)
-    end
-  end
-
-  defp command_actions_label([first | _]) when is_map(first), do: get(first, :command)
-  defp command_actions_label(_), do: nil
-
-  defp notification_method(message) do
-    # The `event` discriminator on a codex notification may be either the
-    # string "notification" or the atom :notification depending on how the
-    # JSON was decoded. Skip the gate entirely and just look for
-    # `payload.method` — every codex notification has it, and no other
-    # event shape uses that nested key.
-    case get(message, :payload) do
-      payload when is_map(payload) -> get(payload, :method)
-      _ -> nil
-    end
-  end
-
-  defp notification_item(message) do
-    with payload when is_map(payload) <- get(message, :payload),
-         params when is_map(params) <- get(payload, :params) do
-      get(params, :item)
-    else
-      _ -> nil
+    case CodingAgent.transcript_module().extract(message, turn_id) do
+      {:ok, event} -> {:ok, event}
+      :skip -> legacy_transcript_event(message, turn_id)
     end
   end
 
@@ -329,15 +248,21 @@ defmodule Aiur.AgentRunner do
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
+    aiur_turn_id = open_aiur_turn_streams(issue)
 
-    case CodingAgent.run_turn(
-           app_session,
-           prompt,
-           issue,
-           on_message: message_handler,
-           on_safe_checkpoint: safe_checkpoint_handler,
-           tool_executor: tool_executor(issue, workspace, worker_host)
-         ) do
+    result =
+      CodingAgent.run_turn(
+        app_session,
+        prompt,
+        issue,
+        on_message: message_handler,
+        on_safe_checkpoint: safe_checkpoint_handler,
+        tool_executor: tool_executor(issue, workspace, worker_host)
+      )
+
+    close_aiur_turn_streams(issue, aiur_turn_id, turn_done_reason(result))
+
+    case result do
       {:ok, turn_session} ->
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
@@ -366,6 +291,11 @@ defmodule Aiur.AgentRunner do
         {:error, reason}
     end
   end
+
+  defp turn_done_reason({:ok, _session}), do: :done
+  defp turn_done_reason({:paused, _payload}), do: :input_required
+  defp turn_done_reason({:error, reason}), do: {:failed, reason}
+  defp turn_done_reason(_), do: :done
 
   defp finalize_turn_completion(turn_context, app_session, turn_session) do
     %{
@@ -557,6 +487,7 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_queue_item_turn(app_session, issue, item, _message_handler, orchestrator, codex_update_recipient) do
+    record_operator_delivery(item, issue)
     text = queue_item_text(item)
     turn_id = queue_item_turn_id(item)
     workspace = session_workspace(app_session)
@@ -565,15 +496,21 @@ defmodule Aiur.AgentRunner do
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
+    aiur_turn_id = open_aiur_turn_streams(issue)
 
-    case CodingAgent.run_turn(
-           app_session,
-           text,
-           issue,
-           on_message: message_handler,
-           on_safe_checkpoint: safe_checkpoint_handler,
-           tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
-         ) do
+    result =
+      CodingAgent.run_turn(
+        app_session,
+        text,
+        issue,
+        on_message: message_handler,
+        on_safe_checkpoint: safe_checkpoint_handler,
+        tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
+      )
+
+    close_aiur_turn_streams(issue, aiur_turn_id, turn_done_reason(result))
+
+    case result do
       {:ok, _turn_session} ->
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
@@ -604,7 +541,25 @@ defmodule Aiur.AgentRunner do
   defp queue_item_turn_id(%{body: %{turn_id: turn_id}}) when is_binary(turn_id), do: turn_id
   defp queue_item_turn_id(_item), do: nil
 
+  defp record_operator_delivery(%{category: :operator_message, id: request_id}, %{identifier: identifier})
+       when is_integer(request_id) and is_binary(identifier) do
+    OperatorWaitLog.record_delivered(request_id, identifier)
+  end
+
+  defp record_operator_delivery(_item, _issue), do: :ok
+
   defp queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
+
+  defp queue_item_text(
+         %{
+           category: :coordination_event,
+           event_type: :events_digest,
+           body: %{events: events}
+         } = item
+       )
+       when is_list(events) do
+    render_events_digest(events, Map.get(item, :target_issue_identifier))
+  end
 
   defp queue_item_text(%{category: :coordination_event, event_type: event_type, body: body}) do
     summary = Map.get(body, :summary) || Map.get(body, "summary") || inspect(body)
@@ -619,6 +574,37 @@ defmodule Aiur.AgentRunner do
 
   defp queue_item_text(item), do: inspect(item)
 
+  defp render_events_digest(events, identifier) do
+    for event <- events do
+      DebugLog.broadcast(:read, event_field(event, :topic) || "(unknown)",
+        id: event_field(event, :id),
+        identifier: identifier,
+        body: event
+      )
+    end
+
+    rendered = Enum.map_join(events, "\n", &render_event_line/1)
+    "<aiur:events>\n" <> rendered <> "\n</aiur:events>"
+  end
+
+  defp render_event_line(event) when is_map(event) do
+    topic = event_field(event, :topic) || "(unknown)"
+    id = event_field(event, :id)
+    summary = event_summary(event)
+    suffix = if summary != "", do: ": " <> summary, else: ""
+    "[id=#{id}] #{topic}#{suffix}"
+  end
+
+  defp render_event_line(other), do: inspect(other)
+
+  defp event_field(event, key) when is_atom(key) do
+    Map.get(event, key) || Map.get(event, Atom.to_string(key))
+  end
+
+  defp event_summary(event) do
+    event_field(event, :message) || event_field(event, :summary) || ""
+  end
+
   defp send_control_state(recipient, %Issue{id: issue_id}, status)
        when is_pid(recipient) and is_binary(issue_id) and status in [:paused, :working] do
     send(recipient, {:worker_control_state, issue_id, status})
@@ -626,6 +612,99 @@ defmodule Aiur.AgentRunner do
   end
 
   defp send_control_state(_recipient, _issue, _status), do: :ok
+
+  # Bridge-as-LLM trigger: at the start of each codex turn, fan a
+  # `__aiur_turn__:<id>` marker out to every opencode-serve that has a
+  # SessionWriter attached for this identifier. opencode treats the
+  # marker as a synthetic user message and immediately opens a
+  # chat-completion request to our bridge, which holds it open and
+  # streams the codex turn's events as SSE deltas
+  # (see Aiur.Opencode.ChatCompletions.stream_codex_turn/3).
+  # No SessionWriter attached = no opencode pane open = no-op, agent
+  # keeps running (manual override preserved).
+  defp open_aiur_turn_streams(%Issue{identifier: identifier}) when is_binary(identifier) do
+    aiur_turn_id = "t" <> Integer.to_string(System.unique_integer([:positive, :monotonic]), 36)
+    # Register BEFORE posting so the bridge always observes :active when
+    # it handles the resulting chat-completion. Stale markers replayed
+    # by opencode-serve from a previous boot will be absent from the
+    # table and the bridge will close them as phantom.
+    :ok = ActiveTurns.put(identifier, aiur_turn_id)
+
+    writers = SessionWriterRegistry.attached(identifier)
+    :ok = post_aiur_turn_markers(identifier, aiur_turn_id, writers)
+
+    aiur_turn_id
+  end
+
+  defp open_aiur_turn_streams(_issue), do: nil
+
+  @doc """
+  Fire `__aiur_turn__:<id>` marker posts to every attached opencode-serve
+  asynchronously. Returns `:ok` immediately so the calling codex turn
+  is not blocked on the round-trip.
+
+  opencode's `POST /session/X/message` is synchronous from its caller's
+  perspective — it holds the request open until the LLM (our bridge)
+  finishes responding, which for an active codex turn can be minutes.
+  A naive synchronous fan-out blocked the next codex turn from even
+  starting for ~30 s per attached server (Req's `receive_timeout`),
+  so chat panes sat empty for ~90 s after dispatch with 3 slots.
+
+  Fire-and-forget is safe here because the marker post is purely a
+  trigger: once opencode receives the synthetic user message, it
+  opens its chat-completion request to our bridge endpoint, and the
+  bridge's `stream_codex_turn/3` subscribes to `AgentPubSub` directly
+  — agent_runner never needs the post's return value.
+
+  The `post_fn` argument is injectable for testing; in production it
+  defaults to `Aiur.Opencode.ApiClient.post_message/3`.
+  """
+  @spec post_aiur_turn_markers(
+          String.t(),
+          String.t(),
+          [%{session_id: String.t(), base_url: String.t()}],
+          (String.t(), String.t(), map() -> {:ok, term()} | {:error, term()})
+        ) :: :ok
+  def post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn \\ &ApiClient.post_message/3)
+      when is_binary(identifier) and is_binary(aiur_turn_id) and is_list(writers) and
+             is_function(post_fn, 3) do
+    payload = %{
+      parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
+    }
+
+    for %{session_id: session_id, base_url: base_url} <- writers do
+      Task.start(fn -> post_one_marker(post_fn, base_url, session_id, payload, identifier) end)
+    end
+
+    :ok
+  end
+
+  defp post_one_marker(post_fn, base_url, session_id, payload, identifier) do
+    case post_fn.(base_url, session_id, payload) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}")
+    end
+  end
+
+  # Match the close to the marker post — the bridge SSE for this
+  # aiur_turn_id closes on the matching `:aiur_turn_done` broadcast.
+  # `nil` from open_aiur_turn_streams/1 means no marker fired (no
+  # SessionWriter attached or issue had no identifier); no close
+  # broadcast needed.
+  defp close_aiur_turn_streams(%Issue{identifier: identifier}, aiur_turn_id, reason)
+       when is_binary(identifier) and is_binary(aiur_turn_id) do
+    AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
+    # mark_closed retains the entry for the cleanup window so a slow
+    # bridge subscribe still finalizes with this reason instead of
+    # waiting on the broadcast it missed.
+    ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
+    :ok
+  end
+
+  defp close_aiur_turn_streams(_issue, _aiur_turn_id, _reason), do: :ok
 
   defp safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->
@@ -649,6 +728,8 @@ defmodule Aiur.AgentRunner do
 
   defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint) do
     Logger.info("Queueing operator message into active turn for #{issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
+
+    record_operator_delivery(item, issue)
 
     {:deliver_text, queue_item_text(item), fn _payload -> :ok end,
      fn reason ->
@@ -763,19 +844,131 @@ defmodule Aiur.AgentRunner do
         tool,
         arguments,
         alert_emitter: fn name, message ->
-          Alerts.emit_custom(name, message,
+          # Agent-emitted alerts are always per-ticket — namespace under
+          # `ticket.<id>.agent.<name>` so subscribers can bind by ticket
+          # (and so the alert log lines a single ticket together).
+          # Names that already start with `ticket.` or `system.` pass
+          # through unchanged so orchestrator-side callsites (which
+          # pre-build the full topic) aren't double-prefixed.
+          topic = prefix_with_ticket_namespace(name, issue)
+
+          Alerts.emit_custom(topic, message,
             issue: issue,
             workspace: workspace,
             worker_host: worker_host
           )
+        end,
+        event_publisher: fn name, message, payload ->
+          emit_agent_event(issue, name, message, payload)
+        end,
+        subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
+        unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
+        blocker_declarer: fn blocker_number ->
+          declare_blocker_for_issue(issue, blocker_number)
+        end,
+        unblocker: fn blocker_number ->
+          unblock_for_issue(issue, blocker_number)
         end
       )
     end
   end
 
+  defp prefix_with_ticket_namespace(name, issue) when is_binary(name) do
+    cond do
+      String.starts_with?(name, "ticket.") ->
+        name
+
+      String.starts_with?(name, "system.") ->
+        name
+
+      true ->
+        case issue_identifier(issue) do
+          id when is_binary(id) and id != "" -> "ticket.#{id}.agent.#{name}"
+          _ -> name
+        end
+    end
+  end
+
+  defp prefix_with_ticket_namespace(name, _issue), do: name
+
+  defp declare_blocker_for_issue(issue, blocker_number) do
+    case issue_number_of(issue) do
+      nil -> {:error, :no_issue_number}
+      current -> IssueDependencies.declare(current, blocker_number)
+    end
+  end
+
+  defp unblock_for_issue(issue, blocker_number) do
+    case issue_number_of(issue) do
+      nil -> {:error, :no_issue_number}
+      current -> IssueDependencies.unblock(current, blocker_number)
+    end
+  end
+
+  defp issue_number_of(issue) do
+    case Map.get(issue, :number) || Map.get(issue, :identifier) do
+      n when is_integer(n) -> n
+      n when is_binary(n) -> n
+      _ -> nil
+    end
+  end
+
+  defp subscribe_for_issue(issue, pattern) do
+    case issue_identifier(issue) do
+      nil ->
+        {:error, :no_issue_identifier}
+
+      id ->
+        :ok = SubscriptionStore.attach(id)
+        SubscriptionStore.add_subscription(id, pattern, "manual:agent")
+    end
+  end
+
+  defp unsubscribe_for_issue(issue, pattern) do
+    case issue_identifier(issue) do
+      nil -> {:error, :no_issue_identifier}
+      id -> SubscriptionStore.remove_subscription(id, pattern)
+    end
+  end
+
+  defp issue_identifier(issue) do
+    cond do
+      is_binary(Map.get(issue, :id)) -> issue.id
+      is_binary(Map.get(issue, :identifier)) -> issue.identifier
+      true -> nil
+    end
+  end
+
+  defp emit_agent_event(issue, name, message, payload) do
+    identifier = issue_identifier(issue)
+
+    topic =
+      case identifier do
+        nil -> "agent.#{name}"
+        id -> "ticket.#{id}.agent.#{name}"
+      end
+
+    event_payload =
+      payload
+      |> Map.put("message", message)
+      |> Map.put("name", name)
+      |> Map.put("issue", identifier)
+
+    case Publisher.publish(topic, event_payload) do
+      {:ok, id, _subscribers} -> {:ok, %{"id" => id, "topic" => topic}}
+      :filtered -> {:error, :event_filtered}
+      :deduped -> {:error, :event_deduped}
+    end
+  end
+
   defp maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do
-      Alerts.emit_system("agent.more_tokens", issue: issue, workspace: workspace, worker_host: worker_host)
+      Alerts.emit_system(
+        "ticket.#{issue.identifier}.agent.error.tokens_exhausted",
+        issue: issue,
+        workspace: workspace,
+        worker_host: worker_host
+      )
     end
 
     :ok

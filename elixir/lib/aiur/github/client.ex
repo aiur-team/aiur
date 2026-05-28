@@ -57,6 +57,171 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @doc """
+  Fetches `/repos/{owner}/{repo}/events` (the GitHub firehose for the
+  current repo). Honors `If-None-Match` via the optional `etag:` option,
+  and the `X-Poll-Interval` response header for next-poll scheduling.
+
+  Returns:
+
+    * `{:ok, {:not_modified, etag, poll_interval}}` on 304
+    * `{:ok, {:events, list, etag, poll_interval}}` on 200
+    * `{:error, reason}` on transport or 4xx/5xx errors
+
+  `poll_interval` is in seconds, defaulting to 60 when GitHub omits the
+  header. Page 1 only (cap 30 items) — see plan U8 rationale: events
+  are dense enough that page 2 would already be stale before we fetch.
+  """
+  @spec fetch_repo_events(keyword()) ::
+          {:ok,
+           {:events, [map()], String.t() | nil, pos_integer()}
+           | {:not_modified, String.t() | nil, pos_integer()}}
+          | {:error, term()}
+  def fetch_repo_events(opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      etag = Keyword.get(opts, :etag)
+
+      url = "#{@base_url}/repos/#{owner}/#{repo}/events?per_page=30"
+
+      case request_fun.(%{
+             method: :get,
+             url: url,
+             token: token,
+             etag: etag
+           }) do
+        {:ok, %{status: 304, headers: headers}} ->
+          {:ok, {:not_modified, header(headers, "etag") || etag, poll_interval(headers)}}
+
+        {:ok, %{status: 200, headers: headers, body: body}} when is_list(body) ->
+          # Mirror the 304 path: preserve the prior etag if GitHub
+          # omits the response header (rare but observed behind some
+          # caching proxies). Dropping it would force a non-conditional
+          # GET on the next poll, re-translating the same page of events.
+          {:ok, {:events, body, header(headers, "etag") || etag, poll_interval(headers)}}
+
+        {:ok, %{status: status}} ->
+          {:error, {:github_api_status, status}}
+
+        {:error, reason} ->
+          {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
+  @doc """
+  Fetches the issues `issue_number` is currently blocked by, using the
+  GitHub native Issue Dependencies REST API.
+  """
+  @spec fetch_blocked_by(integer() | String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_blocked_by(issue_number, opts \\ []) do
+    dependency_get(issue_number, "blocked_by", opts)
+  end
+
+  @doc """
+  Fetches the issues `issue_number` is blocking.
+  """
+  @spec fetch_blocking(integer() | String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_blocking(issue_number, opts \\ []) do
+    dependency_get(issue_number, "blocking", opts)
+  end
+
+  @doc """
+  Declares that `blocked_issue_number` is blocked by `blocker_issue_id`
+  (note: the API takes the blocker's *internal numeric id*, not its
+  issue number — fetch it via `fetch_issue/2` first if needed).
+
+  422 errors typically mean a cycle was detected by GitHub; the caller
+  is responsible for pre-checking via BFS through `fetch_blocked_by/2`.
+  """
+  @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def add_dependency(blocked_issue_number, blocker_issue_id, opts \\ [])
+      when is_integer(blocker_issue_id) do
+    dependency_mutate(blocked_issue_number, blocker_issue_id, :post, opts)
+  end
+
+  @spec remove_dependency(integer() | String.t(), integer(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ [])
+      when is_integer(blocker_issue_id) do
+    dependency_mutate(blocked_issue_number, blocker_issue_id, :delete, opts)
+  end
+
+  @doc """
+  Fetches the raw GitHub issue body by number (not the Aiur-normalized
+  shape). Used by `Aiur.GitHub.IssueDependencies` to resolve a blocker's
+  numeric `id` (required by the Dependencies REST API).
+  """
+  @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def fetch_issue_raw(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
+        {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
+        {:error, reason} -> {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
+  @doc """
+  Lists the logins of every member of `team_slug` inside `org`. Used by
+  `Aiur.GitHub.CodeOwners` to expand `@org/team` entries.
+
+  Requires the GitHub token to have `read:org` scope; 403 is returned
+  otherwise and the caller logs + falls back.
+  """
+  @spec fetch_team_members(String.t(), String.t(), keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def fetch_team_members(org, team_slug, opts \\ []) do
+    with {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/orgs/#{org}/teams/#{team_slug}/members?per_page=100"
+      fetch_member_logins(request_fun, token, url, [])
+    end
+  end
+
+  defp fetch_member_logins(_request_fun, _token, nil, acc), do: {:ok, acc}
+
+  defp fetch_member_logins(request_fun, token, url, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        new_logins = Enum.flat_map(body, &member_login_list/1)
+        next = parse_next_page_url(headers)
+        fetch_member_logins(request_fun, token, next, acc ++ new_logins)
+
+      {:ok, %{status: status}} ->
+        {:error, {:github_api_status, status}}
+
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
+    end
+  end
+
+  defp member_login_list(%{"login" => login}) when is_binary(login), do: [login]
+  defp member_login_list(_), do: []
+
+  defp parse_next_page_url(headers) do
+    case header(headers, "link") do
+      value when is_binary(value) ->
+        Regex.run(~r/<([^>]+)>;\s*rel="next"/, value)
+        |> case do
+          [_, next_url] -> next_url
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
       when is_binary(issue_number) and is_binary(state_name) do
@@ -284,27 +449,152 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
-  defp default_request_fun(%{method: :get, url: url, token: token}) do
-    Req.get(url, headers: github_headers(token), connect_options: [timeout: 30_000])
+  defp default_request_fun(%{method: :get, url: url, token: token} = req) do
+    headers =
+      case Map.get(req, :etag) do
+        nil -> github_headers(token, req)
+        etag -> [{"If-None-Match", etag} | github_headers(token, req)]
+      end
+
+    Req.get(url, headers: headers, connect_options: [timeout: 30_000])
   end
 
-  defp default_request_fun(%{method: :post, url: url, token: token, body: body}) do
-    Req.post(url, headers: github_headers(token), json: body, connect_options: [timeout: 30_000])
+  defp default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
+    Req.post(url,
+      headers: github_headers(token, req),
+      json: body,
+      connect_options: [timeout: 30_000]
+    )
   end
 
-  defp default_request_fun(%{method: :patch, url: url, token: token, body: body}) do
-    Req.patch(url, headers: github_headers(token), json: body, connect_options: [timeout: 30_000])
+  defp default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
+    Req.patch(url,
+      headers: github_headers(token, req),
+      json: body,
+      connect_options: [timeout: 30_000]
+    )
   end
 
-  defp default_request_fun(%{method: :delete, url: url, token: token}) do
-    Req.delete(url, headers: github_headers(token), connect_options: [timeout: 30_000])
+  defp default_request_fun(%{method: :delete, url: url, token: token} = req) do
+    Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000])
   end
 
-  defp github_headers(token) do
+  defp github_headers(token, %{api_version: version}) when is_binary(version) do
+    [
+      {"Authorization", "Bearer #{token}"},
+      {"Accept", "application/vnd.github+json"},
+      {"X-GitHub-Api-Version", version}
+    ]
+  end
+
+  defp github_headers(token, _req) do
     [
       {"Authorization", "Bearer #{token}"},
       {"Accept", "application/vnd.github+json"},
       {"X-GitHub-Api-Version", "2022-11-28"}
     ]
+  end
+
+  # ---------------------------------------------------------------------------
+  # Issue Dependencies REST API helpers
+  # ---------------------------------------------------------------------------
+  #
+  # GitHub's Issue Dependencies endpoints require the newer `2026-03-10`
+  # API version header. The other client functions can continue using
+  # `2022-11-28` since the issue/comment surfaces they hit are stable.
+
+  @dependencies_api_version "2026-03-10"
+
+  defp dependency_get(issue_number, kind, opts) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}"
+
+      case request_fun.(%{
+             method: :get,
+             url: url,
+             token: token,
+             api_version: @dependencies_api_version
+           }) do
+        {:ok, %{status: 200, body: body}} when is_list(body) ->
+          {:ok, body}
+
+        {:ok, %{status: status}} ->
+          {:error, {:github_api_status, status}}
+
+        {:error, reason} ->
+          {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
+  defp dependency_mutate(blocked_number, blocker_id, method, opts) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues/#{blocked_number}/dependencies/blocked_by"
+
+      req = %{
+        method: method,
+        url: url,
+        token: token,
+        api_version: @dependencies_api_version
+      }
+
+      req = if method == :post, do: Map.put(req, :body, %{"issue_id" => blocker_id}), else: req
+
+      case request_fun.(req) do
+        {:ok, %{status: status, body: body}} when status in [200, 201] and is_map(body) ->
+          {:ok, body}
+
+        {:ok, %{status: status}} ->
+          {:error, {:github_api_status, status}}
+
+        {:error, reason} ->
+          {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
+  defp header(headers, name) when is_list(headers) do
+    name_down = String.downcase(name)
+
+    Enum.find_value(headers, fn
+      {key, value} ->
+        if String.downcase(to_string(key)) == name_down do
+          List.wrap(value) |> List.first()
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp header(headers, name) when is_map(headers) do
+    name_down = String.downcase(name)
+
+    Enum.find_value(headers, fn {key, value} ->
+      if String.downcase(to_string(key)) == name_down do
+        List.wrap(value) |> List.first()
+      end
+    end)
+  end
+
+  defp poll_interval(headers) do
+    case header(headers, "x-poll-interval") do
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {n, _} when n > 0 -> n
+          _ -> 60
+        end
+
+      _ ->
+        60
+    end
   end
 end

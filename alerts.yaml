@@ -1,5 +1,28 @@
+# Aiur alert definitions, keyed by event-topic glob patterns.
+#
+# Matching rules (see lib/aiur/events/topic.ex):
+#   - `*` matches exactly one topic segment
+#   - `#` matches zero or more segments
+#   - When multiple patterns match the same topic, the one with the most
+#     literal segments wins (specificity sort, descending). Ties broken
+#     lexicographically by pattern string.
+#
+# Authoritative-event-wins:
+#   - The `chat.send` entry was dropped in Ticket B (was already removed
+#     as noise in orchestrator.ex prior).
+#   - `task.merging` was dropped; the merge sound now fires on the
+#     GitHub-authoritative `ticket.*.pr.merged` event instead of the
+#     orchestrator's `task.*` label-flip path.
+#   - `task.done` was dropped; close sound now fires on the
+#     GitHub-authoritative `ticket.*.issue.state.changed` event with
+#     state: closed.
+#   - `task.cancelled` and `task.canceled` were consolidated into a
+#     single entry matching `state_reason: :not_planned` on
+#     `ticket.*.issue.state.changed`.
+
 alerts:
-  task.todo:
+  # ---------- Ticket lifecycle (label-driven) -----------------------------
+  "ticket.*.issue.label.added.agent.todo":
     message: Task entered todo
     sound:
       - "~/alerts/advisor-yes-executor.wav"
@@ -15,48 +38,45 @@ alerts:
       - "~/alerts/templar-state-your-will.wav"
       - "~/alerts/templar-i-am-ready.wav"
       - "~/alerts/archon-power-overwhelming.wav"
-  task.todo.more_agents:
-    message: Todo queue exceeds capacity
-    sound:
-      - "~/alerts/advisor-not-enough-minerals.wav"
-      - "~/alerts/advisor-additional-pylons.wav"
-  task.in-progress:
+  "ticket.*.issue.label.added.agent.in-progress":
     message: Task picked up
-  task.human-review:
+  "ticket.*.issue.label.added.agent.human-review":
     message: Ready for human review
     sound:
       - "~/alerts/advisor-under-attack.wav"
       - "~/alerts/advisor-warriors-engaged-enemy.wav"
-  task.rework:
+  "ticket.*.issue.label.added.agent.rework":
     message: Sent back for changes
-  task.merging:
-    message: Merge in progress
+
+  # ---------- Ticket lifecycle (GitHub-authoritative) ---------------------
+  "ticket.*.pr.merged":
+    message: Merge complete
     sound:
       - "~/alerts/archon-merging-complete.wav"
-  task.done:
-    message: Task completed
+  "ticket.*.issue.state.changed":
+    message: Task state changed
     sound:
       - "~/alerts/advisor-upgrade-complete.wav"
-  task.cancelled:
-    message: Task was cancelled
-    sound:
-      - "~/alerts/advisor-nuclear-launch-detected.wav"
-  task.canceled:
-    message: Task was canceled
-    sound:
-      - "~/alerts/advisor-nuclear-launch-detected.wav"
 
-  agent.more_tokens:
+  # ---------- Orchestrator dispatch ---------------------------------------
+  "system.dispatch.todo_capacity_exceeded":
+    message: Todo queue exceeds capacity
+    sound:
+      - "~/alerts/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor-additional-pylons.wav"
+
+  # ---------- Agent state -------------------------------------------------
+  "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
       - "~/alerts/advisor-not-enough-minerals.wav"
       - "~/alerts/advisor-require-more-vesphene-gas.wav"
-  agent.paused:
+  "ticket.*.agent.paused":
     message: Agent paused
     sound:
       - "~/alerts/advisor-yes-executor.wav"
       - "~/alerts/templar-yes-executor.wav"
-  agent.unpaused:
+  "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:
       - "~/alerts/advisor-your-will.wav"
@@ -72,14 +92,13 @@ alerts:
       - "~/alerts/templar-i-am-ready.wav"
       - "~/alerts/archon-power-overwhelming.wav"
 
-  chat.open:
+  # ---------- Chat lifecycle ----------------------------------------------
+  "ticket.*.chat.opened":
     message: Chat opened
     sound:
       - "~/alerts/advisor-yes-executor.wav"
       - "~/alerts/templar-yes-executor.wav"
-  chat.send:
-    message: Message sent
-  chat.close:
+  "ticket.*.chat.closed":
     message: Chat closed
     sound:
       - "~/alerts/advisor-your-will.wav"
@@ -95,26 +114,28 @@ alerts:
       - "~/alerts/templar-i-am-ready.wav"
       - "~/alerts/archon-power-overwhelming.wav"
 
-
-  phase.brainstorm.start:
+  # ---------- Workflow phase milestones (agent-emitted) -------------------
+  # Agents emit bare names like `brainstorm.start`; agent_runner prefixes
+  # to `ticket.<id>.agent.<name>` before publish.
+  "ticket.*.agent.brainstorm.start":
     message: Entered brainstorm
-  phase.brainstorm.end:
+  "ticket.*.agent.brainstorm.end":
     message: Exited brainstorm
     sound:
       - "~/alerts/advisor-research-complete.wav"
-  phase.plan.start:
+  "ticket.*.agent.plan.start":
     message: Entered planning
-  phase.plan.end:
+  "ticket.*.agent.plan.end":
     message: Exited planning
     sound:
       - "~/alerts/advisor-research-complete.wav"
-  phase.work.start:
+  "ticket.*.agent.work.start":
     message: Entered implementation
-  phase.work.end:
+  "ticket.*.agent.work.end":
     message: Exited implementation
-  phase.review.start:
+  "ticket.*.agent.review.start":
     message: Entered review
-  phase.review.end:
+  "ticket.*.agent.review.end":
     message: Exited review
     sound:
       - "~/alerts/advisor-research-complete.wav"

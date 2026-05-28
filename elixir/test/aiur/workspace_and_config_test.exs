@@ -935,7 +935,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_active_states: %{todo: true},
       tracker_terminal_states: %{done: true},
-      poll_interval_ms: %{bad: true},
+      poll_interval_seconds: %{bad: true},
       workspace_root: 123,
       max_retry_backoff_ms: 0,
       max_concurrent_agents_by_state: %{"Todo" => "1", "Review" => 0, "Done" => "bad"},

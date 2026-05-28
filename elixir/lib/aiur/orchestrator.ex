@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
+  alias Aiur.Events.{GithubFirehose, Publisher}
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -81,7 +82,8 @@ defmodule Aiur.Orchestrator do
       agent_totals: nil,
       agent_rate_limits: nil,
       codex_totals: nil,
-      codex_rate_limits: nil
+      codex_rate_limits: nil,
+      events_etag: nil
     ]
   end
 
@@ -97,7 +99,7 @@ defmodule Aiur.Orchestrator do
     config = Config.settings!()
 
     state = %State{
-      poll_interval_ms: config.polling.interval_ms,
+      poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
@@ -109,9 +111,77 @@ defmodule Aiur.Orchestrator do
     }
 
     run_terminal_workspace_cleanup()
+    init_tracked_set_table()
+    install_event_tracked_fn()
     state = schedule_tick(state, 0)
 
     {:ok, state}
+  end
+
+  # Publisher reads this on every publish to decide whether an event
+  # references a ticket Aiur is currently tracking. We update the same
+  # closure every tick so it always sees the latest running/queued sets.
+  defp install_event_tracked_fn do
+    if Process.whereis(Publisher) do
+      Publisher.set_tracked_fn(&issue_tracked?/1)
+    end
+
+    :ok
+  end
+
+  @tracked_table __MODULE__.TrackedSet
+
+  defp init_tracked_set_table do
+    case :ets.whereis(@tracked_table) do
+      :undefined ->
+        :ets.new(@tracked_table, [
+          :named_table,
+          :public,
+          :set,
+          read_concurrency: true,
+          write_concurrency: true
+        ])
+
+      _ ->
+        :ets.delete_all_objects(@tracked_table)
+    end
+
+    :ok
+  end
+
+  # Public — called by the Publisher's tracked_fn closure. Reads ETS
+  # directly so the publish path never makes a GenServer call back
+  # into the orchestrator (which would deadlock when publish happens
+  # inside `:run_poll_cycle`).
+  @doc false
+  @spec issue_tracked?(String.t() | integer() | nil) :: boolean()
+  def issue_tracked?(nil), do: false
+
+  def issue_tracked?(issue_number) do
+    needle = to_string(issue_number)
+
+    case :ets.whereis(@tracked_table) do
+      :undefined -> true
+      _ -> :ets.member(@tracked_table, needle)
+    end
+  end
+
+  # Refreshes the tracked set with the current running issues. Called
+  # after every poll cycle so the contamination filter sees the latest
+  # set without crossing the GenServer mailbox boundary.
+  defp refresh_tracked_set(state) do
+    needles =
+      state.running
+      |> Map.values()
+      |> Enum.map(fn entry ->
+        id = entry[:identifier] || Map.get(entry, :identifier)
+        if id, do: to_string(id)
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    :ets.delete_all_objects(@tracked_table)
+    Enum.each(needles, &:ets.insert(@tracked_table, {&1, true}))
+    state
   end
 
   @impl true
@@ -299,8 +369,32 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  defp event_digest_summary(event) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+    message = Map.get(event, "message") || Map.get(event, :message) || Map.get(event, "summary")
+
+    case message do
+      m when is_binary(m) and m != "" -> "#{topic}: #{m}"
+      _ -> topic
+    end
+  end
+
+  defp poll_github_firehose(%State{} = state) do
+    case GithubFirehose.poll(etag: state.events_etag) do
+      {:ok, %{etag: etag, count: count}} ->
+        if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
+        %{state | events_etag: etag}
+
+      {:error, _reason} ->
+        # Preserve cached etag so we retry as If-None-Match next tick
+        state
+    end
+  end
+
   defp maybe_dispatch(%State{} = state) do
     state = reconcile_running_issues(state)
+    state = refresh_tracked_set(state)
+    state = poll_github_firehose(state)
 
     with :ok <- Config.validate!(),
          {:ok, issues} <- Tracker.fetch_candidate_issues() do
@@ -691,7 +785,10 @@ defmodule Aiur.Orchestrator do
     current_state = state_slug(issue.state)
 
     if previous_state != current_state and current_state != nil do
-      Alerts.emit_system("task.#{current_state}",
+      # Ticket B: label-flip alerts route through the new topic shape so
+      # `alerts.yaml` can glob-match per state without one entry per state.
+      Alerts.emit_system(
+        "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
         issue: issue,
         worker_host: running_worker_host(state, issue.id)
       )
@@ -840,7 +937,8 @@ defmodule Aiur.Orchestrator do
          MapSet.member?(next_state.claimed, issue.id) do
       delay_ms = index * 1_000
       worker_host = running_worker_host(next_state, issue.id)
-      Process.send_after(self(), {:emit_system_alert, "task.todo", issue, worker_host}, delay_ms)
+      topic = "ticket.#{issue.identifier}.issue.label.added.agent.todo"
+      Process.send_after(self(), {:emit_system_alert, topic, issue, worker_host}, delay_ms)
       index + 1
     else
       index
@@ -1803,6 +1901,29 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
+  def handle_call({:enqueue_event_digest, identifier, event}, _from, state) do
+    body = %{
+      summary: event_digest_summary(event),
+      events: [event]
+    }
+
+    {queue_store, item} =
+      AgentQueue.coordination_event(identifier, :events_digest, body, source: :system)
+      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+    next_state = %{state | queue_store: queue_store}
+
+    case find_running_by_identifier(state.running, identifier) do
+      nil ->
+        :ok
+
+      running_entry ->
+        notify_running_queue_update(running_entry, item)
+    end
+
+    {:reply, :ok, next_state}
+  end
+
   def handle_call(:poll_status, _from, state) do
     now_ms = System.monotonic_time(:millisecond)
 
@@ -2169,7 +2290,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_emit_agent_control_alert(:working, :paused, running_entry) when is_map(running_entry) do
-    Alerts.emit_system("agent.paused",
+    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.paused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host)
@@ -2177,7 +2298,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_emit_agent_control_alert(:paused, :working, running_entry) when is_map(running_entry) do
-    Alerts.emit_system("agent.unpaused",
+    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host)
@@ -2579,7 +2700,7 @@ defmodule Aiur.Orchestrator do
 
     %{
       state
-      | poll_interval_ms: config.polling.interval_ms,
+      | poll_interval_ms: config.polling.interval_seconds * 1_000,
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
   end
@@ -2621,13 +2742,13 @@ defmodule Aiur.Orchestrator do
   defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
     case List.first(todo_issues) do
       %Issue{} = issue ->
-        Alerts.emit_system("task.todo.more_agents",
+        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
           issue: issue,
           worker_host: running_worker_host(state, issue.id)
         )
 
       _ ->
-        Alerts.emit_system("task.todo.more_agents")
+        Alerts.emit_system("system.dispatch.todo_capacity_exceeded")
     end
   end
 

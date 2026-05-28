@@ -23,7 +23,15 @@ if config_env() == :test do
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"
   config :aiur, :opencode_bridge_port_override, 0
 
-  config :aiur,
-         :workflow_file_path,
-         Path.expand("../local-workflows/WORKFLOW.aiur.local.md", __DIR__)
+  workflow_file_path_for_tests =
+    [
+      "../local-workflows/WORKFLOW.aiur.local.md",
+      "../test/fixtures/test_workflow.md"
+    ]
+    |> Enum.map(&Path.expand(&1, __DIR__))
+    |> Enum.find(&File.exists?/1)
+
+  if workflow_file_path_for_tests do
+    config :aiur, :workflow_file_path, workflow_file_path_for_tests
+  end
 end

@@ -117,7 +117,7 @@ github:
   repo: example/test
   label_prefix: agent
 polling:
-  interval_ms: 60000
+  interval_seconds: 60
 workspace:
   root: #{workflow_root}/workspaces
 agent:

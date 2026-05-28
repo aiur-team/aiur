@@ -15,7 +15,7 @@ github:
   repo: its-everdred/aiur
   label_prefix: agent
 polling:
-  interval_ms: 5000
+  interval_seconds: 5
 max_vertical_panes: 3
 pre_warmed_sessions: 3
 server:

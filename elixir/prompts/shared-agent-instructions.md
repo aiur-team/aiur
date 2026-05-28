@@ -11,16 +11,35 @@
 - Use judgment based on feature size.
   - Large feature asks should usually follow the full loop: `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-review`.
   - Smaller asks may skip brainstorm, plan, or review when the extra step would be overhead, but err on the side of using these skills when in doubt.
-- Use custom workflow alerts for milestone announcements. In this repository, prefer:
-  - `phase.brainstorm.start`
-  - `phase.brainstorm.end`
-  - `phase.plan.start`
-  - `phase.plan.end`
-  - `phase.work.start`
-  - `phase.work.end`
-  - `phase.review.start`
-  - `phase.review.end`
+- Use custom workflow alerts for milestone announcements. Aiur automatically
+  scopes every agent-emitted name under `ticket.<your-issue>.agent.` — so you
+  pass the bare name and the event bus does the rest. In this repository, prefer:
+  - `brainstorm.start` / `brainstorm.end`
+  - `plan.start` / `plan.end`
+  - `work.start` / `work.end`
+  - `review.start` / `review.end`
 - Emit milestone alerts when you actually enter or leave the corresponding phase, not retroactively.
+
+### Cross-ticket events (`emit_event`, `aiur_subscribe`, `aiur_declare_blocker`)
+
+Aiur agents on different tickets coordinate through a topic-exchange event bus. Use these tools to **make blocking explicit, surface decisions, and unblock others early**.
+
+1. **Events fire between turns, not during them.** When you receive an event from another ticket, it lands in your inbox and is delivered at the next turn boundary (or as an urgent mid-turn drain for blocking-critical events). Don't poll mid-turn — keep working, and trust the inbox.
+2. **Blocking another agent is your highest priority.** If you have an open decision or a stub another ticket is waiting on (you've been declared a blocker via `aiur_declare_blocker`), drop unrelated work and resolve that first. Other tickets are paused on you.
+3. **Temp-unblock yourself with stubs.** If you're blocked on a function from another ticket, write a stub matching the agreed signature, emit `unblocked` against your own ticket with `payload: {temporary_stub: true}`, and keep working. When the real implementation lands, swap the stub.
+4. **You can re-block.** If integrating an upstream change reveals a new blocker, call `aiur_declare_blocker(issue)` again. Aiur tracks dependency state via the GitHub native API; declarations are idempotent.
+5. **Close attentions you open.** Every `emit_event("attention.<slug>", ...)` adds a ❗ to your row in the agent list. The operator sees it and may reply via PR comment. When the question is resolved, emit `attention.resolved` with `payload: {slug: "<the-slug>"}` to clear it. Do not let attentions accumulate.
+6. **Subscribe to more than the defaults when useful.** `aiur_declare_blocker` auto-subscribes you to a useful default subset of the blocker's events. If you also want to watch another ticket's progress (e.g., a sibling working in the same area), call `aiur_subscribe("ticket.<id>.#")` explicitly.
+7. **Search before expanding scope.** Before you start work on a ticket-adjacent concern, search the event log (`aiur --logs <id>`) for recent `progress.*` / `decision.*` events on related tickets. Don't duplicate work another agent is already doing.
+
+Event vocabulary (allowlisted — names outside this list are rejected by `emit_event`):
+
+- `progress.<slug>` — milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`)
+- `decision.<slug>` — architectural choice worth broadcasting (`decision.use-amqp-matcher`)
+- `blocked` / `unblocked` — your work blocked / unblocked state changed
+- `attention.<slug>` — opens an operator ❗; resolved via `attention.resolved` with matching slug
+- `pause.request` — request operator pause your turn at the next checkpoint
+- `custom.<slug>` — anything else (capped at 5 per turn)
 
 ### Dev loop
 
@@ -104,7 +123,7 @@ Touches multiple subsystems or introduces a new abstraction. Has design decision
 New architecture, multi-system change, security/auth, data-integrity, anything where "wrong" means an incident. Multi-day work.
 
 - Suggested model: **the latest Claude model** with `model_reasoning_effort=high`. Don't downgrade to a smaller or older model at this tier — the depth of reasoning matters more than the speed.
-- Suggested skills: `ce-brainstorm` → requirements doc → `ce-plan` → deepen the plan → `ce-doc-review` → revise → `ce-work` → `ce-code-review`.
+- Suggested skills: `ce-brainstorm` → requirements doc → `ce-doc-review` on the requirements → revise → `ce-plan` → deepen the plan → `ce-doc-review` on the plan → revise → `ce-work` → `ce-code-review`.
 - Strongly suggested: request adversarial review on the diff by naming the relevant persona explicitly — `ce-security-reviewer`, `ce-data-migration-expert`, `ce-architecture-strategist`, `ce-adversarial-reviewer`. Default checks alone are usually not enough at this tier.
 - Land in small, reviewable commits; never one mega-PR.
 

@@ -59,7 +59,22 @@ defmodule Aiur.AgentPubSub do
   def broadcast_transcript(identifier, %{role: _, body: _, timestamp: _} = event)
       when is_binary(identifier) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:transcript_event, event})
+    do_broadcast(agent_chat_active_topic(), {:agent_chat_active, identifier})
   end
+
+  @doc """
+  Single global topic that fires `{:agent_chat_active, identifier}`
+  every time an agent emits any transcript event. AgentList uses this
+  to promote its 🔘 → ⚪ marker once the agent has actually produced
+  visible content — duplicates are harmless because subscribers
+  dedup with `MapSet.put`.
+  """
+  @spec subscribe_agent_chat_active() :: :ok | {:error, term()}
+  def subscribe_agent_chat_active do
+    Phoenix.PubSub.subscribe(@pubsub, agent_chat_active_topic())
+  end
+
+  defp agent_chat_active_topic, do: "agents:chat_active"
 
   @spec broadcast_alert(AgentEvents.agent_identifier(), AgentEvents.alert_event()) :: :ok
   def broadcast_alert(identifier, %{name: _, message: _, timestamp: _} = event)
@@ -83,6 +98,24 @@ defmodule Aiur.AgentPubSub do
              event_tag in [:turn_completed, :turn_failed, :turn_cancelled, :turn_input_required] and
              is_map(payload) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:turn_event, identifier, event_tag, payload})
+  end
+
+  @doc """
+  Aiur-side turn lifecycle signal. `Aiur.AgentRunner` broadcasts this
+  when a single `CodingAgent.run_turn/4` call returns, regardless of
+  how many internal codex turns it contained. The opencode bridge
+  uses it to close the SSE stream tied to that aiur turn so opencode
+  renders ONE assistant message per `run_turn` (Approach C.2).
+  `reason` is `:done`, `{:failed, term}`, `:input_required`, or
+  `:cancelled`.
+  """
+  @spec broadcast_aiur_turn_done(AgentEvents.agent_identifier(), String.t(), term()) :: :ok
+  def broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
+      when is_binary(identifier) and is_binary(aiur_turn_id) do
+    do_broadcast(
+      AgentEvents.agent_topic(identifier),
+      {:aiur_turn_done, identifier, aiur_turn_id, reason}
+    )
   end
 
   defp do_broadcast(topic, message) do

@@ -154,7 +154,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
              function's call-stack frame — re-entering the handler.
              """
 
-      assert source =~ ~r/trap '__aiur_cleanup' EXIT\b/,
+      assert source =~ ~r/trap '[^']*__aiur_cleanup[^']*' EXIT\b/,
              "EXIT trap must register __aiur_cleanup on its own line."
 
       assert source =~ ~r/trap '[^']*__aiur_cleanup; exit \d+' INT/,

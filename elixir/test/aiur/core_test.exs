@@ -7,14 +7,14 @@ defmodule Aiur.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
       tracker_project_slug: nil,
-      poll_interval_ms: nil,
+      poll_interval_seconds: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
       codex_command: nil
     )
 
     config = Config.settings!()
-    assert config.polling.interval_ms == 30_000
+    assert config.polling.interval_seconds == 30
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
     assert config.tracker.assignee == nil
@@ -22,17 +22,17 @@ defmodule Aiur.CoreTest do
     assert Config.max_vertical_panes() == 3
     assert config.agent.max_turns == 20
 
-    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
+    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
 
-    assert_raise ArgumentError, ~r/interval_ms/, fn ->
-      Config.settings!().polling.interval_ms
+    assert_raise ArgumentError, ~r/interval_seconds/, fn ->
+      Config.settings!().polling.interval_seconds
     end
 
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
-    assert message =~ "polling.interval_ms"
+    assert message =~ "polling.interval_seconds"
 
-    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: 45_000)
-    assert Config.settings!().polling.interval_ms == 45_000
+    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: 45)
+    assert Config.settings!().polling.interval_seconds == 45
 
     write_workflow_file!(Workflow.workflow_file_path(), max_vertical_panes: 4)
     assert Config.settings!().max_vertical_panes == 4
@@ -104,9 +104,7 @@ defmodule Aiur.CoreTest do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
-      Workflow.set_workflow_file_path(
-        Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!())
-      )
+      Workflow.set_workflow_file_path(Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!()))
 
       assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
       assert is_map(config)
@@ -948,7 +946,7 @@ defmodule Aiur.CoreTest do
 
     assert prompt =~ "## Shared Agent Instructions"
     assert prompt =~ "emit_alert"
-    assert prompt =~ "phase.brainstorm"
+    assert prompt =~ "brainstorm.start"
     assert prompt =~ "### Complexity routing"
     assert prompt =~ "label-based complexity is the default"
     assert prompt =~ "Complexity routing note in PR descriptions"
@@ -1096,9 +1094,7 @@ defmodule Aiur.CoreTest do
   test "in-repo WORKFLOW.md renders correctly" do
     workflow_path = Workflow.workflow_file_path()
 
-    Workflow.set_workflow_file_path(
-      Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!())
-    )
+    Workflow.set_workflow_file_path(Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!()))
 
     issue = %Issue{
       identifier: "MT-616",

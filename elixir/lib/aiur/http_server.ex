@@ -3,10 +3,14 @@ defmodule Aiur.HttpServer do
   Compatibility facade that starts the Phoenix observability endpoint when enabled.
   """
 
+  require Logger
+
   alias Aiur.{Config, Orchestrator}
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
+  @loopback_v4 {127, 0, 0, 1}
+  @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -24,7 +28,8 @@ defmodule Aiur.HttpServer do
         orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
-        with {:ok, ip} <- parse_host(host) do
+        with {:ok, ip} <- parse_host(host),
+             :ok <- guard_credentials_for_non_loopback(ip, host) do
           endpoint_opts = [
             server: true,
             http: [ip: ip, port: port],
@@ -41,6 +46,9 @@ defmodule Aiur.HttpServer do
 
           Application.put_env(:aiur, Endpoint, endpoint_config)
           Endpoint.start_link()
+        else
+          :credentials_missing_for_non_loopback -> :ignore
+          other -> other
         end
 
       _ ->
@@ -59,6 +67,49 @@ defmodule Aiur.HttpServer do
   catch
     :exit, _reason -> nil
   end
+
+  # Refuse to bind on non-loopback when basic-auth credentials are
+  # missing. The dashboard exposes write endpoints (chat, pause,
+  # refresh); without auth, every device on the LAN/tailnet can POST.
+  # Returns `:ok` to proceed, or the sentinel
+  # `:credentials_missing_for_non_loopback` to short-circuit to
+  # `:ignore`. The Logger.error log line is the operator's only signal,
+  # so it must include the resolved host + env-var names + remediation.
+  defp guard_credentials_for_non_loopback(ip, host_input) do
+    cond do
+      loopback?(ip) ->
+        :ok
+
+      basic_auth_configured?() ->
+        :ok
+
+      true ->
+        Logger.error(
+          "Aiur dashboard refusing to bind on non-loopback host " <>
+            "(#{inspect(host_input)} resolved to #{format_ip(ip)}) without basic-auth credentials.\n" <>
+            "Set AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD env vars, " <>
+            "or re-run with --host 127.0.0.1 (loopback bind is unauthenticated by design)."
+        )
+
+        :credentials_missing_for_non_loopback
+    end
+  end
+
+  defp loopback?(@loopback_v4), do: true
+  defp loopback?(@loopback_v6), do: true
+  defp loopback?(_), do: false
+
+  defp basic_auth_configured? do
+    nonblank?(System.get_env("AIUR_DASHBOARD_USERNAME")) and
+      nonblank?(System.get_env("AIUR_DASHBOARD_PASSWORD"))
+  end
+
+  defp nonblank?(value) when is_binary(value), do: String.trim(value) != ""
+  defp nonblank?(_), do: false
+
+  defp format_ip({a, b, c, d}), do: "#{a}.#{b}.#{c}.#{d}"
+  defp format_ip(ip) when is_tuple(ip), do: inspect(ip)
+  defp format_ip(ip), do: inspect(ip)
 
   defp parse_host({_, _, _, _} = ip), do: {:ok, ip}
   defp parse_host({_, _, _, _, _, _, _, _} = ip), do: {:ok, ip}

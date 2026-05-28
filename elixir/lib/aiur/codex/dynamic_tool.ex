@@ -19,6 +19,88 @@ defmodule Aiur.Codex.DynamicTool do
       "message" => %{"type" => "string", "description" => "Concise log-facing alert message."}
     }
   }
+  @emit_event_tool "emit_event"
+  @emit_event_description """
+  Emit a cross-ticket Aiur event. Routes onto the `Aiur.Events.Exchange`
+  topic exchange where other agents/the operator can subscribe by
+  pattern. The `name` is a scoped vocabulary tag (`progress.<slug>`,
+  `decision.<slug>`, `blocked`, `unblocked`, `attention.<slug>`,
+  `attention.resolved`, `pause.request`, or `custom.<slug>`). The full
+  published topic is `ticket.<your-issue>.agent.<name>`.
+
+  Subscribers see your `message` and optional structured `payload`. Use
+  `emit_event` for coordination signals an agent on another ticket might
+  want to react to; use `emit_alert` for operator-facing audible alerts.
+  """
+  @emit_event_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["name", "message"],
+    "properties" => %{
+      "name" => %{
+        "type" => "string",
+        "description" => "Vocabulary tag. One of: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
+      },
+      "message" => %{"type" => "string", "description" => "Short human-readable summary."},
+      "payload" => %{
+        "type" => ["object", "null"],
+        "description" => "Optional structured data (e.g. {blocking_issue: 80, function: \"foo\"}).",
+        "additionalProperties" => true
+      }
+    }
+  }
+  @aiur_declare_blocker_tool "aiur_declare_blocker"
+  @aiur_declare_blocker_description """
+  Declare that another GitHub issue (by number) blocks the issue you
+  are working on. Uses GitHub's native Issue Dependencies REST API.
+  Cycle-checked client-side before submission. Returns success if the
+  blocker is already declared (idempotent).
+  """
+  @aiur_declare_blocker_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["issue_number"],
+    "properties" => %{
+      "issue_number" => %{
+        "type" => ["integer", "string"],
+        "description" => "Issue number of the blocker (numeric, not the internal id)."
+      }
+    }
+  }
+  @aiur_unblock_tool "aiur_unblock"
+  @aiur_unblock_description """
+  Remove a previously-declared blocker from your current issue.
+  """
+  @aiur_unblock_input_schema @aiur_declare_blocker_input_schema
+  @aiur_subscribe_tool "aiur_subscribe"
+  @aiur_subscribe_description """
+  Subscribe the current issue to a topic pattern. Patterns use AMQP topic
+  exchange syntax: `*` matches one segment, `#` matches zero or more.
+  Example: `ticket.42.#` (everything about ticket 42),
+  `*.*.branch.push` (any push on any ticket).
+
+  Persistent: the subscription survives BEAM restarts. Use this for
+  watch use cases; native blocker declarations (`aiur_declare_blocker`)
+  auto-subscribe on their own and shouldn't be paired with manual
+  `aiur_subscribe` calls.
+  """
+  @aiur_subscribe_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["topic_pattern"],
+    "properties" => %{
+      "topic_pattern" => %{
+        "type" => "string",
+        "description" => "AMQP-style topic pattern, e.g. `ticket.42.#`."
+      }
+    }
+  }
+  @aiur_unsubscribe_tool "aiur_unsubscribe"
+  @aiur_unsubscribe_description """
+  Remove a previously-added subscription by exact topic pattern. No-op if
+  the pattern was not subscribed.
+  """
+  @aiur_unsubscribe_input_schema @aiur_subscribe_input_schema
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Aiur's configured auth.
@@ -49,6 +131,21 @@ defmodule Aiur.Codex.DynamicTool do
       @emit_alert_tool ->
         execute_emit_alert(arguments, opts)
 
+      @emit_event_tool ->
+        execute_emit_event(arguments, opts)
+
+      @aiur_subscribe_tool ->
+        execute_subscription(arguments, opts, :subscribe)
+
+      @aiur_unsubscribe_tool ->
+        execute_subscription(arguments, opts, :unsubscribe)
+
+      @aiur_declare_blocker_tool ->
+        execute_dependency_action(arguments, opts, :declare)
+
+      @aiur_unblock_tool ->
+        execute_dependency_action(arguments, opts, :unblock)
+
       other ->
         failure_response(%{
           "error" => %{
@@ -71,8 +168,192 @@ defmodule Aiur.Codex.DynamicTool do
         "name" => @emit_alert_tool,
         "description" => @emit_alert_description,
         "inputSchema" => @emit_alert_input_schema
+      },
+      %{
+        "name" => @emit_event_tool,
+        "description" => @emit_event_description,
+        "inputSchema" => @emit_event_input_schema
+      },
+      %{
+        "name" => @aiur_subscribe_tool,
+        "description" => @aiur_subscribe_description,
+        "inputSchema" => @aiur_subscribe_input_schema
+      },
+      %{
+        "name" => @aiur_unsubscribe_tool,
+        "description" => @aiur_unsubscribe_description,
+        "inputSchema" => @aiur_unsubscribe_input_schema
+      },
+      %{
+        "name" => @aiur_declare_blocker_tool,
+        "description" => @aiur_declare_blocker_description,
+        "inputSchema" => @aiur_declare_blocker_input_schema
+      },
+      %{
+        "name" => @aiur_unblock_tool,
+        "description" => @aiur_unblock_description,
+        "inputSchema" => @aiur_unblock_input_schema
       }
     ]
+  end
+
+  defp execute_dependency_action(arguments, opts, action) do
+    handler =
+      case action do
+        :declare -> Keyword.get(opts, :blocker_declarer)
+        :unblock -> Keyword.get(opts, :unblocker)
+      end
+
+    error_atom =
+      case action do
+        :declare -> :blocker_declarer_unavailable
+        :unblock -> :unblocker_unavailable
+      end
+
+    with {:ok, issue_number} <- normalize_issue_number(arguments),
+         true <- is_function(handler, 1) || {:error, error_atom},
+         {:ok, result} <- handler.(issue_number) do
+      dynamic_tool_response(
+        true,
+        Jason.encode!(%{"ok" => true, "issue_number" => issue_number, "result" => result_jsonable(result)}, pretty: true)
+      )
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+
+      false ->
+        failure_response(tool_error_payload(error_atom))
+    end
+  end
+
+  defp normalize_issue_number(arguments) when is_map(arguments) do
+    case Map.get(arguments, "issue_number") || Map.get(arguments, :issue_number) do
+      n when is_integer(n) and n > 0 ->
+        {:ok, n}
+
+      n when is_binary(n) ->
+        case Integer.parse(String.trim(n)) do
+          {parsed, ""} when parsed > 0 -> {:ok, parsed}
+          _ -> {:error, :invalid_issue_number}
+        end
+
+      _ ->
+        {:error, :missing_issue_number}
+    end
+  end
+
+  defp normalize_issue_number(_), do: {:error, :invalid_issue_number}
+
+  defp result_jsonable(value) when is_atom(value), do: Atom.to_string(value)
+  defp result_jsonable(value) when is_map(value) or is_list(value) or is_binary(value), do: value
+  defp result_jsonable(value), do: inspect(value)
+
+  defp execute_subscription(arguments, opts, action) do
+    handler =
+      case action do
+        :subscribe -> Keyword.get(opts, :subscriber)
+        :unsubscribe -> Keyword.get(opts, :unsubscriber)
+      end
+
+    error_atom =
+      case action do
+        :subscribe -> :subscriber_unavailable
+        :unsubscribe -> :unsubscriber_unavailable
+      end
+
+    with {:ok, pattern} <- normalize_topic_pattern(arguments),
+         true <- is_function(handler, 1) || {:error, error_atom},
+         :ok <- handler.(pattern) do
+      dynamic_tool_response(true, Jason.encode!(%{"ok" => true, "topic_pattern" => pattern}, pretty: true))
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+
+      false ->
+        failure_response(tool_error_payload(error_atom))
+    end
+  end
+
+  defp normalize_topic_pattern(arguments) when is_map(arguments) do
+    case Map.get(arguments, "topic_pattern") || Map.get(arguments, :topic_pattern) do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+
+        cond do
+          trimmed == "" ->
+            {:error, :missing_topic_pattern}
+
+          String.contains?(trimmed, "..") or
+            String.starts_with?(trimmed, ".") or
+              String.ends_with?(trimmed, ".") ->
+            {:error, :invalid_topic_pattern}
+
+          true ->
+            {:ok, trimmed}
+        end
+
+      _ ->
+        {:error, :missing_topic_pattern}
+    end
+  end
+
+  defp normalize_topic_pattern(_), do: {:error, :invalid_topic_pattern}
+
+  defp execute_emit_event(arguments, opts) do
+    event_publisher = Keyword.get(opts, :event_publisher)
+
+    with {:ok, name, message, payload} <- normalize_emit_event_arguments(arguments),
+         :ok <- validate_emit_event_name(name),
+         true <- is_function(event_publisher, 3) || {:error, :event_publisher_unavailable},
+         {:ok, result} <- event_publisher.(name, message, payload) do
+      dynamic_tool_response(
+        true,
+        Jason.encode!(
+          %{"ok" => true, "name" => name, "message" => message, "result" => result},
+          pretty: true
+        )
+      )
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+
+      false ->
+        failure_response(tool_error_payload(:event_publisher_unavailable))
+    end
+  end
+
+  defp normalize_emit_event_arguments(arguments) when is_map(arguments) do
+    with {:ok, name} <- normalize_emit_alert_string(arguments, "name", :missing_event_name),
+         {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_event_message) do
+      payload =
+        case Map.get(arguments, "payload") || Map.get(arguments, :payload) do
+          %{} = map -> map
+          _ -> %{}
+        end
+
+      {:ok, name, message, payload}
+    end
+  end
+
+  defp normalize_emit_event_arguments(_arguments), do: {:error, :invalid_event_arguments}
+
+  # Locked agent vocabulary per the Ticket A brainstorm. Any name not in
+  # this list is rejected before publish — prevents agents from inventing
+  # new event categories that other tickets/agents won't be subscribed to.
+  @agent_event_allowlist [
+    ~r/\Aprogress\.[a-z0-9][a-z0-9.-]{0,63}\z/,
+    ~r/\Adecision\.[a-z0-9][a-z0-9.-]{0,63}\z/,
+    ~r/\Aattention\.[a-z0-9][a-z0-9.-]{0,63}\z/,
+    ~r/\Acustom\.[a-z0-9][a-z0-9.-]{0,63}\z/
+  ]
+  @agent_event_exact ["blocked", "unblocked", "attention.resolved", "pause.request"]
+
+  defp validate_emit_event_name(name) do
+    cond do
+      name in @agent_event_exact -> :ok
+      Enum.any?(@agent_event_allowlist, &Regex.match?(&1, name)) -> :ok
+      true -> {:error, :event_name_not_in_allowlist}
+    end
   end
 
   defp execute_emit_alert(arguments, opts) do
@@ -252,6 +533,99 @@ defmodule Aiur.Codex.DynamicTool do
     %{
       "error" => %{
         "message" => "`emit_alert` is unavailable in the current runtime context."
+      }
+    }
+  end
+
+  defp tool_error_payload(:event_publisher_unavailable) do
+    %{
+      "error" => %{
+        "message" => "`emit_event` is unavailable in the current runtime context."
+      }
+    }
+  end
+
+  defp tool_error_payload(:invalid_event_arguments) do
+    %{
+      "error" => %{
+        "message" => "`emit_event` expects an object with non-empty `name` and `message` strings and optional `payload` object."
+      }
+    }
+  end
+
+  defp tool_error_payload(:missing_event_name),
+    do: %{"error" => %{"message" => "`emit_event.name` is required."}}
+
+  defp tool_error_payload(:missing_event_message),
+    do: %{"error" => %{"message" => "`emit_event.message` is required."}}
+
+  defp tool_error_payload(:event_name_not_in_allowlist) do
+    %{
+      "error" => %{
+        "message" => "`emit_event.name` must match the agent vocabulary: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
+        "examples" => [
+          "progress.brainstorm-end",
+          "decision.use-amqp-matcher",
+          "blocked",
+          "attention.scope-question",
+          "custom.heartbeat"
+        ]
+      }
+    }
+  end
+
+  defp tool_error_payload(:missing_topic_pattern),
+    do: %{"error" => %{"message" => "`topic_pattern` is required."}}
+
+  defp tool_error_payload(:invalid_topic_pattern),
+    do: %{
+      "error" => %{
+        "message" => "`topic_pattern` must be non-empty, must not start or end with `.`, and must not contain `..`."
+      }
+    }
+
+  defp tool_error_payload(:subscriber_unavailable),
+    do: %{"error" => %{"message" => "`aiur_subscribe` is unavailable in the current runtime context."}}
+
+  defp tool_error_payload(:unsubscriber_unavailable),
+    do: %{
+      "error" => %{
+        "message" => "`aiur_unsubscribe` is unavailable in the current runtime context."
+      }
+    }
+
+  defp tool_error_payload(:missing_issue_number),
+    do: %{"error" => %{"message" => "`issue_number` is required."}}
+
+  defp tool_error_payload(:invalid_issue_number),
+    do: %{"error" => %{"message" => "`issue_number` must be a positive integer."}}
+
+  defp tool_error_payload(:blocker_declarer_unavailable),
+    do: %{"error" => %{"message" => "`aiur_declare_blocker` is unavailable in the current runtime context."}}
+
+  defp tool_error_payload(:unblocker_unavailable),
+    do: %{"error" => %{"message" => "`aiur_unblock` is unavailable in the current runtime context."}}
+
+  defp tool_error_payload(:cycle_detected),
+    do: %{
+      "error" => %{
+        "message" => "Declaring this blocker would create a dependency cycle. Resolve the chain before declaring."
+      }
+    }
+
+  defp tool_error_payload(:blocker_not_found),
+    do: %{"error" => %{"message" => "Blocker issue does not exist or is not visible to Aiur's token."}}
+
+  defp tool_error_payload(:rate_limited),
+    do: %{"error" => %{"message" => "Cycle pre-check exhausted API budget; retry later."}}
+
+  defp tool_error_payload(:permission_denied),
+    do: %{"error" => %{"message" => "Aiur's GitHub token lacks Issues:write scope for this repo."}}
+
+  defp tool_error_payload(:custom_event_quota_exceeded) do
+    %{
+      "error" => %{
+        "message" => "`emit_event` over the per-turn custom.* quota. Wait for the next turn or use a non-`custom.*` name."
       }
     }
   end

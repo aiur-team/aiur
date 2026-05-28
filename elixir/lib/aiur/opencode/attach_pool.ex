@@ -256,10 +256,6 @@ defmodule Aiur.Opencode.AttachPool do
     {:noreply, kickoff_fan_out(state, slot_index)}
   end
 
-  defp slot_already_fanned_out?(state, slot_index) do
-    MapSet.member?(state.fanned_out_slots, slot_index)
-  end
-
   def handle_info({:slot_attach_added, slot_index, identifier}, state) do
     {:noreply, do_attach_added(state, slot_index, identifier)}
   end
@@ -341,24 +337,7 @@ defmodule Aiur.Opencode.AttachPool do
     # agent is added (the user's actual scenario: pause then start are
     # two separate calls).
     new_state =
-      Enum.reduce(removed, new_state, fn id, acc ->
-        slots =
-          case Map.get(acc.attachments, id) do
-            %{attached_slots: slots} -> MapSet.to_list(slots)
-            _ -> []
-          end
-
-        Enum.each(slots, fn slot_index ->
-          case slot_pid_for(slot_index) do
-            {:ok, pid} -> Slot.detach(pid, id)
-            :error -> :ok
-          end
-        end)
-
-        broadcast_event({:agent_inactive, id})
-        Aiur.Perf.event(:agent_inactive, identifier: id)
-        acc
-      end)
+      Enum.reduce(removed, new_state, &detach_removed_identifier/2)
 
     # Find "free" slots: in production, ask each Slot directly for its
     # current visible_identifier (avoids the broadcast race where
@@ -376,34 +355,18 @@ defmodule Aiur.Opencode.AttachPool do
 
         claimed =
           new_state.attachments
-          |> Enum.flat_map(fn {id, %{visible_in: slot}} ->
-            if is_integer(slot) and id in new_active, do: [slot], else: []
-          end)
+          |> Enum.flat_map(&active_visible_slot_for(&1, new_active))
           |> MapSet.new()
 
         {known, claimed}
       else
-        slot_snapshots =
-          Enum.map(slot_indexes, fn slot_index ->
-            case slot_pid_for(slot_index) do
-              {:ok, pid} ->
-                case Slot.snapshot(pid) do
-                  %{visible_identifier: vid} -> {slot_index, vid}
-                  _ -> {slot_index, nil}
-                end
-
-              :error ->
-                {slot_index, nil}
-            end
-          end)
+        slot_snapshots = Enum.map(slot_indexes, &visible_identifier_snapshot/1)
 
         known = MapSet.new(slot_indexes)
 
         claimed =
           slot_snapshots
-          |> Enum.flat_map(fn {idx, vid} ->
-            if is_binary(vid) and vid in new_active, do: [idx], else: []
-          end)
+          |> Enum.flat_map(&claimed_slot_for(&1, new_active))
           |> MapSet.new()
 
         {known, claimed}
@@ -418,24 +381,6 @@ defmodule Aiur.Opencode.AttachPool do
     paired_added = Enum.map(leadoff_pairs, fn {id, _} -> id end)
 
     if added != [] do
-      slot_vids =
-        if slot_indexes == [] do
-          [{nil, :test_path}]
-        else
-          Enum.map(slot_indexes, fn idx ->
-            case slot_pid_for(idx) do
-              {:ok, pid} ->
-                case Slot.snapshot(pid) do
-                  %{visible_identifier: vid} -> {idx, vid}
-                  other -> {idx, {:snapshot_shape, inspect(other)}}
-                end
-
-              :error ->
-                {idx, :no_pid}
-            end
-          end)
-        end
-
       Aiur.Perf.event(:do_seed_pairing_check,
         new_active: new_active,
         added: added,
@@ -444,7 +389,7 @@ defmodule Aiur.Opencode.AttachPool do
         claimed_by_active: MapSet.to_list(claimed_by_active),
         free_slots: free_slots,
         pairs: leadoff_pairs,
-        slot_vids: slot_vids
+        slot_vids: collect_slot_vids(slot_indexes)
       )
     end
 
@@ -488,35 +433,37 @@ defmodule Aiur.Opencode.AttachPool do
   defp spawn_post_boot_fill(slot_index, identifier) do
     case slot_pid_for(slot_index) do
       {:ok, slot_pid} ->
-        Task.start(fn ->
-          span =
-            Aiur.Perf.span_begin(:attach_pool_fill,
-              identifier: identifier,
-              slot: slot_index,
-              source: :post_boot
-            )
-
-          case Slot.attach(slot_pid, identifier) do
-            {:ok, _} ->
-              Aiur.Perf.span_end(span,
-                identifier: identifier,
-                slot: slot_index,
-                source: :post_boot
-              )
-
-            {:error, reason} ->
-              Aiur.Perf.span_end(span,
-                result: :failed,
-                identifier: identifier,
-                slot: slot_index,
-                source: :post_boot,
-                reason: reason
-              )
-          end
-        end)
+        Task.start(fn -> run_post_boot_fill(slot_pid, slot_index, identifier) end)
 
       :error ->
         :ok
+    end
+  end
+
+  defp run_post_boot_fill(slot_pid, slot_index, identifier) do
+    span =
+      Aiur.Perf.span_begin(:attach_pool_fill,
+        identifier: identifier,
+        slot: slot_index,
+        source: :post_boot
+      )
+
+    case Slot.attach(slot_pid, identifier) do
+      {:ok, _} ->
+        Aiur.Perf.span_end(span,
+          identifier: identifier,
+          slot: slot_index,
+          source: :post_boot
+        )
+
+      {:error, reason} ->
+        Aiur.Perf.span_end(span,
+          result: :failed,
+          identifier: identifier,
+          slot: slot_index,
+          source: :post_boot,
+          reason: reason
+        )
     end
   end
 
@@ -561,43 +508,40 @@ defmodule Aiur.Opencode.AttachPool do
         # active_identifiers shifts during boot.
         fill_identifiers = state.active_identifiers -- [identifier]
 
-        Task.start(fn ->
-          span =
-            Aiur.Perf.span_begin(:attach_pool_leadoff,
-              identifier: identifier,
-              slot: slot_index
-            )
-
-          case Slot.set_visible(slot_pid, identifier) do
-            {:ok, _pane_id} ->
-              Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
-              send(pool, {:attach_task_done, slot_index, identifier, :ok})
-              # Background fill: after this slot's leadoff is painted,
-              # attach every OTHER active identifier so they show 🔘
-              # (attached-shared) and `AttachPool.consume` can warm-open
-              # them via this slot when the user clicks them. Runs
-              # SEQUENTIALLY through THIS slot's mailbox so it doesn't
-              # compete with other slots' leadoffs (those run in their
-              # own Tasks against their own slots).
-              background_fill_slot(slot_pid, slot_index, fill_identifiers)
-
-            {:error, reason} ->
-              Aiur.Perf.span_end(span,
-                result: :failed,
-                identifier: identifier,
-                slot: slot_index,
-                reason: reason
-              )
-
-              send(pool, {:attach_failed, identifier, slot_index, reason})
-              send(pool, {:attach_task_done, slot_index, identifier, {:error, reason}})
-          end
-        end)
+        Task.start(fn -> run_leadoff_task(pool, slot_pid, slot_index, identifier, fill_identifiers) end)
 
         state
 
       :error ->
         state
+    end
+  end
+
+  defp run_leadoff_task(pool, slot_pid, slot_index, identifier, fill_identifiers) do
+    span = Aiur.Perf.span_begin(:attach_pool_leadoff, identifier: identifier, slot: slot_index)
+
+    case Slot.set_visible(slot_pid, identifier) do
+      {:ok, _pane_id} ->
+        Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
+        send(pool, {:attach_task_done, slot_index, identifier, :ok})
+        # Background fill: after this slot's leadoff is painted, attach
+        # every OTHER active identifier so they show 🔘 (attached-shared)
+        # and `AttachPool.consume` can warm-open them via this slot when
+        # the user clicks them. Runs SEQUENTIALLY through THIS slot's
+        # mailbox so it doesn't compete with other slots' leadoffs (those
+        # run in their own Tasks against their own slots).
+        background_fill_slot(slot_pid, slot_index, fill_identifiers)
+
+      {:error, reason} ->
+        Aiur.Perf.span_end(span,
+          result: :failed,
+          identifier: identifier,
+          slot: slot_index,
+          reason: reason
+        )
+
+        send(pool, {:attach_failed, identifier, slot_index, reason})
+        send(pool, {:attach_task_done, slot_index, identifier, {:error, reason}})
     end
   end
 
@@ -630,78 +574,8 @@ defmodule Aiur.Opencode.AttachPool do
     end)
   end
 
-  defp start_attach_task(state, slot_index, identifier, opts) do
-    key = {slot_index, identifier}
-    leadoff? = Keyword.get(opts, :leadoff, false)
-
-    cond do
-      MapSet.member?(state.in_flight, key) ->
-        state
-
-      identifier_already_attached?(state, slot_index, identifier) ->
-        state
-
-      true ->
-        case slot_pid_for(slot_index) do
-          {:ok, slot_pid} ->
-            pool = self()
-
-            Task.start(fn ->
-              span =
-                Aiur.Perf.span_begin(:attach_pool_attach,
-                  identifier: identifier,
-                  slot: slot_index,
-                  leadoff: leadoff?
-                )
-
-              result =
-                if leadoff? do
-                  # set_visible drives both: attach (creates session if
-                  # needed) AND respawn the slot's attach pane bound to
-                  # that session. The result is a painted pane in the
-                  # hidden window — exactly what ⚪ promises the user.
-                  case Slot.set_visible(slot_pid, identifier) do
-                    {:ok, _pane_id} -> :ok
-                    err -> err
-                  end
-                else
-                  case Slot.attach(slot_pid, identifier) do
-                    {:ok, _session_id} -> :ok
-                    err -> err
-                  end
-                end
-
-              case result do
-                :ok ->
-                  Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
-                  send(pool, {:attach_task_done, slot_index, identifier, :ok})
-
-                {:error, reason} ->
-                  Aiur.Perf.span_end(span,
-                    result: :failed,
-                    identifier: identifier,
-                    slot: slot_index,
-                    reason: reason
-                  )
-
-                  send(pool, {:attach_failed, identifier, slot_index, reason})
-                  send(pool, {:attach_task_done, slot_index, identifier, {:error, reason}})
-              end
-            end)
-
-            %{state | in_flight: MapSet.put(state.in_flight, key)}
-
-          :error ->
-            state
-        end
-    end
-  end
-
-  defp identifier_already_attached?(state, slot_index, identifier) do
-    case Map.get(state.attachments, identifier) do
-      %{attached_slots: slots} -> MapSet.member?(slots, slot_index)
-      _ -> false
-    end
+  defp slot_already_fanned_out?(state, slot_index) do
+    MapSet.member?(state.fanned_out_slots, slot_index)
   end
 
   defp do_attach_added(state, slot_index, identifier) do
@@ -853,19 +727,7 @@ defmodule Aiur.Opencode.AttachPool do
           slots
           |> MapSet.to_list()
           |> Enum.reject(&MapSet.member?(exclude_slots, &1))
-          |> then(fn list ->
-            if exclude_visible and MapSet.size(exclude_slots) == 0 do
-              visible_to_other =
-                state.attachments
-                |> Enum.filter(fn {id, att} -> id != identifier and not is_nil(att.visible_in) end)
-                |> Enum.map(fn {_id, att} -> att.visible_in end)
-                |> MapSet.new()
-
-              Enum.reject(list, &MapSet.member?(visible_to_other, &1))
-            else
-              list
-            end
-          end)
+          |> filter_visible_to_others(state, identifier, exclude_visible, exclude_slots)
 
         own_visible = self_att.visible_in
 
@@ -898,6 +760,89 @@ defmodule Aiur.Opencode.AttachPool do
 
   defp count_visible(state) do
     Enum.count(state.attachments, fn {_id, att} -> not is_nil(att.visible_in) end)
+  end
+
+  defp claimed_slot_for({idx, vid}, new_active) do
+    if is_binary(vid) and vid in new_active, do: [idx], else: []
+  end
+
+  defp active_visible_slot_for({id, %{visible_in: slot}}, new_active) do
+    if is_integer(slot) and id in new_active, do: [slot], else: []
+  end
+
+  defp detach_removed_identifier(id, acc) do
+    slots = attached_slots_for(acc, id)
+    Enum.each(slots, &detach_slot_from_identifier(&1, id))
+    broadcast_event({:agent_inactive, id})
+    Aiur.Perf.event(:agent_inactive, identifier: id)
+    acc
+  end
+
+  defp attached_slots_for(state, id) do
+    case Map.get(state.attachments, id) do
+      %{attached_slots: slots} -> MapSet.to_list(slots)
+      _ -> []
+    end
+  end
+
+  defp detach_slot_from_identifier(slot_index, id) do
+    case slot_pid_for(slot_index) do
+      {:ok, pid} -> Slot.detach(pid, id)
+      :error -> :ok
+    end
+  end
+
+  defp visible_identifier_snapshot(slot_index) do
+    case slot_pid_for(slot_index) do
+      {:ok, pid} -> {slot_index, slot_visible_identifier(pid)}
+      :error -> {slot_index, nil}
+    end
+  end
+
+  defp slot_visible_identifier(pid) do
+    case Slot.snapshot(pid) do
+      %{visible_identifier: vid} -> vid
+      _ -> nil
+    end
+  end
+
+  defp collect_slot_vids([]), do: [{nil, :test_path}]
+
+  defp collect_slot_vids(slot_indexes) do
+    Enum.map(slot_indexes, &slot_vid_entry/1)
+  end
+
+  defp slot_vid_entry(idx) do
+    case slot_pid_for(idx) do
+      {:ok, pid} -> {idx, snapshot_visible_identifier(pid)}
+      :error -> {idx, :no_pid}
+    end
+  end
+
+  defp snapshot_visible_identifier(pid) do
+    case Slot.snapshot(pid) do
+      %{visible_identifier: vid} -> vid
+      other -> {:snapshot_shape, inspect(other)}
+    end
+  end
+
+  defp filter_visible_to_others(candidates, state, identifier, true, exclude_slots) do
+    if MapSet.size(exclude_slots) == 0 do
+      visible_to_other = visible_slots_for_other_identifiers(state, identifier)
+      Enum.reject(candidates, &MapSet.member?(visible_to_other, &1))
+    else
+      candidates
+    end
+  end
+
+  defp filter_visible_to_others(candidates, _state, _identifier, _exclude_visible, _exclude_slots),
+    do: candidates
+
+  defp visible_slots_for_other_identifiers(state, identifier) do
+    state.attachments
+    |> Enum.filter(fn {id, att} -> id != identifier and not is_nil(att.visible_in) end)
+    |> Enum.map(fn {_id, att} -> att.visible_in end)
+    |> MapSet.new()
   end
 
   defp consume_via_slot(state, identifier, slot_index, slot_pid) do
@@ -951,8 +896,6 @@ defmodule Aiur.Opencode.AttachPool do
   # callers (e.g. Slot's hidden-window setup) and as a stable target
   # for behavioral guards. Not invoked from inside this module.
 
-  @hidden_target_width 600
-  @hidden_target_height 60
   @paint_poll_interval_ms 100
 
   @doc """
@@ -972,7 +915,7 @@ defmodule Aiur.Opencode.AttachPool do
     with {:ok, [dims_str | _]} <-
            Tmux.command(
              Tmux,
-             "display-message -p -t aiur-orangekid-default:0 \#{window_width} \#{window_height}"
+             "display-message -p -t aiur-orangekid-default:0 \"\#{window_width} \#{window_height}\""
            ),
          [w_str, h_str] <- String.split(String.trim(dims_str), " ", trim: true),
          {term_w, ""} <- Integer.parse(w_str),
@@ -1006,6 +949,7 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   @doc false
+  @spec wait_for_paint(String.t(), non_neg_integer()) :: :ok | :timeout
   def wait_for_paint(pane_id, budget_ms) do
     deadline = System.monotonic_time(:millisecond) + budget_ms
     do_wait_for_paint(pane_id, deadline)

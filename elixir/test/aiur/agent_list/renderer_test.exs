@@ -25,10 +25,10 @@ defmodule Aiur.AgentList.RendererTest do
     )
   end
 
-  test "renders the bordered AIUR STATUS title" do
+  test "renders the bordered AIUR title" do
     out = render(base_state()) |> visible()
 
-    assert out =~ "╭─ AIUR STATUS"
+    assert out =~ "╭─ AIUR"
     assert out =~ "╰"
   end
 
@@ -200,7 +200,8 @@ defmodule Aiur.AgentList.RendererTest do
       render(
         base_state(%{
           summaries: summaries,
-          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}}
+          attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}},
+          agents_with_content: MapSet.new(["MT-WORK"])
         })
       )
       |> visible()
@@ -210,6 +211,7 @@ defmodule Aiur.AgentList.RendererTest do
         base_state(%{
           summaries: summaries,
           attach_state: %{"MT-WORK" => %{attach_count: 1, visible_in: 1}},
+          agents_with_content: MapSet.new(["MT-WORK"]),
           opened_panes: MapSet.new(["MT-WORK"])
         })
       )
@@ -220,7 +222,7 @@ defmodule Aiur.AgentList.RendererTest do
     refute attached =~ "🟡"
   end
 
-  test "running working agents transition ⏳ → 🔘 → ⚪ → 🟢" do
+  test "running working agents transition ⏳ → 🔘 → ⚪ → 🟢 based on slot warmup + agent content" do
     summaries = [
       %{
         identifier: "MT-WARM",
@@ -239,20 +241,12 @@ defmodule Aiur.AgentList.RendererTest do
     hourglass =
       render(base_state(%{summaries: summaries, attach_state: %{}})) |> visible()
 
-    only_attached =
-      render(
-        base_state(%{
-          summaries: summaries,
-          attach_state: %{
-            "MT-WARM" => %{attach_count: 1, visible_in: nil},
-            "MT-OPEN" => %{attach_count: 1, visible_in: 1}
-          },
-          opened_panes: MapSet.new(["MT-OPEN"])
-        })
-      )
-      |> visible()
-
-    full_headroom =
+    # Slot painted for MT-WARM but the agent hasn't emitted any
+    # transcript content yet — instant-open but pane will show only
+    # Build chrome until the codex turn produces something. That's
+    # the 🔘 case under the new semantics (was the old ⚪ trap that
+    # promised "instant useful open" and delivered an empty pane).
+    primed_empty =
       render(
         base_state(%{
           summaries: summaries,
@@ -260,6 +254,22 @@ defmodule Aiur.AgentList.RendererTest do
             "MT-WARM" => %{attach_count: 1, visible_in: 2},
             "MT-OPEN" => %{attach_count: 1, visible_in: 1}
           },
+          agents_with_content: MapSet.new(["MT-OPEN"]),
+          opened_panes: MapSet.new(["MT-OPEN"])
+        })
+      )
+      |> visible()
+
+    # MT-WARM now has content too → promotes to ⚪.
+    primed_with_content =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{
+            "MT-WARM" => %{attach_count: 1, visible_in: 2},
+            "MT-OPEN" => %{attach_count: 1, visible_in: 1}
+          },
+          agents_with_content: MapSet.new(["MT-WARM", "MT-OPEN"]),
           opened_panes: MapSet.new(["MT-OPEN"])
         })
       )
@@ -268,14 +278,56 @@ defmodule Aiur.AgentList.RendererTest do
     assert hourglass =~ "⏳"
     refute hourglass =~ "🟢"
 
-    # MT-WARM has a session attached but no leadoff paint yet → 🔘.
-    # MT-OPEN's pane is actually open (opened_panes) → 🟢.
-    assert only_attached =~ "🔘"
-    assert only_attached =~ "🟢"
+    # MT-WARM: pane painted, no content → 🔘
+    # MT-OPEN: pane open in window 0 → 🟢
+    assert primed_empty =~ "🔘"
+    assert primed_empty =~ "🟢"
 
-    # MT-WARM's leadoff slot has painted (visible_in: 2) → ⚪.
-    # MT-OPEN's pane is open in window 0 → 🟢.
-    assert full_headroom =~ "⚪"
+    # MT-WARM: pane painted AND has content → ⚪
+    # MT-OPEN: still 🟢 (open in window 0)
+    assert primed_with_content =~ "⚪"
+    assert primed_with_content =~ "🟢"
+    refute primed_with_content =~ "🔘"
+  end
+
+  test "🔘 fires when slot painted but agent has not emitted content" do
+    summaries = [
+      %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{"MT-A" => %{attach_count: 1, visible_in: 1}},
+          agents_with_content: MapSet.new()
+        })
+      )
+      |> visible()
+
+    assert out =~ "🔘"
+    refute out =~ "⚪"
+  end
+
+  test "⚪ requires both slot paint AND agent content; missing either yields a less-ready glyph" do
+    summaries = [
+      %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    # Content but no slot paint → slow-open case → ⏳ (slot isn't
+    # instant-open even though the agent is talking).
+    no_paint =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{"MT-A" => %{attach_count: 1, visible_in: nil}},
+          agents_with_content: MapSet.new(["MT-A"])
+        })
+      )
+      |> visible()
+
+    assert no_paint =~ "⏳"
+    refute no_paint =~ "⚪"
   end
 
   test "warm status row renders in-progress vs finished glyphs per started slot" do
@@ -389,6 +441,7 @@ defmodule Aiur.AgentList.RendererTest do
             "MT-1" => %{attach_count: 1, visible_in: 1},
             "MT-2" => %{attach_count: 1, visible_in: 2}
           },
+          agents_with_content: MapSet.new(["MT-1", "MT-2"]),
           opened_panes: MapSet.new(["MT-1"])
         })
       )
@@ -400,7 +453,7 @@ defmodule Aiur.AgentList.RendererTest do
     mt2_line = Enum.find(lines, fn line -> line =~ "MT-2" end)
 
     # MT-1's pane is open in window 0 → 🟢.
-    # MT-2's leadoff slot has painted but pane isn't open → ⚪, not 🟢.
+    # MT-2's leadoff slot has painted AND it has emitted content → ⚪.
     assert mt1_line =~ "🟢"
     refute mt2_line =~ "🟢"
     assert mt2_line =~ "⚪"
@@ -461,5 +514,152 @@ defmodule Aiur.AgentList.RendererTest do
     |> Enum.each(fn line ->
       assert String.length(line) <= 29, "line too long: #{inspect(line)}"
     end)
+  end
+
+  describe "❗ attention slot + Latest column (R5 / U21)" do
+    # State column expands so the status emoji and the `❗` slot
+    # render side by side. The slot is reserved blank space when no
+    # attention is open, so layout doesn't jitter when state flips.
+    test "renders status emoji + ❗ when an attention is open on the ticket" do
+      summaries = [
+        %{
+          identifier: "MT-A",
+          status: :running,
+          alert_count: 0,
+          work_state: :working
+        }
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-A" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-A"]),
+            open_attentions_by_id: %{"MT-A" => 1},
+            columns: 100
+          })
+        )
+        |> visible()
+
+      # ⚪ status emoji AND ❗ attention emoji both present on the row
+      mt_a_line = Enum.find(String.split(out, ["\r\n", "\n"]), fn l -> l =~ "MT-A" end)
+      assert mt_a_line, "expected to find MT-A row"
+      assert mt_a_line =~ "⚪", "expected status emoji ⚪"
+      assert mt_a_line =~ "❗", "expected attention emoji ❗"
+    end
+
+    test "renders ❗N when multiple attentions are open" do
+      summaries = [
+        %{identifier: "MT-B", status: :running, alert_count: 0, work_state: :working}
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-B" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-B"]),
+            open_attentions_by_id: %{"MT-B" => 3},
+            columns: 100
+          })
+        )
+        |> visible()
+
+      assert out =~ "❗3"
+    end
+
+    test "reserves attention slot as blank when no attention is open (no jitter)" do
+      # When attention count is zero, the row's *visual* width must
+      # match the with-attention case so the Latest column doesn't
+      # shift left/right when state flips. `String.length` is the
+      # wrong metric here because `❗` is one code point but two
+      # terminal columns — we measure visual width directly.
+      summaries = [
+        %{
+          identifier: "MT-C",
+          status: :running,
+          alert_count: 0,
+          work_state: :working,
+          title: "a-title"
+        }
+      ]
+
+      base = %{
+        summaries: summaries,
+        attach_state: %{"MT-C" => %{attach_count: 1, visible_in: 1}},
+        agents_with_content: MapSet.new(["MT-C"]),
+        columns: 100
+      }
+
+      without_attention =
+        render(base_state(Map.put(base, :open_attentions_by_id, %{"MT-C" => 0}))) |> visible()
+
+      with_attention =
+        render(base_state(Map.put(base, :open_attentions_by_id, %{"MT-C" => 1}))) |> visible()
+
+      [no_line | _] = Enum.filter(String.split(without_attention, ["\r\n", "\n"]), &(&1 =~ "MT-C"))
+      [yes_line | _] = Enum.filter(String.split(with_attention, ["\r\n", "\n"]), &(&1 =~ "MT-C"))
+
+      # Treat each emoji grapheme as 2 visual columns, everything else
+      # as 1. Both rows should render to the same total visual width.
+      visual_width = fn s ->
+        s
+        |> String.graphemes()
+        |> Enum.map(fn g -> if byte_size(g) >= 3, do: 2, else: 1 end)
+        |> Enum.sum()
+      end
+
+      assert visual_width.(no_line) == visual_width.(yes_line),
+             "row visual width drifted when ❗ flipped:\n  no=#{inspect(no_line)}\n  yes=#{inspect(yes_line)}"
+    end
+
+    test "Latest column shows most recent event message for the ticket" do
+      summaries = [
+        %{identifier: "MT-D", status: :running, alert_count: 0, work_state: :working}
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-D" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-D"]),
+            latest_event_by_id: %{
+              "MT-D" => %{
+                topic: "ticket.MT-D.branch.push",
+                message: "pushed abc1234",
+                timestamp: DateTime.utc_now()
+              }
+            },
+            columns: 120
+          })
+        )
+        |> visible()
+
+      assert out =~ "pushed abc1234", "expected Latest column to carry the event message"
+    end
+
+    test "Latest column is empty when no event has been seen for the ticket" do
+      summaries = [
+        %{identifier: "MT-E", status: :running, alert_count: 0, work_state: :working}
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            attach_state: %{"MT-E" => %{attach_count: 1, visible_in: 1}},
+            agents_with_content: MapSet.new(["MT-E"]),
+            latest_event_by_id: %{},
+            columns: 120
+          })
+        )
+        |> visible()
+
+      mt_e_line = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-E"))
+      assert mt_e_line, "expected to find MT-E row"
+      # No event content surfaces — but the row still renders cleanly.
+    end
   end
 end

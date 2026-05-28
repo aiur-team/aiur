@@ -5,7 +5,7 @@ defmodule Aiur.AgentChat do
 
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, Orchestrator}
+  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator}
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
   @spec send(String.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
@@ -24,7 +24,9 @@ defmodule Aiur.AgentChat do
       )
 
     case result do
-      {:ok, _} = ok ->
+      {:ok, request_id} = ok ->
+        OperatorWaitLog.record_queued(request_id, issue_identifier, byte_size(text))
+
         AgentPubSub.broadcast_transcript(
           issue_identifier,
           AgentEvents.transcript_event(:user, text, turn_id: turn_id)

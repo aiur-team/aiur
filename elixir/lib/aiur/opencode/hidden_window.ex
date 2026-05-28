@@ -97,7 +97,7 @@ defmodule Aiur.Opencode.HiddenWindow do
     with {:ok, [dims_str | _]} <-
            Tmux.command(
              Tmux,
-             "display-message -p -t aiur-orangekid-default:0 \#{window_width} \#{window_height}"
+             "display-message -p -t aiur-orangekid-default:0 \"\#{window_width} \#{window_height}\""
            ),
          [w_str, h_str] <- String.split(String.trim(dims_str), " ", trim: true),
          {term_w, ""} <- Integer.parse(w_str),

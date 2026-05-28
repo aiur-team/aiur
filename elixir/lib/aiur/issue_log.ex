@@ -15,7 +15,8 @@ defmodule Aiur.IssueLog do
   use GenServer
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, Tracker}
+  alias Aiur.{AgentEvents, AgentPubSub}
+  alias Aiur.Config.Paths
 
   @supervisor Aiur.IssueLog.Supervisor
 
@@ -188,7 +189,34 @@ defmodule Aiur.IssueLog do
     {:noreply, push_history(state, {:alert, event})}
   end
 
+  def handle_info({:aiur_event, kind, event}, state)
+      when kind in [:emit, :emit_alert, :consumed, :self] do
+    write_line(state.file, format_event_marker(kind, event))
+    {:noreply, state}
+  end
+
   def handle_info(_other, state), do: {:noreply, state}
+
+  @doc """
+  Writes an `[event:<kind>]` marker row to the per-issue log file.
+  Called from `Aiur.Events.Publisher.publish/3` (for `:emit`),
+  `Aiur.Events.SubscriptionStore` post-enqueue (`:consumed`), and the
+  agent's own emit path (`:self`) so the operator can `tail -F` the log
+  and see every event for this issue in one place.
+
+  Async cast — never blocks the publisher.
+  """
+  @spec record_event(String.t(), atom(), map()) :: :ok
+  def record_event(identifier, kind, event)
+      when is_binary(identifier) and kind in [:emit, :emit_alert, :consumed, :self] and
+             is_map(event) do
+    case Registry.lookup(Aiur.IssueLog.Registry, identifier) do
+      [{pid, _}] -> send(pid, {:aiur_event, kind, event})
+      [] -> :ok
+    end
+
+    :ok
+  end
 
   defp push_history(state, item) do
     queue = :queue.in(item, state.history)
@@ -230,12 +258,23 @@ defmodule Aiur.IssueLog do
     "#{ts} [alert] #{name}: #{message}\n"
   end
 
+  defp format_event_marker(kind, event) do
+    ts = timestamp(event)
+    id = Map.get(event, :id) || Map.get(event, "id") || ""
+    topic = Map.get(event, :topic) || Map.get(event, "topic") || ""
+    msg = Map.get(event, "message") || Map.get(event, :message) || ""
+
+    "#{ts} [event:#{kind}] id=#{id} #{topic}" <>
+      if(msg != "", do: ": " <> summarize(to_string(msg)), else: "") <> "\n"
+  end
+
   defp format_log_line(role, body, identifier) do
     "[#{tag_for_role(role)}] (##{identifier}) #{summarize(body)}"
   end
 
-  defp tag_for_role(role) when role in [:assistant, :user, :system, :command, :alert],
-    do: AgentEvents.tag_name(role)
+  defp tag_for_role(role)
+       when role in [:assistant, :user, :system, :command, :alert, :reasoning, :tool],
+       do: AgentEvents.tag_name(role)
 
   defp tag_for_role(other), do: to_string(other)
 
@@ -260,39 +299,7 @@ defmodule Aiur.IssueLog do
     end
   end
 
-  defp log_root_dir do
-    case Application.get_env(:aiur, :log_file) do
-      path when is_binary(path) -> Path.dirname(path)
-      _ -> Path.join(File.cwd!(), "log")
-    end
-  end
-
-  defp repo_name do
-    case safe_project_identity() do
-      identity when is_binary(identity) and identity != "" ->
-        identity
-        |> String.split("/")
-        |> List.last()
-        |> sanitize()
-        |> default_if_empty()
-
-      _ ->
-        "aiur"
-    end
-  end
-
-  defp safe_project_identity do
-    Tracker.project_identity()
-  rescue
-    _ -> nil
-  catch
-    _, _ -> nil
-  end
-
-  defp sanitize(name) when is_binary(name) do
-    String.replace(name, ~r/[^A-Za-z0-9._-]/, "_")
-  end
-
-  defp default_if_empty(""), do: "aiur"
-  defp default_if_empty(value), do: value
+  defp log_root_dir, do: Paths.log_root_dir()
+  defp repo_name, do: Paths.repo_name()
+  defp sanitize(name), do: Paths.sanitize(name)
 end
