@@ -59,9 +59,13 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "├"
 
       # Per-line format:
-      assert output =~ "💬 42 pushed:"
-      assert output =~ "📬 99 Agent received from 42:"
-      assert output =~ "📄 42 Agent ingested:"
+      #   - publish branch.push with no commits payload → terse "pushed"
+      #     (no trailing colon).
+      #   - cross-ticket receive uses ← arrow, not "Agent received from".
+      #   - read uses minimal "Agent ingested".
+      assert output =~ "💬 42 pushed"
+      assert output =~ "📬 99 ← 42: pushed"
+      assert output =~ "📄 42 Agent ingested"
 
       # Legend now renders in the footer (outside the box), not above the events.
       assert output =~ "💬 publish · 📬 receive · 📄 read"
@@ -77,37 +81,136 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       state = build_state(debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      publish_pos = :binary.match(output, "💬 42 pushed:") |> elem(0)
-      receive_pos = :binary.match(output, "📬 99 Agent received from 42:") |> elem(0)
-      read_pos = :binary.match(output, "📄 42 Agent ingested:") |> elem(0)
+      publish_pos = :binary.match(output, "💬 42 pushed") |> elem(0)
+      receive_pos = :binary.match(output, "📬 99 ← 42: pushed") |> elem(0)
+      read_pos = :binary.match(output, "📄 42 Agent ingested") |> elem(0)
 
       assert publish_pos < receive_pos
       assert receive_pos < read_pos
     end
 
     test "hides oldest events when section would exceed budget" do
-      # 24 rows total, table chrome eats some; the events box gets a
-      # bounded budget. Generate more events than can fit and verify
-      # OLDEST are dropped, not the newest.
       events =
         for i <- 100..1, do: debug_entry(:publish, topic: "ticket.#{i}.branch.push", id: i)
 
       state = build_state(rows: 24, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      # Newest (ticket 100) MUST appear; oldest (ticket 1) MUST NOT.
-      assert output =~ "💬 100 pushed:"
-      refute output =~ "💬 1 pushed:"
+      assert output =~ "💬 100 pushed"
+      refute output =~ "💬 1 pushed"
     end
 
     test "events block collapses when pane has no remaining vertical budget" do
-      # Tiny pane — chrome alone fills it; the events block needs at
-      # least 2 rows (divider + one event line) and won't render here.
       events = [debug_entry(:publish, topic: "ticket.1.branch.push", id: 1)]
       state = build_state(rows: 6, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      refute output =~ "💬 1 pushed:"
+      refute output =~ "💬 1 pushed"
+    end
+
+    test "branch.push with commits payload renders count + last commit message" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.42.branch.push",
+          id: 1,
+          body: %{
+            "commits" => [
+              %{"message" => "first commit"},
+              %{"message" => "Add function_a/0 returning 42"}
+            ]
+          }
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 42 pushed 2 commits, last: \"Add function_a/0 returning 42\""
+    end
+
+    test "pr.opened extracts the PR title" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.42.pr.opened",
+          id: 1,
+          body: %{"pr" => %{"title" => "feat: add function_a"}}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 42 opened a PR: \"feat: add function_a\""
+    end
+
+    test "self-receive of agent.* echoes is suppressed (publish covers it)" do
+      events = [
+        debug_entry(:publish, topic: "ticket.140.agent.phase.work.start", id: 1, body: %{"message" => "starting"}),
+        # Same agent's own subscription echoing back — should NOT render.
+        debug_entry(:receive, topic: "ticket.140.agent.phase.work.start", id: 1, identifier: "140")
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 140 Agent started work"
+      refute output =~ "📬 140 ← 140"
+      refute output =~ "Agent received from 140"
+    end
+
+    test "self-receive of an issue.commented is kept and reads `new Issue comment:`" do
+      events = [
+        debug_entry(:receive,
+          topic: "ticket.140.issue.commented",
+          id: 1,
+          identifier: "140",
+          body: %{"comment" => %{"body" => "Looks good to me"}}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "📬 140 new Issue comment: \"Looks good to me\""
+    end
+
+    test "multi-line comment bodies collapse to one line with ellipsis" do
+      events = [
+        debug_entry(:receive,
+          topic: "ticket.140.issue.commented",
+          id: 1,
+          identifier: "140",
+          body: %{
+            "comment" => %{
+              "body" =>
+                "## Agent Workpad\n\n```text\nd:/home/orangekid/code/aiur-workspaces/100\napplekid:/home/orangekid/code/aiur-workspaces/100\n```"
+            }
+          }
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      refute output =~ "Workpad\n", "embedded newlines must be collapsed"
+      refute output =~ "```text\n", "code fences must not survive into the event row"
+      assert output =~ "📬 140 new Issue comment: \"## Agent Workpad ```text d:/"
+    end
+
+    test "self-receive of a pr.review_comment reads `new PR comment:`" do
+      events = [
+        debug_entry(:receive,
+          topic: "ticket.140.pr.review_comment",
+          id: 1,
+          identifier: "140",
+          body: %{"comment" => %{"body" => "nit on line 42"}}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "📬 140 new PR comment: \"nit on line 42\""
     end
   end
 
@@ -117,10 +220,10 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       state = build_state(debug_events: events)
 
       first = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert first =~ "💬 42 pushed:"
+      assert first =~ "💬 42 pushed"
 
       second = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert second =~ "💬 42 pushed:"
+      assert second =~ "💬 42 pushed"
     end
   end
 
@@ -133,8 +236,8 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       with_out = with_events |> Renderer.render() |> IO.iodata_to_binary()
       without_out = without_events |> Renderer.render() |> IO.iodata_to_binary()
 
-      assert with_out =~ "💬 7 pushed:"
-      refute without_out =~ "💬 7 pushed:"
+      assert with_out =~ "💬 7 pushed"
+      refute without_out =~ "💬 7 pushed"
     end
   end
 
@@ -161,6 +264,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       topic: Keyword.get(opts, :topic, "ticket.1.branch.push"),
       id: Keyword.get(opts, :id),
       identifier: Keyword.get(opts, :identifier),
+      body: Keyword.get(opts, :body),
       at: System.monotonic_time(:millisecond)
     }
   end

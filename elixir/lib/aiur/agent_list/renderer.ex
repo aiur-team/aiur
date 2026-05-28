@@ -1086,7 +1086,13 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp strip_ansi(text) do
-    Regex.replace(~r/\e\[[0-9;]*[A-Za-z]/, text, "")
+    text
+    # CSI (color/cursor) sequences: `\e[...m`, `\e[2J`, etc.
+    |> then(&Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]/, &1, ""))
+    # OSC 8 hyperlinks: `\e]8;;<url>\e\\<text>\e]8;;\e\\` (or BEL-terminated).
+    # The text between the brackets is the visible part — we keep
+    # everything between the ST and the closing OSC.
+    |> then(&Regex.replace(~r/\e\]8;;[^\e\a]*(\e\\|\a)/, &1, ""))
   end
 
   defp eol, do: ["\e[K", "\r\n"]
@@ -1147,24 +1153,32 @@ defmodule Aiur.AgentList.Renderer do
     # Divider eats 1 row; remaining budget is the event capacity.
     capacity = max(budget - 1, 0)
     rendering_identifier = selected_identifier(state)
+    repo = repo_identity(state)
 
-    # state.debug_events is newest-first. Take the newest `capacity`,
-    # reverse so newest sits at the bottom of the visible block.
-    visible =
+    # state.debug_events is newest-first. Format each entry, drop the
+    # ones the formatter suppresses (self-echoes), then take the newest
+    # `capacity` so suppressed entries don't eat the budget.
+    visible_lines =
       events
+      |> Stream.map(&format_event_line(&1, rendering_identifier, repo))
+      |> Stream.reject(&is_nil/1)
       |> Enum.take(capacity)
       |> Enum.reverse()
 
-    event_rows =
-      Enum.flat_map(visible, &[event_inner_row(&1, inner_width, rendering_identifier), eol()])
+    if visible_lines == [] do
+      {[], 0}
+    else
+      event_rows =
+        Enum.flat_map(visible_lines, &[event_box_inner_row(&1, inner_width), eol()])
 
-    iodata = [
-      events_divider_row(inner_width),
-      eol(),
-      event_rows
-    ]
+      iodata = [
+        events_divider_row(inner_width),
+        eol(),
+        event_rows
+      ]
 
-    {iodata, 1 + length(visible)}
+      {iodata, 1 + length(visible_lines)}
+    end
   end
 
   defp selected_identifier(%{selection_index: idx, summaries: summaries}) when is_list(summaries) do
@@ -1181,11 +1195,6 @@ defmodule Aiur.AgentList.Renderer do
     [@ansi_gray, "├", fill, "┤", @ansi_reset]
   end
 
-  defp event_inner_row(entry, inner_width, rendering_identifier) do
-    text = format_event_line(entry, rendering_identifier)
-    event_box_inner_row(text, inner_width)
-  end
-
   # `│ <text padded> │` — the `│ ` + ` │` chrome eats 4 visual columns.
   defp event_box_inner_row(text, inner_width) do
     body_width = max(inner_width - 4, 0)
@@ -1193,21 +1202,47 @@ defmodule Aiur.AgentList.Renderer do
     [IO.ANSI.faint(), "│ ", padded, " │", IO.ANSI.reset()]
   end
 
-  # Format an event-ticker entry as a natural-language line. Reuses
-  # `Aiur.Opencode.EventRow`'s topic parsing semantics where possible
-  # so the agent-list ticker stays consistent with the chat pane.
-  defp format_event_line(%{kind: kind, topic: topic} = entry, rendering_identifier) do
-    glyph = event_glyph(kind)
-    body = Map.get(entry, :body)
-    source_id = event_source_ticket_id(topic)
-    subject_id = event_subject_id(kind, entry, source_id, rendering_identifier)
-    verb_phrase = event_verb_phrase(topic, kind, source_id)
-    summary = event_summary_suffix(body)
+  # Format an event-ticker entry as a natural-language line.
+  #
+  # The renderer is the one place that turns a `DebugLog` entry into
+  # operator-facing text. Key rules surfaced by live testing:
+  #
+  # - Self-receive of agent.* echoes (140 received from 140) gets
+  #   suppressed — the publish line already covered the same content.
+  # - Cross-ticket receives use `←` instead of "Agent received from":
+  #     `📬 140 ← 99: pushed "abc"`
+  # - When the topic is a comment (issue.commented, pr.review_comment),
+  #   the receive line reads `<id> new <Issue|PR> comment: "<body>"`.
+  # - Pushes extract commits[*].message and report count + last msg.
+  # - PRs (pr.opened / pr.merged) extract the PR title.
+  # - Events without a meaningful body drop the trailing colon.
+  defp format_event_line(%{kind: kind, topic: topic} = entry, rendering_identifier, repo) do
+    if ticker_self_echo?(kind, topic, entry) do
+      nil
+    else
+      glyph = event_glyph(kind)
+      body = Map.get(entry, :body)
+      source_id = event_source_ticket_id(topic)
+      subject_id = event_subject_id(kind, entry, source_id, rendering_identifier)
+      suffix = topic_suffix(topic)
 
-    "#{glyph} #{subject_id} #{verb_phrase}#{summary}"
+      {verb_phrase, summary} = describe_event(kind, subject_id, source_id, suffix, body)
+
+      # OSC 8 wraps. Subject id linkable to its issue; "PR" / "comment"
+      # tokens in the verb phrase get wrapped with the body's URL when
+      # available, falling back to the subject's issue URL.
+      linked_subject = link_ticket_id(subject_id, repo)
+      fallback_url = issue_url_for(subject_id, repo) || issue_url_for(source_id, repo)
+      linked_verb = link_verb_phrase(verb_phrase, kind, suffix, body, repo, fallback_url)
+
+      "#{glyph} #{linked_subject} #{linked_verb}#{summary}"
+    end
   end
 
-  defp format_event_line(_entry, _rendering_identifier), do: ""
+  defp format_event_line(_entry, _rendering_identifier, _repo), do: nil
+
+  defp issue_url_for(id, repo) when is_binary(id) and is_binary(repo), do: issue_url(repo, id)
+  defp issue_url_for(_id, _repo), do: nil
 
   defp event_glyph(:publish), do: "💬"
   defp event_glyph(:receive), do: "📬"
@@ -1223,8 +1258,26 @@ defmodule Aiur.AgentList.Renderer do
 
   defp event_source_ticket_id(_), do: nil
 
+  # Suppress noisy self-receives: an agent's own subscription fanning
+  # the agent.* event back to itself. The publish line above already
+  # carries the same content. Comments (issue.commented /
+  # pr.review_comment) survive because a comment on the agent's OWN
+  # ticket is a genuine signal worth surfacing.
+  defp ticker_self_echo?(:receive, topic, %{identifier: id}) when is_binary(topic) and is_binary(id) do
+    source = event_source_ticket_id(topic)
+    suffix = topic_suffix(topic)
+
+    source == id and not comment_topic?(suffix)
+  end
+
+  defp ticker_self_echo?(_kind, _topic, _entry), do: false
+
+  defp comment_topic?("issue.commented"), do: true
+  defp comment_topic?("pr.review_comment"), do: true
+  defp comment_topic?(_), do: false
+
   # For publishes, the subject is the source ticket itself.
-  # For receives, the subject is the receiving ticket (entry.identifier).
+  # For receives / reads, the subject is the receiving ticket.
   defp event_subject_id(:publish, _entry, source_id, _rendering_identifier) when is_binary(source_id),
     do: source_id
 
@@ -1234,8 +1287,6 @@ defmodule Aiur.AgentList.Renderer do
   defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
     do: id
 
-  # Read events from raw DebugLog may not carry an identifier — fall
-  # back to the source ticket so the line still has a subject.
   defp event_subject_id(:read, _entry, source_id, _rendering_identifier) when is_binary(source_id),
     do: source_id
 
@@ -1243,30 +1294,6 @@ defmodule Aiur.AgentList.Renderer do
     do: rendering_identifier
 
   defp event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
-
-  defp event_verb_phrase(_topic, :receive, source_id) when is_binary(source_id),
-    do: "Agent received from #{source_id}:"
-
-  defp event_verb_phrase(_topic, :receive, _source_id), do: "Agent received:"
-
-  defp event_verb_phrase(_topic, :read, _source_id), do: "Agent ingested:"
-
-  defp event_verb_phrase(topic, :publish, _source_id) when is_binary(topic) do
-    publish_verb_phrase(topic_suffix(topic))
-  end
-
-  defp event_verb_phrase(_topic, _kind, _source_id), do: ""
-
-  defp publish_verb_phrase("agent.phase." <> phase_step), do: "Agent " <> phrase_for_phase(phase_step) <> ":"
-  defp publish_verb_phrase("agent.progress"), do: "Agent progress:"
-  defp publish_verb_phrase("agent." <> name), do: "Agent #{name}:"
-  defp publish_verb_phrase("issue.label.added.agent." <> state), do: "labelled #{state}:"
-  defp publish_verb_phrase("pr.opened"), do: "opened a PR:"
-  defp publish_verb_phrase("pr.merged"), do: "merged a PR:"
-  defp publish_verb_phrase("pr.review_comment"), do: "got a PR review comment:"
-  defp publish_verb_phrase("branch.push"), do: "pushed:"
-  defp publish_verb_phrase("issue.commented"), do: "got an issue comment:"
-  defp publish_verb_phrase(other), do: other <> ":"
 
   defp topic_suffix("ticket." <> rest) do
     case String.split(rest, ".", parts: 2) do
@@ -1278,6 +1305,139 @@ defmodule Aiur.AgentList.Renderer do
   defp topic_suffix(topic) when is_binary(topic), do: topic
   defp topic_suffix(_), do: ""
 
+  # ── describe_event: {verb_phrase, summary} ──────────────────────────────
+  # The verb phrase is the natural-language description of the topic.
+  # The summary is "" or " \"…body…\"" depending on whether we found
+  # something meaningful in the payload.
+
+  # --- Self-comment on the agent's own ticket / PR ----------------------
+  defp describe_event(:receive, subject_id, source_id, "issue.commented", body)
+       when subject_id == source_id do
+    {"new Issue comment:", comment_body_summary(body)}
+  end
+
+  defp describe_event(:receive, subject_id, source_id, "pr.review_comment", body)
+       when subject_id == source_id do
+    {"new PR comment:", comment_body_summary(body)}
+  end
+
+  # --- Cross-ticket receive: "<receiver> ← <source>: <verb>" ------------
+  defp describe_event(:receive, _subject_id, source_id, suffix, body) when is_binary(source_id) do
+    {"← #{source_id}: #{cross_receive_verb(suffix)}", cross_receive_summary(suffix, body)}
+  end
+
+  defp describe_event(:receive, _subject_id, _source_id, _suffix, _body) do
+    {"received", ""}
+  end
+
+  # --- Read events (digest ingestion) ----------------------------------
+  defp describe_event(:read, _subject_id, _source_id, _suffix, _body) do
+    {"Agent ingested", ""}
+  end
+
+  # --- Publishes -------------------------------------------------------
+  defp describe_event(:publish, _subject_id, _source_id, suffix, body) do
+    publish_event_phrase(suffix, body)
+  end
+
+  defp describe_event(_kind, _subject_id, _source_id, _suffix, _body), do: {"", ""}
+
+  # ── Publish topic → {verb_phrase, summary} ─────────────────────────────
+
+  defp publish_event_phrase("agent.phase." <> phase_step, body),
+    do: {"Agent " <> phrase_for_phase(phase_step) <> ":", inline_summary(body)}
+
+  defp publish_event_phrase("agent.progress", body),
+    do: {"Agent progress:", inline_summary(body)}
+
+  defp publish_event_phrase("agent." <> name, body),
+    do: {"Agent #{name}:", inline_summary(body)}
+
+  defp publish_event_phrase("issue.label.added.agent." <> state, body),
+    do: {"labelled #{state}:", inline_summary(body)}
+
+  defp publish_event_phrase("pr.opened", body),
+    do: pr_event_phrase("opened a PR", body)
+
+  defp publish_event_phrase("pr.merged", body),
+    do: pr_event_phrase("merged a PR", body)
+
+  defp publish_event_phrase("pr.review_comment", body),
+    do: {"got a PR review comment:", comment_body_summary(body)}
+
+  defp publish_event_phrase("branch.push", body),
+    do: branch_push_phrase(body)
+
+  defp publish_event_phrase("issue.commented", body),
+    do: {"got an issue comment:", comment_body_summary(body)}
+
+  defp publish_event_phrase(other, body),
+    do: {other, inline_summary(body)}
+
+  defp pr_event_phrase(verb, body) do
+    case pr_title(body) do
+      nil -> {verb, ""}
+      title -> {verb <> ":", " \"" <> clip_summary(title) <> "\""}
+    end
+  end
+
+  defp branch_push_phrase(body) do
+    commits = get_in_safe(body, [:commits]) || get_in_safe(body, ["commits"]) || []
+
+    if is_list(commits) and commits != [] do
+      count = length(commits)
+      last = commits |> List.last() |> commit_message()
+
+      case last do
+        nil -> {"pushed #{count} #{commits_word(count)}", ""}
+        msg -> {"pushed #{count} #{commits_word(count)}, last:", " \"" <> clip_summary(msg) <> "\""}
+      end
+    else
+      {"pushed", ""}
+    end
+  end
+
+  defp commits_word(1), do: "commit"
+  defp commits_word(_), do: "commits"
+
+  defp commit_message(%{} = commit) do
+    Map.get(commit, "message") || Map.get(commit, :message)
+  end
+
+  defp commit_message(_), do: nil
+
+  defp cross_receive_verb("branch.push"), do: "pushed"
+  defp cross_receive_verb("pr.opened"), do: "opened a PR"
+  defp cross_receive_verb("pr.merged"), do: "merged a PR"
+  defp cross_receive_verb("pr.review_comment"), do: "PR review comment"
+  defp cross_receive_verb("issue.commented"), do: "commented"
+  defp cross_receive_verb("agent.unblocked"), do: "unblocked"
+  defp cross_receive_verb("agent.blocked"), do: "blocked"
+  defp cross_receive_verb("agent.phase." <> phase_step), do: phrase_for_phase(phase_step)
+  defp cross_receive_verb("agent.progress"), do: "progress"
+  defp cross_receive_verb("agent." <> name), do: name
+  defp cross_receive_verb(other), do: other
+
+  defp cross_receive_summary("branch.push", body) do
+    case branch_push_phrase(body) do
+      {_verb, ""} -> ""
+      {_verb, summary} -> summary
+    end
+  end
+
+  defp cross_receive_summary(suffix, body) when suffix in ["pr.opened", "pr.merged"] do
+    case pr_title(body) do
+      nil -> ""
+      title -> " \"" <> clip_summary(title) <> "\""
+    end
+  end
+
+  defp cross_receive_summary(suffix, body) when suffix in ["issue.commented", "pr.review_comment"] do
+    comment_body_summary(body)
+  end
+
+  defp cross_receive_summary(_suffix, body), do: inline_summary(body)
+
   defp phrase_for_phase("brainstorm.start"), do: "started brainstorm"
   defp phrase_for_phase("brainstorm.end"), do: "finished brainstorm"
   defp phrase_for_phase("plan.start"), do: "started plan"
@@ -1288,19 +1448,43 @@ defmodule Aiur.AgentList.Renderer do
   defp phrase_for_phase("review.end"), do: "finished review"
   defp phrase_for_phase(other), do: "phase " <> other
 
+  # ── Body extraction helpers ─────────────────────────────────────────────
+
   @summary_keys ~w(message title summary subject name label commit_message)
 
-  defp event_summary_suffix(body) when is_map(body) do
-    case extract_event_text(body) do
+  defp inline_summary(body) when is_map(body) do
+    case extract_event_text(body, @summary_keys) do
       nil -> ""
       text -> " \"" <> clip_summary(text) <> "\""
     end
   end
 
-  defp event_summary_suffix(_body), do: ""
+  defp inline_summary(_body), do: ""
 
-  defp extract_event_text(body) do
-    Enum.find_value(@summary_keys, fn k ->
+  defp comment_body_summary(body) when is_map(body) do
+    nested = get_in_safe(body, [:comment, "body"]) || get_in_safe(body, ["comment", "body"])
+
+    if is_binary(nested) and String.trim(nested) != "" do
+      " \"" <> clip_summary(String.trim(nested)) <> "\""
+    else
+      inline_summary(body)
+    end
+  end
+
+  defp comment_body_summary(_body), do: ""
+
+  defp pr_title(body) when is_map(body) do
+    candidate = get_in_safe(body, [:pr, "title"]) || get_in_safe(body, ["pr", "title"])
+
+    if is_binary(candidate) and String.trim(candidate) != "" do
+      String.trim(candidate)
+    end
+  end
+
+  defp pr_title(_body), do: nil
+
+  defp extract_event_text(body, keys) do
+    Enum.find_value(keys, fn k ->
       val = Map.get(body, k) || Map.get(body, String.to_atom(k))
 
       if is_binary(val) and String.trim(val) != "" do
@@ -1310,12 +1494,135 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp clip_summary(text) when is_binary(text) do
-    trimmed = String.trim(text)
+    # Collapse every run of whitespace (including embedded newlines from
+    # workpad markdown, code fences, multi-line comments) into a single
+    # space BEFORE the 80-char truncation. Without this, embedded \n's
+    # survive the clip and the terminal wraps the event row into 3-4
+    # physical rows even though we asked clip_and_pad to cap visual
+    # width.
+    collapsed =
+      text
+      |> String.replace(~r/\s+/u, " ")
+      |> String.trim()
 
-    if String.length(trimmed) > 80 do
-      String.slice(trimmed, 0, 79) <> "…"
+    if String.length(collapsed) > 80 do
+      String.slice(collapsed, 0, 79) <> "…"
     else
-      trimmed
+      collapsed
+    end
+  end
+
+  defp get_in_safe(nil, _path), do: nil
+  defp get_in_safe(body, []), do: body
+
+  defp get_in_safe(body, [key | rest]) when is_map(body) do
+    case Map.get(body, key) do
+      nil -> nil
+      child -> get_in_safe(child, rest)
+    end
+  end
+
+  defp get_in_safe(_body, _path), do: nil
+
+  # ── OSC 8 hyperlinks ────────────────────────────────────────────────────
+  # Modern terminals (iTerm2, Kitty, WezTerm, alacritty 0.11+, foot,
+  # Windows Terminal, VSCode integrated terminal) interpret the OSC 8
+  # escape as a clickable region — cmd-click opens the URL. tmux passes
+  # the sequence through. Terminals without support just render the
+  # plain text and ignore the escapes.
+
+  defp repo_identity(state) do
+    case Map.get(state, :repo_identity) || Map.get(state, :project_label) do
+      v when is_binary(v) and v != "" -> v
+      _ -> nil
+    end
+  end
+
+  defp osc8(url, text) when is_binary(url) and is_binary(text) do
+    "\e]8;;" <> url <> "\e\\" <> text <> "\e]8;;\e\\"
+  end
+
+  defp link_ticket_id(nil, _repo), do: nil
+
+  defp link_ticket_id(id, repo) when is_binary(id) and is_binary(repo) do
+    osc8(issue_url(repo, id), id)
+  end
+
+  defp link_ticket_id(id, _repo) when is_binary(id), do: id
+
+  defp issue_url(repo, id), do: "https://github.com/#{repo}/issues/#{id}"
+  defp pr_url(repo, number), do: "https://github.com/#{repo}/pull/#{number}"
+
+  # Linkify "PR" / "comment" tokens in the verb phrase. Falls back to
+  # the subject's issue URL when the body has no PR-specific URL.
+  defp link_verb_phrase(verb_phrase, _kind, suffix, body, repo, fallback_url) when is_binary(verb_phrase) do
+    cond do
+      repo == nil ->
+        verb_phrase
+
+      String.contains?(verb_phrase, "PR") and pr_linkable?(suffix) ->
+        wrap_token(verb_phrase, "PR", pr_link_target(body, repo, fallback_url))
+
+      String.contains?(verb_phrase, "comment") ->
+        wrap_token(verb_phrase, "comment", comment_link_target(body, suffix, fallback_url))
+
+      true ->
+        verb_phrase
+    end
+  end
+
+  defp link_verb_phrase(verb_phrase, _kind, _suffix, _body, _repo, _fallback), do: verb_phrase
+
+  defp pr_linkable?("pr.opened"), do: true
+  defp pr_linkable?("pr.merged"), do: true
+  defp pr_linkable?("pr.review_comment"), do: true
+  defp pr_linkable?(_), do: false
+
+  defp pr_link_target(body, repo, fallback) when is_map(body) do
+    pr_html_url(body) || pr_number_url(body, repo) || fallback
+  end
+
+  defp pr_link_target(_body, _repo, fallback), do: fallback
+
+  defp pr_html_url(body) do
+    candidate = get_in_safe(body, [:pr, "html_url"]) || get_in_safe(body, ["pr", "html_url"])
+    if is_binary(candidate) and candidate != "", do: candidate
+  end
+
+  defp pr_number_url(body, repo) do
+    case get_in_safe(body, [:pr, "number"]) || get_in_safe(body, ["pr", "number"]) do
+      n when is_integer(n) -> pr_url(repo, n)
+      n when is_binary(n) and n != "" -> pr_url(repo, n)
+      _ -> nil
+    end
+  end
+
+  defp comment_link_target(body, suffix, fallback) when is_map(body) do
+    candidate =
+      get_in_safe(body, [:comment, "html_url"]) || get_in_safe(body, ["comment", "html_url"])
+
+    cond do
+      is_binary(candidate) and candidate != "" -> candidate
+      suffix == "pr.review_comment" -> pr_html_url(body) || fallback
+      true -> fallback
+    end
+  end
+
+  defp comment_link_target(_body, _suffix, fallback), do: fallback
+
+  # Wraps the first occurrence of `token` in `text` with an OSC 8
+  # link. No-op when target is nil/empty.
+  defp wrap_token(text, _token, target) when target in [nil, ""], do: text
+
+  defp wrap_token(text, token, target) when is_binary(target) do
+    case :binary.match(text, token) do
+      :nomatch ->
+        text
+
+      {start, length} ->
+        {prefix, rest} = String.split_at(text, start)
+        {match, suffix} = String.split_at(rest, length)
+        prefix <> osc8(target, match) <> suffix
     end
   end
 
