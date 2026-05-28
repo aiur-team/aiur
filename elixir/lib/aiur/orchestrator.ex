@@ -3194,6 +3194,16 @@ defmodule Aiur.Orchestrator do
         now = DateTime.utc_now()
         state = put_running_control_status(state, issue_id, :working)
         state = update_in(state.running, &thaw_pause_clock(&1, issue_id, previous_status, now))
+        # Reset `last_codex_timestamp` to NOW so the stall watchdog
+        # gives the freshly-resumed entry a full timeout window before
+        # re-evaluating. Without this, a blockee that paused for
+        # >stall_timeout_ms (e.g. 14 minutes waiting on a slow blocker)
+        # would auto-resume back to :working with a 14-minute-stale
+        # last activity timestamp — the very next reconcile tick would
+        # see `elapsed_ms > timeout` and restart the agent before any
+        # codex notification could refresh the field. Observed live in
+        # --test3 run #3.
+        state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
         # Sync-flip happens here so the cap accounting stays consistent.
         # That means the worker's later `:worker_control_state :working`
         # confirmation finds previous_status already :working and emits
@@ -3204,6 +3214,16 @@ defmodule Aiur.Orchestrator do
 
       {:error, _reason} = error ->
         {error, state}
+    end
+  end
+
+  defp reset_last_codex_timestamp(running, issue_id, %DateTime{} = now) when is_map(running) do
+    case Map.get(running, issue_id) do
+      entry when is_map(entry) ->
+        Map.put(running, issue_id, Map.put(entry, :last_codex_timestamp, now))
+
+      _ ->
+        running
     end
   end
 

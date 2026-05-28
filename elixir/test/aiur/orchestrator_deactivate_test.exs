@@ -1061,6 +1061,61 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
 
+    test "auto-resume refreshes last_codex_timestamp so the next stall tick gives a full window",
+         %{identifier: identifier, fake_pid: fake_pid} do
+      # Reproduces the live --test3 run #3 race: a blockee paused for
+      # >stall_timeout_ms then auto-resumed back to :working, only to
+      # be killed by the very next stall watchdog scan because its
+      # `last_codex_timestamp` still reflected the pre-pause activity.
+      :ok =
+        Aiur.Events.SubscriptionStore.add_subscription(
+          identifier,
+          "ticket.99.branch.push",
+          "blocker:auto"
+        )
+
+      issue_id = "issue-resume-timestamp"
+
+      # Last codex activity is 14 minutes old — well past the default
+      # 5-minute stall window.
+      stale_at = DateTime.add(DateTime.utc_now(), -840, :second)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: fake_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: stale_at,
+            last_codex_timestamp: stale_at,
+            control: %{status: :paused},
+            paused_at: stale_at
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      before_ms = System.monotonic_time(:millisecond)
+      next = Orchestrator.apply_branch_push_for_test(state, "99")
+      after_ms = System.monotonic_time(:millisecond)
+
+      entry = next.running[issue_id]
+      assert entry.control.status == :working
+
+      # The timestamp must be NOT stale_at any more. We test it's
+      # within the wall-clock window of when apply ran (not strict
+      # equality to avoid clock-skew flakes).
+      assert %DateTime{} = entry.last_codex_timestamp
+      ts_diff_ms = DateTime.diff(DateTime.utc_now(), entry.last_codex_timestamp, :millisecond)
+
+      assert ts_diff_ms <= after_ms - before_ms + 1_000,
+             "last_codex_timestamp must be refreshed to ~now() on auto-resume"
+    end
+
     test "blocker's own entry is never resumed against its own push", %{
       identifier: blocker_identifier,
       fake_pid: fake_pid
