@@ -2087,6 +2087,16 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) when is_binary(issue_identifier) do
     {queue_store, item} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
+
+    {queue_store, item} =
+      case item do
+        %{category: :coordination_event, event_type: :events_digest} ->
+          coalesce_events_digests(queue_store, issue_identifier, item)
+
+        other ->
+          {queue_store, other}
+      end
+
     state = %{state | queue_store: queue_store}
 
     reply =
@@ -2098,6 +2108,12 @@ defmodule Aiur.Orchestrator do
     {:reply, reply, state}
   end
 
+  # Plan U1: pending `:events_digest` items for the same identifier coalesce
+  # into a single delivery at drain time, so an agent that had three events
+  # subscribed during a long turn sees ONE `<aiur:events>` block, not three
+  # separate ones. Granularity is preserved upstream (one queue item per
+  # publish so `[event:consumed]` markers and cursor advance still reflect
+  # individual events); coalescing happens only at the drain boundary.
   def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier) do
     {queue_store, item} =
@@ -3128,4 +3144,67 @@ defmodule Aiur.Orchestrator do
   end
 
   defp integer_like(_value), do: nil
+
+  # Test seam — exposed so unit tests can exercise the coalescing pipeline
+  # without spinning up the full orchestrator GenServer + supervision tree.
+  @doc false
+  @spec coalesce_for_test(AgentQueueStore.t(), String.t()) ::
+          {AgentQueueStore.t(), AgentQueueItem.t() | nil}
+  def coalesce_for_test(queue_store, issue_identifier) when is_binary(issue_identifier) do
+    {queue_store, item} = AgentQueueStore.claim_next_deliverable(queue_store, issue_identifier)
+
+    case item do
+      %{category: :coordination_event, event_type: :events_digest} ->
+        coalesce_events_digests(queue_store, issue_identifier, item)
+
+      other ->
+        {queue_store, other}
+    end
+  end
+
+  # Plan U1: pending `:events_digest` items for the same identifier coalesce
+  # into a single delivery at drain time, so an agent that had three events
+  # subscribed during a long turn sees ONE `<aiur:events>` block, not three
+  # separate ones. Granularity is preserved upstream (one queue item per
+  # publish so `[event:consumed]` markers and cursor advance still reflect
+  # individual events); coalescing happens only at the drain boundary.
+  defp coalesce_events_digests(queue_store, issue_identifier, first_item) do
+    do_coalesce_events_digests(queue_store, issue_identifier, first_item)
+  end
+
+  defp do_coalesce_events_digests(queue_store, issue_identifier, acc_item) do
+    {next_store, next_item} =
+      AgentQueueStore.claim_next_deliverable_matching(
+        queue_store,
+        issue_identifier,
+        fn item -> match?(%{category: :coordination_event, event_type: :events_digest}, item) end
+      )
+
+    case next_item do
+      nil ->
+        {next_store, acc_item}
+
+      %{} = item ->
+        merged = merge_events_digest_items(acc_item, item)
+        do_coalesce_events_digests(next_store, issue_identifier, merged)
+    end
+  end
+
+  defp merge_events_digest_items(first, next) do
+    first_events = (first.body || %{}) |> Map.get(:events, []) |> List.wrap()
+    next_events = (next.body || %{}) |> Map.get(:events, []) |> List.wrap()
+
+    sorted = Enum.sort_by(first_events ++ next_events, &event_sort_key/1)
+
+    new_body =
+      first.body
+      |> Map.put(:events, sorted)
+      |> Map.put(:summary, event_digest_summary(%{events: sorted}))
+
+    %{first | body: new_body}
+  end
+
+  defp event_sort_key(%{id: id}) when is_integer(id), do: id
+  defp event_sort_key(%{"id" => id}) when is_integer(id), do: id
+  defp event_sort_key(_), do: 0
 end
