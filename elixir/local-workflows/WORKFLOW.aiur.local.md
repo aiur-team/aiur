@@ -59,6 +59,17 @@ hooks:
     mkdir -p ./.aiur-hex ./.aiur-mix
     if [ -f elixir/mise.toml ]; then
       mise trust elixir/mise.toml >/dev/null 2>&1 || true
+      mise install >/dev/null 2>&1 || true
+    fi
+    # Idempotent deps + compile warm-up on every dispatch. Free when the
+    # cache is warm (mix deps.get + mix compile no-op in seconds); pays
+    # off when the workspace is a fresh clone, an aiur --debug resume
+    # against an existing dir, or after a deps lockfile bump.
+    if [ -f elixir/mix.exs ]; then
+      HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
+        MISE_TRUSTED_CONFIG_PATHS="$PWD/elixir/mise.toml" \
+        bash -c 'cd elixir && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
+        >/dev/null 2>&1 || true
     fi
   before_remove: |
     git status --short
