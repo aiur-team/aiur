@@ -58,6 +58,7 @@ defmodule Aiur.AgentRunner do
 
         try do
           with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
+            :ok = maybe_enqueue_bootstrap_digest(issue)
             run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
           end
         after
@@ -67,6 +68,58 @@ defmodule Aiur.AgentRunner do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # Plan U2: deliver a bootstrap digest of missed events on the first turn
+  # after agent (re)start. SubscriptionStore persists `last_seen_event_id`;
+  # `IssueLog.event_history/2` parses `[event:emit]` lines from the per-issue
+  # log for events with `id > cursor`. Filter against the agent's subscribed
+  # patterns and enqueue ONE `:events_digest` coordination item so U1's
+  # drain coalescing folds it cleanly. No-op when cursor is nil (first
+  # ever start) or when no missed events match an existing subscription.
+  defp maybe_enqueue_bootstrap_digest(%Issue{identifier: identifier}) when is_binary(identifier) do
+    snapshot = Aiur.Events.SubscriptionStore.snapshot(identifier)
+
+    case snapshot do
+      %{last_seen_event_id: cursor, subscribed_to: subs} when is_integer(cursor) and subs != [] ->
+        events = bootstrap_events(identifier, cursor, subs)
+        enqueue_bootstrap_if_any(identifier, events, cursor)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_enqueue_bootstrap_digest(_issue), do: :ok
+
+  defp bootstrap_events(identifier, cursor, subscribed_to) do
+    patterns = Enum.map(subscribed_to, &Map.get(&1, "topic"))
+
+    identifier
+    |> Aiur.IssueLog.event_history(since_id: cursor)
+    |> Enum.filter(fn ev -> matches_any_pattern?(ev.topic, patterns) end)
+  end
+
+  defp matches_any_pattern?(_topic, []), do: false
+
+  defp matches_any_pattern?(topic, patterns) when is_binary(topic) do
+    Enum.any?(patterns, fn pattern ->
+      is_binary(pattern) and Aiur.Events.Topic.matches?(pattern, topic)
+    end)
+  end
+
+  defp matches_any_pattern?(_topic, _patterns), do: false
+
+  defp enqueue_bootstrap_if_any(_identifier, [], _cursor), do: :ok
+
+  defp enqueue_bootstrap_if_any(identifier, events, cursor) do
+    Logger.info("aiur_bootstrap_digest identifier=#{identifier} since_id=#{cursor} count=#{length(events)}")
+
+    Enum.each(events, fn event ->
+      :ok = GenServer.call(Aiur.Orchestrator, {:enqueue_event_digest, identifier, event})
+    end)
+
+    :ok
   end
 
   defp codex_message_handler(recipient, issue, workspace, worker_host, turn_id \\ nil) do

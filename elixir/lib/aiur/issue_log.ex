@@ -91,6 +91,56 @@ defmodule Aiur.IssueLog do
     end
   end
 
+  @doc """
+  Parse `[event:emit]` / `[event:emit_alert]` / `[event:self]` / `[event:consumed]`
+  lines from the per-issue log. Returns a list of partial event maps with
+  `id`, `topic`, `kind`, `summary`, `ts` fields. Used by `Aiur.AgentRunner`
+  to build the bootstrap digest on agent (re)start — events with
+  `id > last_seen_event_id` represent activity the agent missed while
+  inactive.
+
+  Options:
+    * `:since_id` — only return events with `id > since_id` (default 0)
+    * `:kinds` — list of kinds to include (default `[:emit, :emit_alert]`)
+    * `:limit` — max number of returned events (default `@history_limit`)
+  """
+  @spec event_history(AgentEvents.agent_identifier(), keyword()) :: [map()]
+  def event_history(identifier, opts \\ []) when is_binary(identifier) do
+    since_id = Keyword.get(opts, :since_id, 0)
+    kinds = Keyword.get(opts, :kinds, [:emit, :emit_alert])
+    limit = Keyword.get(opts, :limit, @history_limit)
+    kind_set = MapSet.new(Enum.map(kinds, &Atom.to_string/1))
+    path = log_path(identifier)
+
+    case File.read(path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse_event_line/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.filter(fn ev ->
+          MapSet.member?(kind_set, ev.kind) and is_integer(ev.id) and ev.id > since_id
+        end)
+        |> Enum.take(-limit)
+
+      _ ->
+        []
+    end
+  end
+
+  defp parse_event_line(line) do
+    case Regex.run(~r/\A([0-9T:\-\.Z]+) \[event:([a-z_]+)\] id=(\d+) ([^:\s]+)(?:: (.*))?\z/, line) do
+      [_, ts, kind, id_str, topic, summary] ->
+        %{kind: kind, id: String.to_integer(id_str), topic: topic, ts: ts, summary: summary || ""}
+
+      [_, ts, kind, id_str, topic] ->
+        %{kind: kind, id: String.to_integer(id_str), topic: topic, ts: ts, summary: ""}
+
+      _ ->
+        nil
+    end
+  end
+
   defp parse_line(line) do
     case Regex.run(~r/\A([0-9T:\-\.Z]+) \[([a-z]+)\] (.*)\z/, line) do
       [_, _ts, tag, body] ->
