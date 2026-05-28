@@ -11,4 +11,9 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
     assert EventFlowDemo.function_b() == EventFlowDemo.function_a() + 1
     assert EventFlowDemo.function_b() == 43
   end
+
+  test "function_c calls function_b and squares the result" do
+    assert EventFlowDemo.function_c() == EventFlowDemo.function_b() * EventFlowDemo.function_b()
+    assert EventFlowDemo.function_c() == 1849
+  end
 end
