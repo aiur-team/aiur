@@ -56,7 +56,7 @@ The operator's only at-a-glance signal for "how far is each agent" is the progre
 - `30`–`50`: implementation in flight
 - `60`–`80`: code typed, in self-review or CI
 - `90`: PR pushed, last fixes / final review pass
-- `100`: emit exactly **once**, paired with the phase-end alert that closes out your work for this iteration (typically `phase.review.end` after you've run `gh pr ready` and flipped the issue label to `agent:human-review`). This is the signal that turns the operator's bar green. Don't emit 100 before that — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the operator.
+- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. This is the signal that turns the operator's bar green and tells Aiur to release your agent slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the operator.
 
 **The `label` field.** Names your cleanup-aware tail so the operator can see what you budgeted. Keep it ≤ 80 chars. Format: `"<phase>: <what you're doing now>, <tail you're budgeting>"`.
 
