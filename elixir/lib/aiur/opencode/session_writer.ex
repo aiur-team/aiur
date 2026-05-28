@@ -189,16 +189,17 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   def handle_info({:alert, %{message: message}}, state) do
-    # Alerts are still standalone messages — no turn grouping.
+    # Alerts are still standalone messages — no turn grouping. Reset
+    # the FK counter on success so a healthy stream of alerts after a
+    # transient FK burst doesn't leave the counter armed at N-1.
     case write_standalone(state, %{role: :alert, body: message}) do
       {:ok, _message_id, _parts} ->
-        :ok
+        {:noreply, reset_fk_failures(state)}
 
       {:error, reason} ->
         log_session_write_failure("alert_failed", state.identifier, reason)
+        handle_write_failure(state, reason)
     end
-
-    {:noreply, state}
   end
 
   def handle_info(:sweep_open_turns, state) do
@@ -524,8 +525,12 @@ defmodule Aiur.Opencode.SessionWriter do
         {:noreply, state}
 
       true ->
+        # Only remember the id when the write actually landed (no_reply
+        # path). If write_event_row returned a stop, the FK threshold
+        # tripped and we shouldn't pretend the event was persisted.
         case write_event_row(state, entry) do
           {:noreply, new_state} -> {:noreply, remember_event_id(new_state, id)}
+          {:stop, _reason, _new_state} = stop -> stop
         end
     end
   end
@@ -538,7 +543,9 @@ defmodule Aiur.Opencode.SessionWriter do
       body ->
         case write_system_standalone(state, body) do
           {:ok, _message_id} ->
-            {:noreply, state}
+            # Reset the FK counter so a healthy event-row stream after
+            # a transient FK burst doesn't leave the counter armed.
+            {:noreply, reset_fk_failures(state)}
 
           {:error, reason} ->
             log_session_write_failure(
@@ -548,7 +555,7 @@ defmodule Aiur.Opencode.SessionWriter do
               kind: inspect(entry[:kind])
             )
 
-            {:noreply, state}
+            handle_write_failure(state, reason)
         end
     end
   end
@@ -600,6 +607,22 @@ defmodule Aiur.Opencode.SessionWriter do
       _ -> Map.put(state, :consecutive_fk_failures, 0)
     end
   end
+
+  @doc false
+  @spec handle_write_failure_for_test(t, term) ::
+          {:noreply, t} | {:stop, atom(), t}
+  def handle_write_failure_for_test(state, reason) do
+    handle_write_failure(state, reason)
+  end
+
+  @doc false
+  @spec reset_fk_failures_for_test(t) :: t
+  def reset_fk_failures_for_test(state) do
+    reset_fk_failures(state)
+  end
+
+  @doc false
+  @type t :: %__MODULE__{}
 
   defp remember_event_id(state, id) do
     seen = MapSet.put(state.seen_event_ids, id)

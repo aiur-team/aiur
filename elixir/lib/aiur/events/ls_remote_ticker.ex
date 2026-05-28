@@ -95,18 +95,33 @@ defmodule Aiur.Events.LsRemoteTicker do
   end
 
   defp run_tick(state) do
-    case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
-      {:ok, refs} when is_map(refs) ->
-        fold_refs(state, refs)
+    # The shell-out and Publisher.publish are both wrapped here because
+    # a raise would crash the GenServer; the supervisor would restart
+    # with empty `refs` AND `bootstrapped?: false`, so the next real
+    # push would be silently absorbed by the bootstrap-skip — defeating
+    # the entire reason this ticker exists. Catch everything, log, mark
+    # bootstrapped so the next success treats new refs as pushes.
+    try do
+      case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
+        {:ok, refs} when is_map(refs) ->
+          fold_refs(state, refs)
 
-      {:error, reason} ->
-        Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
-        # Mark `bootstrapped?: true` even on a failed first tick so the
-        # next *successful* poll publishes for any ref it sees as new.
-        # Otherwise tick 1 (error) + tick 2 (success) would silently
-        # absorb every aiur/<id> push that happened during that window
-        # — the agent we most want to wake up is exactly the one that
-        # pushed right after a transient ls-remote failure.
+        {:error, reason} ->
+          Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
+          %{state | bootstrapped?: true}
+
+        other ->
+          Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
+          %{state | bootstrapped?: true}
+      end
+    rescue
+      error ->
+        Logger.warning("LsRemoteTicker tick raised: #{Exception.message(error)} (#{inspect(error.__struct__)})")
+
+        %{state | bootstrapped?: true}
+    catch
+      kind, reason ->
+        Logger.warning("LsRemoteTicker tick caught #{kind}: #{inspect(reason)}")
         %{state | bootstrapped?: true}
     end
   end
@@ -172,11 +187,6 @@ defmodule Aiur.Events.LsRemoteTicker do
     fun.(topic, payload, opts)
   end
 
-  defp do_publish(%{publisher: {mod, fun}}, topic, payload, opts)
-       when is_atom(mod) and is_atom(fun) do
-    apply(mod, fun, [topic, payload, opts])
-  end
-
   defp ref_to_topic(ref) when is_binary(ref) do
     case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
       [_, id] ->
@@ -196,15 +206,10 @@ defmodule Aiur.Events.LsRemoteTicker do
     Git.ls_remote(remote, refs)
   end
 
-  # Best-effort: resolve repo name (e.g. "owner/repo") via the
-  # configured Tracker adapter. Returns `nil` if the call fails — the
-  # dedup_key just becomes `{nil, ref, sha}` and Publisher still
-  # dedupes its own re-emits. The firehose-vs-ls-remote dedup loses
-  # cross-source coverage in that window, which is acceptable for the
-  # rare repo-misconfig case.
-  defp resolve_repo do
-    Aiur.Tracker.project_identity()
-  rescue
-    _ -> nil
-  end
+  # `Aiur.Tracker.project_identity/0` is `String.t() | nil` by spec
+  # and returns `nil` cleanly when no adapter is loaded. When `nil`,
+  # `build_publish_opts/4` simply omits `dedup_key:` — the publish
+  # still goes through, only cross-source dedup is sacrificed for
+  # that tick.
+  defp resolve_repo, do: Aiur.Tracker.project_identity()
 end

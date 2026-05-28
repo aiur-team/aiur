@@ -114,10 +114,13 @@ defmodule Aiur.Events.ExchangeTest do
       # Publishing after DOWN must not crash even though we previously
       # had a binding for the now-dead pid. The orchestrator's wildcard
       # `ticket.*.branch.push` subscription matches this topic, so the
-      # reported count is whatever ambient subscribers remain — what
-      # matters is that the call doesn't crash and the dead pid's
-      # binding has been reaped (asserted above).
-      _count = Exchange.publish("ticket.999.branch.push", %{id: 7})
+      # reported count includes whatever ambient subscribers remain.
+      # What matters is (a) no crash, (b) the dead pid's binding has
+      # been reaped (asserted above), and (c) the count never reflects
+      # delivery to a dead pid — `>= 0` enforces only the non-negative
+      # invariant of the Exchange's counting contract.
+      count = Exchange.publish("ticket.999.branch.push", %{id: 7})
+      assert is_integer(count) and count >= 0
     end
   end
 

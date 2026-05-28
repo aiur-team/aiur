@@ -407,20 +407,17 @@ defmodule Aiur.Orchestrator do
   # already in the loop and will see the comment via its own per-ticket
   # subscription).
   def handle_info({:event, %{topic: topic} = _event}, state) when is_binary(topic) do
-    cond do
-      match?({:ok, _}, parse_pr_review_comment_topic(topic)) ->
-        {:ok, identifier} = parse_pr_review_comment_topic(topic)
+    case classify_event_topic(topic) do
+      {:pr_review_comment, identifier} ->
         {:noreply, maybe_reactivate_on_pr_comment(state, identifier)}
 
-      match?({:ok, _}, parse_pause_request_topic(topic)) ->
-        {:ok, identifier} = parse_pause_request_topic(topic)
+      {:pause_request, identifier} ->
         {:noreply, maybe_pause_on_request(state, identifier)}
 
-      match?({:ok, _}, parse_branch_push_topic(topic)) ->
-        {:ok, blocker_identifier} = parse_branch_push_topic(topic)
+      {:branch_push, blocker_identifier} ->
         {:noreply, maybe_resume_blockees_on_push(state, blocker_identifier, topic)}
 
-      true ->
+      :nomatch ->
         {:noreply, state}
     end
   end
@@ -451,6 +448,21 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # Single-pass topic classifier: runs each parser at most once and
+  # returns a tagged tuple the caller pattern-matches on. Cheaper than
+  # a `cond` that calls every parser twice (once for the match? test,
+  # once to extract the identifier).
+  defp classify_event_topic(topic) do
+    with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
+         :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
+         :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
+      :nomatch
+    end
+  end
+
+  defp tag_topic(tag, {:ok, identifier}), do: {tag, identifier}
+  defp tag_topic(_tag, :nomatch), do: :nomatch
+
   defp maybe_reactivate_on_pr_comment(%State{} = state, issue_number) do
     case find_running_by_identifier(state.running, issue_number) do
       running_entry when is_map(running_entry) ->
@@ -464,14 +476,18 @@ defmodule Aiur.Orchestrator do
   # When an agent emits `agent.pause.request` it has decided to stop
   # working — usually because it declared a blocker and has nothing
   # left to do until the blocker emits. Flip the control status to
-  # `:paused` so the rest of the orchestrator (slot accounting,
-  # check-in worker fan-out) treats the entry as not actively
-  # working. The agent's own task loop is already idle by the time
-  # this event lands; we don't send an interrupt.
+  # `:paused` AND queue a `{:pause_agent, _}` control message on the
+  # task pid so the worker actually enters `wait_for_operator_message`.
+  # Without the queued control message a pause.request fired
+  # mid-tool-call would only flip the orchestrator's bookkeeping; the
+  # later auto-resume `:resume_agent` would have no receiver because
+  # the worker loop never paused. Symmetry with the operator-pause
+  # path makes the resume side trivially correct.
   defp maybe_pause_on_request(%State{} = state, identifier) do
     case find_running_by_identifier(state.running, identifier) do
       running_entry when is_map(running_entry) ->
-        existing_status = (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
+        existing_status =
+          (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
 
         cond do
           existing_status == :paused ->
@@ -481,6 +497,13 @@ defmodule Aiur.Orchestrator do
             state
 
           true ->
+            # Queue the pause control message; ignore the reply because
+            # we're about to transition the entry's status optimistically
+            # in `transition_control_status`. The worker confirmation
+            # arrives later via `:worker_control_state :paused` and the
+            # already-equal status short-circuit drops the duplicate
+            # transition cleanly.
+            _ = send_pause_control_message(state, identifier)
             transition_control_status(state, running_entry, :paused, "agent.pause.request")
         end
 
@@ -517,16 +540,65 @@ defmodule Aiur.Orchestrator do
         state
 
       subscribed_to_topic?(identifier, topic) ->
-        Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
-
-        {_reply, next_state} = resume_paused_issue(state, entry)
-        next_state
+        attempt_auto_resume(state, entry, identifier, blocker_identifier, topic)
 
       true ->
         state
     end
   end
 
+  # Resume can fail when the concurrent-agent cap is already full —
+  # the blockee would otherwise sit silently paused forever because
+  # the push event is consumed exactly once and the firehose / ls-remote
+  # dedup table prevents a re-emit. Log a warning so operators can see
+  # the cap is blocking the resume, and stamp a hint on the entry so a
+  # future reconcile tick (when a slot opens up) can drain the queue.
+  defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
+    Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+
+    case resume_paused_issue(state, entry) do
+      {{:ok, :resumed}, next_state} ->
+        next_state
+
+      {{:error, :max_concurrent_agents_reached}, next_state} ->
+        Logger.warning("Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint")
+
+        stamp_pending_auto_resume(next_state, identifier, blocker_identifier, topic)
+
+      {{:error, reason}, next_state} ->
+        Logger.warning("Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
+
+        next_state
+    end
+  end
+
+  # Record a `pending_auto_resume` marker on the running entry so a
+  # future tick (`reconcile_pending_auto_resumes/1`) can retry once a
+  # slot opens up. Without this the cap-full case loses the push
+  # signal and the blockee stays paused forever.
+  defp stamp_pending_auto_resume(state, identifier, blocker_identifier, topic) do
+    case find_running_by_identifier(state.running, identifier) do
+      running_entry when is_map(running_entry) ->
+        issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+
+        hint = %{
+          blocker_identifier: blocker_identifier,
+          topic: topic,
+          stamped_at: DateTime.utc_now()
+        }
+
+        updated_entry = Map.put(running_entry, :pending_auto_resume, hint)
+        %{state | running: Map.put(state.running, issue_id, updated_entry)}
+
+      _ ->
+        state
+    end
+  end
+
+  # `snapshot/1` is a synchronous GenServer.call to the per-identifier
+  # store. The case clauses handle the documented contract; the rescue
+  # only narrows to `:exit` (call timeout) so genuine bugs surface as
+  # exceptions in tests instead of being silently swallowed.
   defp subscribed_to_topic?(identifier, topic) do
     case SubscriptionStore.snapshot(identifier) do
       %{subscribed_to: subs} when is_list(subs) ->
@@ -539,8 +611,11 @@ defmodule Aiur.Orchestrator do
       _ ->
         false
     end
-  rescue
-    _ -> false
+  catch
+    :exit, reason ->
+      Logger.warning("subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}")
+
+      false
   end
 
   # Flip an entry's control.status. Used by `maybe_pause_on_request/2`
@@ -683,6 +758,7 @@ defmodule Aiur.Orchestrator do
 
   defp reconcile_running_issues(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
+    state = reconcile_pending_auto_resumes(state)
     running_ids = Map.keys(state.running)
 
     if running_ids == [] do
@@ -1046,6 +1122,65 @@ defmodule Aiur.Orchestrator do
         # from the just-killed codex task don't pass the gate and overwrite
         # the synthetic 100 bar sample U4 seeds.
         refresh_tracked_set(new_state)
+    end
+  end
+
+  # Retry blockee resumes that were deferred when the concurrent-agent
+  # cap was full at branch.push time. Without this hook the push event
+  # is consumed exactly once (Publisher dedupes `(repo, ref, sha)`),
+  # so a blockee that couldn't fit in a slot would stay paused
+  # forever even after another agent finished and freed capacity.
+  defp reconcile_pending_auto_resumes(%State{} = state) do
+    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
+      case Map.get(entry, :pending_auto_resume) do
+        %{} = hint when is_map(hint) ->
+          maybe_drain_pending_auto_resume(acc, entry, hint)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp maybe_drain_pending_auto_resume(state, entry, hint) do
+    cond do
+      not paused_running_entry?(entry) ->
+        # Already resumed by another path (operator chat, label flip);
+        # clear the stale hint.
+        clear_pending_auto_resume(state, entry)
+
+      deactivated_running_entry?(entry) ->
+        clear_pending_auto_resume(state, entry)
+
+      true ->
+        identifier = Map.get(entry, :identifier)
+        blocker_identifier = Map.get(hint, :blocker_identifier)
+        topic = Map.get(hint, :topic)
+
+        case resume_paused_issue(state, entry) do
+          {{:ok, :resumed}, next_state} ->
+            Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+
+            clear_pending_auto_resume(next_state, entry)
+
+          {{:error, _reason}, next_state} ->
+            # Cap still full or another error — keep the hint for the
+            # next reconcile tick.
+            next_state
+        end
+    end
+  end
+
+  defp clear_pending_auto_resume(state, entry) do
+    issue_id = get_in(entry, [:issue, Access.key(:id)])
+
+    case Map.get(state.running, issue_id) do
+      running_entry when is_map(running_entry) ->
+        updated = Map.delete(running_entry, :pending_auto_resume)
+        %{state | running: Map.put(state.running, issue_id, updated)}
+
+      _ ->
+        state
     end
   end
 
