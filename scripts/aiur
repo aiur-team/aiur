@@ -1144,12 +1144,36 @@ run_in_tmux() {
   #     pop_var_context: head of shell_variables not a function context
   # because its function-call stack is in an invalid state. Marking the
   # function as "ran" on first entry makes re-entry a cheap no-op.
+  # Diagnostic log for the trap itself. Always-on (per perf-logging
+  # convention), one file per wrapper PID at a stable path so a post-
+  # mortem can reconstruct "what killed aiur" without scrolling. The
+  # caller passes the trigger name (`EXIT`/`INT`/`TERM`/`HUP`); we
+  # capture exit-code, $$, ppid + its `comm`, and every BEAM PID still
+  # alive at the moment the trap fires.
+  __aiur_trap_diag_file="${TMPDIR:-/tmp}/aiur-trap.${$}.log"
+  __aiur_trap_log() {
+    local trigger="$1"
+    local trap_exit_code="$2"
+    local now ppid_comm beam_pids
+    now="$(date -Iseconds 2>/dev/null || date)"
+    ppid_comm="$(awk '{print $2}' "/proc/${PPID:-0}/comm" 2>/dev/null || echo unknown)"
+    if [ -n "${elixir_dir:-}" ]; then
+      beam_pids="$(pgrep -f "$elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null | tr '\n' ',' || true)"
+    else
+      beam_pids="(elixir_dir unset)"
+    fi
+    printf 'aiur_trap trigger=%s exit_code=%s ts=%s wrapper_pid=%s ppid=%s ppid_comm=%s beam_pids=%s\n' \
+      "$trigger" "$trap_exit_code" "$now" "$$" "${PPID:-?}" "$ppid_comm" "${beam_pids:-none}" \
+      >> "$__aiur_trap_diag_file" 2>/dev/null || true
+  }
+
   __aiur_cleanup_ran=0
   __aiur_cleanup() {
     [ "${__aiur_cleanup_ran:-0}" = 1 ] && return 0
     __aiur_cleanup_ran=1
 
     local exit_code=$?
+    __aiur_trap_log "${__aiur_trap_trigger:-EXIT}" "$exit_code"
     local sessions_file="${AIUR_SESSION_TMPFILE:-}"
     # `startup_capture` was declared `local` inside this function's caller,
     # so by the time the EXIT trap fires it has gone out of scope. Use
@@ -1253,10 +1277,10 @@ run_in_tmux() {
   # cleanup once. Without the trap clear + re-kill pattern, signal +
   # EXIT can interleave inside bash's function-unwind and produce the
   # `pop_var_context` error.
-  trap '__aiur_cleanup' EXIT
-  trap 'trap - EXIT INT TERM HUP; __aiur_cleanup; exit 130' INT
-  trap 'trap - EXIT INT TERM HUP; __aiur_cleanup; exit 143' TERM
-  trap 'trap - EXIT INT TERM HUP; __aiur_cleanup; exit 129' HUP
+  trap '__aiur_trap_trigger=EXIT __aiur_cleanup' EXIT
+  trap 'trap - EXIT INT TERM HUP; __aiur_trap_trigger=INT __aiur_cleanup; exit 130' INT
+  trap 'trap - EXIT INT TERM HUP; __aiur_trap_trigger=TERM __aiur_cleanup; exit 143' TERM
+  trap 'trap - EXIT INT TERM HUP; __aiur_trap_trigger=HUP __aiur_cleanup; exit 129' HUP
 
   # Resolve where the BEAM will write its log file. The Elixir CLI sets
   # `:log_file` to `<logs_root>/log/aiur.log` when `--logs-root` is

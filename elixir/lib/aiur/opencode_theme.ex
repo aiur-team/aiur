@@ -48,7 +48,9 @@ defmodule Aiur.OpencodeTheme do
 
   defp install_theme_file(themes_dir) do
     case File.mkdir_p(themes_dir) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("opencode_theme themes_dir mkdir failed dir=#{themes_dir} reason=#{inspect(reason)}")
         :ok
@@ -93,7 +95,9 @@ defmodule Aiur.OpencodeTheme do
     parent = Path.dirname(kv_path)
 
     case File.mkdir_p(parent) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("opencode_theme kv dir mkdir failed dir=#{parent} reason=#{inspect(reason)}")
     end

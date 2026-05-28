@@ -937,6 +937,7 @@ defmodule Aiur.AgentList.Renderer do
 
     title_target = min(title_cap, max(remaining_after_id - @min_latest_width, 0))
     title_width = max(min(title_target, remaining_after_id), 0)
+
     latest_width =
       min(@max_latest_width, max(remaining_after_id - title_width, @min_latest_width))
 

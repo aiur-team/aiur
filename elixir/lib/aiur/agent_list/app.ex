@@ -26,7 +26,7 @@ defmodule Aiur.AgentList.App do
 
   alias Aiur.AgentList.Renderer
   alias Aiur.{AgentPubSub, Config, HttpServer, Orchestrator, PaneManager, Tracker}
-  alias Aiur.Events.DebugLog
+  alias Aiur.Events.{DebugLog, SubscriptionStore}
   alias Aiur.Opencode.{AttachPool, Slot}
 
   # `init/1` and `render/1` go through GenServer-side and IO callbacks
@@ -128,6 +128,8 @@ defmodule Aiur.AgentList.App do
 
   @impl true
   def init(opts) do
+    Logger.info("aiur_agent_list phase=init os_pid=#{System.pid()}")
+    Process.flag(:trap_exit, true)
     write_fun = Keyword.get(opts, :write_fun, &IO.write/1)
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
     orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
@@ -507,10 +509,8 @@ defmodule Aiur.AgentList.App do
         # Trim Latest column entries to the active set too; a stale
         # entry for an issue that's no longer tracked just wastes
         # row space and is misleading.
-        latest_event_by_id:
-          Map.take(new_state.latest_event_by_id, MapSet.to_list(active_set)),
-        progress_by_id:
-          Map.take(new_state.progress_by_id, MapSet.to_list(active_set))
+        latest_event_by_id: Map.take(new_state.latest_event_by_id, MapSet.to_list(active_set)),
+        progress_by_id: Map.take(new_state.progress_by_id, MapSet.to_list(active_set))
     }
 
     render(new_state)
@@ -694,6 +694,12 @@ defmodule Aiur.AgentList.App do
 
   def handle_info(_other, state), do: {:noreply, state}
 
+  @impl true
+  def terminate(reason, _state) do
+    Logger.info("aiur_agent_list phase=terminate reason=#{inspect(reason)} os_pid=#{System.pid()}")
+    :ok
+  end
+
   # ---------------------------------------------------------------------------
   # Private helpers used by the handle_info clauses above.
   # ---------------------------------------------------------------------------
@@ -708,7 +714,7 @@ defmodule Aiur.AgentList.App do
   end
 
   defp attention_count_for(id) do
-    case Aiur.Events.SubscriptionStore.snapshot(id) do
+    case SubscriptionStore.snapshot(id) do
       %{open_attentions: list} when is_list(list) -> length(list)
       _ -> 0
     end

@@ -91,6 +91,7 @@ defmodule Aiur.ProgressTracker do
   """
   @spec format_eta(non_neg_integer() | :unknown) :: String.t()
   def format_eta(:unknown), do: ""
+
   def format_eta(s) when is_integer(s) and s >= 3600 do
     h = div(s, 3600)
     m = div(rem(s, 3600), 60)
@@ -133,8 +134,12 @@ defmodule Aiur.ProgressTracker do
     dt = latest_at - prev_at
 
     cond do
-      dt <= 0 -> :unknown
-      latest_p - prev_p <= 0 -> :unknown
+      dt <= 0 ->
+        :unknown
+
+      latest_p - prev_p <= 0 ->
+        :unknown
+
       true ->
         rate_per_ms = (latest_p - prev_p) / dt
         remaining_pct = 100 - latest_p

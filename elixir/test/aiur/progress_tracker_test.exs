@@ -67,7 +67,7 @@ defmodule Aiur.ProgressTrackerTest do
 
       # Both have an ETA derived from the same pair; b is 10s later
       # so its remaining ETA should be ~10s smaller.
-      assert a.eta_seconds - b.eta_seconds in 9..11
+      assert (a.eta_seconds - b.eta_seconds) in 9..11
     end
 
     test "stale samples freeze ETA at :unknown" do

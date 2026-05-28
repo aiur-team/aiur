@@ -673,20 +673,20 @@ defmodule Aiur.AgentRunner do
     }
 
     for %{session_id: session_id, base_url: base_url} <- writers do
-      Task.start(fn ->
-        case post_fn.(base_url, session_id, payload) do
-          {:ok, _} ->
-            :ok
-
-          {:error, reason} ->
-            Logger.debug(
-              "aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}"
-            )
-        end
-      end)
+      Task.start(fn -> post_one_marker(post_fn, base_url, session_id, payload, identifier) end)
     end
 
     :ok
+  end
+
+  defp post_one_marker(post_fn, base_url, session_id, payload, identifier) do
+    case post_fn.(base_url, session_id, payload) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}")
+    end
   end
 
   # Match the close to the marker post — the bridge SSE for this

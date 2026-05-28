@@ -323,12 +323,10 @@ defmodule Aiur.Opencode.ChatCompletions do
   # can't wrap content with `\``s (they'd close the span midway)
   # or `\n`s (inline code is a one-line construct).
   defp render_dim_blockquote(prefix, body) do
-    cond do
-      String.contains?(body, "\n") or String.contains?(body, "`") ->
-        "\n" <> Style.dim(prefix <> body) <> "\n"
-
-      true ->
-        "\n> #{prefix}`#{body}`\n"
+    if String.contains?(body, "\n") or String.contains?(body, "`") do
+      "\n" <> Style.dim(prefix <> body) <> "\n"
+    else
+      "\n> #{prefix}`#{body}`\n"
     end
   end
 
