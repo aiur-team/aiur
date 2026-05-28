@@ -6,4 +6,8 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
   test "function_a/0 returns the event-flow seed value" do
     assert EventFlowDemo.function_a() == 42
   end
+
+  test "function_b/0 calls function_a/0 and adds one" do
+    assert EventFlowDemo.function_b() == EventFlowDemo.function_a() + 1
+  end
 end

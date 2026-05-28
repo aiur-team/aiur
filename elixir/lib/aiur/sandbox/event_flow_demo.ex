@@ -8,4 +8,9 @@ defmodule Aiur.Sandbox.EventFlowDemo do
   def function_a do
     42
   end
+
+  @spec function_b() :: integer()
+  def function_b do
+    function_a() + 1
+  end
 end
