@@ -359,6 +359,15 @@ defmodule Aiur.AgentList.App do
 
   defp activate_selected_agent_if_warm(state, identifier, summary, mode) do
     cond do
+      deactivated_summary?(summary) ->
+        # 🏁 rows have no live agent and no warm chat pane (AttachPool
+        # released the slot during U4). Enter here means "wake this
+        # up": route through Orchestrator.resume_agent (which U5 maps
+        # to reactivate_issue/2) and open the pane. The agent's first
+        # transcript event drives the marker glyph progression as
+        # normal (🔘 → ⚪ → 🟢).
+        reactivate_and_open(state, identifier, summary, mode)
+
       not warm_identifier?(state, identifier) ->
         Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")
 
@@ -367,6 +376,21 @@ defmodule Aiur.AgentList.App do
 
       true ->
         open_selected_agent(state, identifier, summary, mode)
+    end
+  end
+
+  defp reactivate_and_open(state, identifier, summary, mode) do
+    Logger.info("[user-action] reactivate_on_enter identifier=#{identifier} source=agent_list")
+
+    Task.start(fn -> log_reactivate_result(state, identifier) end)
+
+    open_selected_agent(state, identifier, summary, mode)
+  end
+
+  defp log_reactivate_result(state, identifier) do
+    case safe_call(fn -> Orchestrator.resume_agent(state.orchestrator, identifier) end) do
+      {:ok, _} -> :ok
+      other -> Logger.debug("reactivate_on_enter resume_agent reply=#{inspect(other)}")
     end
   end
 

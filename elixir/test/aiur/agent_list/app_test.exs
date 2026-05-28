@@ -439,5 +439,18 @@ defmodule Aiur.AgentList.AppTest do
         assert match?([{100, _ts} | _], Map.get(snapshot.progress_by_id, id, []))
       end
     end
+
+    test "enter on a :deactivated row routes through Orchestrator.resume_agent", %{app: app} do
+      send_running_change(app, [
+        AgentEvents.agent_summary("DA-ENTER", :running, 0, %{work_state: :deactivated})
+      ])
+
+      assert_receive {:rendered, _}, 500
+
+      App.activate(app)
+
+      # Reactivation kicks off in a Task — give it a beat to fire.
+      assert_receive {:mock_resume, "DA-ENTER"}, 500
+    end
   end
 end
