@@ -817,12 +817,14 @@ stop_profile() {
   # The OTP release replaces `bin/aiur` with `beam.smp ... -name
   # aiur-orangekid@<host>`. The escript-era patterns above no longer
   # match — target the release's BEAM by the erts/bin path that only
-  # the release would launch from. `pkill -f` matches against the
+  # the release would launch from. Scope to THIS install's elixir_dir
+  # so an agent-driven `aiur --test` running from a workspace clone
+  # (e.g. /tmp/issue100-aiur/elixir/...) never reaches the operator's
+  # BEAM under the source checkout. `pkill -f` matches against the
   # whole command line, which would also match THIS very bash process
   # if we use the obvious `-name aiur-orangekid` string here. Avoid
-  # self-kill by enumerating PIDs first (filtering out `bash`/`pkill`)
-  # and signalling them directly.
-  for pid in $(pgrep -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
+  # self-kill by enumerating PIDs first and signalling them directly.
+  for pid in $(pgrep -f "$elixir_dir/_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
     [ "$pid" = "$$" ] && continue
     pid_comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
     case "$pid_comm" in
