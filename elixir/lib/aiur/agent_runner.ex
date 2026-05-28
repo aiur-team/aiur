@@ -58,6 +58,7 @@ defmodule Aiur.AgentRunner do
 
         try do
           with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
+            :ok = maybe_attach_universal_subscriptions(issue)
             :ok = maybe_enqueue_bootstrap_digest(issue)
             run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
           end
@@ -91,6 +92,46 @@ defmodule Aiur.AgentRunner do
   end
 
   defp maybe_enqueue_bootstrap_digest(_issue), do: :ok
+
+  # Plan U5/U6: at runner start, every agent auto-subscribes to:
+  # - `system.<base>.branch.push` so it sees base-branch movement (U5)
+  # - `ticket.<self>.issue.comment.posted` so another agent's comment
+  #   on its issue reaches it (U6)
+  # - `ticket.<self>.pr.comment.posted` so review comments on its PR
+  #   reach it (U6)
+  # `add_subscription/3` short-circuits on duplicate so this is idempotent
+  # across restarts. Reasons: `base_branch:auto`, `own_comments:auto`.
+  defp maybe_attach_universal_subscriptions(%Issue{identifier: identifier}) when is_binary(identifier) do
+    :ok = Aiur.Events.SubscriptionStore.attach(identifier)
+
+    base_branch = base_branch_name()
+
+    topics = [
+      {"system." <> base_branch <> ".branch.push", "base_branch:auto"},
+      {"ticket." <> identifier <> ".issue.comment.posted", "own_comments:auto"},
+      {"ticket." <> identifier <> ".pr.comment.posted", "own_comments:auto"}
+    ]
+
+    Enum.each(topics, fn {topic, reason} ->
+      _ = Aiur.Events.SubscriptionStore.add_subscription(identifier, topic, reason)
+    end)
+
+    :ok
+  end
+
+  defp maybe_attach_universal_subscriptions(_issue), do: :ok
+
+  # First-pass base-branch resolver: read from workflow config
+  # (`tracker.base_branch` if set) and fall back to `"main"`. A richer
+  # resolver could call `gh repo view --json defaultBranchRef` once per
+  # orchestrator boot and cache the result; not load-bearing for the
+  # auto-sub path yet.
+  defp base_branch_name do
+    case Config.settings!() do
+      %{tracker: %{base_branch: name}} when is_binary(name) and name != "" -> name
+      _ -> "main"
+    end
+  end
 
   defp bootstrap_events(identifier, cursor, subscribed_to) do
     patterns = Enum.map(subscribed_to, &Map.get(&1, "topic"))
