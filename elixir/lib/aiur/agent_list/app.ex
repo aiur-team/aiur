@@ -129,7 +129,6 @@ defmodule Aiur.AgentList.App do
   @impl true
   def init(opts) do
     Logger.info("aiur_agent_list phase=init os_pid=#{System.pid()}")
-    Process.flag(:trap_exit, true)
     write_fun = Keyword.get(opts, :write_fun, &IO.write/1)
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
     orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
