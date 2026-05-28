@@ -1942,13 +1942,11 @@ defmodule Aiur.Orchestrator do
     {:reply, :ok, next_state}
   end
 
-  # Bootstrap-digest batched enqueue: a single queue item carries every missed
-  # event in one queue item. Previously the runner looped N
-  # GenServer.call(:enqueue_event_digest), blocking the orchestrator's
-  # mailbox in series — a long-offline agent with hundreds of missed
-  # events stalled every other agent's claim/poll/dispatch behind it.
-  # U1's coalesce path still folds this digest at drain time with any
-  # other events_digest items that landed since.
+  # Bootstrap-digest batched enqueue: one queue item carries every
+  # missed event, so a long-offline agent's bootstrap doesn't fan out
+  # into N serial GenServer.calls through the orchestrator mailbox.
+  # The drain-time coalesce path still folds this digest with any
+  # other events_digest items that arrive between enqueue and drain.
   def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
       when is_binary(identifier) and is_list(events) do
     body = %{

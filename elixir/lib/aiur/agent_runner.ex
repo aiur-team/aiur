@@ -192,10 +192,10 @@ defmodule Aiur.AgentRunner do
   defp enqueue_bootstrap_if_any(identifier, events, cursor) do
     Logger.info("aiur_bootstrap_digest identifier=#{identifier} since_id=#{cursor} count=#{length(events)}")
 
-    # Single batched call instead of one GenServer.call per event.
-    # An agent waking after a long offline window could have hundreds
-    # of missed events; the old loop would block the orchestrator
-    # mailbox in serial for as long as the slowest call.
+    # One batched GenServer.call carries every missed event in one
+    # queue item, so an agent waking from a long offline window with
+    # hundreds of missed events doesn't serialize that many calls
+    # through the orchestrator mailbox.
     case enqueue_bootstrap_batch(identifier, events) do
       :ok ->
         :ok
