@@ -4,8 +4,10 @@ defmodule Aiur.Sandbox.EventFlowDemo do
   # the test tickets flesh this out during the manual --test workflow;
   # `aiur --test` restores this file to HEAD before each fresh run.
 
-  @spec function_a() :: integer()
-  def function_a, do: 42
+  @spec function_a() :: 42
+  def function_a do
+    42
+  end
 
   @spec function_b() :: integer()
   def function_b, do: function_a() + 1
