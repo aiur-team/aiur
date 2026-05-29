@@ -635,7 +635,19 @@ defmodule Aiur.Codex.CodingAgent do
             metadata
           )
 
-          Logger.debug("Codex notification: #{inspect(method)}")
+          # Surface error-class notifications at info level with the
+          # full payload so the operator log shows the actual codex
+          # failure (API rate limit, auth error, bwrap sandbox refusal,
+          # etc.) instead of an opaque `Codex notification: "error"`
+          # line that requires combing through 1000s of lines of
+          # debug-tier `Ignoring message while waiting for response`
+          # detail to reconstruct.
+          if codex_error_method?(method) do
+            Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
+          else
+            Logger.debug("Codex notification: #{inspect(method)}")
+          end
+
           {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
         end
     end
@@ -1598,6 +1610,19 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp needs_input?(_method, _payload), do: false
+
+  # Identify error-class notifications that should be surfaced at info
+  # level with their payload, not buried at debug. Codex sends "error"
+  # as a top-level method when the API itself fails (rate limit, auth,
+  # transport timeout). It also sends `*/error`-suffixed methods for
+  # subsystem failures. Without these surfacing rules an operator
+  # debugging a stuck agent has to enable debug logging globally and
+  # then grep through 1000s of lines of routine MCP notifications.
+  defp codex_error_method?(method) when is_binary(method) do
+    method == "error" or String.ends_with?(method, "/error")
+  end
+
+  defp codex_error_method?(_), do: false
 
   defp input_required_method?(method, payload) when is_binary(method) do
     method in [
