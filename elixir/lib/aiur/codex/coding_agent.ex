@@ -1626,8 +1626,6 @@ defmodule Aiur.Codex.CodingAgent do
     method == "error" or String.ends_with?(method, "/error")
   end
 
-  defp codex_error_method?(_), do: false
-
   defp input_required_method?(method, payload) when is_binary(method) do
     method in [
       "turn/input_required",
