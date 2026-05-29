@@ -82,16 +82,7 @@ jobs:
       - name: Fetch deps
         run: make deps
       - name: Test with coverage
-        env:
-          AIUR_DEBUG: "1"
         run: make coverage
-      - name: Dump OTP log on failure
-        if: failure()
-        run: |
-          echo "=== grep for supervisor/crash markers ==="
-          grep -nE "maximum restart intensity|reached the maximum|terminating|crash report|CRASH REPORT|\\*\\* \\(EXIT\\)|shutdown|Child .* of Supervisor|exited with reason|Supervisor" log/aiur.log || echo "(no markers found)"
-          echo "=== tail -n 500 log/aiur.log ==="
-          tail -n 500 log/aiur.log || echo "(no log/aiur.log)"
 
   dialyzer:
     runs-on: ubuntu-latest
