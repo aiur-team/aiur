@@ -52,6 +52,38 @@ Machine-readable per-run timings live in `.aiur-test3-runs.jsonl` (one JSON line
   ```
   Hook inherited operator's `ERL_AFLAGS`/`RELEASE_NODE`/`RELEASE_COOKIE`; `mix` failed instantly. The `&&` chain short-circuited, deps + compile never ran. `Aiur.AgentEnvironment` had a `scrub_shell_command/2` helper already — it just wasn't applied to hooks.
 
+### Run #6 — complexity:1 reverted, scrub kept (2026-05-28 21:27)
+
+- **Outcome**: complete, clean (all 3 reached human-review without recursive aiur destruction)
+- **Total elapsed**: **1450s (24:10)** — **148s / 9.3% faster than baseline**
+- **Per-ticket (from script start, includes hook prefetch)**:
+  - #99: 17:12
+  - #100: 24:08
+  - #101: 23:04
+- **Per-ticket (from work.start)**:
+  - #99: 12:04
+  - #100: 19:07
+  - #101: 17:41
+- **Observations**:
+  - Guards held: no recursive aiur destroyed the chain
+  - #100 declared blocker in 6s (vs baseline 16s — faster blocker discovery)
+  - Both #99 + #100 pushed in parallel at +8 min (stub-then-fetch pattern worked)
+  - #101 finished 8 min faster than baseline — biggest single-ticket win
+  - #100 took 4:34 longer than baseline — likely because it pushed a stub and then re-pushed after integrating function_a
+
+### Run #5 — workspaces include guards, parallel chain (2026-05-28 21:02)
+
+- **Outcome**: stopped mid-run after #100/#101 deactivated. #99 declared a fresh blocker during self-review (unclear why) and the run was no longer comparable
+- **Per-ticket (from work.start, partial)**:
+  - #99: ≥18:00 (still working, stopped)
+  - #100: 17:36
+  - #101: 16:47
+- **Observations**:
+  - All workspace-level guards landed and held: no recursive aiur
+  - Stub-then-fetch pattern worked: parallel pushes at the same ticker tick
+  - Chain depth grew (multiple push rounds per agent) — likely cause of run getting longer than expected
+- **Reverted before run #6**: dropped `complexity:1` (commit `b9fbb5f`) — adding it encouraged extra self-review rounds without enough offsetting win
+
 ### Run #4 — ERL_AFLAGS scrub + complexity:1, degraded by stale guard (2026-05-28 20:29)
 
 - **Outcome**: degraded — chain completed for #99 + #100 but #101 ran `./scripts/aiur --test` from its workspace and reset all 3 tickets back to `agent:todo` (workspace's `scripts/aiur` was the pre-guard snapshot from `main`, didn't have the `e79ad84` guard).
@@ -78,6 +110,7 @@ Machine-readable per-run timings live in `.aiur-test3-runs.jsonl` (one JSON line
 | c7 | `e4682e2` | Sandbox tickets get `complexity:1` on reset |
 | c8 | `d17406b` | `Aiur.TestReset.run/1` refuses when called from inside an agent workspace (P0 guard, layer 2 — the depth that always runs even when the workspace ships a stale `scripts/aiur`) |
 | c9 | `6a6707a` | Workspaces clone from `kevin/e2e-pubsub-test` instead of `origin/main` so the guards reach the workspace immediately |
+| c10 | `b9fbb5f` | Revert complexity:1 from sandbox reset — encouraged extra push rounds that ate the parallelism savings |
 
 ## Open optimizations to consider
 
