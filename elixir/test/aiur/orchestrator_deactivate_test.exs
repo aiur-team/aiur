@@ -2,6 +2,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentPubSub
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
@@ -789,13 +790,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
       blocker = "BSDB-blocker-#{System.unique_integer([:positive])}"
 
       on_exit(fn ->
-        :ok = Aiur.Events.SubscriptionStore.stop(blockee)
-        :ok = Aiur.Events.SubscriptionStore.stop(blocker)
+        :ok = SubscriptionStore.stop(blockee)
+        :ok = SubscriptionStore.stop(blocker)
       end)
 
       :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker)
 
-      %{subscribed_to: subs} = Aiur.Events.SubscriptionStore.snapshot(blockee)
+      %{subscribed_to: subs} = SubscriptionStore.snapshot(blockee)
 
       topics = Enum.map(subs, fn entry -> entry["topic"] || entry[:topic] end)
 
@@ -808,14 +809,14 @@ defmodule Aiur.OrchestratorDeactivateTest do
       blocker = "BSDB-idem-blocker-#{System.unique_integer([:positive])}"
 
       on_exit(fn ->
-        :ok = Aiur.Events.SubscriptionStore.stop(blockee)
-        :ok = Aiur.Events.SubscriptionStore.stop(blocker)
+        :ok = SubscriptionStore.stop(blockee)
+        :ok = SubscriptionStore.stop(blocker)
       end)
 
       :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker)
       :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker)
 
-      %{subscribed_to: subs} = Aiur.Events.SubscriptionStore.snapshot(blockee)
+      %{subscribed_to: subs} = SubscriptionStore.snapshot(blockee)
 
       push_subs =
         Enum.filter(subs, fn e ->
@@ -830,13 +831,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
       blocker_int = System.unique_integer([:positive])
 
       on_exit(fn ->
-        :ok = Aiur.Events.SubscriptionStore.stop(blockee)
-        :ok = Aiur.Events.SubscriptionStore.stop(to_string(blocker_int))
+        :ok = SubscriptionStore.stop(blockee)
+        :ok = SubscriptionStore.stop(to_string(blocker_int))
       end)
 
       :ok = Orchestrator.subscribe_for_declared_blocker(blockee, blocker_int)
 
-      %{subscribed_to: subs} = Aiur.Events.SubscriptionStore.snapshot(blockee)
+      %{subscribed_to: subs} = SubscriptionStore.snapshot(blockee)
       topics = Enum.map(subs, fn e -> e["topic"] || e[:topic] end)
 
       assert "ticket.#{blocker_int}.branch.push" in topics
@@ -943,8 +944,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
     setup do
       identifier = "BLOCKEE-#{System.unique_integer([:positive])}"
-      :ok = Aiur.Events.SubscriptionStore.attach(identifier)
-      on_exit(fn -> :ok = Aiur.Events.SubscriptionStore.stop(identifier) end)
+      :ok = SubscriptionStore.attach(identifier)
+      on_exit(fn -> :ok = SubscriptionStore.stop(identifier) end)
 
       fake_pid = spawn_link(fn -> fake_agent_loop() end)
 
@@ -962,7 +963,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       fake_pid: fake_pid
     } do
       :ok =
-        Aiur.Events.SubscriptionStore.add_subscription(
+        SubscriptionStore.add_subscription(
           identifier,
           "ticket.99.branch.push",
           "blocker:auto"
@@ -996,7 +997,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       fake_pid: fake_pid
     } do
       :ok =
-        Aiur.Events.SubscriptionStore.add_subscription(
+        SubscriptionStore.add_subscription(
           identifier,
           "ticket.99.branch.push",
           "blocker:auto"
@@ -1032,7 +1033,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # Subscribe to a DIFFERENT blocker's push; the 99 push should be
       # treated as not relevant to this entry.
       :ok =
-        Aiur.Events.SubscriptionStore.add_subscription(
+        SubscriptionStore.add_subscription(
           identifier,
           "ticket.42.branch.push",
           "blocker:auto"
@@ -1068,7 +1069,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # be killed by the very next stall watchdog scan because its
       # `last_codex_timestamp` still reflected the pre-pause activity.
       :ok =
-        Aiur.Events.SubscriptionStore.add_subscription(
+        SubscriptionStore.add_subscription(
           identifier,
           "ticket.99.branch.push",
           "blocker:auto"
@@ -1123,7 +1124,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # An agent could theoretically be subscribed to its own push topic
       # (via aiur_subscribe). Defensive: don't resume the publisher itself.
       :ok =
-        Aiur.Events.SubscriptionStore.add_subscription(
+        SubscriptionStore.add_subscription(
           blocker_identifier,
           "ticket.#{blocker_identifier}.branch.push",
           "manual:agent"

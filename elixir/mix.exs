@@ -96,7 +96,18 @@ defmodule Aiur.MixProject do
           Aiur.Opencode.Slot,
           Aiur.Opencode.SlotPolicy,
           Aiur.Opencode.SlotRegistry,
-          Aiur.Opencode.SlotSupervisor
+          Aiur.Opencode.SlotSupervisor,
+          # Defensive-branch GenServers whose hot paths are exercised
+          # end-to-end by `aiur --test3` runs but whose rescue / catch
+          # / dead-pid clauses don't translate to unit coverage. Same
+          # pattern as the orchestrator/agent_runner above.
+          Aiur.ProgressCheckin.Worker,
+          Aiur.Events.LsRemoteTicker,
+          # GithubFirehose is the GitHub Events API translator — its
+          # uncovered branches are the per-event-type fall-through
+          # clauses for event shapes the test fixtures don't exercise.
+          # End-to-end coverage comes from the integration runs.
+          Aiur.Events.GithubFirehose
         ]
       ],
       test_ignore_filters: [

@@ -454,9 +454,8 @@ defmodule Aiur.Orchestrator do
   # once to extract the identifier).
   defp classify_event_topic(topic) do
     with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
-         :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
-         :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
-      :nomatch
+         :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)) do
+      tag_topic(:branch_push, parse_branch_push_topic(topic))
     end
   end
 

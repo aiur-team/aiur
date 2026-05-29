@@ -94,41 +94,38 @@ defmodule Aiur.Events.LsRemoteTicker do
     Process.send_after(self(), :tick, interval_ms)
   end
 
+  # The shell-out and Publisher.publish are wrapped to keep the
+  # GenServer alive across transport hiccups and rare upstream raises.
+  # Error paths intentionally leave `bootstrapped?` untouched: until a
+  # successful poll records a real ref baseline, the ticker stays in
+  # bootstrap mode. Marking bootstrapped on an error with an empty
+  # refs cache would make the next successful tick treat every
+  # existing ticket branch as a brand-new push and fan-out a phantom
+  # auto-resume for every paused blockee. A push that lands between a
+  # transient error and the next success is lost, but the GitHub
+  # firehose covers that window as the second detection source.
   defp run_tick(state) do
-    # The shell-out and Publisher.publish are wrapped to keep the
-    # GenServer alive across transport hiccups and rare upstream
-    # raises. Error paths intentionally leave `bootstrapped?`
-    # untouched: until a successful poll records a real ref baseline,
-    # the ticker stays in bootstrap mode. Marking bootstrapped on an
-    # error with an empty refs cache would make the next successful
-    # tick treat every existing ticket branch as a brand-new push and
-    # fan-out a phantom auto-resume for every paused blockee. A push
-    # that lands between a transient error and the next success is
-    # lost, but the GitHub firehose covers that window as the second
-    # detection source.
-    try do
-      case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
-        {:ok, refs} when is_map(refs) ->
-          fold_refs(state, refs)
+    case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
+      {:ok, refs} when is_map(refs) ->
+        fold_refs(state, refs)
 
-        {:error, reason} ->
-          Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
-          state
-
-        other ->
-          Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
-          state
-      end
-    rescue
-      error ->
-        Logger.warning("LsRemoteTicker tick raised: #{Exception.message(error)} (#{inspect(error.__struct__)})")
-
+      {:error, reason} ->
+        Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
         state
-    catch
-      kind, reason ->
-        Logger.warning("LsRemoteTicker tick caught #{kind}: #{inspect(reason)}")
+
+      other ->
+        Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
         state
     end
+  rescue
+    error ->
+      Logger.warning("LsRemoteTicker tick raised: #{Exception.message(error)} (#{inspect(error.__struct__)})")
+
+      state
+  catch
+    kind, reason ->
+      Logger.warning("LsRemoteTicker tick caught #{kind}: #{inspect(reason)}")
+      state
   end
 
   defp fold_refs(state, current_refs) do
