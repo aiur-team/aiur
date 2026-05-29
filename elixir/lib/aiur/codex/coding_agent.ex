@@ -615,41 +615,45 @@ defmodule Aiur.Codex.CodingAgent do
         {:error, {:approval_required, payload}}
 
       :unhandled ->
-        if needs_input?(method, payload) do
-          emit_message(
-            on_message,
-            :turn_input_required,
-            %{payload: payload, raw: payload_string},
-            metadata
-          )
+        handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
+    end
+  end
 
-          {:error, {:turn_input_required, payload}}
-        else
-          emit_message(
-            on_message,
-            :notification,
-            %{
-              payload: payload,
-              raw: payload_string
-            },
-            metadata
-          )
+  defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do
+    if needs_input?(method, payload) do
+      emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
+      {:error, {:turn_input_required, payload}}
+    else
+      emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
+      handle_notification_outcome(session, state, method, payload)
+    end
+  end
 
-          # Surface error-class notifications at info level with the
-          # full payload so the operator log shows the actual codex
-          # failure (API rate limit, auth error, bwrap sandbox refusal,
-          # etc.) instead of an opaque `Codex notification: "error"`
-          # line that requires combing through 1000s of lines of
-          # debug-tier `Ignoring message while waiting for response`
-          # detail to reconstruct.
-          if codex_error_method?(method) do
-            Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
-          else
-            Logger.debug("Codex notification: #{inspect(method)}")
-          end
+  # Surface error-class notifications at info level with the full payload
+  # so the operator log shows the actual codex failure (API rate limit,
+  # auth error, bwrap sandbox refusal, etc.) instead of an opaque
+  # `Codex notification: "error"` line that requires combing through
+  # 1000s of lines of debug-tier `Ignoring message while waiting for
+  # response` detail to reconstruct.
+  #
+  # When codex reports it will not retry (e.g. usageLimitExceeded with
+  # willRetry:false) end the turn as a hard failure instead of :continue.
+  # :continue lets the turn finish "normally", after which the
+  # orchestrator respawns it every ~1s, uncapped; a hard failure routes
+  # through the orchestrator's max_retry_attempts cap and backoff.
+  defp handle_notification_outcome(session, state, method, payload) do
+    cond do
+      codex_error_method?(method) and unretryable_codex_error?(payload) ->
+        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
+        {:error, {:turn_unretryable, codex_error_reason(payload, method)}}
 
-          {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-        end
+      codex_error_method?(method) ->
+        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
+        {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
+
+      true ->
+        Logger.debug("Codex notification: #{inspect(method)}")
+        {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
     end
   end
 
@@ -1651,4 +1655,40 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp needs_input_field?(_payload), do: false
+
+  @doc false
+  @spec unretryable_codex_error_for_test(map()) :: boolean()
+  def unretryable_codex_error_for_test(payload) when is_map(payload), do: unretryable_codex_error?(payload)
+
+  @doc false
+  @spec codex_error_reason_for_test(map(), String.t()) :: String.t()
+  def codex_error_reason_for_test(payload, method) when is_map(payload) and is_binary(method) do
+    codex_error_reason(payload, method)
+  end
+
+  # The flag can ride on the notification root or inside `params`, and
+  # codex has used both camelCase and snake_case across versions, so
+  # check all four positions (mirrors `request_payload_requires_input?`).
+  defp unretryable_codex_error?(payload) do
+    will_retry_false?(payload) || will_retry_false?(Map.get(payload, "params"))
+  end
+
+  defp will_retry_false?(payload) when is_map(payload) do
+    Map.get(payload, "willRetry") == false or Map.get(payload, "will_retry") == false
+  end
+
+  defp will_retry_false?(_payload), do: false
+
+  # Best-effort human-readable reason for the failure tuple/log. Control
+  # flow keys only on `willRetry`; the detail field name varies, so fall
+  # back to the method when no recognizable detail is present.
+  defp codex_error_reason(payload, method) do
+    params = Map.get(payload, "params") || %{}
+
+    detail =
+      Map.get(params, "message") || Map.get(params, "type") ||
+        Map.get(params, "code") || Map.get(payload, "message")
+
+    if is_binary(detail), do: "#{method}: #{detail}", else: method
+  end
 end

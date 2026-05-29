@@ -82,6 +82,34 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
+  describe "unretryable codex error detection" do
+    test "willRetry:false inside params trips the unretryable path" do
+      payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "usageLimitExceeded"}}
+      assert CodexAgent.unretryable_codex_error_for_test(payload)
+      assert CodexAgent.codex_error_reason_for_test(payload, "error") == "error: usageLimitExceeded"
+    end
+
+    test "willRetry:false at the notification root also trips it" do
+      assert CodexAgent.unretryable_codex_error_for_test(%{"willRetry" => false})
+    end
+
+    test "snake_case will_retry:false is honored" do
+      assert CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"will_retry" => false}})
+    end
+
+    test "willRetry:true is retryable (continues, not a hard failure)" do
+      refute CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"willRetry" => true}})
+    end
+
+    test "absent willRetry is retryable" do
+      refute CodexAgent.unretryable_codex_error_for_test(%{"params" => %{"message" => "transient blip"}})
+    end
+
+    test "reason falls back to the method when no detail field is present" do
+      assert CodexAgent.codex_error_reason_for_test(%{"params" => %{"willRetry" => false}}, "task/error") == "task/error"
+    end
+  end
+
   defp open_cat_port do
     Port.open(
       {:spawn_executable, System.find_executable("cat") |> String.to_charlist()},
