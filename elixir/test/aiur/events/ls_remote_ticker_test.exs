@@ -32,6 +32,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -58,6 +59,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -96,6 +98,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -126,6 +129,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -172,6 +176,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -203,6 +208,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         ref_pattern: "refs/heads/main",
         start_paused?: true
@@ -234,6 +240,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -271,6 +278,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -336,6 +344,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
         repo: "",
         start_paused?: true
       )
