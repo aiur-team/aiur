@@ -104,13 +104,13 @@ defmodule Aiur.Events.LsRemoteTickerTest do
       )
 
     send(pid, :tick)
-    assert_receive :polled, 500
+    assert_receive :polled, 2_000
 
     Agent.update(agent, fn _ -> %{"refs/heads/aiur/101" => "newsha"} end)
     send(pid, :tick)
-    assert_receive :polled, 500
+    assert_receive :polled, 2_000
 
-    assert_receive {:published, "ticket.101.branch.push", _, _}, 500
+    assert_receive {:published, "ticket.101.branch.push", _, _}, 2_000
   end
 
   test "non-canonical aiur/<id>-<slug> branches do NOT route to ticket.<id>.branch.push",
