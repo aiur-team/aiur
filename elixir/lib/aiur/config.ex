@@ -170,6 +170,16 @@ defmodule Aiur.Config do
     settings!().agent.max_retry_backoff_ms
   end
 
+  @spec codex_thrash_max_per_window() :: pos_integer()
+  def codex_thrash_max_per_window do
+    settings!().agent.codex_thrash_max_per_window
+  end
+
+  @spec codex_thrash_window_seconds() :: pos_integer()
+  def codex_thrash_window_seconds do
+    settings!().agent.codex_thrash_window_seconds
+  end
+
   @spec agent_max_turns() :: pos_integer()
   def agent_max_turns do
     settings!().agent.max_turns

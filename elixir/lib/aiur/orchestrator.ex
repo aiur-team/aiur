@@ -59,6 +59,7 @@ defmodule Aiur.Orchestrator do
             completed: MapSet.t(),
             claimed: MapSet.t(),
             retry_attempts: map(),
+            codex_thrash_budget: map(),
             agent_totals: map() | nil,
             agent_rate_limits: map() | nil,
             codex_totals: map() | nil,
@@ -81,6 +82,7 @@ defmodule Aiur.Orchestrator do
       completed: MapSet.new(),
       claimed: MapSet.new(),
       retry_attempts: %{},
+      codex_thrash_budget: %{},
       agent_totals: nil,
       agent_rate_limits: nil,
       codex_totals: nil,
@@ -840,6 +842,13 @@ defmodule Aiur.Orchestrator do
     Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
       restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
     end)
+  end
+
+  @doc false
+  @spec apply_thrash_check_for_test(State.t(), String.t(), integer()) :: {:ok, State.t()} | {:trip, State.t()}
+  def apply_thrash_check_for_test(%State{} = state, issue_id, now_ms)
+      when is_binary(issue_id) and is_integer(now_ms) do
+    check_thrash_budget(state, issue_id, now_ms)
   end
 
   @doc false
@@ -1701,6 +1710,16 @@ defmodule Aiur.Orchestrator do
   end
 
   defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
+    case check_thrash_budget(state, issue.id, System.monotonic_time(:millisecond)) do
+      {:trip, tripped_state} ->
+        trip_thrash_breaker(tripped_state, issue)
+
+      {:ok, budgeted_state} ->
+        dispatch_to_worker(budgeted_state, issue, attempt, preferred_worker_host)
+    end
+  end
+
+  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host) do
     recipient = self()
 
     case select_worker_host(state, preferred_worker_host) do
@@ -1711,6 +1730,52 @@ defmodule Aiur.Orchestrator do
       worker_host ->
         spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
     end
+  end
+
+  # Time-windowed restart budget. Independent of the willRetry:false
+  # hard-failure path: catches thrash that never surfaces willRetry
+  # (transport timeouts, sandbox refusals, future error classes that
+  # still complete a turn as :normal and reschedule as a continuation,
+  # bypassing max_retry_attempts). Counts (re)dispatches per issue per
+  # window and trips once they exceed `codex_thrash_max_per_window`
+  # within `codex_thrash_window_seconds`. Gating here, before
+  # spawn_issue_on_worker_host, means a tripped attempt pays no workspace
+  # clone cost. The breaker resets when the window lapses, so the issue
+  # gets another window on the next poll tick.
+  @spec check_thrash_budget(State.t(), String.t(), integer()) :: {:ok, State.t()} | {:trip, State.t()}
+  defp check_thrash_budget(%State{} = state, issue_id, now_ms) do
+    window_ms = Config.codex_thrash_window_seconds() * 1_000
+
+    entry =
+      case Map.get(state.codex_thrash_budget, issue_id) do
+        %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
+          %{window_start_ms: start, count: count + 1}
+
+        _ ->
+          %{window_start_ms: now_ms, count: 1}
+      end
+
+    state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+
+    if entry.count > Config.codex_thrash_max_per_window() do
+      {:trip, state}
+    else
+      {:ok, state}
+    end
+  end
+
+  defp trip_thrash_breaker(%State{} = state, issue) do
+    count = get_in(state.codex_thrash_budget, [issue.id, :count]) || 0
+
+    Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
+
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open", issue: issue.identifier)
+
+    state
+  end
+
+  defp reset_thrash_budget(%State{} = state, issue_id) do
+    %{state | codex_thrash_budget: Map.delete(state.codex_thrash_budget, issue_id)}
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
@@ -3161,6 +3226,10 @@ defmodule Aiur.Orchestrator do
 
     Logger.info("Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task")
 
+    # Reactivation is a deliberate operator restart; clear the thrash
+    # budget so the fresh task starts with a full window.
+    state = reset_thrash_budget(state, issue_id)
+
     {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
   end
 
@@ -3200,6 +3269,10 @@ defmodule Aiur.Orchestrator do
         # timestamp and be killed on the very next reconcile tick before
         # any codex notification could refresh the field.
         state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
+        # An operator-driven resume is a deliberate restart, so clear any
+        # thrash budget the entry accrued before it paused — otherwise a
+        # long-paused blockee could resume already over its window.
+        state = reset_thrash_budget(state, issue_id)
         # Sync-flip happens here so the cap accounting stays consistent.
         # That means the worker's later `:worker_control_state :working`
         # confirmation finds previous_status already :working and emits
