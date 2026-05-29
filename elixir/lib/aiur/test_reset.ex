@@ -682,17 +682,9 @@ defmodule Aiur.TestReset do
     agent_labels =
       "agent:todo,agent:in-progress,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled"
 
-    # Add complexity:1 so agents skip ce-brainstorm / ce-plan /
-    # ce-doc-review / full ce-code-review on the sandbox tickets.
-    # The 3-ticket chain still exercises declare_blocker / push /
-    # auto-resume — those are independent of complexity — but each
-    # agent's per-ticket work shrinks to implement → test → push →
-    # human-review. Without this, the 3 tickets defaulted to the
-    # complexity:3 workflow and spent ~5-7 min per agent on
-    # planning and review work the operator never wanted.
     [
       ["issue", "edit", to_string(id), "--remove-label", agent_labels],
-      ["issue", "edit", to_string(id), "--add-label", "agent:todo,complexity:1"]
+      ["issue", "edit", to_string(id), "--add-label", "agent:todo"]
     ]
   end
 
