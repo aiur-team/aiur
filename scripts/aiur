@@ -1,6 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Agent-workspace guard. When an agent runs inside its workspace,
+# aiur sets `AIUR_AGENT_WORKSPACE=<workspace path>` in its env
+# (Aiur.AgentEnvironment.workspace_env/1). If we see that marker,
+# refuse to do anything — `scripts/aiur --test`/`--test3` calls
+# `stop all` which pkill-s the operator's BEAM, and `mix aiur.test.reset`
+# wipes the sandbox tickets back to agent:todo, destroying the
+# in-flight run. Agents that try "manual CLI verification" by
+# launching aiur from inside their workspace would otherwise tear
+# down the run that's grading them. The block applies to every
+# subcommand; agents should never need to invoke this script.
+if [ -n "${AIUR_AGENT_WORKSPACE:-}" ]; then
+  echo "❌ refusing to run aiur from inside an agent workspace" >&2
+  echo "   AIUR_AGENT_WORKSPACE=$AIUR_AGENT_WORKSPACE" >&2
+  echo "   Agents must verify by exercising the code directly (mix run, mix test, etc.)," >&2
+  echo "   not by launching another aiur instance. Running aiur recursively would" >&2
+  echo "   reset sandbox tickets and kill the operator's BEAM." >&2
+  exit 78
+fi
+
+# Defense-in-depth: if AIUR_AGENT_WORKSPACE isn't set (older agents,
+# env scrubbing, manual edits) but the script is being invoked from
+# inside a recognized workspace tree, still refuse. The workspace
+# root pattern matches `~/code/aiur-workspaces/<id>/` and any descendant.
+case "${PWD:-}" in
+  */aiur-workspaces/*)
+    echo "❌ refusing to run aiur from inside an agent workspace tree" >&2
+    echo "   PWD=$PWD" >&2
+    echo "   Agents must verify by exercising the code directly," >&2
+    echo "   not by launching another aiur instance." >&2
+    exit 78
+    ;;
+esac
+
 # Resolve symlinks so the script works when invoked via a symlink on PATH
 # (e.g. `ln -s .../scripts/aiur ~/.local/bin/aiur`). Without this, BASH_SOURCE
 # returns the symlink path and script_dir resolves to the symlink's parent.
