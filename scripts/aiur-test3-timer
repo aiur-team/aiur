@@ -54,7 +54,7 @@ emit_result() {
         jq -n --argjson ticket "$t" '{ticket: $ticket, finished_at: null, elapsed_seconds: null}'
       else
         el=$((fa - start_epoch))
-        jq -n \
+        jq -c -n \
           --argjson ticket "$t" \
           --argjson finished_at "$fa" \
           --argjson elapsed_seconds "$el" \
@@ -63,7 +63,7 @@ emit_result() {
     done | jq -s '.'
   )
 
-  jq -n \
+  jq -c -n \
     --argjson started_at "$start_epoch" \
     --argjson finished_at "$now" \
     --argjson elapsed_seconds "$elapsed" \
