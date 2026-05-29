@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Background poller that times an `aiur --test3` run.
+# Polls GitHub for the `agent:human-review` label on the 3 sandbox
+# tickets; when all 3 have it, appends a JSON line to
+# `.aiur-test3-runs.jsonl` and exits. Times out after 90 minutes.
+#
+# Invoked detached by `scripts/aiur` after a successful --test3 reset.
+# A PID file at `.aiur-test3-timer.pid` lets the next --test3 run
+# kill any in-flight poller before starting a new one.
+set -euo pipefail
+
+repo_root="${1:?repo_root required}"
+start_epoch="${2:?start_epoch required}"
+tickets_file="$repo_root/.aiur-test-tickets.json"
+runs_log="$repo_root/.aiur-test3-runs.jsonl"
+pid_file="$repo_root/.aiur-test3-timer.pid"
+
+# Write our pid so the next --test3 run can kill us.
+echo "$$" > "$pid_file"
+trap 'rm -f "$pid_file"' EXIT
+
+if ! command -v jq >/dev/null 2>&1; then
+  exit 0
+fi
+if ! command -v gh >/dev/null 2>&1; then
+  exit 0
+fi
+if [ ! -r "$tickets_file" ]; then
+  exit 0
+fi
+
+mapfile -t tickets < <(jq -r '.tickets[]' "$tickets_file" 2>/dev/null)
+total="${#tickets[@]}"
+if [ "$total" -eq 0 ]; then
+  exit 0
+fi
+
+deadline=$((start_epoch + 5400))
+poll_interval=30
+
+while :; do
+  now=$(date +%s)
+  if [ "$now" -ge "$deadline" ]; then
+    elapsed=$((now - start_epoch))
+    jq -n \
+      --argjson started_at "$start_epoch" \
+      --argjson finished_at "$now" \
+      --argjson elapsed_seconds "$elapsed" \
+      --argjson tickets "$(printf '%s\n' "${tickets[@]}" | jq -Rs 'split("\n") | map(select(length > 0) | tonumber)')" \
+      --arg outcome "timeout" \
+      '{started_at: $started_at, finished_at: $finished_at, elapsed_seconds: $elapsed_seconds, tickets: $tickets, outcome: $outcome}' \
+      >> "$runs_log"
+    exit 0
+  fi
+
+  done_count=0
+  for t in "${tickets[@]}"; do
+    if gh issue view "$t" --json labels --jq '.labels[].name' 2>/dev/null | grep -q '^agent:human-review$'; then
+      done_count=$((done_count + 1))
+    fi
+  done
+
+  if [ "$done_count" -ge "$total" ]; then
+    elapsed=$((now - start_epoch))
+    jq -n \
+      --argjson started_at "$start_epoch" \
+      --argjson finished_at "$now" \
+      --argjson elapsed_seconds "$elapsed" \
+      --argjson tickets "$(printf '%s\n' "${tickets[@]}" | jq -Rs 'split("\n") | map(select(length > 0) | tonumber)')" \
+      --arg outcome "complete" \
+      '{started_at: $started_at, finished_at: $finished_at, elapsed_seconds: $elapsed_seconds, tickets: $tickets, outcome: $outcome}' \
+      >> "$runs_log"
+    exit 0
+  fi
+
+  sleep "$poll_interval"
+done

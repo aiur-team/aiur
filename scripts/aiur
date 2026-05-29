@@ -212,6 +212,31 @@ if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   fi
 fi
 
+# --test3 wall-clock timer. Kills any in-flight poller from a prior
+# run, then spawns a detached one that polls GitHub for the
+# `agent:human-review` label on the 3 sandbox tickets. When all 3
+# carry the label (or 90 minutes elapse), it appends a JSON line to
+# `.aiur-test3-runs.jsonl` and exits. The poller detaches from the
+# foreground TUI so it survives `q` / Ctrl-C and continues timing
+# until the chain completes.
+if [ "$test3_mode" -eq 1 ]; then
+  pid_file="$default_repo_root/.aiur-test3-timer.pid"
+  if [ -r "$pid_file" ]; then
+    prior_pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [ -n "$prior_pid" ] && kill -0 "$prior_pid" 2>/dev/null; then
+      kill "$prior_pid" 2>/dev/null || true
+    fi
+    rm -f "$pid_file"
+  fi
+  timer_script="$default_repo_root/scripts/aiur-test3-timer"
+  if [ -x "$timer_script" ]; then
+    start_epoch="$(date +%s)"
+    echo "⏱  test3 timer started (results append to .aiur-test3-runs.jsonl)" >&2
+    setsid "$timer_script" "$default_repo_root" "$start_epoch" </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  fi
+fi
+
 if [ "$expect_port_value" -eq 1 ]; then
   echo "❌ --port requires a port number (e.g. --port 4099)" >&2
   exit 64
