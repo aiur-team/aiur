@@ -11,4 +11,10 @@ defmodule Aiur.Sandbox.EventFlowDemo do
   def function_b do
     function_a() + 1
   end
+
+  @spec function_c() :: integer()
+  def function_c do
+    result = function_b()
+    result * result
+  end
 end
