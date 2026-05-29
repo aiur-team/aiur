@@ -39,7 +39,19 @@ hooks:
   after_create: |
     git clone https://github.com/its-everdred/aiur.git .
     issue_id="$(basename "$PWD")"
-    git checkout -b "aiur/${issue_id}" origin/main
+    # Branch off the operator's current working branch instead of
+    # `origin/main` so agent workspaces include the in-flight fixes
+    # the operator has committed but not yet merged — specifically
+    # the agent-workspace guards in scripts/aiur and
+    # Aiur.TestReset.run/1. Without this, agents that recursively
+    # invoke `./scripts/aiur --test` from inside the workspace bypass
+    # both guards (the workspace ships a pre-guard snapshot from
+    # main) and wipe the operator's sandbox tickets mid-run. Branch
+    # name lives here so a workflow-only edit can re-target the
+    # source once the fixes land on main.
+    git fetch origin kevin/e2e-pubsub-test >/dev/null 2>&1 || true
+    base_ref="$(git rev-parse --verify origin/kevin/e2e-pubsub-test 2>/dev/null || echo origin/main)"
+    git checkout -b "aiur/${issue_id}" "$base_ref"
     mkdir -p ./.aiur-hex ./.aiur-mix
     if [ -f elixir/mise.toml ]; then
       mise trust elixir/mise.toml >/dev/null 2>&1 || true
