@@ -6,4 +6,8 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
   test "function_a/0 returns the sandbox sentinel value" do
     assert EventFlowDemo.function_a() == 42
   end
+
+  test "function_b calls function_a and adds one" do
+    assert EventFlowDemo.function_b() == 43
+  end
 end
