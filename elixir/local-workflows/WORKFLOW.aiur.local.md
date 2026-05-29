@@ -29,6 +29,13 @@ server:
 workspace:
   root: ~/code/aiur-workspaces
 hooks:
+  # 10 minutes per hook. Observed: cold clone + mise install + mix
+  # deps.get + mix compile takes ~3:30 on a warm machine, longer on
+  # a cold one. The previous 60s default silently killed every hook
+  # at the deps.get step (output is swallowed by `>/dev/null 2>&1`),
+  # so every agent paid 3-4 min for `mix deps.get` on first
+  # productive turn instead of starting with warm caches.
+  timeout_ms: 600000
   after_create: |
     git clone https://github.com/its-everdred/aiur.git .
     issue_id="$(basename "$PWD")"

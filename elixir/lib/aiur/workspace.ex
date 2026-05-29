@@ -293,6 +293,7 @@ defmodule Aiur.Workspace do
 
   defp run_hook(command, workspace, issue_context, hook_name, nil) do
     timeout_ms = Config.settings!().hooks.timeout_ms
+    started_at = System.monotonic_time(:millisecond)
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
@@ -303,6 +304,10 @@ defmodule Aiur.Workspace do
 
     case Task.yield(task, timeout_ms) do
       {:ok, cmd_result} ->
+        elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+        Logger.info("aiur_perf workspace_hook phase=done hook=#{hook_name} #{issue_log_context(issue_context)} elapsed_ms=#{elapsed_ms}")
+
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
       nil ->

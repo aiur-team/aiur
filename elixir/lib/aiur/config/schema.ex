@@ -258,7 +258,7 @@ defmodule Aiur.Config.Schema do
       field(:before_run, :string)
       field(:after_run, :string)
       field(:before_remove, :string)
-      field(:timeout_ms, :integer, default: 60_000)
+      field(:timeout_ms, :integer, default: 600_000)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
