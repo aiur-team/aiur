@@ -52,13 +52,18 @@ Machine-readable per-run timings live in `.aiur-test3-runs.jsonl` (one JSON line
   ```
   Hook inherited operator's `ERL_AFLAGS`/`RELEASE_NODE`/`RELEASE_COOKIE`; `mix` failed instantly. The `&&` chain short-circuited, deps + compile never ran. `Aiur.AgentEnvironment` had a `scrub_shell_command/2` helper already — it just wasn't applied to hooks.
 
-### Run #4 — ERL_AFLAGS scrub + complexity:1 (2026-05-28 20:29)
+### Run #4 — ERL_AFLAGS scrub + complexity:1, degraded by stale guard (2026-05-28 20:29)
 
-- **Outcome**: in flight (this row updated when chain completes)
-- **Changes in effect** (commit `e4682e2`):
-  - `c6` `Aiur.Workspace.run_hook/5` wraps command through `AgentEnvironment.scrub_shell_command/2` → fixes the ERL_AFLAGS conflict
-  - `c7` `TestReset.reset_labels_command_args/1` now adds `complexity:1` so sandbox agents skip ce-brainstorm / ce-plan / full ce-code-review
-- **Expected**: deps pre-warm actually completes → agent first-turn is ≈3min faster; complexity:1 saves additional review-phase time. Push→wake latency should remain ~1s.
+- **Outcome**: degraded — chain completed for #99 + #100 but #101 ran `./scripts/aiur --test` from its workspace and reset all 3 tickets back to `agent:todo` (workspace's `scripts/aiur` was the pre-guard snapshot from `main`, didn't have the `e79ad84` guard).
+- **Per-ticket** (work.start at 20:34:22):
+  - #99: done at 7:31 (**3:01 faster than run #1**)
+  - #100: done at 16:30 (1:57 slower; paused waiting for #99 instead of stubbing in parallel)
+  - #101: destroyed mid-integration when its own verification step recursively launched aiur
+- **Hook diagnostics confirmed scrub fix**: workspace_hook output_tail now shows actual deps being downloaded + compiled (cc_precompiler, credo, etc.) instead of the `Protocol 'inet_tcp'` error. After_create hooks: 3:54 / 4:08 / 4:12 (parallel, ~4 min wall-clock).
+- **New bug surfaced**: agent workspaces clone from `origin/main` at the hook step. The script-level + TestReset-level guards I added on the `kevin/e2e-pubsub-test` branch never reach the workspace because the workspace's own `scripts/aiur` and `mix aiur.test.reset` are the older pre-guard snapshot.
+- **Changes added during run**:
+  - `c8` `Aiur.TestReset.run/1` refuses with `:agent_workspace_blocked` when `AIUR_AGENT_WORKSPACE` is set or `repo_root` contains `/aiur-workspaces/` (commit `d17406b`)
+  - `c9` workflow `after_create` hook now clones the operator's working branch (`kevin/e2e-pubsub-test`), falling back to `origin/main`, so fresh workspaces include the guards (commit `6a6707a`)
 
 ## Changes ledger
 
@@ -68,11 +73,14 @@ Machine-readable per-run timings live in `.aiur-test3-runs.jsonl` (one JSON line
 | c2 | `0585651` | Timer captures per-ticket completion timestamps |
 | c3 | `6b8c2b4` | Timer writes one-line JSON per run |
 | c4 | `fcf7ec0` | Hook output captured + logged (output_tail diagnostics) |
-| c5 | `e79ad84` | `scripts/aiur` refuses to run from agent workspaces (P0 guard) |
-| c6 | `e4682e2` | Workspace hooks run through ERL_AFLAGS scrub |
+| c5 | `e79ad84` | `scripts/aiur` refuses to run from agent workspaces (P0 guard, layer 1) |
+| c6 | `e4682e2` | Workspace hooks run through ERL_AFLAGS scrub — hooks now actually fetch deps |
 | c7 | `e4682e2` | Sandbox tickets get `complexity:1` on reset |
+| c8 | `d17406b` | `Aiur.TestReset.run/1` refuses when called from inside an agent workspace (P0 guard, layer 2 — the depth that always runs even when the workspace ships a stale `scripts/aiur`) |
+| c9 | `6a6707a` | Workspaces clone from `kevin/e2e-pubsub-test` instead of `origin/main` so the guards reach the workspace immediately |
 
 ## Open optimizations to consider
 
+- Encourage stub-then-fetch over pause-and-wait so blockees do real parallel work (run #4 #100 paused instead of stubbing — cost ~2 min)
 - Replace per-workspace `git clone` with `git worktree add` (would reuse the operator's pack files; saves 3-5s per workspace, but adds .git lock contention risk)
 - Agents independently re-read SKILL.md and re-explore the codebase on every fresh boot (60s of read-only exploration per agent that could in principle be pre-seeded — but bounded LLM thinking time would still dominate)
