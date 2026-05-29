@@ -281,7 +281,7 @@ defmodule Aiur.Opencode.Protocol do
   System-role message data — used for one-line ticker rows that should
   render without the `▣ Build · issue-N` chrome that `assistant_message_data/1`
   produces. Used by `SessionWriter` for cross-ticket event rows
-  (📥/📤/📄) so the operator can distinguish coordination signals from
+  (📬/📤/📄) so the operator can distinguish coordination signals from
   agent turn output.
 
   Omits `mode` and `agent` (which together drive the build chrome in

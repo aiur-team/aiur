@@ -39,7 +39,8 @@ defmodule Aiur.Codex.DynamicTool do
     "properties" => %{
       "name" => %{
         "type" => "string",
-        "description" => "Vocabulary tag. One of: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
+        "description" =>
+          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
@@ -304,6 +305,7 @@ defmodule Aiur.Codex.DynamicTool do
 
     with {:ok, name, message, payload} <- normalize_emit_event_arguments(arguments),
          :ok <- validate_emit_event_name(name),
+         :ok <- enforce_per_turn_quota(name),
          true <- is_function(event_publisher, 3) || {:error, :event_publisher_unavailable},
          {:ok, result} <- event_publisher.(name, message, payload) do
       dynamic_tool_response(
@@ -346,7 +348,15 @@ defmodule Aiur.Codex.DynamicTool do
     ~r/\Aattention\.[a-z0-9][a-z0-9.-]{0,63}\z/,
     ~r/\Acustom\.[a-z0-9][a-z0-9.-]{0,63}\z/
   ]
-  @agent_event_exact ["blocked", "unblocked", "attention.resolved", "pause.request"]
+  @agent_event_exact ["progress", "blocked", "unblocked", "attention.resolved", "pause.request"]
+
+  # Bare-`progress` emits carry %{percent, label} samples for the agent-list
+  # progress bar. Agents target one emit per phase boundary; the cap exists
+  # to keep mid-phase corrections rare and the lifetime budget around 8-15
+  # emits per ticket. 3rd progress emit in a single codex turn is rejected
+  # so the agent reads the error and learns the constraint.
+  @progress_emits_per_turn_max 2
+  @progress_quota_key {__MODULE__, :progress_emit_count}
 
   defp validate_emit_event_name(name) do
     cond do
@@ -354,6 +364,29 @@ defmodule Aiur.Codex.DynamicTool do
       Enum.any?(@agent_event_allowlist, &Regex.match?(&1, name)) -> :ok
       true -> {:error, :event_name_not_in_allowlist}
     end
+  end
+
+  defp enforce_per_turn_quota("progress") do
+    count = Process.get(@progress_quota_key, 0)
+
+    if count >= @progress_emits_per_turn_max do
+      {:error, :progress_cap_exceeded}
+    else
+      Process.put(@progress_quota_key, count + 1)
+      :ok
+    end
+  end
+
+  defp enforce_per_turn_quota(_name), do: :ok
+
+  @doc """
+  Reset per-turn vocabulary quotas (currently the `progress` cap). Call this
+  at every codex turn boundary so the next turn starts with a fresh budget.
+  """
+  @spec reset_turn_quotas() :: :ok
+  def reset_turn_quotas do
+    Process.delete(@progress_quota_key)
+    :ok
   end
 
   defp execute_emit_alert(arguments, opts) do
@@ -562,8 +595,10 @@ defmodule Aiur.Codex.DynamicTool do
   defp tool_error_payload(:event_name_not_in_allowlist) do
     %{
       "error" => %{
-        "message" => "`emit_event.name` must match the agent vocabulary: progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
+        "message" =>
+          "`emit_event.name` must match the agent vocabulary: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, or custom.<slug>.",
         "examples" => [
+          "progress",
           "progress.brainstorm-end",
           "decision.use-amqp-matcher",
           "blocked",
@@ -626,6 +661,14 @@ defmodule Aiur.Codex.DynamicTool do
     %{
       "error" => %{
         "message" => "`emit_event` over the per-turn custom.* quota. Wait for the next turn or use a non-`custom.*` name."
+      }
+    }
+  end
+
+  defp tool_error_payload(:progress_cap_exceeded) do
+    %{
+      "error" => %{
+        "message" => "`emit_event` over the per-turn `progress` cap (2 per turn). Wait for the next phase boundary to emit again."
       }
     }
   end

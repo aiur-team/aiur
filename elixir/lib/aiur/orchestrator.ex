@@ -21,7 +21,8 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
-  alias Aiur.Events.{GithubFirehose, Publisher, SubscriptionStore}
+  alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
+  alias Aiur.Opencode.ActiveTurns
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -58,6 +59,7 @@ defmodule Aiur.Orchestrator do
             completed: MapSet.t(),
             claimed: MapSet.t(),
             retry_attempts: map(),
+            codex_thrash_budget: map(),
             agent_totals: map() | nil,
             agent_rate_limits: map() | nil,
             codex_totals: map() | nil,
@@ -80,6 +82,7 @@ defmodule Aiur.Orchestrator do
       completed: MapSet.new(),
       claimed: MapSet.new(),
       retry_attempts: %{},
+      codex_thrash_budget: %{},
       agent_totals: nil,
       agent_rate_limits: nil,
       codex_totals: nil,
@@ -114,9 +117,35 @@ defmodule Aiur.Orchestrator do
     run_terminal_workspace_cleanup()
     init_tracked_set_table()
     install_event_tracked_fn()
+    subscribe_to_orchestrator_topics()
     state = schedule_tick(state, 0)
 
     {:ok, state}
+  end
+
+  # Subscribe to the topics the orchestrator routes itself:
+  #
+  #   * `ticket.*.pr.review_comment` — reactivate a `:deactivated`
+  #     entry when a PR review comment lands.
+  #   * `ticket.*.agent.pause.request` — when an agent emits
+  #     pause.request it has decided to stop working. Flip its
+  #     control status to `:paused` so `list_running_active_identifiers/0`
+  #     stops counting it as active and the 5-min check-in worker
+  #     stops spamming it.
+  #   * `ticket.*.branch.push` — when a blocker pushes its branch,
+  #     auto-resume any paused blockee that subscribed to that topic
+  #     via `aiur_declare_blocker`. Without this hook the blockee's
+  #     SubscriptionStore inbox accumulates the push event but the
+  #     blockee process is idle until the next manual chat or label
+  #     change.
+  defp subscribe_to_orchestrator_topics do
+    if Process.whereis(Exchange) do
+      Exchange.subscribe("ticket.*.pr.review_comment")
+      Exchange.subscribe("ticket.*.agent.pause.request")
+      Exchange.subscribe("ticket.*.branch.push")
+    end
+
+    :ok
   end
 
   # Publisher reads this on every publish to decide whether an event
@@ -170,11 +199,18 @@ defmodule Aiur.Orchestrator do
   # Refreshes the tracked set with the current running issues. Called
   # after every poll cycle so the contamination filter sees the latest
   # set without crossing the GenServer mailbox boundary.
+  #
+  # `:deactivated` entries are excluded so late events from a killed
+  # codex task don't pass the publisher gate after deactivation. The
+  # entry stays in `state.running` for AgentList visibility, but the
+  # publisher's view is "we are no longer accepting events for this id".
   defp refresh_tracked_set(state) do
     needles =
       state.running
-      |> Map.values()
-      |> Enum.map(fn entry ->
+      |> Enum.reject(fn {_id, entry} ->
+        get_in(entry, [:control, :status]) == :deactivated
+      end)
+      |> Enum.map(fn {_id, entry} ->
         id = entry[:identifier] || Map.get(entry, :identifier)
         if id, do: to_string(id)
       end)
@@ -365,9 +401,271 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_issue, _issue_id}, state), do: {:noreply, state}
 
+  # PR review-comment fan-out from `Aiur.Events.Exchange`. The publisher's
+  # `bot_self_loop?` filter drops self-comments before they reach here,
+  # so any event arriving is from an external actor (a human reviewer,
+  # another agent, etc.). Reactivate the matching `:deactivated` row;
+  # `:working` / `:paused` entries are left alone (the live agent is
+  # already in the loop and will see the comment via its own per-ticket
+  # subscription).
+  def handle_info({:event, %{topic: topic} = _event}, state) when is_binary(topic) do
+    case classify_event_topic(topic) do
+      {:pr_review_comment, identifier} ->
+        {:noreply, maybe_reactivate_on_pr_comment(state, identifier)}
+
+      {:pause_request, identifier} ->
+        {:noreply, maybe_pause_on_request(state, identifier)}
+
+      {:branch_push, blocker_identifier} ->
+        {:noreply, maybe_resume_blockees_on_push(state, blocker_identifier, topic)}
+
+      :nomatch ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp parse_pr_review_comment_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.pr\.review_comment\z}, topic) do
+      [_, number] -> {:ok, number}
+      _ -> :nomatch
+    end
+  end
+
+  defp parse_pause_request_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.pause\.request\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
+  defp parse_branch_push_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.branch\.push\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
+  # Single-pass topic classifier: runs each parser at most once and
+  # returns a tagged tuple the caller pattern-matches on. Cheaper than
+  # a `cond` that calls every parser twice (once for the match? test,
+  # once to extract the identifier).
+  defp classify_event_topic(topic) do
+    with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
+         :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)) do
+      tag_topic(:branch_push, parse_branch_push_topic(topic))
+    end
+  end
+
+  defp tag_topic(tag, {:ok, identifier}), do: {tag, identifier}
+  defp tag_topic(_tag, :nomatch), do: :nomatch
+
+  defp maybe_reactivate_on_pr_comment(%State{} = state, issue_number) do
+    case find_running_by_identifier(state.running, issue_number) do
+      running_entry when is_map(running_entry) ->
+        reactivate_if_deactivated(state, running_entry, issue_number)
+
+      _ ->
+        state
+    end
+  end
+
+  # When an agent emits `agent.pause.request` it has decided to stop
+  # working — usually because it declared a blocker and has nothing
+  # left to do until the blocker emits. Flip the control status to
+  # `:paused` AND queue a `{:pause_agent, _}` control message on the
+  # task pid so the worker actually enters `wait_for_operator_message`.
+  # Without the queued control message a pause.request fired
+  # mid-tool-call would only flip the orchestrator's bookkeeping; the
+  # later auto-resume `:resume_agent` would have no receiver because
+  # the worker loop never paused. Symmetry with the operator-pause
+  # path makes the resume side trivially correct.
+  defp maybe_pause_on_request(%State{} = state, identifier) do
+    case find_running_by_identifier(state.running, identifier) do
+      running_entry when is_map(running_entry) ->
+        existing_status =
+          (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
+
+        cond do
+          existing_status == :paused ->
+            state
+
+          deactivated_running_entry?(running_entry) ->
+            state
+
+          true ->
+            # Queue the pause control message; ignore the reply because
+            # we're about to transition the entry's status optimistically
+            # in `transition_control_status`. The worker confirmation
+            # arrives later via `:worker_control_state :paused` and the
+            # already-equal status short-circuit drops the duplicate
+            # transition cleanly.
+            _ = send_pause_control_message(state, identifier)
+            transition_control_status(state, running_entry, :paused, "agent.pause.request")
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  # `ticket.<blocker>.branch.push` arrived. For every paused running
+  # entry that has this exact topic in its SubscriptionStore.snapshot
+  # (i.e. it declared this ticket as a blocker via
+  # `aiur_declare_blocker`), flip control back to `:working` and
+  # re-dispatch so the bootstrap digest delivers the push and the
+  # agent picks up the unblock signal on its next turn.
+  defp maybe_resume_blockees_on_push(%State{} = state, blocker_identifier, topic) do
+    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
+      cond do
+        not is_map(entry) -> acc
+        not paused_running_entry?(entry) -> acc
+        deactivated_running_entry?(entry) -> acc
+        true -> maybe_resume_for_topic(acc, entry, blocker_identifier, topic)
+      end
+    end)
+  end
+
+  defp maybe_resume_for_topic(state, entry, blocker_identifier, topic) do
+    identifier = Map.get(entry, :identifier)
+
+    cond do
+      not is_binary(identifier) ->
+        state
+
+      identifier == blocker_identifier ->
+        state
+
+      subscribed_to_topic?(identifier, topic) ->
+        attempt_auto_resume(state, entry, identifier, blocker_identifier, topic)
+
+      true ->
+        state
+    end
+  end
+
+  # Resume can fail when the concurrent-agent cap is already full —
+  # the blockee would otherwise sit silently paused forever because
+  # the push event is consumed exactly once and the firehose / ls-remote
+  # dedup table prevents a re-emit. Log a warning so operators can see
+  # the cap is blocking the resume, and stamp a hint on the entry so a
+  # future reconcile tick (when a slot opens up) can drain the queue.
+  defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
+    Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+
+    case resume_paused_issue(state, entry) do
+      {{:ok, :resumed}, next_state} ->
+        next_state
+
+      {{:error, :max_concurrent_agents_reached}, next_state} ->
+        Logger.warning("Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint")
+
+        stamp_pending_auto_resume(next_state, identifier, blocker_identifier, topic)
+
+      {{:error, reason}, next_state} ->
+        Logger.warning("Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
+
+        next_state
+    end
+  end
+
+  # Record a `pending_auto_resume` marker on the running entry so a
+  # future tick (`reconcile_pending_auto_resumes/1`) can retry once a
+  # slot opens up. Without this the cap-full case loses the push
+  # signal and the blockee stays paused forever.
+  defp stamp_pending_auto_resume(state, identifier, blocker_identifier, topic) do
+    case find_running_by_identifier(state.running, identifier) do
+      running_entry when is_map(running_entry) ->
+        issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+
+        hint = %{
+          blocker_identifier: blocker_identifier,
+          topic: topic,
+          stamped_at: DateTime.utc_now()
+        }
+
+        updated_entry = Map.put(running_entry, :pending_auto_resume, hint)
+        %{state | running: Map.put(state.running, issue_id, updated_entry)}
+
+      _ ->
+        state
+    end
+  end
+
+  # `snapshot/1` is a synchronous GenServer.call to the per-identifier
+  # store. The case clauses handle the documented contract; the rescue
+  # only narrows to `:exit` (call timeout) so genuine bugs surface as
+  # exceptions in tests instead of being silently swallowed.
+  defp subscribed_to_topic?(identifier, topic) do
+    case SubscriptionStore.snapshot(identifier) do
+      %{subscribed_to: subs} when is_list(subs) ->
+        Enum.any?(subs, fn
+          %{"topic" => t} -> t == topic
+          %{topic: t} -> t == topic
+          _ -> false
+        end)
+
+      _ ->
+        false
+    end
+  catch
+    :exit, reason ->
+      Logger.warning("subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}")
+
+      false
+  end
+
+  # Flip an entry's control.status. Used by `maybe_pause_on_request/2`
+  # to record the agent-initiated pause without going through the
+  # `pause_agent_reply -> send_running_control_message` path, which
+  # is for operator-initiated pauses against a running agent loop.
+  # The agent is already idle when we get here.
+  #
+  # Also stamps the pause-clock side-effect (`apply_pause_runtime_clock`)
+  # so the runtime ticker freezes while paused — without it the
+  # subsequent auto-resume in `maybe_resume_blockees_on_push` would
+  # find no `paused_at` to thaw against, and the agent's running
+  # clock would include the paused interval. Then notifies the
+  # dashboard so the agent list reflects the new state without
+  # waiting for the next poll tick.
+  defp transition_control_status(state, running_entry, new_status, reason) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    identifier = Map.get(running_entry, :identifier)
+    existing = Map.get(running_entry, :control, %{})
+    old_status = Map.get(existing, :status, :working)
+
+    if old_status == new_status do
+      state
+    else
+      Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
+
+      now = DateTime.utc_now()
+
+      next_entry =
+        running_entry
+        |> Map.put(:control, Map.put(existing, :status, new_status))
+        |> apply_pause_runtime_clock(old_status, new_status, now)
+
+      next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
+      maybe_emit_agent_control_alert(old_status, new_status, next_entry)
+      notify_dashboard(next_state)
+      next_state
+    end
+  end
+
+  defp reactivate_if_deactivated(state, running_entry, issue_number) do
+    if deactivated_running_entry?(running_entry) do
+      Logger.info("PR review comment reactivating: identifier=#{issue_number}")
+
+      {_reply, next_state} = reactivate_issue(state, running_entry)
+      next_state
+    else
+      state
+    end
   end
 
   defp event_digest_summary(event) when is_map(event) do
@@ -461,6 +759,7 @@ defmodule Aiur.Orchestrator do
 
   defp reconcile_running_issues(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
+    state = reconcile_pending_auto_resumes(state)
     running_ids = Map.keys(state.running)
 
     if running_ids == [] do
@@ -492,6 +791,64 @@ defmodule Aiur.Orchestrator do
 
   def reconcile_issue_states_for_test(issues, state) when is_list(issues) do
     reconcile_running_issue_states(issues, state, active_state_set(), terminal_state_set())
+  end
+
+  @doc false
+  @spec slot_status_for_test(State.t()) :: %{active: non_neg_integer(), paused: non_neg_integer()}
+  def slot_status_for_test(%State{} = state) do
+    %{
+      active: active_running_count(state.running),
+      paused: paused_running_count(state.running)
+    }
+  end
+
+  @doc false
+  @spec parse_pr_review_comment_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_pr_review_comment_topic_for_test(topic) when is_binary(topic) do
+    parse_pr_review_comment_topic(topic)
+  end
+
+  @doc false
+  @spec parse_pause_request_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_pause_request_topic_for_test(topic) when is_binary(topic) do
+    parse_pause_request_topic(topic)
+  end
+
+  @doc false
+  @spec parse_branch_push_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_branch_push_topic_for_test(topic) when is_binary(topic) do
+    parse_branch_push_topic(topic)
+  end
+
+  @doc false
+  @spec apply_pause_request_for_test(State.t(), String.t()) :: State.t()
+  def apply_pause_request_for_test(%State{} = state, identifier) when is_binary(identifier) do
+    maybe_pause_on_request(state, identifier)
+  end
+
+  @doc false
+  @spec apply_branch_push_for_test(State.t(), String.t()) :: State.t()
+  def apply_branch_push_for_test(%State{} = state, blocker_identifier)
+      when is_binary(blocker_identifier) do
+    topic = "ticket." <> blocker_identifier <> ".branch.push"
+    maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+  end
+
+  @doc false
+  @spec apply_stall_check_for_test(State.t(), pos_integer()) :: State.t()
+  def apply_stall_check_for_test(%State{} = state, timeout_ms) when is_integer(timeout_ms) do
+    now = DateTime.utc_now()
+
+    Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+      restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
+    end)
+  end
+
+  @doc false
+  @spec apply_thrash_check_for_test(State.t(), String.t(), integer()) :: {:ok, State.t()} | {:trip, State.t()}
+  def apply_thrash_check_for_test(%State{} = state, issue_id, now_ms)
+      when is_binary(issue_id) and is_integer(now_ms) do
+    check_thrash_budget(state, issue_id, now_ms)
   end
 
   @doc false
@@ -562,7 +919,10 @@ defmodule Aiur.Orchestrator do
         terminate_running_issue(state, issue.id, false)
 
       active_issue_state?(issue.state, active_states) ->
-        refresh_running_issue_state(state, issue)
+        maybe_reactivate_or_refresh(state, issue)
+
+      human_review_state?(issue.state) ->
+        deactivate_running_issue(state, issue.id)
 
       true ->
         Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
@@ -572,6 +932,60 @@ defmodule Aiur.Orchestrator do
   end
 
   defp reconcile_issue_state(_issue, state, _active_states, _terminal_states), do: state
+
+  # Matches the `agent:human-review` label (after `normalize_issue_state`,
+  # this is `"human-review"`). Reserved for the deactivate path — keeps the
+  # running entry visible at 🏁 / 100% while releasing the slot and chat
+  # pane, instead of dropping it the way the catch-all `true →` branch
+  # would.
+  defp human_review_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == "human-review"
+  end
+
+  defp human_review_state?(_), do: false
+
+  # Broadcast `aiur_turn_done` for every currently-active aiur turn on
+  # `identifier`. The opencode bridge's chat-completion SSE handlers
+  # subscribe to `agent:<identifier>` and rely on this broadcast to
+  # close cleanly. Without it, killing the AgentRunner mid-turn (via
+  # `terminate_task/1`) leaves the SSE streams subscribed until their
+  # 10-minute watchdog fires, then they dump duplicate system messages
+  # into the chat pane (one per pre-warmed opencode slot).
+  defp close_active_chat_streams(identifier, reason) when is_binary(identifier) do
+    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
+      AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
+      ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
+    end
+
+    :ok
+  end
+
+  defp close_active_chat_streams(_identifier, _reason), do: :ok
+
+  defp terminate_reason(true), do: :terminal
+  defp terminate_reason(false), do: :replaced
+
+  # Label flipped back to an active state. If the running entry is
+  # currently `:deactivated`, route through `reactivate_issue/2` so a
+  # fresh agent task is spawned. Otherwise just refresh the stored
+  # issue (existing behaviour for `:working` / `:paused` entries).
+  defp maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{control: %{status: :deactivated}} = running_entry ->
+        # Update the stored issue first so the dispatched agent sees
+        # the freshest label state.
+        new_entry = Map.put(running_entry, :issue, issue)
+        state = %{state | running: Map.put(state.running, issue.id, new_entry)}
+
+        case reactivate_issue(state, new_entry) do
+          {{:ok, :reactivated}, next_state} -> next_state
+          {{:error, _reason}, next_state} -> next_state
+        end
+
+      _ ->
+        refresh_running_issue_state(state, issue)
+    end
+  end
 
   defp reconcile_missing_running_issue_ids(%State{} = state, requested_issue_ids, issues)
        when is_list(requested_issue_ids) and is_list(issues) do
@@ -630,6 +1044,15 @@ defmodule Aiur.Orchestrator do
           cleanup_issue_workspace(identifier, worker_host)
         end
 
+        # Close any open chat-completion SSE streams BEFORE killing the
+        # task. `terminate_task/1` brutally kills the AgentRunner,
+        # bypassing the normal `close_aiur_turn_streams` path; without
+        # the explicit close the bridge streams stay subscribed at the
+        # old `aiur_turn_id` and miss every event the next-dispatched
+        # agent emits. The operator sees an empty chat pane until the
+        # 10-minute watchdog fires.
+        close_active_chat_streams(identifier, terminate_reason(cleanup_workspace))
+
         if is_pid(pid) do
           terminate_task(pid)
         end
@@ -647,6 +1070,125 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         release_issue_claim(state, issue_id)
+    end
+  end
+
+  # Mirrors `terminate_running_issue/3`'s task-teardown half (kill the
+  # codex pid, demonitor the ref) but KEEPS the entry in `state.running`
+  # with `control.status: :deactivated` and `pid: nil`. The row stays
+  # visible in the AgentList at 🏁 / 100% green while the slot is freed.
+  # Idempotent — re-running on an already-deactivated entry is a no-op.
+  #
+  # Mutates the entry directly via `put_in/2` rather than calling
+  # `put_running_control_status/3`, whose guard whitelist only accepts
+  # `[:paused, :working]` (it gates pause/resume control messages, which
+  # `:deactivated` is not).
+  defp deactivate_running_issue(%State{} = state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      nil ->
+        state
+
+      %{control: %{status: :deactivated}} ->
+        # Already deactivated — observed the same label again.
+        state
+
+      %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
+        Logger.info("Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot")
+
+        # Close any open chat-completion SSE streams for this identifier
+        # BEFORE killing the task. `terminate_task/1` brutally kills the
+        # AgentRunner, bypassing the normal `close_aiur_turn_streams`
+        # path — without an explicit close, the bridge streams stay
+        # subscribed for 10 minutes, hit their watchdog, and dump
+        # duplicate "No turn activity in 10 minutes" system messages
+        # into the chat pane (one per pre-warm slot).
+        close_active_chat_streams(identifier, :deactivated)
+
+        if is_pid(pid) do
+          terminate_task(pid)
+        end
+
+        if is_reference(ref) do
+          Process.demonitor(ref, [:flush])
+        end
+
+        existing_control = Map.get(running_entry, :control, %{})
+
+        new_entry =
+          running_entry
+          |> Map.put(:pid, nil)
+          |> Map.put(:ref, nil)
+          |> Map.put(:control, Map.put(existing_control, :status, :deactivated))
+
+        new_state = %{
+          state
+          | running: Map.put(state.running, issue_id, new_entry),
+            retry_attempts: Map.delete(state.retry_attempts, issue_id)
+        }
+
+        # Drop the id from the publisher's tracked set so in-flight events
+        # from the just-killed codex task don't pass the gate and overwrite
+        # the synthetic 100 bar sample U4 seeds.
+        refresh_tracked_set(new_state)
+    end
+  end
+
+  # Retry blockee resumes that were deferred when the concurrent-agent
+  # cap was full at branch.push time. Without this hook the push event
+  # is consumed exactly once (Publisher dedupes `(repo, ref, sha)`),
+  # so a blockee that couldn't fit in a slot would stay paused
+  # forever even after another agent finished and freed capacity.
+  defp reconcile_pending_auto_resumes(%State{} = state) do
+    Enum.reduce(state.running, state, fn {_issue_id, entry}, acc ->
+      case Map.get(entry, :pending_auto_resume) do
+        %{} = hint when is_map(hint) ->
+          maybe_drain_pending_auto_resume(acc, entry, hint)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp maybe_drain_pending_auto_resume(state, entry, hint) do
+    cond do
+      not paused_running_entry?(entry) ->
+        # Already resumed by another path (operator chat, label flip);
+        # clear the stale hint.
+        clear_pending_auto_resume(state, entry)
+
+      deactivated_running_entry?(entry) ->
+        clear_pending_auto_resume(state, entry)
+
+      true ->
+        identifier = Map.get(entry, :identifier)
+        blocker_identifier = Map.get(hint, :blocker_identifier)
+        topic = Map.get(hint, :topic)
+
+        case resume_paused_issue(state, entry) do
+          {{:ok, :resumed}, next_state} ->
+            Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+
+            clear_pending_auto_resume(next_state, entry)
+
+          {{:error, _reason}, next_state} ->
+            # Cap still full or another error — keep the hint for the
+            # next reconcile tick.
+            next_state
+        end
+    end
+  end
+
+  defp clear_pending_auto_resume(state, entry) do
+    issue_id = get_in(entry, [:issue, Access.key(:id)])
+
+    case Map.get(state.running, issue_id) do
+      running_entry when is_map(running_entry) ->
+        updated = Map.delete(running_entry, :pending_auto_resume)
+        %{state | running: Map.put(state.running, issue_id, updated)}
+
+      _ ->
+        state
     end
   end
 
@@ -670,6 +1212,31 @@ defmodule Aiur.Orchestrator do
   end
 
   defp restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
+    cond do
+      # Paused agents are INTENTIONALLY idle — the agent emitted
+      # pause.request because it declared a blocker and has nothing to
+      # do until the blocker emits. The stall watchdog must not
+      # interpret deliberate idleness as a stuck codex stream. The
+      # auto-resume hook in handle_info({:event, ...}) will reawaken
+      # the entry when its blocker pushes; if no push ever arrives, an
+      # operator-driven resume (label flip or chat) is the path
+      # forward, not a restart that throws away the agent's workpad.
+      paused_running_entry?(running_entry) ->
+        state
+
+      # Deactivated entries don't have a live codex stream to stall on
+      # in the first place — the worker task was killed when the entry
+      # was deactivated. Skip them; the reactivate path is the only
+      # transition back to :working.
+      deactivated_running_entry?(running_entry) ->
+        state
+
+      true ->
+        maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
+    end
+  end
+
+  defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
     elapsed_ms = stall_elapsed_ms(running_entry, now)
 
     if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
@@ -1079,9 +1646,22 @@ defmodule Aiur.Orchestrator do
     MapSet.member?(active_states, normalize_issue_state(state_name))
   end
 
+  # Nil / non-binary state happens when the GitHub poll returns an
+  # issue with no `agent:*` label — extract_state returns nil. Treat
+  # as 'not active' so the reconcile cond falls through to the
+  # catch-all instead of crashing the orchestrator GenServer.
+  defp active_issue_state?(_state_name, _active_states), do: false
+
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     String.downcase(String.trim(state_name))
   end
+
+  # Same nil-safety reasoning as `active_issue_state?/2` above.
+  # Direct callers (routable_todo_issues, state_slots_available?,
+  # effective_state_limit, running_issue_count_for_state) all feed
+  # `issue.state` here without a binary guard; without this clause
+  # any unlabeled issue crashes the orchestrator.
+  defp normalize_issue_state(_state_name), do: ""
 
   defp state_slug(state_name) when is_binary(state_name) do
     state_name
@@ -1130,6 +1710,16 @@ defmodule Aiur.Orchestrator do
   end
 
   defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
+    case check_thrash_budget(state, issue.id, System.monotonic_time(:millisecond)) do
+      {:trip, tripped_state} ->
+        trip_thrash_breaker(tripped_state, issue)
+
+      {:ok, budgeted_state} ->
+        dispatch_to_worker(budgeted_state, issue, attempt, preferred_worker_host)
+    end
+  end
+
+  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host) do
     recipient = self()
 
     case select_worker_host(state, preferred_worker_host) do
@@ -1140,6 +1730,52 @@ defmodule Aiur.Orchestrator do
       worker_host ->
         spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
     end
+  end
+
+  # Time-windowed restart budget. Independent of the willRetry:false
+  # hard-failure path: catches thrash that never surfaces willRetry
+  # (transport timeouts, sandbox refusals, future error classes that
+  # still complete a turn as :normal and reschedule as a continuation,
+  # bypassing max_retry_attempts). Counts (re)dispatches per issue per
+  # window and trips once they exceed `codex_thrash_max_per_window`
+  # within `codex_thrash_window_seconds`. Gating here, before
+  # spawn_issue_on_worker_host, means a tripped attempt pays no workspace
+  # clone cost. The breaker resets when the window lapses, so the issue
+  # gets another window on the next poll tick.
+  @spec check_thrash_budget(State.t(), String.t(), integer()) :: {:ok, State.t()} | {:trip, State.t()}
+  defp check_thrash_budget(%State{} = state, issue_id, now_ms) do
+    window_ms = Config.codex_thrash_window_seconds() * 1_000
+
+    entry =
+      case Map.get(state.codex_thrash_budget, issue_id) do
+        %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
+          %{window_start_ms: start, count: count + 1}
+
+        _ ->
+          %{window_start_ms: now_ms, count: 1}
+      end
+
+    state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+
+    if entry.count > Config.codex_thrash_max_per_window() do
+      {:trip, state}
+    else
+      {:ok, state}
+    end
+  end
+
+  defp trip_thrash_breaker(%State{} = state, issue) do
+    count = get_in(state.codex_thrash_budget, [issue.id, :count]) || 0
+
+    Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
+
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open", issue: issue.identifier)
+
+    state
+  end
+
+  defp reset_thrash_budget(%State{} = state, issue_id) do
+    %{state | codex_thrash_budget: Map.delete(state.codex_thrash_budget, issue_id)}
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
@@ -1615,7 +2251,10 @@ defmodule Aiur.Orchestrator do
 
   defp paused_running_count(_running), do: 0
 
-  defp active_running_entry?(entry) when is_map(entry), do: not paused_running_entry?(entry)
+  defp active_running_entry?(entry) when is_map(entry) do
+    not (paused_running_entry?(entry) or deactivated_running_entry?(entry))
+  end
+
   defp active_running_entry?(_entry), do: false
 
   defp paused_running_entry?(entry) when is_map(entry) do
@@ -1623,6 +2262,12 @@ defmodule Aiur.Orchestrator do
   end
 
   defp paused_running_entry?(_entry), do: false
+
+  defp deactivated_running_entry?(entry) when is_map(entry) do
+    get_in(entry, [:control, :status]) == :deactivated
+  end
+
+  defp deactivated_running_entry?(_entry), do: false
 
   defp max_concurrent_agent_limit(%State{} = state) do
     cond do
@@ -1883,6 +2528,31 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc """
+  Returns identifiers whose running entry is currently "active" —
+  not paused, not deactivated. Used by `Aiur.ProgressCheckin.Worker`
+  so the 5-min check-in publishes only to agents that should be
+  making progress; pausing/deactivation already signal "don't work".
+  """
+  @spec list_running_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
+  def list_running_active_identifiers(server \\ __MODULE__, timeout \\ 1_000) do
+    if alive?(server) do
+      try do
+        GenServer.call(server, :list_running_active_identifiers, timeout)
+      catch
+        :exit, _ -> []
+      end
+    else
+      []
+    end
+  end
+
+  defp alive?(pid) when is_pid(pid), do: Process.alive?(pid)
+  defp alive?(name) when is_atom(name), do: Process.whereis(name) != nil
+  defp alive?({:via, _, _}), do: true
+  defp alive?({:global, _}), do: true
+  defp alive?(_), do: false
+
+  @doc """
   Lightweight read of the polling clock so UI surfaces (the agent-list
   pane) can render a "Next refresh: Ns" countdown without doing a full
   `snapshot/0` every tick. Returns `%{checking?: boolean, next_poll_in_ms: integer | nil}`,
@@ -1993,6 +2663,17 @@ defmodule Aiur.Orchestrator do
     {:reply, identifiers, state}
   end
 
+  def handle_call(:list_running_active_identifiers, _from, state) do
+    identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.filter(&active_running_entry?/1)
+      |> Enum.map(fn entry -> entry[:identifier] || Map.get(entry, :identifier) end)
+      |> Enum.reject(&is_nil/1)
+
+    {:reply, identifiers, state}
+  end
+
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
     now = DateTime.utc_now()
@@ -2093,11 +2774,7 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_call({:pause_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
-    reply =
-      send_running_control_message(state, issue_identifier, fn request_id ->
-        {:pause_agent, request_id}
-      end)
-
+    reply = pause_agent_reply(state, issue_identifier)
     {:reply, reply, state}
   end
 
@@ -2293,18 +2970,46 @@ defmodule Aiur.Orchestrator do
   # operator uses. If no slot is free, the cap error propagates and the
   # conversation pane surfaces it.
   defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
-    if paused_running_entry?(running_entry) do
-      enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
-    else
-      do_enqueue_running_operator_message(
-        state,
-        running_entry,
-        issue_identifier,
-        text,
-        delivery_policy,
-        fallback,
-        turn_id
-      )
+    cond do
+      deactivated_running_entry?(running_entry) ->
+        enqueue_after_reactivate(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+
+      paused_running_entry?(running_entry) ->
+        enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+
+      true ->
+        do_enqueue_running_operator_message(
+          state,
+          running_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
+    end
+  end
+
+  # Mirrors `enqueue_after_resume/7` for the `:deactivated → :working`
+  # transition. The fresh agent task spawned by `reactivate_issue/2`
+  # will pick up the queued operator message when it boots.
+  defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
+    case reactivate_issue(state, running_entry) do
+      {{:ok, :reactivated}, next_state} ->
+        reactivated_entry = find_running_by_identifier(next_state.running, issue_identifier)
+
+        do_enqueue_running_operator_message(
+          next_state,
+          reactivated_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
+
+      {{:error, _reason} = error, next_state} ->
+        {error, next_state}
     end
   end
 
@@ -2443,15 +3148,89 @@ defmodule Aiur.Orchestrator do
   defp resume_issue(%State{} = state, issue_identifier) do
     case find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
-        if paused_running_entry?(running_entry) do
-          resume_paused_issue(state, running_entry)
-        else
-          {{:ok, :resumed}, state}
+        cond do
+          deactivated_running_entry?(running_entry) ->
+            reactivate_issue(state, running_entry)
+
+          paused_running_entry?(running_entry) ->
+            resume_paused_issue(state, running_entry)
+
+          true ->
+            {{:ok, :resumed}, state}
         end
 
       nil ->
         resume_queued_issue(state, issue_identifier)
     end
+  end
+
+  # Wake a `:deactivated` running entry: flip its control status to
+  # `:working`, re-add the id to the publisher tracked set, and spawn
+  # a fresh agent task on the same issue. Mirrors `resume_paused_issue`
+  # in shape but uses `do_dispatch_issue` because the deactivated
+  # entry has no live pid to send a resume-control message to.
+  #
+  # Capacity check: returns `{:error, :max_concurrent_agents_reached}`
+  # without flipping state when all slots are full. The operator can
+  # retry once a slot opens (a working agent flips to `:deactivated`
+  # or merges its PR). No `pending_reactivation` flag — the existing
+  # `max_concurrent_agents` gate is the natural backpressure.
+  defp reactivate_issue(%State{} = state, running_entry) do
+    if active_running_count(state.running) >= max_concurrent_agent_limit(state) do
+      {{:error, :max_concurrent_agents_reached}, state}
+    else
+      do_reactivate(state, running_entry)
+    end
+  end
+
+  # Pause-key behaviour, split out so the GenServer clause stays at
+  # max-depth 2. A `:deactivated` row has no live pid to pause; we
+  # return `:already_inactive` and rely on `:resume_agent` to handle
+  # the wake path on the same space-key.
+  defp pause_agent_reply(state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      running_entry when is_map(running_entry) ->
+        pause_running_or_inactive(state, running_entry, issue_identifier)
+
+      _ ->
+        send_pause_control_message(state, issue_identifier)
+    end
+  end
+
+  defp pause_running_or_inactive(state, running_entry, issue_identifier) do
+    if deactivated_running_entry?(running_entry) do
+      {:error, :already_inactive}
+    else
+      send_pause_control_message(state, issue_identifier)
+    end
+  end
+
+  defp send_pause_control_message(state, issue_identifier) do
+    send_running_control_message(state, issue_identifier, fn request_id ->
+      {:pause_agent, request_id}
+    end)
+  end
+
+  defp do_reactivate(%State{} = state, running_entry) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    existing_control = Map.get(running_entry, :control, %{})
+    worker_host = Map.get(running_entry, :worker_host)
+    issue = Map.get(running_entry, :issue)
+
+    # Flip the entry to :working before dispatch so any concurrent
+    # slot-count lookups see this entry as holding a slot (prevents a
+    # double-claim race against another dispatch tick).
+    new_entry = Map.put(running_entry, :control, Map.put(existing_control, :status, :working))
+    state = %{state | running: Map.put(state.running, issue_id, new_entry)}
+    state = refresh_tracked_set(state)
+
+    Logger.info("Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task")
+
+    # Reactivation is a deliberate operator restart; clear the thrash
+    # budget so the fresh task starts with a full window.
+    state = reset_thrash_budget(state, issue_id)
+
+    {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
   end
 
   defp resume_paused_issue(%State{} = state, running_entry) do
@@ -2483,6 +3262,17 @@ defmodule Aiur.Orchestrator do
         now = DateTime.utc_now()
         state = put_running_control_status(state, issue_id, :working)
         state = update_in(state.running, &thaw_pause_clock(&1, issue_id, previous_status, now))
+        # Reset `last_codex_timestamp` to NOW so the stall watchdog
+        # gives the freshly-resumed entry a full timeout window. A
+        # blockee that paused for longer than `stall_timeout_ms` waiting
+        # on its blocker would otherwise resume with a stale activity
+        # timestamp and be killed on the very next reconcile tick before
+        # any codex notification could refresh the field.
+        state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
+        # An operator-driven resume is a deliberate restart, so clear any
+        # thrash budget the entry accrued before it paused — otherwise a
+        # long-paused blockee could resume already over its window.
+        state = reset_thrash_budget(state, issue_id)
         # Sync-flip happens here so the cap accounting stays consistent.
         # That means the worker's later `:worker_control_state :working`
         # confirmation finds previous_status already :working and emits
@@ -2493,6 +3283,16 @@ defmodule Aiur.Orchestrator do
 
       {:error, _reason} = error ->
         {error, state}
+    end
+  end
+
+  defp reset_last_codex_timestamp(running, issue_id, %DateTime{} = now) when is_map(running) do
+    case Map.get(running, issue_id) do
+      entry when is_map(entry) ->
+        Map.put(running, issue_id, Map.put(entry, :last_codex_timestamp, now))
+
+      _ ->
+        running
     end
   end
 
@@ -3302,6 +4102,46 @@ defmodule Aiur.Orchestrator do
   end
 
   defp auto_subscribe_for_dependency(_blockee, _blocker), do: :ok
+
+  @doc """
+  Attach the standard blocker→blockee subscription pair WITHOUT
+  going through GitHub poll detection. Called from
+  `Aiur.AgentRunner.declare_blocker_for_issue/2` so the subscription
+  goes in the SubscriptionStore at declare-time, not on the next
+  reconcile tick after GitHub eventually surfaces the dependency.
+
+  This matters because:
+    * `IssueDependencies.declare/2` posts to GitHub's `/issues/.../dependencies`
+      API and may return `:already_present` for a stale dependency
+      that GitHub later mutates away (PR close + open cycle has been
+      observed to drop the dependency).
+    * Without the direct subscribe, the blockee's SubscriptionStore
+      never receives `ticket.<blocker>.branch.push`, so when the
+      blocker pushes the orchestrator's `subscribed_to_topic?/2`
+      check returns false and the blockee never auto-resumes.
+
+  Idempotent: SubscriptionStore.add_subscription short-circuits on
+  duplicate `(identifier, topic)`.
+  """
+  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier) do
+    blockee_str = to_string(blockee_identifier)
+    blocker_str = to_string(blocker_identifier)
+
+    attach_and_subscribe(
+      blockee_str,
+      default_blockee_subscriptions(blocker_str),
+      "blocker:auto"
+    )
+
+    attach_and_subscribe(
+      blocker_str,
+      default_blocker_subscriptions(blockee_str),
+      "blockee:auto"
+    )
+
+    :ok
+  end
 
   defp auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),

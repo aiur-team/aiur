@@ -34,6 +34,8 @@ Aiur agents on different tickets coordinate through a topic-exchange event bus. 
 
 Event vocabulary (allowlisted — names outside this list are rejected by `emit_event`):
 
+- `progress` — numeric percent sample for the agent-list bar; payload `%{percent: 10..100, label: "<phase>: <what>, <tail>"}` (capped at 2 per turn — see "Progress emits" below). Treated as a phase guess by the ratchet — can ratchet UP only.
+- `progress.checkin` — the response to an `operator.progress_request` ping. Same payload shape as `progress`, but always overrides the bar even when it lowers the previous value. See "Operator check-ins" below.
 - `progress.<slug>` — milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`)
 - `decision.<slug>` — architectural choice worth broadcasting (`decision.use-amqp-matcher`)
 - `blocked` / `unblocked` — your work blocked / unblocked state changed
@@ -41,21 +43,90 @@ Event vocabulary (allowlisted — names outside this list are rejected by `emit_
 - `pause.request` — request operator pause your turn at the next checkpoint
 - `custom.<slug>` — anything else (capped at 5 per turn)
 
+### Progress emits — 1-of-10 estimate at phase boundaries
+
+The operator's only at-a-glance signal for "how far is each agent" is the progress bar in the agent list. You populate it by emitting the bare `progress` event with a numeric percent. The bar is 10 cells wide; each 10% step fills exactly one cell.
+
+**When to emit.** Once at the start of every phase boundary you cross — `brainstorm`, `plan`, `work`, `review`. Pair the progress emit with the matching `emit_alert("phase.<name>.start" | "phase.<name>.end", ...)` you're already firing. That's the cadence: roughly 8 emits over the ticket's lifetime, plus mid-phase corrections (rare — see below). Hard cap: 2 emits per turn; the 3rd is rejected.
+
+**How to estimate.** Time-based, not output-based. Estimate the wall-clock distance from "ticket started" to "PR is ready for human review and CI is green" — including the *cleanup tail*: review iterations, CI fixes, rework. A one-line typo has near-zero tail; a refactor has hours. Budget honestly. You'll usually find review + CI account for ⅓ or more of the total.
+
+**The 1/10 scale.** Allowed percent values are `10, 20, 30, …, 100`. Pick the cell that matches your current spot on the ticket's overall timeline:
+
+- `10`–`20`: just brainstorming / planning
+- `30`–`50`: implementation in flight
+- `60`–`80`: code typed, in self-review or CI
+- `90`: PR pushed, last fixes / final review pass
+- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. This is the signal that turns the operator's bar green and tells Aiur to release your agent slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the operator.
+
+**The `label` field.** Names your cleanup-aware tail so the operator can see what you budgeted. Keep it ≤ 80 chars. Format: `"<phase>: <what you're doing now>, <tail you're budgeting>"`.
+
+**Mid-phase corrections.** Allowed but rare. Re-emit only when your estimate shifts ≥ 15 percentage points OR by ≥ 50% of the remaining-time estimate (e.g., CI fails and you discover a load-bearing rework, or scope contracts because the issue was simpler than expected). Don't re-emit just because some time passed.
+
+**Worked example.** You start the `work` phase on a typical complexity:3 ticket. Pair these two calls:
+
+```
+emit_alert("phase.work.start", "implementing the rename")
+emit_event(name: "progress", payload: %{
+  percent: 30,
+  label: "work: starting impl, ~2 review rounds + CI tail budgeted"
+})
+```
+
+At the end of self-review, just before `gh pr ready`:
+
+```
+emit_alert("phase.review.end", "PR ready for review")
+emit_event(name: "progress", payload: %{
+  percent: 100,
+  label: "review: PR ready, awaiting human review"
+})
+```
+
+Two emits this turn; cap respected.
+
+### Operator check-ins (`operator.progress_request`)
+
+Every five minutes, Aiur publishes `operator.progress_request` to each active agent's event subscription. You see it as one event line in the digest the next time your turn boundary drains — exactly like a firehose comment, never mid-tool-call.
+
+When you see it, reply with a single `emit_event` call:
+
+```
+emit_event(name: "progress.checkin", payload: %{
+  percent: <N * 10>,
+  label: "<phase>: <what you're doing now>, <tail you're budgeting>"
+})
+```
+
+Rules:
+
+- `percent` is your **current** 1-of-10 estimate, expressed as `N * 10` (so a "6 out of 10" sends `percent: 60`).
+- Your check-in **trumps** any prior phase guess, even when it lowers the bar. The renderer treats the check-in as the new floor.
+- Do not change your work plan, do not ask the operator anything, do not narrate the ping in chat. It's a silent status request.
+- One check-in per request — don't fan out multiple. If two requests arrived in the same digest, reply to the most recent.
+- After replying, continue whatever you were doing.
+
 ### Tooling environment
 
 Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for you, pointing at per-workspace directories. `mise trust` has already been run for the workspace's `mise.toml`. Run `mix` and `mise exec -- mix ...` directly — do not prefix commands with `HEX_HOME=/tmp/...` or `MISE_TRUSTED_CONFIG_PATHS=...`. Inventing your own paths bypasses the pre-warmed Hex cache and forces a re-fetch of every dependency.
 
 ### Dev loop
 
-Branch off the latest `main` and run this loop:
+The branch already exists when your workspace boots: it is exactly `aiur/<issue-number>`. Do not invent a new branch name, do not append a slug, do not rename. If a previously-closed PR exists for `aiur/<N>`, push to the same branch anyway and open a **new** PR (`gh pr create --head aiur/<N>`). GitHub allows multiple PRs against the same head ref over time; closed PRs do not block new ones. Inventing a workaround branch like `aiur/<N>-pr` breaks Aiur's blocker→blockee push detection because the canonical `branch.push` event is keyed on `aiur/<N>` — downstream blockees waiting on you will never wake.
+
+**The workspace `.git` directory is writable from this sandbox. If a `git` command claims the index is read-only ("Could not write index", "Unable to lock", "cannot create FETCH_HEAD"), do NOT clone a recovery checkout into `/tmp` — that path pays a full `mix deps.get` + compile (5–10 min) for no benefit. The real cause is almost always either a stale `.git/index.lock` from a prior cancelled command or a sandbox snapshot from before this turn. Recovery, in order: (a) `rm -f .git/index.lock`, (b) re-run the failing command, (c) if it still fails, commit your uncommitted edits with a temporary message and re-attempt the merge/fetch — committing avoids the stash path that often triggers the index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from `/tmp`.**
+
+**Integrating an upstream blocker's branch**: when `ticket.<blocker-id>.branch.push` arrives, the fastest safe sequence is `git fetch origin aiur/<blocker-id>` → commit your local WIP if any → `git merge --no-edit origin/aiur/<blocker-id>` → resolve any conflicts → continue. Do NOT `git stash` before the merge — committing WIP is just as safe and avoids the index-write failure path entirely.
+
+Run this loop:
 
 1. Implement
 2. Add / update / run tests
 3. Build
 4. Lint (with autofix)
 5. Commit using short, 3–7 word messages
-6. Push
-7. **Open the PR as a draft** (not ready for review yet)
+6. Push to `origin aiur/<issue-number>` — the same branch your workspace was set up on
+7. **Open the PR as a draft** with `--head aiur/<issue-number>` (not ready for review yet)
 8. **Self-review the draft PR with `ce-code-review`** against the diff you just pushed
 9. Implement any issues `ce-code-review` surfaces (commit + push the fixes)
 10. If you still believe the work is complete and correct, **mark the PR ready for review** and add the `agent:human-review` label

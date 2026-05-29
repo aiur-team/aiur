@@ -29,10 +29,29 @@ server:
 workspace:
   root: ~/code/aiur-workspaces
 hooks:
+  # 10 minutes per hook. Observed: cold clone + mise install + mix
+  # deps.get + mix compile takes ~3:30 on a warm machine, longer on
+  # a cold one. The previous 60s default silently killed every hook
+  # at the deps.get step (output is swallowed by `>/dev/null 2>&1`),
+  # so every agent paid 3-4 min for `mix deps.get` on first
+  # productive turn instead of starting with warm caches.
+  timeout_ms: 600000
   after_create: |
     git clone https://github.com/its-everdred/aiur.git .
     issue_id="$(basename "$PWD")"
-    git checkout -b "aiur/${issue_id}" origin/main
+    # Branch off the operator's current working branch instead of
+    # `origin/main` so agent workspaces include the in-flight fixes
+    # the operator has committed but not yet merged — specifically
+    # the agent-workspace guards in scripts/aiur and
+    # Aiur.TestReset.run/1. Without this, agents that recursively
+    # invoke `./scripts/aiur --test` from inside the workspace bypass
+    # both guards (the workspace ships a pre-guard snapshot from
+    # main) and wipe the operator's sandbox tickets mid-run. Branch
+    # name lives here so a workflow-only edit can re-target the
+    # source once the fixes land on main.
+    git fetch origin kevin/e2e-pubsub-test >/dev/null 2>&1 || true
+    base_ref="$(git rev-parse --verify origin/kevin/e2e-pubsub-test 2>/dev/null || echo origin/main)"
+    git checkout -b "aiur/${issue_id}" "$base_ref"
     mkdir -p ./.aiur-hex ./.aiur-mix
     if [ -f elixir/mise.toml ]; then
       mise trust elixir/mise.toml >/dev/null 2>&1 || true
@@ -44,10 +63,19 @@ hooks:
     # (network blip, dep change), the agent's first `mix deps.get`
     # will pick it up.
     if [ -f elixir/mix.exs ]; then
+      # Output flows back to Workspace.run_hook via System.cmd
+      # (stderr_to_stdout: true). Don't redirect to /dev/null — that
+      # masks silent failures where mix exits cleanly but didn't
+      # actually fetch deps (e.g. mise exec failing, hex install
+      # erroring). The Elixir side logs a tail of the output on
+      # success and the full output on non-zero exit. `|| true` is
+      # retained so the hook is non-fatal for the agent boot path:
+      # if deps prefetch fails, the agent picks it up on first
+      # `mix` call, just slower.
       HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
         MISE_TRUSTED_CONFIG_PATHS="$PWD/elixir/mise.toml" \
         bash -c 'cd elixir && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
-        >/dev/null 2>&1 || true
+        2>&1 | tail -200 || true
     fi
   before_run: |
     if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -59,6 +87,26 @@ hooks:
     mkdir -p ./.aiur-hex ./.aiur-mix
     if [ -f elixir/mise.toml ]; then
       mise trust elixir/mise.toml >/dev/null 2>&1 || true
+      mise install >/dev/null 2>&1 || true
+    fi
+    # Idempotent deps + compile warm-up on every dispatch. Free when the
+    # cache is warm (mix deps.get + mix compile no-op in seconds); pays
+    # off when the workspace is a fresh clone, an aiur --debug resume
+    # against an existing dir, or after a deps lockfile bump.
+    if [ -f elixir/mix.exs ]; then
+      # Output flows back to Workspace.run_hook via System.cmd
+      # (stderr_to_stdout: true). Don't redirect to /dev/null — that
+      # masks silent failures where mix exits cleanly but didn't
+      # actually fetch deps (e.g. mise exec failing, hex install
+      # erroring). The Elixir side logs a tail of the output on
+      # success and the full output on non-zero exit. `|| true` is
+      # retained so the hook is non-fatal for the agent boot path:
+      # if deps prefetch fails, the agent picks it up on first
+      # `mix` call, just slower.
+      HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
+        MISE_TRUSTED_CONFIG_PATHS="$PWD/elixir/mise.toml" \
+        bash -c 'cd elixir && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
+        2>&1 | tail -200 || true
     fi
   before_remove: |
     git status --short
@@ -73,6 +121,8 @@ codex:
     type: workspaceWrite
     writableRoots:
       - /home/applekid/code/aiur-workspaces
+      - /home/orangekid/code/aiur-workspaces
+      - /tmp
     networkAccess: true
 opencode:
   command: opencode

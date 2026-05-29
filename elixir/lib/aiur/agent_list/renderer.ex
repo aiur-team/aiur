@@ -14,7 +14,6 @@ defmodule Aiur.AgentList.Renderer do
   """
 
   alias Aiur.AgentEvents
-  alias Aiur.Opencode.WarmthReport
   alias Aiur.ProgressTracker
 
   # Fixed visual width for the state-emoji column. The glyph occupies
@@ -37,13 +36,18 @@ defmodule Aiur.AgentList.Renderer do
 
   # Fixed-width progress bar + ETA columns. Sized so they always
   # render regardless of terminal width (collapse Latest first).
-  # Layout: `<bar 8> <eta 5>` = 8 + 1 + 5 = 14 cols.
-  @progress_bar_width 8
-  @eta_width 5
-  @progress_cell_width 14
+  # Layout: `<bar 10> <eta 5>` = 10 + 1 + 5 = 16 cols. The bar
+  # is 10 cells wide so each 10% step the agent emits maps to
+  # exactly one filled cell on screen.
+  @progress_bar_width 10
+  @progress_cell_width @progress_bar_width
+
+  # Runtime ticker: width 7 fits `h:MM:SS` for runs up to 9h59m59s.
+  # Beyond that, format_runtime/1 rolls over to `Nh` so the column
+  # still fits.
+  @runtime_cell_width 7
 
   @min_id_width 4
-  @min_age_width 4
   @min_title_width 6
   # When the terminal can't fit the full natural title + Latest at
   # @max_latest_width, cap the title at this many chars so other
@@ -51,22 +55,13 @@ defmodule Aiur.AgentList.Renderer do
   # the constraint doesn't trigger and the title renders in full.
   @title_constrained_cap 25
 
-  @id_age_gap_width 2
-
-  # Warm-status row glyphs, shown beneath the bottom nav. One glyph
-  # per opencode slot. Dark-mode pair is the default; light mode is
-  # opt-in via `warm_status_dark_mode?: false` in render state.
-  @warm_status_glyph_dark_in_progress "🔲"
-  @warm_status_glyph_dark_finished "⬜️"
-  @warm_status_glyph_light_in_progress "🔳"
-  @warm_status_glyph_light_finished "⬛️"
-
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
   @ansi_dim IO.ANSI.faint()
   @ansi_cyan IO.ANSI.cyan()
   @ansi_gray IO.ANSI.light_black()
+  @ansi_green IO.ANSI.green()
   @ansi_red IO.ANSI.red()
   @ansi_reverse IO.ANSI.reverse()
   # 256-color background for the selected agent-list row. 236 is a
@@ -106,21 +101,25 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
         |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
         |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
-        |> Map.put(:now_ms, System.monotonic_time(:millisecond))
+        |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
+        |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
 
-      debug_footer = debug_perf_footer(state, inner_width)
       markers = compute_markers(state, summaries)
-      warm_row = warm_status_row(state, inner_width)
 
-      base_lines =
-        lines_emitted(state, inner_width) + debug_footer_line_count(state) +
-          warm_row_line_count(state)
+      # Footer split: keybinds on left, event emoji legend on right.
+      # When width doesn't fit both, legend wraps to its own row.
+      footer_render = footer_split(inner_width)
+      footer_lines = footer_render.line_count
+
+      base_lines = lines_emitted(state, inner_width, footer_lines)
 
       # Reserve at least one row of breathing room before the bottom of
-      # the pane so the ticker never overflows tmux's scroll region. If
-      # there's no room left, render nothing.
-      ticker_budget = max(rows - base_lines - 1, 0)
-      {ticker_iodata, ticker_line_count} = debug_events_ticker(state, inner_width, ticker_budget)
+      # the pane so the events block never overflows tmux's scroll
+      # region. Events are inside the AgentList box now, separated by
+      # a horizontal divider when present. When the budget is too tight
+      # the events block collapses to zero rows automatically.
+      events_budget = max(rows - base_lines - 1, 0)
+      {events_iodata, events_line_count} = events_block(state, inner_width, events_budget)
 
       [
         # Cursor controls at frame start:
@@ -154,14 +153,11 @@ defmodule Aiur.AgentList.Renderer do
           layout,
           markers
         ),
+        events_iodata,
         bottom_border(inner_width),
         eol(),
-        footer_iodata(inner_width),
-        eol(),
-        warm_row,
-        debug_footer,
-        ticker_iodata,
-        clear_remaining(rows, base_lines + ticker_line_count),
+        footer_render.iodata,
+        clear_remaining(rows, base_lines + events_line_count),
         # Re-emit hide + no-blink + park-home AFTER all painting,
         # so any tmux refresh, focus change, or sibling process
         # that flipped the cursor back on gets countered on every
@@ -221,7 +217,7 @@ defmodule Aiur.AgentList.Renderer do
          "🟢  agent actively working — pane ready to open",
          "⏸️  agent paused by operator",
          "🔴  agent in error state",
-         "🏁  agent fully finished",
+         "🏁  awaiting human review — space or chat to reactivate",
          "⚫  agent waiting (queued, idle, or label only)"
        ]},
       {"Tips",
@@ -404,43 +400,138 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp bottom_border(inner_width) do
-    [
-      pad_with_ansi(
+    # Inject a "newest" label at the far-left of the bottom border so
+    # the operator can read the timeline direction in the events log:
+    #   `╰─ newest ──...──╯`
+    # The label sits between the `╰` corner and the trailing fill. When
+    # the box is too narrow (`< 14` cols) for label + chrome, fall back
+    # to the plain border so we never truncate the corner glyphs.
+    label_text = "newest"
+    label_visual = String.length(label_text)
+    # ╰ + ─ + space + label + space + 1 trailing ─ minimum + ╯ = label_visual + 5
+    min_for_label = label_visual + 6
+
+    if inner_width >= min_for_label do
+      trailing_fill = String.duplicate("─", max(inner_width - label_visual - 5, 0))
+
+      [
         @ansi_gray,
-        "╰" <> String.duplicate("─", max(inner_width - 2, 0)),
-        inner_width,
-        "╯"
-      )
-    ]
+        "╰─ ",
+        @ansi_reset,
+        @ansi_gray,
+        IO.ANSI.italic(),
+        label_text,
+        @ansi_reset,
+        @ansi_gray,
+        " ",
+        trailing_fill,
+        "╯",
+        @ansi_reset
+      ]
+    else
+      [
+        pad_with_ansi(
+          @ansi_gray,
+          "╰" <> String.duplicate("─", max(inner_width - 2, 0)),
+          inner_width,
+          "╯"
+        )
+      ]
+    end
   end
 
   # Footer keybinds. `v layout` rides on the primary row when there's
   # room, otherwise wraps to a second row so we don't truncate the more
   # frequently used keybinds (select/open/pause/help/quit).
-  defp footer_iodata(inner_width) do
-    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+  @keybinds_full "↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
+  @keybinds_primary "↑/↓ select   enter open   space pause/resume   ? help   q quit"
+  @keybinds_secondary "v layout"
+  @events_legend "💬 publish · 📬 receive · 📄 read"
+  @footer_left_padding 2
+  @footer_left_padding_str "  "
+  @footer_gap 2
 
-    # Footer + help rows render BELOW the bordered agent-list box,
-    # so they don't carry the right `│` border. Pass " " as the
-    # right_border to keep the column reserved for autowrap safety
-    # without painting the bar character.
-    if visual_width(full) <= inner_width do
-      pad_with_ansi(@ansi_dim, full, inner_width, " ")
-    else
-      primary = "  ↑/↓ select   enter open   space pause/resume   ? help   q quit"
-      secondary = "  v layout"
+  # Bottom rows: keybinds on the left, event legend on the right. Both
+  # render BELOW the bordered AgentList box (no right `│` wall). The
+  # cascade prefers fewer rows when width permits and always keeps both
+  # the keybinds and the legend visible.
+  #
+  # - 1 row: full keybinds + legend fit side-by-side
+  # - 2 rows: full keybinds alone on row 1, legend below
+  #          OR primary keybinds + legend, "v layout" below
+  # - 3 rows: primary keybinds, "v layout", legend (extremely narrow)
+  defp footer_split(inner_width) do
+    legend = @events_legend
 
-      [
-        pad_with_ansi(@ansi_dim, primary, inner_width, " "),
-        eol(),
-        pad_with_ansi(@ansi_dim, secondary, inner_width, " ")
-      ]
+    cond do
+      fits_on_one_row?(@keybinds_full, legend, inner_width) ->
+        %{iodata: [side_by_side_row(@keybinds_full, legend, inner_width), eol()], line_count: 1}
+
+      visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width ->
+        %{
+          iodata: [
+            left_only_row(@keybinds_full, inner_width),
+            eol(),
+            left_only_row(legend, inner_width),
+            eol()
+          ],
+          line_count: 2
+        }
+
+      fits_on_one_row?(@keybinds_primary, legend, inner_width) ->
+        %{
+          iodata: [
+            side_by_side_row(@keybinds_primary, legend, inner_width),
+            eol(),
+            left_only_row(@keybinds_secondary, inner_width),
+            eol()
+          ],
+          line_count: 2
+        }
+
+      true ->
+        %{
+          iodata: [
+            left_only_row(@keybinds_primary, inner_width),
+            eol(),
+            left_only_row(@keybinds_secondary, inner_width),
+            eol(),
+            left_only_row(legend, inner_width),
+            eol()
+          ],
+          line_count: 3
+        }
     end
   end
 
-  defp footer_line_count(inner_width) do
-    full = "  ↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
-    if visual_width(full) <= inner_width, do: 1, else: 2
+  defp fits_on_one_row?(left, right, inner_width) do
+    needed = @footer_left_padding + visual_width(left) + @footer_gap + visual_width(right) + 1
+    needed <= inner_width
+  end
+
+  # `  <left>   …gap…   <right> ` padded to inner_width.
+  defp side_by_side_row(left, right, inner_width) do
+    pad = String.duplicate(" ", @footer_left_padding)
+    body = pad <> left
+
+    body_width = visual_width(body)
+    right_width = visual_width(right)
+    # Reserve trailing column for autowrap safety; spacer fills the rest.
+    spacer = String.duplicate(" ", max(inner_width - body_width - right_width - 1, 1))
+
+    [
+      @ansi_dim,
+      body,
+      spacer,
+      right,
+      " ",
+      @ansi_reset
+    ]
+  end
+
+  defp left_only_row(text, inner_width) do
+    body = String.duplicate(" ", @footer_left_padding) <> text
+    pad_with_ansi(@ansi_dim, body, inner_width, " ")
   end
 
   # ---------- table ----------------------------------------------------------
@@ -449,18 +540,19 @@ defmodule Aiur.AgentList.Renderer do
     progress_header =
       if layout.show_progress?, do: [" ", cell("PROGRESS", @progress_cell_width)], else: []
 
+    runtime_header = [" ", cell("TIME", @runtime_cell_width)]
+
     body = [
       "│   ",
       cell("ID", layout.id_width),
-      String.duplicate(" ", @id_age_gap_width),
-      cell("AGE", layout.age_width),
       "  ",
       cell("", @state_cell_width),
       cell("", @attention_cell_width),
       cell("TITLE", layout.title_width),
       " ",
       cell("LATEST", layout.latest_width),
-      progress_header
+      progress_header,
+      runtime_header
     ]
 
     pad_with_ansi(@ansi_gray, IO.iodata_to_binary(body), inner_width)
@@ -510,15 +602,12 @@ defmodule Aiur.AgentList.Renderer do
     marker = if selected?, do: "▶ ", else: "  "
     id_str = to_string(Map.get(summary, :identifier) || "")
     title = Map.get(summary, :title) || ""
-    age = age_string(summary)
 
     id_cell = id_cell_with_link(id_str, layout)
-    age_cell = cell(age, layout.age_width)
     state_cell = emoji_cell(summary_emoji(summary, markers), @state_cell_width)
     attention_cell = attention_cell(id_str, layout)
     title_cell = cell(title, layout.title_width)
     latest_cell = latest_cell(id_str, layout, summary)
-    gap = String.duplicate(" ", @id_age_gap_width)
 
     progress_block =
       if layout.show_progress? do
@@ -527,15 +616,13 @@ defmodule Aiur.AgentList.Renderer do
         []
       end
 
+    runtime_block = [" ", @ansi_dim, runtime_cell(summary), @ansi_reset]
+
     body = [
       "│ ",
       marker,
       @ansi_cyan,
       id_cell,
-      @ansi_reset,
-      gap,
-      @ansi_dim,
-      age_cell,
       @ansi_reset,
       "  ",
       state_cell,
@@ -545,20 +632,22 @@ defmodule Aiur.AgentList.Renderer do
       @ansi_dim,
       latest_cell,
       @ansi_reset,
-      progress_block
+      progress_block,
+      runtime_block
     ]
 
     progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
+    runtime_width = @runtime_cell_width + 1
 
     # Visual columns consumed by the body, in order:
-    #   `│ ` (2) + marker (2) + id_cell + gap + age_cell + `  ` (2)
-    #   + state_cell (3) + attention_cell (4) + title_cell + ` ` (1)
-    #   + latest_cell + progress_block.
+    #   `│ ` (2) + marker (2) + id_cell + `  ` (2) + state_cell (3)
+    #   + attention_cell (4) + title_cell + ` ` (1) + latest_cell
+    #   + progress_block + runtime_block.
     # Sum the parts directly so the right `│` border lands at the
     # same column as the metadata/separator rows above.
     plain_visual =
-      2 + 2 + layout.id_width + @id_age_gap_width + layout.age_width + 2 + @state_cell_width +
-        @attention_cell_width + layout.title_width + 1 + layout.latest_width + progress_width
+      2 + 2 + layout.id_width + 2 + @state_cell_width + @attention_cell_width +
+        layout.title_width + 1 + layout.latest_width + progress_width + runtime_width
 
     # Reserve the last column for the right `│` border so each row
     # closes cleanly. Pad to (inner_width - 1) then append the bar.
@@ -628,27 +717,70 @@ defmodule Aiur.AgentList.Renderer do
     emoji_cell(text, @attention_cell_width)
   end
 
-  # Progress + ETA pair, rendered as one cell of fixed width 14:
-  # `<bar 8> <eta 5>`. Empty bar + empty ETA when the tracker has
+  # Progress + ETA pair, rendered as one cell of fixed width 16:
+  # `<bar 10> <eta 5>`. Empty bar + empty ETA when the tracker has
   # no samples for the id — width stays the same so the column
   # never jitters. No `—` placeholder; the absence is conveyed by
   # the empty bar alone.
+  #
+  # At percent: 100 (the agent's stop-work signal — see
+  # `elixir/prompts/shared-agent-instructions.md`'s "Progress emits"
+  # section), the bar is tinted green so the operator sees at a
+  # glance that the agent is done for this iteration. The cell is
+  # otherwise wrapped in `@ansi_dim` at the call site; we reset and
+  # re-apply dim around the green wrap so terminals render the
+  # color cleanly.
   defp progress_cell(id, layout) do
     samples = layout |> Map.get(:progress_by_id, %{}) |> Map.get(id, [])
     now_ms = Map.get(layout, :now_ms, System.monotonic_time(:millisecond))
 
-    {bar, eta_text} =
-      case ProgressTracker.estimate(samples, now_ms) do
-        :unknown ->
-          {ProgressTracker.bar(0, @progress_bar_width), ""}
+    case ProgressTracker.estimate(samples, now_ms) do
+      :unknown ->
+        ProgressTracker.bar(0, @progress_bar_width)
 
-        %{percent: pct, eta_seconds: eta} ->
-          {ProgressTracker.bar(pct, @progress_bar_width), ProgressTracker.format_eta(eta)}
-      end
+      %{percent: 100} ->
+        full_bar = ProgressTracker.bar(100, @progress_bar_width)
+        @ansi_reset <> @ansi_green <> full_bar <> @ansi_reset <> @ansi_dim
 
-    eta_padded = String.pad_trailing(eta_text, @eta_width)
-    bar <> " " <> eta_padded
+      %{percent: pct} ->
+        ProgressTracker.bar(pct, @progress_bar_width)
+    end
   end
+
+  # Cumulative wall-clock the agent has been running. Always-on; ticks
+  # up every render. Source: `summary.runtime_seconds`, already kept
+  # current by AgentList.App on every poll. Format chosen so the
+  # column never widens:
+  #   * <60s   → `0:01` … `0:59`
+  #   * <60m   → `1:23` … `59:59`
+  #   * <10h   → `1:02:03` (h:MM:SS — fits @runtime_cell_width 7)
+  #   * ≥10h   → `Nh` short form (rare; stays inside the cell)
+  defp runtime_cell(summary) do
+    seconds = Map.get(summary, :runtime_seconds) || 0
+    cell(format_runtime(seconds), @runtime_cell_width)
+  end
+
+  defp format_runtime(seconds) when is_integer(seconds) and seconds < 0, do: "0:00"
+
+  defp format_runtime(seconds) when is_integer(seconds) and seconds < 3600 do
+    mins = div(seconds, 60)
+    secs = rem(seconds, 60)
+    "#{mins}:#{pad2(secs)}"
+  end
+
+  defp format_runtime(seconds) when is_integer(seconds) and seconds < 36_000 do
+    hours = div(seconds, 3600)
+    mins = div(rem(seconds, 3600), 60)
+    secs = rem(seconds, 60)
+    "#{hours}:#{pad2(mins)}:#{pad2(secs)}"
+  end
+
+  defp format_runtime(seconds) when is_integer(seconds), do: "#{div(seconds, 3600)}h"
+
+  defp format_runtime(_), do: "0:00"
+
+  defp pad2(n) when is_integer(n) and n < 10, do: "0#{n}"
+  defp pad2(n), do: "#{n}"
 
   # Latest column cell — current most-recent event message for the
   # ticket. When no event has landed yet, shows a phase-aware
@@ -773,74 +905,6 @@ defmodule Aiur.AgentList.Renderer do
   defp summary_emoji(%{work_state: work_state}, _markers), do: AgentEvents.state_emoji(work_state)
   defp summary_emoji(_, _markers), do: "⚫"
 
-  # Status row beneath the bottom nav. One glyph per started opencode
-  # slot: in-progress glyph for slots still warming, finished glyph for
-  # slots that have every active agent attached. Geometry stays stable
-  # across warm-up (zero glyphs is valid).
-  defp warm_status_row(state, inner_width) do
-    if warm_status_enabled?(state) do
-      build_warm_status_row(state, inner_width)
-    else
-      []
-    end
-  end
-
-  defp build_warm_status_row(state, inner_width) do
-    started = Map.get(state, :started_slots, MapSet.new())
-    finished = Map.get(state, :fully_warmed_slots, MapSet.new())
-    {in_progress_glyph, finished_glyph} = warm_status_glyphs(state)
-
-    glyphs = warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph)
-    body = "  " <> glyphs
-    [pad_with_ansi(@ansi_dim, body, inner_width, " "), eol()]
-  end
-
-  defp warm_status_glyph_line(started, finished, in_progress_glyph, finished_glyph) do
-    started
-    |> MapSet.to_list()
-    |> Enum.sort()
-    |> Enum.map_join(" ", fn slot ->
-      warm_status_slot_glyph(slot, finished, in_progress_glyph, finished_glyph)
-    end)
-  end
-
-  defp warm_status_slot_glyph(slot, finished, in_progress_glyph, finished_glyph) do
-    if MapSet.member?(finished, slot), do: finished_glyph, else: in_progress_glyph
-  end
-
-  defp warm_status_glyphs(state) do
-    if Map.get(state, :warm_status_dark_mode?, true) do
-      {@warm_status_glyph_dark_in_progress, @warm_status_glyph_dark_finished}
-    else
-      {@warm_status_glyph_light_in_progress, @warm_status_glyph_light_finished}
-    end
-  end
-
-  defp warm_status_row_line_count(state) do
-    if warm_status_enabled?(state), do: 1, else: 0
-  end
-
-  defp warm_status_enabled?(state) do
-    # Bottom warmth row (🔲 starting / ⬜ ready) is a debug-only
-    # observability surface, not a user-facing feature. Hidden when
-    # AIUR_DEBUG is off so the default agent list stays focused on
-    # per-ticket markers. State-level override (`warm_status_row?`)
-    # still wins for tests that explicitly want to render it.
-    case Map.get(state, :warm_status_row?) do
-      nil -> debug_enabled?()
-      explicit -> explicit
-    end
-  end
-
-  defp debug_enabled? do
-    case System.get_env("AIUR_DEBUG") do
-      v when is_binary(v) -> String.downcase(String.trim(v)) in ["1", "true", "yes"]
-      _ -> false
-    end
-  end
-
-  defp warm_row_line_count(state), do: warm_status_row_line_count(state)
-
   defp emoji_cell("", width) do
     # Reserved-but-empty cell: pad to the full visual width.
     String.duplicate(" ", max(width, 0))
@@ -861,34 +925,11 @@ defmodule Aiur.AgentList.Renderer do
     glyph <> pad
   end
 
-  defp age_string(summary) do
-    seconds = Map.get(summary, :runtime_seconds) || 0
-    turns = Map.get(summary, :turn_count) || 0
-    "#{format_duration(seconds)}/#{turns}t"
-  end
-
-  defp format_duration(seconds) when is_integer(seconds) and seconds >= 3600,
-    do: "#{div(seconds, 3600)}h"
-
-  defp format_duration(seconds) when is_integer(seconds) and seconds >= 60,
-    do: "#{div(seconds, 60)}m"
-
-  defp format_duration(seconds) when is_integer(seconds) and seconds >= 0,
-    do: "#{seconds}s"
-
-  defp format_duration(_), do: "0s"
-
-  # Compute per-frame column widths so identifiers and age strings only
-  # take as much space as they actually need, leaving the rest for the
-  # title. Recomputed on every render so a wider pane reflows
-  # immediately when tmux resizes.
+  # Compute per-frame column widths so identifiers only take as much
+  # space as they actually need, leaving the rest for the title.
+  # Recomputed on every render so a wider pane reflows immediately
+  # when tmux resizes.
   defp compute_layout(summaries, inner_width) do
-    age_width =
-      summaries
-      |> Enum.map(fn s -> String.length(age_string(s)) end)
-      |> Enum.max(fn -> 0 end)
-      |> max(@min_age_width)
-
     natural_id_width =
       summaries
       |> Enum.map(fn s -> String.length(to_string(Map.get(s, :identifier) || "")) end)
@@ -901,12 +942,11 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_title_width)
 
-    # `│ ` (2) + marker (2) + id + `   ` (3 gap) + age + `  ` (2) +
-    # state (3) + attention (4) + title + ` ` (1) + [progress block]
-    # + ` │` (1 for the right border the row closes with).
-    # The progress block (14 + 1 = 15) is included when terminal width
-    # allows it; on very narrow terminals it collapses to zero.
-    base_overhead = 2 + 2 + @id_age_gap_width + age_width + 2 + @state_cell_width + @attention_cell_width + 1
+    # `│ ` (2) + marker (2) + id + `  ` (2) + state (3) + attention (4)
+    # + title + ` ` (1) + [progress block] + runtime_block (8) + ` │`
+    # (1 for the right border the row closes with).
+    runtime_block_width = @runtime_cell_width + 1
+    base_overhead = 2 + 2 + 2 + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
     show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
     fixed_non_id_overhead = base_overhead + progress_block_width
@@ -943,7 +983,6 @@ defmodule Aiur.AgentList.Renderer do
 
     %{
       id_width: id_width,
-      age_width: age_width,
       title_width: title_width,
       latest_width: latest_width,
       show_progress?: show_progress?
@@ -1082,7 +1121,13 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp strip_ansi(text) do
-    Regex.replace(~r/\e\[[0-9;]*[A-Za-z]/, text, "")
+    text
+    # CSI (color/cursor) sequences: `\e[...m`, `\e[2J`, etc.
+    |> then(&Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]/, &1, ""))
+    # OSC 8 hyperlinks: `\e]8;;<url>\e\\<text>\e]8;;\e\\` (or BEL-terminated).
+    # The text between the brackets is the visible part — we keep
+    # everything between the ST and the closing OSC.
+    |> then(&Regex.replace(~r/\e\]8;;[^\e\a]*(\e\\|\a)/, &1, ""))
   end
 
   defp eol, do: ["\e[K", "\r\n"]
@@ -1094,10 +1139,10 @@ defmodule Aiur.AgentList.Renderer do
   # = 8. Footer is 1 or 2 rows depending on width. Body rows come
   # straight from state.summaries since `Aiur.AgentList.App` now
   # pre-filters the list before passing it in.
-  defp lines_emitted(state, inner_width) do
+  defp lines_emitted(state, _inner_width, footer_lines) do
     summaries = Map.get(state, :summaries, [])
     body_rows = if summaries == [], do: 1, else: length(summaries)
-    8 + footer_line_count(inner_width) + body_rows
+    8 + footer_lines + body_rows
   end
 
   # --- Debug perf footer ---------------------------------------------
@@ -1109,158 +1154,618 @@ defmodule Aiur.AgentList.Renderer do
   #
   # Each row shows the last measured value or `…` while we wait.
 
-  defp debug_perf_footer(state, inner_width) do
-    if Map.get(state, :debug_mode?, false) do
-      summary = Map.get(state, :perf_summary, %{})
-
-      [
-        perf_compact_row(summary, inner_width),
-        eol(),
-        warmth_footer_row(state, inner_width),
-        eol()
-      ]
-    else
-      []
-    end
-  end
-
-  defp debug_footer_line_count(state) do
-    if Map.get(state, :debug_mode?, false), do: 2, else: 0
-  end
-
-  defp perf_compact_row(summary, inner_width) do
-    text =
-      "  perf  list " <>
-        format_perf_ms(Map.get(summary, :agent_list_ready_ms)) <>
-        " · pane " <>
-        format_perf_ms(Map.get(summary, :chat_pane_visible_ms)) <>
-        " · render " <> format_perf_ms(Map.get(summary, :opencode_render_ms))
-
-    # Pad to inner_width - 1 to leave the autowrap-safety column;
-    # no right border because this row sits below the bordered box.
-    [IO.ANSI.faint(), clip_and_pad(text, max(inner_width - 1, 0)), IO.ANSI.reset()]
-  end
-
-  defp format_perf_ms(nil), do: "…"
-  defp format_perf_ms(ms) when ms < 1_000, do: "#{ms}ms"
-
-  defp format_perf_ms(ms),
-    do: :io_lib.format("~.1fs", [ms / 1000]) |> IO.iodata_to_binary()
-
-  defp warmth_footer_row(state, inner_width) do
-    rows =
-      state
-      |> Map.get(:warmth_events, [])
-      |> WarmthReport.from_events()
-
-    summary = format_warmth_summary(rows)
-    label = "  warmth (loose→strict): " <> summary
-    [IO.ANSI.faint(), clip_and_pad(label, inner_width), IO.ANSI.reset()]
-  end
-
-  defp format_warmth_summary([]), do: "no attach events yet"
-
-  defp format_warmth_summary(rows) do
-    rows
-    |> Enum.take(3)
-    |> Enum.map_join("  ", fn r ->
-      delta =
-        case r.loose_to_strict_delta_ms do
-          n when is_integer(n) -> "#{n}ms"
-          :strict_never_reached -> "never"
-          other -> Atom.to_string(other)
-        end
-
-      "#{r.identifier}=#{delta}"
-    end)
-  end
-
-  # --- Debug events ticker ------------------------------------------------
-  # When `--debug` is on, the bottom of the agent-list pane shows the
-  # most recent event lifecycle marks. Three kinds, in three columns of
-  # visual weight:
+  # --- Events block (inside the AgentList box) ---------------------------
+  # The events block renders INSIDE the AgentList box, separated from the
+  # agent rows by a `├──...──┤` divider when there are events to show.
+  # Three kinds:
   #
-  #   ✉️  publish — Aiur.Events.Publisher.publish/3 accepted the event
-  #   📥  receive — Aiur.Events.SubscriptionStore enqueued the event
-  #                  for a specific subscribing identifier
+  #   💬  publish — `Aiur.Events.Publisher.publish/3` accepted the event
+  #   📬  receive — `Aiur.Events.SubscriptionStore` delivered the event
+  #                  to a subscribing ticket
   #   📄  read    — the agent's queue consumed an `events_digest` item
   #                  (the digest reached the agent's prompt)
   #
-  # The buffer is newest-first. Renderer trims to `budget` lines so
-  # the ticker never overflows the pane height; older events are
-  # silently dropped from the visible window.
+  # Line format:
+  #   `💬 99 Agent: "<message>"` (publish — source ticket is the agent)
+  #   `📬 100 Agent received from 99: "<message>"` (cross-ticket receive)
+  #   `📄 100 Agent ingested:` (read — minimal context)
+  #
+  # The table takes precedence for space: when `budget` is too small for
+  # the divider + a single event row, the block collapses to nothing.
 
-  defp debug_events_ticker(state, inner_width, budget) do
-    if Map.get(state, :debug_mode?, false) and budget > 0 do
-      header_line = ticker_header_row(inner_width)
-      # Header eats one row; remaining is the visible event capacity.
-      capacity = max(budget - 1, 0)
+  defp events_block(state, inner_width, budget) do
+    events = state |> Map.get(:debug_events, []) |> Enum.reject(&is_nil/1)
 
-      # state.debug_events is newest-first. Keep the newest `capacity`
-      # (drop the oldest beyond that), then reverse so we render
-      # oldest-at-top → newest-at-bottom. Events anchor to the BOTTOM
-      # of the ticker section: when fewer than `capacity` exist, blank
-      # padding fills the rows above so the newest event always sits
-      # at the bottom of the pane.
-      events =
-        state
-        |> Map.get(:debug_events, [])
-        |> Enum.take(capacity)
-        |> Enum.reverse()
-
-      pad_count = max(capacity - length(events), 0)
-      blank = ticker_blank_row(inner_width)
-      blank_rows = List.duplicate([blank, eol()], pad_count)
-      event_rows = Enum.flat_map(events, &[ticker_event_row(&1, inner_width), eol()])
-
-      {[header_line, eol(), blank_rows, event_rows], 1 + pad_count + length(events)}
-    else
-      {[], 0}
+    cond do
+      budget < 2 -> {[], 0}
+      inner_width < 4 -> {[], 0}
+      true -> render_events_block(state, events, inner_width, budget)
     end
   end
 
-  defp ticker_blank_row(inner_width) do
-    String.duplicate(" ", inner_width)
+  defp render_events_block(state, events, inner_width, budget) do
+    # Divider eats 1 row; remaining budget is the event capacity.
+    # The block ALWAYS uses the full budget — when there are fewer
+    # events than rows, empty `│ ... │` rows pad ABOVE the events so
+    # the newest line sits flush with the bottom border (chat-log
+    # layout: new at bottom, old scrolls up).
+    capacity = max(budget - 1, 0)
+    rendering_identifier = selected_identifier(state)
+    repo = repo_identity(state)
+
+    # state.debug_events is newest-first. Format each entry, drop the
+    # ones the formatter suppresses (self-echoes), then take the newest
+    # `capacity` so suppressed entries don't eat the budget.
+    visible_lines =
+      events
+      |> Stream.map(&format_event_line(&1, rendering_identifier, repo))
+      |> Stream.reject(&is_nil/1)
+      |> Enum.take(capacity)
+      |> Enum.reverse()
+
+    deficit = max(capacity - length(visible_lines), 0)
+    empty_rows = for _ <- 1..deficit//1, do: [empty_event_row(inner_width), eol()]
+
+    event_rows =
+      Enum.flat_map(visible_lines, &[event_box_inner_row(&1, inner_width), eol()])
+
+    iodata = [
+      events_divider_row(inner_width),
+      eol(),
+      empty_rows,
+      event_rows
+    ]
+
+    {iodata, 1 + capacity}
   end
 
-  defp ticker_header_row(inner_width) do
-    # Two label variants: full and compact. Pick the widest that fits
-    # so a narrow tmux split doesn't wrap the header.
-    full = "  events (✉️ publish · 📥 receive · 📄 read)"
-    compact = "  events  ✉️ 📥 📄"
-
-    label =
-      cond do
-        visual_width(full) <= inner_width -> full
-        visual_width(compact) <= inner_width -> compact
-        true -> "  events"
-      end
-
-    [IO.ANSI.faint(), clip_and_pad(label, inner_width), IO.ANSI.reset()]
+  defp selected_identifier(%{selection_index: idx, summaries: summaries}) when is_list(summaries) do
+    case Enum.at(summaries, idx) do
+      %{identifier: id} when is_binary(id) -> id
+      _ -> nil
+    end
   end
 
-  defp ticker_event_row(%{kind: kind, topic: topic} = entry, inner_width) do
-    glyph =
-      case kind do
-        :publish -> "✉️"
-        :receive -> "📥"
-        :read -> "📄"
-      end
+  defp selected_identifier(_state), do: nil
 
-    id_part =
-      case Map.get(entry, :id) do
-        n when is_integer(n) -> " id=#{n}"
-        _ -> ""
-      end
+  defp events_divider_row(inner_width) do
+    # Inject an "oldest" label at the far-right of the divider so the
+    # operator can read the timeline direction:
+    #   `├──...── oldest ─┤`
+    # When the box is too narrow (`< 14` cols) for label + chrome, fall
+    # back to the plain divider so we never truncate the corner glyphs.
+    label_text = "oldest"
+    label_visual = String.length(label_text)
+    min_for_label = label_visual + 6
 
-    identifier_part =
-      case Map.get(entry, :identifier) do
-        id when is_binary(id) and id != "" -> " (##{id})"
-        _ -> ""
-      end
+    if inner_width >= min_for_label do
+      leading_fill = String.duplicate("─", max(inner_width - label_visual - 5, 0))
 
-    text = "  #{glyph} #{topic}#{id_part}#{identifier_part}"
-    [IO.ANSI.faint(), clip_and_pad(text, inner_width), IO.ANSI.reset()]
+      [
+        @ansi_gray,
+        "├",
+        leading_fill,
+        " ",
+        @ansi_reset,
+        @ansi_gray,
+        IO.ANSI.italic(),
+        label_text,
+        @ansi_reset,
+        @ansi_gray,
+        " ─┤",
+        @ansi_reset
+      ]
+    else
+      fill = String.duplicate("─", max(inner_width - 2, 0))
+      [@ansi_gray, "├", fill, "┤", @ansi_reset]
+    end
+  end
+
+  # `│ <text padded> │` — the `│ ` + ` │` chrome eats 4 visual columns.
+  defp event_box_inner_row(text, inner_width) do
+    body_width = max(inner_width - 4, 0)
+    padded = clip_and_pad(text, body_width)
+    [IO.ANSI.faint(), "│ ", padded, " │", IO.ANSI.reset()]
+  end
+
+  # Empty `│       │` row used to pad the events block up to its full
+  # budget when there are fewer events than rows available.
+  defp empty_event_row(inner_width) do
+    fill = String.duplicate(" ", max(inner_width - 2, 0))
+    [@ansi_gray, "│", @ansi_reset, fill, @ansi_gray, "│", @ansi_reset]
+  end
+
+  # Format an event-ticker entry as a natural-language line.
+  #
+  # The renderer is the one place that turns a `DebugLog` entry into
+  # operator-facing text. Key rules surfaced by live testing:
+  #
+  # - Self-receive of agent.* echoes (140 received from 140) gets
+  #   suppressed — the publish line already covered the same content.
+  # - Cross-ticket receives use `←` instead of "Agent received from":
+  #     `📬 140 ← 99: pushed "abc"`
+  # - When the topic is a comment (issue.commented, pr.review_comment),
+  #   the receive line reads `<id> new <Issue|PR> comment: "<body>"`.
+  # - Pushes extract commits[*].message and report count + last msg.
+  # - PRs (pr.opened / pr.merged) extract the PR title.
+  # - Events without a meaningful body drop the trailing colon.
+  defp format_event_line(%{kind: kind, topic: topic} = entry, rendering_identifier, repo) do
+    if ticker_self_echo?(kind, topic, entry) do
+      nil
+    else
+      glyph = event_glyph(kind)
+      body = Map.get(entry, :body)
+      source_id = event_source_ticket_id(topic)
+      subject_id = event_subject_id(kind, entry, source_id, rendering_identifier)
+      suffix = topic_suffix(topic)
+
+      {verb_phrase, summary} = describe_event(kind, subject_id, source_id, suffix, body)
+
+      # OSC 8 wraps. Subject id linkable to its issue; "PR" / "comment"
+      # tokens in the verb phrase get wrapped with the body's URL when
+      # available, falling back to the subject's issue URL.
+      linked_subject = link_ticket_id(subject_id, repo)
+      fallback_url = issue_url_for(subject_id, repo) || issue_url_for(source_id, repo)
+      linked_verb = link_verb_phrase(verb_phrase, kind, suffix, body, repo, fallback_url)
+
+      "#{glyph} #{linked_subject} #{linked_verb}#{summary}"
+    end
+  end
+
+  defp format_event_line(_entry, _rendering_identifier, _repo), do: nil
+
+  defp issue_url_for(id, repo) when is_binary(id) and is_binary(repo), do: issue_url(repo, id)
+  defp issue_url_for(_id, _repo), do: nil
+
+  defp event_glyph(:publish), do: "💬"
+  defp event_glyph(:receive), do: "📬"
+  defp event_glyph(:read), do: "📄"
+  defp event_glyph(_), do: "·"
+
+  defp event_source_ticket_id(topic) when is_binary(topic) do
+    case Regex.run(~r/^ticket\.([^.]+)\./, topic) do
+      [_, id] -> id
+      _ -> nil
+    end
+  end
+
+  defp event_source_ticket_id(_), do: nil
+
+  # Suppress noisy self-receives: an agent's own subscription fanning
+  # the agent.* event back to itself. The publish line above already
+  # carries the same content. Comments (issue.commented /
+  # pr.review_comment) survive because a comment on the agent's OWN
+  # ticket is a genuine signal worth surfacing.
+  defp ticker_self_echo?(:receive, topic, %{identifier: id}) when is_binary(topic) and is_binary(id) do
+    source = event_source_ticket_id(topic)
+    suffix = topic_suffix(topic)
+
+    source == id and not comment_topic?(suffix)
+  end
+
+  defp ticker_self_echo?(_kind, _topic, _entry), do: false
+
+  defp comment_topic?("issue.commented"), do: true
+  defp comment_topic?("pr.review_comment"), do: true
+  defp comment_topic?(_), do: false
+
+  # For publishes, the subject is the source ticket itself.
+  # For receives / reads, the subject is the receiving ticket.
+  defp event_subject_id(:publish, _entry, source_id, _rendering_identifier) when is_binary(source_id),
+    do: source_id
+
+  defp event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
+    do: id
+
+  defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
+    do: id
+
+  defp event_subject_id(:read, _entry, source_id, _rendering_identifier) when is_binary(source_id),
+    do: source_id
+
+  defp event_subject_id(_kind, _entry, _source_id, rendering_identifier) when is_binary(rendering_identifier),
+    do: rendering_identifier
+
+  defp event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
+
+  defp topic_suffix("ticket." <> rest) do
+    case String.split(rest, ".", parts: 2) do
+      [_id, suffix] -> suffix
+      _ -> rest
+    end
+  end
+
+  defp topic_suffix(topic) when is_binary(topic), do: topic
+  defp topic_suffix(_), do: ""
+
+  # ── describe_event: {verb_phrase, summary} ──────────────────────────────
+  # The verb phrase is the natural-language description of the topic.
+  # The summary is "" or " \"…body…\"" depending on whether we found
+  # something meaningful in the payload.
+
+  # --- Self-comment on the agent's own ticket / PR ----------------------
+  defp describe_event(:receive, subject_id, source_id, "issue.commented", body)
+       when subject_id == source_id do
+    {"new Issue comment:", comment_body_summary(body)}
+  end
+
+  defp describe_event(:receive, subject_id, source_id, "pr.review_comment", body)
+       when subject_id == source_id do
+    {"new PR comment:", comment_body_summary(body)}
+  end
+
+  # --- Cross-ticket receive: "<receiver> ← <source>: <verb>" ------------
+  defp describe_event(:receive, _subject_id, source_id, suffix, body) when is_binary(source_id) do
+    {"← #{source_id}: #{cross_receive_verb(suffix)}", cross_receive_summary(suffix, body)}
+  end
+
+  defp describe_event(:receive, _subject_id, _source_id, _suffix, _body) do
+    {"received", ""}
+  end
+
+  # --- Read events (digest ingestion) ----------------------------------
+  # A read entry is the receiver digesting an event from its inbox.
+  # The line reads `📄 <receiver> ingested <source>: <publish-verb>"<body>"`
+  # so the operator can see what the agent actually picked up. We
+  # reuse `publish_event_phrase/2` for the verb + body so reads share
+  # the same vocabulary as the originating publish line.
+  defp describe_event(:read, subject_id, source_id, suffix, body)
+       when is_binary(source_id) and source_id != subject_id do
+    {verb, summary} = publish_event_phrase(suffix, body)
+    {"ingested #{source_id}: #{verb}", summary}
+  end
+
+  defp describe_event(:read, _subject_id, _source_id, suffix, body) do
+    {verb, summary} = publish_event_phrase(suffix, body)
+    {"ingested: #{verb}", summary}
+  end
+
+  # --- Publishes -------------------------------------------------------
+  defp describe_event(:publish, _subject_id, _source_id, suffix, body) do
+    publish_event_phrase(suffix, body)
+  end
+
+  defp describe_event(_kind, _subject_id, _source_id, _suffix, _body), do: {"", ""}
+
+  # ── Publish topic → {verb_phrase, summary} ─────────────────────────────
+  # Verbs are written so the ID prefix reads as the implicit subject:
+  #   `💬 99 started work: "..."` — not `💬 99 Agent started work: "..."`.
+  # The leading "Agent" was dead weight that pushed real content off the
+  # right edge in the bordered event log.
+
+  defp publish_event_phrase("agent.phase." <> phase_step, body),
+    do: {phrase_for_phase(phase_step) <> ":", inline_summary(body)}
+
+  # The agent-driven progress sample. Carries `%{percent, label}`; the
+  # label *is* the natural-language summary, so render the explicit
+  # percent and let the operator read both.
+  defp publish_event_phrase("agent.progress.checkin", body),
+    do: progress_phrase("Check-in:", body)
+
+  defp publish_event_phrase("agent.progress.phase", body),
+    do: progress_phrase("Estimated progress:", body)
+
+  defp publish_event_phrase("agent.progress", body),
+    do: progress_phrase("Estimated progress:", body)
+
+  defp publish_event_phrase("agent.blocked", body),
+    do: {"blocked:", inline_summary(body)}
+
+  defp publish_event_phrase("agent.unblocked", body),
+    do: {"unblocked", inline_summary(body)}
+
+  defp publish_event_phrase("agent.pause.request", body),
+    do: {"requested pause", inline_summary(body)}
+
+  defp publish_event_phrase("agent.attention." <> _slug, body),
+    do: {"raised attention:", inline_summary(body)}
+
+  defp publish_event_phrase("agent.decision." <> slug, body),
+    do: {"decided #{slug}:", inline_summary(body)}
+
+  defp publish_event_phrase("agent." <> name, body),
+    do: {name <> ":", inline_summary(body)}
+
+  defp publish_event_phrase("operator.progress_request", _body),
+    do: {"check-in requested", ""}
+
+  defp publish_event_phrase("issue.label.added.agent." <> state, body),
+    do: {"labelled #{state}:", inline_summary(body)}
+
+  defp publish_event_phrase("pr.opened", body),
+    do: pr_event_phrase("opened a PR", body)
+
+  defp publish_event_phrase("pr.merged", body),
+    do: pr_event_phrase("merged a PR", body)
+
+  defp publish_event_phrase("pr.review_comment", body),
+    do: {"got a PR review comment:", comment_body_summary(body)}
+
+  defp publish_event_phrase("branch.push", body),
+    do: branch_push_phrase(body)
+
+  defp publish_event_phrase("issue.commented", body),
+    do: {"got an issue comment:", comment_body_summary(body)}
+
+  defp publish_event_phrase(other, body),
+    do: {other, inline_summary(body)}
+
+  # Renders `<verb> N% done "label"` so the bar update reads in plain
+  # English. Falls back to the raw inline_summary when the body has no
+  # percent field (defensive — shouldn't happen in practice).
+  defp progress_phrase(verb, body) do
+    case progress_percent_from(body) do
+      nil ->
+        {verb, inline_summary(body)}
+
+      pct ->
+        suffix =
+          case progress_label_from(body) do
+            nil -> ""
+            label -> " \"" <> clip_summary(label) <> "\""
+          end
+
+        {"#{verb} #{trunc(pct)}% done", suffix}
+    end
+  end
+
+  defp progress_percent_from(body) when is_map(body) do
+    cond do
+      is_number(body[:percent]) -> body[:percent]
+      is_number(body["percent"]) -> body["percent"]
+      true -> nil
+    end
+  end
+
+  defp progress_percent_from(_), do: nil
+
+  defp progress_label_from(body) when is_map(body) do
+    candidate = body[:label] || body["label"]
+    if is_binary(candidate) and String.trim(candidate) != "", do: candidate
+  end
+
+  defp progress_label_from(_), do: nil
+
+  defp pr_event_phrase(verb, body) do
+    case pr_title(body) do
+      nil -> {verb, ""}
+      title -> {verb <> ":", " \"" <> clip_summary(title) <> "\""}
+    end
+  end
+
+  defp branch_push_phrase(body) do
+    commits = get_in_safe(body, [:commits]) || get_in_safe(body, ["commits"]) || []
+
+    if is_list(commits) and commits != [] do
+      count = length(commits)
+      last = commits |> List.last() |> commit_message()
+
+      case last do
+        nil -> {"pushed #{count} #{commits_word(count)}", ""}
+        msg -> {"pushed #{count} #{commits_word(count)}, last:", " \"" <> clip_summary(msg) <> "\""}
+      end
+    else
+      {"pushed", ""}
+    end
+  end
+
+  defp commits_word(1), do: "commit"
+  defp commits_word(_), do: "commits"
+
+  defp commit_message(%{} = commit) do
+    Map.get(commit, "message") || Map.get(commit, :message)
+  end
+
+  defp commit_message(_), do: nil
+
+  defp cross_receive_verb("branch.push"), do: "pushed"
+  defp cross_receive_verb("pr.opened"), do: "opened a PR"
+  defp cross_receive_verb("pr.merged"), do: "merged a PR"
+  defp cross_receive_verb("pr.review_comment"), do: "PR review comment"
+  defp cross_receive_verb("issue.commented"), do: "commented"
+  defp cross_receive_verb("agent.unblocked"), do: "unblocked"
+  defp cross_receive_verb("agent.blocked"), do: "blocked"
+  defp cross_receive_verb("agent.phase." <> phase_step), do: phrase_for_phase(phase_step)
+  defp cross_receive_verb("agent.progress"), do: "progress"
+  defp cross_receive_verb("agent." <> name), do: name
+  defp cross_receive_verb(other), do: other
+
+  defp cross_receive_summary("branch.push", body) do
+    case branch_push_phrase(body) do
+      {_verb, ""} -> ""
+      {_verb, summary} -> summary
+    end
+  end
+
+  defp cross_receive_summary(suffix, body) when suffix in ["pr.opened", "pr.merged"] do
+    case pr_title(body) do
+      nil -> ""
+      title -> " \"" <> clip_summary(title) <> "\""
+    end
+  end
+
+  defp cross_receive_summary(suffix, body) when suffix in ["issue.commented", "pr.review_comment"] do
+    comment_body_summary(body)
+  end
+
+  defp cross_receive_summary(_suffix, body), do: inline_summary(body)
+
+  defp phrase_for_phase("brainstorm.start"), do: "started brainstorm"
+  defp phrase_for_phase("brainstorm.end"), do: "finished brainstorm"
+  defp phrase_for_phase("plan.start"), do: "started plan"
+  defp phrase_for_phase("plan.end"), do: "finished plan"
+  defp phrase_for_phase("work.start"), do: "started work"
+  defp phrase_for_phase("work.end"), do: "finished work"
+  defp phrase_for_phase("review.start"), do: "started review"
+  defp phrase_for_phase("review.end"), do: "finished review"
+  defp phrase_for_phase(other), do: "phase " <> other
+
+  # ── Body extraction helpers ─────────────────────────────────────────────
+
+  @summary_keys ~w(message title summary subject name label commit_message)
+
+  defp inline_summary(body) when is_map(body) do
+    case extract_event_text(body, @summary_keys) do
+      nil -> ""
+      text -> " \"" <> clip_summary(text) <> "\""
+    end
+  end
+
+  defp inline_summary(_body), do: ""
+
+  defp comment_body_summary(body) when is_map(body) do
+    nested = get_in_safe(body, [:comment, "body"]) || get_in_safe(body, ["comment", "body"])
+
+    if is_binary(nested) and String.trim(nested) != "" do
+      " \"" <> clip_summary(String.trim(nested)) <> "\""
+    else
+      inline_summary(body)
+    end
+  end
+
+  defp comment_body_summary(_body), do: ""
+
+  defp pr_title(body) when is_map(body) do
+    candidate = get_in_safe(body, [:pr, "title"]) || get_in_safe(body, ["pr", "title"])
+
+    if is_binary(candidate) and String.trim(candidate) != "" do
+      String.trim(candidate)
+    end
+  end
+
+  defp pr_title(_body), do: nil
+
+  defp extract_event_text(body, keys) do
+    Enum.find_value(keys, fn k ->
+      val = Map.get(body, k) || Map.get(body, String.to_atom(k))
+
+      if is_binary(val) and String.trim(val) != "" do
+        String.trim(val)
+      end
+    end)
+  end
+
+  defp clip_summary(text) when is_binary(text) do
+    # Collapse every run of whitespace (including embedded newlines from
+    # workpad markdown, code fences, multi-line comments) into a single
+    # space so the terminal renders one row per event. Width-aware
+    # truncation happens downstream in clip_and_pad/2, which is called
+    # with the live pane width every render — that's why a resize
+    # re-flows historical lines. Hard-capping here to a fixed character
+    # count would defeat that and freeze old lines at the old width.
+    text
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+  end
+
+  defp get_in_safe(nil, _path), do: nil
+  defp get_in_safe(body, []), do: body
+
+  defp get_in_safe(body, [key | rest]) when is_map(body) do
+    case Map.get(body, key) do
+      nil -> nil
+      child -> get_in_safe(child, rest)
+    end
+  end
+
+  defp get_in_safe(_body, _path), do: nil
+
+  # ── OSC 8 hyperlinks ────────────────────────────────────────────────────
+  # Modern terminals (iTerm2, Kitty, WezTerm, alacritty 0.11+, foot,
+  # Windows Terminal, VSCode integrated terminal) interpret the OSC 8
+  # escape as a clickable region — cmd-click opens the URL. tmux passes
+  # the sequence through. Terminals without support just render the
+  # plain text and ignore the escapes.
+
+  defp repo_identity(state) do
+    case Map.get(state, :repo_identity) || Map.get(state, :project_label) do
+      v when is_binary(v) and v != "" -> v
+      _ -> nil
+    end
+  end
+
+  defp osc8(url, text) when is_binary(url) and is_binary(text) do
+    "\e]8;;" <> url <> "\e\\" <> text <> "\e]8;;\e\\"
+  end
+
+  defp link_ticket_id(id, repo) when is_binary(id) and is_binary(repo) do
+    osc8(issue_url(repo, id), id)
+  end
+
+  defp link_ticket_id(id, _repo) when is_binary(id), do: id
+
+  defp issue_url(repo, id), do: "https://github.com/#{repo}/issues/#{id}"
+  defp pr_url(repo, number), do: "https://github.com/#{repo}/pull/#{number}"
+
+  # Linkify "PR" / "comment" tokens in the verb phrase. Falls back to
+  # the subject's issue URL when the body has no PR-specific URL.
+  defp link_verb_phrase(verb_phrase, _kind, suffix, body, repo, fallback_url) when is_binary(verb_phrase) do
+    cond do
+      repo == nil ->
+        verb_phrase
+
+      String.contains?(verb_phrase, "PR") and pr_linkable?(suffix) ->
+        wrap_token(verb_phrase, "PR", pr_link_target(body, repo, fallback_url))
+
+      String.contains?(verb_phrase, "comment") ->
+        wrap_token(verb_phrase, "comment", comment_link_target(body, suffix, fallback_url))
+
+      true ->
+        verb_phrase
+    end
+  end
+
+  defp pr_linkable?("pr.opened"), do: true
+  defp pr_linkable?("pr.merged"), do: true
+  defp pr_linkable?("pr.review_comment"), do: true
+  defp pr_linkable?(_), do: false
+
+  defp pr_link_target(body, repo, fallback) when is_map(body) do
+    pr_html_url(body) || pr_number_url(body, repo) || fallback
+  end
+
+  defp pr_link_target(_body, _repo, fallback), do: fallback
+
+  defp pr_html_url(body) do
+    candidate = get_in_safe(body, [:pr, "html_url"]) || get_in_safe(body, ["pr", "html_url"])
+    if is_binary(candidate) and candidate != "", do: candidate
+  end
+
+  defp pr_number_url(body, repo) do
+    case get_in_safe(body, [:pr, "number"]) || get_in_safe(body, ["pr", "number"]) do
+      n when is_integer(n) -> pr_url(repo, n)
+      n when is_binary(n) and n != "" -> pr_url(repo, n)
+      _ -> nil
+    end
+  end
+
+  defp comment_link_target(body, suffix, fallback) when is_map(body) do
+    candidate =
+      get_in_safe(body, [:comment, "html_url"]) || get_in_safe(body, ["comment", "html_url"])
+
+    cond do
+      is_binary(candidate) and candidate != "" -> candidate
+      suffix == "pr.review_comment" -> pr_html_url(body) || fallback
+      true -> fallback
+    end
+  end
+
+  defp comment_link_target(_body, _suffix, fallback), do: fallback
+
+  # Wraps the first occurrence of `token` in `text` with an OSC 8
+  # link. No-op when target is nil/empty.
+  defp wrap_token(text, _token, target) when target in [nil, ""], do: text
+
+  defp wrap_token(text, token, target) when is_binary(target) do
+    case :binary.match(text, token) do
+      :nomatch ->
+        text
+
+      {start, length} ->
+        {prefix, rest} = String.split_at(text, start)
+        {match, suffix} = String.split_at(rest, length)
+        prefix <> osc8(target, match) <> suffix
+    end
   end
 
   defp clear_remaining(rows, lines_drawn) do

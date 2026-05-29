@@ -27,108 +27,315 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
     |> Map.merge(Map.new(overrides))
   end
 
-  describe "debug events ticker" do
-    test "renders nothing when debug_mode? is false" do
-      state = build_state(debug_mode?: false, debug_events: [debug_entry(:publish)])
+  describe "events section (always on, bordered)" do
+    test "renders events inside the AgentList box even when debug_mode? is false (always-on now)" do
+      state = build_state(debug_mode?: false, debug_events: [debug_entry(:publish, topic: "ticket.42.branch.push")])
       output = state |> Renderer.render() |> IO.iodata_to_binary()
-      refute output =~ "events ("
-      refute output =~ "✉️"
+
+      # Single box: AgentList top + bottom curved corners.
+      assert output =~ "╭─ AIUR"
+      assert output =~ "╰"
+
+      # No separate "Events" box header anymore.
+      refute output =~ "╭─ Events"
+
+      # Event line renders inside the box, separated from the table
+      # rows by a `├──┤` divider.
+      assert output =~ "├"
+      assert output =~ "💬 42"
     end
 
-    test "renders header + recent events when debug_mode? is true" do
+    test "events render inline with the agent table; legend lives in the footer" do
       events = [
         debug_entry(:read, topic: "ticket.42.branch.push", id: 4290, identifier: "42"),
-        debug_entry(:receive, topic: "ticket.42.branch.push", id: 4287, identifier: "42"),
+        debug_entry(:receive, topic: "ticket.42.branch.push", id: 4287, identifier: "99"),
         debug_entry(:publish, topic: "ticket.42.branch.push", id: 4287)
       ]
 
       state = build_state(debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      assert output =~ "events ("
-      assert output =~ "✉️ ticket.42.branch.push id=4287"
-      assert output =~ "📥 ticket.42.branch.push id=4287 (#42)"
-      assert output =~ "📄 ticket.42.branch.push id=4290 (#42)"
+      # Inside the same box; divider above the events block.
+      assert output =~ "├"
+
+      # Per-line format:
+      #   - publish branch.push with no commits payload → terse "pushed"
+      #     (no trailing colon).
+      #   - cross-ticket receive uses ← arrow, not "Agent received from".
+      #   - read uses minimal "Agent ingested".
+      assert output =~ "💬 42 pushed"
+      assert output =~ "📬 99 ← 42: pushed"
+      assert output =~ "📄 42 ingested: pushed"
+
+      # Legend now renders in the footer (outside the box), not above the events.
+      assert output =~ "💬 publish · 📬 receive · 📄 read"
     end
 
     test "newest event renders BELOW older events (anchored to bottom)" do
       events = [
-        debug_entry(:read, topic: "ticket.42.read", id: 3),
-        debug_entry(:receive, topic: "ticket.42.receive", id: 2),
-        debug_entry(:publish, topic: "ticket.42.publish", id: 1)
+        debug_entry(:read, topic: "ticket.42.branch.push", id: 3),
+        debug_entry(:receive, topic: "ticket.42.branch.push", id: 2, identifier: "99"),
+        debug_entry(:publish, topic: "ticket.42.branch.push", id: 1)
       ]
 
       state = build_state(debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      publish_pos = :binary.match(output, "ticket.42.publish") |> elem(0)
-      receive_pos = :binary.match(output, "ticket.42.receive") |> elem(0)
-      read_pos = :binary.match(output, "ticket.42.read") |> elem(0)
+      publish_pos = :binary.match(output, "💬 42 pushed") |> elem(0)
+      receive_pos = :binary.match(output, "📬 99 ← 42: pushed") |> elem(0)
+      read_pos = :binary.match(output, "📄 42 ingested: pushed") |> elem(0)
 
       assert publish_pos < receive_pos
       assert receive_pos < read_pos
     end
 
-    test "hides oldest events when ticker would exceed budget" do
-      # 24 rows total, header + table chrome eats most; the ticker gets
-      # a small remaining budget. Generate more events than can fit and
-      # verify the OLDEST are dropped, not the newest.
+    test "hides oldest events when section would exceed budget" do
       events =
-        for i <- 100..1, do: debug_entry(:publish, topic: "ticket.#{i}.x", id: i)
+        for i <- 100..1, do: debug_entry(:publish, topic: "ticket.#{i}.branch.push", id: i)
 
       state = build_state(rows: 24, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      # Newest (id=100) MUST appear; oldest (id=1) MUST NOT.
-      assert output =~ "id=100"
-      refute output =~ "id=1 "
+      assert output =~ "💬 100 pushed"
+      refute output =~ "💬 1 pushed"
     end
 
-    test "renders empty when pane has no remaining vertical budget" do
-      # Tiny pane — chrome alone fills it.
+    test "events block collapses when pane has no remaining vertical budget" do
       events = [debug_entry(:publish, topic: "ticket.1.branch.push", id: 1)]
       state = build_state(rows: 6, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
-      refute output =~ "events ("
+      refute output =~ "💬 1 pushed"
+    end
+
+    test "branch.push with commits payload renders count + last commit message" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.42.branch.push",
+          id: 1,
+          body: %{
+            "commits" => [
+              %{"message" => "first commit"},
+              %{"message" => "Add function_a/0 returning 42"}
+            ]
+          }
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 42 pushed 2 commits, last: \"Add function_a/0 returning 42\""
+    end
+
+    test "pr.opened extracts the PR title" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.42.pr.opened",
+          id: 1,
+          body: %{"pr" => %{"title" => "feat: add function_a"}}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 42 opened a PR: \"feat: add function_a\""
+    end
+
+    test "self-receive of agent.* echoes is suppressed (publish covers it)" do
+      events = [
+        debug_entry(:publish, topic: "ticket.140.agent.phase.work.start", id: 1, body: %{"message" => "starting"}),
+        # Same agent's own subscription echoing back — should NOT render.
+        debug_entry(:receive, topic: "ticket.140.agent.phase.work.start", id: 1, identifier: "140")
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 140 started work"
+      refute output =~ "📬 140 ← 140"
+      refute output =~ "Agent received from 140"
+    end
+
+    test "self-receive of an issue.commented is kept and reads `new Issue comment:`" do
+      events = [
+        debug_entry(:receive,
+          topic: "ticket.140.issue.commented",
+          id: 1,
+          identifier: "140",
+          body: %{"comment" => %{"body" => "Looks good to me"}}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "📬 140 new Issue comment: \"Looks good to me\""
+    end
+
+    test "agent.progress renders as `Estimated progress: N% done`" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.101.agent.progress",
+          id: 1,
+          body: %{"percent" => 80, "label" => "work: starting impl"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 101 Estimated progress: 80% done \"work: starting impl\""
+      refute output =~ "Agent progress"
+    end
+
+    test "agent.progress.checkin renders as `Check-in: N% done`" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.140.agent.progress.checkin",
+          id: 1,
+          body: %{"percent" => 30, "label" => "work: implementing"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 140 Check-in: 30% done"
+    end
+
+    test "agent.phase.work.start drops `Agent ` prefix" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.99.agent.phase.work.start",
+          id: 1,
+          body: %{"message" => "implementing"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 99 started work:"
+      refute output =~ "Agent started"
+    end
+
+    test "operator.progress_request renders as `check-in requested`" do
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.99.operator.progress_request",
+          id: 1,
+          body: %{"message" => "operator ping"}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "💬 99 check-in requested"
+      refute output =~ "operator.progress_request"
+    end
+
+    test "read events show source ticket and body summary" do
+      events = [
+        debug_entry(:read,
+          topic: "ticket.100.branch.push",
+          id: 1,
+          identifier: "99",
+          body: %{
+            "commits" => [%{"message" => "Add function_a/0 returning 42"}]
+          }
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~
+               "📄 99 ingested 100: pushed 1 commit, last: \"Add function_a/0 returning 42\""
+    end
+
+    test "read events of the agent's own publish drop the source id" do
+      events = [
+        debug_entry(:read,
+          topic: "ticket.42.branch.push",
+          id: 1,
+          identifier: "42",
+          body: %{"commits" => [%{"message" => "hi"}]}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "📄 42 ingested: pushed 1 commit, last: \"hi\""
+      refute output =~ "ingested 42:"
+    end
+
+    test "multi-line comment bodies collapse to one line with ellipsis" do
+      events = [
+        debug_entry(:receive,
+          topic: "ticket.140.issue.commented",
+          id: 1,
+          identifier: "140",
+          body: %{
+            "comment" => %{
+              "body" => "## Agent Workpad\n\n```text\nd:/home/orangekid/code/aiur-workspaces/100\napplekid:/home/orangekid/code/aiur-workspaces/100\n```"
+            }
+          }
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      refute output =~ "Workpad\n", "embedded newlines must be collapsed"
+      refute output =~ "```text\n", "code fences must not survive into the event row"
+      assert output =~ "📬 140 new Issue comment: \"## Agent Workpad ```text d:/"
+    end
+
+    test "self-receive of a pr.review_comment reads `new PR comment:`" do
+      events = [
+        debug_entry(:receive,
+          topic: "ticket.140.pr.review_comment",
+          id: 1,
+          identifier: "140",
+          body: %{"comment" => %{"body" => "nit on line 42"}}
+        )
+      ]
+
+      state = build_state(debug_events: events)
+      output = state |> Renderer.render() |> IO.iodata_to_binary()
+
+      assert output =~ "📬 140 new PR comment: \"nit on line 42\""
     end
   end
 
   describe "persistence across render cycles" do
-    test "events survive a render → other_event_with_unchanged_debug_events → render cycle" do
+    test "events survive consecutive renders with unchanged debug_events" do
       events = [debug_entry(:publish, topic: "ticket.42.branch.push", id: 42)]
       state = build_state(debug_events: events)
 
-      # Render once — event appears.
       first = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert first =~ "✉️ ticket.42.branch.push id=42"
+      assert first =~ "💬 42 pushed"
 
-      # Render again with identical state — event MUST still appear.
       second = state |> Renderer.render() |> IO.iodata_to_binary()
-      assert second =~ "✉️ ticket.42.branch.push id=42"
-
-      # Render a third time after simulating something that updates other
-      # state but preserves debug_events (e.g., perf summary update).
-      bumped = %{state | perf_summary: Map.put(state.perf_summary, :opencode_render_ms, 500)}
-      third = bumped |> Renderer.render() |> IO.iodata_to_binary()
-      assert third =~ "✉️ ticket.42.branch.push id=42"
+      assert second =~ "💬 42 pushed"
     end
   end
 
   describe "App render() pipes debug_events through" do
-    # Regression: the previous bug was that defp render/1 in app.ex
-    # built a render_state via Map.take + Map.put and didn't include
-    # debug_events. This test locks in that render_state must carry it.
     test "Renderer reads debug_events from the state map" do
-      events = [debug_entry(:publish, topic: "t", id: 1)]
+      events = [debug_entry(:publish, topic: "ticket.7.branch.push", id: 7)]
       with_events = build_state(debug_events: events)
       without_events = build_state(debug_events: [])
 
       with_out = with_events |> Renderer.render() |> IO.iodata_to_binary()
       without_out = without_events |> Renderer.render() |> IO.iodata_to_binary()
 
-      assert with_out =~ "id=1"
-      refute without_out =~ "id=1"
+      assert with_out =~ "💬 7 pushed"
+      refute without_out =~ "💬 7 pushed"
     end
   end
 
@@ -155,6 +362,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       topic: Keyword.get(opts, :topic, "ticket.1.branch.push"),
       id: Keyword.get(opts, :id),
       identifier: Keyword.get(opts, :identifier),
+      body: Keyword.get(opts, :body),
       at: System.monotonic_time(:millisecond)
     }
   end

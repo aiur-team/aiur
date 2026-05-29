@@ -166,6 +166,8 @@ defmodule Aiur.Config.Schema do
       field(:max_retry_attempts, :integer, default: 3)
       field(:max_retry_backoff_ms, :integer, default: 300_000)
       field(:max_concurrent_agents_by_state, :map, default: %{})
+      field(:codex_thrash_max_per_window, :integer, default: 6)
+      field(:codex_thrash_window_seconds, :integer, default: 60)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -179,7 +181,9 @@ defmodule Aiur.Config.Schema do
           :max_turns,
           :max_retry_attempts,
           :max_retry_backoff_ms,
-          :max_concurrent_agents_by_state
+          :max_concurrent_agents_by_state,
+          :codex_thrash_max_per_window,
+          :codex_thrash_window_seconds
         ],
         empty_values: []
       )
@@ -187,6 +191,8 @@ defmodule Aiur.Config.Schema do
       |> validate_number(:max_turns, greater_than: 0)
       |> validate_number(:max_retry_attempts, greater_than: 0)
       |> validate_number(:max_retry_backoff_ms, greater_than: 0)
+      |> validate_number(:codex_thrash_max_per_window, greater_than: 0)
+      |> validate_number(:codex_thrash_window_seconds, greater_than: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
     end
@@ -215,6 +221,11 @@ defmodule Aiur.Config.Schema do
       field(:turn_sandbox_policy, :map)
       field(:turn_timeout_ms, :integer, default: 3_600_000)
       field(:read_timeout_ms, :integer, default: 5_000)
+      # Stall watchdog timeout for codex turns. 2-minute default was
+      # too aggressive: codex agents legitimately go silent for 2+ min
+      # during gh API rate limits, long ripgreps, CI waits, and large
+      # mix compiles — the watchdog was killing healthy agents. 5 min
+      # is the safe default; workflow can override per repo.
       field(:stall_timeout_ms, :integer, default: 300_000)
     end
 
@@ -253,7 +264,7 @@ defmodule Aiur.Config.Schema do
       field(:before_run, :string)
       field(:after_run, :string)
       field(:before_remove, :string)
-      field(:timeout_ms, :integer, default: 60_000)
+      field(:timeout_ms, :integer, default: 600_000)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()

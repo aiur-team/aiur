@@ -182,13 +182,14 @@ defmodule Aiur.ExtensionsTest do
     assert removed_state.workflow.prompt == "Manual workflow prompt"
     assert_receive :poll, 2_000
 
-    Process.exit(manual_pid, :normal)
-    restart_result = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
-
-    assert match?({:ok, _pid}, restart_result) or
-             match?({:error, {:already_started, _pid}}, restart_result)
+    :ok = GenServer.stop(manual_pid)
+    refute Process.alive?(manual_pid)
 
     Workflow.set_workflow_file_path(existing_path)
+
+    assert {:ok, restarted_pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
+    assert Process.alive?(restarted_pid)
+
     WorkflowStore.force_reload()
   end
 

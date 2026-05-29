@@ -293,16 +293,35 @@ defmodule Aiur.Workspace do
 
   defp run_hook(command, workspace, issue_context, hook_name, nil) do
     timeout_ms = Config.settings!().hooks.timeout_ms
+    started_at = System.monotonic_time(:millisecond)
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
+    # Scrub Erlang distribution env before running the hook command.
+    # Without this, the operator's ERL_AFLAGS / RELEASE_NODE /
+    # RELEASE_COOKIE propagate into the hook, and any `mix` call in
+    # the hook tries to start an Erlang node with the operator's
+    # name and fails instantly:
+    #   `Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1
+    #    seems to be in use by another Erlang node`
+    # The error is non-fatal at the shell level (hook continues to
+    # the next `&&` chain step which also fails), so deps.get +
+    # compile silently produce nothing and the agent pays the cost
+    # of the cold fetch on its first turn. Reuses the same scrub
+    # that AgentEnvironment applies for the agent's own shell.
+    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
+
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true)
+        System.cmd("sh", ["-lc", scrubbed_command], cd: workspace, stderr_to_stdout: true)
       end)
 
     case Task.yield(task, timeout_ms) do
       {:ok, cmd_result} ->
+        elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+        Logger.info("aiur_perf workspace_hook phase=done hook=#{hook_name} #{issue_log_context(issue_context)} elapsed_ms=#{elapsed_ms}")
+
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
       nil ->
@@ -331,7 +350,17 @@ defmodule Aiur.Workspace do
     end
   end
 
-  defp handle_hook_command_result({_output, 0}, _workspace, _issue_id, _hook_name) do
+  defp handle_hook_command_result({output, 0}, _workspace, issue_context, hook_name) do
+    # Log a small tail of successful output. Hooks pre-warm deps and
+    # compile; when the hook silently does nothing (e.g. `mix
+    # deps.get` was no-op because the inner shell exited early on a
+    # masked error), the elapsed time looks fine but agents still pay
+    # the deps.get cost on first turn. Visible tail catches that
+    # regression early.
+    tail = sanitize_hook_output_for_log(output, 512)
+
+    Logger.debug("Workspace hook ok hook=#{hook_name} #{issue_log_context(issue_context)} output_tail=#{inspect(tail)}")
+
     :ok
   end
 

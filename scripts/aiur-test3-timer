@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Background poller that times an `aiur --test3` run end-to-end and
+# per-ticket. Polls GitHub for the `agent:human-review` label on the
+# 3 sandbox tickets; records each ticket's first-seen `human-review`
+# timestamp, then writes a JSON line to `.aiur-test3-runs.jsonl` when
+# all 3 are done or 90 minutes elapse.
+#
+# Per-ticket capture is the optimization signal: we want to see which
+# tickets finish in seconds vs minutes, and where the chain stalls.
+# Total elapsed is bounded by the slowest ticket; per-ticket elapsed
+# reveals whether parallelism is real.
+#
+# Invoked detached by `scripts/aiur` after a successful --test3 reset.
+# A PID file at `.aiur-test3-timer.pid` lets the next --test3 run
+# kill any in-flight poller before starting a new one.
+set -euo pipefail
+
+repo_root="${1:?repo_root required}"
+start_epoch="${2:?start_epoch required}"
+tickets_file="$repo_root/.aiur-test-tickets.json"
+runs_log="$repo_root/.aiur-test3-runs.jsonl"
+pid_file="$repo_root/.aiur-test3-timer.pid"
+
+echo "$$" > "$pid_file"
+trap 'rm -f "$pid_file"' EXIT
+
+if ! command -v jq >/dev/null 2>&1; then exit 0; fi
+if ! command -v gh >/dev/null 2>&1; then exit 0; fi
+if [ ! -r "$tickets_file" ]; then exit 0; fi
+
+mapfile -t tickets < <(jq -r '.tickets[]' "$tickets_file" 2>/dev/null)
+total="${#tickets[@]}"
+if [ "$total" -eq 0 ]; then exit 0; fi
+
+# Per-ticket first-seen finish epoch (0 = not yet finished).
+declare -A finished_at_for
+for t in "${tickets[@]}"; do finished_at_for["$t"]=0; done
+
+deadline=$((start_epoch + 5400))
+poll_interval=30
+
+emit_result() {
+  local outcome="$1"
+  local now elapsed per_ticket
+  now=$(date +%s)
+  elapsed=$((now - start_epoch))
+
+  # Build per_ticket array as [{ticket, finished_at, elapsed_seconds}].
+  per_ticket=$(
+    for t in "${tickets[@]}"; do
+      fa="${finished_at_for[$t]:-0}"
+      if [ "$fa" -eq 0 ]; then
+        # not finished — emit null elapsed
+        jq -n --argjson ticket "$t" '{ticket: $ticket, finished_at: null, elapsed_seconds: null}'
+      else
+        el=$((fa - start_epoch))
+        jq -c -n \
+          --argjson ticket "$t" \
+          --argjson finished_at "$fa" \
+          --argjson elapsed_seconds "$el" \
+          '{ticket: $ticket, finished_at: $finished_at, elapsed_seconds: $elapsed_seconds}'
+      fi
+    done | jq -s '.'
+  )
+
+  jq -c -n \
+    --argjson started_at "$start_epoch" \
+    --argjson finished_at "$now" \
+    --argjson elapsed_seconds "$elapsed" \
+    --argjson tickets "$(printf '%s\n' "${tickets[@]}" | jq -Rs 'split("\n") | map(select(length > 0) | tonumber)')" \
+    --argjson per_ticket "$per_ticket" \
+    --arg outcome "$outcome" \
+    '{started_at: $started_at, finished_at: $finished_at, elapsed_seconds: $elapsed_seconds, tickets: $tickets, per_ticket: $per_ticket, outcome: $outcome}' \
+    >> "$runs_log"
+}
+
+while :; do
+  now=$(date +%s)
+  if [ "$now" -ge "$deadline" ]; then
+    emit_result "timeout"
+    exit 0
+  fi
+
+  done_count=0
+  for t in "${tickets[@]}"; do
+    if gh issue view "$t" --json labels --jq '.labels[].name' 2>/dev/null | grep -q '^agent:human-review$'; then
+      # Stamp first-seen finish time. Don't overwrite — a ticket
+      # transitioning back to in-progress for rework and forward
+      # again would otherwise inflate its elapsed.
+      if [ "${finished_at_for[$t]}" -eq 0 ]; then
+        finished_at_for["$t"]="$now"
+      fi
+      done_count=$((done_count + 1))
+    fi
+  done
+
+  if [ "$done_count" -ge "$total" ]; then
+    emit_result "complete"
+    exit 0
+  fi
+
+  sleep "$poll_interval"
+done

@@ -1,6 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Agent-workspace guard. When an agent runs inside its workspace,
+# aiur sets `AIUR_AGENT_WORKSPACE=<workspace path>` in its env
+# (Aiur.AgentEnvironment.workspace_env/1). If we see that marker,
+# refuse to do anything — `scripts/aiur --test`/`--test3` calls
+# `stop all` which pkill-s the operator's BEAM, and `mix aiur.test.reset`
+# wipes the sandbox tickets back to agent:todo, destroying the
+# in-flight run. Agents that try "manual CLI verification" by
+# launching aiur from inside their workspace would otherwise tear
+# down the run that's grading them. The block applies to every
+# subcommand; agents should never need to invoke this script.
+if [ -n "${AIUR_AGENT_WORKSPACE:-}" ]; then
+  echo "❌ refusing to run aiur from inside an agent workspace" >&2
+  echo "   AIUR_AGENT_WORKSPACE=$AIUR_AGENT_WORKSPACE" >&2
+  echo "   Agents must verify by exercising the code directly (mix run, mix test, etc.)," >&2
+  echo "   not by launching another aiur instance. Running aiur recursively would" >&2
+  echo "   reset sandbox tickets and kill the operator's BEAM." >&2
+  exit 78
+fi
+
+# Defense-in-depth: if AIUR_AGENT_WORKSPACE isn't set (older agents,
+# env scrubbing, manual edits) but the script is being invoked from
+# inside a recognized workspace tree, still refuse. The workspace
+# root pattern matches `~/code/aiur-workspaces/<id>/` and any descendant.
+case "${PWD:-}" in
+  */aiur-workspaces/*)
+    echo "❌ refusing to run aiur from inside an agent workspace tree" >&2
+    echo "   PWD=$PWD" >&2
+    echo "   Agents must verify by exercising the code directly," >&2
+    echo "   not by launching another aiur instance." >&2
+    exit 78
+    ;;
+esac
+
 # Resolve symlinks so the script works when invoked via a symlink on PATH
 # (e.g. `ln -s .../scripts/aiur ~/.local/bin/aiur`). Without this, BASH_SOURCE
 # returns the symlink path and script_dir resolves to the symlink's parent.
@@ -31,9 +64,15 @@ aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 expose_host=0
 debug_mode=0
 clear_mode=0
+# Distinguishes an explicit `--clear` (operator typed it) from the
+# implicit clear set by `--test` / `--test3`. Explicit --clear always
+# means blanket-nuke every aiur*.log; implicit test-mode clear is
+# scoped to just the tickets that mode resets.
+explicit_clear=0
 logs_mode=0
 fresh_mode=0
 test_mode=0
+test3_mode=0
 test_force=0
 test_allow_remote=0
 log_issue_id=""
@@ -63,24 +102,32 @@ for arg in "$@"; do
       ;;
     --clear)
       clear_mode=1
+      explicit_clear=1
       ;;
     --logs)
       logs_mode=1
       ;;
     --test)
       test_mode=1
-      # --test always implies --debug, --clear, AND --force: when you're
-      # testing you want a fresh, debug-instrumented, rebuilt run by
-      # default. Stale _build/ silently masking shipped work was a
-      # repeated source of "feature didn't ship" confusion; force-rebuild
-      # is the right default. Override is not supported.
+      # --test (single-ticket) and --test3 (3-ticket blocker chain)
+      # both imply --debug, --clear, AND --force: when you're testing
+      # you want a fresh, debug-instrumented, rebuilt run by default.
+      # Stale _build/ silently masking shipped work was a repeated
+      # source of "feature didn't ship" confusion; force-rebuild is
+      # the right default. Override is not supported.
       #
-      # `fresh_mode=1` is the launch-side equivalent of typing `--force`
-      # on the command line: skip "attach to existing session" and tear
-      # down any stale tmux/BEAM before starting. Without it, `--test`
-      # alone would reset the sandbox then try to attach to a stale
-      # session, which was the source of repeated `aiur --test` →
-      # `aiur --test --force` muscle-memory.
+      # `fresh_mode=1` is the launch-side equivalent of typing
+      # `--force` on the command line: skip "attach to existing
+      # session" and tear down any stale tmux/BEAM before starting.
+      # Without it, --test alone would reset the sandbox then try to
+      # attach to a stale session.
+      debug_mode=1
+      clear_mode=1
+      test_force=1
+      fresh_mode=1
+      ;;
+    --test3)
+      test3_mode=1
       debug_mode=1
       clear_mode=1
       test_force=1
@@ -118,15 +165,17 @@ if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   exit 64
 fi
 
-# --test runs the sandbox reset BEFORE launching. Composes with any
-# other flag — e.g. `aiur --test --debug --clear` resets the 3-ticket
-# sandbox then launches normally with debug + clear-logs. Auto-passes
-# `--confirm` so it's a single-command workflow; `--force` /
-# `--allow-remote` are forwarded for the rare overrides. To preview
-# without executing, use `mix aiur.test.reset` directly (no --confirm).
-if [ "$test_mode" -eq 1 ]; then
+# --test (single-ticket) and --test3 (3-ticket blocker chain) both
+# run the sandbox reset BEFORE launching. They compose with any
+# other flag — e.g. `aiur --test --debug --clear` resets the single
+# sandbox ticket then launches normally with debug + clear-logs.
+# Auto-passes `--confirm` so it's a single-command workflow;
+# `--force` / `--allow-remote` are forwarded for the rare overrides.
+# To preview without executing, use `mix aiur.test.reset` directly
+# (no --confirm).
+if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   if [ -z "$mise_bin" ]; then
-    echo "❌ --test requires mise on PATH" >&2
+    echo "❌ --test/--test3 requires mise on PATH" >&2
     exit 1
   fi
 
@@ -144,9 +193,10 @@ if [ "$test_mode" -eq 1 ]; then
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
+  [ "$test_mode" -eq 1 ] && test_args+=("--single")
 
   if ! (cd "$default_repo_root/elixir" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
-    echo "❌ --test reset failed; refusing to launch. Inspect the output above." >&2
+    echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
     exit 1
   fi
 
@@ -161,7 +211,14 @@ if [ "$test_mode" -eq 1 ]; then
   echo "⏳ settling GitHub label index" >&2
   tickets_file="$default_repo_root/.aiur-test-tickets.json"
   if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
-    expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
+    if [ "$test_mode" -eq 1 ]; then
+      # Single-ticket mode: expect exactly one ticket to land under
+      # agent:todo. The reset workflow either reused the pinned
+      # single_ticket or just created a fresh one.
+      expected_count=1
+    else
+      expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
+    fi
   else
     expected_count=0
   fi
@@ -185,6 +242,31 @@ if [ "$test_mode" -eq 1 ]; then
   else
     # No tickets file / no jq — fall back to the legacy fixed sleep.
     sleep 6
+  fi
+fi
+
+# --test3 wall-clock timer. Kills any in-flight poller from a prior
+# run, then spawns a detached one that polls GitHub for the
+# `agent:human-review` label on the 3 sandbox tickets. When all 3
+# carry the label (or 90 minutes elapse), it appends a JSON line to
+# `.aiur-test3-runs.jsonl` and exits. The poller detaches from the
+# foreground TUI so it survives `q` / Ctrl-C and continues timing
+# until the chain completes.
+if [ "$test3_mode" -eq 1 ]; then
+  pid_file="$default_repo_root/.aiur-test3-timer.pid"
+  if [ -r "$pid_file" ]; then
+    prior_pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [ -n "$prior_pid" ] && kill -0 "$prior_pid" 2>/dev/null; then
+      kill "$prior_pid" 2>/dev/null || true
+    fi
+    rm -f "$pid_file"
+  fi
+  timer_script="$default_repo_root/scripts/aiur-test3-timer"
+  if [ -x "$timer_script" ]; then
+    start_epoch="$(date +%s)"
+    echo "⏱  test3 timer started (results append to .aiur-test3-runs.jsonl)" >&2
+    setsid "$timer_script" "$default_repo_root" "$start_epoch" </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
   fi
 fi
 
@@ -278,13 +360,23 @@ Options:
                        compiled artifacts and recompile everything
                        from scratch (~2min). Use when auto-rebuild
                        (mtime check) misses a change.
-  --test               reset the 3-ticket events sandbox (per
-                       .aiur-test-tickets.json) before launching. Automatically
-                       implies --debug --clear (a test run always wants a
-                       fresh, debug-instrumented session). Auto-confirms the
-                       reset; use `mix aiur.test.reset` for a dry-run preview.
-                       Add `--force` to bypass the clean-git guard or
-                       `--allow-remote` to bypass the expected-remote check.
+  --test               reset (or auto-create) the single-ticket sandbox
+                       — one complexity:1 issue asking for a one-line
+                       const in the sandbox baseline. Smallest possible
+                       surface for manually exercising agent behavior
+                       (progress emits, label flips, etc.) without the
+                       3-ticket blocker chain's overhead. Auto-confirms
+                       the reset; reuses `single_ticket` from
+                       .aiur-test-tickets.json (or creates+persists a
+                       fresh one). Implies --debug --clear and rebuilds.
+  --test3              reset the 3-ticket events sandbox (per
+                       .aiur-test-tickets.json) before launching.
+                       Automatically implies --debug --clear (a test run
+                       always wants a fresh, debug-instrumented session).
+                       Auto-confirms the reset; use `mix aiur.test.reset`
+                       for a dry-run preview. Add `--force` to bypass the
+                       clean-git guard or `--allow-remote` to bypass the
+                       expected-remote check.
 
 Foreground dashboard controls:
   j/k or arrows        move between running agents
@@ -817,12 +909,14 @@ stop_profile() {
   # The OTP release replaces `bin/aiur` with `beam.smp ... -name
   # aiur-orangekid@<host>`. The escript-era patterns above no longer
   # match — target the release's BEAM by the erts/bin path that only
-  # the release would launch from. `pkill -f` matches against the
+  # the release would launch from. Scope to THIS install's elixir_dir
+  # so an agent-driven `aiur --test` running from a workspace clone
+  # (e.g. /tmp/issue100-aiur/elixir/...) never reaches the operator's
+  # BEAM under the source checkout. `pkill -f` matches against the
   # whole command line, which would also match THIS very bash process
   # if we use the obvious `-name aiur-orangekid` string here. Avoid
-  # self-kill by enumerating PIDs first (filtering out `bash`/`pkill`)
-  # and signalling them directly.
-  for pid in $(pgrep -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
+  # self-kill by enumerating PIDs first and signalling them directly.
+  for pid in $(pgrep -f "$elixir_dir/_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
     [ "$pid" = "$$" ] && continue
     pid_comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
     case "$pid_comm" in
@@ -831,6 +925,20 @@ stop_profile() {
         ;;
     esac
   done
+
+  # Reap orphan `opencode attach ...` client processes. The operator
+  # spawns these per-pane and they outlive the BEAM when the parent
+  # shell dies abruptly (Claude restart, `kill -9 beam.smp`, etc.). Once
+  # the serve daemon is gone the attach client just spins on a closed
+  # socket; on the next operator start the new panes get fresh ports
+  # and these stale clients confuse pane-tracking. Scope by user so we
+  # never touch another developer's session on a shared box.
+  "$pkill_bin" -u "$(id -u)" -f "^opencode attach " 2>/dev/null || true
+  # `opencode serve --port 0 --hostname 127.0.0.1` is the per-pane
+  # daemon. Once the operator's gone these have no one to talk to;
+  # leaving them around squats the loopback ports the next operator
+  # would otherwise pick up cleanly.
+  "$pkill_bin" -u "$(id -u)" -f "^opencode serve --port 0 --hostname 127\\.0\\.0\\.1$" 2>/dev/null || true
 }
 
 stop_all() {
@@ -1298,8 +1406,34 @@ run_in_tmux() {
       local log_dir
       log_dir="$(dirname "$log_path")"
       if [ -d "$log_dir" ]; then
-        find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
-        echo "✅ cleared previous logs ($log_dir)" >&2
+        if [ "$explicit_clear" -eq 1 ]; then
+          # User typed --clear: blanket nuke every aiur*.log,
+          # regardless of whether --test/--test3 is also present.
+          # Explicit clear means "I want all the logs gone."
+          find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
+          echo "✅ cleared previous logs ($log_dir)" >&2
+        elif [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+          # Implicit clear from --test / --test3: scope to just the
+          # tickets THIS test mode actually resets, plus the main
+          # aiur.log (fresh test runs always want a clean orchestrator
+          # log). Unrelated per-issue logs (operator's other work)
+          # survive. To force a blanket nuke alongside a test run,
+          # pass --clear explicitly: `aiur --test --clear`.
+          tickets_file="$default_repo_root/.aiur-test-tickets.json"
+          rm -f "$log_dir/aiur.log" 2>/dev/null || true
+          if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
+            ids=""
+            if [ "$test_mode" -eq 1 ]; then
+              ids="$(jq -r '.single_ticket // empty' "$tickets_file" 2>/dev/null)"
+            else
+              ids="$(jq -r '.tickets[]?' "$tickets_file" 2>/dev/null)"
+            fi
+            for id in $ids; do
+              rm -f "$log_dir/aiur.$id.log" 2>/dev/null || true
+            done
+          fi
+          echo "✅ cleared test-scoped logs ($log_dir)" >&2
+        fi
       fi
 
       # Reap BEAM hot-load shared libraries and debug pipe-pane captures.
@@ -1388,6 +1522,14 @@ run_in_tmux() {
     printf 'capture=%q\n' "$startup_capture"
     printf 'cd %q || exit 1\n' "$elixir_dir"
     printf 'set -o pipefail\n'
+    # Re-export the env vars the operator BEAM needs. `mise exec` strips
+    # AIUR_DEBUG (and a few other names that look like mise globals) on
+    # its way through, so without this the release boots with
+    # `Aiur.LogFile.debug_enabled?/0` returning false and `log/aiur.log`
+    # never gets created — silent regression of the `--debug` flag.
+    if [ "${AIUR_DEBUG:-}" != "" ]; then
+      printf 'export AIUR_DEBUG=%q\n' "$AIUR_DEBUG"
+    fi
     printf '%q' "$mise_bin"
     local arg
     for arg in "$@"; do

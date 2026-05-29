@@ -54,8 +54,17 @@ defmodule Aiur.Opencode.SessionWriter do
     # at-least-once delivery may re-broadcast `:receive`; the agent's
     # queue may re-deliver `events_digest`. The MapSet caps memory and
     # keeps double-writes out of opencode SQL.
-    seen_event_ids: MapSet.new()
+    seen_event_ids: MapSet.new(),
+    # Stop after N consecutive FOREIGN KEY violations — those mean the
+    # opencode SQL session row was reaped (slot respawn, Aiur.Shutdown
+    # cleanup, manual session_gc) and no future write will ever
+    # succeed. Without this guard the writer logs an FK debug line on
+    # every transcript event for the remainder of the BEAM's life,
+    # filling aiur.log with noise. Counter resets on any success.
+    consecutive_fk_failures: 0
   ]
+
+  @fk_failure_stop_threshold 5
 
   # Soft cap for `seen_event_ids` — matches the IssueLog history-pull
   # window. Older ids may evict; very-late re-deliveries beyond the cap
@@ -143,7 +152,7 @@ defmodule Aiur.Opencode.SessionWriter do
     root_msg_id = replay_history(state)
     :ok = AgentPubSub.subscribe_agent(state.identifier)
     # Subscribe to the cross-ticket event debug stream so we can persist
-    # 📥/📤/📄 ticker rows for this agent on every DebugLog mark whose
+    # 📬/📤/📄 ticker rows for this agent on every DebugLog mark whose
     # `identifier` matches ours. The filter happens in handle_info —
     # DebugLog's topic is process-global so we receive every agent's
     # marks and skip the ones that aren't ours.
@@ -164,12 +173,11 @@ defmodule Aiur.Opencode.SessionWriter do
     case write_transcript_event(state, event) do
       {:ok, _message_id, parts, new_state} ->
         _ = parts
-        {:noreply, new_state}
+        {:noreply, reset_fk_failures(new_state)}
 
       {:error, reason} ->
-        Logger.warning("opencode_session_writer write_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
-
-        {:noreply, state}
+        log_session_write_failure("write_failed", state.identifier, reason)
+        handle_write_failure(state, reason)
     end
   end
 
@@ -181,16 +189,17 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   def handle_info({:alert, %{message: message}}, state) do
-    # Alerts are still standalone messages — no turn grouping.
+    # Alerts are still standalone messages — no turn grouping. Reset
+    # the FK counter on success so a healthy stream of alerts after a
+    # transient FK burst doesn't leave the counter armed at N-1.
     case write_standalone(state, %{role: :alert, body: message}) do
       {:ok, _message_id, _parts} ->
-        :ok
+        {:noreply, reset_fk_failures(state)}
 
       {:error, reason} ->
-        Logger.warning("opencode_session_writer alert_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
+        log_session_write_failure("alert_failed", state.identifier, reason)
+        handle_write_failure(state, reason)
     end
-
-    {:noreply, state}
   end
 
   def handle_info(:sweep_open_turns, state) do
@@ -516,8 +525,12 @@ defmodule Aiur.Opencode.SessionWriter do
         {:noreply, state}
 
       true ->
+        # Only remember the id when the write actually landed (no_reply
+        # path). If write_event_row returned a stop, the FK threshold
+        # tripped and we shouldn't pretend the event was persisted.
         case write_event_row(state, entry) do
           {:noreply, new_state} -> {:noreply, remember_event_id(new_state, id)}
+          {:stop, _reason, _new_state} = stop -> stop
         end
     end
   end
@@ -530,15 +543,86 @@ defmodule Aiur.Opencode.SessionWriter do
       body ->
         case write_system_standalone(state, body) do
           {:ok, _message_id} ->
-            {:noreply, state}
+            # Reset the FK counter so a healthy event-row stream after
+            # a transient FK burst doesn't leave the counter armed.
+            {:noreply, reset_fk_failures(state)}
 
           {:error, reason} ->
-            Logger.warning("opencode_session_writer event_row_failed identifier=#{state.identifier} kind=#{inspect(entry[:kind])} reason=#{inspect(reason)}")
+            log_session_write_failure(
+              "event_row_failed",
+              state.identifier,
+              reason,
+              kind: inspect(entry[:kind])
+            )
 
-            {:noreply, state}
+            handle_write_failure(state, reason)
         end
     end
   end
+
+  # FOREIGN KEY violations land here when opencode's SQL session row has
+  # been deleted out from under us — usually because Aiur.Shutdown is
+  # tearing down sessions while events are still in flight, or because
+  # the slot respawned and the writer hasn't been notified yet. Neither
+  # is a real failure; demote those to debug so the warning-level
+  # surface stays signal-only. Other write failures still warn.
+  defp log_session_write_failure(tag, identifier, reason, extra \\ []) do
+    extras = extra |> Enum.map_join(" ", fn {k, v} -> "#{k}=#{v}" end)
+    msg = "opencode_session_writer #{tag} identifier=#{identifier} #{extras} reason=#{inspect(reason)}"
+
+    if foreign_key_violation?(reason) do
+      Logger.debug(msg)
+    else
+      Logger.warning(msg)
+    end
+  end
+
+  defp foreign_key_violation?(%Exqlite.Error{message: msg}) when is_binary(msg),
+    do: String.contains?(msg, "FOREIGN KEY")
+
+  defp foreign_key_violation?(_), do: false
+
+  # Bump the FK-failure counter when the failure was an FK violation
+  # (session gone), stop the writer once we cross the threshold.
+  # Non-FK errors are transient — log and keep running.
+  defp handle_write_failure(state, reason) do
+    if foreign_key_violation?(reason) do
+      bumped = Map.update(state, :consecutive_fk_failures, 1, &(&1 + 1))
+
+      if bumped.consecutive_fk_failures >= @fk_failure_stop_threshold do
+        Logger.info("opencode_session_writer stopping identifier=#{state.identifier} reason=session_reaped fk_failures=#{bumped.consecutive_fk_failures}")
+
+        {:stop, :normal, bumped}
+      else
+        {:noreply, bumped}
+      end
+    else
+      {:noreply, state}
+    end
+  end
+
+  defp reset_fk_failures(state) do
+    case Map.get(state, :consecutive_fk_failures, 0) do
+      0 -> state
+      _ -> Map.put(state, :consecutive_fk_failures, 0)
+    end
+  end
+
+  @doc false
+  @spec handle_write_failure_for_test(t, term) ::
+          {:noreply, t} | {:stop, atom(), t}
+  def handle_write_failure_for_test(state, reason) do
+    handle_write_failure(state, reason)
+  end
+
+  @doc false
+  @spec reset_fk_failures_for_test(t) :: t
+  def reset_fk_failures_for_test(state) do
+    reset_fk_failures(state)
+  end
+
+  @doc false
+  @type t :: %__MODULE__{}
 
   defp remember_event_id(state, id) do
     seen = MapSet.put(state.seen_event_ids, id)

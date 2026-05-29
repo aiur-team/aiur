@@ -1,15 +1,27 @@
 defmodule Mix.Tasks.Aiur.Test.Reset do
-  @shortdoc "Reset the 3-ticket events sandbox to a clean baseline"
+  @shortdoc "Reset the events sandbox to a clean baseline"
 
   @moduledoc """
-  Wipes per-ticket state for the 3-ticket events sandbox so the manual
+  Wipes per-ticket state for the events sandbox so the manual
   end-to-end test can be re-run. Four safety guards (pinned ticket IDs,
   clean git tree, expected remote, dry-run by default).
 
+  Two modes:
+
+    - **Three-ticket** (default, invoked from `aiur --test3`): resets
+      the 3-ticket blocker-chain sandbox pinned in
+      `.aiur-test-tickets.json#tickets`.
+
+    - **Single-ticket** (`--single`, invoked from `aiur --test`):
+      reuses or auto-creates one complexity:1 ticket asking for a
+      one-line const in the sandbox. Minimum-overhead surface for
+      manually testing things like progress emits.
+
   ## Examples
 
-      mix aiur.test.reset                        # dry-run (default)
-      mix aiur.test.reset --confirm              # actually do it
+      mix aiur.test.reset                        # 3-ticket dry-run
+      mix aiur.test.reset --confirm              # 3-ticket reset
+      mix aiur.test.reset --single --confirm     # single-ticket reset
       mix aiur.test.reset --confirm --force      # bypass clean-tree guard
       mix aiur.test.reset --confirm --allow-remote   # bypass remote guard
 
@@ -25,7 +37,8 @@ defmodule Mix.Tasks.Aiur.Test.Reset do
         strict: [
           confirm: :boolean,
           force: :boolean,
-          allow_remote: :boolean
+          allow_remote: :boolean,
+          single: :boolean
         ]
       )
 

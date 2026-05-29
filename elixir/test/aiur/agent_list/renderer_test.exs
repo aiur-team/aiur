@@ -123,10 +123,11 @@ defmodule Aiur.AgentList.RendererTest do
       render(base_state(%{summaries: [%{identifier: "MT-1", status: :running, alert_count: 0}]}))
       |> visible()
 
-    # ID and AGE are labelled; TAG and STATE columns use emoji-only
-    # cells and therefore have no header text. Column order is
-    # ID → AGE → tag-circle → state-circle → TITLE.
-    assert out =~ ~r/ID\s+AGE\s+TITLE/
+    # ID is labelled; tag-circle and state-circle columns use
+    # emoji-only cells and therefore have no header text. Column
+    # order is ID → tag-circle → state-circle → TITLE → LATEST →
+    # PROGRESS → TIME.
+    assert out =~ ~r/ID\s+TITLE\s+LATEST\s+PROGRESS\s+TIME/
   end
 
   test "shows '(no agents running)' when the list is empty" do
@@ -330,53 +331,28 @@ defmodule Aiur.AgentList.RendererTest do
     refute no_paint =~ "⚪"
   end
 
-  test "warm status row renders in-progress vs finished glyphs per started slot" do
+  test "warm-status row removed entirely (no ⬜️/🔲 glyphs in any render)" do
     summaries = [
       %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
     ]
 
-    none = render(base_state(%{summaries: summaries, warm_status_row?: true})) |> visible()
-
-    # The warm status row is debug-only by default (renders only when
-    # AIUR_DEBUG=1). Explicit `warm_status_row?: true` overrides the
-    # env check so this glyph-rendering test stays deterministic
-    # without mucking with process env.
-    mixed =
+    out =
       render(
         base_state(%{
           summaries: summaries,
-          warm_status_row?: true,
           started_slots: MapSet.new([1, 2, 3]),
           fully_warmed_slots: MapSet.new([1])
         })
       )
       |> visible()
 
-    light =
-      render(
-        base_state(%{
-          summaries: summaries,
-          warm_status_row?: true,
-          started_slots: MapSet.new([1, 2]),
-          fully_warmed_slots: MapSet.new([1]),
-          warm_status_dark_mode?: false
-        })
-      )
-      |> visible()
-
-    refute none =~ "🔲"
-    refute none =~ "⬜️"
-
-    # Dark mode default: slot 1 finished (⬜️), slots 2 and 3 in progress (🔲).
-    assert mixed =~ "⬜️"
-    assert mixed =~ "🔲"
-
-    # Light mode: slot 1 finished (⬛️), slot 2 in progress (🔳).
-    assert light =~ "⬛️"
-    assert light =~ "🔳"
+    refute out =~ "⬜️"
+    refute out =~ "⬛️"
+    refute out =~ "🔲"
+    refute out =~ "🔳"
   end
 
-  test "renders an age column from runtime_seconds and turn_count" do
+  test "renders a runtime ticker (M:SS / H:MM:SS) from runtime_seconds" do
     summaries = [
       %{
         identifier: "MT-A",
@@ -389,7 +365,18 @@ defmodule Aiur.AgentList.RendererTest do
 
     out = render(base_state(%{summaries: summaries})) |> visible()
 
-    assert out =~ "2m/3t"
+    assert out =~ "2:05"
+    refute out =~ "AGE", "AGE column should be gone"
+    refute out =~ "/3t", "turn-count suffix should be gone with the AGE column"
+  end
+
+  test "runtime ticker formats hour-scale runs as H:MM:SS" do
+    summaries = [
+      %{identifier: "MT-A", status: :running, alert_count: 0, runtime_seconds: 3725}
+    ]
+
+    out = render(base_state(%{summaries: summaries})) |> visible()
+    assert out =~ "1:02:05"
   end
 
   test "title column flexes to fill the remaining width" do
@@ -660,6 +647,74 @@ defmodule Aiur.AgentList.RendererTest do
       mt_e_line = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-E"))
       assert mt_e_line, "expected to find MT-E row"
       # No event content surfaces — but the row still renders cleanly.
+    end
+  end
+
+  describe "progress column" do
+    @ansi_green IO.ANSI.green()
+
+    defp row_for(out, id) do
+      Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ id))
+    end
+
+    test "mid-progress samples render the bar without the green tint" do
+      summaries = [%{identifier: "MT-P", status: :running, alert_count: 0}]
+      now_ms = System.monotonic_time(:millisecond)
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            progress_by_id: %{"MT-P" => [{50, now_ms}]},
+            now_ms: now_ms
+          })
+        )
+
+      row = row_for(out, "MT-P")
+      assert row, "expected MT-P row"
+      assert visible(row) =~ "█████░░░░░"
+      refute String.contains?(row, @ansi_green)
+    end
+
+    test "percent: 100 tints the bar green and fills all 10 cells" do
+      summaries = [%{identifier: "MT-DONE", status: :running, alert_count: 0}]
+      now_ms = System.monotonic_time(:millisecond)
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            progress_by_id: %{"MT-DONE" => [{100, now_ms}]},
+            now_ms: now_ms
+          })
+        )
+
+      row = row_for(out, "MT-DONE")
+      assert row, "expected MT-DONE row"
+      assert visible(row) =~ "██████████"
+
+      assert String.contains?(row, @ansi_green),
+             "expected green ANSI wrap around the full bar at percent: 100"
+    end
+
+    test "rows without progress samples render an empty bar (no green)" do
+      summaries = [%{identifier: "MT-IDLE", status: :running, alert_count: 0}]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            progress_by_id: %{}
+          })
+        )
+
+      row = row_for(out, "MT-IDLE")
+      assert row, "expected MT-IDLE row"
+      assert visible(row) =~ "░░░░░░░░░░"
+      refute String.contains?(row, @ansi_green)
     end
   end
 end

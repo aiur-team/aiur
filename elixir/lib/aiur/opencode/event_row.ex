@@ -1,8 +1,8 @@
 defmodule Aiur.Opencode.EventRow do
   @moduledoc """
   Formats `Aiur.Events.DebugLog` entries as one-line chat-pane ticker
-  rows. Each row is a natural-language sentence (`📤 opened a PR:
-  "…"` / `📥 Ticket 100 pushed to its branch: "…"` / `📄 Ingested
+  rows. Each row is a natural-language sentence (`💬 opened a PR:
+  "…"` / `📬 Ticket 100 pushed to its branch: "…"` / `📄 Ingested
   event from Ticket 100`) wrapped in `Aiur.Opencode.Style.dim/1`.
 
   Used by both `Aiur.Opencode.SessionWriter` (SQL writes for
@@ -14,6 +14,12 @@ defmodule Aiur.Opencode.EventRow do
   subject prefix); everything else uses third-person with the source
   ticket as subject. Add a clause to `phrase_for_suffix/2` to teach
   the renderer a new topic shape.
+
+  Self-receive suppression: when the agent's own subscription fans
+  an event back to itself (kind: `:receive`, topic starts with
+  `ticket.<rendering_identifier>.`), `from/2` returns nil. The
+  matching `:publish` line is already visible; the self-receive is
+  pure noise.
   """
 
   alias Aiur.Opencode.Style
@@ -69,26 +75,39 @@ defmodule Aiur.Opencode.EventRow do
     source_id = source_ticket_id(topic)
     body = Map.get(entry, :body)
 
-    sentence =
-      case kind do
-        :publish -> publish_sentence(topic, source_id, body, rendering_identifier)
-        :receive -> receive_sentence(topic, source_id, body)
-        :read -> read_sentence(topic, source_id)
-      end
+    if self_receive?(kind, source_id, rendering_identifier) do
+      # Agent's own subscription fanned an event back to itself.
+      # The matching :publish row already rendered above; the
+      # self-receive is duplicate noise.
+      nil
+    else
+      sentence =
+        case kind do
+          :publish -> publish_sentence(topic, source_id, body, rendering_identifier)
+          :receive -> receive_sentence(topic, source_id, body)
+          :read -> read_sentence(topic, source_id)
+        end
 
-    Style.dim(sentence)
+      Style.dim(sentence)
+    end
   end
 
   def from(_, _), do: nil
 
+  defp self_receive?(:receive, source_id, rendering_identifier)
+       when is_binary(source_id) and is_binary(rendering_identifier),
+       do: source_id == rendering_identifier
+
+  defp self_receive?(_kind, _source_id, _rendering_identifier), do: false
+
   # ── Per-kind sentence builders ─────────────────────────────────────
 
   defp publish_sentence(topic, source_id, body, rendering_identifier) do
-    "📤 " <> subject(source_id, rendering_identifier) <> verb_phrase(topic, body) <> summary_suffix(body)
+    "💬 " <> subject(source_id, rendering_identifier) <> verb_phrase(topic, body) <> summary_suffix(body)
   end
 
   defp receive_sentence(topic, source_id, body) do
-    "📥 " <> subject(source_id, nil) <> verb_phrase(topic, body) <> summary_suffix(body)
+    "📬 " <> subject(source_id, nil) <> verb_phrase(topic, body) <> summary_suffix(body)
   end
 
   defp read_sentence(topic, source_id) do

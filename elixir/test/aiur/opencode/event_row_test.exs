@@ -29,7 +29,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📤 opened a PR: \"Add function_a\""
+      assert out == "> 💬 opened a PR: \"Add function_a\""
     end
 
     test "branch push uses 'pushed to its branch' verb phrase" do
@@ -39,7 +39,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📤 pushed to its branch: \"abc123\""
+      assert out == "> 💬 pushed to its branch: \"abc123\""
     end
 
     test "label.added.agent.<state> renders the state inline" do
@@ -49,7 +49,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📤 was labeled in-progress"
+      assert out == "> 💬 was labeled in-progress"
     end
   end
 
@@ -67,7 +67,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📥 Ticket 100 opened a PR: \"Add function_b\""
+      assert out == "> 📬 Ticket 100 opened a PR: \"Add function_b\""
     end
 
     test "incoming push event includes commit summary from body 'message'" do
@@ -83,7 +83,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📥 Ticket 100 pushed to its branch: \"Add abc function\""
+      assert out == "> 📬 Ticket 100 pushed to its branch: \"Add abc function\""
     end
 
     test "no body means no summary suffix" do
@@ -93,7 +93,7 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📥 Ticket 100 declared itself blocked"
+      assert out == "> 📬 Ticket 100 declared itself blocked"
     end
 
     test "long body summary is truncated with an ellipsis" do
@@ -106,7 +106,7 @@ defmodule Aiur.Opencode.EventRowTest do
         )
 
       assert String.contains?(out, "…\"")
-      assert byte_size(out) < byte_size("> 📥 Ticket 100 opened a PR: \"") + 200
+      assert byte_size(out) < byte_size("> 📬 Ticket 100 opened a PR: \"") + 200
     end
   end
 
@@ -188,14 +188,14 @@ defmodule Aiur.Opencode.EventRowTest do
           "99"
         )
 
-      assert out == "> 📤 something.entirely.new"
+      assert out == "> 💬 something.entirely.new"
     end
 
     test "non-ticket topic falls back gracefully" do
       out = EventRow.from(%{kind: :publish, topic: "system.health", id: 1, body: nil}, "99")
       # No source-id parseable from the topic; no subject prefix.
       assert is_binary(out)
-      assert String.starts_with?(out, "> 📤 ")
+      assert String.starts_with?(out, "> 💬 ")
     end
 
     test "returns nil for malformed entries" do
@@ -243,6 +243,55 @@ defmodule Aiur.Opencode.EventRowTest do
 
       assert out =~ ~r/\A> /
       assert String.contains?(out, "\n> ")
+    end
+  end
+
+  describe "self-receive suppression" do
+    test "receive on the agent's own ticket returns nil (it's just an echo of its own publish)" do
+      out =
+        EventRow.from(
+          %{
+            kind: :receive,
+            topic: "ticket.140.agent.phase.work.start",
+            identifier: "140",
+            body: %{"message" => "starting impl"}
+          },
+          "140"
+        )
+
+      assert is_nil(out)
+    end
+
+    test "receive on a different ticket still renders (cross-ticket fan-out)" do
+      out =
+        EventRow.from(
+          %{
+            kind: :receive,
+            topic: "ticket.99.branch.push",
+            identifier: "100",
+            body: %{"commits" => [%{"message" => "function_a complete"}]}
+          },
+          "100"
+        )
+
+      assert is_binary(out)
+      assert String.contains?(out, "📬")
+      assert String.contains?(out, "Ticket 99")
+    end
+
+    test "publish on the agent's own ticket still renders (the operator wants to see what they sent)" do
+      out =
+        EventRow.from(
+          %{
+            kind: :publish,
+            topic: "ticket.140.agent.phase.work.start",
+            body: %{"message" => "starting impl"}
+          },
+          "140"
+        )
+
+      assert is_binary(out)
+      assert String.contains?(out, "💬")
     end
   end
 end

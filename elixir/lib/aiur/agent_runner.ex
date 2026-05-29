@@ -118,7 +118,11 @@ defmodule Aiur.AgentRunner do
       # (PullRequestReviewCommentEvent). Exchange routes by literal
       # segment match, so the strings must align exactly.
       {"ticket." <> identifier <> ".issue.commented", "own_comments:auto"},
-      {"ticket." <> identifier <> ".pr.review_comment", "own_comments:auto"}
+      {"ticket." <> identifier <> ".pr.review_comment", "own_comments:auto"},
+      # Operator-initiated 5-minute check-in published by
+      # Aiur.ProgressCheckin.Worker. Drained at the next turn boundary;
+      # agent replies by emitting `progress.checkin`.
+      {"ticket." <> identifier <> ".operator.progress_request", "progress_checkin:auto"}
     ]
 
     Enum.each(topics, fn {topic, reason} ->
@@ -394,6 +398,8 @@ defmodule Aiur.AgentRunner do
     send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = open_aiur_turn_streams(issue)
 
+    :ok = DynamicTool.reset_turn_quotas()
+
     result =
       CodingAgent.run_turn(
         app_session,
@@ -641,6 +647,8 @@ defmodule Aiur.AgentRunner do
 
     send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = open_aiur_turn_streams(issue)
+
+    :ok = DynamicTool.reset_turn_quotas()
 
     result =
       CodingAgent.run_turn(
@@ -1220,8 +1228,28 @@ defmodule Aiur.AgentRunner do
 
   defp declare_blocker_for_issue(issue, blocker_number) do
     case issue_number_of(issue) do
-      nil -> {:error, :no_issue_number}
-      current -> IssueDependencies.declare(current, blocker_number)
+      nil ->
+        {:error, :no_issue_number}
+
+      current ->
+        result = IssueDependencies.declare(current, blocker_number)
+
+        # Add the SubscriptionStore subscription IMMEDIATELY on a
+        # successful (or `:already_present`) declare, instead of
+        # waiting for the orchestrator's poll-driven
+        # `auto_subscribe_for_dependency`. GitHub state can lag, drop,
+        # or already-present the dependency due to PR open/close
+        # cycles; without the direct subscribe, the blockee's
+        # SubscriptionStore never gets `ticket.<blocker>.branch.push`
+        # and the blockee never auto-resumes. Idempotent.
+        case result do
+          {:ok, _} ->
+            Aiur.Orchestrator.subscribe_for_declared_blocker(current, blocker_number)
+            result
+
+          other ->
+            other
+        end
     end
   end
 
