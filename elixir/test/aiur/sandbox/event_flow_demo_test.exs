@@ -12,4 +12,12 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
       assert EventFlowDemo.function_b() == EventFlowDemo.function_a() + 1
     end
   end
+
+  describe "function_c/0" do
+    test "squares function_b/0" do
+      result = EventFlowDemo.function_b()
+
+      assert EventFlowDemo.function_c() == result * result
+    end
+  end
 end
