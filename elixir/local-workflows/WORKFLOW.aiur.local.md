@@ -51,10 +51,19 @@ hooks:
     # (network blip, dep change), the agent's first `mix deps.get`
     # will pick it up.
     if [ -f elixir/mix.exs ]; then
+      # Output flows back to Workspace.run_hook via System.cmd
+      # (stderr_to_stdout: true). Don't redirect to /dev/null — that
+      # masks silent failures where mix exits cleanly but didn't
+      # actually fetch deps (e.g. mise exec failing, hex install
+      # erroring). The Elixir side logs a tail of the output on
+      # success and the full output on non-zero exit. `|| true` is
+      # retained so the hook is non-fatal for the agent boot path:
+      # if deps prefetch fails, the agent picks it up on first
+      # `mix` call, just slower.
       HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
         MISE_TRUSTED_CONFIG_PATHS="$PWD/elixir/mise.toml" \
         bash -c 'cd elixir && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
-        >/dev/null 2>&1 || true
+        2>&1 | tail -200 || true
     fi
   before_run: |
     if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -73,10 +82,19 @@ hooks:
     # off when the workspace is a fresh clone, an aiur --debug resume
     # against an existing dir, or after a deps lockfile bump.
     if [ -f elixir/mix.exs ]; then
+      # Output flows back to Workspace.run_hook via System.cmd
+      # (stderr_to_stdout: true). Don't redirect to /dev/null — that
+      # masks silent failures where mix exits cleanly but didn't
+      # actually fetch deps (e.g. mise exec failing, hex install
+      # erroring). The Elixir side logs a tail of the output on
+      # success and the full output on non-zero exit. `|| true` is
+      # retained so the hook is non-fatal for the agent boot path:
+      # if deps prefetch fails, the agent picks it up on first
+      # `mix` call, just slower.
       HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
         MISE_TRUSTED_CONFIG_PATHS="$PWD/elixir/mise.toml" \
         bash -c 'cd elixir && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
-        >/dev/null 2>&1 || true
+        2>&1 | tail -200 || true
     fi
   before_remove: |
     git status --short

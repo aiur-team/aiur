@@ -336,7 +336,17 @@ defmodule Aiur.Workspace do
     end
   end
 
-  defp handle_hook_command_result({_output, 0}, _workspace, _issue_id, _hook_name) do
+  defp handle_hook_command_result({output, 0}, _workspace, issue_context, hook_name) do
+    # Log a small tail of successful output. Hooks pre-warm deps and
+    # compile; when the hook silently does nothing (e.g. `mix
+    # deps.get` was no-op because the inner shell exited early on a
+    # masked error), the elapsed time looks fine but agents still pay
+    # the deps.get cost on first turn. Visible tail catches that
+    # regression early.
+    tail = sanitize_hook_output_for_log(output, 512)
+
+    Logger.debug("Workspace hook ok hook=#{hook_name} #{issue_log_context(issue_context)} output_tail=#{inspect(tail)}")
+
     :ok
   end
 
