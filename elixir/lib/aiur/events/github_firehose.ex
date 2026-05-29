@@ -78,7 +78,63 @@ defmodule Aiur.Events.GithubFirehose do
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
+  # Operator boot is captured once via `Aiur.Boot.epoch_seconds/0` (set
+  # when the application starts). 60s back-window absorbs the gap
+  # between a real push landing on GitHub and the firehose surfacing it
+  # — without that buffer a push that arrived seconds before boot would
+  # be dropped along with the truly stale ones.
+  @pre_boot_buffer_seconds 60
+
+  defp pre_boot?(event, opts) do
+    case event_created_at_epoch(event) do
+      nil ->
+        false
+
+      created_at ->
+        cutoff = boot_epoch_seconds(opts) - @pre_boot_buffer_seconds
+        created_at < cutoff
+    end
+  end
+
+  defp event_created_at_epoch(event) do
+    case Map.get(event, "created_at") do
+      iso when is_binary(iso) ->
+        case DateTime.from_iso8601(iso) do
+          {:ok, dt, _offset} -> DateTime.to_unix(dt)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp boot_epoch_seconds(opts) do
+    case Keyword.get(opts, :boot_time) do
+      ts when is_integer(ts) -> ts
+      _ -> Aiur.Boot.epoch_seconds()
+    end
+  end
+
   defp publish_one(event, opts) do
+    cond do
+      pre_boot?(event, opts) ->
+        # The GitHub Events API surfaces the same historical events for
+        # ~24h. On operator restart the dedup ETS table is empty, so
+        # every PR-opened / push that happened before this boot would
+        # fire as a fresh event and confuse blockee subscribers (e.g.
+        # 101 reacts to a #100 push that already happened last run).
+        # Drop anything older than the operator's boot wall-clock minus
+        # a small jitter window. Real-time events created after boot
+        # always pass through. Tests inject `boot_time:` directly.
+        :pre_boot_drop
+
+      true ->
+        do_publish_one(event, opts)
+    end
+  end
+
+  defp do_publish_one(event, opts) do
     case translate(event, opts) do
       nil ->
         :ignored

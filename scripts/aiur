@@ -925,6 +925,20 @@ stop_profile() {
         ;;
     esac
   done
+
+  # Reap orphan `opencode attach ...` client processes. The operator
+  # spawns these per-pane and they outlive the BEAM when the parent
+  # shell dies abruptly (Claude restart, `kill -9 beam.smp`, etc.). Once
+  # the serve daemon is gone the attach client just spins on a closed
+  # socket; on the next operator start the new panes get fresh ports
+  # and these stale clients confuse pane-tracking. Scope by user so we
+  # never touch another developer's session on a shared box.
+  "$pkill_bin" -u "$(id -u)" -f "^opencode attach " 2>/dev/null || true
+  # `opencode serve --port 0 --hostname 127.0.0.1` is the per-pane
+  # daemon. Once the operator's gone these have no one to talk to;
+  # leaving them around squats the loopback ports the next operator
+  # would otherwise pick up cleanly.
+  "$pkill_bin" -u "$(id -u)" -f "^opencode serve --port 0 --hostname 127\\.0\\.0\\.1$" 2>/dev/null || true
 }
 
 stop_all() {
@@ -1508,6 +1522,14 @@ run_in_tmux() {
     printf 'capture=%q\n' "$startup_capture"
     printf 'cd %q || exit 1\n' "$elixir_dir"
     printf 'set -o pipefail\n'
+    # Re-export the env vars the operator BEAM needs. `mise exec` strips
+    # AIUR_DEBUG (and a few other names that look like mise globals) on
+    # its way through, so without this the release boots with
+    # `Aiur.LogFile.debug_enabled?/0` returning false and `log/aiur.log`
+    # never gets created — silent regression of the `--debug` flag.
+    if [ "${AIUR_DEBUG:-}" != "" ]; then
+      printf 'export AIUR_DEBUG=%q\n' "$AIUR_DEBUG"
+    fi
     printf '%q' "$mise_bin"
     local arg
     for arg in "$@"; do

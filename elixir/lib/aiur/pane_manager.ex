@@ -559,10 +559,28 @@ defmodule Aiur.PaneManager do
           Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} content=#{inspect(excerpt)}")
 
         {:error, reason} ->
-          Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
+          # Once a Claude session restart (or a forced operator restart)
+          # kills the tmux server but leaves the BEAM running, every 2s
+          # tick produces three log lines — the warning from Tmux.command
+          # plus the schedule + grab info pair. Demote to debug when the
+          # server is gone so the log isn't flooded with the same dead-
+          # server message until the next operator reboot.
+          if dead_tmux?(reason) do
+            Logger.debug("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
+          else
+            Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
+          end
       end
     end)
   end
+
+  # `Aiur.Tmux.command/2` returns `{:error, trimmed_stderr}` on failure.
+  # tmux's "no server running on …" is the canonical signal that the
+  # server died after the BEAM connected.
+  defp dead_tmux?(reason) when is_binary(reason),
+    do: String.contains?(reason, "no server running")
+
+  defp dead_tmux?(_), do: false
 
   defp collect_tracked_panes(state) do
     base =

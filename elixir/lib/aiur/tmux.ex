@@ -492,7 +492,16 @@ defmodule Aiur.Tmux do
           {output, status} ->
             trimmed = String.trim(output)
 
-            Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
+            # "no server running on …" repeats every screen-grab tick
+            # (2s) once the user kills the tmux server but leaves the
+            # operator BEAM running. Demote those to debug so the log
+            # isn't flooded — pane_manager still treats `{:error, _}`
+            # the same way, so behavior doesn't change.
+            if String.contains?(trimmed, "no server running") do
+              Logger.debug("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
+            else
+              Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
+            end
 
             {:error, trimmed}
         end
