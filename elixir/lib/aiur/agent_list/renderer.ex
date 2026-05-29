@@ -1648,20 +1648,14 @@ defmodule Aiur.AgentList.Renderer do
   defp clip_summary(text) when is_binary(text) do
     # Collapse every run of whitespace (including embedded newlines from
     # workpad markdown, code fences, multi-line comments) into a single
-    # space BEFORE the 80-char truncation. Without this, embedded \n's
-    # survive the clip and the terminal wraps the event row into 3-4
-    # physical rows even though we asked clip_and_pad to cap visual
-    # width.
-    collapsed =
-      text
-      |> String.replace(~r/\s+/u, " ")
-      |> String.trim()
-
-    if String.length(collapsed) > 80 do
-      String.slice(collapsed, 0, 79) <> "…"
-    else
-      collapsed
-    end
+    # space so the terminal renders one row per event. Width-aware
+    # truncation happens downstream in clip_and_pad/2, which is called
+    # with the live pane width every render — that's why a resize
+    # re-flows historical lines. Hard-capping here to a fixed character
+    # count would defeat that and freeze old lines at the old width.
+    text
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
   end
 
   defp get_in_safe(nil, _path), do: nil
