@@ -114,6 +114,10 @@ Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for 
 
 The branch already exists when your workspace boots: it is exactly `aiur/<issue-number>`. Do not invent a new branch name, do not append a slug, do not rename. If a previously-closed PR exists for `aiur/<N>`, push to the same branch anyway and open a **new** PR (`gh pr create --head aiur/<N>`). GitHub allows multiple PRs against the same head ref over time; closed PRs do not block new ones. Inventing a workaround branch like `aiur/<N>-pr` breaks Aiur's blocker→blockee push detection because the canonical `branch.push` event is keyed on `aiur/<N>` — downstream blockees waiting on you will never wake.
 
+**The workspace `.git` directory is writable from this sandbox. If a `git` command claims the index is read-only ("Could not write index", "Unable to lock", "cannot create FETCH_HEAD"), do NOT clone a recovery checkout into `/tmp` — that path pays a full `mix deps.get` + compile (5–10 min) for no benefit. The real cause is almost always either a stale `.git/index.lock` from a prior cancelled command or a sandbox snapshot from before this turn. Recovery, in order: (a) `rm -f .git/index.lock`, (b) re-run the failing command, (c) if it still fails, commit your uncommitted edits with a temporary message and re-attempt the merge/fetch — committing avoids the stash path that often triggers the index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from `/tmp`.**
+
+**Integrating an upstream blocker's branch**: when `ticket.<blocker-id>.branch.push` arrives, the fastest safe sequence is `git fetch origin aiur/<blocker-id>` → commit your local WIP if any → `git merge --no-edit origin/aiur/<blocker-id>` → resolve any conflicts → continue. Do NOT `git stash` before the merge — committing WIP is just as safe and avoids the index-write failure path entirely.
+
 Run this loop:
 
 1. Implement
