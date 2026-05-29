@@ -490,22 +490,24 @@ defmodule Aiur.Tmux do
             {:ok, result}
 
           {output, status} ->
-            trimmed = String.trim(output)
-
-            # "no server running on …" repeats every screen-grab tick
-            # (2s) once the user kills the tmux server but leaves the
-            # operator BEAM running. Demote those to debug so the log
-            # isn't flooded — pane_manager still treats `{:error, _}`
-            # the same way, so behavior doesn't change.
-            if String.contains?(trimmed, "no server running") do
-              Logger.debug("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
-            else
-              Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
-            end
-
-            {:error, trimmed}
+            handle_tmux_exit(String.trim(output), status, full_args)
         end
     end
+  end
+
+  defp handle_tmux_exit(trimmed, status, full_args) do
+    # "no server running on …" repeats every screen-grab tick
+    # (2s) once the user kills the tmux server but leaves the
+    # operator BEAM running. Demote those to debug so the log
+    # isn't flooded — pane_manager still treats `{:error, _}`
+    # the same way, so behavior doesn't change.
+    if String.contains?(trimmed, "no server running") do
+      Logger.debug("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
+    else
+      Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
+    end
+
+    {:error, trimmed}
   end
 
   # Read AIUR_TMUX_SOCKET each invocation so the Tmux GenServer (started

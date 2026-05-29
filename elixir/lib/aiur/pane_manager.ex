@@ -547,31 +547,33 @@ defmodule Aiur.PaneManager do
     Logger.info("aiur_screen_grab phase=tick pane_count=#{map_size(panes)} elapsed_ms=#{Boot.elapsed_ms()}")
 
     Enum.each(panes, fn {pane_id, label} ->
-      case Tmux.command(state.tmux, "capture-pane -p -t #{pane_id}") do
-        {:ok, lines} ->
-          excerpt =
-            lines
-            |> Enum.take(@screen_grab_max_lines)
-            |> Enum.map(&String.trim_trailing/1)
-            |> Enum.reject(&(&1 == ""))
-            |> Enum.join(" \\ ")
-
-          Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} content=#{inspect(excerpt)}")
-
-        {:error, reason} ->
-          # Once a Claude session restart (or a forced operator restart)
-          # kills the tmux server but leaves the BEAM running, every 2s
-          # tick produces three log lines — the warning from Tmux.command
-          # plus the schedule + grab info pair. Demote to debug when the
-          # server is gone so the log isn't flooded with the same dead-
-          # server message until the next operator reboot.
-          if dead_tmux?(reason) do
-            Logger.debug("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
-          else
-            Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
-          end
-      end
+      log_pane_grab(pane_id, label, Tmux.command(state.tmux, "capture-pane -p -t #{pane_id}"))
     end)
+  end
+
+  defp log_pane_grab(pane_id, label, {:ok, lines}) do
+    excerpt =
+      lines
+      |> Enum.take(@screen_grab_max_lines)
+      |> Enum.map(&String.trim_trailing/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join(" \\ ")
+
+    Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} content=#{inspect(excerpt)}")
+  end
+
+  defp log_pane_grab(pane_id, label, {:error, reason}) do
+    # Once a Claude session restart (or a forced operator restart)
+    # kills the tmux server but leaves the BEAM running, every 2s
+    # tick produces three log lines — the warning from Tmux.command
+    # plus the schedule + grab info pair. Demote to debug when the
+    # server is gone so the log isn't flooded with the same dead-
+    # server message until the next operator reboot.
+    if dead_tmux?(reason) do
+      Logger.debug("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
+    else
+      Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
+    end
   end
 
   # `Aiur.Tmux.command/2` returns `{:error, trimmed_stderr}` on failure.
