@@ -52,6 +52,20 @@ Machine-readable per-run timings live in `.aiur-test3-runs.jsonl` (one JSON line
   ```
   Hook inherited operator's `ERL_AFLAGS`/`RELEASE_NODE`/`RELEASE_COOKIE`; `mix` failed instantly. The `&&` chain short-circuited, deps + compile never ran. `Aiur.AgentEnvironment` had a `scrub_shell_command/2` helper already — it just wasn't applied to hooks.
 
+### Run #7 — agent label variance (2026-05-28 21:54)
+
+- **Outcome**: chain mechanics worked. Agent-level bug: #101's agent ran `gh issue edit 101 --remove-label agent:in-progress` and stopped before adding `agent:human-review`. The agent's intent text said it would flip, but the tool dispatcher only executed half. Manually added the label so the timer could complete.
+- **Timer JSONL (with manual fix inflation)**: 1845s = 30:45. Real chain end (when #101 said "PR ready"): ~22:55 = ~1375s.
+- **Per-ticket (from script start, includes hook prefetch)**:
+  - #99: 16:52
+  - #100: 19:00
+  - #101: 30:43 (inflated; real ~22:55)
+- **Per-ticket (from work.start)**:
+  - #99: 11:39 (run #6: 12:04 — slightly faster)
+  - #100: 13:59 (run #6: 19:07 — **5:08 faster**)
+  - #101: ≥18:00 (label bug)
+- **Verdict**: NOT a clean run. Agent variance at the label-flip step. Need another run for confirmation.
+
 ### Run #6 — complexity:1 reverted, scrub kept (2026-05-28 21:27)
 
 - **Outcome**: complete, clean (all 3 reached human-review without recursive aiur destruction)
