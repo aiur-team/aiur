@@ -297,9 +297,23 @@ defmodule Aiur.Workspace do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
+    # Scrub Erlang distribution env before running the hook command.
+    # Without this, the operator's ERL_AFLAGS / RELEASE_NODE /
+    # RELEASE_COOKIE propagate into the hook, and any `mix` call in
+    # the hook tries to start an Erlang node with the operator's
+    # name and fails instantly:
+    #   `Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1
+    #    seems to be in use by another Erlang node`
+    # The error is non-fatal at the shell level (hook continues to
+    # the next `&&` chain step which also fails), so deps.get +
+    # compile silently produce nothing and the agent pays the cost
+    # of the cold fetch on its first turn. Reuses the same scrub
+    # that AgentEnvironment applies for the agent's own shell.
+    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
+
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true)
+        System.cmd("sh", ["-lc", scrubbed_command], cd: workspace, stderr_to_stdout: true)
       end)
 
     case Task.yield(task, timeout_ms) do

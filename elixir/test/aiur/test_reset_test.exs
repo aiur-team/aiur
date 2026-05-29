@@ -143,9 +143,15 @@ defmodule Aiur.TestResetTest do
       assert "101" in remove_argv
       assert "101" in add_argv
 
-      # The add step must add specifically agent:todo.
+      # The add step must add agent:todo plus complexity:1 so sandbox
+      # agents skip the heavy CE workflow phases (brainstorm / plan /
+      # full review). Order matters less than presence — `gh issue
+      # edit --add-label` accepts a CSV.
       add_idx = Enum.find_index(add_argv, &(&1 == "--add-label"))
-      assert Enum.at(add_argv, add_idx + 1) == "agent:todo"
+      add_csv = Enum.at(add_argv, add_idx + 1)
+      add_labels = String.split(add_csv, ",")
+      assert "agent:todo" in add_labels
+      assert "complexity:1" in add_labels
     end
 
     test "stripped label set covers every known agent:* state" do
