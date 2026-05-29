@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Per-ticket phase timing extractor for `aiur --test3` runs.
+#
+# Each agent emits `agent.phase.<step>.<start|end>` events that hit the
+# operator log as `[alert] (#NN) ticket.NN.agent.phase.<step>.<start|end>: …`
+# lines. The aiur-test3-timer captures total + per-ticket completion
+# (label flip to agent:human-review). This script bridges the gap: it
+# reads the operator log between two epochs, extracts phase boundaries
+# per ticket, and prints a per-ticket timeline plus the deltas between
+# adjacent phases.
+#
+# Usage:
+#   scripts/aiur-test3-phases [start_epoch] [end_epoch] [log_path]
+#
+# All args are optional. Defaults:
+#   start_epoch — latest .aiur-test3-runs.jsonl line's started_at, or
+#                 the contents of .aiur-test3-timer.pid's start_epoch
+#   end_epoch   — finished_at from JSONL, or `now`
+#   log_path    — elixir/log/aiur.log
+#
+# Output is human-readable with absolute timestamps and elapsed-from-
+# work.start deltas per phase. Designed to be appended to TEST3-RUNS.md
+# for the just-completed run.
+#
+# Phase boundary lines look like:
+#   2026-05-29T10:03:04.744548-07:00 info: [alert] (#100)
+#     ticket.100.agent.phase.work.start: starting function_b …
+#
+# So we grep for `agent.phase.` and split on `:`.
+
+set -euo pipefail
+
+repo_root="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+runs_log="$repo_root/.aiur-test3-runs.jsonl"
+default_log="$repo_root/elixir/log/aiur.log"
+
+start_epoch="${1:-}"
+end_epoch="${2:-}"
+log_path="${3:-$default_log}"
+
+if [ -z "$start_epoch" ] && [ -r "$runs_log" ]; then
+  start_epoch=$(tail -1 "$runs_log" 2>/dev/null | jq -r '.started_at // empty' 2>/dev/null || true)
+fi
+
+if [ -z "$end_epoch" ] && [ -r "$runs_log" ]; then
+  end_epoch=$(tail -1 "$runs_log" 2>/dev/null | jq -r '.finished_at // empty' 2>/dev/null || true)
+fi
+
+end_epoch="${end_epoch:-$(date +%s)}"
+
+# When the JSONL's last `finished_at` belongs to a *prior* run, the
+# default end-epoch lookup picks up that stale value and the resulting
+# window slams shut before start. Fall back to `now` so an in-flight run
+# can still be inspected mid-stream.
+if [ -n "$start_epoch" ] && [ "$end_epoch" -lt "$start_epoch" ]; then
+  end_epoch=$(date +%s)
+fi
+
+if [ -z "$start_epoch" ]; then
+  echo "scripts/aiur-test3-phases: need a start_epoch — pass it as \$1 or write to $runs_log first" >&2
+  exit 1
+fi
+
+if [ ! -r "$log_path" ]; then
+  echo "scripts/aiur-test3-phases: cannot read $log_path" >&2
+  exit 1
+fi
+
+# Convert the run window to ISO so we can `awk '$1 > "..."'` against
+# operator log lines (which use ISO-8601 with offset).
+start_iso=$(date -d "@$start_epoch" -Iseconds)
+end_iso=$(date -d "@$end_epoch" -Iseconds)
+
+# Tickets default to .aiur-test-tickets.json's list (works for any
+# fixture, not just 99/100/101).
+tickets_file="$repo_root/.aiur-test-tickets.json"
+if [ -r "$tickets_file" ]; then
+  tickets=$(jq -r '.tickets[]' "$tickets_file")
+else
+  tickets="99 100 101"
+fi
+
+printf 'Phase timeline for run started_at=%s (%s) → %s\n' "$start_epoch" "$start_iso" "$end_iso"
+printf '%s\n' '────────────────────────────────────────────────────────────────────────'
+
+# Pull all phase + declare_blocker + branch.push + Auto-resume lines in
+# the window once, then per-ticket filter for output.
+window_lines=$(awk -v s="$start_iso" -v e="$end_iso" '
+  $1 >= s && $1 <= e
+' "$log_path" \
+  | grep -E 'agent\.phase\.|aiur_declare_blocker|ls_remote_ticker phase=publish_push|Auto-resume on blocker push' || true)
+
+for t in $tickets; do
+  printf '\n### Ticket %s\n' "$t"
+
+  # Filter window lines to this ticket. Phase + declare_blocker lines
+  # carry `(#NN)`; publish_push carries `ticket=NN`; auto-resume carries
+  # `blockee=NN` and `blocker=NN` — show both perspectives.
+  per_ticket=$(printf '%s\n' "$window_lines" \
+    | grep -E "\(#$t\)|ticket=$t|blockee=$t|blocker=$t" || true)
+
+  if [ -z "$per_ticket" ]; then
+    printf '  (no events in window)\n'
+    continue
+  fi
+
+  # Capture work.start so we can compute elapsed deltas.
+  work_start_ts=$(printf '%s\n' "$per_ticket" \
+    | grep -m1 "agent.phase.work.start" \
+    | awk '{print $1}' || true)
+
+  while IFS= read -r line; do
+    ts=$(printf '%s' "$line" | awk '{print $1}')
+    if [ -n "$work_start_ts" ]; then
+      # Convert both to epoch for delta (POSIX date supports -d @epoch
+      # but not ISO with fractional seconds — strip fractional first).
+      ts_clean="${ts%%.*}"
+      ws_clean="${work_start_ts%%.*}"
+      ts_epoch=$(date -d "$ts_clean" +%s 2>/dev/null || echo 0)
+      ws_epoch=$(date -d "$ws_clean" +%s 2>/dev/null || echo 0)
+      delta=$((ts_epoch - ws_epoch))
+      mm=$((delta / 60))
+      ss=$((delta % 60))
+      delta_fmt=$(printf '+%d:%02d' "$mm" "$ss")
+    else
+      delta_fmt='     '
+    fi
+
+    # Compact line: drop the `info:` and most pre-message chrome.
+    summary=$(printf '%s' "$line" | sed -E 's/^[^ ]+ info: //; s/ \(#[0-9]+\)//; s/^\[alert\] //; s/^\[tool\] //')
+    printf '  %s  %s  %s\n' "$ts" "$delta_fmt" "$summary"
+  done <<< "$per_ticket"
+done

@@ -12,6 +12,30 @@ Machine-readable per-run timings live in `.aiur-test3-runs.jsonl` (one JSON line
 
 ## Run history
 
+### Run #9 — new best total + huge 99/100 wins, 101 lost to /tmp clone (2026-05-29 09:58)
+
+- **Outcome**: complete (clean — all 3 reached human-review)
+- **Total elapsed**: **1421s (23:41)** — 29s faster than run #6
+- **Per-ticket (from timer start; includes 4-min after_create hook)**:
+  - #99: 8:04 (run #6: 17:12 — **9:08 faster**)
+  - #100: 14:31 (run #6: 24:08 — **9:37 faster**)
+  - #101: 23:39 (run #6: 23:04 — 35s slower)
+- **Per-ticket (from work.start, after hooks)**:
+  - #99: 3:03 — fastest ever
+  - #100: 10:22 — fastest ever
+  - #101: 18:15 — slowest leg, see /tmp-clone note
+- **Self-discovered blocker chain (#169)**:
+  - #100 work.start → aiur_declare_blocker(99): **0:14**
+  - #101 work.start → aiur_declare_blocker(100): **1:01** (101's blocker is NOT in the issue body, agent inferred it from #100's signature)
+- **Auto-resume on push**:
+  - #99 push 10:05:30 → #100 reacted 10:05:44 (~14s agent processing)
+  - #100 push 10:11:18 → #101 reacted 10:12:07 (the canonical aiur/100 ref, after PR-head fallback integration)
+- **Issues found this run**:
+  - **#172** (cost ~5-10 min on 101): codex sandbox sometimes denies `.git/index` writes after a failed `git merge` — agent misreads it as "workspace not writable" and clones to `/tmp` to push from there. Loses minutes to a redundant deps install + compile in the temp clone.
+  - **#171** (cost ~3 min on 101): agent's first `mix run --no-start` paid a full deps compile (Credo, Plug, …) even though the after_create hook already produced `_build/dev/lib/credo/ebin/credo.app`. Build cache may be invalidated between the hook run and the agent shell.
+  - **#173**: aiur_screen_grab polls a dead tmux server every 2s, flooding the log with warnings + 2 debug lines per tick. Cosmetic but noisy.
+- **Conclusion**: clean baseline beat. Biggest single win = 99 reaching human-review in 3 min flat from work.start. 101 would have completed ~5-10 min faster without the /tmp-clone detour — fixing #172 is the highest-leverage next step.
+
 ### Run #1 — baseline (2026-05-28 19:16)
 
 - **Outcome**: complete
