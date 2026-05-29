@@ -1,4 +1,4 @@
-defmodule Aiur.Codex.DynamicToolTest do
+defmodule Aiur.Codex.DynamicToolProgressCapTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Codex.DynamicTool
