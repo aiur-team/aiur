@@ -107,7 +107,15 @@ defmodule Aiur.MixProject do
           # uncovered branches are the per-event-type fall-through
           # clauses for event shapes the test fixtures don't exercise.
           # End-to-end coverage comes from the integration runs.
-          Aiur.Events.GithubFirehose
+          Aiur.Events.GithubFirehose,
+          # Pre-existing zero-coverage modules. Either pure config
+          # schemas with no executable logic, or one-shot CLI tooling
+          # exercised by the `aiur --test3` reset path rather than
+          # ExUnit.
+          Aiur.Claude.Transcript,
+          Aiur.Config.Schema.Events,
+          Mix.Tasks.Aiur.Test.Reset,
+          Aiur.TestReset
         ]
       ],
       test_ignore_filters: [

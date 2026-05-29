@@ -1694,8 +1694,6 @@ defmodule Aiur.AgentList.Renderer do
     "\e]8;;" <> url <> "\e\\" <> text <> "\e]8;;\e\\"
   end
 
-  defp link_ticket_id(nil, _repo), do: nil
-
   defp link_ticket_id(id, repo) when is_binary(id) and is_binary(repo) do
     osc8(issue_url(repo, id), id)
   end
@@ -1722,8 +1720,6 @@ defmodule Aiur.AgentList.Renderer do
         verb_phrase
     end
   end
-
-  defp link_verb_phrase(verb_phrase, _kind, _suffix, _body, _repo, _fallback), do: verb_phrase
 
   defp pr_linkable?("pr.opened"), do: true
   defp pr_linkable?("pr.merged"), do: true
