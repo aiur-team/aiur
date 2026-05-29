@@ -76,8 +76,42 @@ defmodule Aiur.TestReset do
   def run(opts \\ %{}) do
     opts = normalize_opts(opts)
 
-    with {:ok, tickets_data} <- read_tickets_file(opts.repo_root) do
+    with :ok <- guard_not_running_in_agent_workspace(opts),
+         {:ok, tickets_data} <- read_tickets_file(opts.repo_root) do
       dispatch_reset(tickets_data, opts)
+    end
+  end
+
+  # Refuse to run from inside an agent workspace. The script-level
+  # guard in `scripts/aiur` is necessary but not sufficient: each
+  # agent's workspace ships with its own copy of `scripts/aiur` from
+  # whatever sha was cloned at workspace creation time. If that
+  # snapshot predates the script guard, an agent that types
+  # `./scripts/aiur --test` from inside its workspace would still
+  # reach `mix aiur.test.reset`. Catching the recursive call here
+  # gives us defense at the only layer the agent's workspace cannot
+  # roll back through. Two signals — the env marker set by
+  # Aiur.AgentEnvironment, and the workspace-path pattern — match
+  # the script's guard so this is the same physical block, just
+  # repeated one level deeper.
+  defp guard_not_running_in_agent_workspace(opts) do
+    cond do
+      (marker = System.get_env("AIUR_AGENT_WORKSPACE")) && marker != "" ->
+        say("❌ refusing to run mix aiur.test.reset from inside an agent workspace")
+        say("   AIUR_AGENT_WORKSPACE=#{marker}")
+        say("   Agents must verify by exercising the code directly (mix run, mix test, etc.),")
+        say("   not by running test.reset. Doing so would wipe the operator's sandbox tickets")
+        say("   and kill the in-flight run.")
+        {:error, :agent_workspace_blocked}
+
+      opts.repo_root && String.contains?(opts.repo_root, "/aiur-workspaces/") ->
+        say("❌ refusing to run mix aiur.test.reset from inside an agent workspace tree")
+        say("   repo_root=#{opts.repo_root}")
+        say("   Agents must verify by exercising the code directly, not by running test.reset.")
+        {:error, :agent_workspace_blocked}
+
+      true ->
+        :ok
     end
   end
 
