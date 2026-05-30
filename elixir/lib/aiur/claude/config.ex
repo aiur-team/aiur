@@ -89,8 +89,7 @@ defmodule Aiur.Claude.Config do
         {:error, "Claude command missing — set claude.command in WORKFLOW.md"}
 
       permission_mode() not in @valid_permission_modes ->
-        {:error,
-         "Invalid claude.permission_mode in WORKFLOW.md — must be one of #{inspect(@valid_permission_modes)}"}
+        {:error, "Invalid claude.permission_mode in WORKFLOW.md — must be one of #{inspect(@valid_permission_modes)}"}
 
       true ->
         :ok
