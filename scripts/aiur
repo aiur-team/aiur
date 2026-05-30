@@ -70,7 +70,6 @@ clear_mode=0
 # scoped to just the tickets that mode resets.
 explicit_clear=0
 logs_mode=0
-record_mode=0
 fresh_mode=0
 test1_mode=0
 testg_mode=0
@@ -108,12 +107,6 @@ for arg in "$@"; do
       ;;
     --logs)
       logs_mode=1
-      ;;
-    --record)
-      # Standalone pane-recorder. Its target + sub-options (--for,
-      # --interval, --backfill, --out) aren't main flags, so they fall
-      # through to filtered_args and reach aiur_record after `set --`.
-      record_mode=1
       ;;
     --test)
       # --test launches the GOLDEN single ticket: one fixed
@@ -361,6 +354,9 @@ space-separated or comma-separated. Use --all to target the current snapshot.
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
                        Tail logs in another terminal: `aiur --logs`.
+                       Also records each opencode chat pane into
+                       `log/record/chat.<issue>.ansi` (ANSI preserved, so
+                       grep rendered diffs for `@@`, not "```diff").
   --clear              delete previous aiur*.log files before starting.
                        Also reaps accumulated BEAM hot-load /tmp/.*.so
                        and /tmp/aiur-debug pipe-pane captures (only when
@@ -381,18 +377,6 @@ Options:
   --port <N>           override the profile/workflow port for this invocation.
                        Without this, aiur auto-increments up to 9 ports when
                        the configured port is already in use.
-  --record <target>    stitch real pane screen-grabs into one growing,
-                       deduped transcript — a "log" for panes that have
-                       no logfile (the opencode chat). <target> is an
-                       issue number (the `OC | <issue>` pane), `agents`
-                       (the AgentList), or an explicit `win.pane`. ANSI
-                       is preserved so rendered file-edit diffs survive
-                       (grep `@@`, not "```diff"). Options:
-                         --for SEC      stop after SEC (default: until Ctrl+C)
-                         --interval SEC capture cadence (default 3)
-                         --backfill     walk existing scrollback first
-                         --out FILE     transcript path
-                       Example: `aiur --record 140 --for 120 --backfill`
   build [--deps]       force a rebuild of the aiur app + release
                        (~30s). Pass `--deps` to also wipe the deps'
                        compiled artifacts and recompile everything
@@ -1428,30 +1412,6 @@ resolve_aiur_tmux_conf() {
   printf '%s\n' "$script_dir/aiur.tmux.conf"
 }
 
-# Resolve a chat/agent pane to a `window.pane` coordinate inside the
-# running inner tmux session. Accepts an issue number (matches the
-# `OC | <issue>` pane title), `agents`/`list` (the AgentList at 0.0),
-# or an explicit `win.pane` coordinate passed straight through.
-aiur_record_resolve_pane() {
-  local socket="$1" session="$2" target="$3"
-  case "$target" in
-    agents | list)
-      printf '0.0\n'
-      ;;
-    [0-9]*.[0-9]*)
-      printf '%s\n' "$target"
-      ;;
-    [0-9]*)
-      tmux -L "$socket" list-panes -t "$session" -a \
-        -F '#{window_index}.#{pane_index} #{pane_title}' 2>/dev/null \
-        | awk -v want="OC | $target" '$0 ~ ("\\| " want "$") || index($0, want){print $1; exit}'
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 # Normalize one raw `capture-pane -e` frame for stitching: drop the
 # static input-box / footer chrome at the bottom (it carries a live
 # timer and would churn every frame), drop trailing blank padding, and
@@ -1500,103 +1460,64 @@ _aiur_record_stitch() {
     }' "$1" "$2"
 }
 
-# `aiur --record` — a screen-grab log. Like `--logs`, it produces one
-# growing transcript you can tail; unlike `--logs`, the opencode chat has
-# no logfile, so the transcript is reconstructed by stitching successive
-# real pane captures together and deduping the overlap.
+# Background chat-pane recorder for `--debug` runs. The opencode chat
+# panes have no logfile, so a debug session records each `OC | <issue>`
+# pane into its own stitched ANSI transcript under the debug log dir
+# (`log/record/chat.<issue>.ansi`), the same way `--debug` captures the
+# BEAM log. Runs until the tmux session dies (or it is killed when the
+# operator detaches).
 #
 # Captures use `capture-pane -e` to PRESERVE ANSI: Glamour consumes the
 # ```diff fences when it renders, so the literal fence string never
 # appears. A rendered file-edit diff shows up as `@@` hunk headers plus
 # colored `+`/`-` lines — grep the transcript for `@@`, not "```diff".
 #
-# opencode chat panes run on tmux's alternate screen (tmux reports
-# history 0) but keep their OWN scrollback. `--backfill` walks that
-# scrollback (PageUp to the top, then PageDown stitching down) so the
-# transcript starts with the history already on screen, then follows live.
-aiur_record() {
-  local profile="default" target="" out="" interval=3 duration=0 backfill=0
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --profile) profile="$2"; shift 2 ;;
-      --out) out="$2"; shift 2 ;;
-      --interval) interval="$2"; shift 2 ;;
-      --for) duration="$2"; shift 2 ;;
-      --backfill) backfill=1; shift ;;
-      -*) die "aiur record: unknown option $1" ;;
-      *) target="$1"; shift ;;
-    esac
-  done
+# Unlike a manual backfill, this NEVER sends keys to the panes — it only
+# reads the visible viewport — so the operator's live session is
+# untouched. Each capture overlaps its predecessor; _aiur_record_stitch
+# appends only the freshly-revealed tail, so the transcript is a
+# continuous log rather than N redundant screenshots.
+aiur_record_session() {
+  local socket="$1" session="$2" out_dir="$3" interval="${4:-3}"
+  mkdir -p "$out_dir"
 
-  [ -n "$target" ] || die "usage: aiur --record <issue|agents|win.pane> [--for SEC] [--interval SEC] [--out FILE] [--backfill] [--profile NAME]"
-
-  local socket session pane
-  socket="$(aiur_tmux_socket_name)"
-  session="$(aiur_tmux_session_name "$profile")"
-
-  tmux -L "$socket" has-session -t "$session" 2>/dev/null \
-    || die "aiur record: no running session '$session' on socket '$socket' — start aiur first"
-
-  pane="$(aiur_record_resolve_pane "$socket" "$session" "$target")"
-  [ -n "$pane" ] || die "aiur record: could not resolve a pane for '$target' (no 'OC | $target' pane?)"
-
-  if [ -z "$out" ]; then
-    mkdir -p /tmp/aiur-record
-    out="/tmp/aiur-record/${target//[^0-9a-zA-Z]/_}-$(date +%Y%m%d_%H%M%S).ansi"
-  fi
-  : >"$out"
-
-  local prev cur
-  prev="$(mktemp)"; cur="$(mktemp)"
+  local tmproot
+  tmproot="$(mktemp -d)"
   # shellcheck disable=SC2064
-  trap "rm -f '$prev' '$cur'" RETURN
+  trap "rm -rf '$tmproot'; exit 0" TERM EXIT
 
-  # cleaned capture of the pane into $1 (closes over socket/session/pane)
-  __record_grab() { tmux -L "$socket" capture-pane -t "$session:$pane" -e -p 2>/dev/null | _aiur_record_clean >"$1"; }
+  local -A seen
 
-  if [ "$backfill" -eq 1 ]; then
-    echo "⏪ backfilling $session:$pane scrollback…" >&2
-    # Page to the top: keep sending PageUp until the frame stops changing.
-    __record_grab "$prev"
-    local tries=0
-    while [ "$tries" -lt 200 ]; do
-      tmux -L "$socket" send-keys -t "$session:$pane" PageUp; sleep 0.2
-      __record_grab "$cur"
-      if cmp -s "$prev" "$cur"; then break; fi
-      cp "$cur" "$prev"; tries=$((tries + 1))
-    done
-    # Walk back down, stitching each revealed frame onto the transcript.
-    __record_grab "$prev"; cat "$prev" >>"$out"
-    while :; do
-      tmux -L "$socket" send-keys -t "$session:$pane" PageDown; sleep 0.2
-      __record_grab "$cur"
-      if cmp -s "$prev" "$cur"; then break; fi
-      _aiur_record_stitch "$prev" "$cur" >>"$out"
-      cp "$cur" "$prev"
-    done
-    tmux -L "$socket" send-keys -t "$session:$pane" q 2>/dev/null  # exit copy mode → live bottom
-  fi
+  while tmux -L "$socket" has-session -t "$session" 2>/dev/null; do
+    while IFS=' ' read -r coord title; do
+      case "$title" in
+        *"OC | "*) ;;
+        *) continue ;;
+      esac
+      local issue="${title##*OC | }"
+      issue="${issue%% *}"
+      [ -n "$issue" ] || continue
 
-  echo "🎬 recording $session:$pane every ${interval}s → $out" >&2
-  [ "$duration" -gt 0 ] && echo "   stopping after ${duration}s (Ctrl-C to stop early)" >&2
+      local out="$out_dir/chat.$issue.ansi"
+      local prev="$tmproot/$issue.prev"
+      local cur="$tmproot/$issue.cur"
 
-  local start now
-  start=$(date +%s)
-  __record_grab "$prev"; cat "$prev" >>"$out"
-  while :; do
+      tmux -L "$socket" capture-pane -t "$session:$coord" -e -p 2>/dev/null \
+        | _aiur_record_clean >"$cur"
+
+      if [ -z "${seen[$issue]:-}" ]; then
+        cat "$cur" >"$out"
+        cp "$cur" "$prev"
+        seen[$issue]=1
+      elif ! cmp -s "$prev" "$cur"; then
+        _aiur_record_stitch "$prev" "$cur" >>"$out"
+        cp "$cur" "$prev"
+      fi
+    done < <(tmux -L "$socket" list-panes -t "$session" -a \
+      -F '#{window_index}.#{pane_index} #{pane_title}' 2>/dev/null)
+
     sleep "$interval"
-    __record_grab "$cur" || break
-    if ! cmp -s "$prev" "$cur"; then
-      _aiur_record_stitch "$prev" "$cur" >>"$out"
-      cp "$cur" "$prev"
-    fi
-    if [ "$duration" -gt 0 ]; then
-      now=$(date +%s)
-      [ $((now - start)) -ge "$duration" ] && break
-    fi
   done
-  echo "🎞️  transcript: $out ($(wc -l <"$out" | tr -d ' ') lines)" >&2
-  echo "$out"
 }
 
 run_in_tmux() {
@@ -1955,6 +1876,20 @@ run_in_tmux() {
     sleep "$grace_sleep"
   done
 
+  # In a debug run, background-record the opencode chat panes into the
+  # log dir for the lifetime of the session. The panes have no logfile of
+  # their own, so this is the only durable record of how each agent's
+  # chat rendered. Non-intrusive (read-only captures, no key sends) and
+  # killed the moment the operator detaches.
+  local record_pid=""
+  if [ "$debug_mode" -eq 1 ]; then
+    local record_dir
+    record_dir="$(dirname "$log_path")/record"
+    aiur_record_session "$socket" "$session" "$record_dir" 3 &
+    record_pid=$!
+    echo "🎬 recording chat panes → $record_dir" >&2
+  fi
+
   # In the foreground, the user attaches to the session normally. We do
   # NOT `exec` into tmux — replacing the bash process would tear down our
   # EXIT/INT/TERM/HUP trap before it could run the session reaper. Instead
@@ -1965,6 +1900,12 @@ run_in_tmux() {
   # the BEAM has already cleanly shut down by this point. Filter it.
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
   local tmux_status=$?
+
+  # Stop the background recorder now that the operator has detached.
+  if [ -n "$record_pid" ]; then
+    kill "$record_pid" 2>/dev/null || true
+    wait "$record_pid" 2>/dev/null || true
+  fi
 
   # Cleanup. Startup_capture only needs to survive long enough for
   # `print_startup_failure` above to replay it on early-grace crashes;
@@ -2007,11 +1948,6 @@ run_ad_hoc_workflow() {
 }
 
 load_profiles
-
-if [ "$record_mode" -eq 1 ]; then
-  aiur_record "$@"
-  exit 0
-fi
 
 if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
   log_profile="${1:-default}"

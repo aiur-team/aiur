@@ -257,26 +257,17 @@ Gotchas worth remembering:
 - `send-keys` accepts both literal strings and tmux key names
   (`Enter`, `Tab`, `Up`, etc.) — pass them as separate arguments.
 
-### Recording a chat pane over time — `aiur --record`
+### Recording chat panes over time — folded into `--debug`
 
 A single `capture-pane` is a snapshot. To watch how a pane evolves —
 how the opencode chat renders commands, tool results, and **file-edit
-diffs** as an agent works — use `aiur --record <target>`. It is a "log"
-for panes that have no logfile: it stitches successive real screen-grabs
-into one growing, deduped transcript.
+diffs** as an agent works — run `aiur --debug`. A debug session
+automatically records each `OC | <issue>` chat pane into its own
+stitched transcript under the log dir: `log/record/chat.<issue>.ansi`.
+The chat panes have no logfile of their own, so this is the only durable
+record of how each agent's chat rendered.
 
-```bash
-# follow issue #140's chat for 2 min; transcript printed on stdout
-aiur --record 140 --for 120
-# reconstruct the FULL existing scrollback first, then follow live
-aiur --record 140 --backfill
-# the AgentList event feed instead of a chat slot
-aiur --record agents --for 60
-```
-
-`<target>` is an issue number (resolves the `OC | <issue>` pane), the
-word `agents` (AgentList at `0.0`), or an explicit `win.pane`. How it
-works, and why it has to:
+How it works, and why it has to:
 
 - **Captures keep ANSI (`capture-pane -e`).** Glamour *consumes* the
   ```` ```diff ```` fence when it renders, so the literal fence string
@@ -284,20 +275,18 @@ works, and why it has to:
   as `@@` hunk headers plus ANSI-colored `+`/`-` lines. **Grep the
   transcript for `@@` (or color codes), not for `` ```diff ``.**
 - **It stitches, not dumps.** Each capture is the moving viewport over
-  a scrolling log; consecutive captures overlap. `record` finds the
+  a scrolling log; consecutive captures overlap. The recorder finds the
   largest overlap between the previous frame's tail and the new frame's
   head and appends only the freshly-revealed lines — so the output is a
   continuous transcript, not N redundant screenshots. Unchanged frames
   add nothing.
-- **`--backfill` reads existing history.** opencode chat panes run on
-  tmux's *alternate screen* (`list-panes` reports `history 0`), but the
-  TUI keeps its own scrollback. `--backfill` sends `PageUp` to the top,
-  then `PageDown`-walks back down stitching each revealed frame, so the
-  transcript starts with what's already on screen before following live.
-  It leaves the pane scrolled back to the live bottom when done.
+- **It is read-only and non-intrusive.** Unlike a manual scrollback
+  walk, the recorder never sends keys to the panes — it only reads the
+  visible viewport — so the operator's live session is untouched. It
+  starts when the session attaches and is killed the moment the operator
+  detaches.
 
-Default transcript path is `/tmp/aiur-record/<target>-<timestamp>.ansi`
-(override with `--out`); `cat` it (ANSI intact) or `sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'`
+`cat` a transcript (ANSI intact) or `sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'`
 to read plain. This is the supported way to confirm diff/skill/tool
 rendering parity between Claude and Codex agents from a non-TTY shell.
 
