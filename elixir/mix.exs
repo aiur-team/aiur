@@ -38,6 +38,7 @@ defmodule Aiur.MixProject do
           Aiur.CodingAgent,
           Aiur.Claude.CodingAgent,
           Aiur.Claude.EventHumanizer,
+          Aiur.Codeowners,
           Aiur.Codex.CodingAgent,
           Aiur.Codex.DynamicTool,
           Aiur.Codex.EventHumanizer,

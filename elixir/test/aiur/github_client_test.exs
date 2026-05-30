@@ -198,6 +198,98 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_classified_pr_review_comments/2" do
+    test "labels CODEOWNER review comments authoritative" do
+      repo_root = codeowners_repo!("* @owner")
+
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "/repos/owner/repo/pulls/7/files" ->
+            {:ok, %{status: 200, body: [%{"filename" => "lib/app.ex"}]}}
+
+          url =~ "/repos/owner/repo/pulls/7/comments" ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{"user" => %{"login" => "owner"}, "body" => "Fix this"},
+                 %{"user" => %{"login" => "guest"}, "body" => "Maybe fix this"}
+               ]
+             }}
+        end
+      end
+
+      assert {:ok, [owner_comment, guest_comment]} =
+               Client.fetch_classified_pr_review_comments("7",
+                 request_fun: request_fun,
+                 repo_root: repo_root
+               )
+
+      assert owner_comment.authoritative
+      assert owner_comment.authority_reason =~ "CODEOWNER via @owner"
+      refute guest_comment.authoritative
+      assert guest_comment.authority_reason == "Author is not a CODEOWNER for the relevant paths."
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "falls back to authoritative comments when CODEOWNERS is missing" do
+      repo_root = Path.join(System.tmp_dir!(), "aiur-github-client-test-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(repo_root)
+
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "/repos/owner/repo/pulls/8/files" ->
+            {:ok, %{status: 200, body: [%{"filename" => "lib/app.ex"}]}}
+
+          url =~ "/repos/owner/repo/pulls/8/comments" ->
+            {:ok, %{status: 200, body: [%{"user" => %{"login" => "guest"}, "body" => "Fix this"}]}}
+        end
+      end
+
+      assert {:ok, [comment]} =
+               Client.fetch_classified_pr_review_comments(8,
+                 request_fun: request_fun,
+                 repo_root: repo_root
+               )
+
+      assert comment.authoritative
+      assert comment.authority_reason == "No CODEOWNERS file found; using compatibility fallback."
+
+      File.rm_rf!(repo_root)
+    end
+  end
+
+  describe "fetch_classified_issue_comments/2" do
+    test "uses repo-wide CODEOWNERS for issue comments without PR paths" do
+      repo_root = codeowners_repo!("docs/ @docs-owner\n")
+
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/repos/owner/repo/issues/42/comments"
+
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{"user" => %{"login" => "docs-owner"}, "body" => "Directive"},
+             %{"user" => %{"login" => "guest"}, "body" => "Suggestion"}
+           ]
+         }}
+      end
+
+      assert {:ok, [owner_comment, guest_comment]} =
+               Client.fetch_classified_issue_comments("42",
+                 request_fun: request_fun,
+                 repo_root: repo_root
+               )
+
+      assert owner_comment.authoritative
+      refute guest_comment.authoritative
+
+      File.rm_rf!(repo_root)
+    end
+  end
+
   describe "update_issue_state/3" do
     test "swaps labels and closes terminal issues" do
       calls = :ets.new(:calls, [:set, :public])
@@ -240,5 +332,13 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert :ok = Client.update_issue_state("42", "Done", request_fun: request_fun)
     end
+  end
+
+  defp codeowners_repo!(content) do
+    repo_root = Path.join(System.tmp_dir!(), "aiur-github-client-test-#{System.unique_integer([:positive])}")
+    path = Path.join(repo_root, ".github/CODEOWNERS")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, content)
+    repo_root
   end
 end
