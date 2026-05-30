@@ -69,9 +69,9 @@ defmodule Aiur.Claude.TranscriptTest do
 
       assert {:ok, event} = Transcript.extract(message, nil)
       assert event.role == :tool
-      assert event.body == "Edit lib/aiur.ex"
-      # Lowercase tool name + a +/- diff in the output so opencode renders
-      # a colorized file diff at parity with codex fileChange items.
+      # Lowercase `edit <path>` body + `tool: "edit"` so the chat pane's
+      # format_delta diff branch fires, at parity with codex fileChange.
+      assert event.body == "edit lib/aiur.ex"
       assert event.payload.tool == "edit"
       assert event.payload.input == input
       assert event.payload.output =~ "lib/aiur.ex"
@@ -90,7 +90,8 @@ defmodule Aiur.Claude.TranscriptTest do
         })
 
       assert {:ok, event} = Transcript.extract(message, nil)
-      assert event.payload.tool == "write"
+      assert event.body == "edit lib/new.ex"
+      assert event.payload.tool == "edit"
       assert event.payload.output =~ "+ line one"
       assert event.payload.output =~ "+ line two"
     end
@@ -174,6 +175,48 @@ defmodule Aiur.Claude.TranscriptTest do
 
       assert {:ok, event} = Transcript.extract(message, "fallback-turn")
       assert event.turn_id == "fallback-turn"
+    end
+  end
+
+  # The chat pane renders a transcript event by piping it through
+  # `ChatCompletions.format_delta/3`. The diff fence only fires when the
+  # body starts with lowercase `edit ` AND `payload.tool == "edit"`, so
+  # these guard against a casing/keying regression in extract/2 that the
+  # field-level assertions above would miss.
+  describe "extract/2 → chat format_delta rendering" do
+    alias Aiur.Opencode.ChatCompletions
+
+    test "Edit renders a fenced diff with red/green +/- lines" do
+      message =
+        item_created(%{
+          "id" => "e1",
+          "type" => "tool_call",
+          "name" => "Edit",
+          "input" => %{"file_path" => "lib/aiur.ex", "old_string" => "foo", "new_string" => "bar"}
+        })
+
+      assert {:ok, event} = Transcript.extract(message, nil)
+      rendered = ChatCompletions.format_delta(event.role, event.body, event)
+
+      assert rendered =~ "```diff"
+      assert rendered =~ "- foo"
+      assert rendered =~ "+ bar"
+    end
+
+    test "Write renders a fenced diff of the new file contents" do
+      message =
+        item_created(%{
+          "id" => "e2",
+          "type" => "tool_call",
+          "name" => "Write",
+          "input" => %{"file_path" => "lib/new.ex", "content" => "line one"}
+        })
+
+      assert {:ok, event} = Transcript.extract(message, nil)
+      rendered = ChatCompletions.format_delta(event.role, event.body, event)
+
+      assert rendered =~ "```diff"
+      assert rendered =~ "+ line one"
     end
   end
 end

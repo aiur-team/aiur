@@ -82,14 +82,13 @@ defmodule Aiur.Claude.Transcript do
          )}
 
       name in @edit_tools ->
-        title = edit_title(name, input)
-        tool = if name == "Write", do: "write", else: "edit"
+        title = edit_title(input)
 
         {:ok,
          AgentEvents.transcript_event(:tool, title,
            timestamp: timestamp,
            turn_id: turn_id,
-           payload: %{tool: tool, input: input, output: edit_diff(name, input), title: title}
+           payload: %{tool: "edit", input: input, output: edit_diff(name, input), title: title}
          )}
 
       true ->
@@ -144,10 +143,10 @@ defmodule Aiur.Claude.Transcript do
     end
   end
 
-  defp edit_title(name, input) do
+  defp edit_title(input) do
     case edit_path(input) do
-      path when is_binary(path) and path != "" -> "#{name} #{path}"
-      _ -> name
+      path when is_binary(path) and path != "" -> "edit #{path}"
+      _ -> "edit"
     end
   end
 
