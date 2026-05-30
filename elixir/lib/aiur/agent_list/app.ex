@@ -228,6 +228,12 @@ defmodule Aiur.AgentList.App do
       # Sample shape: `[{percent, monotonic_ms}, …]` newest first,
       # bounded by ProgressTracker.@max_samples.
       progress_by_id: %{},
+      # Per-identifier active workflow phase, driving the running-state
+      # status emoji (#68). Populated from
+      # `ticket.<id>.agent.phase.<brainstorm|plan|work|review>.start`
+      # publishes (last `.start` wins); the matching `.end` clears it.
+      # Value is one of `:brainstorm | :plan | :work | :review`.
+      phase_by_identifier: %{},
       warm_status_dark_mode?: warm_status_dark_mode_default(),
       # Ring buffer of warmth-related aiur_perf events (debug mode
       # only). Capped at @warmth_event_cap to avoid unbounded growth.
@@ -565,6 +571,9 @@ defmodule Aiur.AgentList.App do
         # an id that's no longer running just wastes row space and is
         # misleading.
         latest_event_by_id: Map.take(new_state.latest_event_by_id, MapSet.to_list(visible_set)),
+        # Trim active-phase entries to visible_set so a stopped agent's
+        # last phase doesn't linger on a row it no longer owns.
+        phase_by_identifier: Map.take(new_state.phase_by_identifier, MapSet.to_list(visible_set)),
         progress_by_id: progress_by_id
     }
 
@@ -734,6 +743,7 @@ defmodule Aiur.AgentList.App do
       state
       |> record_latest_event(entry)
       |> record_progress_sample(entry)
+      |> record_phase(entry)
 
     state =
       if state.debug_mode? do
@@ -799,6 +809,45 @@ defmodule Aiur.AgentList.App do
   end
 
   defp record_progress_sample(state, _entry), do: state
+
+  # Folds `ticket.<id>.agent.phase.<phase>.<start|end>` publishes into
+  # the per-id active-phase map that drives the running-state status
+  # emoji (#68). `.start` sets the phase (last start wins); `.end`
+  # clears it only when it matches the currently-tracked phase, so a
+  # late `.end` for a superseded phase can't wipe a newer `.start`.
+  defp record_phase(state, %{kind: :publish, topic: topic}) when is_binary(topic) do
+    case parse_phase_topic(topic) do
+      {:ok, id, phase, :start} ->
+        %{state | phase_by_identifier: Map.put(state.phase_by_identifier, id, phase)}
+
+      {:ok, id, phase, :end} ->
+        if Map.get(state.phase_by_identifier, id) == phase do
+          %{state | phase_by_identifier: Map.delete(state.phase_by_identifier, id)}
+        else
+          state
+        end
+
+      :error ->
+        state
+    end
+  end
+
+  defp record_phase(state, _entry), do: state
+
+  defp parse_phase_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.phase\.(brainstorm|plan|work|review)\.(start|end)\z}, topic) do
+      [_, id, phase, edge] -> {:ok, id, phase_atom(phase), edge_atom(edge)}
+      _ -> :error
+    end
+  end
+
+  defp phase_atom("brainstorm"), do: :brainstorm
+  defp phase_atom("plan"), do: :plan
+  defp phase_atom("work"), do: :work
+  defp phase_atom("review"), do: :review
+
+  defp edge_atom("start"), do: :start
+  defp edge_atom("end"), do: :end
 
   defp parse_progress_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.agent\.progress(?:\.(checkin|phase))?\z}, topic) do
@@ -1200,6 +1249,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:opened_panes, Map.get(state, :opened_panes, MapSet.new()))
       |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
       |> Map.put(:latest_event_by_id, Map.get(state, :latest_event_by_id, %{}))
+      |> Map.put(:phase_by_identifier, Map.get(state, :phase_by_identifier, %{}))
       |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
       |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
       |> Map.put(

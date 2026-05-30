@@ -102,6 +102,7 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:attach_state, Map.get(state, :attach_state, %{}))
         |> Map.put(:agents_with_content, Map.get(state, :agents_with_content, MapSet.new()))
         |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
+        |> Map.put(:phase_by_identifier, Map.get(state, :phase_by_identifier, %{}))
         |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
 
       markers = compute_markers(state, summaries)
@@ -214,7 +215,11 @@ defmodule Aiur.AgentList.Renderer do
       {"State circle",
        [
          "⏳  warming up — pane not yet ready",
-         "🟢  agent actively working — pane ready to open",
+         "🧠  brainstorming",
+         "📋  planning",
+         "🛠️  implementing",
+         "🔍  reviewing",
+         "🟢  working — pane open now (no active phase)",
          "⏸️  agent paused by operator",
          "🔴  agent in error state",
          "🏁  awaiting human review — space or chat to reactivate",
@@ -604,7 +609,8 @@ defmodule Aiur.AgentList.Renderer do
     title = Map.get(summary, :title) || ""
 
     id_cell = id_cell_with_link(id_str, layout)
-    state_cell = emoji_cell(summary_emoji(summary, markers), @state_cell_width)
+    phase = Map.get(Map.get(layout, :phase_by_identifier, %{}), id_str)
+    state_cell = emoji_cell(summary_emoji(summary, markers, phase), @state_cell_width)
     attention_cell = attention_cell(id_str, layout)
     title_cell = cell(title, layout.title_width)
     latest_cell = latest_cell(id_str, layout, summary)
@@ -888,22 +894,37 @@ defmodule Aiur.AgentList.Renderer do
   defp marker_from_attach(%{visible_in: slot}, _has_content) when not is_nil(slot), do: "🔘"
   defp marker_from_attach(_attach, _has_content), do: "⏳"
 
-  # `summary_emoji` defers to the precomputed marker for running
-  # working agents, and to AgentEvents for paused/error/done states.
-  defp summary_emoji(%{status: :queued}, _markers), do: "⚫"
+  # `summary_emoji` shows, for a running working agent, the active
+  # workflow phase (🧠/📋/🛠️/🔍 — #68) when one is known, falling back
+  # to the precomputed instant-open marker otherwise. Pre-warm ⏳ still
+  # wins while the pane isn't warm. Paused/error/done defer to
+  # AgentEvents.
+  defp summary_emoji(%{status: :queued}, _markers, _phase), do: "⚫"
 
-  defp summary_emoji(%{status: :running, identifier: identifier} = summary, markers) do
+  defp summary_emoji(%{status: :running, identifier: identifier} = summary, markers, phase) do
     case Map.get(summary, :work_state) do
       state when state in [:paused, "paused", :error, "error", :done, "done"] ->
         AgentEvents.state_emoji(state)
 
       _ ->
-        Map.get(markers, to_string(identifier), "⏳")
+        marker = Map.get(markers, to_string(identifier), "⏳")
+
+        if marker == "⏳" do
+          "⏳"
+        else
+          phase_emoji(phase) || marker
+        end
     end
   end
 
-  defp summary_emoji(%{work_state: work_state}, _markers), do: AgentEvents.state_emoji(work_state)
-  defp summary_emoji(_, _markers), do: "⚫"
+  defp summary_emoji(%{work_state: work_state}, _markers, _phase), do: AgentEvents.state_emoji(work_state)
+  defp summary_emoji(_, _markers, _phase), do: "⚫"
+
+  defp phase_emoji(:brainstorm), do: "🧠"
+  defp phase_emoji(:plan), do: "📋"
+  defp phase_emoji(:work), do: "🛠️"
+  defp phase_emoji(:review), do: "🔍"
+  defp phase_emoji(_), do: nil
 
   defp emoji_cell("", width) do
     # Reserved-but-empty cell: pad to the full visual width.
