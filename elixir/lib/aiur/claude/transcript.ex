@@ -157,8 +157,12 @@ defmodule Aiur.Claude.Transcript do
   # Render a `+`/`-` diff into the tool part's output so the opencode chat
   # pane colorizes the change, matching how codex surfaces `fileChange`
   # items. Claude carries the before/after text on the tool_call input.
+  # Write/new-file: emit the raw new contents with no diff markers. The
+  # chat pane's edit_diff_from_payload treats a marker-less block as a
+  # whole-file create and greens every line — the same shape codex sends
+  # for a new file. A `@@` header here would defeat that detection.
   defp edit_diff("Write", input) do
-    header(input) <> diff_lines(stringify(get(input, :content)), "+")
+    stringify(get(input, :content))
   end
 
   defp edit_diff("MultiEdit", input) do
@@ -174,19 +178,24 @@ defmodule Aiur.Claude.Transcript do
           diff_lines(stringify(get(edit, :new_string)), "+")
       end)
 
-    header(input) <> body
+    hunk_header(input) <> body
   end
 
   defp edit_diff(_name, input) do
-    header(input) <>
+    hunk_header(input) <>
       diff_lines(stringify(get(input, :old_string)), "-") <>
       diff_lines(stringify(get(input, :new_string)), "+")
   end
 
-  defp header(input) do
+  # A `@@ … @@` hunk header makes the chat pane's looks_like_unified_diff?
+  # detection fire, so the block passes through verbatim and Glamour paints
+  # the `-`/`+` lines red/green. Without it the first (path) line isn't a
+  # diff marker, the block reads as raw content, and every line — markers
+  # included — gets a stray `+`, doubling into `+ -`/`+ +`.
+  defp hunk_header(input) do
     case edit_path(input) do
-      path when is_binary(path) and path != "" -> path <> "\n"
-      _ -> ""
+      path when is_binary(path) and path != "" -> "@@ " <> path <> " @@\n"
+      _ -> "@@ @@\n"
     end
   end
 

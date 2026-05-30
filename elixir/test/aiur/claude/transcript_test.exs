@@ -74,12 +74,15 @@ defmodule Aiur.Claude.TranscriptTest do
       assert event.body == "edit lib/aiur.ex"
       assert event.payload.tool == "edit"
       assert event.payload.input == input
-      assert event.payload.output =~ "lib/aiur.ex"
+      # `@@ <path> @@` header makes the chat pane treat this as a unified
+      # diff and pass it through, so Glamour paints the markers — without
+      # it the block is misread as raw content and markers double.
+      assert event.payload.output =~ "@@ lib/aiur.ex @@"
       assert event.payload.output =~ "- foo"
       assert event.payload.output =~ "+ bar"
     end
 
-    test "Write tool_call → :tool diff shows new file contents" do
+    test "Write tool_call → :tool emits raw new-file contents (greened by chat pane)" do
       message =
         item_created(%{
           "id" => "i4b",
@@ -92,8 +95,9 @@ defmodule Aiur.Claude.TranscriptTest do
       assert {:ok, event} = Transcript.extract(message, nil)
       assert event.body == "edit lib/new.ex"
       assert event.payload.tool == "edit"
-      assert event.payload.output =~ "+ line one"
-      assert event.payload.output =~ "+ line two"
+      # Marker-less content; the chat pane greens it as a whole-file create.
+      assert event.payload.output == "line one\nline two"
+      refute event.payload.output =~ "@@"
     end
 
     test "non-edit tool_call (skill / MCP) → :tool keyed by tool name" do
