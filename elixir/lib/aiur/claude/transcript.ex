@@ -83,12 +83,13 @@ defmodule Aiur.Claude.Transcript do
 
       name in @edit_tools ->
         title = edit_title(name, input)
+        tool = if name == "Write", do: "write", else: "edit"
 
         {:ok,
          AgentEvents.transcript_event(:tool, title,
            timestamp: timestamp,
            turn_id: turn_id,
-           payload: %{tool: name, input: input, output: "", title: title}
+           payload: %{tool: tool, input: input, output: edit_diff(name, input), title: title}
          )}
 
       true ->
@@ -144,11 +145,63 @@ defmodule Aiur.Claude.Transcript do
   end
 
   defp edit_title(name, input) do
-    case get(input, :file_path) || get(input, :path) || get(input, :notebook_path) do
+    case edit_path(input) do
       path when is_binary(path) and path != "" -> "#{name} #{path}"
       _ -> name
     end
   end
+
+  defp edit_path(input) do
+    get(input, :file_path) || get(input, :path) || get(input, :notebook_path)
+  end
+
+  # Render a `+`/`-` diff into the tool part's output so the opencode chat
+  # pane colorizes the change, matching how codex surfaces `fileChange`
+  # items. Claude carries the before/after text on the tool_call input.
+  defp edit_diff("Write", input) do
+    header(input) <> diff_lines(stringify(get(input, :content)), "+")
+  end
+
+  defp edit_diff("MultiEdit", input) do
+    edits =
+      case get(input, :edits) do
+        list when is_list(list) -> list
+        _ -> []
+      end
+
+    body =
+      Enum.map_join(edits, "", fn edit ->
+        diff_lines(stringify(get(edit, :old_string)), "-") <>
+          diff_lines(stringify(get(edit, :new_string)), "+")
+      end)
+
+    header(input) <> body
+  end
+
+  defp edit_diff(_name, input) do
+    header(input) <>
+      diff_lines(stringify(get(input, :old_string)), "-") <>
+      diff_lines(stringify(get(input, :new_string)), "+")
+  end
+
+  defp header(input) do
+    case edit_path(input) do
+      path when is_binary(path) and path != "" -> path <> "\n"
+      _ -> ""
+    end
+  end
+
+  defp diff_lines("", _prefix), do: ""
+
+  defp diff_lines(text, prefix) do
+    text
+    |> String.split("\n")
+    |> Enum.map_join("\n", fn line -> "#{prefix} #{line}" end)
+    |> Kernel.<>("\n")
+  end
+
+  defp stringify(value) when is_binary(value), do: value
+  defp stringify(_value), do: ""
 
   defp notification_method(message) do
     case get(message, :payload) do

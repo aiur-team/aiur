@@ -70,8 +70,29 @@ defmodule Aiur.Claude.TranscriptTest do
       assert {:ok, event} = Transcript.extract(message, nil)
       assert event.role == :tool
       assert event.body == "Edit lib/aiur.ex"
-      assert event.payload.tool == "Edit"
+      # Lowercase tool name + a +/- diff in the output so opencode renders
+      # a colorized file diff at parity with codex fileChange items.
+      assert event.payload.tool == "edit"
       assert event.payload.input == input
+      assert event.payload.output =~ "lib/aiur.ex"
+      assert event.payload.output =~ "- foo"
+      assert event.payload.output =~ "+ bar"
+    end
+
+    test "Write tool_call → :tool diff shows new file contents" do
+      message =
+        item_created(%{
+          "id" => "i4b",
+          "type" => "tool_call",
+          "tool_use_id" => "tu_2b",
+          "name" => "Write",
+          "input" => %{"file_path" => "lib/new.ex", "content" => "line one\nline two"}
+        })
+
+      assert {:ok, event} = Transcript.extract(message, nil)
+      assert event.payload.tool == "write"
+      assert event.payload.output =~ "+ line one"
+      assert event.payload.output =~ "+ line two"
     end
 
     test "non-edit tool_call (skill / MCP) → :tool keyed by tool name" do
