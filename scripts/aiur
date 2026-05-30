@@ -358,6 +358,18 @@ Options:
   --port <N>           override the profile/workflow port for this invocation.
                        Without this, aiur auto-increments up to 9 ports when
                        the configured port is already in use.
+  record <target>      stitch real pane screen-grabs into one growing,
+                       deduped transcript — a "log" for panes that have
+                       no logfile (the opencode chat). <target> is an
+                       issue number (the `OC | <issue>` pane), `agents`
+                       (the AgentList), or an explicit `win.pane`. ANSI
+                       is preserved so rendered file-edit diffs survive
+                       (grep `@@`, not "```diff"). Options:
+                         --for SEC      stop after SEC (default: until Ctrl+C)
+                         --interval SEC capture cadence (default 3)
+                         --backfill     walk existing scrollback first
+                         --out FILE     transcript path
+                       Example: `aiur record 140 --for 120 --backfill`
   build [--deps]       force a rebuild of the aiur app + release
                        (~30s). Pass `--deps` to also wipe the deps'
                        compiled artifacts and recompile everything
@@ -1384,6 +1396,177 @@ resolve_aiur_tmux_conf() {
   printf '%s\n' "$script_dir/aiur.tmux.conf"
 }
 
+# Resolve a chat/agent pane to a `window.pane` coordinate inside the
+# running inner tmux session. Accepts an issue number (matches the
+# `OC | <issue>` pane title), `agents`/`list` (the AgentList at 0.0),
+# or an explicit `win.pane` coordinate passed straight through.
+aiur_record_resolve_pane() {
+  local socket="$1" session="$2" target="$3"
+  case "$target" in
+    agents | list)
+      printf '0.0\n'
+      ;;
+    [0-9]*.[0-9]*)
+      printf '%s\n' "$target"
+      ;;
+    [0-9]*)
+      tmux -L "$socket" list-panes -t "$session" -a \
+        -F '#{window_index}.#{pane_index} #{pane_title}' 2>/dev/null \
+        | awk -v want="OC | $target" '$0 ~ ("\\| " want "$") || index($0, want){print $1; exit}'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Normalize one raw `capture-pane -e` frame for stitching: drop the
+# static input-box / footer chrome at the bottom (it carries a live
+# timer and would churn every frame), drop trailing blank padding, and
+# collapse blank-line runs. ANSI is preserved on the surviving lines.
+_aiur_record_clean() {
+  awk '
+    function plain(s){ gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s); return s }
+    { raw[NR] = $0 }
+    END {
+      end = NR
+      for (i = 1; i <= NR; i++) {
+        p = plain(raw[i])
+        if (p ~ /^[[:space:]]*┃/ || p ~ /^[[:space:]]*╹/ || p ~ /tab agents/) { end = i - 1; break }
+      }
+      while (end > 0) { p = plain(raw[end]); gsub(/[[:space:]]/, "", p); if (p == "") end--; else break }
+      blank = 0
+      for (i = 1; i <= end; i++) {
+        p = plain(raw[i]); gsub(/[[:space:]]/, "", p)
+        if (p == "") { if (blank) continue; blank = 1 } else blank = 0
+        print raw[i]
+      }
+    }'
+}
+
+# Emit only the lines of the current cleaned frame that are NOT already
+# present as the tail of the previous frame. Finds the largest overlap
+# k where the last k lines of prev equal the first k lines of cur
+# (compared ANSI-stripped) and prints cur[k+1..]. This is what makes
+# `record` a stitched log instead of N redundant screenshots: a scrolled
+# viewport overlaps its predecessor, so only the freshly-revealed tail
+# is appended. No overlap (a big jump or first frame) prints the whole
+# cleaned frame.
+_aiur_record_stitch() {
+  awk '
+    function plain(s){ gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s); return s }
+    FNR == NR { araw[FNR] = $0; a[FNR] = plain($0); na = FNR; next }
+    { braw[FNR] = $0; b[FNR] = plain($0); nb = FNR }
+    END {
+      max = (na < nb ? na : nb); best = 0
+      for (k = max; k >= 1; k--) {
+        ok = 1
+        for (i = 1; i <= k; i++) if (a[na - k + i] != b[i]) { ok = 0; break }
+        if (ok) { best = k; break }
+      }
+      for (i = best + 1; i <= nb; i++) print braw[i]
+    }' "$1" "$2"
+}
+
+# `aiur record` — a screen-grab log. Like `--logs`, it produces one
+# growing transcript you can tail; unlike `--logs`, the opencode chat has
+# no logfile, so the transcript is reconstructed by stitching successive
+# real pane captures together and deduping the overlap.
+#
+# Captures use `capture-pane -e` to PRESERVE ANSI: Glamour consumes the
+# ```diff fences when it renders, so the literal fence string never
+# appears. A rendered file-edit diff shows up as `@@` hunk headers plus
+# colored `+`/`-` lines — grep the transcript for `@@`, not "```diff".
+#
+# opencode chat panes run on tmux's alternate screen (tmux reports
+# history 0) but keep their OWN scrollback. `--backfill` walks that
+# scrollback (PageUp to the top, then PageDown stitching down) so the
+# transcript starts with the history already on screen, then follows live.
+aiur_record() {
+  local profile="default" target="" out="" interval=3 duration=0 backfill=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile) profile="$2"; shift 2 ;;
+      --out) out="$2"; shift 2 ;;
+      --interval) interval="$2"; shift 2 ;;
+      --for) duration="$2"; shift 2 ;;
+      --backfill) backfill=1; shift ;;
+      -*) die "aiur record: unknown option $1" ;;
+      *) target="$1"; shift ;;
+    esac
+  done
+
+  [ -n "$target" ] || die "usage: aiur record <issue|agents|win.pane> [--for SEC] [--interval SEC] [--out FILE] [--backfill] [--profile NAME]"
+
+  local socket session pane
+  socket="$(aiur_tmux_socket_name)"
+  session="$(aiur_tmux_session_name "$profile")"
+
+  tmux -L "$socket" has-session -t "$session" 2>/dev/null \
+    || die "aiur record: no running session '$session' on socket '$socket' — start aiur first"
+
+  pane="$(aiur_record_resolve_pane "$socket" "$session" "$target")"
+  [ -n "$pane" ] || die "aiur record: could not resolve a pane for '$target' (no 'OC | $target' pane?)"
+
+  if [ -z "$out" ]; then
+    mkdir -p /tmp/aiur-record
+    out="/tmp/aiur-record/${target//[^0-9a-zA-Z]/_}-$(date +%Y%m%d_%H%M%S).ansi"
+  fi
+  : >"$out"
+
+  local prev cur
+  prev="$(mktemp)"; cur="$(mktemp)"
+  # shellcheck disable=SC2064
+  trap "rm -f '$prev' '$cur'" RETURN
+
+  # cleaned capture of the pane into $1 (closes over socket/session/pane)
+  __record_grab() { tmux -L "$socket" capture-pane -t "$session:$pane" -e -p 2>/dev/null | _aiur_record_clean >"$1"; }
+
+  if [ "$backfill" -eq 1 ]; then
+    echo "⏪ backfilling $session:$pane scrollback…" >&2
+    # Page to the top: keep sending PageUp until the frame stops changing.
+    __record_grab "$prev"
+    local tries=0
+    while [ "$tries" -lt 200 ]; do
+      tmux -L "$socket" send-keys -t "$session:$pane" PageUp; sleep 0.2
+      __record_grab "$cur"
+      if cmp -s "$prev" "$cur"; then break; fi
+      cp "$cur" "$prev"; tries=$((tries + 1))
+    done
+    # Walk back down, stitching each revealed frame onto the transcript.
+    __record_grab "$prev"; cat "$prev" >>"$out"
+    while :; do
+      tmux -L "$socket" send-keys -t "$session:$pane" PageDown; sleep 0.2
+      __record_grab "$cur"
+      if cmp -s "$prev" "$cur"; then break; fi
+      _aiur_record_stitch "$prev" "$cur" >>"$out"
+      cp "$cur" "$prev"
+    done
+    tmux -L "$socket" send-keys -t "$session:$pane" q 2>/dev/null  # exit copy mode → live bottom
+  fi
+
+  echo "🎬 recording $session:$pane every ${interval}s → $out" >&2
+  [ "$duration" -gt 0 ] && echo "   stopping after ${duration}s (Ctrl-C to stop early)" >&2
+
+  local start now
+  start=$(date +%s)
+  __record_grab "$prev"; cat "$prev" >>"$out"
+  while :; do
+    sleep "$interval"
+    __record_grab "$cur" || break
+    if ! cmp -s "$prev" "$cur"; then
+      _aiur_record_stitch "$prev" "$cur" >>"$out"
+      cp "$cur" "$prev"
+    fi
+    if [ "$duration" -gt 0 ]; then
+      now=$(date +%s)
+      [ $((now - start)) -ge "$duration" ] && break
+    fi
+  done
+  echo "🎞️  transcript: $out ($(wc -l <"$out" | tr -d ' ') lines)" >&2
+  echo "$out"
+}
+
 run_in_tmux() {
   local profile="$1"
   local elixir_dir="$2"
@@ -1851,6 +2034,11 @@ case "${1:-}" in
   status)
     shift
     control_command status "$@"
+    ;;
+  record)
+    shift
+    aiur_record "$@"
+    exit 0
     ;;
   pause)
     shift
