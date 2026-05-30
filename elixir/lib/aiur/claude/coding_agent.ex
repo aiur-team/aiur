@@ -24,11 +24,14 @@ defmodule Aiur.Claude.CodingAgent do
           port: port(),
           metadata: map(),
           thread_id: String.t(),
-          workspace: Path.t()
+          workspace: Path.t(),
+          model: String.t() | nil
         }
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
-  def start_session(workspace, _opts \\ []) do
+  def start_session(workspace, opts \\ []) do
+    model = Keyword.get(opts, :model)
+
     with :ok <- validate_workspace_cwd(workspace),
          {:ok, port} <- start_port(workspace) do
       metadata = port_metadata(port)
@@ -41,7 +44,8 @@ defmodule Aiur.Claude.CodingAgent do
              port: port,
              metadata: metadata,
              thread_id: thread_id,
-             workspace: expanded_workspace
+             workspace: expanded_workspace,
+             model: model
            }}
 
         {:error, reason} ->
@@ -65,8 +69,9 @@ defmodule Aiur.Claude.CodingAgent do
       ) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
     on_safe_checkpoint = Keyword.get(opts, :on_safe_checkpoint, fn _checkpoint -> :noop end)
+    model = Map.get(session, :model)
 
-    case start_turn(port, thread_id, prompt, issue, workspace) do
+    case start_turn(port, thread_id, prompt, issue, workspace, model) do
       {:ok, turn_id} ->
         session_id = "#{thread_id}-#{turn_id}"
         Logger.info("Claude session started for #{issue_context(issue)} session_id=#{session_id}")
@@ -129,7 +134,7 @@ defmodule Aiur.Claude.CodingAgent do
   @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(
-        %{port: port, thread_id: thread_id, workspace: workspace},
+        %{port: port, thread_id: thread_id, workspace: workspace} = session,
         %{kind: :text, body: text}
       )
       when is_port(port) and is_binary(thread_id) and is_binary(text) do
@@ -139,11 +144,14 @@ defmodule Aiur.Claude.CodingAgent do
       "method" => "turn/start",
       "id" => request_id,
       "params" =>
-        maybe_put_model(%{
-          "threadId" => thread_id,
-          "input" => [%{"type" => "text", "text" => text}],
-          "cwd" => workspace
-        })
+        maybe_put_model(
+          %{
+            "threadId" => thread_id,
+            "input" => [%{"type" => "text", "text" => text}],
+            "cwd" => workspace
+          },
+          Map.get(session, :model)
+        )
     }
 
     send_message(port, frame)
@@ -259,19 +267,22 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp start_turn(port, thread_id, prompt, issue, workspace) do
+  defp start_turn(port, thread_id, prompt, issue, workspace, model) do
     params =
-      maybe_put_model(%{
-        "threadId" => thread_id,
-        "input" => [
-          %{
-            "type" => "text",
-            "text" => prompt
-          }
-        ],
-        "cwd" => Path.expand(workspace),
-        "title" => "#{issue.identifier}: #{issue.title}"
-      })
+      maybe_put_model(
+        %{
+          "threadId" => thread_id,
+          "input" => [
+            %{
+              "type" => "text",
+              "text" => prompt
+            }
+          ],
+          "cwd" => Path.expand(workspace),
+          "title" => "#{issue.identifier}: #{issue.title}"
+        },
+        model
+      )
 
     send_message(port, %{
       "method" => "turn/start",
@@ -857,8 +868,8 @@ defmodule Aiur.Claude.CodingAgent do
 
   defp default_on_message(_message), do: :ok
 
-  defp maybe_put_model(params) do
-    case Aiur.Claude.Config.model() do
+  defp maybe_put_model(params, override) do
+    case override || Aiur.Claude.Config.model() do
       model when is_binary(model) -> Map.put(params, "model", model)
       _ -> params
     end

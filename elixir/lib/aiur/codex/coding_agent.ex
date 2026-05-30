@@ -48,9 +48,10 @@ defmodule Aiur.Codex.CodingAgent do
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
+    model = Keyword.get(opts, :model)
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- start_port(expanded_workspace, worker_host) do
+         {:ok, port} <- start_port(expanded_workspace, worker_host, model) do
       metadata = port_metadata(port, worker_host)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
@@ -65,7 +66,8 @@ defmodule Aiur.Codex.CodingAgent do
            turn_sandbox_policy: session_policies.turn_sandbox_policy,
            thread_id: thread_id,
            workspace: expanded_workspace,
-           worker_host: worker_host
+           worker_host: worker_host,
+           model: model
          }}
       else
         {:error, reason} ->
@@ -236,7 +238,7 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  defp start_port(workspace, nil) do
+  defp start_port(workspace, nil, model) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -249,7 +251,7 @@ defmodule Aiur.Codex.CodingAgent do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command()))],
+            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(codex_command(model)))],
             cd: String.to_charlist(workspace),
             env: AgentEnvironment.workspace_env(workspace),
             line: @port_line_bytes
@@ -260,18 +262,29 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  defp start_port(workspace, worker_host) when is_binary(worker_host) do
-    SSH.start_port(worker_host, remote_launch_command(workspace), line: @port_line_bytes)
+  defp start_port(workspace, worker_host, model) when is_binary(worker_host) do
+    SSH.start_port(worker_host, remote_launch_command(workspace, model), line: @port_line_bytes)
   end
 
-  defp remote_launch_command(workspace) do
+  defp remote_launch_command(workspace, model) do
     [
       AgentEnvironment.workspace_env_export_prefix(workspace),
       "cd #{shell_escape(workspace)}",
-      AgentEnvironment.scrub_shell_command(Aiur.Codex.Config.command(), exec: true)
+      AgentEnvironment.scrub_shell_command(codex_command(model), exec: true)
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join(" && ")
+  end
+
+  # Codex pins its model in the launch command. A per-issue model override
+  # appends a trailing `--config model="<variant>"`; codex applies the last
+  # `--config` for a key, so this beats any model baked into the configured
+  # command. The variant is charset-validated upstream
+  # (`Aiur.CodingAgent` `model:` label), so splicing it is injection-safe.
+  defp codex_command(nil), do: Aiur.Codex.Config.command()
+
+  defp codex_command(model) when is_binary(model) do
+    Aiur.Codex.Config.command() <> " --config 'model=\"#{model}\"'"
   end
 
   defp port_metadata(port, worker_host \\ nil) when is_port(port) do
