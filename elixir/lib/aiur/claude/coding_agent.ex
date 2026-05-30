@@ -186,6 +186,7 @@ defmodule Aiur.Claude.CodingAgent do
             :stderr_to_stdout,
             args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(Aiur.Claude.Config.command()))],
             cd: String.to_charlist(workspace),
+            env: AgentEnvironment.workspace_env(workspace),
             line: @port_line_bytes
           ]
         )
