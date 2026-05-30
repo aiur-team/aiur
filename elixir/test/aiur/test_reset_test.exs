@@ -109,6 +109,47 @@ defmodule Aiur.TestResetTest do
         File.rm_rf!(tmp)
       end
     end
+
+    test "golden dry-run returns :ok and reads golden_ticket, no side effects" do
+      tmp = Path.join(System.tmp_dir!(), "aiur_golden_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(tmp, "elixir/lib/aiur/sandbox"))
+
+      {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
+      {_, 0} = System.cmd("git", ["config", "user.email", "t@example.com"], cd: tmp)
+      {_, 0} = System.cmd("git", ["config", "user.name", "Test"], cd: tmp)
+
+      for name <- [
+            "event_flow_demo.ex",
+            "event_flow_unrelated_1.ex",
+            "event_flow_unrelated_2.ex",
+            "event_flow_unrelated_3.ex"
+          ] do
+        File.write!(Path.join([tmp, "elixir/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
+      end
+
+      File.write!(Path.join(tmp, ".aiur-test-tickets.json"), ~s({"tickets": [101]}))
+
+      {_, 0} = System.cmd("git", ["add", "."], cd: tmp)
+      {_, 0} = System.cmd("git", ["commit", "-m", "baseline"], cd: tmp)
+
+      try do
+        output =
+          ExUnit.CaptureIO.capture_io(:stderr, fn ->
+            assert :ok =
+                     TestReset.run(%{
+                       repo_root: tmp,
+                       confirm: false,
+                       golden: true,
+                       allow_remote: true
+                     })
+          end)
+
+        assert output =~ "golden_ticket"
+        assert output =~ "--test DRY-RUN"
+      after
+        File.rm_rf!(tmp)
+      end
+    end
   end
 
   # Regression: when reset_labels invoked `gh issue edit N --remove-label

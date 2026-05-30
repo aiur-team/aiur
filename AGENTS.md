@@ -257,6 +257,39 @@ Gotchas worth remembering:
 - `send-keys` accepts both literal strings and tmux key names
   (`Enter`, `Tab`, `Up`, etc.) — pass them as separate arguments.
 
+### Recording chat panes over time — folded into `--debug`
+
+A single `capture-pane` is a snapshot. To watch how a pane evolves —
+how the opencode chat renders commands, tool results, and **file-edit
+diffs** as an agent works — run `aiur --debug`. A debug session
+automatically records each `OC | <issue>` chat pane into its own
+stitched transcript under the log dir: `log/record/chat.<issue>.ansi`.
+The chat panes have no logfile of their own, so this is the only durable
+record of how each agent's chat rendered.
+
+How it works, and why it has to:
+
+- **Captures keep ANSI (`capture-pane -e`).** Glamour *consumes* the
+  ```` ```diff ```` fence when it renders, so the literal fence string
+  **never appears** in pane output. A rendered file-edit diff shows up
+  as `@@` hunk headers plus ANSI-colored `+`/`-` lines. **Grep the
+  transcript for `@@` (or color codes), not for `` ```diff ``.**
+- **It stitches, not dumps.** Each capture is the moving viewport over
+  a scrolling log; consecutive captures overlap. The recorder finds the
+  largest overlap between the previous frame's tail and the new frame's
+  head and appends only the freshly-revealed lines — so the output is a
+  continuous transcript, not N redundant screenshots. Unchanged frames
+  add nothing.
+- **It is read-only and non-intrusive.** Unlike a manual scrollback
+  walk, the recorder never sends keys to the panes — it only reads the
+  visible viewport — so the operator's live session is untouched. It
+  starts when the session attaches and is killed the moment the operator
+  detaches.
+
+`cat` a transcript (ANSI intact) or `sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'`
+to read plain. This is the supported way to confirm diff/skill/tool
+rendering parity between Claude and Codex agents from a non-TTY shell.
+
 ## Sibling: `aiur-claude`
 
 Claude support is provided by a sibling repository (a Node-based JSON-RPC

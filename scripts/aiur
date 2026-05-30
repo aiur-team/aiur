@@ -4,7 +4,7 @@ set -euo pipefail
 # Agent-workspace guard. When an agent runs inside its workspace,
 # aiur sets `AIUR_AGENT_WORKSPACE=<workspace path>` in its env
 # (Aiur.AgentEnvironment.workspace_env/1). If we see that marker,
-# refuse to do anything — `scripts/aiur --test`/`--test3` calls
+# refuse to do anything — `scripts/aiur --test`/`--test1`/`--test3` calls
 # `stop all` which pkill-s the operator's BEAM, and `mix aiur.test.reset`
 # wipes the sandbox tickets back to agent:todo, destroying the
 # in-flight run. Agents that try "manual CLI verification" by
@@ -71,7 +71,8 @@ clear_mode=0
 explicit_clear=0
 logs_mode=0
 fresh_mode=0
-test_mode=0
+test1_mode=0
+testg_mode=0
 test3_mode=0
 test_force=0
 test_allow_remote=0
@@ -108,19 +109,32 @@ for arg in "$@"; do
       logs_mode=1
       ;;
     --test)
-      test_mode=1
-      # --test (single-ticket) and --test3 (3-ticket blocker chain)
-      # both imply --debug, --clear, AND --force: when you're testing
-      # you want a fresh, debug-instrumented, rebuilt run by default.
-      # Stale _build/ silently masking shipped work was a repeated
-      # source of "feature didn't ship" confusion; force-rebuild is
-      # the right default. Override is not supported.
+      # --test launches the GOLDEN single ticket: one fixed
+      # complexity:2 issue whose body exercises every chat-render
+      # surface (file edit/diff, shell command, tool call, skill) so
+      # codex and Claude runs are directly comparable on the same
+      # work every time. The smaller @hello one-liner moved to --test1.
+      testg_mode=1
+      debug_mode=1
+      clear_mode=1
+      test_force=1
+      fresh_mode=1
+      ;;
+    --test1)
+      # --test1 (single-ticket @hello), --test (golden ticket), and
+      # --test3 (3-ticket blocker chain) all imply --debug, --clear,
+      # AND --force: when you're testing you want a fresh,
+      # debug-instrumented, rebuilt run by default. Stale _build/
+      # silently masking shipped work was a repeated source of
+      # "feature didn't ship" confusion; force-rebuild is the right
+      # default. Override is not supported.
       #
       # `fresh_mode=1` is the launch-side equivalent of typing
       # `--force` on the command line: skip "attach to existing
       # session" and tear down any stale tmux/BEAM before starting.
-      # Without it, --test alone would reset the sandbox then try to
+      # Without it, --test1 alone would reset the sandbox then try to
       # attach to a stale session.
+      test1_mode=1
       debug_mode=1
       clear_mode=1
       test_force=1
@@ -173,9 +187,9 @@ fi
 # `--force` / `--allow-remote` are forwarded for the rare overrides.
 # To preview without executing, use `mix aiur.test.reset` directly
 # (no --confirm).
-if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+if [ "$test1_mode" -eq 1 ] || [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   if [ -z "$mise_bin" ]; then
-    echo "❌ --test/--test3 requires mise on PATH" >&2
+    echo "❌ --test/--test1/--test3 requires mise on PATH" >&2
     exit 1
   fi
 
@@ -193,7 +207,8 @@ if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
-  [ "$test_mode" -eq 1 ] && test_args+=("--single")
+  [ "$test1_mode" -eq 1 ] && test_args+=("--single")
+  [ "$testg_mode" -eq 1 ] && test_args+=("--golden")
 
   if ! (cd "$default_repo_root/elixir" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
@@ -211,10 +226,11 @@ if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   echo "⏳ settling GitHub label index" >&2
   tickets_file="$default_repo_root/.aiur-test-tickets.json"
   if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
-    if [ "$test_mode" -eq 1 ]; then
-      # Single-ticket mode: expect exactly one ticket to land under
-      # agent:todo. The reset workflow either reused the pinned
-      # single_ticket or just created a fresh one.
+    if [ "$test1_mode" -eq 1 ] || [ "$testg_mode" -eq 1 ]; then
+      # Single-ticket modes (--test1 @hello, --test golden): expect
+      # exactly one ticket to land under agent:todo. The reset workflow
+      # either reused the pinned single/golden ticket or created a
+      # fresh one.
       expected_count=1
     else
       expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
@@ -338,6 +354,9 @@ space-separated or comma-separated. Use --all to target the current snapshot.
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
                        Tail logs in another terminal: `aiur --logs`.
+                       Also records each opencode chat pane into
+                       `log/record/chat.<issue>.ansi` (ANSI preserved, so
+                       grep rendered diffs for `@@`, not "```diff").
   --clear              delete previous aiur*.log files before starting.
                        Also reaps accumulated BEAM hot-load /tmp/.*.so
                        and /tmp/aiur-debug pipe-pane captures (only when
@@ -363,15 +382,24 @@ Options:
                        compiled artifacts and recompile everything
                        from scratch (~2min). Use when auto-rebuild
                        (mtime check) misses a change.
-  --test               reset (or auto-create) the single-ticket sandbox
-                       — one complexity:1 issue asking for a one-line
-                       const in the sandbox baseline. Smallest possible
-                       surface for manually exercising agent behavior
-                       (progress emits, label flips, etc.) without the
-                       3-ticket blocker chain's overhead. Auto-confirms
-                       the reset; reuses `single_ticket` from
-                       .aiur-test-tickets.json (or creates+persists a
-                       fresh one). Implies --debug --clear and rebuilds.
+  --test               reset (or auto-create) the GOLDEN single ticket
+                       — one fixed complexity:2 issue whose body
+                       exercises every chat-render surface (file
+                       edit/diff, shell command, tool call, skill) so
+                       codex and Claude runs are directly comparable on
+                       the same work every time. Auto-confirms the reset;
+                       reuses `golden_ticket` from .aiur-test-tickets.json
+                       (or creates+persists a fresh one). Implies
+                       --debug --clear and rebuilds.
+  --test1              reset (or auto-create) the smaller single-ticket
+                       sandbox — one complexity:1 issue asking for a
+                       one-line const in the sandbox baseline. Smallest
+                       possible surface for manually exercising agent
+                       behavior (progress emits, label flips, etc.)
+                       without the golden ticket's full render surface.
+                       Reuses `single_ticket` from .aiur-test-tickets.json
+                       (or creates+persists a fresh one). Implies
+                       --debug --clear and rebuilds.
   --test3              reset the 3-ticket events sandbox (per
                        .aiur-test-tickets.json) before launching.
                        Automatically implies --debug --clear (a test run
@@ -1384,6 +1412,114 @@ resolve_aiur_tmux_conf() {
   printf '%s\n' "$script_dir/aiur.tmux.conf"
 }
 
+# Normalize one raw `capture-pane -e` frame for stitching: drop the
+# static input-box / footer chrome at the bottom (it carries a live
+# timer and would churn every frame), drop trailing blank padding, and
+# collapse blank-line runs. ANSI is preserved on the surviving lines.
+_aiur_record_clean() {
+  awk '
+    function plain(s){ gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s); return s }
+    { raw[NR] = $0 }
+    END {
+      end = NR
+      for (i = 1; i <= NR; i++) {
+        p = plain(raw[i])
+        if (p ~ /^[[:space:]]*┃/ || p ~ /^[[:space:]]*╹/ || p ~ /tab agents/) { end = i - 1; break }
+      }
+      while (end > 0) { p = plain(raw[end]); gsub(/[[:space:]]/, "", p); if (p == "") end--; else break }
+      blank = 0
+      for (i = 1; i <= end; i++) {
+        p = plain(raw[i]); gsub(/[[:space:]]/, "", p)
+        if (p == "") { if (blank) continue; blank = 1 } else blank = 0
+        print raw[i]
+      }
+    }'
+}
+
+# Emit only the lines of the current cleaned frame that are NOT already
+# present as the tail of the previous frame. Finds the largest overlap
+# k where the last k lines of prev equal the first k lines of cur
+# (compared ANSI-stripped) and prints cur[k+1..]. This is what makes
+# `record` a stitched log instead of N redundant screenshots: a scrolled
+# viewport overlaps its predecessor, so only the freshly-revealed tail
+# is appended. No overlap (a big jump or first frame) prints the whole
+# cleaned frame.
+_aiur_record_stitch() {
+  awk '
+    function plain(s){ gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s); return s }
+    FNR == NR { araw[FNR] = $0; a[FNR] = plain($0); na = FNR; next }
+    { braw[FNR] = $0; b[FNR] = plain($0); nb = FNR }
+    END {
+      max = (na < nb ? na : nb); best = 0
+      for (k = max; k >= 1; k--) {
+        ok = 1
+        for (i = 1; i <= k; i++) if (a[na - k + i] != b[i]) { ok = 0; break }
+        if (ok) { best = k; break }
+      }
+      for (i = best + 1; i <= nb; i++) print braw[i]
+    }' "$1" "$2"
+}
+
+# Background chat-pane recorder for `--debug` runs. The opencode chat
+# panes have no logfile, so a debug session records each `OC | <issue>`
+# pane into its own stitched ANSI transcript under the debug log dir
+# (`log/record/chat.<issue>.ansi`), the same way `--debug` captures the
+# BEAM log. Runs until the tmux session dies (or it is killed when the
+# operator detaches).
+#
+# Captures use `capture-pane -e` to PRESERVE ANSI: Glamour consumes the
+# ```diff fences when it renders, so the literal fence string never
+# appears. A rendered file-edit diff shows up as `@@` hunk headers plus
+# colored `+`/`-` lines — grep the transcript for `@@`, not "```diff".
+#
+# Unlike a manual backfill, this NEVER sends keys to the panes — it only
+# reads the visible viewport — so the operator's live session is
+# untouched. Each capture overlaps its predecessor; _aiur_record_stitch
+# appends only the freshly-revealed tail, so the transcript is a
+# continuous log rather than N redundant screenshots.
+aiur_record_session() {
+  local socket="$1" session="$2" out_dir="$3" interval="${4:-3}"
+  mkdir -p "$out_dir"
+
+  local tmproot
+  tmproot="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmproot'; exit 0" TERM EXIT
+
+  local -A seen
+
+  while tmux -L "$socket" has-session -t "$session" 2>/dev/null; do
+    while IFS=' ' read -r coord title; do
+      case "$title" in
+        *"OC | "*) ;;
+        *) continue ;;
+      esac
+      local issue="${title##*OC | }"
+      issue="${issue%% *}"
+      [ -n "$issue" ] || continue
+
+      local out="$out_dir/chat.$issue.ansi"
+      local prev="$tmproot/$issue.prev"
+      local cur="$tmproot/$issue.cur"
+
+      tmux -L "$socket" capture-pane -t "$session:$coord" -e -p 2>/dev/null \
+        | _aiur_record_clean >"$cur"
+
+      if [ -z "${seen[$issue]:-}" ]; then
+        cat "$cur" >"$out"
+        cp "$cur" "$prev"
+        seen[$issue]=1
+      elif ! cmp -s "$prev" "$cur"; then
+        _aiur_record_stitch "$prev" "$cur" >>"$out"
+        cp "$cur" "$prev"
+      fi
+    done < <(tmux -L "$socket" list-panes -t "$session" -a \
+      -F '#{window_index}.#{pane_index} #{pane_title}' 2>/dev/null)
+
+    sleep "$interval"
+  done
+}
+
 run_in_tmux() {
   local profile="$1"
   local elixir_dir="$2"
@@ -1585,9 +1721,9 @@ run_in_tmux() {
           # Explicit clear means "I want all the logs gone."
           find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
           echo "✅ cleared previous logs ($log_dir)" >&2
-        elif [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
-          # Implicit clear from --test / --test3: scope to just the
-          # tickets THIS test mode actually resets, plus the main
+        elif [ "$test1_mode" -eq 1 ] || [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+          # Implicit clear from --test1 / --test / --test3: scope to
+          # just the tickets THIS test mode actually resets, plus the main
           # aiur.log (fresh test runs always want a clean orchestrator
           # log). Unrelated per-issue logs (operator's other work)
           # survive. To force a blanket nuke alongside a test run,
@@ -1596,8 +1732,10 @@ run_in_tmux() {
           rm -f "$log_dir/aiur.log" 2>/dev/null || true
           if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
             ids=""
-            if [ "$test_mode" -eq 1 ]; then
+            if [ "$test1_mode" -eq 1 ]; then
               ids="$(jq -r '.single_ticket // empty' "$tickets_file" 2>/dev/null)"
+            elif [ "$testg_mode" -eq 1 ]; then
+              ids="$(jq -r '.golden_ticket // empty' "$tickets_file" 2>/dev/null)"
             else
               ids="$(jq -r '.tickets[]?' "$tickets_file" 2>/dev/null)"
             fi
@@ -1738,6 +1876,20 @@ run_in_tmux() {
     sleep "$grace_sleep"
   done
 
+  # In a debug run, background-record the opencode chat panes into the
+  # log dir for the lifetime of the session. The panes have no logfile of
+  # their own, so this is the only durable record of how each agent's
+  # chat rendered. Non-intrusive (read-only captures, no key sends) and
+  # killed the moment the operator detaches.
+  local record_pid=""
+  if [ "$debug_mode" -eq 1 ]; then
+    local record_dir
+    record_dir="$(dirname "$log_path")/record"
+    aiur_record_session "$socket" "$session" "$record_dir" 3 &
+    record_pid=$!
+    echo "🎬 recording chat panes → $record_dir" >&2
+  fi
+
   # In the foreground, the user attaches to the session normally. We do
   # NOT `exec` into tmux — replacing the bash process would tear down our
   # EXIT/INT/TERM/HUP trap before it could run the session reaper. Instead
@@ -1748,6 +1900,12 @@ run_in_tmux() {
   # the BEAM has already cleanly shut down by this point. Filter it.
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
   local tmux_status=$?
+
+  # Stop the background recorder now that the operator has detached.
+  if [ -n "$record_pid" ]; then
+    kill "$record_pid" 2>/dev/null || true
+    wait "$record_pid" 2>/dev/null || true
+  fi
 
   # Cleanup. Startup_capture only needs to survive long enough for
   # `print_startup_failure` above to replay it on early-grace crashes;
