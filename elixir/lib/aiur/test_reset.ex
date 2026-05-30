@@ -52,6 +52,7 @@ defmodule Aiur.TestReset do
           optional(:force) => boolean(),
           optional(:allow_remote) => boolean(),
           optional(:single) => boolean(),
+          optional(:golden) => boolean(),
           optional(:repo_root) => Path.t()
         }
 
@@ -71,6 +72,42 @@ defmodule Aiur.TestReset do
   - Skip `ce-brainstorm`, `ce-plan`, and `ce-work`. Edit the file directly, commit, push, open the draft PR, self-read the diff, mark ready for review.
   """
   @single_ticket_labels ["agent:todo", "complexity:1"]
+
+  # Golden-ticket mode — the `aiur --test` flag. One fixed
+  # complexity:2 ticket whose body deliberately exercises every
+  # chat-render surface (file edit/diff, shell command, tool call,
+  # skill) so a codex run and a Claude run produce the same set of
+  # rendered parts and can be compared 1:1 for parity. Unlike the
+  # @hello single ticket (one-line const, no diff), this implements a
+  # multi-line function so a real `@@` diff renders.
+  @golden_ticket_title "[sandbox] Implement greeting/1 in Aiur.Sandbox.EventFlowDemo"
+  @golden_ticket_body """
+  Implement a `greeting/1` function inside `Aiur.Sandbox.EventFlowDemo` at `elixir/lib/aiur/sandbox/event_flow_demo.ex`. The function takes a name and returns a greeting, trimming the input and falling back to a friendly default when blank:
+
+  ```elixir
+  def greeting(name) when is_binary(name) do
+    case String.trim(name) do
+      "" -> "Hello, friend!"
+      trimmed -> "Hello, \#{trimmed}!"
+    end
+  end
+  ```
+
+  This is a fixed, repeatable sandbox exercise used to compare how the chat pane renders **file edits, shell commands, tool calls, and skills** across coding-agent backends. Do every step below so each surface renders:
+
+  1. **Edit** — use your file-edit tool to add the function to the module body (a multi-line edit, so a real diff renders).
+  2. **Command** — run `mise exec -- mix compile` from the repo root to confirm it compiles, then `git --no-pager diff` to view your change.
+  3. **Tools** — read the file back to confirm its final state.
+  4. **Skills** — run `ce-work` to structure the change and `ce-code-review` on the diff before opening the PR.
+
+  Open a draft PR, self-read the diff, then mark the ticket ready for review. The `aiur --test` reset restores the sandbox baseline between runs so this delta is always the asked change.
+
+  ### Complexity routing
+
+  - Signal: `complexity:2`
+  - Run `ce-work` → `ce-code-review`. Skip `ce-brainstorm`, `ce-plan`, and `ce-doc-review`.
+  """
+  @golden_ticket_labels ["agent:todo", "complexity:2"]
 
   @spec run(map() | keyword()) :: :ok | {:error, term()}
   def run(opts \\ %{}) do
@@ -119,7 +156,15 @@ defmodule Aiur.TestReset do
     with :ok <- guard_clean_git(opts),
          :ok <- guard_expected_remote(tickets_data, opts),
          :ok <- guard_baseline_committed(opts.repo_root) do
-      execute_single(tickets_data, opts)
+      execute_one(tickets_data, opts, :single)
+    end
+  end
+
+  defp dispatch_reset(tickets_data, %{golden: true} = opts) do
+    with :ok <- guard_clean_git(opts),
+         :ok <- guard_expected_remote(tickets_data, opts),
+         :ok <- guard_baseline_committed(opts.repo_root) do
+      execute_one(tickets_data, opts, :golden)
     end
   end
 
@@ -140,6 +185,7 @@ defmodule Aiur.TestReset do
       force: Map.get(opts, :force, false),
       allow_remote: Map.get(opts, :allow_remote, false),
       single: Map.get(opts, :single, false),
+      golden: Map.get(opts, :golden, false),
       repo_root: Map.get(opts, :repo_root, File.cwd!())
     }
   end
@@ -283,50 +329,79 @@ defmodule Aiur.TestReset do
     :ok
   end
 
-  defp execute_single(_tickets_data, %{confirm: false}) do
-    say("--test DRY-RUN. Pass --confirm to execute.\n")
-    say("Single-ticket sandbox (minimum-overhead, complexity:1).")
+  # `:single` (--test1, the @hello one-liner) and `:golden` (--test, the
+  # full-render-surface ticket) share identical reset machinery — only the
+  # ticket title/body/labels and the JSON key they persist under differ.
+  # `ticket_spec/1` captures that difference so the execute/resolve/create
+  # path stays single-sourced.
+  defp ticket_spec(:single) do
+    %{
+      kind: :single,
+      flag: "--test1",
+      json_key: "single_ticket",
+      title: @single_ticket_title,
+      body: @single_ticket_body,
+      labels: @single_ticket_labels
+    }
+  end
+
+  defp ticket_spec(:golden) do
+    %{
+      kind: :golden,
+      flag: "--test",
+      json_key: "golden_ticket",
+      title: @golden_ticket_title,
+      body: @golden_ticket_body,
+      labels: @golden_ticket_labels
+    }
+  end
+
+  defp execute_one(_tickets_data, %{confirm: false}, kind) do
+    spec = ticket_spec(kind)
+    say("#{spec.flag} DRY-RUN. Pass --confirm to execute.\n")
+    say("Single-ticket sandbox (#{kind}).")
     say("Plan:")
-    say("  - Read `single_ticket` from #{@tickets_file}")
-    say("  - If missing or null, `gh issue create` a complexity:1 ticket and persist the ID back")
+    say("  - Read `#{spec.json_key}` from #{@tickets_file}")
+    say("  - If missing or null, `gh issue create` the #{kind} ticket and persist the ID back")
     say("  - Reset workpad / workspace / labels for that one ticket")
     say("  - Restore sandbox baseline (always)")
     :ok
   end
 
-  defp execute_single(tickets_data, %{confirm: true} = opts) do
-    say("🧪 aiur --test (single-ticket) starting")
+  defp execute_one(tickets_data, %{confirm: true} = opts, kind) do
+    spec = ticket_spec(kind)
+    say("🧪 aiur #{spec.flag} (#{kind} ticket) starting")
 
-    case resolve_single_ticket(tickets_data, opts) do
+    case resolve_ticket(tickets_data, opts, spec) do
       {:ok, id} ->
         reset_one(id, opts)
         restore_baseline(opts)
         ensure_opencode_theme()
-        say("✅ --test reset complete (single ticket ##{id})")
+        say("✅ #{spec.flag} reset complete (ticket ##{id})")
         :ok
 
       {:error, reason} ->
-        abort("single-ticket resolution failed: #{inspect(reason)}")
+        abort("#{kind}-ticket resolution failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  # If the JSON already pins a `single_ticket`, just verify the issue
-  # still exists; otherwise create a fresh complexity:1 ticket and
-  # write the new ID back to the JSON so the next run reuses it.
-  defp resolve_single_ticket(tickets_data, opts) do
-    case Map.get(tickets_data, "single_ticket") do
+  # If the JSON already pins the ticket id, just verify the issue still
+  # exists; otherwise create a fresh ticket from the spec and write the new
+  # ID back to the JSON so the next run reuses it.
+  defp resolve_ticket(tickets_data, opts, spec) do
+    case Map.get(tickets_data, spec.json_key) do
       id when is_integer(id) and id > 0 ->
         if issue_exists?(id) do
-          ok("##{id} reuses existing pinned single ticket")
+          ok("##{id} reuses existing pinned #{spec.kind} ticket")
           {:ok, id}
         else
-          warn("##{id} pinned but missing on GitHub — creating a fresh single ticket")
-          create_and_persist_single(tickets_data, opts)
+          warn("##{id} pinned but missing on GitHub — creating a fresh #{spec.kind} ticket")
+          create_and_persist_ticket(tickets_data, opts, spec)
         end
 
       _ ->
-        create_and_persist_single(tickets_data, opts)
+        create_and_persist_ticket(tickets_data, opts, spec)
     end
   end
 
@@ -341,24 +416,24 @@ defmodule Aiur.TestReset do
     end
   end
 
-  defp create_and_persist_single(tickets_data, opts) do
-    with {:ok, id} <- create_single_issue(),
-         :ok <- persist_single_ticket(tickets_data, id, opts) do
+  defp create_and_persist_ticket(tickets_data, opts, spec) do
+    with {:ok, id} <- create_issue(spec),
+         :ok <- persist_ticket(tickets_data, id, opts, spec) do
       ok("##{id} created and persisted to #{@tickets_file}")
       {:ok, id}
     end
   end
 
-  defp create_single_issue do
+  defp create_issue(spec) do
     argv = [
       "issue",
       "create",
       "--title",
-      @single_ticket_title,
+      spec.title,
       "--body",
-      @single_ticket_body,
+      spec.body,
       "--label",
-      Enum.join(@single_ticket_labels, ",")
+      Enum.join(spec.labels, ",")
     ]
 
     case System.cmd("gh", argv, stderr_to_stdout: true) do
@@ -396,9 +471,9 @@ defmodule Aiur.TestReset do
     end
   end
 
-  defp persist_single_ticket(tickets_data, id, opts) do
+  defp persist_ticket(tickets_data, id, opts, spec) do
     path = Path.join(opts.repo_root, @tickets_file)
-    updated = Map.put(tickets_data, "single_ticket", id)
+    updated = Map.put(tickets_data, spec.json_key, id)
     JsonStore.write!(path, updated)
     :ok
   rescue

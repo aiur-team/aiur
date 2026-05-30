@@ -4,7 +4,7 @@ set -euo pipefail
 # Agent-workspace guard. When an agent runs inside its workspace,
 # aiur sets `AIUR_AGENT_WORKSPACE=<workspace path>` in its env
 # (Aiur.AgentEnvironment.workspace_env/1). If we see that marker,
-# refuse to do anything — `scripts/aiur --test`/`--test3` calls
+# refuse to do anything — `scripts/aiur --test`/`--test1`/`--test3` calls
 # `stop all` which pkill-s the operator's BEAM, and `mix aiur.test.reset`
 # wipes the sandbox tickets back to agent:todo, destroying the
 # in-flight run. Agents that try "manual CLI verification" by
@@ -72,7 +72,8 @@ explicit_clear=0
 logs_mode=0
 record_mode=0
 fresh_mode=0
-test_mode=0
+test1_mode=0
+testg_mode=0
 test3_mode=0
 test_force=0
 test_allow_remote=0
@@ -115,19 +116,32 @@ for arg in "$@"; do
       record_mode=1
       ;;
     --test)
-      test_mode=1
-      # --test (single-ticket) and --test3 (3-ticket blocker chain)
-      # both imply --debug, --clear, AND --force: when you're testing
-      # you want a fresh, debug-instrumented, rebuilt run by default.
-      # Stale _build/ silently masking shipped work was a repeated
-      # source of "feature didn't ship" confusion; force-rebuild is
-      # the right default. Override is not supported.
+      # --test launches the GOLDEN single ticket: one fixed
+      # complexity:2 issue whose body exercises every chat-render
+      # surface (file edit/diff, shell command, tool call, skill) so
+      # codex and Claude runs are directly comparable on the same
+      # work every time. The smaller @hello one-liner moved to --test1.
+      testg_mode=1
+      debug_mode=1
+      clear_mode=1
+      test_force=1
+      fresh_mode=1
+      ;;
+    --test1)
+      # --test1 (single-ticket @hello), --test (golden ticket), and
+      # --test3 (3-ticket blocker chain) all imply --debug, --clear,
+      # AND --force: when you're testing you want a fresh,
+      # debug-instrumented, rebuilt run by default. Stale _build/
+      # silently masking shipped work was a repeated source of
+      # "feature didn't ship" confusion; force-rebuild is the right
+      # default. Override is not supported.
       #
       # `fresh_mode=1` is the launch-side equivalent of typing
       # `--force` on the command line: skip "attach to existing
       # session" and tear down any stale tmux/BEAM before starting.
-      # Without it, --test alone would reset the sandbox then try to
+      # Without it, --test1 alone would reset the sandbox then try to
       # attach to a stale session.
+      test1_mode=1
       debug_mode=1
       clear_mode=1
       test_force=1
@@ -180,9 +194,9 @@ fi
 # `--force` / `--allow-remote` are forwarded for the rare overrides.
 # To preview without executing, use `mix aiur.test.reset` directly
 # (no --confirm).
-if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+if [ "$test1_mode" -eq 1 ] || [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   if [ -z "$mise_bin" ]; then
-    echo "❌ --test/--test3 requires mise on PATH" >&2
+    echo "❌ --test/--test1/--test3 requires mise on PATH" >&2
     exit 1
   fi
 
@@ -200,7 +214,8 @@ if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
-  [ "$test_mode" -eq 1 ] && test_args+=("--single")
+  [ "$test1_mode" -eq 1 ] && test_args+=("--single")
+  [ "$testg_mode" -eq 1 ] && test_args+=("--golden")
 
   if ! (cd "$default_repo_root/elixir" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
@@ -218,10 +233,11 @@ if [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   echo "⏳ settling GitHub label index" >&2
   tickets_file="$default_repo_root/.aiur-test-tickets.json"
   if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
-    if [ "$test_mode" -eq 1 ]; then
-      # Single-ticket mode: expect exactly one ticket to land under
-      # agent:todo. The reset workflow either reused the pinned
-      # single_ticket or just created a fresh one.
+    if [ "$test1_mode" -eq 1 ] || [ "$testg_mode" -eq 1 ]; then
+      # Single-ticket modes (--test1 @hello, --test golden): expect
+      # exactly one ticket to land under agent:todo. The reset workflow
+      # either reused the pinned single/golden ticket or created a
+      # fresh one.
       expected_count=1
     else
       expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
@@ -382,15 +398,24 @@ Options:
                        compiled artifacts and recompile everything
                        from scratch (~2min). Use when auto-rebuild
                        (mtime check) misses a change.
-  --test               reset (or auto-create) the single-ticket sandbox
-                       — one complexity:1 issue asking for a one-line
-                       const in the sandbox baseline. Smallest possible
-                       surface for manually exercising agent behavior
-                       (progress emits, label flips, etc.) without the
-                       3-ticket blocker chain's overhead. Auto-confirms
-                       the reset; reuses `single_ticket` from
-                       .aiur-test-tickets.json (or creates+persists a
-                       fresh one). Implies --debug --clear and rebuilds.
+  --test               reset (or auto-create) the GOLDEN single ticket
+                       — one fixed complexity:2 issue whose body
+                       exercises every chat-render surface (file
+                       edit/diff, shell command, tool call, skill) so
+                       codex and Claude runs are directly comparable on
+                       the same work every time. Auto-confirms the reset;
+                       reuses `golden_ticket` from .aiur-test-tickets.json
+                       (or creates+persists a fresh one). Implies
+                       --debug --clear and rebuilds.
+  --test1              reset (or auto-create) the smaller single-ticket
+                       sandbox — one complexity:1 issue asking for a
+                       one-line const in the sandbox baseline. Smallest
+                       possible surface for manually exercising agent
+                       behavior (progress emits, label flips, etc.)
+                       without the golden ticket's full render surface.
+                       Reuses `single_ticket` from .aiur-test-tickets.json
+                       (or creates+persists a fresh one). Implies
+                       --debug --clear and rebuilds.
   --test3              reset the 3-ticket events sandbox (per
                        .aiur-test-tickets.json) before launching.
                        Automatically implies --debug --clear (a test run
@@ -1775,9 +1800,9 @@ run_in_tmux() {
           # Explicit clear means "I want all the logs gone."
           find "$log_dir" -maxdepth 1 -type f -name "aiur*.log" -delete 2>/dev/null || true
           echo "✅ cleared previous logs ($log_dir)" >&2
-        elif [ "$test_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
-          # Implicit clear from --test / --test3: scope to just the
-          # tickets THIS test mode actually resets, plus the main
+        elif [ "$test1_mode" -eq 1 ] || [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+          # Implicit clear from --test1 / --test / --test3: scope to
+          # just the tickets THIS test mode actually resets, plus the main
           # aiur.log (fresh test runs always want a clean orchestrator
           # log). Unrelated per-issue logs (operator's other work)
           # survive. To force a blanket nuke alongside a test run,
@@ -1786,8 +1811,10 @@ run_in_tmux() {
           rm -f "$log_dir/aiur.log" 2>/dev/null || true
           if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
             ids=""
-            if [ "$test_mode" -eq 1 ]; then
+            if [ "$test1_mode" -eq 1 ]; then
               ids="$(jq -r '.single_ticket // empty' "$tickets_file" 2>/dev/null)"
+            elif [ "$testg_mode" -eq 1 ]; then
+              ids="$(jq -r '.golden_ticket // empty' "$tickets_file" 2>/dev/null)"
             else
               ids="$(jq -r '.tickets[]?' "$tickets_file" 2>/dev/null)"
             fi
