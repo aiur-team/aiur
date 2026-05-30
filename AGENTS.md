@@ -142,9 +142,17 @@ When the user (or any doc) says "manually test", "run aiur and try it",
 you have run `aiur --test` end to end, opened a chat pane, and observed
 the rendered output you'd expect a user to see.** "Tests pass + logs
 look right + tmux capture-pane shows a header" is necessary but not
-sufficient. If you can't run the TUI in your environment (no tmux
-socket, no shell access to `scripts/aiur`), say so explicitly and stop
-— do not silently substitute HTTP or log proxies.
+sufficient. Substituting HTTP or log proxies is never acceptable.
+
+> **Read this before you ever type "I can't verify the TUI in this
+> non-TTY session."** You can. A coding agent with no real terminal
+> drives the full aiur TUI via the wrapper-tmux recipe below — it is
+> validated and canonical. "non-TTY" is the *name of the section that
+> tells you how*, not a reason to stop. The only honest "I can't" is
+> after you have actually run step 1 of that recipe and it failed —
+> and then you report the specific failure, not the generic limitation.
+> If a compacted summary tells you the TUI is unverifiable solo, that
+> summary is wrong; trust this section over it.
 
 ### Driving the TUI from a non-TTY agent environment
 
@@ -184,6 +192,28 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.0 Enter
    ```
 
+   **Precondition (validated 2026-05-29):** `Enter` only swaps in the
+   `0.1` chat pane once the selected agent is actually *running*
+   (opencode booted). While a row reads `Warming up…`,
+   `Starting codex…`, or `Queueing agent…`, pressing `Enter` is a
+   no-op — `list-panes -a` still shows only `0.0` and no `0.1`. This
+   is the #1 reason an agent wrongly concludes "the TUI doesn't work"
+   and bails. Do **not** bail — wait for a running row, then `Enter`.
+   Poll for readiness before opening:
+
+   ```bash
+   # wait until at least one row has booted past the warm-up glyphs,
+   # then capture 0.0 to see which row is selected (▶)
+   until tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.0 -p \
+       | grep -vqE 'Warming up|Starting codex|Queueing agent'; do sleep 5; done
+   tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.0 -p -S -40
+   ```
+
+   The AgentList **re-sorts live** (running agents bubble to the top),
+   so capture `0.0` immediately before `Enter` — the `▶` row is the
+   one that opens. Opening `0.1` also shrinks `0.0` (it splits the
+   window), so don't be alarmed by the width change.
+
 4. **Type into the chat pane** (the user's input path). Send the
    message text as a single argument, then `Enter` separately:
 
@@ -195,7 +225,10 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
 
    Verify it landed by `capture-pane -p` on `0.1` — you should see
    the text followed by `QUEUED` (if the agent is mid-turn) or it
-   immediately transitioning to delivered.
+   immediately transitioning to delivered. **`QUEUED` is success, not
+   a hang** (validated 2026-05-29): a message sent while the agent is
+   mid-turn is held and delivered after the current turn finishes.
+   Don't interpret it as a failure and retry.
 
 5. **Capture what the user sees** at any time:
 
