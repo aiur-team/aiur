@@ -348,6 +348,8 @@ defmodule Aiur.AgentRunner do
     backend = CodingAgent.backend_for(issue)
     model = CodingAgent.model_for(issue)
 
+    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)}")
+
     with {:ok, session} <-
            CodingAgent.start_session(workspace, backend: backend, model: model, worker_host: worker_host) do
       session = Map.put(session, :backend, backend)
