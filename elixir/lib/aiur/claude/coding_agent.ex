@@ -12,7 +12,7 @@ defmodule Aiur.Claude.CodingAgent do
   @behaviour Aiur.CodingAgent
 
   require Logger
-  alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.{AgentEnvironment, Config, PathSafety}
 
   @initialize_id 1
   @thread_start_id 2
@@ -29,19 +29,18 @@ defmodule Aiur.Claude.CodingAgent do
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, _opts \\ []) do
-    with :ok <- validate_workspace_cwd(workspace),
-         {:ok, port} <- start_port(workspace) do
+    with {:ok, canonical_workspace} <- validate_workspace_cwd(workspace),
+         {:ok, port} <- start_port(canonical_workspace) do
       metadata = port_metadata(port)
-      expanded_workspace = Path.expand(workspace)
 
-      case do_start_session(port, expanded_workspace) do
+      case do_start_session(port, canonical_workspace) do
         {:ok, thread_id} ->
           {:ok,
            %{
              port: port,
              metadata: metadata,
              thread_id: thread_id,
-             workspace: expanded_workspace
+             workspace: canonical_workspace
            }}
 
         {:error, reason} ->
@@ -158,20 +157,34 @@ defmodule Aiur.Claude.CodingAgent do
   def send_operator_message(_session, _payload), do: {:error, :invalid_session}
 
   defp validate_workspace_cwd(workspace) when is_binary(workspace) do
+    # Canonicalize both sides to catch symlinks that point outside the
+    # workspace root — `bypassPermissions` + a symlinked cwd would
+    # otherwise let claude-app-server cd into an arbitrary path. Matches
+    # `Aiur.Codex.CodingAgent.validate_workspace_cwd/2` (nil host case).
     workspace_path = Path.expand(workspace)
     workspace_root = Path.expand(Config.workspace_root())
 
-    root_prefix = workspace_root <> "/"
+    with {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace_path),
+         {:ok, canonical_root} <- PathSafety.canonicalize(workspace_root) do
+      canonical_root_prefix = canonical_root <> "/"
+      expanded_root_prefix = workspace_root <> "/"
 
-    cond do
-      workspace_path == workspace_root ->
-        {:error, {:invalid_workspace_cwd, :workspace_root, workspace_path}}
+      cond do
+        canonical_workspace == canonical_root ->
+          {:error, {:invalid_workspace_cwd, :workspace_root, canonical_workspace}}
 
-      not String.starts_with?(workspace_path <> "/", root_prefix) ->
-        {:error, {:invalid_workspace_cwd, :outside_workspace_root, workspace_path, workspace_root}}
+        String.starts_with?(canonical_workspace <> "/", canonical_root_prefix) ->
+          {:ok, canonical_workspace}
 
-      true ->
-        :ok
+        String.starts_with?(workspace_path <> "/", expanded_root_prefix) ->
+          {:error, {:invalid_workspace_cwd, :symlink_escape, workspace_path, canonical_root}}
+
+        true ->
+          {:error, {:invalid_workspace_cwd, :outside_workspace_root, canonical_workspace, canonical_root}}
+      end
+    else
+      {:error, {:path_canonicalize_failed, path, reason}} ->
+        {:error, {:invalid_workspace_cwd, :path_unreadable, path, reason}}
     end
   end
 
@@ -241,14 +254,7 @@ defmodule Aiur.Claude.CodingAgent do
   end
 
   defp start_thread(port, workspace) do
-    send_message(port, %{
-      "method" => "thread/start",
-      "id" => @thread_start_id,
-      "params" => %{
-        "permissionMode" => Aiur.Claude.Config.permission_mode(),
-        "cwd" => Path.expand(workspace)
-      }
-    })
+    send_message(port, thread_start_request(workspace))
 
     case await_response(port, @thread_start_id) do
       {:ok, %{"thread" => thread_payload}} ->
@@ -260,6 +266,21 @@ defmodule Aiur.Claude.CodingAgent do
       other ->
         other
     end
+  end
+
+  @doc false
+  # Exposed for wire-format tests; the production caller is `start_thread/2`.
+  # Pin `permissionMode` and `cwd` so a future field rename trips a test.
+  @spec thread_start_request(Path.t()) :: map()
+  def thread_start_request(workspace) when is_binary(workspace) do
+    %{
+      "method" => "thread/start",
+      "id" => @thread_start_id,
+      "params" => %{
+        "permissionMode" => Aiur.Claude.Config.permission_mode(),
+        "cwd" => Path.expand(workspace)
+      }
+    }
   end
 
   defp start_turn(port, thread_id, prompt, issue, workspace) do
@@ -368,7 +389,18 @@ defmodule Aiur.Claude.CodingAgent do
 
   defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)
        when request_id == state.pending_interrupt_request_id do
-    {:error, {:turn_interrupt_failed, error}}
+    if no_active_turn_error?(error) do
+      # Mirrors Aiur.Codex.CodingAgent's documented U5 fix. claude-app-server
+      # may report "no active turn" when the turn ended on its own between
+      # us deciding to interrupt and the server processing the request.
+      # Treat it as a successful interrupt so the operator message / pause
+      # request gets handled on the next cycle instead of crashing the
+      # AgentRunner with {:turn_interrupt_failed, ...} and dumping a
+      # `system:` line into the chat pane.
+      {:continue, %{state | pending_interrupt_request_id: nil}}
+    else
+      {:error, {:turn_interrupt_failed, error}}
+    end
   end
 
   defp handle_decoded_incoming(session, state, %{"id" => request_id, "result" => _} = payload, payload_string, _port, _on_message)
@@ -681,6 +713,14 @@ defmodule Aiur.Claude.CodingAgent do
 
   defp turn_completion_status(%{"turn" => %{"status" => status}}) when is_binary(status), do: status
   defp turn_completion_status(_payload), do: "completed"
+
+  defp no_active_turn_error?(%{"code" => -32_600}), do: true
+
+  defp no_active_turn_error?(%{"message" => message}) when is_binary(message) do
+    String.contains?(message, "no active turn")
+  end
+
+  defp no_active_turn_error?(_), do: false
 
   defp safe_invoke_success_callback(callback, payload) when is_function(callback, 1) do
     callback.(payload)
