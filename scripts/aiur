@@ -70,6 +70,7 @@ clear_mode=0
 # scoped to just the tickets that mode resets.
 explicit_clear=0
 logs_mode=0
+record_mode=0
 fresh_mode=0
 test_mode=0
 test3_mode=0
@@ -106,6 +107,12 @@ for arg in "$@"; do
       ;;
     --logs)
       logs_mode=1
+      ;;
+    --record)
+      # Standalone pane-recorder. Its target + sub-options (--for,
+      # --interval, --backfill, --out) aren't main flags, so they fall
+      # through to filtered_args and reach aiur_record after `set --`.
+      record_mode=1
       ;;
     --test)
       test_mode=1
@@ -358,7 +365,7 @@ Options:
   --port <N>           override the profile/workflow port for this invocation.
                        Without this, aiur auto-increments up to 9 ports when
                        the configured port is already in use.
-  record <target>      stitch real pane screen-grabs into one growing,
+  --record <target>    stitch real pane screen-grabs into one growing,
                        deduped transcript — a "log" for panes that have
                        no logfile (the opencode chat). <target> is an
                        issue number (the `OC | <issue>` pane), `agents`
@@ -369,7 +376,7 @@ Options:
                          --interval SEC capture cadence (default 3)
                          --backfill     walk existing scrollback first
                          --out FILE     transcript path
-                       Example: `aiur record 140 --for 120 --backfill`
+                       Example: `aiur --record 140 --for 120 --backfill`
   build [--deps]       force a rebuild of the aiur app + release
                        (~30s). Pass `--deps` to also wipe the deps'
                        compiled artifacts and recompile everything
@@ -1468,7 +1475,7 @@ _aiur_record_stitch() {
     }' "$1" "$2"
 }
 
-# `aiur record` — a screen-grab log. Like `--logs`, it produces one
+# `aiur --record` — a screen-grab log. Like `--logs`, it produces one
 # growing transcript you can tail; unlike `--logs`, the opencode chat has
 # no logfile, so the transcript is reconstructed by stitching successive
 # real pane captures together and deduping the overlap.
@@ -1496,7 +1503,7 @@ aiur_record() {
     esac
   done
 
-  [ -n "$target" ] || die "usage: aiur record <issue|agents|win.pane> [--for SEC] [--interval SEC] [--out FILE] [--backfill] [--profile NAME]"
+  [ -n "$target" ] || die "usage: aiur --record <issue|agents|win.pane> [--for SEC] [--interval SEC] [--out FILE] [--backfill] [--profile NAME]"
 
   local socket session pane
   socket="$(aiur_tmux_socket_name)"
@@ -1974,6 +1981,11 @@ run_ad_hoc_workflow() {
 
 load_profiles
 
+if [ "$record_mode" -eq 1 ]; then
+  aiur_record "$@"
+  exit 0
+fi
+
 if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
   log_profile="${1:-default}"
 
@@ -2034,11 +2046,6 @@ case "${1:-}" in
   status)
     shift
     control_command status "$@"
-    ;;
-  record)
-    shift
-    aiur_record "$@"
-    exit 0
     ;;
   pause)
     shift

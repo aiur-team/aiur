@@ -257,21 +257,21 @@ Gotchas worth remembering:
 - `send-keys` accepts both literal strings and tmux key names
   (`Enter`, `Tab`, `Up`, etc.) — pass them as separate arguments.
 
-### Recording a chat pane over time — `aiur record`
+### Recording a chat pane over time — `aiur --record`
 
 A single `capture-pane` is a snapshot. To watch how a pane evolves —
 how the opencode chat renders commands, tool results, and **file-edit
-diffs** as an agent works — use `aiur record <target>`. It is a "log"
+diffs** as an agent works — use `aiur --record <target>`. It is a "log"
 for panes that have no logfile: it stitches successive real screen-grabs
 into one growing, deduped transcript.
 
 ```bash
 # follow issue #140's chat for 2 min; transcript printed on stdout
-aiur record 140 --for 120
+aiur --record 140 --for 120
 # reconstruct the FULL existing scrollback first, then follow live
-aiur record 140 --backfill
+aiur --record 140 --backfill
 # the AgentList event feed instead of a chat slot
-aiur record agents --for 60
+aiur --record agents --for 60
 ```
 
 `<target>` is an issue number (resolves the `OC | <issue>` pane), the
