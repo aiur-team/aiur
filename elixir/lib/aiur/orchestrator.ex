@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator do
     AgentQueueStore,
     AgentRunner,
     Alerts,
+    CodingAgent,
     Config,
     Issue,
     Tracker,
@@ -1807,7 +1808,7 @@ defmodule Aiur.Orchestrator do
             agent_last_reported_output_tokens: 0,
             agent_last_reported_total_tokens: 0,
             turn_count: 0,
-            control: default_running_control(),
+            control: default_running_control(issue),
             retry_attempt: normalize_retry_attempt(attempt),
             started_at: DateTime.utc_now()
           })
@@ -3516,27 +3517,14 @@ defmodule Aiur.Orchestrator do
   defp accepted_delivery_policies(true), do: [:checkpoint, :interrupt]
   defp accepted_delivery_policies(false), do: [:checkpoint]
 
-  defp default_running_control do
+  defp default_running_control(%Issue{} = issue) do
+    backend = CodingAgent.backend_for(issue)
+
     %{
-      can_interrupt: default_can_interrupt?(),
-      safe_checkpoints: default_safe_checkpoints(),
+      can_interrupt: CodingAgent.can_interrupt?(backend),
+      safe_checkpoints: CodingAgent.safe_checkpoints(backend),
       status: :working
     }
-  end
-
-  defp default_can_interrupt? do
-    case Config.agent_kind() do
-      "codex" -> true
-      "claude" -> true
-      _ -> false
-    end
-  end
-
-  defp default_safe_checkpoints do
-    case Config.agent_kind() do
-      "codex" -> [:notification, :tool_result]
-      _ -> [:notification]
-    end
   end
 
   defp issue_tag(%Issue{} = issue) do

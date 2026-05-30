@@ -217,25 +217,25 @@ defmodule Aiur.AgentRunner do
     :exit, reason -> {:error, reason}
   end
 
-  defp codex_message_handler(recipient, issue, workspace, worker_host, turn_id \\ nil) do
+  defp codex_message_handler(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
     fn message ->
-      message = CodingAgent.normalize_event(message)
+      message = CodingAgent.normalize_event(message, backend)
       AgentEventLog.write(workspace, worker_host, message)
-      maybe_broadcast_transcript(issue, message, turn_id)
+      maybe_broadcast_transcript(issue, message, backend, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
     end
   end
 
-  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, turn_id)
+  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, backend, turn_id)
        when is_binary(identifier) do
-    case transcript_event_from(message, turn_id) do
+    case transcript_event_from(message, backend, turn_id) do
       {:ok, event} -> AgentPubSub.broadcast_transcript(identifier, event)
       :skip -> :ok
     end
   end
 
-  defp maybe_broadcast_transcript(_issue, _message, _turn_id), do: :ok
+  defp maybe_broadcast_transcript(_issue, _message, _backend, _turn_id), do: :ok
 
   defp maybe_broadcast_turn_event(%Issue{identifier: identifier}, message, turn_id)
        when is_binary(identifier) and is_binary(turn_id) do
@@ -254,8 +254,8 @@ defmodule Aiur.AgentRunner do
   # Dispatch to the active backend's transcript extractor (codex or
   # Claude). Falls back to the universal legacy event-kind mapping for
   # non-notification shapes (older agent_message / task_finished events).
-  defp transcript_event_from(message, turn_id) when is_map(message) do
-    case CodingAgent.transcript_module().extract(message, turn_id) do
+  defp transcript_event_from(message, backend, turn_id) when is_map(message) do
+    case CodingAgent.transcript_module(backend).extract(message, turn_id) do
       {:ok, event} -> {:ok, event}
       :skip -> legacy_transcript_event(message, turn_id)
     end
@@ -345,7 +345,13 @@ defmodule Aiur.AgentRunner do
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
-    with {:ok, session} <- CodingAgent.start_session(workspace, worker_host: worker_host) do
+    backend = CodingAgent.backend_for(issue)
+    model = CodingAgent.model_for(issue)
+
+    with {:ok, session} <-
+           CodingAgent.start_session(workspace, backend: backend, model: model, worker_host: worker_host) do
+      session = Map.put(session, :backend, backend)
+
       try do
         do_run_codex_turns(
           session,
@@ -392,7 +398,9 @@ defmodule Aiur.AgentRunner do
 
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
-    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host)
+    message_handler =
+      codex_message_handler(codex_update_recipient, issue, workspace, worker_host, session_backend(app_session))
+
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
@@ -642,7 +650,12 @@ defmodule Aiur.AgentRunner do
     turn_id = queue_item_turn_id(item)
     workspace = session_workspace(app_session)
     worker_host = session_worker_host(app_session)
-    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host, turn_id)
+
+    backend = session_backend(app_session)
+
+    message_handler =
+      codex_message_handler(codex_update_recipient, issue, workspace, worker_host, backend, turn_id)
+
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
@@ -1172,6 +1185,9 @@ defmodule Aiur.AgentRunner do
 
   defp session_worker_host(%{worker_host: worker_host}), do: worker_host
   defp session_worker_host(_session), do: nil
+
+  defp session_backend(%{backend: backend}) when is_binary(backend), do: backend
+  defp session_backend(_session), do: Config.agent_kind()
 
   defp tool_executor(issue, workspace, worker_host) do
     fn tool, arguments ->
