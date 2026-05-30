@@ -1102,6 +1102,34 @@ defmodule Aiur.WorkspaceAndConfigTest do
            ]
   end
 
+  test "agent routing normalizes string levels and rejects bad levels/backends" do
+    assert Schema.normalize_agent_routing(nil) == %{}
+
+    assert Schema.normalize_agent_routing(%{"4" => "claude", 5 => :codex}) == %{
+             4 => "claude",
+             5 => "codex"
+           }
+
+    good =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "claude", 5 => "codex"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert good.errors == []
+
+    bad =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{0 => "claude", 4 => "bogus"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
+
+    assert Enum.any?(bad.errors, fn
+             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             _ -> false
+           end)
+  end
+
   test "schema parse normalizes policy keys and env-backed fallbacks" do
     missing_workspace_env = "SYMP_MISSING_WORKSPACE_#{System.unique_integer([:positive])}"
     empty_secret_env = "SYMP_EMPTY_SECRET_#{System.unique_integer([:positive])}"
