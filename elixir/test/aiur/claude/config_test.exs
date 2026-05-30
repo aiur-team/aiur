@@ -9,7 +9,6 @@ defmodule Aiur.Claude.ConfigTest do
       agent_kind: "claude",
       command: "aiur-claude",
       claude_model: "claude-opus-4-6",
-      claude_version: "opus-4-8",
       claude_permission_mode: "bypassPermissions"
     )
 
@@ -48,22 +47,6 @@ defmodule Aiur.Claude.ConfigTest do
     end
   end
 
-  describe "version/0" do
-    test "stores the version verbatim" do
-      assert ClaudeConfig.version() == "opus-4-8"
-    end
-
-    test "returns nil when omitted" do
-      write_workflow_file!(Workflow.workflow_file_path(),
-        agent_kind: "claude",
-        command: "aiur-claude",
-        claude_version: nil
-      )
-
-      assert ClaudeConfig.version() == nil
-    end
-  end
-
   describe "permission_mode/0" do
     test "returns the configured mode" do
       assert ClaudeConfig.permission_mode() == "bypassPermissions"
@@ -79,26 +62,22 @@ defmodule Aiur.Claude.ConfigTest do
       assert ClaudeConfig.permission_mode() == "bypassPermissions"
     end
 
-    test "rejects unknown modes and falls back to the default" do
+    test "falls back to the default when the workflow sets an unknown mode" do
       # Schema validation rejects unknown modes at parse time; the
-      # getter defends in depth so a stale workflow on disk can't
-      # break the runtime.
-      assert ClaudeConfig.permission_mode() in ~w(default acceptEdits bypassPermissions)
-    end
-  end
+      # getter defends in depth so a stale workflow that bypasses the
+      # schema (e.g. via a hot-reload bug) can't break the runtime.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_kind: "claude",
+        command: "aiur-claude",
+        claude_permission_mode: "nope-not-real"
+      )
 
-  describe "runtime_settings/0" do
-    test "bundles model + version + permission_mode in one call" do
-      assert %{
-               model: "claude-opus-4-6",
-               version: "opus-4-8",
-               permission_mode: "bypassPermissions"
-             } = ClaudeConfig.runtime_settings()
+      assert ClaudeConfig.permission_mode() == "bypassPermissions"
     end
   end
 
   describe "validate!/0" do
-    test "returns :ok when command is set and permission_mode is valid" do
+    test "returns :ok — schema-level validation covers the runtime invariants" do
       assert :ok = ClaudeConfig.validate!()
     end
   end

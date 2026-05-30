@@ -43,24 +43,6 @@ defmodule Aiur.Claude.Config do
     end
   end
 
-  @doc """
-  Stored verbatim. Not part of the wire protocol today; reserved for
-  future use (e.g. pinning claude-app-server compatibility).
-  """
-  @spec version() :: String.t() | nil
-  def version do
-    case section_value("version") do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      _ ->
-        nil
-    end
-  end
-
   @spec permission_mode() :: String.t()
   def permission_mode do
     case section_value("permission_mode") do
@@ -69,31 +51,14 @@ defmodule Aiur.Claude.Config do
     end
   end
 
-  @spec runtime_settings() :: %{
-          model: String.t() | nil,
-          version: String.t() | nil,
-          permission_mode: String.t()
-        }
-  def runtime_settings do
-    %{
-      model: model(),
-      version: version(),
-      permission_mode: permission_mode()
-    }
-  end
-
   @impl Aiur.AgentConfig
   def validate! do
-    cond do
-      byte_size(String.trim(command())) == 0 ->
-        {:error, "Claude command missing — set claude.command in WORKFLOW.md"}
-
-      permission_mode() not in @valid_permission_modes ->
-        {:error, "Invalid claude.permission_mode in WORKFLOW.md — must be one of #{inspect(@valid_permission_modes)}"}
-
-      true ->
-        :ok
-    end
+    # `Aiur.Config.Schema.Claude` enforces `:command` presence and
+    # `:permission_mode` inclusion at config-load time via Ecto. Runtime
+    # getters here defend in depth with fallbacks. No additional runtime
+    # check is load-bearing today; this is a no-op gate satisfying the
+    # `Aiur.AgentConfig` behaviour contract.
+    :ok
   end
 
   defp section_value(key) do

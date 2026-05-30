@@ -150,9 +150,6 @@ claude:
   # are claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5. `model` is
   # plumbed through to `turn/start` per-turn.
   model: claude-opus-4-6
-  # Stored verbatim. Not part of the wire protocol today; reserved for
-  # future use (e.g. pinning claude-app-server compatibility).
-  version: opus-4-8
   # Mirrors codex `thread_sandbox: workspace-write` — no interactive
   # approval prompts from the agent loop.
   permission_mode: bypassPermissions

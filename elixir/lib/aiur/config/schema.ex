@@ -344,6 +344,7 @@ defmodule Aiur.Config.Schema do
     use Ecto.Schema
     import Ecto.Changeset
 
+    @primary_key false
     embedded_schema do
       field(:command, :string, default: "aiur-claude")
       # `model` plumbs through to `params.model` on `turn/start`.
@@ -351,40 +352,19 @@ defmodule Aiur.Config.Schema do
       # claude-sonnet-4-6, claude-haiku-4-5). `nil` lets claude-app-server
       # pick its own default.
       field(:model, :string)
-      # Stored verbatim. Not part of the wire protocol today; reserved
-      # for future use (e.g. pinning claude-app-server compatibility).
-      field(:version, :string)
       # `permission_mode` is sent on `thread/start`. `bypassPermissions`
       # mirrors codex's `workspace-write` thread sandbox — no interactive
       # approvals from the agent loop.
       field(:permission_mode, :string, default: "bypassPermissions")
-      field(:turn_timeout_ms, :integer, default: 3_600_000)
-      field(:read_timeout_ms, :integer, default: 5_000)
-      field(:stall_timeout_ms, :integer, default: 300_000)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(
-        attrs,
-        [
-          :command,
-          :model,
-          :version,
-          :permission_mode,
-          :turn_timeout_ms,
-          :read_timeout_ms,
-          :stall_timeout_ms
-        ],
-        empty_values: []
-      )
+      |> cast(attrs, [:command, :model, :permission_mode], empty_values: [])
       |> validate_required([:command])
       |> validate_length(:command, min: 1)
       |> validate_inclusion(:permission_mode, ~w(default acceptEdits bypassPermissions))
-      |> validate_number(:turn_timeout_ms, greater_than: 0)
-      |> validate_number(:read_timeout_ms, greater_than: 0)
-      |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     end
   end
 
