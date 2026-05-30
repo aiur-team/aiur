@@ -1668,6 +1668,10 @@ defmodule Aiur.Codex.CodingAgent do
   defp needs_input_field?(_payload), do: false
 
   @doc false
+  @spec codex_command_for_test(String.t() | nil) :: String.t()
+  def codex_command_for_test(model), do: codex_command(model)
+
+  @doc false
   @spec unretryable_codex_error_for_test(map()) :: boolean()
   def unretryable_codex_error_for_test(payload) when is_map(payload), do: unretryable_codex_error?(payload)
 

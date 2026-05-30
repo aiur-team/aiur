@@ -3,6 +3,7 @@ defmodule Aiur.CodingAgentTest do
 
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.CodingAgent, as: CodexAgent
+  alias Aiur.Codex.Config, as: CodexConfig
   alias Aiur.CodingAgent
   alias Aiur.Issue
 
@@ -25,6 +26,29 @@ defmodule Aiur.CodingAgentTest do
 
     test "no model: tag yields nil" do
       assert CodingAgent.override_backend(issue(["complexity:5", "agent:todo"])) == nil
+    end
+  end
+
+  describe "backend_for/1 precedence (override beats routing/default)" do
+    test "a model: override wins over a complexity: label that would route elsewhere" do
+      assert CodingAgent.backend_for(issue(["model:claude", "complexity:5"])) == "claude"
+      assert CodingAgent.backend_for(issue(["model:codex", "complexity:5"])) == "codex"
+    end
+
+    test "first matching model: label wins when several are present" do
+      assert CodingAgent.override_backend(issue(["model:claude", "model:codex"])) == "claude"
+      assert CodingAgent.override_backend(issue(["model:codex", "model:claude"])) == "codex"
+    end
+  end
+
+  describe "override silent-drop boundaries (intentional fallthrough)" do
+    test "a disallowed variant charset drops the whole override" do
+      assert CodingAgent.override_backend(issue(["model:claude-opus_4"])) == nil
+      assert CodingAgent.model_for(issue(["model:claude-opus_4"])) == nil
+    end
+
+    test "a capitalized backend is not recognized" do
+      assert CodingAgent.override_backend(issue(["model:Claude"])) == nil
     end
   end
 
@@ -165,9 +189,40 @@ defmodule Aiur.CodingAgentTest do
       close_port(port)
     end
 
+    test "Claude adapter pins the session's model into the turn/start frame" do
+      port = open_cat_port()
+
+      session = %{
+        port: port,
+        thread_id: "thread-xyz",
+        workspace: "/tmp/workspace",
+        model: "opus-4-8"
+      }
+
+      assert {:ok, _request_id} =
+               ClaudeAgent.send_operator_message(session, %{kind: :text, body: "hello claude"})
+
+      frame = read_one_frame(port)
+      assert frame["params"]["model"] == "opus-4-8"
+
+      close_port(port)
+    end
+
     test "Claude adapter returns {:error, :invalid_session} for malformed session" do
       assert {:error, :invalid_session} =
                ClaudeAgent.send_operator_message(%{}, %{kind: :text, body: "hi"})
+    end
+  end
+
+  describe "codex_command/1 model splice" do
+    test "nil model leaves the configured command unchanged" do
+      assert CodexAgent.codex_command_for_test(nil) == CodexConfig.command()
+    end
+
+    test "a model variant is appended as a single-quoted --config token" do
+      command = CodexAgent.codex_command_for_test("gpt-5.5")
+      assert command == CodexConfig.command() <> " --config 'model=\"gpt-5.5\"'"
+      assert String.ends_with?(command, "--config 'model=\"gpt-5.5\"'")
     end
   end
 
