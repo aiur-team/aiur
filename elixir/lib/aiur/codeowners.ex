@@ -304,9 +304,14 @@ defmodule Aiur.Codeowners do
 
     case Process.get(cache_key) do
       nil ->
-        members = fetch_team_members(org, team_slug, opts)
-        Process.put(cache_key, members)
-        members
+        case fetch_team_members(org, team_slug, opts) do
+          {:ok, members} ->
+            Process.put(cache_key, members)
+            members
+
+          {:error, _reason} ->
+            []
+        end
 
       members ->
         members
@@ -320,13 +325,16 @@ defmodule Aiur.Codeowners do
 
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
-        body
-        |> Enum.map(&Map.get(&1, "login"))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.map(&normalize_login/1)
+        logins =
+          body
+          |> Enum.map(&Map.get(&1, "login"))
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&normalize_login/1)
+
+        {:ok, logins}
 
       _ ->
-        []
+        {:error, :team_members_unavailable}
     end
   end
 

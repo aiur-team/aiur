@@ -89,6 +89,33 @@ defmodule Aiur.CodeownersTest do
     refute_receive {:team_request, _}
   end
 
+  test "does not cache team-member fetch failures", %{repo_root: repo_root} do
+    write_codeowners!(repo_root, ".github/CODEOWNERS", "* @acme/platform")
+
+    request_fun = fn _req ->
+      case Process.get(:team_call_count, 0) do
+        0 ->
+          Process.put(:team_call_count, 1)
+          {:ok, %{status: 500, body: %{}}}
+
+        _ ->
+          {:ok, %{status: 200, body: [%{"login" => "owner-one"}]}}
+      end
+    end
+
+    opts = [repo_root: repo_root, token: "token", request_fun: request_fun]
+
+    assert Codeowners.owners_for_path("lib/app.ex", opts) == []
+    assert Codeowners.owners_for_path("lib/other.ex", opts) == ["owner-one"]
+  end
+
+  test "matches CODEOWNER logins case-insensitively", %{repo_root: repo_root} do
+    write_codeowners!(repo_root, ".github/CODEOWNERS", "* @Its-Everdred")
+
+    assert Codeowners.authoritative?("its-everdred", repo_root: repo_root, path: "lib/app.ex")
+    assert Codeowners.authoritative?("ITS-EVERDRED", repo_root: repo_root, path: "lib/app.ex")
+  end
+
   test "classifies comments with reason metadata", %{repo_root: repo_root} do
     write_codeowners!(repo_root, ".github/CODEOWNERS", "elixir/ @its-everdred")
     context = Codeowners.ownership_for_paths(["elixir/lib/aiur/codeowners.ex"], repo_root: repo_root)
