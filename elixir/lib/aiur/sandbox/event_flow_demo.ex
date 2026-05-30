@@ -9,4 +9,7 @@ defmodule Aiur.Sandbox.EventFlowDemo do
 
   @spec function_b() :: 43
   def function_b, do: function_a() + 1
+
+  @spec function_c() :: 1849
+  def function_c, do: function_b() * function_b()
 end
