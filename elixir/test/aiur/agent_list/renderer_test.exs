@@ -291,6 +291,75 @@ defmodule Aiur.AgentList.RendererTest do
     refute primed_with_content =~ "🔘"
   end
 
+  test "active workflow phase overrides the warm marker with its emoji (#68)" do
+    summaries = [
+      %{identifier: "MT-PH", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    warm = %{
+      summaries: summaries,
+      attach_state: %{"MT-PH" => %{attach_count: 1, visible_in: 1}},
+      agents_with_content: MapSet.new(["MT-PH"])
+    }
+
+    for {phase, emoji} <- [brainstorm: "🧠", plan: "📋", work: "🛠️", review: "🔍"] do
+      out =
+        render(base_state(Map.put(warm, :phase_by_identifier, %{"MT-PH" => phase})))
+        |> visible()
+
+      assert out =~ emoji, "expected #{phase} to render #{emoji}"
+      # Phase replaces the ⚪ warm marker this agent would otherwise show.
+      refute out =~ "⚪", "phase emoji should replace the warm marker for #{phase}"
+    end
+  end
+
+  test "pre-warm ⏳ wins over an active phase while the pane isn't warm (#68)" do
+    summaries = [
+      %{identifier: "MT-COLD", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{},
+          phase_by_identifier: %{"MT-COLD" => :work}
+        })
+      )
+      |> visible()
+
+    assert out =~ "⏳"
+    refute out =~ "🛠️"
+  end
+
+  test "warm agent with no active phase falls back to its marker (#68)" do
+    summaries = [
+      %{identifier: "MT-NP", status: :running, alert_count: 0, work_state: :working}
+    ]
+
+    out =
+      render(
+        base_state(%{
+          summaries: summaries,
+          attach_state: %{"MT-NP" => %{attach_count: 1, visible_in: 1}},
+          agents_with_content: MapSet.new(["MT-NP"]),
+          phase_by_identifier: %{}
+        })
+      )
+      |> visible()
+
+    assert out =~ "⚪"
+  end
+
+  test "help legend lists the phase palette (#68)" do
+    out = render(base_state(%{help_visible?: true})) |> visible()
+
+    assert out =~ "🧠"
+    assert out =~ "📋"
+    assert out =~ "🛠️"
+    assert out =~ "🔍"
+  end
+
   test "🔘 fires when slot painted but agent has not emitted content" do
     summaries = [
       %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
