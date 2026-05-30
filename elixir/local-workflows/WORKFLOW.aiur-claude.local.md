@@ -111,13 +111,15 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  # `kind: codex` is set explicitly so that the inferred-kind fallback
-  # in `Aiur.Config.inferred_agent_kind/1` (which prefers `claude:` over
-  # `codex:` when both blocks are present) doesn't flip this workflow
-  # to the Claude backend just because the `claude:` block exists. To
-  # run with Claude instead, use the sibling `WORKFLOW.aiur-claude.local.md`
-  # or override `agent.kind` to `claude` here.
-  kind: codex
+  # Sibling of `WORKFLOW.aiur.local.md` that routes every agent run
+  # through the Claude backend (claude-app-server / `aiur-claude`)
+  # instead of the codex app-server. Operator opts in with:
+  #
+  #     ./scripts/aiur --workflow elixir/local-workflows/WORKFLOW.aiur-claude.local.md
+  #
+  # Everything below is identical to the codex sibling except for
+  # `agent.kind`.
+  kind: claude
   max_concurrent_agents: 6
   max_turns: 12
 codex:

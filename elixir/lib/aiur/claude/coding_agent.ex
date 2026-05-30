@@ -138,11 +138,15 @@ defmodule Aiur.Claude.CodingAgent do
     frame = %{
       "method" => "turn/start",
       "id" => request_id,
-      "params" => %{
-        "threadId" => thread_id,
-        "input" => [%{"type" => "text", "text" => text}],
-        "cwd" => workspace
-      }
+      "params" =>
+        maybe_put_model(
+          %{
+            "threadId" => thread_id,
+            "input" => [%{"type" => "text", "text" => text}],
+            "cwd" => workspace
+          },
+          Aiur.Claude.Config.model()
+        )
     }
 
     send_message(port, frame)
@@ -186,6 +190,7 @@ defmodule Aiur.Claude.CodingAgent do
             :stderr_to_stdout,
             args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(Aiur.Claude.Config.command()))],
             cd: String.to_charlist(workspace),
+            env: AgentEnvironment.workspace_env(workspace),
             line: @port_line_bytes
           ]
         )
@@ -240,7 +245,7 @@ defmodule Aiur.Claude.CodingAgent do
       "method" => "thread/start",
       "id" => @thread_start_id,
       "params" => %{
-        "permissionMode" => "bypassPermissions",
+        "permissionMode" => Aiur.Claude.Config.permission_mode(),
         "cwd" => Path.expand(workspace)
       }
     })
@@ -261,17 +266,21 @@ defmodule Aiur.Claude.CodingAgent do
     send_message(port, %{
       "method" => "turn/start",
       "id" => @turn_start_id,
-      "params" => %{
-        "threadId" => thread_id,
-        "input" => [
+      "params" =>
+        maybe_put_model(
           %{
-            "type" => "text",
-            "text" => prompt
-          }
-        ],
-        "cwd" => Path.expand(workspace),
-        "title" => "#{issue.identifier}: #{issue.title}"
-      }
+            "threadId" => thread_id,
+            "input" => [
+              %{
+                "type" => "text",
+                "text" => prompt
+              }
+            ],
+            "cwd" => Path.expand(workspace),
+            "title" => "#{issue.identifier}: #{issue.title}"
+          },
+          Aiur.Claude.Config.model()
+        )
     })
 
     case await_response(port, @turn_start_id) do
@@ -279,6 +288,11 @@ defmodule Aiur.Claude.CodingAgent do
       other -> other
     end
   end
+
+  defp maybe_put_model(params, model) when is_binary(model) and model != "",
+    do: Map.put(params, "model", model)
+
+  defp maybe_put_model(params, _model), do: params
 
   defp await_turn_completion(session, on_message, on_safe_checkpoint, turn_id) do
     receive_loop(session, %{

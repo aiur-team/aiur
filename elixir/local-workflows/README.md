@@ -9,3 +9,5 @@ service assumptions.
 
 - `WORKFLOW.actions.local.md`: GitHub Issues plus Codex workflow for the local actions fork setup.
 - `WORKFLOW.aiur.local.md`: GitHub Issues plus Codex workflow for this Aiur repository.
+- `WORKFLOW.aiur-claude.local.md`: Same as `WORKFLOW.aiur.local.md`, but routes agent runs
+  through the Claude backend (`agent.kind: claude` → `claude-app-server` / `aiur-claude`).
