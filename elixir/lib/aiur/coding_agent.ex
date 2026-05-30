@@ -1,9 +1,22 @@
 defmodule Aiur.CodingAgent do
   @moduledoc """
   Adapter boundary for coding agent backends.
+
+  Backend identity lives in a single registry (`backends/0`). Module
+  dispatch, delivery-policy defaults, and config validation all derive
+  from it, so adding a backend is one registry entry rather than edits
+  across every `case` statement. Unknown backends fail loud.
+
+  Per-issue routing is resolved by `backend_for/1` (a `model:<backend>`
+  override label, then the `agent.routing` complexity table, then the
+  global `agent.kind` fallback) and is fixed for an issue once its
+  session starts.
   """
 
   alias Aiur.Config
+  alias Aiur.Issue
+
+  @type backend :: String.t()
 
   @type operator_payload :: %{required(:kind) => :text, required(:body) => String.t()}
   @type safe_checkpoint :: %{required(:kind) => atom(), optional(:method) => String.t()}
@@ -20,13 +33,150 @@ defmodule Aiur.CodingAgent do
   @callback send_operator_message(map(), operator_payload()) ::
               {:ok, request_id :: integer()} | {:error, term()}
 
-  @spec adapter() :: module()
-  def adapter do
-    case Config.agent_kind() do
-      "codex" -> Aiur.Codex.CodingAgent
-      _ -> Aiur.Claude.CodingAgent
+  @complexity_label ~r/^complexity:(\d+)$/
+  # `model:<backend>` selects a backend with its configured default model.
+  # `model:<backend>-<variant>` additionally pins a model string passed to
+  # that backend (e.g. `model:claude-opus-4-8`). The variant charset is
+  # restricted to word/dot/dash so it is safe to splice into a backend's
+  # spawned command without shell-injection risk.
+  @model_override_label ~r/^model:([a-z]+)(?:-([A-Za-z0-9.\-]+))?$/
+
+  @doc """
+  Registry of supported coding-agent backends. Each entry carries the
+  modules, delivery-policy defaults, and the model variants worth
+  seeding as `model:<backend>-<variant>` override labels for that
+  backend. Adding a backend means adding one entry here.
+  """
+  @spec backends() :: %{backend() => map()}
+  def backends do
+    %{
+      "codex" => %{
+        adapter: Aiur.Codex.CodingAgent,
+        transcript: Aiur.Codex.Transcript,
+        can_interrupt: true,
+        safe_checkpoints: [:notification, :tool_result],
+        models: ["gpt-5.5"]
+      },
+      "claude" => %{
+        adapter: Aiur.Claude.CodingAgent,
+        transcript: Aiur.Claude.Transcript,
+        can_interrupt: true,
+        safe_checkpoints: [:notification],
+        models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+      }
+    }
+  end
+
+  @doc "Known backend keys, derived from the registry."
+  @spec known_backends() :: [backend()]
+  def known_backends, do: Map.keys(backends())
+
+  @doc """
+  Canonical `model:*` override labels worth auto-creating in a repo: a
+  bare `model:<backend>` per known backend plus a
+  `model:<backend>-<variant>` for each registry-listed model variant.
+  Derived from the registry so new backends/models seed automatically.
+  """
+  @spec override_labels() :: [String.t()]
+  def override_labels do
+    Enum.flat_map(backends(), fn {backend, entry} ->
+      variant_labels = Enum.map(Map.get(entry, :models, []), &"model:#{backend}-#{&1}")
+      ["model:#{backend}" | variant_labels]
+    end)
+  end
+
+  @doc """
+  Resolve the backend for an issue: a `model:<backend>` override label
+  wins, then the `complexity:` label mapped through `agent.routing`,
+  then the global `agent.kind` fallback.
+  """
+  @spec backend_for(Issue.t()) :: backend()
+  def backend_for(%Issue{} = issue) do
+    override_backend(issue) || routing_backend(issue) || Config.agent_kind()
+  end
+
+  @doc """
+  Pinned model string for an issue from a `model:<backend>-<variant>`
+  override label (e.g. `model:claude-opus-4-8` -> `"opus-4-8"`), or `nil`
+  when no variant is pinned. The bare `model:<backend>` form selects the
+  backend but pins no model, so the backend's configured default applies.
+  """
+  @spec model_for(Issue.t()) :: String.t() | nil
+  def model_for(%Issue{} = issue) do
+    case override(issue) do
+      {_backend, variant} -> variant
+      nil -> nil
     end
   end
+
+  @doc false
+  @spec override_backend(Issue.t()) :: backend() | nil
+  def override_backend(%Issue{} = issue) do
+    case override(issue) do
+      {backend, _variant} -> backend
+      nil -> nil
+    end
+  end
+
+  # First well-formed `model:<backend>[-<variant>]` label naming a known
+  # backend, as `{backend, variant | nil}`. Unknown backends are skipped.
+  @spec override(Issue.t()) :: {backend(), String.t() | nil} | nil
+  defp override(%Issue{} = issue) do
+    known = known_backends()
+
+    issue
+    |> Issue.label_names()
+    |> Enum.find_value(&match_override(&1, known))
+  end
+
+  @spec match_override(term(), [backend()]) :: {backend(), String.t() | nil} | nil
+  defp match_override(label, known) do
+    case Regex.run(@model_override_label, to_string(label)) do
+      [_, backend] -> known_backend_match(backend, nil, known)
+      [_, backend, variant] -> known_backend_match(backend, variant, known)
+      _ -> nil
+    end
+  end
+
+  defp known_backend_match(backend, variant, known) do
+    if backend in known, do: {backend, variant}
+  end
+
+  @doc false
+  @spec routing_backend(Issue.t()) :: backend() | nil
+  def routing_backend(%Issue{} = issue) do
+    case complexity_level(issue) do
+      nil -> nil
+      level -> Map.get(Config.agent_routing(), level)
+    end
+  end
+
+  @doc """
+  Highest `complexity:N` level on the issue, or `nil` when no
+  well-formed complexity label is present.
+  """
+  @spec complexity_level(Issue.t()) :: pos_integer() | nil
+  def complexity_level(%Issue{} = issue) do
+    issue
+    |> Issue.label_names()
+    |> Enum.flat_map(fn label ->
+      case Regex.run(@complexity_label, to_string(label)) do
+        [_, n] -> [String.to_integer(n)]
+        _ -> []
+      end
+    end)
+    |> case do
+      [] -> nil
+      levels -> Enum.max(levels)
+    end
+  end
+
+  @spec adapter() :: module()
+  def adapter, do: adapter(Config.agent_kind())
+
+  @doc "Adapter module for a resolved backend. Raises on an unknown backend."
+  @spec adapter(backend()) :: module()
+  def adapter(backend), do: fetch_backend!(backend).adapter
 
   @doc """
   Backend-specific module that knows how to turn a raw notification
@@ -35,28 +185,58 @@ defmodule Aiur.CodingAgent do
   exposes `extract(message, fallback_turn_id) :: {:ok, transcript_event} | :skip`.
   """
   @spec transcript_module() :: module()
-  def transcript_module do
-    case Config.agent_kind() do
-      "codex" -> Aiur.Codex.Transcript
-      _ -> Aiur.Claude.Transcript
-    end
-  end
+  def transcript_module, do: transcript_module(Config.agent_kind())
+
+  @doc "Transcript module for a resolved backend. Raises on an unknown backend."
+  @spec transcript_module(backend()) :: module()
+  def transcript_module(backend), do: fetch_backend!(backend).transcript
+
+  @doc "Delivery-policy default: whether the backend supports operator interrupts."
+  @spec can_interrupt?(backend()) :: boolean()
+  def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
+
+  @doc "Delivery-policy default: which checkpoint kinds are safe to deliver on."
+  @spec safe_checkpoints(backend()) :: [atom()]
+  def safe_checkpoints(backend), do: fetch_backend!(backend).safe_checkpoints
 
   @spec start_session(Path.t()) :: {:ok, map()} | {:error, term()}
   @spec start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def start_session(workspace, opts \\ []), do: adapter().start_session(workspace, opts)
+  def start_session(workspace, opts \\ []) do
+    backend = Keyword.get(opts, :backend) || Config.agent_kind()
+    adapter(backend).start_session(workspace, opts)
+  end
 
   @spec run_turn(map(), String.t(), map()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
-  @spec run_turn(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
-  def run_turn(session, prompt, issue, opts \\ []), do: adapter().run_turn(session, prompt, issue, opts)
+  @spec run_turn(map(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:paused, map()} | {:error, term()}
+  def run_turn(session, prompt, issue, opts \\ []),
+    do: adapter_for_session(session).run_turn(session, prompt, issue, opts)
 
   @spec stop_session(map()) :: :ok
-  def stop_session(session), do: adapter().stop_session(session)
+  def stop_session(session), do: adapter_for_session(session).stop_session(session)
 
   @spec normalize_event(map()) :: map()
-  def normalize_event(event), do: adapter().normalize_event(event)
+  def normalize_event(event), do: normalize_event(event, Config.agent_kind())
+
+  @spec normalize_event(map(), backend()) :: map()
+  def normalize_event(event, backend), do: adapter(backend).normalize_event(event)
 
   @spec send_operator_message(map(), operator_payload()) ::
           {:ok, integer()} | {:error, term()}
-  def send_operator_message(session, payload), do: adapter().send_operator_message(session, payload)
+  def send_operator_message(session, payload),
+    do: adapter_for_session(session).send_operator_message(session, payload)
+
+  defp adapter_for_session(%{backend: backend}) when is_binary(backend), do: adapter(backend)
+  defp adapter_for_session(_session), do: adapter(Config.agent_kind())
+
+  defp fetch_backend!(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} ->
+        entry
+
+      :error ->
+        raise ArgumentError,
+              "unknown coding-agent backend #{inspect(backend)}; known backends: #{inspect(known_backends())}"
+    end
+  end
 end

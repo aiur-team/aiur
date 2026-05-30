@@ -166,6 +166,7 @@ defmodule Aiur.Config.Schema do
       field(:max_retry_attempts, :integer, default: 3)
       field(:max_retry_backoff_ms, :integer, default: 300_000)
       field(:max_concurrent_agents_by_state, :map, default: %{})
+      field(:routing, :map, default: %{})
       field(:codex_thrash_max_per_window, :integer, default: 6)
       field(:codex_thrash_window_seconds, :integer, default: 60)
     end
@@ -182,6 +183,7 @@ defmodule Aiur.Config.Schema do
           :max_retry_attempts,
           :max_retry_backoff_ms,
           :max_concurrent_agents_by_state,
+          :routing,
           :codex_thrash_max_per_window,
           :codex_thrash_window_seconds
         ],
@@ -195,6 +197,8 @@ defmodule Aiur.Config.Schema do
       |> validate_number(:codex_thrash_window_seconds, greater_than: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
+      |> update_change(:routing, &Schema.normalize_agent_routing/1)
+      |> Schema.validate_agent_routing(:routing)
     end
   end
 
@@ -433,6 +437,48 @@ defmodule Aiur.Config.Schema do
       end)
     end)
   end
+
+  @doc false
+  @spec normalize_agent_routing(nil | map()) :: map()
+  def normalize_agent_routing(nil), do: %{}
+
+  def normalize_agent_routing(routing) when is_map(routing) do
+    Enum.reduce(routing, %{}, fn {level, backend}, acc ->
+      Map.put(acc, normalize_routing_level(level), to_string(backend))
+    end)
+  end
+
+  @doc false
+  @spec validate_agent_routing(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_agent_routing(changeset, field) do
+    known = Aiur.CodingAgent.known_backends()
+
+    validate_change(changeset, field, fn ^field, routing ->
+      Enum.flat_map(routing, fn {level, backend} ->
+        cond do
+          not is_integer(level) or level <= 0 ->
+            [{field, "complexity levels must be positive integers"}]
+
+          backend not in known ->
+            [{field, "unknown backend #{inspect(backend)}; known backends: #{inspect(known)}"}]
+
+          true ->
+            []
+        end
+      end)
+    end)
+  end
+
+  defp normalize_routing_level(level) when is_integer(level), do: level
+
+  defp normalize_routing_level(level) when is_binary(level) do
+    case Integer.parse(level) do
+      {n, ""} -> n
+      _ -> level
+    end
+  end
+
+  defp normalize_routing_level(level), do: level
 
   defp changeset(attrs) do
     %__MODULE__{}
