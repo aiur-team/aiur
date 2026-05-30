@@ -138,11 +138,12 @@ defmodule Aiur.Claude.CodingAgent do
     frame = %{
       "method" => "turn/start",
       "id" => request_id,
-      "params" => %{
-        "threadId" => thread_id,
-        "input" => [%{"type" => "text", "text" => text}],
-        "cwd" => workspace
-      }
+      "params" =>
+        maybe_put_model(%{
+          "threadId" => thread_id,
+          "input" => [%{"type" => "text", "text" => text}],
+          "cwd" => workspace
+        })
     }
 
     send_message(port, frame)
@@ -259,10 +260,8 @@ defmodule Aiur.Claude.CodingAgent do
   end
 
   defp start_turn(port, thread_id, prompt, issue, workspace) do
-    send_message(port, %{
-      "method" => "turn/start",
-      "id" => @turn_start_id,
-      "params" => %{
+    params =
+      maybe_put_model(%{
         "threadId" => thread_id,
         "input" => [
           %{
@@ -272,7 +271,12 @@ defmodule Aiur.Claude.CodingAgent do
         ],
         "cwd" => Path.expand(workspace),
         "title" => "#{issue.identifier}: #{issue.title}"
-      }
+      })
+
+    send_message(port, %{
+      "method" => "turn/start",
+      "id" => @turn_start_id,
+      "params" => params
     })
 
     case await_response(port, @turn_start_id) do
@@ -852,6 +856,13 @@ defmodule Aiur.Claude.CodingAgent do
   defp put_if_number(metadata, _key, _value), do: metadata
 
   defp default_on_message(_message), do: :ok
+
+  defp maybe_put_model(params) do
+    case Aiur.Claude.Config.model() do
+      model when is_binary(model) -> Map.put(params, "model", model)
+      _ -> params
+    end
+  end
 
   defp send_message(port, message) do
     line = message |> Map.put("jsonrpc", "2.0") |> Jason.encode!()

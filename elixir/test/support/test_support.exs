@@ -315,11 +315,16 @@ defmodule Aiur.TestSupport do
 
   defp agent_backend_yaml("claude", config) do
     command = Keyword.get(config, :command)
+    model = Keyword.get(config, :claude_model)
+    version = Keyword.get(config, :claude_version)
 
     [
       "claude:",
-      "  command: #{yaml_value(command)}"
+      "  command: #{yaml_value(command)}",
+      model && "  model: #{yaml_value(model)}",
+      version && "  version: #{yaml_value(version)}"
     ]
+    |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
 

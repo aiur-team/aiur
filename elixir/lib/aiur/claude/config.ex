@@ -15,12 +15,39 @@ defmodule Aiur.Claude.Config do
     end
   end
 
+  @doc """
+  Model the app-server passes to `claude --model`. Returns nil when
+  unset so the turn omits the field and the app-server picks its default.
+  """
+  @spec model() :: String.t() | nil
+  def model, do: trimmed_section_value("model")
+
+  @doc """
+  Human-facing model version label (e.g. `opus-4-8`). Recorded in config
+  for operator visibility; not sent on the wire unless also set as `model`.
+  """
+  @spec version() :: String.t() | nil
+  def version, do: trimmed_section_value("version")
+
   @impl Aiur.AgentConfig
   def validate! do
     if byte_size(String.trim(command())) > 0 do
       :ok
     else
       {:error, "Claude command missing — set claude.command in WORKFLOW.md"}
+    end
+  end
+
+  defp trimmed_section_value(key) do
+    case section_value(key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
     end
   end
 

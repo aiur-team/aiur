@@ -111,8 +111,15 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  kind: codex
   max_concurrent_agents: 6
   max_turns: 12
+claude:
+  command: aiur-claude
+  version: opus-4-8
+  # `model` is omitted so the app-server / claude CLI uses its own default
+  # model. Set it (e.g. model: claude-sonnet-4-6) to pin turns to a
+  # specific model; the value is sent verbatim as `claude --model <value>`.
 codex:
   command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
   approval_policy: never
