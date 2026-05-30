@@ -5,12 +5,12 @@ defmodule Aiur.OrchestratorStatusTest do
 
   defp normalize(event), do: CodexCodingAgent.normalize_event(event)
 
-  defp running_entry(issue_id, identifier, status, pid \\ self(), worker_host \\ nil) do
+  defp running_entry(issue_id, identifier, status, pid \\ self(), worker_host \\ nil, title \\ nil) do
     %{
       pid: pid,
       ref: make_ref(),
       identifier: identifier,
-      issue: %Issue{id: issue_id, identifier: identifier, state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: identifier, state: "In Progress", title: title},
       worker_host: worker_host,
       control: %{
         can_interrupt: true,
@@ -99,6 +99,67 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.adjust_max_concurrent_agents(orchestrator_name, -1)
 
     assert %{max: 2, active: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
+  test "status returns running paused and idle agents" do
+    orchestrator_name = Module.concat(__MODULE__, :AgentStatusOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{
+            "issue-active" => %Issue{id: "issue-active", identifier: "repo#44", state: "In Progress", title: "Active"},
+            "issue-paused" => %Issue{id: "issue-paused", identifier: "repo#45", state: "In Progress", title: "Paused"},
+            "issue-idle" => %Issue{id: "issue-idle", identifier: "repo#46", state: "Todo", title: "Idle"}
+          },
+          running: %{
+            "issue-active" => running_entry("issue-active", "repo#44", :working, self(), nil, "Active"),
+            "issue-paused" => running_entry("issue-paused", "repo#45", :paused, self(), nil, "Paused")
+          }
+      }
+    end)
+
+    assert [
+             %{identifier: "repo#44", state: :running, title: "Active"},
+             %{identifier: "repo#45", state: :paused, title: "Paused"},
+             %{identifier: "repo#46", state: :idle, title: "Idle"}
+           ] = Orchestrator.status(orchestrator_name, 1_000)
+  end
+
+  test "pause then resume round trip updates status around worker control messages" do
+    orchestrator_name = Module.concat(__MODULE__, :PauseResumeRoundTripOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-round-trip" => running_entry("issue-round-trip", "repo#47", :working, parent)
+          }
+      }
+    end)
+
+    assert {:ok, request_id} = Orchestrator.pause_agent(orchestrator_name, "repo#47")
+    assert_receive {:pause_agent, ^request_id}, 500
+
+    send(pid, {:worker_control_state, "issue-round-trip", :paused})
+
+    assert [%{identifier: "repo#47", state: :paused}] = Orchestrator.status(orchestrator_name, 1_000)
+
+    assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "repo#47")
+    assert_receive {:resume_agent, resume_request_id} when is_integer(resume_request_id), 500
+
+    assert [%{identifier: "repo#47", state: :running}] = Orchestrator.status(orchestrator_name, 1_000)
   end
 
   test "resuming a paused agent is blocked when active capacity is full" do

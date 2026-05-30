@@ -321,7 +321,7 @@ declare -a profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: aiur [list|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
+Usage: aiur [list|status|pause <id...|--all>|resume <id...|--all>|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
 
 Without args, attach to an existing default session or run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
@@ -331,6 +331,9 @@ With all, restart the other configured services and run the default profile in t
 With stop, stop a backgrounded profile (`aiur --bg ...`) or every profile.
 Foregrounded runs (`aiur`, `aiur --test`, etc.) self-clean on exit via the
 script's EXIT/INT/TERM/HUP trap — `aiur stop` is not needed for those.
+With status, list active agents and their pause/run state.
+With pause/resume, control one or more agents by issue ID. IDs can be
+space-separated or comma-separated. Use --all to target the current snapshot.
 
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
@@ -750,16 +753,18 @@ ensure_bg_state_dir() {
   mkdir -p "$bg_state_dir"
 }
 
-# Distribution setup for the upcoming per-agent pane subcommand. The cookie
-# lives in ~/.erlang.cookie (auto-read by the BEAM) so it does NOT leak through
-# /proc/<pid>/environ. The wrapper validates ownership and length each run.
+# Distribution setup for release RPC and the per-agent pane subcommand.
+# The cookie is stable across foreground/background launches but scoped to
+# Aiur's state directory instead of relying on a user's global .erlang.cookie.
 ensure_erlang_cookie() {
-  local cookie_file="$HOME/.erlang.cookie"
+  ensure_bg_state_dir
+
+  local cookie_file="$bg_state_dir/cookie"
 
   if [ ! -f "$cookie_file" ]; then
     (
       umask 0177
-      tmp_file="$(mktemp "$HOME/.erlang.cookie.XXXXXX")"
+      tmp_file="$(mktemp "$bg_state_dir/cookie.XXXXXX")"
       head -c 32 /dev/urandom | base64 | tr -d '\n=+/' | head -c 32 >"$tmp_file"
       mv "$tmp_file" "$cookie_file"
     )
@@ -783,35 +788,199 @@ ensure_erlang_cookie() {
     echo "❌ ~/.erlang.cookie is shorter than 16 bytes" >&2
     return 1
   fi
+
+  printf '%s' "$cookie_file"
 }
 
 prepare_distribution() {
-  ensure_erlang_cookie || return 1
+  local cookie_file
+  cookie_file="$(ensure_erlang_cookie)" || return 1
 
   # Use LONG names with `@127.0.0.1` as the host part so neither BEAM has to
   # resolve a hostname. On Debian-style boxes `/etc/hosts` maps the local
   # hostname to `127.0.1.1` while we listen on `127.0.0.1` — the resulting
   # IP mismatch shows up as `Node.connect -> false` with no helpful error.
   # Skipping the resolver entirely makes connection deterministic.
-  local node_name="aiur-${USER}@127.0.0.1"
+  local node_name="${AIUR_RELEASE_NODE:-aiur-${USER}@127.0.0.1}"
 
-  # Read the cookie and set it explicitly via -setcookie. ESCripts do not
-  # always pick up ~/.erlang.cookie automatically (some BEAM boot paths
-  # skip the auto-load), so a silent cookie mismatch otherwise shows up as
-  # `Node.connect/1 -> false`.
+  # Read the cookie and set it explicitly for both release scripts and any
+  # local helper node that needs to connect to the running Aiur BEAM.
   local cookie
-  cookie="$(cat "$HOME/.erlang.cookie")"
+  cookie="$(cat "$cookie_file")"
 
+  export RELEASE_DISTRIBUTION="name"
+  export RELEASE_NODE="$node_name"
+  export RELEASE_COOKIE="$cookie"
   # Pin the distribution listener to 127.0.0.1 too, matching the IP used in
-  # the node name. {127,0,0,1} is the Erlang tuple — unquoted because
-  # bash inside the surrounding double quotes does not brace-expand it.
-  export ERL_AFLAGS="${ERL_AFLAGS:-} -name aiur-${USER}@127.0.0.1 -setcookie ${cookie} -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
-  export ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}"
-  export AIUR_NODE="${AIUR_NODE:-$node_name}"
+  # the node name. {127,0,0,1} is the Erlang tuple — unquoted because bash
+  # inside the surrounding double quotes does not brace-expand it.
+  export ERL_AFLAGS=" -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
+  export ERL_EPMD_ADDRESS="127.0.0.1"
+  export AIUR_NODE="$RELEASE_NODE"
 
   # Export the cookie under our own name so the pane-side wrapper can pick
   # it up even when it replaces ERL_AFLAGS for its own unique node name.
-  export AIUR_ERLANG_COOKIE="$cookie"
+  export AIUR_ERLANG_COOKIE="$RELEASE_COOKIE"
+}
+
+export_distribution_to_systemd() {
+  if ! command -v "$systemctl_bin" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  "$systemctl_bin" --user set-environment \
+    "RELEASE_DISTRIBUTION=$RELEASE_DISTRIBUTION" \
+    "RELEASE_NODE=$RELEASE_NODE" \
+    "RELEASE_COOKIE=$RELEASE_COOKIE" \
+    "ERL_AFLAGS=$ERL_AFLAGS" \
+    "ERL_EPMD_ADDRESS=$ERL_EPMD_ADDRESS" \
+    "AIUR_NODE=$AIUR_NODE" \
+    "AIUR_ERLANG_COOKIE=$AIUR_ERLANG_COOKIE"
+}
+
+control_release_bin() {
+  local elixir_dir="$1"
+  local release_bin="$elixir_dir/_build/dev/rel/aiur/bin/aiur"
+
+  printf '%s' "$release_bin"
+}
+
+parse_issue_targets() {
+  local allow_all="$1"
+  shift
+  parsed_targets=()
+  parsed_all=0
+
+  if [ "$#" -eq 0 ]; then
+    return 1
+  fi
+
+  if [ "$#" -eq 1 ] && [ "$1" = "--all" ]; then
+    if [ "$allow_all" -eq 1 ]; then
+      parsed_all=1
+      return 0
+    fi
+
+    return 1
+  fi
+
+  local raw part
+  for raw in "$@"; do
+    if [ "$raw" = "--all" ]; then
+      return 1
+    fi
+
+    IFS=',' read -ra parts <<<"$raw"
+    for part in "${parts[@]}"; do
+      part="$(trim "$part")"
+
+      if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then
+        return 1
+      fi
+
+      parsed_targets+=("$part")
+    done
+  done
+
+  [ "${#parsed_targets[@]}" -gt 0 ]
+}
+
+elixir_list_literal() {
+  local first=1
+  local item
+
+  printf '['
+  for item in "$@"; do
+    if [ "$first" -eq 0 ]; then
+      printf ', '
+    fi
+
+    printf '"%s"' "$item"
+    first=0
+  done
+  printf ']'
+}
+
+run_control_rpc() {
+  local expression="$1"
+  local elixir_dir="$repo_root/elixir"
+  local aiur_bin
+  local output
+  local status
+  local exit_code=0
+  local marker="__AIUR_CONTROL_EXIT__:"
+  local saw_marker=0
+
+  ensure_built "$elixir_dir"
+  prepare_distribution || die "distribution setup failed; cannot contact Aiur"
+  aiur_bin="$(control_release_bin "$elixir_dir")"
+
+  set +e
+  output="$(cd "$elixir_dir" && "$aiur_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -ne 0 ]; then
+    echo "aiur: no running aiur node at ${RELEASE_NODE:-aiur-${USER}@127.0.0.1}; start Aiur and try again" >&2
+    return 1
+  fi
+
+  while IFS= read -r line; do
+    case "$line" in
+      "$marker"*)
+        saw_marker=1
+        exit_code="${line#"$marker"}"
+        ;;
+      :ok)
+        ;;
+      "")
+        ;;
+      *)
+        printf '%s\n' "$line"
+        ;;
+    esac
+  done <<<"$output"
+
+  if [ "$saw_marker" -eq 0 ]; then
+    return 1
+  fi
+
+  return "$exit_code"
+}
+
+control_command() {
+  local command="$1"
+  shift
+  local expression
+  local targets_literal
+
+  case "$command" in
+    status)
+      if [ "$#" -ne 0 ]; then
+        echo "aiur: status does not accept arguments" >&2
+        exit 64
+      fi
+
+      run_control_rpc "Aiur.AgentControlCLI.status()"
+      exit $?
+      ;;
+    pause | resume)
+      if ! parse_issue_targets 1 "$@"; then
+        echo "aiur: $command expects issue IDs or --all (examples: aiur $command 44 45,46; aiur $command --all)" >&2
+        exit 64
+      fi
+
+      if [ "$parsed_all" -eq 1 ]; then
+        expression="Aiur.AgentControlCLI.${command}(:all)"
+      else
+        targets_literal="$(elixir_list_literal "${parsed_targets[@]}")"
+        expression="Aiur.AgentControlCLI.${command}(${targets_literal})"
+      fi
+
+      run_control_rpc "$expression"
+      exit $?
+      ;;
+  esac
 }
 
 ensure_aiur_state_dir() {
@@ -976,6 +1145,7 @@ start_bg_nohup() {
     cd "$elixir_dir"
 
     source_env_files
+    prepare_distribution || die "distribution setup failed; cannot launch background Aiur"
 
     args=(exec -- ./bin/aiur)
 
@@ -1020,6 +1190,9 @@ restart_one_background_service() {
       start_bg_nohup "$profile"
       ;;
     *)
+      prepare_distribution || die "distribution setup failed; cannot launch background Aiur"
+      export_distribution_to_systemd || die "distribution setup failed; cannot update systemd environment"
+
       if command -v "$systemctl_bin" >/dev/null 2>&1 && "$systemctl_bin" --user restart "$service"; then
         "$systemctl_bin" --user status "$service" --no-pager || true
       else
@@ -1674,6 +1847,18 @@ case "${1:-}" in
   list)
     list_profiles
     exit 0
+    ;;
+  status)
+    shift
+    control_command status "$@"
+    ;;
+  pause)
+    shift
+    control_command pause "$@"
+    ;;
+  resume)
+    shift
+    control_command resume "$@"
     ;;
   build)
     # Force-rebuild the Aiur app + reassemble the release, BUT keep

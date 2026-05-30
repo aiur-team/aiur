@@ -2077,6 +2077,80 @@ defmodule Aiur.Orchestrator do
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
   end
 
+  defp agent_statuses(%State{} = state) do
+    now = DateTime.utc_now()
+
+    running_by_identifier =
+      Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
+
+    (running_statuses(state, now) ++ idle_statuses(state, running_by_identifier))
+    |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
+  end
+
+  defp running_statuses(%State{} = state, %DateTime{} = now) do
+    Enum.map(state.running, fn {issue_id, entry} ->
+      running_status(state, issue_id, entry, now)
+    end)
+  end
+
+  defp running_status(%State{} = state, issue_id, entry, now) do
+    identifier = Map.get(entry, :identifier) || issue_id
+    issue = Map.get(entry, :issue)
+    work_state = get_in(entry, [:control, :status]) || :working
+
+    %{
+      issue_id: issue_id,
+      identifier: identifier,
+      state: if(work_state == :paused, do: :paused, else: :running),
+      tracker_state: Map.get(issue || %{}, :state),
+      tag: issue_tag(issue),
+      title: Map.get(issue || %{}, :title),
+      url: Map.get(issue || %{}, :url),
+      worker_host: Map.get(entry, :worker_host),
+      workspace_path: Map.get(entry, :workspace_path),
+      session_id: Map.get(entry, :session_id),
+      runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
+      queue_depth: queue_depth_for_issue(state, identifier)
+    }
+  end
+
+  defp idle_statuses(%State{} = state, running_by_identifier) do
+    state.last_polled_issues
+    |> Map.values()
+    |> Enum.reject(&running_issue?(&1, running_by_identifier))
+    |> Enum.map(&idle_status(state, &1))
+  end
+
+  defp running_issue?(issue, running_by_identifier) do
+    identifier = Map.get(issue, :identifier)
+    is_binary(identifier) and Map.has_key?(running_by_identifier, identifier)
+  end
+
+  defp idle_status(%State{} = state, issue) do
+    identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
+
+    %{
+      issue_id: Map.get(issue, :id),
+      identifier: identifier,
+      state: :idle,
+      tracker_state: Map.get(issue, :state),
+      tag: issue_tag(issue),
+      title: Map.get(issue, :title),
+      url: Map.get(issue, :url),
+      worker_host: nil,
+      workspace_path: nil,
+      session_id: nil,
+      runtime_seconds: 0,
+      queue_depth: idle_queue_depth(state, identifier)
+    }
+  end
+
+  defp idle_queue_depth(%State{} = state, identifier) when is_binary(identifier) do
+    queue_depth_for_issue(state, identifier)
+  end
+
+  defp idle_queue_depth(_state, _identifier), do: 0
+
   defp handle_active_retry(state, issue, attempt, metadata) do
     if retry_candidate_issue?(issue, terminal_state_set()) and
          dispatch_slots_available?(issue, state) and
@@ -2575,6 +2649,23 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  @spec status() :: [map()] | :timeout | :unavailable
+  def status, do: status(__MODULE__, 5_000)
+
+  @spec status(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
+  def status(server, timeout) do
+    if Process.whereis(server) do
+      try do
+        GenServer.call(server, :status, timeout)
+      catch
+        :exit, {:timeout, _} -> :timeout
+        :exit, _ -> :unavailable
+      end
+    else
+      :unavailable
+    end
+  end
+
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout) do
     if Process.whereis(server) do
@@ -2672,6 +2763,10 @@ defmodule Aiur.Orchestrator do
       |> Enum.reject(&is_nil/1)
 
     {:reply, identifiers, state}
+  end
+
+  def handle_call(:status, _from, state) do
+    {:reply, agent_statuses(state), state}
   end
 
   def handle_call(:snapshot, _from, state) do
