@@ -84,6 +84,55 @@ defmodule Aiur.Config do
     settings!().agent.kind || "codex"
   end
 
+  @doc """
+  Routing map from `complexity:N` label values to agent kinds. Returns an
+  empty map when no routing block is configured; in that case
+  `agent_kind_for_issue/1` falls back to the global `agent_kind/0`.
+  """
+  @spec agent_routing() :: %{by_complexity: %{String.t() => String.t()}}
+  def agent_routing do
+    routing = settings!().agent.routing
+
+    %{
+      by_complexity: routing.by_complexity || %{}
+    }
+  end
+
+  @doc """
+  Resolve the coding-agent backend for an issue. Looks up the issue's
+  `complexity:N` label in the routing map; falls back to `agent_kind/0`
+  when the label is missing, the routing map is empty, or the issue is nil.
+
+  The session that handles the issue must pin this value at start time
+  and use it consistently end-to-end (start_session, run_turn, transcript
+  extraction, send_operator_message) so a Claude-routed issue is never
+  parsed with the Codex transcript extractor.
+  """
+  @spec agent_kind_for_issue(map() | nil) :: String.t()
+  def agent_kind_for_issue(nil), do: agent_kind()
+
+  def agent_kind_for_issue(issue) when is_map(issue) do
+    case complexity_label_value(issue) do
+      nil ->
+        agent_kind()
+
+      value ->
+        case Map.get(agent_routing().by_complexity, value) do
+          kind when is_binary(kind) and kind != "" -> kind
+          _ -> agent_kind()
+        end
+    end
+  end
+
+  defp complexity_label_value(issue) do
+    issue
+    |> Map.get(:labels, [])
+    |> Enum.find_value(fn
+      "complexity:" <> value when value != "" -> value
+      _ -> nil
+    end)
+  end
+
   @spec active_states() :: [String.t()]
   def active_states do
     settings!().tracker.active_states

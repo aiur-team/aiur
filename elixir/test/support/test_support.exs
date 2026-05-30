@@ -129,6 +129,7 @@ defmodule Aiur.TestSupport do
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
+          agent_routing_by_complexity: %{},
           command: "codex app-server",
           codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           codex_thread_sandbox: "workspace-write",
@@ -169,6 +170,7 @@ defmodule Aiur.TestSupport do
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
+    agent_routing_by_complexity = Keyword.get(config, :agent_routing_by_complexity)
     agent_turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
     agent_read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
     agent_stall_timeout_ms = Keyword.get(config, :agent_stall_timeout_ms)
@@ -225,6 +227,7 @@ defmodule Aiur.TestSupport do
         "  turn_timeout_ms: #{yaml_value(agent_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(agent_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(agent_stall_timeout_ms)}",
+        agent_routing_yaml(agent_routing_by_complexity),
         agent_backend_yaml(agent_kind, config),
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
@@ -330,6 +333,24 @@ defmodule Aiur.TestSupport do
 
   defp agent_backend_yaml(nil, _config), do: nil
   defp agent_backend_yaml(_kind, _config), do: nil
+
+  defp agent_routing_yaml(map) when is_map(map) and map_size(map) == 0, do: nil
+
+  defp agent_routing_yaml(map) when is_map(map) do
+    entries =
+      Enum.map_join(map, "\n", fn {key, value} ->
+        "      #{yaml_value(to_string(key))}: #{yaml_value(value)}"
+      end)
+
+    [
+      "  routing:",
+      "    by_complexity:",
+      entries
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp agent_routing_yaml(_), do: nil
 
   defp yaml_value(value) when is_binary(value) do
     "\"" <> String.replace(value, "\"", "\\\"") <> "\""

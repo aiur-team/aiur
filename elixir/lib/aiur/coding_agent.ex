@@ -22,10 +22,21 @@ defmodule Aiur.CodingAgent do
 
   @spec adapter() :: module()
   def adapter do
-    case Config.agent_kind() do
-      "codex" -> Aiur.Codex.CodingAgent
-      _ -> Aiur.Claude.CodingAgent
-    end
+    adapter_for_kind(Config.agent_kind())
+  end
+
+  @doc """
+  Resolve the adapter for a specific issue via `complexity:N` label routing.
+  Falls back to the global `adapter/0` when the issue is nil, has no
+  complexity label, or the routing map has no entry for that complexity.
+
+  `Aiur.AgentRunner` calls this once per session and threads the chosen
+  module through `start_session`, `run_turn`, `stop_session`, and the
+  transcript extractor so a single session never mixes backends.
+  """
+  @spec adapter_for(map() | nil) :: module()
+  def adapter_for(issue) do
+    adapter_for_kind(Config.agent_kind_for_issue(issue))
   end
 
   @doc """
@@ -36,11 +47,24 @@ defmodule Aiur.CodingAgent do
   """
   @spec transcript_module() :: module()
   def transcript_module do
-    case Config.agent_kind() do
-      "codex" -> Aiur.Codex.Transcript
-      _ -> Aiur.Claude.Transcript
-    end
+    transcript_module_for_kind(Config.agent_kind())
   end
+
+  @doc """
+  Per-issue transcript module — mirrors `adapter_for/1` so a Claude-routed
+  session is parsed with the Claude transcript extractor (and the same for
+  Codex). Falls back to the global default when routing is absent.
+  """
+  @spec transcript_module_for(map() | nil) :: module()
+  def transcript_module_for(issue) do
+    transcript_module_for_kind(Config.agent_kind_for_issue(issue))
+  end
+
+  defp adapter_for_kind("codex"), do: Aiur.Codex.CodingAgent
+  defp adapter_for_kind(_), do: Aiur.Claude.CodingAgent
+
+  defp transcript_module_for_kind("codex"), do: Aiur.Codex.Transcript
+  defp transcript_module_for_kind(_), do: Aiur.Claude.Transcript
 
   @spec start_session(Path.t()) :: {:ok, map()} | {:error, term()}
   @spec start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}

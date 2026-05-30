@@ -114,6 +114,16 @@ agent:
   kind: codex
   max_concurrent_agents: 6
   max_turns: 12
+  # Per-issue backend routing. `kind` above is the default; this map
+  # overrides per issue based on the issue's `complexity:N` label.
+  # Higher-stakes complexity tiers (4-5) get Claude; everything else
+  # uses Codex via the default. Mid-session label changes do NOT swap
+  # the backend — restarting the agent is the only path to switch.
+  # Mixed-backend chat-render parity is verified by PR #214.
+  routing:
+    by_complexity:
+      "4": claude
+      "5": claude
 claude:
   command: aiur-claude
   version: opus-4-8

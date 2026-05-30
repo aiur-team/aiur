@@ -151,6 +151,27 @@ defmodule Aiur.Config.Schema do
     end
   end
 
+  defmodule Routing do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias Aiur.Config.Schema
+
+    @primary_key false
+    embedded_schema do
+      field(:by_complexity, :map, default: %{})
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:by_complexity], empty_values: [])
+      |> update_change(:by_complexity, &Schema.normalize_routing_map/1)
+      |> Schema.validate_routing_map(:by_complexity)
+    end
+  end
+
   defmodule Agent do
     @moduledoc false
     use Ecto.Schema
@@ -168,6 +189,8 @@ defmodule Aiur.Config.Schema do
       field(:max_concurrent_agents_by_state, :map, default: %{})
       field(:codex_thrash_max_per_window, :integer, default: 6)
       field(:codex_thrash_window_seconds, :integer, default: 60)
+
+      embeds_one(:routing, Routing, on_replace: :update, defaults_to_struct: true)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -195,6 +218,7 @@ defmodule Aiur.Config.Schema do
       |> validate_number(:codex_thrash_window_seconds, greater_than: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
+      |> cast_embed(:routing, with: &Routing.changeset/2)
     end
   end
 
@@ -426,6 +450,44 @@ defmodule Aiur.Config.Schema do
 
           not is_integer(limit) or limit <= 0 ->
             [{field, "limits must be positive integers"}]
+
+          true ->
+            []
+        end
+      end)
+    end)
+  end
+
+  @doc false
+  @spec normalize_routing_map(nil | map()) :: map()
+  def normalize_routing_map(nil), do: %{}
+
+  def normalize_routing_map(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      Map.put(acc, to_string(key), normalize_routing_value(value))
+    end)
+  end
+
+  defp normalize_routing_value(value) when is_binary(value), do: value
+  defp normalize_routing_value(value) when is_atom(value) and not is_nil(value), do: Atom.to_string(value)
+  defp normalize_routing_value(value), do: value
+
+  @routing_supported_kinds ["codex", "claude"]
+
+  @doc false
+  @spec validate_routing_map(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_routing_map(changeset, field) do
+    validate_change(changeset, field, fn ^field, map ->
+      Enum.flat_map(map, fn {key, value} ->
+        cond do
+          to_string(key) == "" ->
+            [{field, "routing keys must not be blank"}]
+
+          not is_binary(value) ->
+            [{field, "routing values must be agent kinds (codex|claude)"}]
+
+          value not in @routing_supported_kinds ->
+            [{field, "unsupported agent kind #{inspect(value)} (supported: codex, claude)"}]
 
           true ->
             []

@@ -217,25 +217,25 @@ defmodule Aiur.AgentRunner do
     :exit, reason -> {:error, reason}
   end
 
-  defp codex_message_handler(recipient, issue, workspace, worker_host, turn_id \\ nil) do
+  defp codex_message_handler(recipient, issue, workspace, worker_host, adapter, transcript_module, turn_id \\ nil) do
     fn message ->
-      message = CodingAgent.normalize_event(message)
+      message = adapter.normalize_event(message)
       AgentEventLog.write(workspace, worker_host, message)
-      maybe_broadcast_transcript(issue, message, turn_id)
+      maybe_broadcast_transcript(issue, message, transcript_module, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
     end
   end
 
-  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, turn_id)
+  defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, transcript_module, turn_id)
        when is_binary(identifier) do
-    case transcript_event_from(message, turn_id) do
+    case transcript_event_from(message, transcript_module, turn_id) do
       {:ok, event} -> AgentPubSub.broadcast_transcript(identifier, event)
       :skip -> :ok
     end
   end
 
-  defp maybe_broadcast_transcript(_issue, _message, _turn_id), do: :ok
+  defp maybe_broadcast_transcript(_issue, _message, _transcript_module, _turn_id), do: :ok
 
   defp maybe_broadcast_turn_event(%Issue{identifier: identifier}, message, turn_id)
        when is_binary(identifier) and is_binary(turn_id) do
@@ -251,11 +251,15 @@ defmodule Aiur.AgentRunner do
 
   defp maybe_broadcast_turn_event(_issue, _message, _turn_id), do: :ok
 
-  # Dispatch to the active backend's transcript extractor (codex or
-  # Claude). Falls back to the universal legacy event-kind mapping for
-  # non-notification shapes (older agent_message / task_finished events).
-  defp transcript_event_from(message, turn_id) when is_map(message) do
-    case CodingAgent.transcript_module().extract(message, turn_id) do
+  # Dispatch to the session's pinned backend transcript extractor (codex
+  # or Claude). The module is resolved once per session in
+  # `run_codex_turns/5` via `CodingAgent.transcript_module_for/1` and
+  # threaded through so a Claude-routed session is always parsed with the
+  # Claude extractor. Falls back to the universal legacy event-kind
+  # mapping for non-notification shapes (older agent_message /
+  # task_finished events).
+  defp transcript_event_from(message, transcript_module, turn_id) when is_map(message) do
+    case transcript_module.extract(message, turn_id) do
       {:ok, event} -> {:ok, event}
       :skip -> legacy_transcript_event(message, turn_id)
     end
@@ -345,7 +349,23 @@ defmodule Aiur.AgentRunner do
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
-    with {:ok, session} <- CodingAgent.start_session(workspace, worker_host: worker_host) do
+    # Pin the backend at session start so the entire session — start,
+    # turns, transcript extraction, stop — runs on a single adapter. The
+    # issue's `complexity:N` label decides which one (see
+    # Aiur.Config.agent_kind_for_issue/1). Mid-session label flips do
+    # NOT swap backends; restarting the agent is the only path to switch.
+    #
+    # The adapter + transcript module are stamped onto the session map
+    # under runner-private keys (see `pin_backend/3`) so every helper
+    # that holds `app_session` can recover them without an extra arg.
+    adapter = CodingAgent.adapter_for(issue)
+    transcript_module = CodingAgent.transcript_module_for(issue)
+
+    Logger.info("Pinned coding-agent backend for #{issue_context(issue)} adapter=#{inspect(adapter)}")
+
+    with {:ok, session} <- adapter.start_session(workspace, worker_host: worker_host) do
+      session = pin_backend(session, adapter, transcript_module)
+
       try do
         do_run_codex_turns(
           session,
@@ -360,10 +380,26 @@ defmodule Aiur.AgentRunner do
           max_turns
         )
       after
-        CodingAgent.stop_session(session)
+        adapter.stop_session(session)
       end
     end
   end
+
+  # Runner-private keys so the backend session map carries the chosen
+  # adapter and transcript module for the rest of the session. The
+  # backend's own pattern matches read only the keys they care about
+  # (port, metadata, thread_id, workspace, ...) and ignore these.
+  @adapter_key :__aiur_adapter__
+  @transcript_module_key :__aiur_transcript_module__
+
+  defp pin_backend(session, adapter, transcript_module) when is_map(session) do
+    session
+    |> Map.put(@adapter_key, adapter)
+    |> Map.put(@transcript_module_key, transcript_module)
+  end
+
+  defp session_adapter(%{} = session), do: Map.fetch!(session, @adapter_key)
+  defp session_transcript_module(%{} = session), do: Map.fetch!(session, @transcript_module_key)
 
   # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   defp do_run_codex_turns(
@@ -392,7 +428,12 @@ defmodule Aiur.AgentRunner do
 
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
-    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host)
+    adapter = session_adapter(app_session)
+    transcript_module = session_transcript_module(app_session)
+
+    message_handler =
+      codex_message_handler(codex_update_recipient, issue, workspace, worker_host, adapter, transcript_module)
+
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
@@ -401,7 +442,7 @@ defmodule Aiur.AgentRunner do
     :ok = DynamicTool.reset_turn_quotas()
 
     result =
-      CodingAgent.run_turn(
+      adapter.run_turn(
         app_session,
         prompt,
         issue,
@@ -642,7 +683,20 @@ defmodule Aiur.AgentRunner do
     turn_id = queue_item_turn_id(item)
     workspace = session_workspace(app_session)
     worker_host = session_worker_host(app_session)
-    message_handler = codex_message_handler(codex_update_recipient, issue, workspace, worker_host, turn_id)
+    adapter = session_adapter(app_session)
+    transcript_module = session_transcript_module(app_session)
+
+    message_handler =
+      codex_message_handler(
+        codex_update_recipient,
+        issue,
+        workspace,
+        worker_host,
+        adapter,
+        transcript_module,
+        turn_id
+      )
+
     safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
 
     send_control_state(codex_update_recipient, issue, :working)
@@ -651,7 +705,7 @@ defmodule Aiur.AgentRunner do
     :ok = DynamicTool.reset_turn_quotas()
 
     result =
-      CodingAgent.run_turn(
+      adapter.run_turn(
         app_session,
         text,
         issue,

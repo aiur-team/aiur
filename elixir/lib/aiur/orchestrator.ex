@@ -895,6 +895,10 @@ defmodule Aiur.Orchestrator do
     select_worker_host(state, preferred_worker_host)
   end
 
+  @doc false
+  @spec default_running_control_for_test(Issue.t() | nil) :: map()
+  def default_running_control_for_test(issue), do: default_running_control(issue)
+
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   defp reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
@@ -1807,7 +1811,7 @@ defmodule Aiur.Orchestrator do
             agent_last_reported_output_tokens: 0,
             agent_last_reported_total_tokens: 0,
             turn_count: 0,
-            control: default_running_control(),
+            control: default_running_control(issue),
             retry_attempt: normalize_retry_attempt(attempt),
             started_at: DateTime.utc_now()
           })
@@ -3516,28 +3520,32 @@ defmodule Aiur.Orchestrator do
   defp accepted_delivery_policies(true), do: [:checkpoint, :interrupt]
   defp accepted_delivery_policies(false), do: [:checkpoint]
 
-  defp default_running_control do
+  defp default_running_control(%Issue{} = issue) do
+    kind = Config.agent_kind_for_issue(issue)
+
     %{
-      can_interrupt: default_can_interrupt?(),
-      safe_checkpoints: default_safe_checkpoints(),
+      can_interrupt: default_can_interrupt?(kind),
+      safe_checkpoints: default_safe_checkpoints(kind),
       status: :working
     }
   end
 
-  defp default_can_interrupt? do
-    case Config.agent_kind() do
-      "codex" -> true
-      "claude" -> true
-      _ -> false
-    end
+  defp default_running_control(_issue) do
+    kind = Config.agent_kind()
+
+    %{
+      can_interrupt: default_can_interrupt?(kind),
+      safe_checkpoints: default_safe_checkpoints(kind),
+      status: :working
+    }
   end
 
-  defp default_safe_checkpoints do
-    case Config.agent_kind() do
-      "codex" -> [:notification, :tool_result]
-      _ -> [:notification]
-    end
-  end
+  defp default_can_interrupt?("codex"), do: true
+  defp default_can_interrupt?("claude"), do: true
+  defp default_can_interrupt?(_), do: false
+
+  defp default_safe_checkpoints("codex"), do: [:notification, :tool_result]
+  defp default_safe_checkpoints(_), do: [:notification]
 
   defp issue_tag(%Issue{} = issue) do
     issue
