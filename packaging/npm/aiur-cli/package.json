@@ -11,8 +11,13 @@
   "bin": {
     "aiur": "bin/aiur.js"
   },
+  "scripts": {
+    "test": "bun test"
+  },
   "files": [
-    "bin/aiur.js"
+    "bin/aiur.js",
+    "libexec/aiur-launch.sh",
+    "share/aiur.tmux.conf"
   ],
   "engines": {
     "node": ">=18"
