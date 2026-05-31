@@ -89,15 +89,15 @@ The split is composed by building the dashboard box and the opencode box each as
 
 ### Side-by-side fits by abbreviating the dashboard's *own* columns (origin deferred R9)
 
-To keep the combined side-by-side line within the ~96-col budget (so the font is unchanged and nothing clips), the dashboard pane shrinks itself during the beat:
+To keep the combined side-by-side line within the ~96-col budget (so the font is unchanged and nothing clips), the dashboard pane shrinks to ~1/3 of the grid during the beat:
 
-- **Drop the LATEST column entirely** (frees ~33 cols).
+- **Drop the LATEST column entirely** (frees ~33 cols), and at 1/3 width also drop **AGENT** and **TIME**.
 - **Truncate TITLE** to a few characters + `…`.
-- **Abbreviate STATUS** to a minimal glyph/short string.
+- **Compress PROGRESS** to a short indicator (a few-cell bar or a `NN%` number) rather than the full 10-cell bar.
 - **Hard-truncate the event-log lines** to the narrow dashboard INNER width with `…`.
-- Keep ID, PROGRESS, TIME, and the marker so the driven row still reads.
+- Keep the marker, ID, the compressed PROGRESS, and a spinner cue on the driven row so the stalled `#321` still reads at a glance.
 
-Directional budget (exact widths tuned in implementation): opencode box ≈48 cols (`OC_INNER` ~44 + borders), gutter ~2, abbreviated dashboard box ≈46 cols → combined ≈96. Because the combined width stays at the existing budget, **the container-query font ratio is unchanged** and there is no overflow or clip. This is the resolution of the wide-layout fork: not a third `<pre>`, not a font shrink, but the dashboard giving up horizontal real estate so the opencode pane fits beside it.
+Directional budget (exact widths tuned in implementation): the dashboard takes ~1/3 of the grid and the opencode pane ~2/3 — roughly opencode box ≈62 cols (`OC_INNER` ~58 + borders), gutter ~2, abbreviated dashboard box ≈30 cols → combined ≈96. The 1/3 : 2/3 ratio is deliberate: the opencode pane carries the most chrome (transcript, chip, input box, footer) and benefits from the extra width (less `…` truncation, better R8/R10 fidelity), while the abbreviated dashboard only needs marker + ID + a short truncated title + progress + a spinner cue for the driven row. Because the combined width stays at the existing budget, **the container-query font ratio is unchanged** and there is no overflow or clip. This is the resolution of the wide-layout fork: not a third `<pre>`, not a font shrink, but the dashboard giving up horizontal real estate so the opencode pane fits beside it.
 
 ### Layout choice (side-by-side vs stacked) is a px threshold measured once per resize, not per frame
 
@@ -302,7 +302,7 @@ renderFrame(nowMs, baseMs):
 **Approach:**
 - **Before refactoring**, capture a golden snapshot: serialize `renderFrame` (or its line array) at a fixed set of loopSec values to a checked-in fixture, so the refactor can be proven byte-identical.
 - Extract `buildDashboardLines(loopSec, spinIdx, { dropLatest }): Seg[]` from `renderFrame`. Default (`dropLatest: false`) must be byte-identical to today's output (R2 — full-width phases unchanged).
-- When `dropLatest: true`: omit the LATEST column from `columnHeader`/`ticketRow`; truncate TITLE to a few chars + `…`; abbreviate STATUS to a minimal glyph/short string; keep MARKER, ID, PROGRESS, TIME; recompute the abbreviated `INNER`/box width. **Replace the phase-emoji cell with the spinner glyph for `blocked`/`decide` rows** in this variant (the LATEST cell that normally hosts the spinner is gone, so the spinner moves to the phase column). Hard-truncate event-log lines to the abbreviated INNER with `…`.
+- When `dropLatest: true` (the ~1/3-width variant): omit LATEST, AGENT, and TIME from `columnHeader`/`ticketRow`; truncate TITLE to a few chars + `…`; compress PROGRESS to a short bar or `NN%`; keep MARKER, ID; recompute the abbreviated `INNER`/box width (~26 inner / ~30 box). **Replace the phase-emoji cell with the spinner glyph for `blocked`/`decide` rows** in this variant (the LATEST cell that normally hosts the spinner is gone, so the spinner moves to the phase column). Hard-truncate event-log lines to the abbreviated INNER with `…`.
 - `renderFrame` calls `buildDashboardLines(..., { dropLatest: false })` outside the beat window.
 - Add `assert-sim.ts` asserting: golden byte-equality of `buildDashboardLines({dropLatest:false})` at the fixed loopSec set; row-width equality across a `joinColumns` sample (added in U5); `#321.publish.t < #324.receive.t`. Add an npm script (e.g. `"assert": "tsx scripts/assert-sim.ts"`).
 

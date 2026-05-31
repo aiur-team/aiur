@@ -19,6 +19,38 @@ const PROGW = 11;
 const TIMEW = 5;
 const INNER = MARKER + IDW + AGENTW + STATUSW + TITLEW + LATESTW + PROGW + TIMEW; // 92
 const WIDTH = INNER + 4; // 96 incl. "│ " and " │"
+
+// Two dashboard geometries. FULL is today's full-width grid. ABBR is the
+// ~1/3-width pane shown beside the opencode pane during the take-the-wheel
+// beat: AGENT, LATEST and TIME columns drop, TITLE truncates, and PROGRESS
+// becomes a percentage so the combined split stays within the ~96-col budget.
+interface Geom {
+  id: number;
+  agent: number; // 0 = dropped
+  status: number;
+  title: number;
+  latest: number; // 0 = dropped
+  prog: number;
+  time: number; // 0 = dropped
+  inner: number;
+  width: number;
+  dropLatest: boolean;
+}
+const FULL: Geom = {
+  id: IDW, agent: AGENTW, status: STATUSW, title: TITLEW,
+  latest: LATESTW, prog: PROGW, time: TIMEW,
+  inner: INNER, width: WIDTH, dropLatest: false,
+};
+const TITLE_S = 11;
+const PROG_S = 6;
+const INNER_S = MARKER + IDW + STATUSW + TITLE_S + PROG_S; // 26
+const ABBR: Geom = {
+  id: IDW, agent: 0, status: STATUSW, title: TITLE_S,
+  latest: 0, prog: PROG_S, time: 0,
+  inner: INNER_S, width: INNER_S + 4, dropLatest: true,
+};
+export const DASH_BOX_W = WIDTH;
+export const DASH_BOX_W_ABBR = INNER_S + 4;
 // Show the top slice of the fleet so the grid fills width without the rows
 // overflowing the terminal's height at large font sizes.
 const VISIBLE_TICKETS = 6;
@@ -131,50 +163,60 @@ function sample(tk: TicketScript, now: number): {
   return { phase: cur.phase, latest, progress };
 }
 
-function ticketRow(tk: TicketScript, now: number, spinIdx: number, selected: boolean): string {
+function ticketRow(
+  tk: TicketScript,
+  now: number,
+  spinIdx: number,
+  selected: boolean,
+  g: Geom,
+): string {
   const s = sample(tk, now);
   const timer = tk.seedSec + Math.floor(now);
+  const stalled = s.phase === "blocked" || s.phase === "decide";
 
-  const c1 = cat(mark(selected), raw(" ")); // 2
-  const c2 = padEnd(raw(String(tk.id)), IDW); // 4
-  const c3 = padEnd(agentSeg(tk.agent), AGENTW); // 7
-  const c4 = cat(emo(PHASE_EMOJI[s.phase]), raw(" ")); // 3
-  const c5 = padEnd(raw(trunc(tk.title, TITLEW - 1)), TITLEW); // 27
-
-  let latestSeg: Seg;
-  if (s.phase === "blocked" || s.phase === "decide") {
-    latestSeg = cat(
-      spin(SPIN[spinIdx]),
-      raw(" "),
-      raw(trunc(s.latest, LATESTW - 3)),
-    );
-  } else {
-    latestSeg = raw(trunc(s.latest, LATESTW - 1));
+  const cols: Seg[] = [cat(mark(selected), raw(" "))]; // marker 2
+  cols.push(padEnd(raw(String(tk.id)), g.id));
+  if (g.agent) cols.push(padEnd(agentSeg(tk.agent), g.agent));
+  // status cell: when LATEST is dropped, the spinner lives here for stalled rows
+  cols.push(
+    g.dropLatest && stalled
+      ? cat(spin(SPIN[spinIdx]), raw("  "))
+      : cat(emo(PHASE_EMOJI[s.phase]), raw(" ")),
+  ); // width = status (3)
+  cols.push(padEnd(raw(trunc(tk.title, g.title - 1)), g.title));
+  if (!g.dropLatest) {
+    const latestSeg = stalled
+      ? cat(spin(SPIN[spinIdx]), raw(" "), raw(trunc(s.latest, g.latest - 3)))
+      : raw(trunc(s.latest, g.latest - 1));
+    cols.push(padEnd(latestSeg, g.latest));
   }
-  const c6 = padEnd(latestSeg, LATESTW); // 33
-  const c7 = cat(bar(s.progress), raw(" ")); // 11
-  const c8 = padStart(raw(fmtTime(timer), "dim"), TIMEW); // 5
+  cols.push(
+    g.dropLatest
+      ? padStart(raw(`${Math.round(s.progress)}%`, s.progress >= 100 ? "ok" : "acc"), g.prog)
+      : cat(bar(s.progress), raw(" ")),
+  );
+  if (g.time) cols.push(padStart(raw(fmtTime(timer), "dim"), g.time));
 
-  return bordered(cat(c1, c2, c3, c4, c5, c6, c7, c8));
+  return bordered(cat(...cols), g);
 }
 
-function bordered(content: Seg): string {
-  return cat(raw("│ ", "bd"), padEnd(content, INNER), raw(" │", "bd")).h;
+function bordered(content: Seg, g: Geom): string {
+  return cat(raw("│ ", "bd"), padEnd(content, g.inner), raw(" │", "bd")).h;
 }
 
-function topBorder(): string {
+function topBorder(g: Geom): string {
   const left = cat(raw("╭─ ", "bd"), raw("AIUR", "tb"));
-  return cat(left, dashes(WIDTH - left.w - 1), raw("╮", "bd")).h;
+  return cat(left, dashes(g.width - left.w - 1), raw("╮", "bd")).h;
 }
 
-function plainDivider(): string {
-  return cat(raw("├", "bd"), dashes(WIDTH - 2), raw("┤", "bd")).h;
+function plainDivider(g: Geom): string {
+  return cat(raw("├", "bd"), dashes(g.width - 2), raw("┤", "bd")).h;
 }
 
-function logDivider(): string {
+function logDivider(g: Geom): string {
   const labelW = 8; // " oldest "
   const tail = 2;
-  const head = WIDTH - 1 - labelW - tail - 1;
+  const head = g.width - 1 - labelW - tail - 1;
   return cat(
     raw("├", "bd"),
     dashes(head),
@@ -184,34 +226,35 @@ function logDivider(): string {
   ).h;
 }
 
-function bottomBorder(): string {
+function bottomBorder(g: Geom): string {
   const label = raw("╰─ newest ", "bd");
-  return cat(label, dashes(WIDTH - label.w - 1), raw("╯", "bd")).h;
+  return cat(label, dashes(g.width - label.w - 1), raw("╯", "bd")).h;
 }
 
-function headerRow(label: string, value: string): string {
-  return bordered(cat(raw(label), raw(value, "acc")));
+function headerRow(label: string, value: string, g: Geom): string {
+  return bordered(cat(raw(label), raw(trunc(value, g.inner - label.length), "acc")), g);
 }
 
-function columnHeader(): string {
-  return bordered(
-    cat(
-      raw("  "), // marker
-      padEnd(raw("ID", "dim"), IDW),
-      padEnd(raw("AGENT", "dim"), AGENTW),
-      raw(" ".repeat(STATUSW)),
-      padEnd(raw("TITLE", "dim"), TITLEW),
-      padEnd(raw("LATEST", "dim"), LATESTW),
-      padEnd(raw("PROGRESS", "dim"), PROGW),
-      padStart(raw("TIME", "dim"), TIMEW),
-    ),
+function columnHeader(g: Geom): string {
+  const cols: Seg[] = [raw("  ")]; // marker
+  cols.push(padEnd(raw("ID", "dim"), g.id));
+  if (g.agent) cols.push(padEnd(raw("AGENT", "dim"), g.agent));
+  cols.push(raw(" ".repeat(g.status)));
+  cols.push(padEnd(raw("TITLE", "dim"), g.title));
+  if (!g.dropLatest) cols.push(padEnd(raw("LATEST", "dim"), g.latest));
+  cols.push(
+    g.dropLatest
+      ? padStart(raw("PROG", "dim"), g.prog)
+      : padEnd(raw("PROGRESS", "dim"), g.prog),
   );
+  if (g.time) cols.push(padStart(raw("TIME", "dim"), g.time));
+  return bordered(cat(...cols), g);
 }
 
-function eventLines(now: number): string[] {
+function eventLines(now: number, g: Geom): string[] {
   const fired = EVENTS.filter((e) => e.t <= Math.floor(now)).slice(-logLines);
   const lines: string[] = [];
-  for (let i = 0; i < logLines - fired.length; i++) lines.push(bordered(raw("")));
+  for (let i = 0; i < logLines - fired.length; i++) lines.push(bordered(raw(""), g));
   for (const e of fired) {
     const head = cat(
       emo(EVENT_GLYPH[e.kind]),
@@ -219,8 +262,8 @@ function eventLines(now: number): string[] {
       raw(String(e.id), "acc"),
       raw(" "),
     );
-    const text = raw(trunc(e.text, INNER - head.w));
-    lines.push(bordered(cat(head, text)));
+    const text = raw(trunc(e.text, g.inner - head.w));
+    lines.push(bordered(cat(head, text), g));
   }
   return lines;
 }
@@ -233,27 +276,38 @@ function footer(): string {
   return keys.h;
 }
 
-function renderFrame(nowMs: number, baseMs: number): string {
+// Build the dashboard box (top border → bottom border) as an array of line
+// strings. Default output (dropLatest:false, no selectedId) is byte-identical
+// to the historical full-width frame; the assert script locks that invariant.
+export function buildDashboardLines(
+  loopSec: number,
+  spinIdx: number,
+  opts: { dropLatest: boolean; selectedId?: number },
+): string[] {
+  const g = opts.dropLatest ? ABBR : FULL;
+  const lines: string[] = [];
+  lines.push(topBorder(g));
+  lines.push(headerRow("Agents: ", `${ACTIVE}/${MAX}`, g));
+  lines.push(headerRow("Project: ", PROJECT, g));
+  lines.push(headerRow("Dashboard: ", "http://127.0.0.1:4000/", g));
+  lines.push(plainDivider(g));
+  lines.push(columnHeader(g));
+  lines.push(plainDivider(g));
+  TICKETS.slice(0, VISIBLE_TICKETS).forEach((tk, i) => {
+    const selected = opts.selectedId != null ? tk.id === opts.selectedId : i === 0;
+    lines.push(ticketRow(tk, loopSec, spinIdx, selected, g));
+  });
+  lines.push(logDivider(g));
+  for (const l of eventLines(loopSec, g)) lines.push(l);
+  lines.push(bottomBorder(g));
+  return lines;
+}
+
+export function renderFrame(nowMs: number, baseMs: number): string {
   const loopSec = ((nowMs - baseMs) / 1000) % LOOP_SECONDS;
   const spinIdx = Math.floor(nowMs / 100) % SPIN.length;
-
-  const lines: string[] = [];
-  lines.push(topBorder());
-  lines.push(headerRow("Agents: ", `${ACTIVE}/${MAX}`));
-  lines.push(headerRow("Project: ", PROJECT));
-  lines.push(headerRow("Dashboard: ", "http://127.0.0.1:4000/"));
-  lines.push(plainDivider());
-  lines.push(columnHeader());
-  lines.push(plainDivider());
-  TICKETS.slice(0, VISIBLE_TICKETS).forEach((tk, i) =>
-    lines.push(ticketRow(tk, loopSec, spinIdx, i === 0)),
-  );
-  lines.push(logDivider());
-  for (const l of eventLines(loopSec)) lines.push(l);
-  lines.push(bottomBorder());
-  lines.push("");
-  lines.push(footer());
-
+  const box = buildDashboardLines(loopSec, spinIdx, { dropLatest: false });
+  const lines = [...box, "", footer()];
   return `<pre class="tui-pre">${lines.join("\n")}</pre>`;
 }
 
