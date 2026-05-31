@@ -2,6 +2,8 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
+  alias Aiur.CodingAgent
+  alias Aiur.Issue
   alias Aiur.Workflow
 
   test "spawned claude shell receives the AIUR_AGENT_WORKSPACE guard var" do
@@ -55,6 +57,59 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       |> Enum.find(&(&1["method"] == "turn/start"))
 
     assert turn_frame["params"]["model"] == "claude-opus-4-8"
+  end
+
+  test "two concurrent claude sessions run distinct models: config default vs issue tag" do
+    root = Path.join(System.tmp_dir!(), "aiur_claude_multi_#{System.unique_integer([:positive])}")
+    config_ws = Path.join(root, "config-agent")
+    tag_ws = Path.join(root, "tag-agent")
+    File.mkdir_p!(config_ws)
+    File.mkdir_p!(tag_ws)
+    frames = Path.join(root, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    # Global claude.model default. The first session inherits it; the second
+    # carries a per-issue model resolved from a `model:claude-opus-4-8` tag,
+    # which must override the config default on the wire. Both sessions spawn
+    # the same fake app-server (claude.command is global), recording every
+    # frame to one file tagged by threadId so we can tell them apart.
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      claude_model: "claude-sonnet-4-6",
+      command: fake_app_server(frames)
+    )
+
+    tag_model = CodingAgent.model_for(%Issue{labels: ["model:claude-opus-4-8"]})
+    assert tag_model == "opus-4-8"
+
+    config_issue = %{id: 1, identifier: "config:1", title: "config-default"}
+    tag_issue = %{id: 2, identifier: "tag:1", title: "tag-override"}
+
+    # Both sessions are started (both fake app-servers spawned and alive)
+    # before either turn runs, so two claude backends are live at once. Turns
+    # are driven from this process because it owns the ports' message stream.
+    assert {:ok, config_session} = ClaudeAgent.start_session(config_ws)
+    assert {:ok, tag_session} = ClaudeAgent.start_session(tag_ws, model: tag_model)
+
+    assert {:ok, %{result: :turn_completed}} = ClaudeAgent.run_turn(config_session, "go", config_issue)
+    assert {:ok, %{result: :turn_completed}} = ClaudeAgent.run_turn(tag_session, "go", tag_issue)
+
+    ClaudeAgent.stop_session(config_session)
+    ClaudeAgent.stop_session(tag_session)
+
+    turn_models =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.filter(&(&1["method"] == "turn/start"))
+      |> Enum.map(&get_in(&1, ["params", "model"]))
+      |> Enum.sort()
+
+    # Both claude models were sent on the wire in the same run: the config
+    # default for the untagged session, the tag override for the other.
+    assert turn_models == ["claude-sonnet-4-6", "opus-4-8"]
   end
 
   # Minimal bash stand-in for the Claude app-server: records every frame

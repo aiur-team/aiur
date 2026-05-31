@@ -114,6 +114,12 @@ agent:
   kind: codex
   max_concurrent_agents: 6
   max_turns: 12
+  # Per-issue backend routing by `complexity:N` label. Unlisted levels and
+  # unlabeled issues fall back to `kind`. A `model:<backend>` issue label
+  # overrides both. Levels 4 and 5 route to Claude for stronger reasoning.
+  routing:
+    4: claude
+    5: claude
 claude:
   command: aiur-claude
   version: opus-4-8

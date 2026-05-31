@@ -32,6 +32,12 @@ agent:
   kind: codex
   max_concurrent_agents: 2
   max_turns: 12
+  # Optional: route per issue by its `complexity:N` label. Unlisted levels and
+  # unlabeled issues fall back to `kind`; a `model:<backend>` issue label
+  # overrides both. (Requires a `claude:` block for the routed backend.)
+  # routing:
+  #   4: claude
+  #   5: claude
 codex:
   command: codex app-server
 ---

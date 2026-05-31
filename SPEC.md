@@ -426,6 +426,16 @@ Fields:
   - Default: empty map.
   - State keys are normalized (`lowercase`) for lookup.
   - Invalid entries (non-positive or non-numeric) are ignored.
+- `kind` (backend string)
+  - The global coding-agent backend used when an issue resolves to no more specific backend.
+  - MUST be one of the implementation's known backends.
+- `routing` (map `complexity_level -> backend string`)
+  - Default: empty map.
+  - Maps an issue's highest `complexity:N` label to a backend, so a single run MAY drive
+    multiple backends concurrently. Levels not present in the map fall through to `agent.kind`.
+  - Keys MUST be positive integers (string keys are normalized to integers); values MUST be
+    known backends. Invalid entries fail configuration validation.
+  - A per-issue `model:<backend>` label overrides this table; the table overrides `agent.kind`.
 
 #### 5.3.6 `codex` (object)
 

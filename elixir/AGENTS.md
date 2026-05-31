@@ -27,6 +27,14 @@ This directory contains the Elixir agent orchestration service that polls Linear
 - Workspace safety is critical:
   - Never run Codex turn cwd in source repo.
   - Workspaces must stay under configured workspace root.
+- Coding-agent backend is resolved per issue, not globally. `Aiur.CodingAgent.backend_for/1`
+  resolves a `model:<backend>` issue label first, then the `agent.routing` `complexity:N` table,
+  then the `agent.kind` default. Resolve once at `start_session` and read `session[:backend]`
+  for dispatch — never re-resolve from global config mid-session.
+- Issue labels select the model in three layers: `model:claude`/`model:codex` (CLI default model),
+  `model:claude-opus` (family default), `model:claude-opus-4-8` (exact version). The variant
+  string is threaded verbatim through `start_session` into each adapter's model flag; the
+  registry in `Aiur.CodingAgent` is the single source for known backends and their seedable labels.
 - Orchestrator behavior is stateful and concurrency-sensitive; preserve retry, reconciliation, and cleanup semantics.
 - Follow `docs/logging.md` for logging conventions and required issue/session context fields.
 

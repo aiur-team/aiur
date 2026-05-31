@@ -84,6 +84,11 @@ defmodule Aiur.Config do
     settings!().agent.kind || "codex"
   end
 
+  @spec agent_routing() :: %{pos_integer() => String.t()}
+  def agent_routing do
+    settings!().agent.routing || %{}
+  end
+
   @spec active_states() :: [String.t()]
   def active_states do
     settings!().tracker.active_states
@@ -291,7 +296,7 @@ defmodule Aiur.Config do
       settings.tracker.kind not in ["linear", "github", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
-      settings.agent.kind not in ["codex", "claude"] ->
+      settings.agent.kind not in Aiur.CodingAgent.known_backends() ->
         {:error, {:unsupported_agent_kind, settings.agent.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
