@@ -19,17 +19,22 @@ const PROGW = 11;
 const TIMEW = 5;
 const INNER = MARKER + IDW + AGENTW + STATUSW + TITLEW + LATESTW + PROGW + TIMEW; // 92
 const WIDTH = INNER + 4; // 96 incl. "│ " and " │"
-// Show the top slice of the fleet so the grid fills width without the rows
-// overflowing the terminal's height at large font sizes.
-const VISIBLE_TICKETS = 6;
+// Fleet rows shown. Narrow/portrait screens render the fixed-width grid at a
+// small font, so short rows leave room for the full 10-agent fleet. Large
+// landscape screens render it large — rows are tall, so show fewer to keep the
+// log section in view. Recomputed on resize (see fitVisibleTickets).
+const ALL_TICKETS = 10;
+const WIDE_TICKETS = 6;
+const WIDE_QUERY = "(min-width: 1024px)";
+let visibleTickets = ALL_TICKETS;
 // Rows that aren't tickets or log lines: top border, 3 header rows, 2 dividers,
 // column header, log divider, bottom border, spacer, footer.
 const NON_TICKET_ROWS = 11;
 // Event-log rows. Grown at runtime to fill the terminal's height (see
-// startDashboard); every non-log row is fixed, so FIXED_ROWS + logLines = total.
+// startDashboard); every non-log row is fixed, so fixedRows() + logLines = total.
 const MIN_LOG_LINES = 6;
-const FIXED_ROWS = NON_TICKET_ROWS + VISIBLE_TICKETS;
 let logLines = MIN_LOG_LINES;
+const fixedRows = (): number => NON_TICKET_ROWS + visibleTickets;
 
 const PHASE_EMOJI: Record<Phase, string> = {
   brainstorm: "🧠",
@@ -244,7 +249,7 @@ function renderFrame(nowMs: number, baseMs: number): string {
   lines.push(plainDivider());
   lines.push(columnHeader());
   lines.push(plainDivider());
-  TICKETS.slice(0, VISIBLE_TICKETS).forEach((tk, i) =>
+  TICKETS.slice(0, visibleTickets).forEach((tk, i) =>
     lines.push(ticketRow(tk, loopSec, spinIdx, i === 0)),
   );
   lines.push(logDivider());
@@ -268,16 +273,23 @@ export function startDashboard(screen: HTMLElement): void {
   // The TUI is a fixed-width grid: its font shrinks to fit width, so on narrow
   // screens it leaves vertical slack. Grow the log section to fill that slack.
   // Line height tracks width (font-size) only, so it's stable across row counts.
+  // Large landscape screens render the grid large (tall rows), so trim the
+  // fleet to keep the log section visible; narrow screens show the full fleet.
+  const fitVisibleTickets = (): void => {
+    visibleTickets = window.matchMedia(WIDE_QUERY).matches ? WIDE_TICKETS : ALL_TICKETS;
+  };
+
   const fitLogLines = (): void => {
     const pre = screen.querySelector(".tui-pre") as HTMLElement | null;
     if (!pre) return;
-    const lineH = pre.getBoundingClientRect().height / (FIXED_ROWS + logLines);
+    const lineH = pre.getBoundingClientRect().height / (fixedRows() + logLines);
     const avail = screen.clientHeight;
     if (lineH > 0 && avail > 0) {
-      logLines = Math.max(MIN_LOG_LINES, Math.floor(avail / lineH) - FIXED_ROWS);
+      logLines = Math.max(MIN_LOG_LINES, Math.floor(avail / lineH) - fixedRows());
     }
   };
 
+  fitVisibleTickets();
   tick();
   fitLogLines();
   tick();
@@ -286,11 +298,13 @@ export function startDashboard(screen: HTMLElement): void {
   window.addEventListener("resize", () => {
     clearTimeout(rzTimer);
     rzTimer = window.setTimeout(() => {
+      fitVisibleTickets();
       fitLogLines();
       tick();
     }, 150);
   });
   void document.fonts?.ready.then(() => {
+    fitVisibleTickets();
     fitLogLines();
     tick();
   });
