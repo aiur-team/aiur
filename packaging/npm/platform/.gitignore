@@ -1,0 +1,3 @@
+# Generated per-platform packages (assembled by packaging/scripts/assemble-platform-package.mjs).
+# Each aiur-cli-<target>/ holds a copied OTP release tree and is rebuilt in CI.
+aiur-cli-*/
