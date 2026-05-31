@@ -3520,18 +3520,14 @@ defmodule Aiur.Orchestrator do
   defp accepted_delivery_policies(true), do: [:checkpoint, :interrupt]
   defp accepted_delivery_policies(false), do: [:checkpoint]
 
-  defp default_running_control(%Issue{} = issue) do
+  # `Config.agent_kind_for_issue/1` already handles `nil` and maps
+  # without a `:labels` field by falling back to `Config.agent_kind/0`,
+  # so one head covers both the production caller
+  # (`spawn_issue_on_worker_host/5`, which always passes an `%Issue{}`)
+  # and the `_for_test/1` hook (which passes `nil` to exercise the
+  # global-default branch).
+  defp default_running_control(issue) do
     kind = Config.agent_kind_for_issue(issue)
-
-    %{
-      can_interrupt: default_can_interrupt?(kind),
-      safe_checkpoints: default_safe_checkpoints(kind),
-      status: :working
-    }
-  end
-
-  defp default_running_control(_issue) do
-    kind = Config.agent_kind()
 
     %{
       can_interrupt: default_can_interrupt?(kind),

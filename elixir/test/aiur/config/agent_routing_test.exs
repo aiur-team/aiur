@@ -80,6 +80,34 @@ defmodule Aiur.Config.AgentRoutingTest do
     test "falls back when the issue is missing the labels field" do
       assert Config.agent_kind_for_issue(%{identifier: "99"}) == "codex"
     end
+
+    test "picks the highest complexity when an issue carries multiple complexity labels" do
+      # If a tracker reordered the labels payload, first-match would
+      # silently demote a complexity:5 ticket to whatever complexity:1
+      # appeared first. Highest-N wins keeps the routing safe under
+      # any label ordering.
+      issue = %Issue{identifier: "215", labels: ["complexity:2", "complexity:4"]}
+      assert Config.agent_kind_for_issue(issue) == "claude"
+
+      reversed = %Issue{identifier: "215", labels: ["complexity:4", "complexity:2"]}
+      assert Config.agent_kind_for_issue(reversed) == "claude"
+    end
+
+    test "trims whitespace in the complexity label value" do
+      issue = %Issue{identifier: "215", labels: ["complexity:4 "]}
+      assert Config.agent_kind_for_issue(issue) == "claude"
+    end
+
+    test "ignores blank or non-integer complexity values" do
+      blank = %Issue{identifier: "10", labels: ["complexity:"]}
+      assert Config.agent_kind_for_issue(blank) == "codex"
+
+      word = %Issue{identifier: "10", labels: ["complexity:high"]}
+      assert Config.agent_kind_for_issue(word) == "codex"
+
+      mixed = %Issue{identifier: "10", labels: ["complexity:high", "complexity:4"]}
+      assert Config.agent_kind_for_issue(mixed) == "claude"
+    end
   end
 
   describe "agent_kind_for_issue/1 with no routing block" do

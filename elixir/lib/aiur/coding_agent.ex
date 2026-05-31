@@ -60,6 +60,21 @@ defmodule Aiur.CodingAgent do
     transcript_module_for_kind(Config.agent_kind_for_issue(issue))
   end
 
+  @doc """
+  Single-snapshot resolver — returns `{adapter, transcript_module}` from
+  one `Config.agent_kind_for_issue/1` call so the pair always comes from
+  the same workflow snapshot. Calling `adapter_for/1` and
+  `transcript_module_for/1` independently risks a workflow reload landing
+  between them and pinning a Claude adapter with the Codex transcript
+  module (or vice versa). `Aiur.AgentRunner.run_codex_turns/5` uses this
+  to lock the pair atomically at session start.
+  """
+  @spec modules_for(map() | nil) :: {module(), module()}
+  def modules_for(issue) do
+    kind = Config.agent_kind_for_issue(issue)
+    {adapter_for_kind(kind), transcript_module_for_kind(kind)}
+  end
+
   defp adapter_for_kind("codex"), do: Aiur.Codex.CodingAgent
   defp adapter_for_kind(_), do: Aiur.Claude.CodingAgent
 

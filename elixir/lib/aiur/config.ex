@@ -103,6 +103,14 @@ defmodule Aiur.Config do
   `complexity:N` label in the routing map; falls back to `agent_kind/0`
   when the label is missing, the routing map is empty, or the issue is nil.
 
+  When an issue carries multiple `complexity:N` labels the highest N
+  wins — a `complexity:5` always trumps a `complexity:2` so a label
+  ordering accident in the tracker payload can never silently demote
+  a high-stakes ticket to a cheaper backend. Non-integer or blank
+  values (`complexity:`, `complexity:high`, `complexity:4 `) are
+  ignored after trimming; if no integer survives the fallback is the
+  global default.
+
   The session that handles the issue must pin this value at start time
   and use it consistently end-to-end (start_session, run_turn, transcript
   extraction, send_operator_message) so a Claude-routed issue is never
@@ -127,11 +135,21 @@ defmodule Aiur.Config do
   defp complexity_label_value(issue) do
     issue
     |> Map.get(:labels, [])
-    |> Enum.find_value(fn
-      "complexity:" <> value when value != "" -> value
-      _ -> nil
-    end)
+    |> Enum.flat_map(&parse_complexity_label/1)
+    |> case do
+      [] -> nil
+      pairs -> pairs |> Enum.max_by(fn {n, _} -> n end) |> elem(1)
+    end
   end
+
+  defp parse_complexity_label("complexity:" <> raw) when is_binary(raw) do
+    case Integer.parse(String.trim(raw)) do
+      {n, ""} when n >= 0 -> [{n, Integer.to_string(n)}]
+      _ -> []
+    end
+  end
+
+  defp parse_complexity_label(_label), do: []
 
   @spec active_states() :: [String.t()]
   def active_states do

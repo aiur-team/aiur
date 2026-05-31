@@ -355,11 +355,17 @@ defmodule Aiur.AgentRunner do
     # Aiur.Config.agent_kind_for_issue/1). Mid-session label flips do
     # NOT swap backends; restarting the agent is the only path to switch.
     #
-    # The adapter + transcript module are stamped onto the session map
-    # under runner-private keys (see `pin_backend/3`) so every helper
-    # that holds `app_session` can recover them without an extra arg.
-    adapter = CodingAgent.adapter_for(issue)
-    transcript_module = CodingAgent.transcript_module_for(issue)
+    # `modules_for/1` returns the {adapter, transcript_module} pair from
+    # ONE workflow snapshot — calling adapter_for/1 and
+    # transcript_module_for/1 separately would risk a mid-resolve
+    # `WorkflowStore.force_reload/0` (file watcher, operator edit)
+    # pinning a Claude adapter with the Codex transcript module, which
+    # would silently mis-parse every turn event.
+    #
+    # The pair is stamped onto the session map under runner-private keys
+    # (see `pin_backend/3`) so every helper that holds `app_session` can
+    # recover them without an extra arg.
+    {adapter, transcript_module} = CodingAgent.modules_for(issue)
 
     Logger.info("Pinned coding-agent backend for #{issue_context(issue)} adapter=#{inspect(adapter)}")
 
@@ -400,6 +406,22 @@ defmodule Aiur.AgentRunner do
 
   defp session_adapter(%{} = session), do: Map.fetch!(session, @adapter_key)
   defp session_transcript_module(%{} = session), do: Map.fetch!(session, @transcript_module_key)
+
+  @doc false
+  @spec pin_backend_for_test(map(), module(), module()) :: map()
+  def pin_backend_for_test(session, adapter, transcript_module) when is_map(session) do
+    pin_backend(session, adapter, transcript_module)
+  end
+
+  @doc false
+  @spec session_adapter_for_test(map()) :: module()
+  def session_adapter_for_test(session) when is_map(session), do: session_adapter(session)
+
+  @doc false
+  @spec session_transcript_module_for_test(map()) :: module()
+  def session_transcript_module_for_test(session) when is_map(session) do
+    session_transcript_module(session)
+  end
 
   # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   defp do_run_codex_turns(
