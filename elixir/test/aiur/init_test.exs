@@ -54,7 +54,11 @@ defmodule Aiur.InitTest do
           end
         end,
         check_agent_auth: fn _kind -> :ok end,
-        check_tracker_auth: fn _tracker -> :ok end
+        check_tracker_auth: fn _tracker -> :ok end,
+        create_labels: fn tracker, labels ->
+          send(parent, {:labels, tracker, labels})
+          :ok
+        end
       },
       overrides
     )
@@ -302,6 +306,46 @@ defmodule Aiur.InitTest do
 
       assert_received {:write, path}
       assert written_config(path)["pre_warmed_sessions"] == 0
+    end
+  end
+
+  describe "github label setup (U6, R8/R9)" do
+    test "derives the full label set for the chosen backends and prefix", %{dir: dir} do
+      inputs = ["github", "octo/repo", "team", "claude", "opus"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+
+      assert_received {:labels, %{kind: "github"}, labels}
+      assert "team:todo" in labels
+      assert "team:human-review" in labels
+      assert "model:claude" in labels
+      assert "complexity:1" in labels
+      assert "complexity:5" in labels
+      refute Enum.any?(labels, &String.starts_with?(&1, "model:codex"))
+    end
+
+    test "prints a routing summary that names agents only, not skills or prompts", %{dir: dir} do
+      inputs = ["github", "octo/repo", "team", "claude", "opus"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+
+      assert_received {:puts, "  complexity:1 → claude"}
+
+      assert_received {:puts, "A complexity label only selects the agent — it does not change skills or prompts."}
+    end
+
+    test "warns and proceeds when label creation fails (R6)", %{dir: dir} do
+      overrides = %{create_labels: fn _tracker, _labels -> {:error, "needs repo write scope"} end}
+      inputs = ["github", "octo/repo", "team", "claude", "opus"]
+
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir, overrides))
+
+      assert_received {:write, _}
+      assert_received {:puts, "⚠ label setup skipped: needs repo write scope"}
+    end
+
+    test "skips the label step entirely for non-github trackers", %{dir: dir} do
+      assert :ok = Init.run(%{force: false}, io(self(), ["memory"]), deps(dir))
+
+      refute_received {:labels, _, _}
     end
   end
 

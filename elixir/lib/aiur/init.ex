@@ -13,6 +13,7 @@ defmodule Aiur.Init do
 
   alias Aiur.CodingAgent
   alias Aiur.Config.Schema
+  alias Aiur.GitHub.Labels
 
   @config_file_name ".aiurconfig"
   @legacy_file_name "WORKFLOW.md"
@@ -44,7 +45,8 @@ defmodule Aiur.Init do
           write_config: (String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
-          check_tracker_auth: (map() -> :ok | {:error, String.t()})
+          check_tracker_auth: (map() -> :ok | {:error, String.t()}),
+          create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
         }
 
   @spec run(%{force: boolean()}) :: :ok | {:error, String.t()}
@@ -67,6 +69,7 @@ defmodule Aiur.Init do
           io.puts.("Wrote #{path}.")
           setup_env(io, deps, tracker)
           run_auth_checks(io, deps, tracker, agents)
+          setup_labels(io, deps, tracker, agents)
           :ok
 
         {:error, reason} ->
@@ -125,6 +128,42 @@ defmodule Aiur.Init do
   end
 
   defp setup_env(_io, _deps, _tracker), do: :ok
+
+  # GitHub-only: create the label families aiur routes on, explain each as we
+  # go, then teach what `complexity:<n>` actually does. A label failure (no
+  # token, no write scope) warns and is skipped — setup still succeeds (R6).
+  defp setup_labels(io, deps, %{kind: "github", label_prefix: prefix} = tracker, agents) do
+    backends = agent_kinds(agents)
+    labels = Labels.label_set(prefix, backends)
+
+    io.puts.("Creating #{length(labels)} labels aiur routes on:")
+    io.puts.("  • #{prefix}:<state> — the lifecycle state the orchestrator sets on each issue")
+    io.puts.("  • model:<agent>[-<model>] — pin an issue to a specific agent or model")
+    io.puts.("  • complexity:1-5 — route an issue to the agent mapped at that level")
+
+    case deps.create_labels.(tracker, labels) do
+      :ok -> io.puts.("Created labels (existing ones left as-is).")
+      {:error, message} -> io.puts.("⚠ label setup skipped: #{message}")
+    end
+
+    print_routing_summary(io, agents)
+  end
+
+  defp setup_labels(_io, _deps, _tracker, _agents), do: :ok
+
+  # Truthful R9 summary: complexity steers which agent picks up the issue via
+  # the routing table — it does not change the agent's skills or its prompt.
+  defp print_routing_summary(io, agents) do
+    routing = starter_routing(agents)
+
+    io.puts.("Complexity routing (which agent runs an issue at each level):")
+
+    Enum.each(1..5, fn level ->
+      io.puts.("  complexity:#{level} → #{Map.fetch!(routing, level)}")
+    end)
+
+    io.puts.("A complexity label only selects the agent — it does not change skills or prompts.")
+  end
 
   # Multi-select agents (at least one) with a per-agent model prompt defaulting
   # to the backend's first registry model. Order routes the starter table:
@@ -368,9 +407,47 @@ defmodule Aiur.Init do
       write_config: &write_config/1,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
-      check_tracker_auth: &check_tracker_auth/1
+      check_tracker_auth: &check_tracker_auth/1,
+      create_labels: &create_labels/2
     }
   end
+
+  defp create_labels(%{kind: "github", repo: repo}, labels) do
+    with {:ok, {owner, name}} <- parse_owner_repo(repo),
+         {:ok, token} <- require_github_token() do
+      case Labels.ensure(owner, name, token, labels) do
+        :ok -> :ok
+        {:error, reason} -> {:error, label_error_message(reason)}
+      end
+    end
+  end
+
+  defp create_labels(_tracker, _labels), do: :ok
+
+  defp parse_owner_repo(repo) do
+    case repo && String.split(to_string(repo), "/", trim: true) do
+      [owner, name] -> {:ok, {owner, name}}
+      _ -> {:error, "github.repo is not set to owner/name — add it to #{@config_file_name}"}
+    end
+  end
+
+  defp require_github_token do
+    case Aiur.GitHub.Config.token() do
+      token when is_binary(token) and token != "" -> {:ok, token}
+      _ -> {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
+    end
+  end
+
+  defp label_error_message({:github_api_status, 403, label}),
+    do: "GitHub rejected #{label} (403) — the token needs repo write scope"
+
+  defp label_error_message({:github_api_status, status, label}),
+    do: "GitHub rejected #{label} (HTTP #{status})"
+
+  defp label_error_message({:github_api_request, reason}),
+    do: "request failed: #{inspect(reason)}"
+
+  defp label_error_message(other), do: inspect(other)
 
   defp check_agent_auth(kind) do
     case agent_executable(kind) do
