@@ -19,7 +19,11 @@ const PROGW = 11;
 const TIMEW = 5;
 const INNER = MARKER + IDW + AGENTW + STATUSW + TITLEW + LATESTW + PROGW + TIMEW; // 92
 const WIDTH = INNER + 4; // 96 incl. "│ " and " │"
-const LOG_LINES = 6;
+// Event-log rows. Grown at runtime to fill the terminal's height (see
+// startDashboard); every non-log row is fixed, so FIXED_ROWS + logLines = total.
+const MIN_LOG_LINES = 6;
+const FIXED_ROWS = 21;
+let logLines = MIN_LOG_LINES;
 
 const PHASE_EMOJI: Record<Phase, string> = {
   brainstorm: "🧠",
@@ -198,9 +202,9 @@ function columnHeader(): string {
 }
 
 function eventLines(now: number): string[] {
-  const fired = EVENTS.filter((e) => e.t <= Math.floor(now)).slice(-LOG_LINES);
+  const fired = EVENTS.filter((e) => e.t <= Math.floor(now)).slice(-logLines);
   const lines: string[] = [];
-  for (let i = 0; i < LOG_LINES - fired.length; i++) lines.push(bordered(raw("")));
+  for (let i = 0; i < logLines - fired.length; i++) lines.push(bordered(raw("")));
   for (const e of fired) {
     const head = cat(
       emo(EVENT_GLYPH[e.kind]),
@@ -247,16 +251,41 @@ function renderFrame(nowMs: number, baseMs: number): string {
 export function startDashboard(screen: HTMLElement): void {
   const baseMs = performance.now();
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  if (reduce) {
-    // a single representative frame just after the hero unblock
-    screen.innerHTML = renderFrame(baseMs + 31_000, baseMs);
-    return;
-  }
+  const nowMs = (): number => (reduce ? baseMs + 31_000 : performance.now());
 
   const tick = (): void => {
-    screen.innerHTML = renderFrame(performance.now(), baseMs);
+    screen.innerHTML = renderFrame(nowMs(), baseMs);
   };
+
+  // The TUI is a fixed-width grid: its font shrinks to fit width, so on narrow
+  // screens it leaves vertical slack. Grow the log section to fill that slack.
+  // Line height tracks width (font-size) only, so it's stable across row counts.
+  const fitLogLines = (): void => {
+    const pre = screen.querySelector(".tui-pre") as HTMLElement | null;
+    if (!pre) return;
+    const lineH = pre.getBoundingClientRect().height / (FIXED_ROWS + logLines);
+    const avail = screen.clientHeight;
+    if (lineH > 0 && avail > 0) {
+      logLines = Math.max(MIN_LOG_LINES, Math.floor(avail / lineH) - FIXED_ROWS);
+    }
+  };
+
   tick();
-  window.setInterval(tick, 100);
+  fitLogLines();
+  tick();
+
+  let rzTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(rzTimer);
+    rzTimer = window.setTimeout(() => {
+      fitLogLines();
+      tick();
+    }, 150);
+  });
+  void document.fonts?.ready.then(() => {
+    fitLogLines();
+    tick();
+  });
+
+  if (!reduce) window.setInterval(tick, 100);
 }
