@@ -52,7 +52,9 @@ defmodule Aiur.InitTest do
             File.write!(env_path, content)
             {:created, env_path}
           end
-        end
+        end,
+        check_agent_auth: fn _kind -> :ok end,
+        check_tracker_auth: fn _tracker -> :ok end
       },
       overrides
     )
@@ -183,6 +185,79 @@ defmodule Aiur.InitTest do
 
       refute File.exists?(Path.join(dir, ".env.example"))
       refute File.exists?(Path.join(dir, ".env"))
+    end
+  end
+
+  describe "agent selection (U4)" do
+    test "re-prompts until at least one known agent is chosen", %{dir: dir} do
+      assert :ok = Init.run(%{force: false}, io(self(), ["memory", "bogus", "claude"]), deps(dir))
+
+      assert_received {:puts, "Setting up aiur in this repo."}
+      assert_received {:puts, choose}
+      assert choose =~ "Please choose at least one"
+    end
+
+    test "writes a chosen claude model to the claude section", %{dir: dir} do
+      inputs = ["memory", "claude", "sonnet"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+
+      assert_received {:write, path}
+      assert written_config(path)["claude"]["model"] == "sonnet"
+    end
+  end
+
+  describe "background auth checks (U4, R5/R6)" do
+    test "stays silent and proceeds when every check passes", %{dir: dir} do
+      assert :ok = Init.run(%{force: false}, io(self(), ["memory", "claude", "opus"]), deps(dir))
+
+      assert_received {:write, _}
+      refute_received {:puts, "⚠" <> _}
+    end
+
+    test "only checks the agents that were chosen", %{dir: dir} do
+      parent = self()
+
+      overrides = %{
+        check_agent_auth: fn kind ->
+          send(parent, {:agent_checked, kind})
+          :ok
+        end
+      }
+
+      assert :ok =
+               Init.run(%{force: false}, io(self(), ["memory", "claude", "opus"]), deps(dir, overrides))
+
+      assert_received {:agent_checked, "claude"}
+      refute_received {:agent_checked, "codex"}
+    end
+
+    test "warns on a failed tracker check but still writes the config (R6)", %{dir: dir} do
+      overrides = %{
+        check_tracker_auth: fn _tracker -> {:error, "GITHUB_TOKEN not set"} end
+      }
+
+      inputs = ["github", "octo/repo", "team"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir, overrides))
+
+      assert_received {:write, _}
+      assert_received {:puts, "⚠ github tracker: GITHUB_TOKEN not set"}
+    end
+
+    test "retrying a failed check clears the warning once it passes", %{dir: dir} do
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+      overrides = %{
+        check_tracker_auth: fn _tracker ->
+          n = Agent.get_and_update(attempts, fn n -> {n, n + 1} end)
+          if n == 0, do: {:error, "transient failure"}, else: :ok
+        end
+      }
+
+      inputs = ["github", "octo/repo", "team", "claude", "opus", "r"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir, overrides))
+
+      assert_received {:puts, "⚠ github tracker: transient failure"}
+      refute_received {:puts, "⚠" <> _}
     end
   end
 

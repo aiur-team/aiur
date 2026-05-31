@@ -41,7 +41,9 @@ defmodule Aiur.Init do
           existing_config_path: (-> String.t() | nil),
           detect_repo: (-> String.t() | nil),
           write_config: (String.t() -> {:ok, Path.t()} | {:error, term()}),
-          ensure_env: (String.t() -> {:created | :exists, Path.t()})
+          ensure_env: (String.t() -> {:created | :exists, Path.t()}),
+          check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
+          check_tracker_auth: (map() -> :ok | {:error, String.t()})
         }
 
   @spec run(%{force: boolean()}) :: :ok | {:error, String.t()}
@@ -55,12 +57,14 @@ defmodule Aiur.Init do
       io.puts.("Setting up aiur in this repo.")
 
       tracker = prompt_tracker(io, deps)
-      config = assemble_config(%{tracker: tracker, agents: default_agents()})
+      agents = prompt_agents(io)
+      config = assemble_config(%{tracker: tracker, agents: agents})
 
       case deps.write_config.(to_yaml(config)) do
         {:ok, path} ->
           io.puts.("Wrote #{path}.")
           setup_env(io, deps, tracker)
+          run_auth_checks(io, deps, tracker, agents)
           :ok
 
         {:error, reason} ->
@@ -120,12 +124,109 @@ defmodule Aiur.Init do
 
   defp setup_env(_io, _deps, _tracker), do: :ok
 
+  # Multi-select agents (at least one) with a per-agent model prompt defaulting
+  # to the backend's first registry model. Order routes the starter table:
+  # `agent_kinds/1` sorts by @routing_order so low complexity hits the first.
+  defp prompt_agents(io) do
+    io
+    |> prompt_agent_kinds()
+    |> Enum.map(fn kind -> %{kind: kind, model: prompt_agent_model(io, kind)} end)
+  end
+
+  defp prompt_agent_kinds(io) do
+    choices = agent_kind_choices()
+    default = if "claude" in choices, do: "claude", else: hd(choices)
+    raw = prompt(io, "Coding agents (comma-separated: #{Enum.join(choices, "/")})", default)
+
+    case parse_agent_kinds(raw, choices) do
+      [] ->
+        io.puts.("Please choose at least one of: #{Enum.join(choices, ", ")}.")
+        prompt_agent_kinds(io)
+
+      kinds ->
+        kinds
+    end
+  end
+
+  defp parse_agent_kinds(raw, choices) do
+    raw
+    |> to_string()
+    |> String.split(~r/[,\s]+/, trim: true)
+    |> Enum.map(&String.downcase/1)
+    |> Enum.filter(&(&1 in choices))
+    |> Enum.uniq()
+  end
+
+  defp prompt_agent_model(io, kind) do
+    prompt(io, "#{kind} model", default_model(kind))
+  end
+
+  defp default_model(kind) do
+    CodingAgent.backends()
+    |> Map.get(kind, %{})
+    |> Map.get(:models, [])
+    |> List.first()
+  end
+
+  defp agent_kind_choices do
+    known = known_agent_kinds()
+    Enum.filter(@routing_order, &(&1 in known)) ++ Enum.reject(known, &(&1 in @routing_order))
+  end
+
+  # Auth checks run after the config is written so a failure can never block
+  # setup (R6). Success is silent; failure warns with a fix hint and offers
+  # retry/skip, then proceeds either way.
+  defp run_auth_checks(io, deps, tracker, agents) do
+    Enum.each(agent_kinds(agents), fn kind ->
+      run_auth_check(io, "#{kind} agent", fn -> deps.check_agent_auth.(kind) end)
+    end)
+
+    run_auth_check(io, "#{tracker.kind} tracker", fn -> deps.check_tracker_auth.(tracker) end)
+    :ok
+  end
+
+  defp run_auth_check(io, label, check) do
+    case check.() do
+      :ok ->
+        :ok
+
+      {:error, message} ->
+        io.puts.("⚠ #{label}: #{message}")
+
+        case prompt_retry_skip(io) do
+          :retry -> run_auth_check(io, label, check)
+          :skip -> :ok
+        end
+    end
+  end
+
+  defp prompt_retry_skip(io) do
+    case prompt(io, "[r]etry or [s]kip", "skip") do
+      "r" <> _ -> :retry
+      _ -> :skip
+    end
+  end
+
   # Unprompted sections are intentionally omitted: the schema applies its
   # defaults on load, so the written file carries only the decisions the
   # wizard collected plus the starter routing table it teaches.
   defp assemble_config(%{tracker: tracker, agents: agents}) do
     %{"agent" => agent_section(agents)}
     |> put_tracker(tracker)
+    |> put_claude_model(agents)
+  end
+
+  # claude reads `claude.model` from its own section; codex has no config model
+  # field (the codex model selection only seeds U6's `model:codex-*` labels), so
+  # only a chosen claude model is persisted here.
+  defp put_claude_model(config, agents) do
+    case Enum.find(agents, &(&1.kind == "claude")) do
+      %{model: model} when is_binary(model) and model != "" ->
+        Map.put(config, "claude", %{"model" => model})
+
+      _ ->
+        config
+    end
   end
 
   defp put_tracker(config, %{kind: "github", repo: repo, label_prefix: prefix}) do
@@ -178,10 +279,6 @@ defmodule Aiur.Init do
     |> Enum.sort_by(&Enum.find_index(@routing_order, fn k -> k == &1 end))
   end
 
-  defp default_agents do
-    [%{kind: "claude", model: nil}]
-  end
-
   defp to_yaml(config), do: Ymlr.document!(config)
 
   defp drop_nil(map) do
@@ -230,8 +327,77 @@ defmodule Aiur.Init do
       existing_config_path: &existing_config_path/0,
       detect_repo: &detect_repo/0,
       write_config: &write_config/1,
-      ensure_env: &ensure_env/1
+      ensure_env: &ensure_env/1,
+      check_agent_auth: &check_agent_auth/1,
+      check_tracker_auth: &check_tracker_auth/1
     }
+  end
+
+  defp check_agent_auth(kind) do
+    case agent_executable(kind) do
+      nil ->
+        {:error, "no command configured for #{kind}"}
+
+      exe ->
+        if System.find_executable(exe) do
+          :ok
+        else
+          {:error, "#{exe} not found on PATH — install the #{kind} CLI or add it to PATH"}
+        end
+    end
+  end
+
+  defp agent_executable(kind) do
+    command =
+      case kind do
+        "claude" -> Aiur.Claude.Config.command()
+        "codex" -> Aiur.Codex.Config.command()
+        _ -> nil
+      end
+
+    case command && String.split(String.trim(command), ~r/\s+/, trim: true) do
+      [exe | _] -> exe
+      _ -> nil
+    end
+  end
+
+  defp check_tracker_auth(%{kind: "github"}) do
+    case Aiur.GitHub.Config.token() do
+      token when is_binary(token) and token != "" ->
+        github_identity(token)
+
+      _ ->
+        {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
+    end
+  end
+
+  defp check_tracker_auth(%{kind: "linear"}) do
+    case Aiur.Linear.Config.api_key() do
+      key when is_binary(key) and key != "" ->
+        :ok
+
+      _ ->
+        {:error, "Linear API key not set — set linear.api_key or LINEAR_API_KEY"}
+    end
+  end
+
+  defp check_tracker_auth(_tracker), do: :ok
+
+  defp github_identity(token) do
+    headers = [
+      {"authorization", "Bearer #{token}"},
+      {"accept", "application/vnd.github+json"},
+      {"user-agent", "aiur-init"}
+    ]
+
+    case Req.get("https://api.github.com/user", headers: headers, connect_options: [timeout: 10_000]) do
+      {:ok, %{status: 200}} -> :ok
+      {:ok, %{status: 401}} -> {:error, "GITHUB_TOKEN rejected (401) — create a repo-scoped token at #{@token_url}"}
+      {:ok, %{status: status}} -> {:error, "GitHub identity check failed (HTTP #{status})"}
+      {:error, reason} -> {:error, "GitHub identity check failed: #{inspect(reason)}"}
+    end
+  rescue
+    error -> {:error, "GitHub identity check failed: #{Exception.message(error)}"}
   end
 
   defp existing_config_path do
