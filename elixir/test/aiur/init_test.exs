@@ -253,11 +253,55 @@ defmodule Aiur.InitTest do
         end
       }
 
-      inputs = ["github", "octo/repo", "team", "claude", "opus", "r"]
+      inputs = ["github", "octo/repo", "team", "claude", "opus", "10", "3", "3", "r"]
       assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir, overrides))
 
       assert_received {:puts, "⚠ github tracker: transient failure"}
       refute_received {:puts, "⚠" <> _}
+    end
+  end
+
+  describe "concurrency prompts (U5)" do
+    test "accepting defaults writes the schema concurrency values", %{dir: dir} do
+      assert :ok = Init.run(%{force: false}, io(self(), ["memory"]), deps(dir))
+
+      assert_received {:write, path}
+      config = written_config(path)
+      assert config["agent"]["max_concurrent_agents"] == 10
+      assert config["max_vertical_panes"] == 3
+      assert config["pre_warmed_sessions"] == 3
+    end
+
+    test "custom concurrency values are reflected in the config", %{dir: dir} do
+      inputs = ["memory", "claude", "opus", "4", "2", "1"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+
+      assert_received {:write, path}
+      config = written_config(path)
+      assert config["agent"]["max_concurrent_agents"] == 4
+      assert config["max_vertical_panes"] == 2
+      assert config["pre_warmed_sessions"] == 1
+    end
+
+    test "re-prompts on non-numeric or out-of-range input", %{dir: dir} do
+      inputs = ["memory", "claude", "opus", "nope", "0", "5", "3", "3"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+
+      assert_received {:puts, "Setting up aiur in this repo."}
+      assert_received {:puts, message}
+      assert message =~ "Enter a whole number"
+
+      assert_received {:write, path}
+      config = written_config(path)
+      assert config["agent"]["max_concurrent_agents"] == 5
+    end
+
+    test "pre_warmed_sessions accepts 0 to disable warm-up", %{dir: dir} do
+      inputs = ["memory", "claude", "opus", "10", "3", "0"]
+      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+
+      assert_received {:write, path}
+      assert written_config(path)["pre_warmed_sessions"] == 0
     end
   end
 

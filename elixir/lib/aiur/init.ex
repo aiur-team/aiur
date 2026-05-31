@@ -12,6 +12,7 @@ defmodule Aiur.Init do
   """
 
   alias Aiur.CodingAgent
+  alias Aiur.Config.Schema
 
   @config_file_name ".aiurconfig"
   @legacy_file_name "WORKFLOW.md"
@@ -58,7 +59,8 @@ defmodule Aiur.Init do
 
       tracker = prompt_tracker(io, deps)
       agents = prompt_agents(io)
-      config = assemble_config(%{tracker: tracker, agents: agents})
+      concurrency = prompt_concurrency(io)
+      config = assemble_config(%{tracker: tracker, agents: agents, concurrency: concurrency})
 
       case deps.write_config.(to_yaml(config)) do
         {:ok, path} ->
@@ -173,6 +175,38 @@ defmodule Aiur.Init do
     Enum.filter(@routing_order, &(&1 in known)) ++ Enum.reject(known, &(&1 in @routing_order))
   end
 
+  # Concurrency knobs pre-filled with the schema defaults so accept-on-enter
+  # round-trips the same values the runtime would apply anyway. min is 1 for the
+  # two pane/agent caps; pre_warmed_sessions allows 0 to disable warm-up.
+  defp prompt_concurrency(io) do
+    %{
+      max_concurrent_agents: prompt_int(io, "Max concurrent agents", default_agents(), 1),
+      max_vertical_panes: prompt_int(io, "Max vertical panes", default_panes(), 1),
+      pre_warmed_sessions: prompt_int(io, "Pre-warmed sessions", default_warm(), 0)
+    }
+  end
+
+  defp default_agents, do: %Schema.Agent{}.max_concurrent_agents
+  defp default_panes, do: %Schema{}.max_vertical_panes
+  defp default_warm, do: %Schema{}.pre_warmed_sessions
+
+  defp prompt_int(io, label, default, min) do
+    case prompt(io, label, default) do
+      ^default ->
+        default
+
+      raw ->
+        case Integer.parse(to_string(raw)) do
+          {n, ""} when n >= min ->
+            n
+
+          _ ->
+            io.puts.("Enter a whole number ≥ #{min}.")
+            prompt_int(io, label, default, min)
+        end
+    end
+  end
+
   # Auth checks run after the config is written so a failure can never block
   # setup (R6). Success is silent; failure warns with a fix hint and offers
   # retry/skip, then proceeds either way.
@@ -210,8 +244,12 @@ defmodule Aiur.Init do
   # Unprompted sections are intentionally omitted: the schema applies its
   # defaults on load, so the written file carries only the decisions the
   # wizard collected plus the starter routing table it teaches.
-  defp assemble_config(%{tracker: tracker, agents: agents}) do
-    %{"agent" => agent_section(agents)}
+  defp assemble_config(%{tracker: tracker, agents: agents, concurrency: concurrency}) do
+    %{
+      "agent" => agent_section(agents, concurrency),
+      "max_vertical_panes" => concurrency.max_vertical_panes,
+      "pre_warmed_sessions" => concurrency.pre_warmed_sessions
+    }
     |> put_tracker(tracker)
     |> put_claude_model(agents)
   end
@@ -245,9 +283,10 @@ defmodule Aiur.Init do
     Map.put(config, "tracker", %{"kind" => "memory"})
   end
 
-  defp agent_section(agents) do
+  defp agent_section(agents, concurrency) do
     %{
       "kind" => primary_kind(agents),
+      "max_concurrent_agents" => concurrency.max_concurrent_agents,
       "routing" => starter_routing(agents),
       "complexity_prompts" => starter_complexity_prompts()
     }
