@@ -84,6 +84,7 @@ defmodule Aiur.InitTest do
       assert config["github"]["label_prefix"] == "team"
       assert config["agent"]["kind"] == "claude"
       assert config["agent"]["routing"] == %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"}
+      assert config["agent"]["complexity_prompts"] == %{1 => "", 2 => "", 3 => "", 4 => "", 5 => ""}
     end
 
     test "github repo prompt pre-fills from the detected remote", %{dir: dir} do

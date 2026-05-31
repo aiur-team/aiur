@@ -167,6 +167,7 @@ defmodule Aiur.Config.Schema do
       field(:max_retry_backoff_ms, :integer, default: 300_000)
       field(:max_concurrent_agents_by_state, :map, default: %{})
       field(:routing, :map, default: %{})
+      field(:complexity_prompts, :map, default: %{})
       field(:codex_thrash_max_per_window, :integer, default: 6)
       field(:codex_thrash_window_seconds, :integer, default: 60)
     end
@@ -184,6 +185,7 @@ defmodule Aiur.Config.Schema do
           :max_retry_backoff_ms,
           :max_concurrent_agents_by_state,
           :routing,
+          :complexity_prompts,
           :codex_thrash_max_per_window,
           :codex_thrash_window_seconds
         ],
@@ -199,6 +201,8 @@ defmodule Aiur.Config.Schema do
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
       |> update_change(:routing, &Schema.normalize_agent_routing/1)
       |> Schema.validate_agent_routing(:routing)
+      |> update_change(:complexity_prompts, &Schema.normalize_complexity_prompts/1)
+      |> Schema.validate_complexity_prompts(:complexity_prompts)
     end
   end
 
@@ -461,6 +465,35 @@ defmodule Aiur.Config.Schema do
 
           backend not in known ->
             [{field, "unknown backend #{inspect(backend)}; known backends: #{inspect(known)}"}]
+
+          true ->
+            []
+        end
+      end)
+    end)
+  end
+
+  @doc false
+  @spec normalize_complexity_prompts(nil | map()) :: map()
+  def normalize_complexity_prompts(nil), do: %{}
+
+  def normalize_complexity_prompts(prompts) when is_map(prompts) do
+    Enum.reduce(prompts, %{}, fn {level, text}, acc ->
+      Map.put(acc, normalize_routing_level(level), text)
+    end)
+  end
+
+  @doc false
+  @spec validate_complexity_prompts(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_complexity_prompts(changeset, field) do
+    validate_change(changeset, field, fn ^field, prompts ->
+      Enum.flat_map(prompts, fn {level, text} ->
+        cond do
+          not is_integer(level) or level <= 0 ->
+            [{field, "complexity levels must be positive integers"}]
+
+          not is_binary(text) ->
+            [{field, "complexity prompt values must be strings"}]
 
           true ->
             []

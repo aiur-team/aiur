@@ -121,8 +121,16 @@ defmodule Aiur.Init do
   defp agent_section(agents) do
     %{
       "kind" => primary_kind(agents),
-      "routing" => starter_routing(agents)
+      "routing" => starter_routing(agents),
+      "complexity_prompts" => starter_complexity_prompts()
     }
+  end
+
+  # Empty per-level placeholders so the dev can discover the knob and drop
+  # in level-specific guidance that gets appended to the end of the prompt
+  # for issues carrying that `complexity:<n>` label.
+  defp starter_complexity_prompts do
+    Map.new(1..5, &{&1, ""})
   end
 
   defp starter_routing(agents) do

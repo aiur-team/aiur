@@ -89,6 +89,20 @@ defmodule Aiur.Config do
     settings!().agent.routing || %{}
   end
 
+  @doc """
+  Per-complexity-level guidance strings, keyed by complexity level.
+  Appended to the end of the rendered prompt for an issue carrying the
+  matching `complexity:<n>` label. Returns `%{}` when unset or the config
+  cannot be loaded, so prompt building never fails on this lookup.
+  """
+  @spec agent_complexity_prompts() :: %{pos_integer() => String.t()}
+  def agent_complexity_prompts do
+    case settings() do
+      {:ok, settings} -> settings.agent.complexity_prompts || %{}
+      _ -> %{}
+    end
+  end
+
   @spec active_states() :: [String.t()]
   def active_states do
     settings!().tracker.active_states
