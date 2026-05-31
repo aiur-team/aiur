@@ -6,11 +6,22 @@ defmodule Aiur.Workflow do
   alias Aiur.WorkflowStore
 
   @workflow_file_name "WORKFLOW.md"
+  @config_file_name ".aiurconfig"
 
   @spec workflow_file_path() :: Path.t()
   def workflow_file_path do
-    Application.get_env(:aiur, :workflow_file_path) ||
-      Path.join(File.cwd!(), @workflow_file_name)
+    Application.get_env(:aiur, :workflow_file_path) || detect_run_folder_config()
+  end
+
+  defp detect_run_folder_config do
+    cwd = File.cwd!()
+    config_path = Path.join(cwd, @config_file_name)
+
+    if File.regular?(config_path) do
+      config_path
+    else
+      Path.join(cwd, @workflow_file_name)
+    end
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok
@@ -53,14 +64,40 @@ defmodule Aiur.Workflow do
   def load(path) when is_binary(path) do
     case File.read(path) do
       {:ok, content} ->
-        parse(content)
+        parse(content, path)
 
       {:error, reason} ->
         {:error, {:missing_workflow_file, path, reason}}
     end
   end
 
-  defp parse(content) do
+  # `.aiurconfig` is pure YAML: the whole file is config, with no prompt body.
+  # `WORKFLOW.md` keeps front-matter + body semantics. Parse mode is keyed off
+  # the filename, not fence presence, so a fence-less WORKFLOW.md stays all-body.
+  defp parse(content, path) do
+    if Path.basename(path) == @config_file_name do
+      parse_pure_yaml(content)
+    else
+      parse_front_matter(content)
+    end
+  end
+
+  defp parse_pure_yaml(content) do
+    lines = String.split(content, ~r/\R/, trim: false)
+
+    case front_matter_yaml_to_map(lines) do
+      {:ok, config} ->
+        {:ok, %{config: config, prompt: "", prompt_template: ""}}
+
+      {:error, :workflow_front_matter_not_a_map} ->
+        {:error, :workflow_front_matter_not_a_map}
+
+      {:error, reason} ->
+        {:error, {:workflow_parse_error, reason}}
+    end
+  end
+
+  defp parse_front_matter(content) do
     {front_matter_lines, prompt_lines} = split_front_matter(content)
 
     case front_matter_yaml_to_map(front_matter_lines) do
