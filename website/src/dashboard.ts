@@ -5,8 +5,10 @@ import {
   PROJECT,
   ACTIVE,
   MAX,
+  BEAT,
+  OPENCODE_SCRIPT,
 } from "./simData";
-import type { TicketScript, Phase, Agent, EventKind } from "./simData";
+import type { TicketScript, Phase, Agent, EventKind, OcLine } from "./simData";
 
 // ---- frame geometry (character columns) ----
 const MARKER = 2;
@@ -19,6 +21,47 @@ const PROGW = 11;
 const TIMEW = 5;
 const INNER = MARKER + IDW + AGENTW + STATUSW + TITLEW + LATESTW + PROGW + TIMEW; // 92
 const WIDTH = INNER + 4; // 96 incl. "│ " and " │"
+
+// Two dashboard geometries. FULL is today's full-width grid. ABBR is the
+// ~1/3-width pane shown beside the opencode pane during the take-the-wheel
+// beat: AGENT, LATEST and TIME columns drop, TITLE truncates, and PROGRESS
+// becomes a percentage so the combined split stays within the ~96-col budget.
+interface Geom {
+  id: number;
+  agent: number; // 0 = dropped
+  status: number;
+  title: number;
+  latest: number; // 0 = dropped
+  prog: number;
+  time: number; // 0 = dropped
+  inner: number;
+  width: number;
+  dropLatest: boolean;
+}
+const FULL: Geom = {
+  id: IDW, agent: AGENTW, status: STATUSW, title: TITLEW,
+  latest: LATESTW, prog: PROGW, time: TIMEW,
+  inner: INNER, width: WIDTH, dropLatest: false,
+};
+const TITLE_S = 11;
+const PROG_S = 6;
+const INNER_S = MARKER + IDW + STATUSW + TITLE_S + PROG_S; // 26
+const ABBR: Geom = {
+  id: IDW, agent: 0, status: STATUSW, title: TITLE_S,
+  latest: 0, prog: PROG_S, time: 0,
+  inner: INNER_S, width: INNER_S + 4, dropLatest: true,
+};
+export const DASH_BOX_W = WIDTH;
+export const DASH_BOX_W_ABBR = INNER_S + 4;
+
+// opencode pane geometry. The pane sits to the right of the abbreviated
+// dashboard during the beat: a left rail, then OC_INNER content cols. Widths
+// are derived so the combined split (dashboard + gutter + pane) equals WIDTH,
+// keeping the container-query font ratio unchanged (no overflow/clip).
+const OC_RAIL_W = 2; // "┃ "
+export const OC_GUTTER = 1; // blank cols between dashboard box and pane
+export const OC_INNER = WIDTH - DASH_BOX_W_ABBR - OC_GUTTER - OC_RAIL_W; // 63
+export const OC_PANE_W = OC_RAIL_W + OC_INNER; // 65
 // Show the top slice of the fleet so the grid fills width without the rows
 // overflowing the terminal's height at large font sizes.
 const VISIBLE_TICKETS = 6;
@@ -38,6 +81,7 @@ const PHASE_EMOJI: Record<Phase, string> = {
   review: "🔍",
   done: "🏁",
   blocked: "⏳",
+  decide: "✋",
 };
 const EVENT_GLYPH: Record<EventKind, string> = {
   publish: "💬",
@@ -130,50 +174,60 @@ function sample(tk: TicketScript, now: number): {
   return { phase: cur.phase, latest, progress };
 }
 
-function ticketRow(tk: TicketScript, now: number, spinIdx: number, selected: boolean): string {
+function ticketRow(
+  tk: TicketScript,
+  now: number,
+  spinIdx: number,
+  selected: boolean,
+  g: Geom,
+): string {
   const s = sample(tk, now);
   const timer = tk.seedSec + Math.floor(now);
+  const stalled = s.phase === "blocked" || s.phase === "decide";
 
-  const c1 = cat(mark(selected), raw(" ")); // 2
-  const c2 = padEnd(raw(String(tk.id)), IDW); // 4
-  const c3 = padEnd(agentSeg(tk.agent), AGENTW); // 7
-  const c4 = cat(emo(PHASE_EMOJI[s.phase]), raw(" ")); // 3
-  const c5 = padEnd(raw(trunc(tk.title, TITLEW - 1)), TITLEW); // 27
-
-  let latestSeg: Seg;
-  if (s.phase === "blocked") {
-    latestSeg = cat(
-      spin(SPIN[spinIdx]),
-      raw(" "),
-      raw(trunc(s.latest, LATESTW - 3)),
-    );
-  } else {
-    latestSeg = raw(trunc(s.latest, LATESTW - 1));
+  const cols: Seg[] = [cat(mark(selected), raw(" "))]; // marker 2
+  cols.push(padEnd(raw(String(tk.id)), g.id));
+  if (g.agent) cols.push(padEnd(agentSeg(tk.agent), g.agent));
+  // status cell: when LATEST is dropped, the spinner lives here for stalled rows
+  cols.push(
+    g.dropLatest && stalled
+      ? cat(spin(SPIN[spinIdx]), raw("  "))
+      : cat(emo(PHASE_EMOJI[s.phase]), raw(" ")),
+  ); // width = status (3)
+  cols.push(padEnd(raw(trunc(tk.title, g.title - 1)), g.title));
+  if (!g.dropLatest) {
+    const latestSeg = stalled
+      ? cat(spin(SPIN[spinIdx]), raw(" "), raw(trunc(s.latest, g.latest - 3)))
+      : raw(trunc(s.latest, g.latest - 1));
+    cols.push(padEnd(latestSeg, g.latest));
   }
-  const c6 = padEnd(latestSeg, LATESTW); // 33
-  const c7 = cat(bar(s.progress), raw(" ")); // 11
-  const c8 = padStart(raw(fmtTime(timer), "dim"), TIMEW); // 5
+  cols.push(
+    g.dropLatest
+      ? padStart(raw(`${Math.round(s.progress)}%`, s.progress >= 100 ? "ok" : "acc"), g.prog)
+      : cat(bar(s.progress), raw(" ")),
+  );
+  if (g.time) cols.push(padStart(raw(fmtTime(timer), "dim"), g.time));
 
-  return bordered(cat(c1, c2, c3, c4, c5, c6, c7, c8));
+  return bordered(cat(...cols), g);
 }
 
-function bordered(content: Seg): string {
-  return cat(raw("│ ", "bd"), padEnd(content, INNER), raw(" │", "bd")).h;
+function bordered(content: Seg, g: Geom): string {
+  return cat(raw("│ ", "bd"), padEnd(content, g.inner), raw(" │", "bd")).h;
 }
 
-function topBorder(): string {
+function topBorder(g: Geom): string {
   const left = cat(raw("╭─ ", "bd"), raw("AIUR", "tb"));
-  return cat(left, dashes(WIDTH - left.w - 1), raw("╮", "bd")).h;
+  return cat(left, dashes(g.width - left.w - 1), raw("╮", "bd")).h;
 }
 
-function plainDivider(): string {
-  return cat(raw("├", "bd"), dashes(WIDTH - 2), raw("┤", "bd")).h;
+function plainDivider(g: Geom): string {
+  return cat(raw("├", "bd"), dashes(g.width - 2), raw("┤", "bd")).h;
 }
 
-function logDivider(): string {
+function logDivider(g: Geom): string {
   const labelW = 8; // " oldest "
   const tail = 2;
-  const head = WIDTH - 1 - labelW - tail - 1;
+  const head = g.width - 1 - labelW - tail - 1;
   return cat(
     raw("├", "bd"),
     dashes(head),
@@ -183,34 +237,35 @@ function logDivider(): string {
   ).h;
 }
 
-function bottomBorder(): string {
+function bottomBorder(g: Geom): string {
   const label = raw("╰─ newest ", "bd");
-  return cat(label, dashes(WIDTH - label.w - 1), raw("╯", "bd")).h;
+  return cat(label, dashes(g.width - label.w - 1), raw("╯", "bd")).h;
 }
 
-function headerRow(label: string, value: string): string {
-  return bordered(cat(raw(label), raw(value, "acc")));
+function headerRow(label: string, value: string, g: Geom): string {
+  return bordered(cat(raw(label), raw(trunc(value, g.inner - label.length), "acc")), g);
 }
 
-function columnHeader(): string {
-  return bordered(
-    cat(
-      raw("  "), // marker
-      padEnd(raw("ID", "dim"), IDW),
-      padEnd(raw("AGENT", "dim"), AGENTW),
-      raw(" ".repeat(STATUSW)),
-      padEnd(raw("TITLE", "dim"), TITLEW),
-      padEnd(raw("LATEST", "dim"), LATESTW),
-      padEnd(raw("PROGRESS", "dim"), PROGW),
-      padStart(raw("TIME", "dim"), TIMEW),
-    ),
+function columnHeader(g: Geom): string {
+  const cols: Seg[] = [raw("  ")]; // marker
+  cols.push(padEnd(raw("ID", "dim"), g.id));
+  if (g.agent) cols.push(padEnd(raw("AGENT", "dim"), g.agent));
+  cols.push(raw(" ".repeat(g.status)));
+  cols.push(padEnd(raw("TITLE", "dim"), g.title));
+  if (!g.dropLatest) cols.push(padEnd(raw("LATEST", "dim"), g.latest));
+  cols.push(
+    g.dropLatest
+      ? padStart(raw("PROG", "dim"), g.prog)
+      : padEnd(raw("PROGRESS", "dim"), g.prog),
   );
+  if (g.time) cols.push(padStart(raw("TIME", "dim"), g.time));
+  return bordered(cat(...cols), g);
 }
 
-function eventLines(now: number): string[] {
-  const fired = EVENTS.filter((e) => e.t <= Math.floor(now)).slice(-logLines);
+function eventLines(now: number, g: Geom, count: number): string[] {
+  const fired = EVENTS.filter((e) => e.t <= Math.floor(now)).slice(-count);
   const lines: string[] = [];
-  for (let i = 0; i < logLines - fired.length; i++) lines.push(bordered(raw("")));
+  for (let i = 0; i < count - fired.length; i++) lines.push(bordered(raw(""), g));
   for (const e of fired) {
     const head = cat(
       emo(EVENT_GLYPH[e.kind]),
@@ -218,8 +273,8 @@ function eventLines(now: number): string[] {
       raw(String(e.id), "acc"),
       raw(" "),
     );
-    const text = raw(trunc(e.text, INNER - head.w));
-    lines.push(bordered(cat(head, text)));
+    const text = raw(trunc(e.text, g.inner - head.w));
+    lines.push(bordered(cat(head, text), g));
   }
   return lines;
 }
@@ -232,34 +287,195 @@ function footer(): string {
   return keys.h;
 }
 
-function renderFrame(nowMs: number, baseMs: number): string {
+// Build the dashboard box (top border → bottom border) as an array of line
+// strings. Default output (dropLatest:false, no selectedId) is byte-identical
+// to the historical full-width frame; the assert script locks that invariant.
+export function buildDashboardLines(
+  loopSec: number,
+  spinIdx: number,
+  opts: { dropLatest: boolean; selectedId?: number; logOverride?: number },
+): string[] {
+  const g = opts.dropLatest ? ABBR : FULL;
+  const count = opts.logOverride ?? logLines;
+  const lines: string[] = [];
+  lines.push(topBorder(g));
+  lines.push(headerRow("Agents: ", `${ACTIVE}/${MAX}`, g));
+  lines.push(headerRow("Project: ", PROJECT, g));
+  lines.push(headerRow("Dashboard: ", "http://127.0.0.1:4000/", g));
+  lines.push(plainDivider(g));
+  lines.push(columnHeader(g));
+  lines.push(plainDivider(g));
+  TICKETS.slice(0, VISIBLE_TICKETS).forEach((tk, i) => {
+    const selected = opts.selectedId != null ? tk.id === opts.selectedId : i === 0;
+    lines.push(ticketRow(tk, loopSec, spinIdx, selected, g));
+  });
+  lines.push(logDivider(g));
+  for (const l of eventLines(loopSec, g, count)) lines.push(l);
+  lines.push(bottomBorder(g));
+  return lines;
+}
+
+// ---- opencode pane (the "take the wheel" beat) ----
+const ocRail = (): Seg => raw("┃ ", "oc-rail");
+
+// Wrap a content Seg into a full pane row: rail + content padded to OC_INNER.
+function ocRow(content: Seg): string {
+  return cat(ocRail(), padEnd(content, OC_INNER)).h;
+}
+
+function ocBlank(): string {
+  return ocRow(raw(""));
+}
+
+function ocTranscript(line: OcLine): string {
+  switch (line.kind) {
+    case "cmd":
+      return ocRow(cat(raw("$ ", "oc-cmd"), raw(trunc(line.text, OC_INNER - 2), "oc-cmd")));
+    case "tool":
+      return ocRow(cat(raw("→ ", "oc-tool"), raw(trunc(line.text, OC_INNER - 2), "oc-tool")));
+    case "ack":
+      return ocRow(cat(emo("👍"), raw(" "), raw(trunc(line.text, OC_INNER - 3))));
+    case "prose":
+      return ocRow(raw(trunc(line.text, OC_INNER)));
+  }
+}
+
+// Three/four-row char-art input box, each row exactly OC_INNER cols wide.
+function ocInputBox(loopSec: number): string[] {
+  const s = OPENCODE_SCRIPT;
+  const decided = loopSec >= s.decisionAt;
+  const bar = (l: string, r: string): string =>
+    ocRow(cat(raw(l, "bd"), dashes(OC_INNER - 2), raw(r, "bd")));
+  const inner = (body: Seg): string =>
+    ocRow(
+      cat(
+        raw("│", "oc-input"),
+        raw(" "),
+        padEnd(body, OC_INNER - 4),
+        raw(" "),
+        raw("│", "oc-input"),
+      ),
+    );
+  const prompt = cat(
+    raw("› ", "oc-input"),
+    decided ? raw(trunc(s.decisionText, OC_INNER - 6)) : raw(""),
+  );
+  const label = raw(trunc(s.inputLabel, OC_INNER - 4), "dim");
+  return [bar("┌", "┐"), inner(prompt), inner(label), bar("└", "┘")];
+}
+
+function ocFooter(): string {
+  return ocRow(
+    cat(
+      raw("▣▣▣▢▢ ", "oc-chip"),
+      raw("esc interrupt   tab agents   ctrl+p commands", "dim"),
+    ),
+  );
+}
+
+// Render the opencode pane as full-width pane rows (OC_PANE_W cols each).
+// Pure function of loopSec/spinIdx; the join in renderFrame stitches it beside
+// the abbreviated dashboard. Lines appear whole on the 1Hz repaint (no
+// typewriter); the chip spinner is the only sub-second motion (R7/AE3).
+export function buildOpencodeLines(loopSec: number, spinIdx: number): string[] {
+  const s = OPENCODE_SCRIPT;
+  const done = loopSec >= s.chipDoneAt;
+  const chip = cat(
+    done ? raw("▣ ", "oc-chip") : cat(spin(SPIN[spinIdx]), raw(" ")),
+    raw(s.chip, "oc-chip"),
+    done ? raw(" · done", "dim") : raw(""),
+  );
+
+  const lines: string[] = [ocRow(chip), ocBlank()];
+  // Fixed-height transcript: fired lines fill from the top, remaining slots are
+  // blank, so the pane's row count never changes mid-beat (the input box and
+  // footer hold their position and the split height stays stable).
+  const fired = s.lines.filter((l) => l.t <= Math.floor(loopSec));
+  for (const line of fired) lines.push(ocTranscript(line));
+  for (let i = fired.length; i < s.lines.length; i++) lines.push(ocBlank());
+  lines.push(ocBlank());
+  for (const l of ocInputBox(loopSec)) lines.push(l);
+  lines.push(ocBlank());
+  lines.push(ocFooter());
+  return lines;
+}
+
+// The ticket the operator "takes the wheel" on during the beat (R3).
+const DRIVEN_ID = 321;
+
+// Layout flag for the beat split: side-by-side when the viewport is wide
+// enough, stacked otherwise. Resize-driven module state (not loop-driven) so
+// renderFrame is a pure read — see chooseLayout for the hysteresis band.
+let sideBySide = true;
+
+// Stitch the abbreviated dashboard (left) beside the opencode pane (right).
+// Left rows are already DASH_BOX_W_ABBR wide and right rows OC_PANE_W, so each
+// joined row is exactly WIDTH cols. The shorter column is padded with blank,
+// full-width rows so borders stay aligned and the height matches the dashboard.
+export function joinColumns(left: string[], right: string[]): string[] {
+  const blankL = " ".repeat(DASH_BOX_W_ABBR);
+  const blankR = " ".repeat(OC_PANE_W);
+  const gutter = " ".repeat(OC_GUTTER);
+  const rows = Math.max(left.length, right.length);
+  const out: string[] = [];
+  for (let i = 0; i < rows; i++) {
+    out.push((left[i] ?? blankL) + gutter + (right[i] ?? blankR));
+  }
+  return out;
+}
+
+function stackRule(): string {
+  return dashes(WIDTH, "bd").h;
+}
+
+export function renderFrame(nowMs: number, baseMs: number): string {
   const loopSec = ((nowMs - baseMs) / 1000) % LOOP_SECONDS;
   const spinIdx = Math.floor(nowMs / 100) % SPIN.length;
+  const inBeat = loopSec >= BEAT.open && loopSec < BEAT.close;
 
-  const lines: string[] = [];
-  lines.push(topBorder());
-  lines.push(headerRow("Agents: ", `${ACTIVE}/${MAX}`));
-  lines.push(headerRow("Project: ", PROJECT));
-  lines.push(headerRow("Dashboard: ", "http://127.0.0.1:4000/"));
-  lines.push(plainDivider());
-  lines.push(columnHeader());
-  lines.push(plainDivider());
-  TICKETS.slice(0, VISIBLE_TICKETS).forEach((tk, i) =>
-    lines.push(ticketRow(tk, loopSec, spinIdx, i === 0)),
-  );
-  lines.push(logDivider());
-  for (const l of eventLines(loopSec)) lines.push(l);
-  lines.push(bottomBorder());
-  lines.push("");
-  lines.push(footer());
+  let body: string[];
+  if (!inBeat) {
+    body = buildDashboardLines(loopSec, spinIdx, { dropLatest: false });
+  } else if (sideBySide) {
+    const dash = buildDashboardLines(loopSec, spinIdx, {
+      dropLatest: true,
+      selectedId: DRIVEN_ID,
+    });
+    body = joinColumns(dash, buildOpencodeLines(loopSec, spinIdx));
+  } else {
+    // Stacked (narrow): full-width dashboard on top, rule, then the pane below.
+    // Shrink the dashboard's log lines by the pane+rule height so the total
+    // row count matches the non-beat frame (no vertical jump).
+    const pane = buildOpencodeLines(loopSec, spinIdx);
+    const reduced = Math.max(MIN_LOG_LINES, logLines - 1 - pane.length);
+    const dash = buildDashboardLines(loopSec, spinIdx, {
+      dropLatest: false,
+      selectedId: DRIVEN_ID,
+      logOverride: reduced,
+    });
+    body = [...dash, stackRule(), ...pane];
+  }
 
+  const lines = [...body, "", footer()];
   return `<pre class="tui-pre">${lines.join("\n")}</pre>`;
 }
 
 export function startDashboard(screen: HTMLElement): void {
   const baseMs = performance.now();
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const nowMs = (): number => (reduce ? baseMs + 31_000 : performance.now());
+  // Reduced-motion freezes one frame inside the beat: loopSec ≈ 28 lands after
+  // the t=26 publish, with the decision in the input box, the chip showing
+  // "· done" (chipDoneAt=28, so no frozen spinner), and #321 resuming (R11).
+  const nowMs = (): number => (reduce ? baseMs + 28_000 : performance.now());
+
+  // Side-by-side vs stacked for the beat split. Both layouts render the same
+  // 96-col grid width, so this is a readability/aspect choice, not a fit one.
+  // Hysteresis dead-band (600–720px) prevents flip-flop near the threshold.
+  const chooseLayout = (): void => {
+    const w = screen.getBoundingClientRect().width;
+    if (w >= 720) sideBySide = true;
+    else if (w < 600) sideBySide = false;
+  };
 
   const tick = (): void => {
     screen.innerHTML = renderFrame(nowMs(), baseMs);
@@ -278,6 +494,7 @@ export function startDashboard(screen: HTMLElement): void {
     }
   };
 
+  chooseLayout();
   tick();
   fitLogLines();
   tick();
@@ -286,11 +503,13 @@ export function startDashboard(screen: HTMLElement): void {
   window.addEventListener("resize", () => {
     clearTimeout(rzTimer);
     rzTimer = window.setTimeout(() => {
+      chooseLayout();
       fitLogLines();
       tick();
     }, 150);
   });
   void document.fonts?.ready.then(() => {
+    chooseLayout();
     fitLogLines();
     tick();
   });

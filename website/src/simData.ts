@@ -9,7 +9,8 @@ export type Phase =
   | "implement"
   | "review"
   | "done"
-  | "blocked";
+  | "blocked"
+  | "decide";
 
 export interface Keyframe {
   t: number; // loop second this frame becomes active
@@ -38,6 +39,12 @@ export const LOOP_SECONDS = 90;
 export const PROJECT = "its-everdred/shopwave";
 export const ACTIVE = 10;
 export const MAX = 15;
+
+// Take-the-wheel beat: the window where the dashboard splits to show the
+// operator driving #321 in an opencode pane. Timed around the existing t=26
+// "schema migrated to uuid pks" publish so the decision (t=24) reads as its
+// cause; #324's t=46 receive / t=50 unblock then play out full-width.
+export const BEAT = { decideStart: 18, open: 20, decision: 24, close: 30 } as const;
 
 export const TICKETS: TicketScript[] = [
   {
@@ -104,8 +111,9 @@ export const TICKETS: TicketScript[] = [
     seedSec: 333,
     frames: [
       { t: 0, phase: "implement", progress: 50, latest: "running migration dry-run" },
-      { t: 20, phase: "implement", progress: 75, latest: "backfilling uuid column" },
-      { t: 24, phase: "implement", progress: 92, latest: 'pushed 2 commits, last: "backfill uuid column"' },
+      { t: 18, phase: "decide", progress: 60, latest: "needs a decision: backfill strategy" },
+      { t: 26, phase: "implement", progress: 60, latest: "applying online backfill in batches" },
+      { t: 30, phase: "implement", progress: 95, latest: "online backfill complete" },
     ],
   },
   {
@@ -175,7 +183,6 @@ export const EVENTS: LogEvent[] = [
   { t: 14, kind: "publish", id: 319, text: "updated plan to incorporate #318 callback" },
   // ambient + secondary unblock after the handoff
   { t: 20, kind: "publish", id: 326, text: "adding plain-text fallback" },
-  { t: 24, kind: "publish", id: 321, text: 'pushed 2 commits, last: "backfill uuid column"' },
   { t: 26, kind: "publish", id: 321, text: "schema migrated to uuid pks" },
   { t: 32, kind: "publish", id: 314, text: "done — awaiting review" },
   { t: 38, kind: "read", id: 322, text: "read token-bucket reference impl" },
@@ -186,3 +193,41 @@ export const EVENTS: LogEvent[] = [
   { t: 78, kind: "publish", id: 315, text: "tests green, refactoring" },
   { t: 84, kind: "read", id: 324, text: "read elasticsearch mapping docs" },
 ];
+
+// ---- opencode "take the wheel" session (#321) ----
+// The deterministic transcript the opencode pane renders during the beat.
+// Lines appear whole on the 1Hz repaint (no typewriter); times are loop
+// seconds within [BEAT.open, BEAT.close). The decision lands at BEAT.decision,
+// just before #321's existing t=26 "schema migrated to uuid pks" publish.
+export type OcKind = "cmd" | "tool" | "prose" | "ack";
+export interface OcLine {
+  t: number; // loop second this transcript line first appears
+  kind: OcKind;
+  text: string; // glyph prefix ($, →, 👍) is added by the renderer
+}
+export interface OpencodeScript {
+  chip: string;
+  chipDoneAt: number; // loop second the chip gains "· done"
+  inputLabel: string;
+  decisionText: string;
+  decisionAt: number; // loop second the decision text fills the input box
+  lines: OcLine[]; // ascending t
+}
+
+export const OPENCODE_SCRIPT: OpencodeScript = {
+  chip: "Build · issue-321",
+  chipDoneAt: 28,
+  inputLabel: "Build · issue-321 its-everdred/shopwave",
+  decisionText: "online backfill in batches, no lock",
+  decisionAt: BEAT.decision,
+  lines: [
+    { t: 20, kind: "cmd", text: "mix ecto.migrate --dry-run" },
+    { t: 21, kind: "tool", text: "tool result" },
+    { t: 22, kind: "prose", text: "Dry-run done. Backfilling 2.1M users will lock the" },
+    { t: 23, kind: "prose", text: "table ~40s on prod. How should I run the backfill?" },
+    { t: 25, kind: "ack", text: "switching to batched online backfill" },
+    { t: 26, kind: "cmd", text: "edit priv/repo/migrations/..._add_uuid.exs" },
+    { t: 27, kind: "tool", text: "tool result" },
+    { t: 28, kind: "prose", text: "schema migrated to uuid pks — pushed" },
+  ],
+};
