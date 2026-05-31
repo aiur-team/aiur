@@ -325,6 +325,7 @@
     padding: clamp(8px, 1.4vw, 16px);
     display: grid;
     place-items: center;
+    container-type: inline-size;
   }
   .term-screen {
     font-family: "JetBrains Mono", monospace;
@@ -337,12 +338,15 @@
   .tui-pre {
     margin: 0;
     font-family: "JetBrains Mono", monospace;
-    font-size: 13px;
+    font-size: clamp(6px, 1.7cqi, 13.5px);
     line-height: 1.5;
     white-space: pre;
     color: var(--term-fg);
     will-change: transform;
   }
+  .tui-pre .tb { color: var(--term-fg); font-weight: 700; }
+  .tui-pre .ag-claude { color: var(--term-mag); }
+  .tui-pre .ag-codex { color: var(--term-accent); }
   .tui-pre .e2 { display: inline-block; width: 2ch; text-align: center; }
   .tui-pre .e1 { display: inline-block; width: 1ch; text-align: center; }
   .tui-pre .bd { color: var(--tui-line); }

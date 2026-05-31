@@ -1,5 +1,6 @@
+import { startDashboard } from "./dashboard";
+
 // Kicks off the terminal dashboard animation when it scrolls into view.
-// The animation loop itself is implemented in a separate workstream.
 export function initTerminal(): void {
   const terminalEl = document.getElementById("terminal");
   if (!terminalEl) return;
@@ -10,7 +11,7 @@ export function initTerminal(): void {
     started = true;
     terminalEl!.classList.add("live");
     const screen = document.getElementById("termScreen");
-    if (screen) screen.innerHTML = "";
+    if (screen) startDashboard(screen);
   }
 
   if ("IntersectionObserver" in window) {
