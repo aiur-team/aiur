@@ -250,7 +250,7 @@ defmodule Aiur.Claude.CodingAgent do
       "method" => "thread/start",
       "id" => @thread_start_id,
       "params" => %{
-        "permissionMode" => "bypassPermissions",
+        "permissionMode" => Aiur.Claude.Config.permission_mode(),
         "cwd" => Path.expand(workspace)
       }
     })

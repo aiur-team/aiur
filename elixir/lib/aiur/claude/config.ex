@@ -6,6 +6,8 @@ defmodule Aiur.Claude.Config do
   @behaviour Aiur.AgentConfig
 
   @default_command "aiur-claude"
+  @default_permission_mode "bypassPermissions"
+  @valid_permission_modes ~w(default acceptEdits bypassPermissions)
 
   @spec command() :: String.t()
   def command do
@@ -28,6 +30,19 @@ defmodule Aiur.Claude.Config do
   """
   @spec version() :: String.t() | nil
   def version, do: trimmed_section_value("version")
+
+  @doc """
+  Permission mode sent on `thread/start`. One of `default`, `acceptEdits`,
+  or `bypassPermissions`. Defaults to `bypassPermissions` so the agent loop
+  runs without interactive approvals; set a stricter mode to gate edits.
+  """
+  @spec permission_mode() :: String.t()
+  def permission_mode do
+    case section_value("permission_mode") do
+      value when value in @valid_permission_modes -> value
+      _ -> @default_permission_mode
+    end
+  end
 
   @impl Aiur.AgentConfig
   def validate! do
