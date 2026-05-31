@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>aiur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand-mini"><span class="dot"></span>aiur · cli</div>
+    <button class="toggle" id="themeToggle" aria-label="Toggle color theme">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4.2"></circle>
+        <path d="M12 2.4v2.6M12 19v2.6M2.4 12h2.6M19 12h2.6M5.0 5.0l1.8 1.8M17.2 17.2l1.8 1.8M19 5.0l-1.8 1.8M6.8 17.2l-1.8 1.8"></path>
+      </svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M20.5 14.2a8.2 8.2 0 0 1-10.7-10.7 0.6 0.6 0 0 0-0.8-0.8 9.4 9.4 0 1 0 12.3 12.3 0.6 0.6 0 0 0-0.8-0.8z"></path>
+      </svg>
+    </button>
+  </div>
+
+  <section class="hero">
+    <canvas id="field"></canvas>
+
+    <div class="stage">
+      <div class="lockup">
+        <img class="logo keepout" src="assets/aiur-logo.png" alt="AIUR logo" />
+        <h1 class="wordmark keepout"><span>A</span><span>I</span><span>U</span><span>R</span></h1>
+      </div>
+
+      <div class="sub">
+        <p class="tagline keepout">AI Unit Runtime for Executors</p>
+        <div class="install-wrap keepout">
+          <div class="pm-tabs" role="tablist" aria-label="Package manager">
+            <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="npm">npm</button>
+            <button class="pm-tab" role="tab" aria-selected="false" data-pm="bun">bun</button>
+            <button class="pm-tab" role="tab" aria-selected="false" data-pm="pnpm">pnpm</button>
+            <button class="pm-tab" role="tab" aria-selected="false" data-pm="yarn">yarn</button>
+          </div>
+          <div class="install">
+            <span class="prompt">$</span>
+            <span class="cmd" id="installCmd">npm i -g aiur-cli</span>
+            <button class="copy" id="copyBtn" aria-label="Copy install command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="11" height="11" rx="2.2"></rect>
+                <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scrollcue" id="scrollcue">
+      <span>scroll</span>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+    </div>
+  </section>
+
+  <section class="term-section" id="termSection">
+    <div class="terminal" id="terminal">
+      <div class="term-bar">
+        <span class="dot r"></span>
+        <span class="dot y"></span>
+        <span class="dot g"></span>
+        <span class="term-title">~/workspace</span>
+      </div>
+      <div class="term-body">
+        <div class="term-screen" id="termScreen"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="below">
+    <p class="summary">Oversee a fleet of coding agents that <span class="hl">coordinate via events</span>.</p>
+
+    <div class="features">
+      <div class="feat">
+        <div class="feat-h">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="4.01" y2="6"></line><line x1="4" y1="12" x2="4.01" y2="12"></line><line x1="4" y1="18" x2="4.01" y2="18"></line><line x1="8.5" y1="6" x2="20" y2="6"></line><line x1="8.5" y1="12" x2="20" y2="12"></line><line x1="8.5" y1="18" x2="20" y2="18"></line></svg></span>
+          <span class="idx">01</span>
+        </div>
+        <h3>Issue Monitoring</h3>
+        <p>Dispatch agents automatically via GitHub or Linear tickets.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-h">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 10.5 13.5"></path><path d="M21 3 14.3 21l-3.8-7.5L3 9.7 21 3z"></path></svg></span>
+          <span class="idx">02</span>
+        </div>
+        <h3>Shared Bus</h3>
+        <p>Agents auto-pub/sub to dependency events, unblocking work early.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-h">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0"></path><path d="M12 15.5 16 10"></path><circle cx="12" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle></svg></span>
+          <span class="idx">03</span>
+        </div>
+        <h3>Optimize Effort</h3>
+        <p>Story points guide model sizes and skills. Supports Claude and Codex.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-h">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.2"></circle><path d="M12 3v6.8M4.3 16.5l5.8-3.3M19.7 16.5l-5.8-3.3"></path></svg></span>
+          <span class="idx">04</span>
+        </div>
+        <h3>Take the Wheel</h3>
+        <p>Drive at any moment via pre-warmed <a href="https://opencode.ai" target="_blank" rel="noopener">Opencode</a> sessions in configurable tmux panes.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-h">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5"></path><path d="M13.7 20a2 2 0 0 1-3.4 0"></path></svg></span>
+          <span class="idx">05</span>
+        </div>
+        <h3>Smart Alerts</h3>
+        <p>Customize notifications and sounds when agents finish, stall, or need a decision.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-h">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3.5l2.5 6 4-13 2.5 7H21"></path></svg></span>
+          <span class="idx">06</span>
+        </div>
+        <h3>Live Dashboard</h3>
+        <p>Shareable web view of every agent, event, and progress bar.</p>
+      </div>
+    </div>
+
+    <div class="signoff">
+      <p><span class="hl">Command</span> macro, <span class="hl">delegate</span> micro, <span class="hl">maximize</span> APM.</p>
+    </div>
+  </section>
+
+  <footer class="site-foot">
+    <div class="foot-inner">
+      <div class="foot-brand"><span class="dot"></span>aiur</div>
+      <div class="foot-links">
+        <a href="https://github.com/its-everdred/aiur" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .5C5.73.5.5 5.73.5 12.02c0 5.1 3.29 9.42 7.86 10.95.58.1.79-.25.79-.56v-2.1c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.7 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.06.75.81 1.2 1.84 1.2 3.1 0 4.43-2.69 5.4-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.53 11.53 0 0 0 23.5 12.02C23.5 5.73 18.27.5 12 .5z"></path>
+          </svg>
+          github.com/its-everdred/aiur
+        </a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
