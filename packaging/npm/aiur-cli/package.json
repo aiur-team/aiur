@@ -21,5 +21,11 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "optionalDependencies": {
+    "aiur-cli-linux-x64": "0.0.0",
+    "aiur-cli-linux-arm64": "0.0.0",
+    "aiur-cli-darwin-x64": "0.0.0",
+    "aiur-cli-darwin-arm64": "0.0.0"
   }
 }

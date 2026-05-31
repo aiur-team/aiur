@@ -84,3 +84,76 @@ jobs:
           name: aiur-cli-${{ matrix.target }}
           path: dist/*.tgz
           if-no-files-found: error
+
+  # Publish all five packages in lockstep, advancing `latest` only after every
+  # publish succeeds. Tag events only — never on workflow_dispatch dry runs.
+  publish:
+    name: publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Compute version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Never start a partial publish: require all four platform tarballs.
+      - name: Verify all platform artifacts present
+        run: |
+          shopt -s globstar nullglob
+          tarballs=(artifacts/**/*.tgz)
+          echo "found ${#tarballs[@]} platform tarballs"
+          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            if ! ls artifacts/aiur-cli-$t/*.tgz >/dev/null 2>&1; then
+              echo "missing platform artifact for $t — aborting before any publish" >&2
+              exit 1
+            fi
+          done
+
+      - name: Stamp launcher version and dependency pins
+        run: node packaging/scripts/stamp-versions.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Pack launcher
+        run: |
+          mkdir -p artifacts/launcher
+          cd packaging/npm/aiur-cli
+          npm pack --pack-destination "$GITHUB_WORKSPACE/artifacts/launcher"
+
+      # Publish under a holding tag first so `latest` is untouched until all
+      # five versions exist on the registry.
+      - name: Publish platform packages (holding tag)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            npm publish artifacts/aiur-cli-$t/*.tgz --tag next --access public
+          done
+
+      - name: Publish launcher (holding tag)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish artifacts/launcher/*.tgz --tag next --access public
+
+      # Only reached if every publish above succeeded.
+      - name: Advance latest dist-tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          for pkg in aiur-cli aiur-cli-linux-x64 aiur-cli-linux-arm64 aiur-cli-darwin-x64 aiur-cli-darwin-arm64; do
+            npm dist-tag add "$pkg@$v" latest
+          done
