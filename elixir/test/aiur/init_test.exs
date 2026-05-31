@@ -41,6 +41,17 @@ defmodule Aiur.InitTest do
           File.write!(path, yaml)
           send(parent, {:write, path})
           {:ok, path}
+        end,
+        ensure_env: fn content ->
+          File.write!(Path.join(dir, ".env.example"), content)
+          env_path = Path.join(dir, ".env")
+
+          if File.regular?(env_path) do
+            {:exists, env_path}
+          else
+            File.write!(env_path, content)
+            {:created, env_path}
+          end
         end
       },
       overrides
@@ -133,6 +144,45 @@ defmodule Aiur.InitTest do
       assert_received {:puts, "Setting up aiur in this repo."}
       assert_received {:puts, message}
       assert message =~ "Please choose one of"
+    end
+  end
+
+  describe ".env scaffold for the github tracker" do
+    test "creates .env from .env.example and prints token steps", %{dir: dir} do
+      assert :ok = Init.run(%{force: false}, io(self(), ["github", "octo/repo", "team"]), deps(dir))
+
+      assert File.read!(Path.join(dir, ".env.example")) =~ "GITHUB_TOKEN="
+      assert File.read!(Path.join(dir, ".env")) =~ "GITHUB_TOKEN="
+
+      assert_received {:puts, "Setting up aiur in this repo."}
+      assert_received {:puts, "Wrote " <> _}
+      assert_received {:puts, created}
+      assert created =~ "Created"
+      assert created =~ ".env"
+      assert_received {:puts, set_token}
+      assert set_token =~ "Set GITHUB_TOKEN"
+      assert_received {:puts, url}
+      assert url =~ "https://github.com/settings/tokens"
+    end
+
+    test "leaves an existing .env untouched", %{dir: dir} do
+      env_path = Path.join(dir, ".env")
+      File.write!(env_path, "GITHUB_TOKEN=keepme\n")
+
+      assert :ok = Init.run(%{force: false}, io(self(), ["github", "octo/repo", "team"]), deps(dir))
+
+      assert File.read!(env_path) == "GITHUB_TOKEN=keepme\n"
+      assert_received {:puts, "Setting up aiur in this repo."}
+      assert_received {:puts, "Wrote " <> _}
+      assert_received {:puts, found}
+      assert found =~ "Found existing"
+    end
+
+    test "skips .env scaffold for the memory tracker", %{dir: dir} do
+      assert :ok = Init.run(%{force: false}, io(self(), ["memory"]), deps(dir))
+
+      refute File.exists?(Path.join(dir, ".env.example"))
+      refute File.exists?(Path.join(dir, ".env"))
     end
   end
 

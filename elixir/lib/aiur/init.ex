@@ -15,6 +15,16 @@ defmodule Aiur.Init do
 
   @config_file_name ".aiurconfig"
   @legacy_file_name "WORKFLOW.md"
+  @env_file_name ".env"
+  @env_example_file_name ".env.example"
+  @token_url "https://github.com/settings/tokens"
+
+  @env_example_content """
+  # aiur reads secrets from this file. Keep it out of version control.
+  # GitHub personal access token (repo scope). Create one at:
+  #   #{@token_url}
+  GITHUB_TOKEN=
+  """
 
   @default_label_prefix "aiur"
   @tracker_kinds ["github", "linear", "memory"]
@@ -30,7 +40,8 @@ defmodule Aiur.Init do
   @type deps :: %{
           existing_config_path: (-> String.t() | nil),
           detect_repo: (-> String.t() | nil),
-          write_config: (String.t() -> {:ok, Path.t()} | {:error, term()})
+          write_config: (String.t() -> {:ok, Path.t()} | {:error, term()}),
+          ensure_env: (String.t() -> {:created | :exists, Path.t()})
         }
 
   @spec run(%{force: boolean()}) :: :ok | {:error, String.t()}
@@ -43,15 +54,13 @@ defmodule Aiur.Init do
     with :ok <- guard_existing_config(opts, deps) do
       io.puts.("Setting up aiur in this repo.")
 
-      config =
-        assemble_config(%{
-          tracker: prompt_tracker(io, deps),
-          agents: default_agents()
-        })
+      tracker = prompt_tracker(io, deps)
+      config = assemble_config(%{tracker: tracker, agents: default_agents()})
 
       case deps.write_config.(to_yaml(config)) do
         {:ok, path} ->
           io.puts.("Wrote #{path}.")
+          setup_env(io, deps, tracker)
           :ok
 
         {:error, reason} ->
@@ -93,6 +102,23 @@ defmodule Aiur.Init do
         %{kind: "memory"}
     end
   end
+
+  # GitHub is the only tracker that reads a secret from the environment
+  # (the runtime resolves `GITHUB_TOKEN` for label and issue calls), so the
+  # wizard scaffolds `.env` only on that path. Linear collects its key inline.
+  defp setup_env(io, deps, %{kind: "github"}) do
+    {status, path} = deps.ensure_env.(@env_example_content)
+
+    case status do
+      :created -> io.puts.("Created #{path} from #{@env_example_file_name}.")
+      :exists -> io.puts.("Found existing #{path}; leaving it in place.")
+    end
+
+    io.puts.("Set GITHUB_TOKEN in #{path} to continue.")
+    io.puts.("Create a token (repo scope) at #{@token_url}")
+  end
+
+  defp setup_env(_io, _deps, _tracker), do: :ok
 
   # Unprompted sections are intentionally omitted: the schema applies its
   # defaults on load, so the written file carries only the decisions the
@@ -203,7 +229,8 @@ defmodule Aiur.Init do
     %{
       existing_config_path: &existing_config_path/0,
       detect_repo: &detect_repo/0,
-      write_config: &write_config/1
+      write_config: &write_config/1,
+      ensure_env: &ensure_env/1
     }
   end
 
@@ -241,6 +268,19 @@ defmodule Aiur.Init do
     case File.write(path, yaml) do
       :ok -> {:ok, path}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_env(example_content) do
+    cwd = File.cwd!()
+    File.write!(Path.join(cwd, @env_example_file_name), example_content)
+    env_path = Path.join(cwd, @env_file_name)
+
+    if File.regular?(env_path) do
+      {:exists, env_path}
+    else
+      File.write!(env_path, example_content)
+      {:created, env_path}
     end
   end
 
