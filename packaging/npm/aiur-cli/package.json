@@ -1,0 +1,20 @@
+{
+  "name": "aiur-cli",
+  "version": "0.0.0",
+  "description": "AI Unit Runtime for Executors — placeholder, full release coming soon.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/its-everdred/aiur",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-everdred/aiur.git"
+  },
+  "bin": {
+    "aiur": "bin/aiur.js"
+  },
+  "files": [
+    "bin/aiur.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
