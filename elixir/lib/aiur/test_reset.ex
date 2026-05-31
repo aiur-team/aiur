@@ -51,34 +51,15 @@ defmodule Aiur.TestReset do
           optional(:confirm) => boolean(),
           optional(:force) => boolean(),
           optional(:allow_remote) => boolean(),
-          optional(:single) => boolean(),
           optional(:golden) => boolean(),
           optional(:repo_root) => Path.t()
         }
-
-  # Single-ticket mode — the new `aiur --test` flag. One auto-created
-  # complexity:1 ticket asking for a one-line const in the sandbox so
-  # the operator can manually exercise the progress emits without the
-  # 3-ticket blocker chain's overhead.
-  @single_ticket_title "[sandbox] Set @hello in Aiur.Sandbox.EventFlowDemo"
-  @single_ticket_body """
-  Add a single module attribute `@hello \"world\"` inside `Aiur.Sandbox.EventFlowDemo` at `elixir/lib/aiur/sandbox/event_flow_demo.ex`. That's it — one line inside the module body.
-
-  No new behavior, no tests required (no functions are being added). Open a PR when the line is in place. The `aiur --test` reset restores the sandbox baseline between runs so this delta is always the asked change.
-
-  ### Complexity routing
-
-  - Signal: `complexity:1`
-  - Skip `ce-brainstorm`, `ce-plan`, and `ce-work`. Edit the file directly, commit, push, open the draft PR, self-read the diff, mark ready for review.
-  """
-  @single_ticket_labels ["agent:todo", "complexity:1"]
 
   # Golden-ticket mode — the `aiur --test` flag. One fixed
   # complexity:2 ticket whose body deliberately exercises every
   # chat-render surface (file edit/diff, shell command, tool call,
   # skill) so a codex run and a Claude run produce the same set of
-  # rendered parts and can be compared 1:1 for parity. Unlike the
-  # @hello single ticket (one-line const, no diff), this implements a
+  # rendered parts and can be compared 1:1 for parity. It implements a
   # multi-line function so a real `@@` diff renders.
   @golden_ticket_title "[sandbox] Implement greeting/1 in Aiur.Sandbox.EventFlowDemo"
   @golden_ticket_body """
@@ -152,14 +133,6 @@ defmodule Aiur.TestReset do
     end
   end
 
-  defp dispatch_reset(tickets_data, %{single: true} = opts) do
-    with :ok <- guard_clean_git(opts),
-         :ok <- guard_expected_remote(tickets_data, opts),
-         :ok <- guard_baseline_committed(opts.repo_root) do
-      execute_one(tickets_data, opts, :single)
-    end
-  end
-
   defp dispatch_reset(tickets_data, %{golden: true} = opts) do
     with :ok <- guard_clean_git(opts),
          :ok <- guard_expected_remote(tickets_data, opts),
@@ -184,7 +157,6 @@ defmodule Aiur.TestReset do
       confirm: Map.get(opts, :confirm, false),
       force: Map.get(opts, :force, false),
       allow_remote: Map.get(opts, :allow_remote, false),
-      single: Map.get(opts, :single, false),
       golden: Map.get(opts, :golden, false),
       repo_root: Map.get(opts, :repo_root, File.cwd!())
     }
@@ -329,22 +301,10 @@ defmodule Aiur.TestReset do
     :ok
   end
 
-  # `:single` (--test1, the @hello one-liner) and `:golden` (--test, the
-  # full-render-surface ticket) share identical reset machinery — only the
-  # ticket title/body/labels and the JSON key they persist under differ.
-  # `ticket_spec/1` captures that difference so the execute/resolve/create
-  # path stays single-sourced.
-  defp ticket_spec(:single) do
-    %{
-      kind: :single,
-      flag: "--test1",
-      json_key: "single_ticket",
-      title: @single_ticket_title,
-      body: @single_ticket_body,
-      labels: @single_ticket_labels
-    }
-  end
-
+  # `:golden` (--test, the full-render-surface ticket) drives the
+  # single-ticket reset path. `ticket_spec/1` captures the ticket
+  # title/body/labels and the JSON key it persists under so the
+  # execute/resolve/create path stays single-sourced.
   defp ticket_spec(:golden) do
     %{
       kind: :golden,
