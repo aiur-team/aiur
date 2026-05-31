@@ -19,10 +19,16 @@ const PROGW = 11;
 const TIMEW = 5;
 const INNER = MARKER + IDW + AGENTW + STATUSW + TITLEW + LATESTW + PROGW + TIMEW; // 92
 const WIDTH = INNER + 4; // 96 incl. "│ " and " │"
+// Show the top slice of the fleet so the grid fills width without the rows
+// overflowing the terminal's height at large font sizes.
+const VISIBLE_TICKETS = 6;
+// Rows that aren't tickets or log lines: top border, 3 header rows, 2 dividers,
+// column header, log divider, bottom border, spacer, footer.
+const NON_TICKET_ROWS = 11;
 // Event-log rows. Grown at runtime to fill the terminal's height (see
 // startDashboard); every non-log row is fixed, so FIXED_ROWS + logLines = total.
 const MIN_LOG_LINES = 6;
-const FIXED_ROWS = 21;
+const FIXED_ROWS = NON_TICKET_ROWS + VISIBLE_TICKETS;
 let logLines = MIN_LOG_LINES;
 
 const PHASE_EMOJI: Record<Phase, string> = {
@@ -238,7 +244,9 @@ function renderFrame(nowMs: number, baseMs: number): string {
   lines.push(plainDivider());
   lines.push(columnHeader());
   lines.push(plainDivider());
-  TICKETS.forEach((tk, i) => lines.push(ticketRow(tk, loopSec, spinIdx, i === 0)));
+  TICKETS.slice(0, VISIBLE_TICKETS).forEach((tk, i) =>
+    lines.push(ticketRow(tk, loopSec, spinIdx, i === 0)),
+  );
   lines.push(logDivider());
   for (const l of eventLines(loopSec)) lines.push(l);
   lines.push(bottomBorder());

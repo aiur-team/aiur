@@ -20,10 +20,10 @@ themeToggle?.addEventListener("click", () => {
 
 // install command — package-manager tabs + copy
 const PM_COMMANDS: Record<string, string> = {
-  npm: "npm i -g aiur",
-  bun: "bun add -g aiur",
-  pnpm: "pnpm add -g aiur",
-  yarn: "yarn global add aiur",
+  npm: "npm i -g aiur-cli",
+  bun: "bun add -g aiur-cli",
+  pnpm: "pnpm add -g aiur-cli",
+  yarn: "yarn global add aiur-cli",
 };
 const installCmd = document.getElementById("installCmd");
 const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>(".pm-tab"));

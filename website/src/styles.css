@@ -161,33 +161,35 @@
     text-align: center;
   }
 
+  /* tabs + command joined into one panel: wrapper owns the border/pill */
   .install-wrap {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 11px;
-  }
-  .pm-tabs {
-    display: inline-flex;
-    gap: 2px;
-    padding: 3px;
+    align-items: stretch;
     border: 1px solid var(--pill-bd);
     background: var(--pill-bg);
-    border-radius: 10px;
+    border-radius: 11px;
+    overflow: hidden;
     backdrop-filter: blur(3px);
   }
+  .pm-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--pill-bd);
+  }
   .pm-tab {
+    flex: 1;
     font-family: "JetBrains Mono", monospace;
     font-size: 12.5px;
     letter-spacing: 0.02em;
     color: var(--muted);
     background: transparent;
     border: 0;
-    padding: 5px 13px;
-    border-radius: 7px;
+    border-right: 1px solid var(--pill-bd);
+    padding: 8px 13px;
     cursor: pointer;
     transition: color 0.2s, background-color 0.2s;
   }
+  .pm-tab:last-child { border-right: 0; }
   .pm-tab:hover { color: var(--fg); }
   .pm-tab.is-active {
     color: var(--fg);
@@ -198,13 +200,9 @@
     align-items: center;
     gap: 14px;
     padding: 11px 14px 11px 18px;
-    border: 1px solid var(--pill-bd);
-    background: var(--pill-bg);
-    border-radius: 11px;
     font-family: "JetBrains Mono", monospace;
     font-size: 14px;
     color: var(--fg);
-    backdrop-filter: blur(3px);
   }
   .install .prompt { color: var(--accent); }
   .install .cmd { letter-spacing: 0.01em; }
@@ -225,7 +223,7 @@
   .scrollcue {
     position: fixed;
     bottom: 20px;
-    left: 50%;
+    left: 62%;
     transform: translateX(-50%);
     z-index: 30;
     font-family: "JetBrains Mono", monospace;
@@ -309,7 +307,7 @@
   }
 
   .term-section {
-    --peek: clamp(120px, 16vh, 168px);
+    --peek: clamp(64px, 9vh, 104px);
     --term-h: clamp(420px, 74vh, 660px);
     position: relative;
     z-index: 5;
@@ -379,7 +377,7 @@
   .tui-pre {
     margin: 0;
     font-family: "JetBrains Mono", monospace;
-    font-size: clamp(6px, 1.7cqi, 13.5px);
+    font-size: clamp(6px, 1.7cqi, 16.5px);
     line-height: 1.5;
     white-space: pre;
     color: var(--term-fg);
