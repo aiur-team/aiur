@@ -498,7 +498,7 @@ success is silent; config always written after this step.
 
 ---
 
-- [ ] U5. **Concurrency prompts + write `.aiurconfig`**
+- [x] U5. **Concurrency prompts + write `.aiurconfig`**
 
 **Goal:** Prompt the concurrency knobs and write the assembled config to
 `.aiurconfig` in the run folder.
@@ -536,7 +536,7 @@ via U2.
 
 ---
 
-- [ ] U6. **GitHub label auto-creation with inline explanations**
+- [x] U6. **GitHub label auto-creation with inline explanations**
 
 **Goal:** For GitHub trackers, idempotently create the three label families and
 explain each concisely as it goes; print a truthful complexity→model routing
@@ -589,7 +589,7 @@ summary at the end.
 
 ---
 
-- [ ] U7. **npm shim/launcher foreground routing for `init`**
+- [x] U7. **npm shim/launcher foreground routing for `init`**
 
 **Goal:** Make the npm-distributed `aiur init` run as a foreground wizard without
 requiring tmux.
