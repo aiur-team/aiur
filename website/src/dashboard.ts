@@ -38,6 +38,7 @@ const PHASE_EMOJI: Record<Phase, string> = {
   review: "🔍",
   done: "🏁",
   blocked: "⏳",
+  decide: "✋",
 };
 const EVENT_GLYPH: Record<EventKind, string> = {
   publish: "💬",
@@ -141,7 +142,7 @@ function ticketRow(tk: TicketScript, now: number, spinIdx: number, selected: boo
   const c5 = padEnd(raw(trunc(tk.title, TITLEW - 1)), TITLEW); // 27
 
   let latestSeg: Seg;
-  if (s.phase === "blocked") {
+  if (s.phase === "blocked" || s.phase === "decide") {
     latestSeg = cat(
       spin(SPIN[spinIdx]),
       raw(" "),
