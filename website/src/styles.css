@@ -161,6 +161,38 @@
     text-align: center;
   }
 
+  .install-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 11px;
+  }
+  .pm-tabs {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--pill-bd);
+    background: var(--pill-bg);
+    border-radius: 10px;
+    backdrop-filter: blur(3px);
+  }
+  .pm-tab {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    padding: 5px 13px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: color 0.2s, background-color 0.2s;
+  }
+  .pm-tab:hover { color: var(--fg); }
+  .pm-tab.is-active {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 10%, transparent);
+  }
   .install {
     display: flex;
     align-items: center;
@@ -234,6 +266,12 @@
   @media (prefers-reduced-motion: reduce) {
     .lockup .logo { animation: none; }
     .scrollcue .chev { animation: none; }
+    /* reveal the fade-in content immediately instead of leaving it hidden */
+    .wordmark span, .sub, .scrollcue {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
   }
 
   /* ---------- terminal section ---------- */

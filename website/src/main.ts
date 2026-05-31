@@ -18,10 +18,32 @@ themeToggle?.addEventListener("click", () => {
   field.redraw();
 });
 
-// copy install command
+// install command — package-manager tabs + copy
+const PM_COMMANDS: Record<string, string> = {
+  npm: "npm i -g aiur",
+  bun: "bun add -g aiur",
+  pnpm: "pnpm add -g aiur",
+  yarn: "yarn global add aiur",
+};
+const installCmd = document.getElementById("installCmd");
+const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>(".pm-tab"));
+let command = PM_COMMANDS.npm;
+for (const tab of tabs) {
+  tab.addEventListener("click", () => {
+    const pm = tab.dataset.pm ?? "npm";
+    command = PM_COMMANDS[pm] ?? PM_COMMANDS.npm;
+    if (installCmd) installCmd.textContent = command;
+    for (const t of tabs) {
+      const active = t === tab;
+      t.classList.toggle("is-active", active);
+      t.setAttribute("aria-selected", String(active));
+    }
+  });
+}
+
 const copyBtn = document.getElementById("copyBtn");
 copyBtn?.addEventListener("click", () => {
-  void navigator.clipboard?.writeText("npm i -g aiur");
+  void navigator.clipboard?.writeText(command);
   copyBtn.classList.add("copied");
   setTimeout(() => copyBtn.classList.remove("copied"), 1300);
 });
