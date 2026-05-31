@@ -5,6 +5,7 @@ import {
   PROJECT,
   ACTIVE,
   MAX,
+  BEAT,
   OPENCODE_SCRIPT,
 } from "./simData";
 import type { TicketScript, Phase, Agent, EventKind, OcLine } from "./simData";
@@ -261,10 +262,10 @@ function columnHeader(g: Geom): string {
   return bordered(cat(...cols), g);
 }
 
-function eventLines(now: number, g: Geom): string[] {
-  const fired = EVENTS.filter((e) => e.t <= Math.floor(now)).slice(-logLines);
+function eventLines(now: number, g: Geom, count: number): string[] {
+  const fired = EVENTS.filter((e) => e.t <= Math.floor(now)).slice(-count);
   const lines: string[] = [];
-  for (let i = 0; i < logLines - fired.length; i++) lines.push(bordered(raw(""), g));
+  for (let i = 0; i < count - fired.length; i++) lines.push(bordered(raw(""), g));
   for (const e of fired) {
     const head = cat(
       emo(EVENT_GLYPH[e.kind]),
@@ -292,9 +293,10 @@ function footer(): string {
 export function buildDashboardLines(
   loopSec: number,
   spinIdx: number,
-  opts: { dropLatest: boolean; selectedId?: number },
+  opts: { dropLatest: boolean; selectedId?: number; logOverride?: number },
 ): string[] {
   const g = opts.dropLatest ? ABBR : FULL;
+  const count = opts.logOverride ?? logLines;
   const lines: string[] = [];
   lines.push(topBorder(g));
   lines.push(headerRow("Agents: ", `${ACTIVE}/${MAX}`, g));
@@ -308,7 +310,7 @@ export function buildDashboardLines(
     lines.push(ticketRow(tk, loopSec, spinIdx, selected, g));
   });
   lines.push(logDivider(g));
-  for (const l of eventLines(loopSec, g)) lines.push(l);
+  for (const l of eventLines(loopSec, g, count)) lines.push(l);
   lines.push(bottomBorder(g));
   return lines;
 }
@@ -385,9 +387,12 @@ export function buildOpencodeLines(loopSec: number, spinIdx: number): string[] {
   );
 
   const lines: string[] = [ocRow(chip), ocBlank()];
-  for (const line of s.lines) {
-    if (line.t <= Math.floor(loopSec)) lines.push(ocTranscript(line));
-  }
+  // Fixed-height transcript: fired lines fill from the top, remaining slots are
+  // blank, so the pane's row count never changes mid-beat (the input box and
+  // footer hold their position and the split height stays stable).
+  const fired = s.lines.filter((l) => l.t <= Math.floor(loopSec));
+  for (const line of fired) lines.push(ocTranscript(line));
+  for (let i = fired.length; i < s.lines.length; i++) lines.push(ocBlank());
   lines.push(ocBlank());
   for (const l of ocInputBox(loopSec)) lines.push(l);
   lines.push(ocBlank());
@@ -395,18 +400,82 @@ export function buildOpencodeLines(loopSec: number, spinIdx: number): string[] {
   return lines;
 }
 
+// The ticket the operator "takes the wheel" on during the beat (R3).
+const DRIVEN_ID = 321;
+
+// Layout flag for the beat split: side-by-side when the viewport is wide
+// enough, stacked otherwise. Resize-driven module state (not loop-driven) so
+// renderFrame is a pure read — see chooseLayout for the hysteresis band.
+let sideBySide = true;
+
+// Stitch the abbreviated dashboard (left) beside the opencode pane (right).
+// Left rows are already DASH_BOX_W_ABBR wide and right rows OC_PANE_W, so each
+// joined row is exactly WIDTH cols. The shorter column is padded with blank,
+// full-width rows so borders stay aligned and the height matches the dashboard.
+export function joinColumns(left: string[], right: string[]): string[] {
+  const blankL = " ".repeat(DASH_BOX_W_ABBR);
+  const blankR = " ".repeat(OC_PANE_W);
+  const gutter = " ".repeat(OC_GUTTER);
+  const rows = Math.max(left.length, right.length);
+  const out: string[] = [];
+  for (let i = 0; i < rows; i++) {
+    out.push((left[i] ?? blankL) + gutter + (right[i] ?? blankR));
+  }
+  return out;
+}
+
+function stackRule(): string {
+  return dashes(WIDTH, "bd").h;
+}
+
 export function renderFrame(nowMs: number, baseMs: number): string {
   const loopSec = ((nowMs - baseMs) / 1000) % LOOP_SECONDS;
   const spinIdx = Math.floor(nowMs / 100) % SPIN.length;
-  const box = buildDashboardLines(loopSec, spinIdx, { dropLatest: false });
-  const lines = [...box, "", footer()];
+  const inBeat = loopSec >= BEAT.open && loopSec < BEAT.close;
+
+  let body: string[];
+  if (!inBeat) {
+    body = buildDashboardLines(loopSec, spinIdx, { dropLatest: false });
+  } else if (sideBySide) {
+    const dash = buildDashboardLines(loopSec, spinIdx, {
+      dropLatest: true,
+      selectedId: DRIVEN_ID,
+    });
+    body = joinColumns(dash, buildOpencodeLines(loopSec, spinIdx));
+  } else {
+    // Stacked (narrow): full-width dashboard on top, rule, then the pane below.
+    // Shrink the dashboard's log lines by the pane+rule height so the total
+    // row count matches the non-beat frame (no vertical jump).
+    const pane = buildOpencodeLines(loopSec, spinIdx);
+    const reduced = Math.max(MIN_LOG_LINES, logLines - 1 - pane.length);
+    const dash = buildDashboardLines(loopSec, spinIdx, {
+      dropLatest: false,
+      selectedId: DRIVEN_ID,
+      logOverride: reduced,
+    });
+    body = [...dash, stackRule(), ...pane];
+  }
+
+  const lines = [...body, "", footer()];
   return `<pre class="tui-pre">${lines.join("\n")}</pre>`;
 }
 
 export function startDashboard(screen: HTMLElement): void {
   const baseMs = performance.now();
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const nowMs = (): number => (reduce ? baseMs + 31_000 : performance.now());
+  // Reduced-motion freezes one frame inside the beat: loopSec ≈ 28 lands after
+  // the t=26 publish, with the decision in the input box, the chip showing
+  // "· done" (chipDoneAt=28, so no frozen spinner), and #321 resuming (R11).
+  const nowMs = (): number => (reduce ? baseMs + 28_000 : performance.now());
+
+  // Side-by-side vs stacked for the beat split. Both layouts render the same
+  // 96-col grid width, so this is a readability/aspect choice, not a fit one.
+  // Hysteresis dead-band (600–720px) prevents flip-flop near the threshold.
+  const chooseLayout = (): void => {
+    const w = screen.getBoundingClientRect().width;
+    if (w >= 720) sideBySide = true;
+    else if (w < 600) sideBySide = false;
+  };
 
   const tick = (): void => {
     screen.innerHTML = renderFrame(nowMs(), baseMs);
@@ -425,6 +494,7 @@ export function startDashboard(screen: HTMLElement): void {
     }
   };
 
+  chooseLayout();
   tick();
   fitLogLines();
   tick();
@@ -433,11 +503,13 @@ export function startDashboard(screen: HTMLElement): void {
   window.addEventListener("resize", () => {
     clearTimeout(rzTimer);
     rzTimer = window.setTimeout(() => {
+      chooseLayout();
       fitLogLines();
       tick();
     }, 150);
   });
   void document.fonts?.ready.then(() => {
+    chooseLayout();
     fitLogLines();
     tick();
   });

@@ -6,6 +6,8 @@ import {
   renderFrame,
   buildDashboardLines,
   buildOpencodeLines,
+  joinColumns,
+  DASH_BOX_W,
   DASH_BOX_W_ABBR,
   OC_PANE_W,
 } from "../src/dashboard";
@@ -80,6 +82,24 @@ for (let sec = 20; sec <= 30; sec++) {
   }
 }
 if (ocMismatch === 0) ok(`opencode rows uniform at ${OC_PANE_W} cols (${ocRows} rows across beat)`);
+
+// 5. The side-by-side join produces rows exactly DASH_BOX_W cols wide and pads
+// the shorter (opencode) column to the dashboard's height, so borders align.
+const joinDash = buildDashboardLines(24, 0, { dropLatest: true, selectedId: 321 });
+const joinPane = buildOpencodeLines(24, 0);
+const joined = joinColumns(joinDash, joinPane);
+let joinMismatch = 0;
+for (const row of joined) {
+  if (visibleWidth(row) !== DASH_BOX_W) {
+    joinMismatch++;
+    fail(`joined row is ${visibleWidth(row)} cols, expected ${DASH_BOX_W}`);
+  }
+}
+if (joined.length !== Math.max(joinDash.length, joinPane.length)) {
+  fail(`join height ${joined.length} != max(${joinDash.length},${joinPane.length})`);
+} else if (joinMismatch === 0) {
+  ok(`side-by-side join uniform at ${DASH_BOX_W} cols (${joined.length} rows)`);
+}
 
 if (failures > 0) {
   console.error(`\n${failures} assertion(s) failed`);
