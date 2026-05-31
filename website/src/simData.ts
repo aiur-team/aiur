@@ -193,3 +193,41 @@ export const EVENTS: LogEvent[] = [
   { t: 78, kind: "publish", id: 315, text: "tests green, refactoring" },
   { t: 84, kind: "read", id: 324, text: "read elasticsearch mapping docs" },
 ];
+
+// ---- opencode "take the wheel" session (#321) ----
+// The deterministic transcript the opencode pane renders during the beat.
+// Lines appear whole on the 1Hz repaint (no typewriter); times are loop
+// seconds within [BEAT.open, BEAT.close). The decision lands at BEAT.decision,
+// just before #321's existing t=26 "schema migrated to uuid pks" publish.
+export type OcKind = "cmd" | "tool" | "prose" | "ack";
+export interface OcLine {
+  t: number; // loop second this transcript line first appears
+  kind: OcKind;
+  text: string; // glyph prefix ($, →, 👍) is added by the renderer
+}
+export interface OpencodeScript {
+  chip: string;
+  chipDoneAt: number; // loop second the chip gains "· done"
+  inputLabel: string;
+  decisionText: string;
+  decisionAt: number; // loop second the decision text fills the input box
+  lines: OcLine[]; // ascending t
+}
+
+export const OPENCODE_SCRIPT: OpencodeScript = {
+  chip: "Build · issue-321",
+  chipDoneAt: 28,
+  inputLabel: "Build · issue-321 its-everdred/shopwave",
+  decisionText: "online backfill in batches, no lock",
+  decisionAt: BEAT.decision,
+  lines: [
+    { t: 20, kind: "cmd", text: "mix ecto.migrate --dry-run" },
+    { t: 21, kind: "tool", text: "tool result" },
+    { t: 22, kind: "prose", text: "Dry-run done. Backfilling 2.1M users will lock the" },
+    { t: 23, kind: "prose", text: "table ~40s on prod. How should I run the backfill?" },
+    { t: 25, kind: "ack", text: "switching to batched online backfill" },
+    { t: 26, kind: "cmd", text: "edit priv/repo/migrations/..._add_uuid.exs" },
+    { t: 27, kind: "tool", text: "tool result" },
+    { t: 28, kind: "prose", text: "schema migrated to uuid pks — pushed" },
+  ],
+};
