@@ -66,13 +66,19 @@ export const OC_PANE_W = OC_RAIL_W + OC_INNER; // 65
 // overflowing the terminal's height at large font sizes.
 const VISIBLE_TICKETS = 6;
 // Rows that aren't tickets or log lines: top border, 3 header rows, 2 dividers,
-// column header, log divider, bottom border, spacer, footer.
-const NON_TICKET_ROWS = 11;
-// Event-log rows. Grown at runtime to fill the terminal's height (see
-// startDashboard); every non-log row is fixed, so FIXED_ROWS + logLines = total.
+// column header, log divider, bottom border.
+const NON_TICKET_ROWS = 9;
+// Event-log rows. On narrow screens this grows at runtime to fill the
+// terminal's vertical slack (see startDashboard); on wide screens it's pinned
+// low so the grid stays compact and vertically centered. Every non-log row is
+// fixed, so FIXED_ROWS + logLines = total.
 const MIN_LOG_LINES = 6;
+const WIDE_LOG_LINES = 3;
 const FIXED_ROWS = NON_TICKET_ROWS + VISIBLE_TICKETS;
 let logLines = MIN_LOG_LINES;
+// Desktop-width flag. Drives the pinned 3-line log section and the
+// side-by-side beat split. Set by chooseLayout from the viewport width.
+let wide = true;
 
 const PHASE_EMOJI: Record<Phase, string> = {
   brainstorm: "🧠",
@@ -279,14 +285,6 @@ function eventLines(now: number, g: Geom, count: number): string[] {
   return lines;
 }
 
-function footer(): string {
-  const keys = raw(
-    "  ↑/↓ select   enter open   space pause   v layout   ? help   q quit",
-    "dim",
-  );
-  return keys.h;
-}
-
 // Build the dashboard box (top border → bottom border) as an array of line
 // strings. Default output (dropLatest:false, no selectedId) is byte-identical
 // to the historical full-width frame; the assert script locks that invariant.
@@ -456,8 +454,7 @@ export function renderFrame(nowMs: number, baseMs: number): string {
     body = [...dash, stackRule(), ...pane];
   }
 
-  const lines = [...body, "", footer()];
-  return `<pre class="tui-pre">${lines.join("\n")}</pre>`;
+  return `<pre class="tui-pre">${body.join("\n")}</pre>`;
 }
 
 export function startDashboard(screen: HTMLElement): void {
@@ -468,12 +465,16 @@ export function startDashboard(screen: HTMLElement): void {
   // "· done" (chipDoneAt=28, so no frozen spinner), and #321 resuming (R11).
   const nowMs = (): number => (reduce ? baseMs + 28_000 : performance.now());
 
-  // Side-by-side vs stacked for the beat split. Both layouts render the same
-  // 96-col grid width, so this is a readability/aspect choice, not a fit one.
-  // Hysteresis dead-band (600–720px) prevents flip-flop near the threshold.
+  // Wide flag + side-by-side-vs-stacked for the beat split. Both layouts render
+  // the same 96-col grid width, so the split choice is readability/aspect, not
+  // fit. Stack only on a truly narrow portrait viewport — landscape and medium
+  // widths keep the dashboard and pane side by side (a hysteresis dead-band of
+  // 600–680px prevents flip-flop near the threshold).
   const chooseLayout = (): void => {
     const w = screen.getBoundingClientRect().width;
-    if (w >= 720) sideBySide = true;
+    const portrait = window.matchMedia("(orientation: portrait)").matches;
+    wide = w >= 700;
+    if (!portrait || w >= 680) sideBySide = true;
     else if (w < 600) sideBySide = false;
   };
 
@@ -481,10 +482,16 @@ export function startDashboard(screen: HTMLElement): void {
     screen.innerHTML = renderFrame(nowMs(), baseMs);
   };
 
-  // The TUI is a fixed-width grid: its font shrinks to fit width, so on narrow
-  // screens it leaves vertical slack. Grow the log section to fill that slack.
-  // Line height tracks width (font-size) only, so it's stable across row counts.
+  // Wide screens pin the log section to a compact WIDE_LOG_LINES so the grid
+  // stays tight and vertically centered. On narrow screens the fixed-width grid
+  // shrinks its font to fit width and leaves vertical slack, so the log section
+  // grows to fill it. Line height tracks width (font-size) only, so it's stable
+  // across row counts.
   const fitLogLines = (): void => {
+    if (wide) {
+      logLines = WIDE_LOG_LINES;
+      return;
+    }
     const pre = screen.querySelector(".tui-pre") as HTMLElement | null;
     if (!pre) return;
     const lineH = pre.getBoundingClientRect().height / (FIXED_ROWS + logLines);
