@@ -391,6 +391,11 @@
   .tui-pre .e1 { display: inline-block; width: 1ch; text-align: center; }
   .tui-pre .bd { color: var(--tui-line); }
   .tui-pre .bar-empty { color: var(--tui-line); }
+  .tui-pre .oc-rail { color: var(--tui-line); }
+  .tui-pre .oc-cmd { color: var(--term-ok); }
+  .tui-pre .oc-tool { color: var(--term-dim); }
+  .tui-pre .oc-chip { color: var(--term-accent); font-weight: 700; }
+  .tui-pre .oc-input { color: var(--term-accent); }
   .term-screen .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.72em; }
   .term-screen .pr { color: var(--term-accent); margin-right: 10px; }
   .term-screen .ok  { color: var(--term-ok); }
