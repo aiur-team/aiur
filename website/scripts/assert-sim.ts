@@ -2,7 +2,13 @@
 // `npm run assert`. Not wired into CI (website has no test gate); it guards
 // the load-bearing invariants the refactor and beat re-timing could break.
 import { readFileSync } from "node:fs";
-import { renderFrame, buildDashboardLines, DASH_BOX_W_ABBR } from "../src/dashboard";
+import {
+  renderFrame,
+  buildDashboardLines,
+  buildOpencodeLines,
+  DASH_BOX_W_ABBR,
+  OC_PANE_W,
+} from "../src/dashboard";
 import { EVENTS } from "../src/simData";
 
 let failures = 0;
@@ -57,6 +63,23 @@ if (publish && receive && publish.t < receive.t) {
 } else {
   fail(`unblock ordering broken: publish=${publish?.t} receive=${receive?.t}`);
 }
+
+// 4. Every opencode pane row is exactly OC_PANE_W cols (rectangular box, no
+// overflow) across the beat window, regardless of which transcript lines have
+// fired or whether the decision text has landed.
+let ocMismatch = 0;
+let ocRows = 0;
+for (let sec = 20; sec <= 30; sec++) {
+  const pane = buildOpencodeLines(sec, sec % 10);
+  for (const row of pane) {
+    ocRows++;
+    if (visibleWidth(row) !== OC_PANE_W) {
+      ocMismatch++;
+      fail(`opencode row at loopSec=${sec} is ${visibleWidth(row)} cols, expected ${OC_PANE_W}`);
+    }
+  }
+}
+if (ocMismatch === 0) ok(`opencode rows uniform at ${OC_PANE_W} cols (${ocRows} rows across beat)`);
 
 if (failures > 0) {
   console.error(`\n${failures} assertion(s) failed`);

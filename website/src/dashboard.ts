@@ -5,8 +5,9 @@ import {
   PROJECT,
   ACTIVE,
   MAX,
+  OPENCODE_SCRIPT,
 } from "./simData";
-import type { TicketScript, Phase, Agent, EventKind } from "./simData";
+import type { TicketScript, Phase, Agent, EventKind, OcLine } from "./simData";
 
 // ---- frame geometry (character columns) ----
 const MARKER = 2;
@@ -51,6 +52,15 @@ const ABBR: Geom = {
 };
 export const DASH_BOX_W = WIDTH;
 export const DASH_BOX_W_ABBR = INNER_S + 4;
+
+// opencode pane geometry. The pane sits to the right of the abbreviated
+// dashboard during the beat: a left rail, then OC_INNER content cols. Widths
+// are derived so the combined split (dashboard + gutter + pane) equals WIDTH,
+// keeping the container-query font ratio unchanged (no overflow/clip).
+const OC_RAIL_W = 2; // "┃ "
+export const OC_GUTTER = 1; // blank cols between dashboard box and pane
+export const OC_INNER = WIDTH - DASH_BOX_W_ABBR - OC_GUTTER - OC_RAIL_W; // 63
+export const OC_PANE_W = OC_RAIL_W + OC_INNER; // 65
 // Show the top slice of the fleet so the grid fills width without the rows
 // overflowing the terminal's height at large font sizes.
 const VISIBLE_TICKETS = 6;
@@ -300,6 +310,88 @@ export function buildDashboardLines(
   lines.push(logDivider(g));
   for (const l of eventLines(loopSec, g)) lines.push(l);
   lines.push(bottomBorder(g));
+  return lines;
+}
+
+// ---- opencode pane (the "take the wheel" beat) ----
+const ocRail = (): Seg => raw("┃ ", "oc-rail");
+
+// Wrap a content Seg into a full pane row: rail + content padded to OC_INNER.
+function ocRow(content: Seg): string {
+  return cat(ocRail(), padEnd(content, OC_INNER)).h;
+}
+
+function ocBlank(): string {
+  return ocRow(raw(""));
+}
+
+function ocTranscript(line: OcLine): string {
+  switch (line.kind) {
+    case "cmd":
+      return ocRow(cat(raw("$ ", "oc-cmd"), raw(trunc(line.text, OC_INNER - 2), "oc-cmd")));
+    case "tool":
+      return ocRow(cat(raw("→ ", "oc-tool"), raw(trunc(line.text, OC_INNER - 2), "oc-tool")));
+    case "ack":
+      return ocRow(cat(emo("👍"), raw(" "), raw(trunc(line.text, OC_INNER - 3))));
+    case "prose":
+      return ocRow(raw(trunc(line.text, OC_INNER)));
+  }
+}
+
+// Three/four-row char-art input box, each row exactly OC_INNER cols wide.
+function ocInputBox(loopSec: number): string[] {
+  const s = OPENCODE_SCRIPT;
+  const decided = loopSec >= s.decisionAt;
+  const bar = (l: string, r: string): string =>
+    ocRow(cat(raw(l, "bd"), dashes(OC_INNER - 2), raw(r, "bd")));
+  const inner = (body: Seg): string =>
+    ocRow(
+      cat(
+        raw("│", "oc-input"),
+        raw(" "),
+        padEnd(body, OC_INNER - 4),
+        raw(" "),
+        raw("│", "oc-input"),
+      ),
+    );
+  const prompt = cat(
+    raw("› ", "oc-input"),
+    decided ? raw(trunc(s.decisionText, OC_INNER - 6)) : raw(""),
+  );
+  const label = raw(trunc(s.inputLabel, OC_INNER - 4), "dim");
+  return [bar("┌", "┐"), inner(prompt), inner(label), bar("└", "┘")];
+}
+
+function ocFooter(): string {
+  return ocRow(
+    cat(
+      raw("▣▣▣▢▢ ", "oc-chip"),
+      raw("esc interrupt   tab agents   ctrl+p commands", "dim"),
+    ),
+  );
+}
+
+// Render the opencode pane as full-width pane rows (OC_PANE_W cols each).
+// Pure function of loopSec/spinIdx; the join in renderFrame stitches it beside
+// the abbreviated dashboard. Lines appear whole on the 1Hz repaint (no
+// typewriter); the chip spinner is the only sub-second motion (R7/AE3).
+export function buildOpencodeLines(loopSec: number, spinIdx: number): string[] {
+  const s = OPENCODE_SCRIPT;
+  const done = loopSec >= s.chipDoneAt;
+  const chip = cat(
+    done ? raw("▣ ", "oc-chip") : cat(spin(SPIN[spinIdx]), raw(" ")),
+    raw(s.chip, "oc-chip"),
+    done ? raw(" · done", "dim") : raw(""),
+  );
+
+  const lines: string[] = [ocRow(chip), ocBlank()];
+  for (const line of s.lines) {
+    if (line.t <= Math.floor(loopSec)) lines.push(ocTranscript(line));
+  }
+  lines.push(ocBlank());
+  for (const l of ocInputBox(loopSec)) lines.push(l);
+  lines.push(ocBlank());
+  lines.push(ocFooter());
   return lines;
 }
 
