@@ -2,7 +2,7 @@
 // Theme: "ShopWave", a fictional e-commerce/payments SaaS.
 // See elixir/docs/brainstorms/2026-05-30-aiur-terminal-simulation-handoff.md
 
-export type Agent = "claude" | "codex";
+export type Agent = "opus" | "sonnet" | "codex";
 export type Phase =
   | "brainstorm"
   | "plan"
@@ -42,7 +42,7 @@ export const MAX = 15;
 export const TICKETS: TicketScript[] = [
   {
     id: 312,
-    agent: "claude",
+    agent: "opus",
     title: "Add Stripe webhook retry handling",
     seedSec: 378,
     frames: [
@@ -64,7 +64,7 @@ export const TICKETS: TicketScript[] = [
   },
   {
     id: 315,
-    agent: "claude",
+    agent: "sonnet",
     title: "Fix inventory decrement race",
     seedSec: 227,
     frames: [
@@ -79,36 +79,38 @@ export const TICKETS: TicketScript[] = [
     title: "Add OAuth login with Google",
     seedSec: 690,
     frames: [
-      { t: 0, phase: "implement", progress: 90, latest: "finalizing OAuth callback" },
-      { t: 24, phase: "done", progress: 100, latest: 'pushed 4 commits, last: "OAuth callback handler"' },
-      { t: 26, phase: "done", progress: 100, latest: "auth API ready" },
+      { t: 0, phase: "implement", progress: 88, latest: "finalizing OAuth callback" },
+      { t: 8, phase: "implement", progress: 96, latest: 'pushed commit: "OAuth callback handler"' },
+      { t: 11, phase: "done", progress: 100, latest: "auth API ready" },
     ],
   },
   {
     id: 319,
-    agent: "claude",
+    agent: "sonnet",
     title: "Wire login form to auth API",
     seedSec: 125,
     frames: [
       { t: 0, phase: "blocked", progress: 0, latest: "blocked on #318 auth API" },
-      { t: 30, phase: "implement", progress: 5, latest: "wiring login form to /auth/callback" },
-      { t: 55, phase: "implement", progress: 35, latest: "rendering login button" },
+      { t: 11, phase: "blocked", progress: 0, latest: "← #318 pushed — pulling in" },
+      { t: 13, phase: "implement", progress: 8, latest: "rebased on #318, updating plan" },
+      { t: 16, phase: "implement", progress: 24, latest: "wiring login form to /auth/callback" },
+      { t: 55, phase: "implement", progress: 42, latest: "rendering login button" },
     ],
   },
   {
     id: 321,
-    agent: "codex",
+    agent: "opus",
     title: "Migrate users table to UUID PKs",
     seedSec: 333,
     frames: [
       { t: 0, phase: "implement", progress: 50, latest: "running migration dry-run" },
-      { t: 25, phase: "implement", progress: 70, latest: "backfilling uuid column" },
-      { t: 40, phase: "implement", progress: 90, latest: 'pushed 2 commits, last: "backfill uuid column"' },
+      { t: 20, phase: "implement", progress: 75, latest: "backfilling uuid column" },
+      { t: 24, phase: "implement", progress: 92, latest: 'pushed 2 commits, last: "backfill uuid column"' },
     ],
   },
   {
     id: 322,
-    agent: "claude",
+    agent: "sonnet",
     title: "Rate-limit the public API",
     seedSec: 72,
     frames: [
@@ -130,7 +132,7 @@ export const TICKETS: TicketScript[] = [
   },
   {
     id: 326,
-    agent: "claude",
+    agent: "opus",
     title: "Email receipt templating",
     seedSec: 295,
     frames: [
@@ -152,22 +154,35 @@ export const TICKETS: TicketScript[] = [
   },
 ];
 
-// Scripted event feed. Hero handoff #318 -> #319, secondary #321 -> #324,
-// woven through ambient publish/read traffic.
+// Scripted event feed. Events with t <= 0 are seed history so the log is
+// already full at load. The hero handoff #318 -> #319 runs uninterrupted from
+// ~8s (push -> receive -> pull in -> update plan); a secondary #321 -> #324
+// unblock and ambient publish/read traffic fill the rest of the loop.
 export const EVENTS: LogEvent[] = [
-  { t: 6, kind: "publish", id: 326, text: "rendering MJML preview" },
-  { t: 12, kind: "read", id: 322, text: "read public API rate-limit RFC" },
-  { t: 20, kind: "publish", id: 318, text: "finalizing OAuth callback" },
-  { t: 24, kind: "publish", id: 318, text: 'pushed 4 commits, last: "OAuth callback handler"' },
-  { t: 26, kind: "publish", id: 318, text: "auth API ready" },
-  { t: 30, kind: "receive", id: 319, text: "← 318: auth API ready, unblocking" },
-  { t: 35, kind: "publish", id: 322, text: "implementing sliding window limiter" },
-  { t: 40, kind: "publish", id: 321, text: 'pushed 2 commits, last: "backfill uuid column"' },
-  { t: 41, kind: "publish", id: 321, text: "schema migrated to uuid pks" },
-  { t: 45, kind: "publish", id: 314, text: "done — awaiting review" },
-  { t: 50, kind: "receive", id: 324, text: "← 321: schema ready" },
-  { t: 58, kind: "read", id: 326, text: "read payment.succeeded contract" },
+  // seed history (pre-loaded, fills the log at t=0)
+  { t: -34, kind: "read", id: 322, text: "read public API rate-limit RFC" },
+  { t: -28, kind: "publish", id: 326, text: "rendering MJML preview" },
+  { t: -22, kind: "publish", id: 321, text: "running migration dry-run" },
+  { t: -15, kind: "read", id: 327, text: "read analytics widget specs" },
+  { t: -9, kind: "publish", id: 315, text: "writing failing test for race" },
+  { t: -3, kind: "publish", id: 312, text: "running webhook retry tests" },
+  // ambient before the handoff
+  { t: 4, kind: "read", id: 326, text: "read payment.succeeded contract" },
+  // hero handoff #318 -> #319 (uninterrupted)
+  { t: 8, kind: "publish", id: 318, text: 'pushed commit: "OAuth callback handler"' },
+  { t: 10, kind: "receive", id: 319, text: "← #318 pushed: OAuth callback handler" },
+  { t: 12, kind: "publish", id: 319, text: "pulled in #318, rebasing onto /auth/callback" },
+  { t: 14, kind: "publish", id: 319, text: "updated plan to incorporate #318 callback" },
+  // ambient + secondary unblock after the handoff
+  { t: 20, kind: "publish", id: 326, text: "adding plain-text fallback" },
+  { t: 24, kind: "publish", id: 321, text: 'pushed 2 commits, last: "backfill uuid column"' },
+  { t: 26, kind: "publish", id: 321, text: "schema migrated to uuid pks" },
+  { t: 32, kind: "publish", id: 314, text: "done — awaiting review" },
+  { t: 38, kind: "read", id: 322, text: "read token-bucket reference impl" },
+  { t: 46, kind: "receive", id: 324, text: "← #321: schema ready, unblocking" },
+  { t: 52, kind: "publish", id: 322, text: "implementing sliding window limiter" },
+  { t: 60, kind: "publish", id: 327, text: "planning chart components" },
   { t: 70, kind: "publish", id: 312, text: "done — awaiting review" },
-  { t: 76, kind: "publish", id: 315, text: "tests green, refactoring" },
-  { t: 82, kind: "read", id: 327, text: "read analytics widget specs" },
+  { t: 78, kind: "publish", id: 315, text: "tests green, refactoring" },
+  { t: 84, kind: "read", id: 324, text: "read elasticsearch mapping docs" },
 ];

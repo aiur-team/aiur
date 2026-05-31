@@ -86,8 +86,7 @@ function bar(pct: number): Seg {
   );
 }
 
-const agentSeg = (a: Agent): Seg =>
-  raw(a, a === "claude" ? "ag-claude" : "ag-codex");
+const agentSeg = (a: Agent): Seg => raw(a, `ag-${a}`);
 
 function sample(tk: TicketScript, now: number): {
   phase: Phase;
@@ -238,6 +237,18 @@ function renderFrame(nowMs: number, baseMs: number): string {
   return `<pre class="tui-pre">${lines.join("\n")}</pre>`;
 }
 
+// Scale the fixed-width frame to fill its container. Font stays an integer
+// pixel size so the monospace grid is pixel-perfect; the whole <pre> is then
+// uniformly scaled, which keeps every border column aligned.
+function fit(screen: HTMLElement): void {
+  const pre = screen.querySelector<HTMLElement>(".tui-pre");
+  if (!pre) return;
+  pre.style.transform = "none";
+  const natural = pre.getBoundingClientRect().width;
+  if (!natural) return;
+  pre.style.transform = `scale(${screen.clientWidth / natural})`;
+}
+
 export function startDashboard(screen: HTMLElement): void {
   const baseMs = performance.now();
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -245,11 +256,14 @@ export function startDashboard(screen: HTMLElement): void {
   if (reduce) {
     // a single representative frame just after the hero unblock
     screen.innerHTML = renderFrame(baseMs + 31_000, baseMs);
+    fit(screen);
+    window.addEventListener("resize", () => fit(screen));
     return;
   }
 
   const tick = (): void => {
     screen.innerHTML = renderFrame(performance.now(), baseMs);
+    fit(screen);
   };
   tick();
   window.setInterval(tick, 100);
