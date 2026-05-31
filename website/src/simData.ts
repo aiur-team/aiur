@@ -43,7 +43,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 312,
     agent: "opus",
-    title: "Add Stripe webhook retry handling",
+    title: "Stripe webhook retries",
     seedSec: 378,
     frames: [
       { t: 0, phase: "implement", progress: 70, latest: "running webhook retry tests" },
@@ -54,7 +54,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 314,
     agent: "codex",
-    title: "Build checkout cart persistence",
+    title: "Checkout cart persistence",
     seedSec: 422,
     frames: [
       { t: 0, phase: "review", progress: 80, latest: "review: addressing comments" },
@@ -65,7 +65,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 315,
     agent: "sonnet",
-    title: "Fix inventory decrement race",
+    title: "Inventory decrement race",
     seedSec: 227,
     frames: [
       { t: 0, phase: "implement", progress: 40, latest: "writing failing test for race" },
@@ -76,7 +76,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 318,
     agent: "codex",
-    title: "Add OAuth login with Google",
+    title: "Google OAuth login",
     seedSec: 690,
     frames: [
       { t: 0, phase: "implement", progress: 88, latest: "finalizing OAuth callback" },
@@ -87,7 +87,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 319,
     agent: "sonnet",
-    title: "Wire login form to auth API",
+    title: "Login form to auth API",
     seedSec: 125,
     frames: [
       { t: 0, phase: "blocked", progress: 0, latest: "blocked on #318 auth API" },
@@ -100,7 +100,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 321,
     agent: "opus",
-    title: "Migrate users table to UUID PKs",
+    title: "Migrate users to UUID PKs",
     seedSec: 333,
     frames: [
       { t: 0, phase: "implement", progress: 50, latest: "running migration dry-run" },
@@ -122,7 +122,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 324,
     agent: "codex",
-    title: "Add product search endpoint",
+    title: "Product search endpoint",
     seedSec: 48,
     frames: [
       { t: 0, phase: "blocked", progress: 0, latest: "blocked on #321 schema" },
@@ -144,7 +144,7 @@ export const TICKETS: TicketScript[] = [
   {
     id: 327,
     agent: "codex",
-    title: "Dashboard analytics widgets",
+    title: "Dashboard analytics",
     seedSec: 21,
     frames: [
       { t: 0, phase: "brainstorm", progress: 10, latest: "brainstorming widget layout" },
