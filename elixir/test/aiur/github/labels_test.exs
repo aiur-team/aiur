@@ -40,9 +40,7 @@ defmodule Aiur.GitHub.LabelsTest do
       end
 
       assert :ok =
-               Labels.ensure("octo", "repo", "tok", ["complexity:1", "complexity:2"],
-                 request_fun: stub
-               )
+               Labels.ensure("octo", "repo", "tok", ["complexity:1", "complexity:2"], request_fun: stub)
 
       assert_received {:created, "https://api.github.com/repos/octo/repo/labels", "complexity:1"}
       assert_received {:created, _, "complexity:2"}
@@ -69,9 +67,7 @@ defmodule Aiur.GitHub.LabelsTest do
       stub = fn _req -> {:ok, %{status: 403, body: %{}}} end
 
       assert {:error, {:github_api_status, 403, "complexity:1"}} =
-               Labels.ensure("octo", "repo", "tok", ["complexity:1", "complexity:2"],
-                 request_fun: stub
-               )
+               Labels.ensure("octo", "repo", "tok", ["complexity:1", "complexity:2"], request_fun: stub)
     end
 
     test "a transport error surfaces" do
