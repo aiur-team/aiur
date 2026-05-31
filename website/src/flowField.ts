@@ -31,6 +31,7 @@ export function createFlowField(): { redraw: () => void } {
   const SPACING = 23; // px between lines
   const STEP = 7; // sampling step along a line
   const GAP = 9; // snug clearance kept around the lockup
+  const FADE = 260; // extra height below the fold the lines extend into (matches #field mask)
 
   let W = 0;
   let H = 0;
@@ -144,7 +145,7 @@ export function createFlowField(): { redraw: () => void } {
   function resize(): void {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = hero!.clientWidth;
-    H = hero!.clientHeight;
+    H = hero!.clientHeight + FADE;
     canvas!.width = W * DPR;
     canvas!.height = H * DPR;
     ctx!.setTransform(DPR, 0, 0, DPR, 0, 0);

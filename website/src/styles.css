@@ -90,14 +90,17 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
+    overflow-x: clip;
   }
   #field {
     position: absolute;
     inset: 0;
     width: 100%;
-    height: 100%;
+    /* extend past the fold so the diagonal lines can fade out below it */
+    height: calc(100% + 260px);
     z-index: 1;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 260px), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 260px), transparent 100%);
   }
 
   .stage {
@@ -251,20 +254,20 @@
     --tui-line: rgba(255,255,255,0.16);
   }
   html[data-theme="light"] {
-    --term-bg: #1b1814;
-    --term-head: #241f19;
-    --term-bd: rgba(255,255,255,0.07);
-    --term-fg: #efe9df;
-    --term-dim: #9a8f7c;
-    --term-title: #b3a791;
-    --term-shadow: 0 44px 80px -34px rgba(58,44,18,0.55), 0 0 0 1px rgba(42,37,26,0.10);
-    --term-accent: #6fb4ff;
-    --term-ok: #5ad17a;
-    --term-add: #74dd86;
-    --term-del: #ff8e85;
-    --term-warn: #ecc25a;
-    --term-mag: #d3aeff;
-    --tui-line: rgba(255,247,235,0.17);
+    --term-bg: #f7f2e8;
+    --term-head: #ece4d4;
+    --term-bd: rgba(42,37,26,0.12);
+    --term-fg: #2c2822;
+    --term-dim: #8a7f6a;
+    --term-title: #6f6450;
+    --term-shadow: 0 44px 80px -34px rgba(58,44,18,0.30), 0 0 0 1px rgba(42,37,26,0.08);
+    --term-accent: #1f6fd6;
+    --term-ok: #1f9d4d;
+    --term-add: #1f9d4d;
+    --term-del: #d23b32;
+    --term-warn: #b8821a;
+    --term-mag: #8a4fd0;
+    --tui-line: rgba(42,37,26,0.16);
   }
 
   .term-section {
@@ -325,12 +328,12 @@
     padding: clamp(8px, 1.4vw, 16px);
     display: grid;
     place-items: center;
+    container-type: inline-size;
   }
   .term-screen {
     font-family: "JetBrains Mono", monospace;
     color: var(--term-fg);
     width: 100%;
-    min-width: 0;
     height: 100%;
     display: grid;
     place-items: center;
@@ -338,11 +341,10 @@
   .tui-pre {
     margin: 0;
     font-family: "JetBrains Mono", monospace;
-    font-size: 13px;
-    line-height: 1;
+    font-size: clamp(6px, 1.7cqi, 13.5px);
+    line-height: 1.5;
     white-space: pre;
     color: var(--term-fg);
-    transform-origin: center center;
     will-change: transform;
   }
   .tui-pre .tb { color: var(--term-fg); font-weight: 700; }
@@ -380,7 +382,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: clamp(80px, 13vh, 150px) clamp(20px, 5vw, 56px) 0;
+    padding: clamp(64px, 9vh, 116px) clamp(20px, 5vw, 56px) 0;
     transition: background-color 0.5s ease;
   }
   .summary {

@@ -107,7 +107,17 @@ function sample(tk: TicketScript, now: number): {
     const r = span > 0 ? Math.min(1, Math.max(0, (now - cur.t) / span)) : 1;
     progress = cur.progress + (nxt.progress - cur.progress) * r;
   }
-  return { phase: cur.phase, latest: cur.latest, progress };
+  // Keep the LATEST cell in lockstep with the event log: if this ticket has
+  // published an event more recently than its active frame, show that text.
+  let latest = cur.latest;
+  let latestT = cur.t;
+  for (const e of EVENTS) {
+    if (e.id === tk.id && e.t <= now && e.t >= latestT) {
+      latest = e.text;
+      latestT = e.t;
+    }
+  }
+  return { phase: cur.phase, latest, progress };
 }
 
 function ticketRow(tk: TicketScript, now: number, spinIdx: number, selected: boolean): string {
@@ -141,12 +151,9 @@ function bordered(content: Seg): string {
   return cat(raw("│ ", "bd"), padEnd(content, INNER), raw(" │", "bd")).h;
 }
 
-function topBorder(loopSec: number): string {
-  const n = 3 - (Math.floor(loopSec) % 3);
+function topBorder(): string {
   const left = cat(raw("╭─ ", "bd"), raw("AIUR", "tb"));
-  const refresh = cat(emo("🔄"), raw(` in ${n}s`, "acc"));
-  const gap = WIDTH - left.w - refresh.w - 1;
-  return cat(left, raw(" ".repeat(Math.max(1, gap))), refresh, raw("╮", "bd")).h;
+  return cat(left, dashes(WIDTH - left.w - 1), raw("╮", "bd")).h;
 }
 
 function plainDivider(): string {
@@ -220,7 +227,7 @@ function renderFrame(nowMs: number, baseMs: number): string {
   const spinIdx = Math.floor(nowMs / 100) % SPIN.length;
 
   const lines: string[] = [];
-  lines.push(topBorder(loopSec));
+  lines.push(topBorder());
   lines.push(headerRow("Agents: ", `${ACTIVE}/${MAX}`));
   lines.push(headerRow("Project: ", PROJECT));
   lines.push(headerRow("Dashboard: ", "http://127.0.0.1:4000/"));
@@ -237,18 +244,6 @@ function renderFrame(nowMs: number, baseMs: number): string {
   return `<pre class="tui-pre">${lines.join("\n")}</pre>`;
 }
 
-// Scale the fixed-width frame to fill its container. Font stays an integer
-// pixel size so the monospace grid is pixel-perfect; the whole <pre> is then
-// uniformly scaled, which keeps every border column aligned.
-function fit(screen: HTMLElement): void {
-  const pre = screen.querySelector<HTMLElement>(".tui-pre");
-  if (!pre) return;
-  pre.style.transform = "none";
-  const natural = pre.getBoundingClientRect().width;
-  if (!natural) return;
-  pre.style.transform = `scale(${screen.clientWidth / natural})`;
-}
-
 export function startDashboard(screen: HTMLElement): void {
   const baseMs = performance.now();
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -256,14 +251,11 @@ export function startDashboard(screen: HTMLElement): void {
   if (reduce) {
     // a single representative frame just after the hero unblock
     screen.innerHTML = renderFrame(baseMs + 31_000, baseMs);
-    fit(screen);
-    window.addEventListener("resize", () => fit(screen));
     return;
   }
 
   const tick = (): void => {
     screen.innerHTML = renderFrame(performance.now(), baseMs);
-    fit(screen);
   };
   tick();
   window.setInterval(tick, 100);
