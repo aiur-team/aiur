@@ -1,0 +1,86 @@
+name: release-npm
+
+# Builds a native, self-contained OTP release per OS/arch and uploads each as a
+# packed npm tarball. Triggered on version tags (real releases) or manually
+# (workflow_dispatch) for dry runs. Publishing is handled by a separate job (U6).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-14
+            target: darwin-arm64
+          - runner: macos-13
+            target: darwin-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Single installer for Erlang/Elixir across all four images, matching the
+      # versions the rest of CI uses (elixir/mise.toml). setup-beam does not
+      # provide prebuilt OTP on macOS, so mise is the cross-platform choice.
+      - name: Set up mise tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: true
+          cache: true
+          working_directory: elixir
+
+      - name: Cache deps
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: elixir/deps
+          key: ${{ runner.os }}-${{ matrix.target }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-mix-
+
+      - name: Compute version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release
+        id: build
+        env:
+          MIX_ENV: prod
+        run: |
+          release_dir=$(bash packaging/scripts/build-release.sh)
+          echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble platform package
+        id: assemble
+        run: |
+          out=$(node packaging/scripts/assemble-platform-package.mjs \
+            --release "${{ steps.build.outputs.release_dir }}" \
+            --target "${{ matrix.target }}" \
+            --version "${{ steps.version.outputs.version }}")
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Pack tarball
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd "${{ steps.assemble.outputs.out }}"
+          npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aiur-cli-${{ matrix.target }}
+          path: dist/*.tgz
+          if-no-files-found: error
