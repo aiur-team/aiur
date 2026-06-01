@@ -23,16 +23,16 @@ File.mkdir_p!(test_home)
 System.put_env("HOME", test_home)
 
 workflow_file =
-  Path.expand("../local-workflows/WORKFLOW.aiur.local.md", __DIR__)
+  Path.expand("../local-workflows/aiur.local.aiurconfig", __DIR__)
 
-test_workflow_fallback = Path.expand("fixtures/test_workflow.md", __DIR__)
+test_workflow_fallback = Path.expand("fixtures/test.aiurconfig", __DIR__)
 
 cond do
   File.exists?(workflow_file) ->
     Application.put_env(:aiur, :workflow_file_path, workflow_file)
 
   File.exists?(test_workflow_fallback) ->
-    # CI (and any clone without a per-machine `WORKFLOW.md`) needs a
+    # CI (and any clone without a per-machine `.aiurconfig`) needs a
     # checked-in fallback so `Aiur.Config.settings!/0` can resolve.
     Application.put_env(:aiur, :workflow_file_path, test_workflow_fallback)
 
