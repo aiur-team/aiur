@@ -23,10 +23,13 @@ const TIMEW = 5;
 const INNER = MARKER + IDW + AGENTW + STATUSW + TITLEW + LATESTW + PROGW + TIMEW; // 84
 const WIDTH = INNER + 4; // 88 incl. "│ " and " │"
 
-// Two dashboard geometries. FULL is today's full-width grid. ABBR is the
-// ~1/3-width pane shown beside the opencode pane during the take-the-wheel
-// beat: AGENT, LATEST and TIME columns drop, TITLE truncates, and PROGRESS
-// becomes a percentage so the combined split stays within the ~96-col budget.
+// Two dashboard geometries. fullGeom(cols) is the responsive full-width grid:
+// the marker, ID, AGENT, STATUS, PROGRESS and TIME columns are fixed; TITLE and
+// LATEST flex to consume whatever inline width the terminal gives us, so the
+// box always fills the container exactly — no empty gutter on wide screens, no
+// right-edge clipping on phones. ABBR is the ~1/3-width pane shown beside the
+// opencode pane during the take-the-wheel beat: AGENT, LATEST and TIME columns
+// drop, TITLE truncates, and PROGRESS becomes a percentage.
 interface Geom {
   id: number;
   agent: number; // 0 = dropped
@@ -39,11 +42,37 @@ interface Geom {
   width: number;
   dropLatest: boolean;
 }
-const FULL: Geom = {
-  id: IDW, agent: AGENTW, status: STATUSW, title: TITLEW,
-  latest: LATESTW, prog: PROGW, time: TIMEW,
-  inner: INNER, width: WIDTH, dropLatest: false,
-};
+// TITLE never needs to exceed the longest visible title (~25 cols); past that,
+// extra width is better spent on LATEST, which carries the longest strings.
+const TITLE_CAP = 26;
+const TITLE_MIN = 10;
+const LATEST_MIN = 12;
+// Smallest grid we'll render. Below this the font floor would force overflow no
+// matter what; the clamp keeps the box from collapsing on absurdly narrow boxes.
+const MIN_COLS = 44;
+// At WIDTH (88) this returns exactly today's full-width grid (title 24 / latest
+// 28) so the golden snapshot stays byte-identical; wider/narrower cols reflow
+// the two flex columns while keeping their sum equal to the inner width.
+function fullGeom(c: number): Geom {
+  const width = Math.max(MIN_COLS, c);
+  const inner = width - 4; // "│ " + " │"
+  const fixed = MARKER + IDW + AGENTW + STATUSW + PROGW + TIMEW; // 32
+  const flex = Math.max(TITLE_MIN + LATEST_MIN, inner - fixed);
+  let title = Math.max(TITLE_MIN, Math.min(TITLE_CAP, Math.round(flex * 0.46)));
+  let latest = flex - title;
+  if (latest < LATEST_MIN) {
+    latest = LATEST_MIN;
+    title = flex - latest;
+  }
+  return {
+    id: IDW, agent: AGENTW, status: STATUSW, title,
+    latest, prog: PROGW, time: TIMEW,
+    inner, width, dropLatest: false,
+  };
+}
+// Dashboard full-width column count. Default 88 keeps Node-side renders (golden,
+// assert) on the historical grid; the browser raises/lowers it in fitWidth.
+let cols = WIDTH;
 const TITLE_S = 11;
 const PROG_S = 6;
 const INNER_S = MARKER + IDW + STATUSW + TITLE_S + PROG_S; // 26
@@ -61,6 +90,11 @@ export const DASH_BOX_W_ABBR = INNER_S + 4;
 // ratio unchanged (no overflow/clip). No rail: every pane row fills OC_PANE_W.
 export const OC_GUTTER = 1; // blank cols between dashboard box and pane
 export const OC_PANE_W = WIDTH - DASH_BOX_W_ABBR - OC_GUTTER; // 57
+// Live pane width. Set per render (buildOpencodeLines) so every pane helper
+// pads/truncates to the width the current layout asked for: the side-by-side
+// remainder, the full terminal when stacked, or OC_PANE_W on a default 88-col
+// grid. Defaults to OC_PANE_W so Node-side asserts see the historical width.
+let ocW = OC_PANE_W;
 // Show the top slice of the fleet so the grid fills width without the rows
 // overflowing the terminal's height at large font sizes.
 const VISIBLE_TICKETS = 6;
@@ -293,7 +327,7 @@ export function buildDashboardLines(
   spinIdx: number,
   opts: { dropLatest: boolean; selectedId?: number; logOverride?: number },
 ): string[] {
-  const g = opts.dropLatest ? ABBR : FULL;
+  const g = opts.dropLatest ? ABBR : fullGeom(cols);
   const count = opts.logOverride ?? logLines;
   const lines: string[] = [];
   lines.push(topBorder(g));
@@ -317,11 +351,11 @@ export function buildDashboardLines(
 // Every pane row is exactly OC_PANE_W cols. No rail/box chrome: opencode's
 // turns are delineated by background-tinted bands (oc-userblock / oc-field),
 // an accent gutter glyph on cmd/tool lines, and plain prose otherwise.
-const ocPad = (content: Seg): Seg => padEnd(content, OC_PANE_W);
+const ocPad = (content: Seg): Seg => padEnd(content, ocW);
 const ocPlain = (content: Seg): string => ocPad(content).h;
 const ocBlank = (): string => ocPlain(raw(""));
 
-// A full-width background band: pad to OC_PANE_W *inside* the wrapping span so
+// A full-width background band: pad to ocW *inside* the wrapping span so
 // the background color covers the whole row (literal padding chars, not CSS
 // width), keeping the Seg width model and the assert in agreement.
 function ocBand(content: Seg, cls: string): string {
@@ -338,11 +372,11 @@ const ocBar = (): Seg => ({ h: `<span class="oc-bar"> </span>`, w: 1 });
 function ocHistory(line: OcLine): string {
   switch (line.kind) {
     case "cmd":
-      return ocPlain(cat(ocGutter(), raw(" "), raw(trunc(line.text, OC_PANE_W - 2), "oc-cmd")));
+      return ocPlain(cat(ocGutter(), raw(" "), raw(trunc(line.text, ocW - 2), "oc-cmd")));
     case "tool":
-      return ocPlain(cat(ocGutter(), raw(" "), raw(trunc(line.text, OC_PANE_W - 2), "oc-tool")));
+      return ocPlain(cat(ocGutter(), raw(" "), raw(trunc(line.text, ocW - 2), "oc-tool")));
     case "prose":
-      return ocPlain(raw(trunc(line.text, OC_PANE_W)));
+      return ocPlain(raw(trunc(line.text, ocW)));
   }
 }
 
@@ -379,12 +413,12 @@ function ocInputField(loopSec: number): string[] {
     ocBar(),
     raw(" "),
     raw("› ", "oc-prompt"),
-    raw(trunc(shown, OC_PANE_W - 5)),
+    raw(trunc(shown, ocW - 5)),
     ocCursor(),
   );
   const label = cat(
     ocBar(),
-    padStart(raw(trunc(OPENCODE_SCRIPT.inputLabel, OC_PANE_W - 3), "dim"), OC_PANE_W - 2),
+    padStart(raw(trunc(OPENCODE_SCRIPT.inputLabel, ocW - 3), "dim"), ocW - 2),
     raw(" "),
   );
   return [
@@ -396,7 +430,7 @@ function ocInputField(loopSec: number): string[] {
 
 // The posted operator message — a full-width tinted band with the solid bar.
 function ocUserBlock(text: string): string {
-  return ocBand(cat(ocBar(), raw(" "), raw(trunc(text, OC_PANE_W - 2))), "oc-userblock");
+  return ocBand(cat(ocBar(), raw(" "), raw(trunc(text, ocW - 2))), "oc-userblock");
 }
 
 // The scrollback transcript in chronological order (oldest first). The history
@@ -410,12 +444,12 @@ function ocTranscript(loopSec: number): string[] {
   const lines: string[] = [];
   for (const h of s.history) lines.push(ocHistory(h));
   lines.push(ocBlank());
-  lines.push(ocPlain(cat(emo("❗"), raw(" "), raw(trunc(s.alertText, OC_PANE_W - 3)))));
-  lines.push(ocPlain(raw(trunc(s.questionHead, OC_PANE_W))));
+  lines.push(ocPlain(cat(emo("❗"), raw(" "), raw(trunc(s.alertText, ocW - 3)))));
+  lines.push(ocPlain(raw(trunc(s.questionHead, ocW))));
   s.options.forEach((opt, i) => {
     if (loopSec >= BEAT.optStart + i) {
-      lines.push(ocPlain(raw(trunc(opt.label, OC_PANE_W))));
-      lines.push(ocPlain(raw("   " + trunc(opt.detail, OC_PANE_W - 3), "oc-dim")));
+      lines.push(ocPlain(raw(trunc(opt.label, ocW))));
+      lines.push(ocPlain(raw("   " + trunc(opt.detail, ocW - 3), "oc-dim")));
     }
   });
   if (loopSec >= BEAT.sendAt) {
@@ -424,7 +458,7 @@ function ocTranscript(loopSec: number): string[] {
   }
   if (loopSec >= BEAT.replyAt) {
     lines.push(ocBlank());
-    lines.push(ocPlain(raw(trunc(s.reply, OC_PANE_W))));
+    lines.push(ocPlain(raw(trunc(s.reply, ocW))));
   }
   return lines;
 }
@@ -439,7 +473,9 @@ export function buildOpencodeLines(
   loopSec: number,
   spinIdx: number,
   rows: number = OC_TOTAL_ROWS,
+  paneWidth: number = OC_PANE_W,
 ): string[] {
+  ocW = paneWidth;
   const s = OPENCODE_SCRIPT;
   const chip = cat(
     raw("▣ ", "oc-chip"),
@@ -485,9 +521,13 @@ let sideBySide = true;
 // Left rows are already DASH_BOX_W_ABBR wide and right rows OC_PANE_W, so each
 // joined row is exactly WIDTH cols. The shorter column is padded with blank,
 // full-width rows so borders stay aligned and the height matches the dashboard.
-export function joinColumns(left: string[], right: string[]): string[] {
+export function joinColumns(
+  left: string[],
+  right: string[],
+  paneW: number = OC_PANE_W,
+): string[] {
   const blankL = " ".repeat(DASH_BOX_W_ABBR);
-  const blankR = " ".repeat(OC_PANE_W);
+  const blankR = " ".repeat(paneW);
   const gutter = " ".repeat(OC_GUTTER);
   const rows = Math.max(left.length, right.length);
   const out: string[] = [];
@@ -498,7 +538,7 @@ export function joinColumns(left: string[], right: string[]): string[] {
 }
 
 function stackRule(): string {
-  return dashes(WIDTH, "bd").h;
+  return dashes(cols, "bd").h;
 }
 
 export function renderFrame(nowMs: number, baseMs: number): string {
@@ -516,21 +556,25 @@ export function renderFrame(nowMs: number, baseMs: number): string {
       selectedId: TICKETS[sel].id,
     });
   } else if (sideBySide) {
+    // Abbreviated dashboard stays a fixed 30 cols; the pane absorbs the rest of
+    // the grid width so the combined split fills the terminal exactly.
+    const paneW = Math.max(MIN_COLS, cols - DASH_BOX_W_ABBR - OC_GUTTER);
     const dash = buildDashboardLines(loopSec, spinIdx, {
       dropLatest: true,
       selectedId: DRIVEN_ID,
     });
-    body = joinColumns(dash, buildOpencodeLines(loopSec, spinIdx));
+    const pane = buildOpencodeLines(loopSec, spinIdx, OC_TOTAL_ROWS, paneW);
+    body = joinColumns(dash, pane, paneW);
   } else {
     // Stacked (narrow portrait): the opencode pane is the focus and should claim
     // roughly the bottom two-thirds. Render a compact dashboard (one log line)
-    // on top, then a pane sized to ~2x the dashboard height below the rule.
+    // on top, then a full-width pane sized to ~2x the dashboard height.
     const dash = buildDashboardLines(loopSec, spinIdx, {
       dropLatest: false,
       selectedId: DRIVEN_ID,
       logOverride: 1,
     });
-    const pane = buildOpencodeLines(loopSec, spinIdx, dash.length * 2);
+    const pane = buildOpencodeLines(loopSec, spinIdx, dash.length * 2, cols);
     body = [...dash, stackRule(), ...pane];
   }
 
@@ -562,6 +606,23 @@ export function startDashboard(screen: HTMLElement): void {
     screen.innerHTML = renderFrame(nowMs(), baseMs);
   };
 
+  // Set the full-width column count so the grid fills the container exactly at
+  // the current (clamped) font size. The font is container-query driven, so the
+  // per-character pixel width is independent of how many columns we render —
+  // measuring the live pre (rendered at the current `cols`) yields charW, and
+  // floor(containerWidth / charW) is the count that fits with no overflow and no
+  // empty gutter. This contracts the grid on phones (fewer cols, no right-edge
+  // clipping) and expands it on wide screens (more cols feed TITLE/LATEST).
+  const fitWidth = (): void => {
+    const pre = screen.querySelector(".tui-pre") as HTMLElement | null;
+    if (!pre) return;
+    const charW = pre.getBoundingClientRect().width / cols;
+    const avail = screen.clientWidth;
+    if (charW > 0 && avail > 0) {
+      cols = Math.max(MIN_COLS, Math.floor(avail / charW));
+    }
+  };
+
   // The log section grows to fill whatever vertical slack the fixed grid leaves,
   // so the box always reaches the terminal floor. The floor differs by width:
   // wide screens cap the font (tall rows) and can be short, so they stay compact
@@ -579,25 +640,26 @@ export function startDashboard(screen: HTMLElement): void {
     }
   };
 
-  chooseLayout();
-  tick();
-  fitLogLines();
-  tick();
+  // One layout pass: render once so the pre is measurable, derive the column
+  // count and log-line count from that render, then render again at the final
+  // geometry. charW (fitWidth) and lineH (fitLogLines) are both width/font
+  // driven and independent of the row/column counts, so one re-render suffices.
+  const relayout = (): void => {
+    chooseLayout();
+    tick();
+    fitWidth();
+    fitLogLines();
+    tick();
+  };
+
+  relayout();
 
   let rzTimer = 0;
   window.addEventListener("resize", () => {
     clearTimeout(rzTimer);
-    rzTimer = window.setTimeout(() => {
-      chooseLayout();
-      fitLogLines();
-      tick();
-    }, 150);
+    rzTimer = window.setTimeout(relayout, 150);
   });
-  void document.fonts?.ready.then(() => {
-    chooseLayout();
-    fitLogLines();
-    tick();
-  });
+  void document.fonts?.ready.then(relayout);
 
   if (!reduce) window.setInterval(tick, 100);
 }
