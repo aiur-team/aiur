@@ -6,6 +6,7 @@ import {
   ACTIVE,
   MAX,
   BEAT,
+  OC_TOTAL_ROWS,
   OPENCODE_SCRIPT,
 } from "./simData";
 import type { TicketScript, Phase, Agent, EventKind, OcLine } from "./simData";
@@ -55,13 +56,11 @@ export const DASH_BOX_W = WIDTH;
 export const DASH_BOX_W_ABBR = INNER_S + 4;
 
 // opencode pane geometry. The pane sits to the right of the abbreviated
-// dashboard during the beat: a left rail, then OC_INNER content cols. Widths
-// are derived so the combined split (dashboard + gutter + pane) equals WIDTH,
-// keeping the container-query font ratio unchanged (no overflow/clip).
-const OC_RAIL_W = 2; // "┃ "
+// dashboard during the beat. Width is derived so the combined split
+// (dashboard + gutter + pane) equals WIDTH, keeping the container-query font
+// ratio unchanged (no overflow/clip). No rail: every pane row fills OC_PANE_W.
 export const OC_GUTTER = 1; // blank cols between dashboard box and pane
-export const OC_INNER = WIDTH - DASH_BOX_W_ABBR - OC_GUTTER - OC_RAIL_W; // 63
-export const OC_PANE_W = OC_RAIL_W + OC_INNER; // 65
+export const OC_PANE_W = WIDTH - DASH_BOX_W_ABBR - OC_GUTTER; // 65
 // Show the top slice of the fleet so the grid fills width without the rows
 // overflowing the terminal's height at large font sizes.
 const VISIBLE_TICKETS = 6;
@@ -314,92 +313,130 @@ export function buildDashboardLines(
 }
 
 // ---- opencode pane (the "take the wheel" beat) ----
-const ocRail = (): Seg => raw("┃ ", "oc-rail");
+// Every pane row is exactly OC_PANE_W cols. No rail/box chrome: opencode's
+// turns are delineated by background-tinted bands (oc-userblock / oc-field),
+// an accent gutter glyph on cmd/tool lines, and plain prose otherwise.
+const ocPad = (content: Seg): Seg => padEnd(content, OC_PANE_W);
+const ocPlain = (content: Seg): string => ocPad(content).h;
+const ocBlank = (): string => ocPlain(raw(""));
 
-// Wrap a content Seg into a full pane row: rail + content padded to OC_INNER.
-function ocRow(content: Seg): string {
-  return cat(ocRail(), padEnd(content, OC_INNER)).h;
+// A full-width background band: pad to OC_PANE_W *inside* the wrapping span so
+// the background color covers the whole row (literal padding chars, not CSS
+// width), keeping the Seg width model and the assert in agreement.
+function ocBand(content: Seg, cls: string): string {
+  return `<span class="${cls}">${ocPad(content).h}</span>`;
 }
 
-function ocBlank(): string {
-  return ocRow(raw(""));
-}
+const ocGutter = (): Seg => ({ h: `<span class="oc-gutter">▌</span>`, w: 1 });
+const ocCursor = (): Seg => ({ h: `<span class="cursor"></span>`, w: 1 });
 
-function ocTranscript(line: OcLine): string {
+function ocHistory(line: OcLine): string {
   switch (line.kind) {
     case "cmd":
-      return ocRow(cat(raw("$ ", "oc-cmd"), raw(trunc(line.text, OC_INNER - 2), "oc-cmd")));
+      return ocPlain(cat(ocGutter(), raw(" "), raw(trunc(line.text, OC_PANE_W - 2), "oc-cmd")));
     case "tool":
-      return ocRow(cat(raw("→ ", "oc-tool"), raw(trunc(line.text, OC_INNER - 2), "oc-tool")));
-    case "ack":
-      return ocRow(cat(emo("👍"), raw(" "), raw(trunc(line.text, OC_INNER - 3))));
+      return ocPlain(cat(ocGutter(), raw(" "), raw(trunc(line.text, OC_PANE_W - 2), "oc-tool")));
     case "prose":
-      return ocRow(raw(trunc(line.text, OC_INNER)));
+      return ocPlain(raw(trunc(line.text, OC_PANE_W)));
   }
 }
 
-// Three/four-row char-art input box, each row exactly OC_INNER cols wide.
-function ocInputBox(loopSec: number): string[] {
-  const s = OPENCODE_SCRIPT;
-  const decided = loopSec >= s.decisionAt;
-  const bar = (l: string, r: string): string =>
-    ocRow(cat(raw(l, "bd"), dashes(OC_INNER - 2), raw(r, "bd")));
-  const inner = (body: Seg): string =>
-    ocRow(
-      cat(
-        raw("│", "oc-input"),
-        raw(" "),
-        padEnd(body, OC_INNER - 4),
-        raw(" "),
-        raw("│", "oc-input"),
-      ),
-    );
+// Operator typing: deterministic per-char reveal offsets (seconds from
+// typeStart), seeded so the same loopSec always yields the same substring
+// (R-V4/R-V9). Speed varies ~80–120ms/char but is a pure function of index.
+const TYPE_OFFSETS: number[] = (() => {
+  const offs: number[] = [];
+  let t = 0;
+  for (let i = 0; i < OPENCODE_SCRIPT.typedText.length; i++) {
+    const r = ((i * 2654435761) >>> 0) % 100; // 0..99, deterministic
+    t += 0.08 + (r / 99) * 0.04;
+    offs.push(t);
+  }
+  return offs;
+})();
+
+function revealedInput(loopSec: number): string {
+  const elapsed = loopSec - BEAT.typeStart;
+  let n = 0;
+  for (const o of TYPE_OFFSETS) if (o <= elapsed) n++;
+  return OPENCODE_SCRIPT.typedText.slice(0, n);
+}
+
+// Two-row filled input field with an accent left bar. Shows the typed
+// substring + blinking cursor while [typeStart, sendAt); empty (just cursor)
+// otherwise. At sendAt the text posts as an oc-userblock above (see builder).
+function ocInputField(loopSec: number): string[] {
+  const typing = loopSec >= BEAT.typeStart && loopSec < BEAT.sendAt;
+  const shown = typing ? revealedInput(loopSec) : "";
   const prompt = cat(
-    raw("› ", "oc-input"),
-    decided ? raw(trunc(s.decisionText, OC_INNER - 6)) : raw(""),
+    ocGutter(),
+    raw("  "),
+    raw("› ", "oc-prompt"),
+    raw(trunc(shown, OC_PANE_W - 6)),
+    ocCursor(),
   );
-  const label = raw(trunc(s.inputLabel, OC_INNER - 4), "dim");
-  return [bar("┌", "┐"), inner(prompt), inner(label), bar("└", "┘")];
+  const label = cat(
+    ocGutter(),
+    raw("  "),
+    raw(trunc(OPENCODE_SCRIPT.inputLabel, OC_PANE_W - 4), "dim"),
+  );
+  return [ocBand(prompt, "oc-field"), ocBand(label, "oc-field")];
 }
 
-function ocFooter(): string {
-  return ocRow(
-    cat(
-      raw("▣▣▣▢▢ ", "oc-chip"),
-      raw("esc interrupt   tab agents   ctrl+p commands", "dim"),
-    ),
-  );
-}
-
-// Render the opencode pane as full-width pane rows (OC_PANE_W cols each).
+// Render the opencode pane as a fixed-height array of OC_PANE_W-col rows.
 // Pure function of loopSec/spinIdx; the join in renderFrame stitches it beside
-// the abbreviated dashboard. Lines appear whole on the 1Hz repaint (no
-// typewriter); the chip spinner is the only sub-second motion (R7/AE3).
+// the abbreviated dashboard. Turns appear whole on the 1Hz repaint; only the
+// operator's input types char-by-char (R-V4) and the chip spinner ticks.
 export function buildOpencodeLines(loopSec: number, spinIdx: number): string[] {
   const s = OPENCODE_SCRIPT;
-  const done = loopSec >= s.chipDoneAt;
   const chip = cat(
-    done ? raw("▣ ", "oc-chip") : cat(spin(SPIN[spinIdx]), raw(" ")),
+    raw("▣ ", "oc-chip"),
     raw(s.chip, "oc-chip"),
-    done ? raw(" · done", "dim") : raw(""),
+    raw("  "),
+    spin(SPIN[spinIdx]),
   );
 
-  const lines: string[] = [ocRow(chip), ocBlank()];
-  // Fixed-height transcript: fired lines fill from the top, remaining slots are
-  // blank, so the pane's row count never changes mid-beat (the input box and
-  // footer hold their position and the split height stays stable).
-  const fired = s.lines.filter((l) => l.t <= Math.floor(loopSec));
-  for (const line of fired) lines.push(ocTranscript(line));
-  for (let i = fired.length; i < s.lines.length; i++) lines.push(ocBlank());
-  lines.push(ocBlank());
-  for (const l of ocInputBox(loopSec)) lines.push(l);
-  lines.push(ocBlank());
-  lines.push(ocFooter());
-  return lines;
+  const transcript: string[] = [ocBlank()];
+  for (const h of s.history) transcript.push(ocHistory(h));
+  if (loopSec >= BEAT.alertAt) {
+    transcript.push(ocBlank());
+    transcript.push(ocPlain(cat(emo("❗"), raw(" "), raw(trunc(s.alertText, OC_PANE_W - 3)))));
+    for (const q of s.question) transcript.push(ocPlain(raw(trunc(q, OC_PANE_W))));
+  }
+  if (loopSec >= BEAT.sendAt) {
+    transcript.push(ocBand(cat(raw("  "), raw(trunc(s.typedText, OC_PANE_W - 2))), "oc-userblock"));
+  }
+  if (loopSec >= BEAT.replyAt) {
+    transcript.push(ocPlain(raw(trunc(s.reply, OC_PANE_W))));
+  }
+
+  // Fixed total height: chip + transcript (padded) + input field. Not-yet-fired
+  // turns are blank rows so the split height never changes mid-beat (R-V2).
+  const field = ocInputField(loopSec);
+  const transcriptRows = OC_TOTAL_ROWS - 1 - field.length;
+  while (transcript.length < transcriptRows) transcript.push(ocBlank());
+
+  return [ocPlain(chip), ...transcript, ...field];
 }
 
 // The ticket the operator "takes the wheel" on during the beat (R3).
 const DRIVEN_ID = 321;
+
+// Selection-cursor row index (0..VISIBLE_TICKETS-1) as a pure function of
+// loopSec: descends row 0 → #321 before the pane opens, pins on #321 while
+// open, ascends back to the top after it closes (R-V5). One row per STEP.
+const STEP = 0.5;
+function selectedRow(loopSec: number): number {
+  const last = VISIBLE_TICKETS - 1;
+  if (loopSec >= BEAT.descentStart && loopSec < BEAT.open) {
+    return Math.min(last, Math.floor((loopSec - BEAT.descentStart) / STEP));
+  }
+  if (loopSec >= BEAT.open && loopSec < BEAT.close) return last;
+  if (loopSec >= BEAT.close && loopSec < BEAT.ascentEnd) {
+    return Math.max(0, last - Math.floor((loopSec - BEAT.close) / STEP));
+  }
+  return 0;
+}
 
 // Layout flag for the beat split: side-by-side when the viewport is wide
 // enough, stacked otherwise. Resize-driven module state (not loop-driven) so
@@ -429,11 +466,17 @@ function stackRule(): string {
 export function renderFrame(nowMs: number, baseMs: number): string {
   const loopSec = ((nowMs - baseMs) / 1000) % LOOP_SECONDS;
   const spinIdx = Math.floor(nowMs / 100) % SPIN.length;
-  const inBeat = loopSec >= BEAT.open && loopSec < BEAT.close;
+  const paneOpen = loopSec >= BEAT.open && loopSec < BEAT.close;
+  const sel = selectedRow(loopSec);
 
   let body: string[];
-  if (!inBeat) {
-    body = buildDashboardLines(loopSec, spinIdx, { dropLatest: false });
+  if (!paneOpen) {
+    // Full-width dashboard. The selection cursor walks the agent list during
+    // descent/ascent ([descentStart, open) and [close, ascentEnd)); row 0 otherwise.
+    body = buildDashboardLines(loopSec, spinIdx, {
+      dropLatest: false,
+      selectedId: TICKETS[sel].id,
+    });
   } else if (sideBySide) {
     const dash = buildDashboardLines(loopSec, spinIdx, {
       dropLatest: true,
@@ -460,10 +503,10 @@ export function renderFrame(nowMs: number, baseMs: number): string {
 export function startDashboard(screen: HTMLElement): void {
   const baseMs = performance.now();
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // Reduced-motion freezes one frame inside the beat: loopSec ≈ 28 lands after
-  // the t=26 publish, with the decision in the input box, the chip showing
-  // "· done" (chipDoneAt=28, so no frozen spinner), and #321 resuming (R11).
-  const nowMs = (): number => (reduce ? baseMs + 28_000 : performance.now());
+  // Reduced-motion freezes one frame in [replyAt, close): pane open with the
+  // posted "lets brainstorm options" block and the agent's reply both visible,
+  // the input field empty, and the cursor static (CSS suppresses its blink).
+  const nowMs = (): number => (reduce ? baseMs + 17_000 : performance.now());
 
   // Wide flag + side-by-side-vs-stacked for the beat split. Both layouts render
   // the same 96-col grid width, so the split choice is readability/aspect, not

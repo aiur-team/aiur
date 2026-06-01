@@ -270,6 +270,8 @@
       opacity: 1;
       transform: none;
     }
+    /* freeze the operator's input cursor on the static beat frame */
+    .term-screen .cursor { animation: none; opacity: 1; }
   }
 
   /* ---------- terminal section ---------- */
@@ -391,11 +393,18 @@
   .tui-pre .e1 { display: inline-block; width: 1ch; text-align: center; }
   .tui-pre .bd { color: var(--tui-line); }
   .tui-pre .bar-empty { color: var(--tui-line); }
-  .tui-pre .oc-rail { color: var(--tui-line); }
   .tui-pre .oc-cmd { color: var(--term-ok); }
   .tui-pre .oc-tool { color: var(--term-dim); }
   .tui-pre .oc-chip { color: var(--term-accent); font-weight: 700; }
-  .tui-pre .oc-input { color: var(--term-accent); }
+  .tui-pre .oc-prompt { color: var(--term-accent); }
+  .tui-pre .oc-gutter {
+    color: var(--term-accent);
+    display: inline-block;
+    width: 1ch;
+    text-align: center;
+  }
+  .tui-pre .oc-userblock { background-color: color-mix(in srgb, var(--term-accent) 16%, transparent); }
+  .tui-pre .oc-field { background-color: color-mix(in srgb, var(--term-fg) 8%, transparent); }
   .term-screen .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.72em; }
   .term-screen .pr { color: var(--term-accent); margin-right: 10px; }
   .term-screen .ok  { color: var(--term-ok); }
@@ -408,7 +417,7 @@
   .term-screen .spin { color: var(--term-accent); display: inline-block; width: 1ch; }
   .term-screen .cursor {
     display: inline-block;
-    width: 8.5px;
+    width: 1ch;
     height: 1.05em;
     transform: translateY(2px);
     background: var(--term-fg);
