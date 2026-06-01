@@ -663,11 +663,17 @@ export function startDashboard(screen: HTMLElement): void {
 
   relayout();
 
+  // Re-decide on any change to the terminal's own box — viewport resize, device
+  // rotation, and the mobile URL bar showing/hiding all resize #termScreen, and
+  // the side-by-side-vs-stacked choice keys off its width:height ratio. Observing
+  // the element directly (not window 'resize', which can miss late mobile layout
+  // shifts) keeps the layout honest to the box the user actually sees.
   let rzTimer = 0;
-  window.addEventListener("resize", () => {
+  const ro = new ResizeObserver(() => {
     clearTimeout(rzTimer);
     rzTimer = window.setTimeout(relayout, 150);
   });
+  ro.observe(screen);
   void document.fonts?.ready.then(relayout);
 
   if (!reduce) window.setInterval(tick, 100);
