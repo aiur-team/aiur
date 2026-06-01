@@ -21,38 +21,8 @@ defmodule Aiur.WorkflowTest do
     {:ok, dir: dir}
   end
 
-  describe "characterization: legacy WORKFLOW.md" do
-    test "fenced front matter loads config and body prompt", %{dir: dir} do
-      path = Path.join(dir, "WORKFLOW.md")
-
-      File.write!(path, """
-      ---
-      tracker:
-        kind: github
-      github:
-        repo: owner/name
-      ---
-      You are a helpful agent.
-      """)
-
-      assert {:ok, loaded} = Workflow.load(path)
-      assert loaded.config["tracker"]["kind"] == "github"
-      assert loaded.config["github"]["repo"] == "owner/name"
-      assert loaded.prompt == "You are a helpful agent."
-    end
-
-    test "a fence-less WORKFLOW.md is treated as all prompt body, empty config", %{dir: dir} do
-      path = Path.join(dir, "WORKFLOW.md")
-      File.write!(path, "Just a prompt, no front matter.\n")
-
-      assert {:ok, loaded} = Workflow.load(path)
-      assert loaded.config == %{}
-      assert loaded.prompt == "Just a prompt, no front matter."
-    end
-  end
-
-  describe ".aiurconfig detection and pure-YAML parse" do
-    test "a pure-YAML .aiurconfig loads as config with an empty prompt", %{dir: dir} do
+  describe ".aiurconfig pure-YAML parse" do
+    test "a pure-YAML .aiurconfig with no prompt_file loads with an empty prompt", %{dir: dir} do
       path = Path.join(dir, ".aiurconfig")
 
       File.write!(path, """
@@ -68,27 +38,7 @@ defmodule Aiur.WorkflowTest do
       assert loaded.config["github"]["repo"] == "owner/name"
       assert loaded.config["max_concurrent_agents"] == 5
       assert loaded.prompt == ""
-    end
-
-    test "workflow_file_path prefers .aiurconfig over WORKFLOW.md in the run folder", %{dir: dir} do
-      File.write!(Path.join(dir, ".aiurconfig"), "tracker:\n  kind: memory\n")
-      File.write!(Path.join(dir, "WORKFLOW.md"), "---\ntracker:\n  kind: github\n---\nbody\n")
-
-      File.cd!(dir, fn ->
-        Application.delete_env(:aiur, :workflow_file_path)
-        assert Path.basename(Workflow.workflow_file_path()) == ".aiurconfig"
-      end)
-    end
-
-    test "an explicit workflow_file_path override wins over .aiurconfig", %{dir: dir} do
-      File.write!(Path.join(dir, ".aiurconfig"), "tracker:\n  kind: memory\n")
-      override = Path.join(dir, "WORKFLOW.md")
-      File.write!(override, "---\ntracker:\n  kind: github\n---\nbody\n")
-
-      File.cd!(dir, fn ->
-        Application.put_env(:aiur, :workflow_file_path, override)
-        assert Workflow.workflow_file_path() == override
-      end)
+      assert loaded.prompt_template == ""
     end
 
     test "a .aiurconfig that decodes to a non-map is rejected", %{dir: dir} do
@@ -97,13 +47,79 @@ defmodule Aiur.WorkflowTest do
 
       assert {:error, :workflow_front_matter_not_a_map} = Workflow.load(path)
     end
+  end
 
-    test "falls back to WORKFLOW.md when no .aiurconfig is present", %{dir: dir} do
-      File.write!(Path.join(dir, "WORKFLOW.md"), "---\ntracker:\n  kind: github\n---\nbody\n")
+  describe "prompt_file resolution" do
+    test "prompt_file loads the sibling template as the prompt", %{dir: dir} do
+      File.write!(Path.join(dir, "prompt.md"), "You are working on {{ issue.identifier }}.\n")
 
+      path = Path.join(dir, ".aiurconfig")
+
+      File.write!(path, """
+      tracker:
+        kind: github
+      prompt_file: prompt.md
+      """)
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.prompt == "You are working on {{ issue.identifier }}."
+      assert loaded.prompt_template == "You are working on {{ issue.identifier }}."
+      assert loaded.config["tracker"]["kind"] == "github"
+    end
+
+    test "prompt_file resolves relative to the config dir, not cwd", %{dir: dir} do
+      subdir = Path.join(dir, "nested")
+      File.mkdir_p!(subdir)
+      File.write!(Path.join(subdir, "prompt.md"), "Nested prompt body.\n")
+
+      path = Path.join(subdir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nprompt_file: prompt.md\n")
+
+      elsewhere = Path.join(dir, "elsewhere")
+      File.mkdir_p!(elsewhere)
+
+      File.cd!(elsewhere, fn ->
+        assert {:ok, loaded} = Workflow.load(path)
+        assert loaded.prompt == "Nested prompt body."
+      end)
+    end
+
+    test "an empty prompt_file is treated as absent", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nprompt_file: \"\"\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.prompt == ""
+    end
+
+    test "a prompt_file pointing at a missing file is a clear error", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nprompt_file: missing.md\n")
+
+      resolved = Path.expand("missing.md", dir)
+      assert {:error, {:missing_prompt_file, ^resolved, :enoent}} = Workflow.load(path)
+    end
+  end
+
+  describe "config path resolution" do
+    test "workflow_file_path defaults to .aiurconfig in cwd when app env unset", %{dir: dir} do
       File.cd!(dir, fn ->
         Application.delete_env(:aiur, :workflow_file_path)
-        assert Path.basename(Workflow.workflow_file_path()) == "WORKFLOW.md"
+        assert Path.basename(Workflow.workflow_file_path()) == ".aiurconfig"
+      end)
+    end
+
+    test "an explicit workflow_file_path override wins, with arbitrary basename + pure-YAML", %{
+      dir: dir
+    } do
+      override = Path.join(dir, "operator.config")
+      File.write!(override, "tracker:\n  kind: github\ngithub:\n  repo: owner/name\n")
+
+      File.cd!(dir, fn ->
+        Application.put_env(:aiur, :workflow_file_path, override)
+        assert Workflow.workflow_file_path() == override
+        assert {:ok, loaded} = Workflow.load(Workflow.workflow_file_path())
+        assert loaded.config["github"]["repo"] == "owner/name"
       end)
     end
   end

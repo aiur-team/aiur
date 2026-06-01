@@ -1,11 +1,15 @@
 defmodule Aiur.Workflow do
   @moduledoc """
-  Loads workflow configuration and prompt from WORKFLOW.md.
+  Loads workflow configuration and the agent prompt from `.aiurconfig`.
+
+  `.aiurconfig` is pure YAML. An optional `prompt_file:` key points at a
+  markdown Liquid template (resolved relative to the config file's directory)
+  that becomes the per-repo agent prompt. When `prompt_file:` is absent the
+  prompt falls back to the built-in default template.
   """
 
   alias Aiur.WorkflowStore
 
-  @workflow_file_name "WORKFLOW.md"
   @config_file_name ".aiurconfig"
 
   @spec workflow_file_path() :: Path.t()
@@ -13,15 +17,9 @@ defmodule Aiur.Workflow do
     Application.get_env(:aiur, :workflow_file_path) || detect_run_folder_config()
   end
 
-  defp detect_run_folder_config do
-    cwd = File.cwd!()
-    config_path = Path.join(cwd, @config_file_name)
-
-    if File.regular?(config_path) do
-      config_path
-    else
-      Path.join(cwd, @workflow_file_name)
-    end
+  @spec detect_run_folder_config() :: Path.t()
+  def detect_run_folder_config do
+    Path.join(File.cwd!(), @config_file_name)
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok
@@ -71,23 +69,12 @@ defmodule Aiur.Workflow do
     end
   end
 
-  # `.aiurconfig` is pure YAML: the whole file is config, with no prompt body.
-  # `WORKFLOW.md` keeps front-matter + body semantics. Parse mode is keyed off
-  # the filename, not fence presence, so a fence-less WORKFLOW.md stays all-body.
+  # `.aiurconfig` is pure YAML. An optional `prompt_file:` key points at a
+  # sibling markdown template, resolved relative to the config file's directory.
   defp parse(content, path) do
-    if Path.basename(path) == @config_file_name do
-      parse_pure_yaml(content)
-    else
-      parse_front_matter(content)
-    end
-  end
-
-  defp parse_pure_yaml(content) do
-    lines = String.split(content, ~r/\R/, trim: false)
-
-    case front_matter_yaml_to_map(lines) do
+    case yaml_to_map(content) do
       {:ok, config} ->
-        {:ok, %{config: config, prompt: "", prompt_template: ""}}
+        resolve_prompt(config, path)
 
       {:error, :workflow_front_matter_not_a_map} ->
         {:error, :workflow_front_matter_not_a_map}
@@ -97,52 +84,30 @@ defmodule Aiur.Workflow do
     end
   end
 
-  defp parse_front_matter(content) do
-    {front_matter_lines, prompt_lines} = split_front_matter(content)
+  defp resolve_prompt(config, path) do
+    case Map.get(config, "prompt_file") do
+      rel when is_binary(rel) and rel != "" ->
+        resolved = Path.expand(rel, Path.dirname(path))
 
-    case front_matter_yaml_to_map(front_matter_lines) do
-      {:ok, front_matter} ->
-        prompt = Enum.join(prompt_lines, "\n") |> String.trim()
+        case File.read(resolved) do
+          {:ok, body} ->
+            prompt = String.trim(body)
+            {:ok, %{config: config, prompt: prompt, prompt_template: prompt}}
 
-        {:ok,
-         %{
-           config: front_matter,
-           prompt: prompt,
-           prompt_template: prompt
-         }}
-
-      {:error, :workflow_front_matter_not_a_map} ->
-        {:error, :workflow_front_matter_not_a_map}
-
-      {:error, reason} ->
-        {:error, {:workflow_parse_error, reason}}
-    end
-  end
-
-  defp split_front_matter(content) do
-    lines = String.split(content, ~r/\R/, trim: false)
-
-    case lines do
-      ["---" | tail] ->
-        {front, rest} = Enum.split_while(tail, &(&1 != "---"))
-
-        case rest do
-          ["---" | prompt_lines] -> {front, prompt_lines}
-          _ -> {front, []}
+          {:error, reason} ->
+            {:error, {:missing_prompt_file, resolved, reason}}
         end
 
       _ ->
-        {[], lines}
+        {:ok, %{config: config, prompt: "", prompt_template: ""}}
     end
   end
 
-  defp front_matter_yaml_to_map(lines) do
-    yaml = Enum.join(lines, "\n")
-
-    if String.trim(yaml) == "" do
+  defp yaml_to_map(content) do
+    if String.trim(content) == "" do
       {:ok, %{}}
     else
-      case YamlElixir.read_from_string(yaml) do
+      case YamlElixir.read_from_string(content) do
         {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
         {:ok, _} -> {:error, :workflow_front_matter_not_a_map}
         {:error, reason} -> {:error, reason}
