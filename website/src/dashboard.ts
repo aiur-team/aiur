@@ -562,22 +562,20 @@ export function startDashboard(screen: HTMLElement): void {
     screen.innerHTML = renderFrame(nowMs(), baseMs);
   };
 
-  // Wide screens pin the log section to a compact WIDE_LOG_LINES so the grid
-  // stays tight and vertically centered. On narrow screens the fixed-width grid
-  // shrinks its font to fit width and leaves vertical slack, so the log section
-  // grows to fill it. Line height tracks width (font-size) only, so it's stable
-  // across row counts.
+  // The log section grows to fill whatever vertical slack the fixed grid leaves,
+  // so the box always reaches the terminal floor. The floor differs by width:
+  // wide screens cap the font (tall rows) and can be short, so they stay compact
+  // (WIDE_LOG_LINES) when there's no slack; narrow screens shrink the font to fit
+  // width and leave more slack to fill (MIN_LOG_LINES). Line height tracks width
+  // (font-size) only, so it's stable across row counts and the estimate is exact.
   const fitLogLines = (): void => {
-    if (wide) {
-      logLines = WIDE_LOG_LINES;
-      return;
-    }
     const pre = screen.querySelector(".tui-pre") as HTMLElement | null;
     if (!pre) return;
+    const floorLines = wide ? WIDE_LOG_LINES : MIN_LOG_LINES;
     const lineH = pre.getBoundingClientRect().height / (FIXED_ROWS + logLines);
     const avail = screen.clientHeight;
     if (lineH > 0 && avail > 0) {
-      logLines = Math.max(MIN_LOG_LINES, Math.floor(avail / lineH) - FIXED_ROWS);
+      logLines = Math.max(floorLines, Math.floor(avail / lineH) - FIXED_ROWS);
     }
   };
 
