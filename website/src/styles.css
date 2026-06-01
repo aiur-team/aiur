@@ -222,9 +222,15 @@
 
   .scrollcue {
     position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
+    /* sit in the gap above the terminal peek (which occupies the bottom
+       clamp(64px,9vh,104px) of the first screen), not overlapping its title */
+    bottom: clamp(92px, 14vh, 136px);
+    /* center without transform: the fadeUp animation animates transform, which
+       would otherwise clobber a translateX(-50%) and shove the cue off-center */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
+    width: max-content;
     z-index: 30;
     font-family: "JetBrains Mono", monospace;
     font-size: 11px;
