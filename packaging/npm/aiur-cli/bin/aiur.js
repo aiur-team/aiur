@@ -90,10 +90,25 @@ function preflightOpencode() {
   }
 }
 
+// `init` and `--version` run as foreground one-shots that never start the
+// tmux-backed UI, so their tmux/opencode preflight is irrelevant — and tmux may
+// legitimately be absent on a machine that only ever runs `aiur init`.
+function isForegroundOneShot(argv) {
+  for (const arg of argv) {
+    if (arg === "--version") return true;
+    if (arg.startsWith("-")) continue;
+    return arg === "init";
+  }
+  return false;
+}
+
 function main() {
   const releaseDir = resolveReleaseDir();
-  preflightTmux();
-  preflightOpencode();
+
+  if (!isForegroundOneShot(process.argv.slice(2))) {
+    preflightTmux();
+    preflightOpencode();
+  }
 
   const pkgRoot = path.resolve(__dirname, "..");
   const launcher = path.join(pkgRoot, "libexec", "aiur-launch.sh");

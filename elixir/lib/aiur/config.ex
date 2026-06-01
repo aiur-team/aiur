@@ -89,6 +89,20 @@ defmodule Aiur.Config do
     settings!().agent.routing || %{}
   end
 
+  @doc """
+  Per-complexity-level guidance strings, keyed by complexity level.
+  Appended to the end of the rendered prompt for an issue carrying the
+  matching `complexity:<n>` label. Returns `%{}` when unset or the config
+  cannot be loaded, so prompt building never fails on this lookup.
+  """
+  @spec agent_complexity_prompts() :: %{pos_integer() => String.t()}
+  def agent_complexity_prompts do
+    case settings() do
+      {:ok, settings} -> settings.agent.complexity_prompts || %{}
+      _ -> %{}
+    end
+  end
+
   @spec active_states() :: [String.t()]
   def active_states do
     settings!().tracker.active_states
@@ -372,21 +386,27 @@ defmodule Aiur.Config do
   end
 
   defp format_config_error(reason) do
+    label = config_file_label()
+
     case reason do
       {:invalid_workflow_config, message} ->
-        "Invalid WORKFLOW.md config: #{message}"
+        "Invalid #{label} config: #{message}"
 
       {:missing_workflow_file, path, raw_reason} ->
-        "Missing WORKFLOW.md at #{path}: #{inspect(raw_reason)}"
+        "Missing #{Path.basename(path)} at #{path}: #{inspect(raw_reason)}"
 
       {:workflow_parse_error, raw_reason} ->
-        "Failed to parse WORKFLOW.md: #{inspect(raw_reason)}"
+        "Failed to parse #{label}: #{inspect(raw_reason)}"
 
       :workflow_front_matter_not_a_map ->
-        "Failed to parse WORKFLOW.md: workflow front matter must decode to a map"
+        "Failed to parse #{label}: workflow front matter must decode to a map"
 
       other ->
-        "Invalid WORKFLOW.md config: #{inspect(other)}"
+        "Invalid #{label} config: #{inspect(other)}"
     end
+  end
+
+  defp config_file_label do
+    Path.basename(Workflow.workflow_file_path())
   end
 end

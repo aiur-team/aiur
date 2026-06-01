@@ -154,6 +154,7 @@ defmodule Aiur.MixProject do
       {:req, "~> 0.5"},
       {:jason, "~> 1.4"},
       {:yaml_elixir, "~> 2.12"},
+      {:ymlr, "~> 5.0"},
       {:solid, "~> 1.2"},
       {:ecto, "~> 3.13"},
       {:exqlite, "~> 0.27"},

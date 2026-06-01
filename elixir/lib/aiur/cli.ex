@@ -19,7 +19,8 @@ defmodule Aiur.CLI do
     port: :integer,
     host: :string,
     version: :boolean,
-    interactive: :boolean
+    interactive: :boolean,
+    force: :boolean
   ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
@@ -40,6 +41,16 @@ defmodule Aiur.CLI do
 
       {:version, version} ->
         IO.puts("aiur #{version} (sapsaldog/aiur #{@git_rev})")
+
+      {:init, opts} ->
+        case Aiur.Init.run(opts) do
+          :ok ->
+            :ok
+
+          {:error, message} ->
+            IO.puts(:stderr, message)
+            Aiur.Shutdown.shutdown(1)
+        end
 
       {:error, message} ->
         IO.puts(:stderr, message)
@@ -75,11 +86,19 @@ defmodule Aiur.CLI do
     end
   end
 
-  @spec evaluate([String.t()], deps()) :: :ok | {:version, String.t()} | {:error, String.t()}
+  @spec evaluate([String.t()], deps()) ::
+          :ok | {:version, String.t()} | {:init, %{force: boolean()}} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {[version: true], _, _} ->
         {:version, @version}
+
+      {opts, ["init" | rest], []} ->
+        if rest == [] do
+          {:init, %{force: Keyword.get(opts, :force, false)}}
+        else
+          {:error, usage_message()}
+        end
 
       {opts, [], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
@@ -125,7 +144,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-WORKFLOW.md]"
+    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-WORKFLOW.md]\n       aiur init [--force]"
   end
 
   @spec runtime_deps() :: deps()

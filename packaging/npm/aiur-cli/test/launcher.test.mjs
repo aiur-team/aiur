@@ -159,3 +159,76 @@ test("opencode absent warns but still runs the launcher", () => {
   expect(result.status).toBe(0);
   expect(result.stderr).toContain("opencode was not found");
 });
+
+// A too-old fake tmux shadows any real tmux (fakeBin is first on PATH), so the
+// same setup that is fatal for a bare run proves init/--version skip preflight.
+test("init skips tmux preflight and still execs the launcher", () => {
+  const { fakeBin } = setupPackage({ tmuxVersion: "2.9" });
+  const result = runShim({ args: ["init"], fakeBin, env: { PATH: `${fakeBin}:/usr/bin:/bin` } });
+  expect(result.status).toBe(0);
+  expect(result.stderr).not.toContain("too old");
+  const capture = require("node:fs").readFileSync(captureFile, "utf8");
+  expect(capture).toContain("ARGS:init");
+});
+
+test("--version skips tmux preflight and still execs the launcher", () => {
+  const { fakeBin } = setupPackage({ tmuxVersion: "2.9" });
+  const result = runShim({ args: ["--version"], fakeBin, env: { PATH: `${fakeBin}:/usr/bin:/bin` } });
+  expect(result.status).toBe(0);
+  expect(result.stderr).not.toContain("too old");
+  const capture = require("node:fs").readFileSync(captureFile, "utf8");
+  expect(capture).toContain("ARGS:--version");
+});
+
+// Builds a minimal fake OTP release whose `elixir` records its argv, so the
+// REAL launcher's init routing can be exercised end to end.
+function setupRealLauncher() {
+  const launcherSrc = fileURLToPath(new URL("../libexec/aiur-launch.sh", import.meta.url));
+  mkdirSync(path.join(root, "libexec"), { recursive: true });
+  const launcher = path.join(root, "libexec", "aiur-launch.sh");
+  copyFileSync(launcherSrc, launcher);
+
+  const releaseDir = path.join(root, "release");
+  const vsn = "0.1.1";
+  const vsnDir = path.join(releaseDir, "releases", vsn);
+  mkdirSync(vsnDir, { recursive: true });
+  mkdirSync(path.join(releaseDir, "lib"), { recursive: true });
+  writeFileSync(path.join(releaseDir, "releases", "start_erl.data"), `1 ${vsn}\n`);
+  writeFileSync(path.join(vsnDir, "vm.args"), "");
+  writeFileSync(path.join(vsnDir, "sys.config"), "");
+
+  const elixir = path.join(vsnDir, "elixir");
+  writeFileSync(
+    elixir,
+    [
+      "#!/usr/bin/env bash",
+      'echo "ELIXIR_ARGS:$*" >>"$AIUR_TEST_OUT"',
+      'echo "ARGV_FILE:$(cat "$AIUR_ARGV_FILE")" >>"$AIUR_TEST_OUT"',
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(elixir, 0o755);
+
+  return { launcher, releaseDir };
+}
+
+test("launcher routes init to a distribution-free foreground exec", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+
+  const result = spawnSync(launcher, ["init", "--force"], {
+    encoding: "utf8",
+    env: { ...process.env, AIUR_RELEASE_DIR: releaseDir, AIUR_TEST_OUT: captureFile },
+  });
+
+  expect(result.status).toBe(0);
+  const capture = require("node:fs").readFileSync(captureFile, "utf8");
+  // Interactive --eval boot (not `bin/aiur eval`), and never opens a tmux session.
+  expect(capture).toContain("--eval");
+  expect(capture).toContain("Aiur.CLI.main(Aiur.CLI.argv_from_file())");
+  // Distribution-free: no named node / cookie that would collide with a live TUI.
+  expect(capture).not.toContain("--name");
+  expect(capture).not.toContain("--cookie");
+  // Argv crossed into the BEAM via the argv file.
+  expect(capture).toContain("ARGV_FILE:init");
+});

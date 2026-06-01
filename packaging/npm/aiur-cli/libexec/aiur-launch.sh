@@ -60,6 +60,21 @@ build_release_cmd() {
   )
 }
 
+# Distribution-free boot for the `init` wizard. Same interactive `--eval` form
+# (so IO.gets receives keystrokes — `bin/aiur eval` is -noinput and would not),
+# but with no --name/--cookie: a named node would collide with a running TUI
+# session's node, and the wizard makes no RPC calls, so it needs no distribution.
+build_init_cmd() {
+  release_cmd=(
+    "$vsn_dir/elixir"
+    --erl-config "$vsn_dir/sys"
+    --boot "$vsn_dir/start_clean"
+    --boot-var RELEASE_LIB "$release_dir/lib"
+    --vm-args "$vsn_dir/vm.args"
+    --eval "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+  )
+}
+
 # --- distribution env contract ---------------------------------------------
 # Port of scripts/aiur ensure_erlang_cookie + prepare_distribution. A stable
 # secret cookie + a 127.0.0.1-pinned long node name so neither BEAM resolves a
@@ -109,6 +124,22 @@ for arg in "$@"; do
     export AIUR_ARGV_FILE="$argv_file"
     exec "${release_cmd[@]}"
   fi
+done
+
+# --- one-shot path: init (interactive wizard, no tmux, distribution-free) ----
+# When the first non-flag argument is `init`, route to a foreground exec that
+# inherits stdin for the wizard's prompts and never opens a tmux session.
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;;
+    init)
+      build_init_cmd
+      write_argv "$@"
+      export AIUR_ARGV_FILE="$argv_file"
+      exec "${release_cmd[@]}"
+      ;;
+    *) break ;;
+  esac
 done
 
 # --- interactive run --------------------------------------------------------

@@ -1130,6 +1130,30 @@ defmodule Aiur.WorkspaceAndConfigTest do
            end)
   end
 
+  test "complexity prompts normalize string levels and reject bad levels/values" do
+    assert Schema.normalize_complexity_prompts(nil) == %{}
+
+    assert Schema.normalize_complexity_prompts(%{"3" => "medium guidance", 5 => "be careful"}) == %{
+             3 => "medium guidance",
+             5 => "be careful"
+           }
+
+    good =
+      {%{}, %{complexity_prompts: :map}}
+      |> Changeset.cast(%{complexity_prompts: %{3 => "guidance"}}, [:complexity_prompts])
+      |> Schema.validate_complexity_prompts(:complexity_prompts)
+
+    assert good.errors == []
+
+    bad =
+      {%{}, %{complexity_prompts: :map}}
+      |> Changeset.cast(%{complexity_prompts: %{0 => "x", 4 => 99}}, [:complexity_prompts])
+      |> Schema.validate_complexity_prompts(:complexity_prompts)
+
+    assert {:complexity_prompts, {"complexity levels must be positive integers", []}} in bad.errors
+    assert {:complexity_prompts, {"complexity prompt values must be strings", []}} in bad.errors
+  end
+
   test "schema parse normalizes policy keys and env-backed fallbacks" do
     missing_workspace_env = "SYMP_MISSING_WORKSPACE_#{System.unique_integer([:positive])}"
     empty_secret_env = "SYMP_EMPTY_SECRET_#{System.unique_integer([:positive])}"

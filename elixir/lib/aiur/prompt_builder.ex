@@ -3,7 +3,7 @@ defmodule Aiur.PromptBuilder do
   Builds agent prompts from issue data.
   """
 
-  alias Aiur.{Config, Workflow}
+  alias Aiur.{CodingAgent, Config, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
   @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
@@ -27,7 +27,20 @@ defmodule Aiur.PromptBuilder do
       |> IO.iodata_to_binary()
       |> ensure_utf8()
 
-    shared_prompt_prefix() <> rendered_prompt
+    shared_prompt_prefix() <> rendered_prompt <> complexity_suffix(issue)
+  end
+
+  # Appends the dev-configured guidance for the issue's complexity level
+  # (agent.complexity_prompts) to the end of the rendered prompt. No label
+  # or no configured string for that level leaves the prompt untouched.
+  defp complexity_suffix(issue) do
+    with level when is_integer(level) <- CodingAgent.complexity_level(issue),
+         text when is_binary(text) <- Map.get(Config.agent_complexity_prompts(), level),
+         trimmed when trimmed != "" <- String.trim(text) do
+      "\n\n" <> trimmed
+    else
+      _ -> ""
+    end
   end
 
   defp shared_prompt_prefix do

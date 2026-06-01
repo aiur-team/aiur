@@ -159,11 +159,15 @@ defmodule Aiur.CodingAgent do
   def complexity_level(%Issue{} = issue) do
     issue
     |> Issue.label_names()
-    |> Enum.flat_map(fn label ->
-      case Regex.run(@complexity_label, to_string(label)) do
-        [_, n] -> [String.to_integer(n)]
-        _ -> []
-      end
+    |> Enum.flat_map(fn
+      label when is_binary(label) ->
+        case Regex.run(@complexity_label, label) do
+          [_, n] -> [String.to_integer(n)]
+          _ -> []
+        end
+
+      _label ->
+        []
     end)
     |> case do
       [] -> nil

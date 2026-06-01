@@ -5,6 +5,17 @@ defmodule Aiur.CLITest do
 
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
 
+  defp deps do
+    %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
+      ensure_all_started: fn -> {:ok, [:aiur]} end
+    }
+  end
+
   test "returns the guardrails acknowledgement banner when the flag is missing" do
     parent = self()
 
@@ -179,6 +190,34 @@ defmodule Aiur.CLITest do
     }
 
     assert :ok = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+  end
+
+  test "routes a bare init subcommand to the wizard with force false" do
+    assert {:init, %{force: false}} = CLI.evaluate(["init"], deps())
+  end
+
+  test "routes init --force to the wizard with force true" do
+    assert {:init, %{force: true}} = CLI.evaluate(["init", "--force"], deps())
+  end
+
+  test "rejects init with extra positional arguments" do
+    assert {:error, message} = CLI.evaluate(["init", "extra"], deps())
+    assert message =~ "Usage: aiur"
+  end
+
+  test "does not treat a non-init positional as a subcommand" do
+    parent = self()
+
+    deps =
+      Map.merge(deps(), %{
+        file_regular?: fn path ->
+          send(parent, {:workflow_checked, path})
+          true
+        end
+      })
+
+    assert :ok = CLI.evaluate([@ack_flag, "some/WORKFLOW.md"], deps)
+    assert_received {:workflow_checked, _path}
   end
 
   test "enables interactive CLI mode when requested" do
