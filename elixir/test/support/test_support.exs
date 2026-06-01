@@ -42,7 +42,7 @@ defmodule Aiur.TestSupport do
           )
 
         File.mkdir_p!(workflow_root)
-        workflow_file = Path.join(workflow_root, "WORKFLOW.md")
+        workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
@@ -62,8 +62,18 @@ defmodule Aiur.TestSupport do
   end
 
   def write_workflow_file!(path, overrides \\ []) do
-    workflow = workflow_content(overrides)
-    File.write!(path, workflow)
+    {config_yaml, prompt} = workflow_content(overrides)
+
+    config_yaml =
+      if is_binary(prompt) and prompt != "" do
+        prompt_basename = Path.basename(path) <> ".prompt.md"
+        File.write!(Path.join(Path.dirname(path), prompt_basename), prompt <> "\n")
+        config_yaml <> "prompt_file: #{prompt_basename}\n"
+      else
+        config_yaml
+      end
+
+    File.write!(path, config_yaml)
 
     if Process.whereis(Aiur.WorkflowStore) do
       try do
@@ -204,7 +214,6 @@ defmodule Aiur.TestSupport do
 
     sections =
       [
-        "---",
         tracker_backend_yaml(tracker_kind, config),
         "max_vertical_panes: #{yaml_value(max_vertical_panes)}",
         "tracker:",
@@ -235,13 +244,11 @@ defmodule Aiur.TestSupport do
           opencode_bridge_host,
           opencode_serve_args,
           opencode_model_prefix
-        ),
-        "---",
-        prompt
+        )
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
 
-    Enum.join(sections, "\n") <> "\n"
+    {Enum.join(sections, "\n") <> "\n", prompt}
   end
 
   defp tracker_backend_yaml("linear", config) do

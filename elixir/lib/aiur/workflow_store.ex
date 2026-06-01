@@ -1,6 +1,7 @@
 defmodule Aiur.WorkflowStore do
   @moduledoc """
-  Caches the last known good workflow and reloads it when `WORKFLOW.md` changes.
+  Caches the last known good workflow and reloads it when `.aiurconfig` or its
+  referenced `prompt_file:` changes.
   """
 
   use GenServer
@@ -141,9 +142,22 @@ defmodule Aiur.WorkflowStore do
   defp current_stamp(path) when is_binary(path) do
     with {:ok, stat} <- File.stat(path, time: :posix),
          {:ok, content} <- File.read(path) do
-      {:ok, {stat.mtime, stat.size, :erlang.phash2(content)}}
+      {:ok, {stat.mtime, stat.size, :erlang.phash2(content), prompt_file_stamp(path)}}
     else
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp prompt_file_stamp(path) do
+    case Workflow.resolved_prompt_file_path(path) do
+      prompt_path when is_binary(prompt_path) ->
+        case File.read(prompt_path) do
+          {:ok, body} -> :erlang.phash2(body)
+          {:error, _reason} -> nil
+        end
+
+      nil ->
+        nil
     end
   end
 

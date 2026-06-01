@@ -103,6 +103,22 @@ defmodule Aiur.Workflow do
     end
   end
 
+  @doc """
+  Resolves the absolute path of the `prompt_file:` referenced by the config at
+  `config_path`, or `nil` when the key is absent or the config cannot be read.
+  Used by `WorkflowStore` to detect prompt-template edits during change polling.
+  """
+  @spec resolved_prompt_file_path(Path.t()) :: Path.t() | nil
+  def resolved_prompt_file_path(config_path) when is_binary(config_path) do
+    with {:ok, content} <- File.read(config_path),
+         {:ok, config} <- yaml_to_map(content),
+         rel when is_binary(rel) and rel != "" <- Map.get(config, "prompt_file") do
+      Path.expand(rel, Path.dirname(config_path))
+    else
+      _ -> nil
+    end
+  end
+
   defp yaml_to_map(content) do
     if String.trim(content) == "" do
       {:ok, %{}}
