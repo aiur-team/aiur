@@ -402,7 +402,7 @@ Profiles are loaded from ~/.config/aiur/aiur.profiles when present.
 Each non-comment line uses:
   name|aiur_root|workflow|port|logs_root|service
 
-The workflow can be absolute, which lets profiles keep WORKFLOW.md files in
+The config path can be absolute, which lets profiles keep .aiurconfig files in
 their target repositories while using one Aiur checkout to run them.
 USAGE
 }
@@ -474,9 +474,9 @@ profile_value() {
 }
 
 load_profiles() {
-  add_profile "default" "$repo_root" "local-workflows/WORKFLOW.aiur.local.md" "" "" "aiur"
-  add_profile "aiur" "$repo_root" "local-workflows/WORKFLOW.aiur.local.md" "" "" "aiur"
-  add_profile "actions" "$repo_root" "local-workflows/WORKFLOW.actions.local.md" "" "" "aiur-actions"
+  add_profile "default" "$repo_root" "local-workflows/aiur.local.aiurconfig" "" "" "aiur"
+  add_profile "aiur" "$repo_root" "local-workflows/aiur.local.aiurconfig" "" "" "aiur"
+  add_profile "actions" "$repo_root" "local-workflows/actions.local.aiurconfig" "" "" "aiur-actions"
 
   if [ -r "$config_file" ]; then
     while IFS='|' read -r name root workflow port logs_root service extra; do
@@ -542,11 +542,9 @@ workflow_configured_port() {
   fi
 
   awk '
-    BEGIN { in_frontmatter = 0; in_server = 0 }
-    NR == 1 && $0 == "---" { in_frontmatter = 1; next }
-    in_frontmatter && $0 == "---" { exit }
-    in_frontmatter && $0 ~ /^server:[[:space:]]*$/ { in_server = 1; next }
-    in_server && $0 ~ /^[^[:space:]]/ { in_server = 0 }
+    BEGIN { in_server = 0 }
+    $0 ~ /^server:[[:space:]]*$/ { in_server = 1; next }
+    in_server && $0 ~ /^[^[:space:]#]/ { in_server = 0 }
     in_server && $0 ~ /^[[:space:]]+port:[[:space:]]*[0-9]+[[:space:]]*$/ {
       sub(/^[[:space:]]+port:[[:space:]]*/, "")
       sub(/[[:space:]]*$/, "")
@@ -636,7 +634,7 @@ require_profile() {
 }
 
 list_profiles() {
-  printf '%-16s %-36s %-24s %-8s %-24s %s\n' "PROFILE" "AIUR" "WORKFLOW" "PORT" "LOGS" "SERVICE"
+  printf '%-16s %-36s %-24s %-8s %-24s %s\n' "PROFILE" "AIUR" "CONFIG" "PORT" "LOGS" "SERVICE"
 
   local i
 
@@ -2049,7 +2047,7 @@ case "${1:-}" in
   "" | default)
     run_or_attach_foreground "default"
     ;;
-  *.md | /*)
+  *.aiurconfig | */* | /*)
     run_ad_hoc_workflow "$1"
     ;;
   *)

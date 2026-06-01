@@ -26,14 +26,14 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["list"])
     assert output =~ "default"
     assert output =~ "aiur"
     assert output =~ "actions"
-    assert output =~ "WORKFLOW.actions.md"
+    assert output =~ "actions.aiurconfig"
     assert output =~ "aiur-actions"
   end
 
@@ -41,14 +41,14 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["actions"])
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/actions.aiurconfig"
     assert output =~ "PWD=#{Path.join(ctx.actions_repo, "elixir")}"
     assert output =~ "MISE:exec -- ./bin/aiur --logs-root #{ctx.logs_root}/actions --port 4101"
-    assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.actions.md"
+    assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./actions.aiurconfig"
   end
 
   test "runs the built-in aiur profile in the foreground" do
@@ -59,7 +59,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
+             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/aiur.local.aiurconfig"
   end
 
   test "runs the built-in actions profile in the foreground" do
@@ -70,14 +70,14 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.actions.local.md"
+             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/actions.local.aiurconfig"
   end
 
   test "restarts a selected background profile" do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["--bg", "actions"])
@@ -107,15 +107,15 @@ defmodule ScriptsAiurTest do
     assert command_log =~ "SYSTEMCTL:--user restart aiur\n"
     assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
     assert command_log =~ "--host 127.0.0.1"
-    assert command_log =~ "./local-workflows/WORKFLOW.aiur.local.md"
+    assert command_log =~ "./local-workflows/aiur.local.aiurconfig"
   end
 
   test "restarts every configured background profile once per service" do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
-    duplicate|#{ctx.actions_repo}|WORKFLOW.other.md|4102|#{ctx.logs_root}/other|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
+    duplicate|#{ctx.actions_repo}|other.aiurconfig|4102|#{ctx.logs_root}/other|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["--bg", "all"])
@@ -128,7 +128,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, [])
@@ -136,7 +136,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
 
     assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
+             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/aiur.local.aiurconfig"
   end
 
   test "no-arg invocation attaches to an existing default session" do
@@ -210,20 +210,20 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/WORKFLOW.aiur.local.md"
+             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/aiur.local.aiurconfig"
   end
 
   test "runs an ad hoc workflow path with the default repo" do
     ctx = test_context()
 
-    assert {output, 0} = run_aiur(ctx, ["custom/WORKFLOW.md"])
+    assert {output, 0} = run_aiur(ctx, ["custom/operator.aiurconfig"])
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
-    assert output =~ "./custom/WORKFLOW.md"
+    assert output =~ "./custom/operator.aiurconfig"
   end
 
   test "runs an absolute ad hoc workflow path with the default repo" do
     ctx = test_context()
-    workflow = Path.join(ctx.actions_repo, "WORKFLOW.custom.md")
+    workflow = Path.join(ctx.actions_repo, "operator.aiurconfig")
 
     assert {output, 0} = run_aiur(ctx, [workflow])
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
@@ -234,7 +234,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["stop"])
@@ -242,10 +242,10 @@ defmodule ScriptsAiurTest do
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
-    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "elixir")}/local-workflows/WORKFLOW.aiur.local.md"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*local-workflows/WORKFLOW.aiur.local.md"
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "elixir")}/local-workflows/aiur.local.aiurconfig"
+    assert output =~ "PKILL:-f bin/aiur .*--interactive.*local-workflows/aiur.local.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/actions.aiurconfig"
+    assert output =~ "PKILL:-f bin/aiur .*--interactive.*actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
     refute output =~ "MISE:"
@@ -255,15 +255,15 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["stop", "actions"])
     command_log = command_log(ctx)
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/WORKFLOW.actions.md"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*WORKFLOW.actions.md"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/actions.aiurconfig"
+    assert output =~ "PKILL:-f bin/aiur .*--interactive.*actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
     refute command_log =~ "SYSTEMCTL:--user stop aiur\n"
@@ -289,7 +289,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["--port", "4099", "actions"])
@@ -300,7 +300,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} = run_aiur(ctx, ["--port", "4099", "--bg", "actions"])
@@ -383,7 +383,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     assert {output, 0} =
@@ -400,12 +400,10 @@ defmodule ScriptsAiurTest do
     workflow_dir = Path.join(ctx.repo_root, "elixir/local-workflows")
     File.mkdir_p!(workflow_dir)
 
-    File.write!(Path.join(workflow_dir, "WORKFLOW.aiur.local.md"), """
-    ---
+    File.write!(Path.join(workflow_dir, "aiur.local.aiurconfig"), """
     server:
       host: 127.0.0.1
       port: 4000
-    ---
     """)
 
     assert {output, 0} =
@@ -421,7 +419,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     write_profiles!(ctx, """
-    actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
     busy_ports = Enum.map_join(4101..4110, ",", &to_string/1)
@@ -561,7 +559,7 @@ defmodule ScriptsAiurTest do
       ctx = test_context()
 
       write_profiles!(ctx, """
-      actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+      actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
       """)
 
       assert {output, 0} = run_aiur(ctx, ["--bg", "actions"], os: "Darwin")
@@ -575,7 +573,7 @@ defmodule ScriptsAiurTest do
       command_log = await_command_log(ctx, "NOHUP:")
       assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
       assert command_log =~ "--port 4101"
-      assert command_log =~ "./WORKFLOW.actions.md"
+      assert command_log =~ "./actions.aiurconfig"
       refute command_log =~ "SYSTEMCTL:"
     end
 
@@ -583,8 +581,8 @@ defmodule ScriptsAiurTest do
       ctx = test_context()
 
       write_profiles!(ctx, """
-      actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
-      duplicate|#{ctx.actions_repo}|WORKFLOW.other.md|4102|#{ctx.logs_root}/other|aiur-actions
+      actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
+      duplicate|#{ctx.actions_repo}|other.aiurconfig|4102|#{ctx.logs_root}/other|aiur-actions
       """)
 
       assert {_output, 0} = run_aiur(ctx, ["--bg", "all"], os: "Darwin")
@@ -601,8 +599,8 @@ defmodule ScriptsAiurTest do
         )
 
       assert count_occurrences(command_log, "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur") == 2
-      assert command_log =~ "local-workflows/WORKFLOW.aiur.local.md"
-      assert command_log =~ "WORKFLOW.actions.md"
+      assert command_log =~ "local-workflows/aiur.local.aiurconfig"
+      assert command_log =~ "actions.aiurconfig"
       refute command_log =~ "SYSTEMCTL:"
     end
 
@@ -610,7 +608,7 @@ defmodule ScriptsAiurTest do
       ctx = test_context()
 
       write_profiles!(ctx, """
-      actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+      actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
       """)
 
       File.mkdir_p!(ctx.bg_state_dir)
@@ -629,7 +627,7 @@ defmodule ScriptsAiurTest do
       ctx = test_context()
 
       write_profiles!(ctx, """
-      actions|#{ctx.actions_repo}|WORKFLOW.actions.md|4101|#{ctx.logs_root}/actions|aiur-actions
+      actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
       """)
 
       assert {_output, 0} = run_aiur(ctx, ["stop", "actions"], os: "Darwin")
