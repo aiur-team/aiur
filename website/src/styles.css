@@ -223,7 +223,7 @@
   .scrollcue {
     position: fixed;
     bottom: 20px;
-    left: 62%;
+    left: 50%;
     transform: translateX(-50%);
     z-index: 30;
     font-family: "JetBrains Mono", monospace;
@@ -313,13 +313,13 @@
     --term-h: clamp(420px, 74vh, 660px);
     position: relative;
     z-index: 5;
-    min-height: 100vh;
-    /* keep a constant peek above the fold regardless of viewport height */
-    margin-top: calc(-50vh + (var(--term-h) / 2) - var(--peek));
+    /* pull the terminal up so a constant peek shows above the fold; the section
+       is only as tall as the terminal plus bottom room for its shadow to fade,
+       so the summary below sits close instead of a dead half-viewport away */
+    margin-top: calc(-1 * var(--peek));
     display: flex;
-    align-items: center;
     justify-content: center;
-    padding: 0 clamp(18px, 4vw, 48px);
+    padding: 0 clamp(18px, 4vw, 48px) clamp(72px, 10vh, 120px);
   }
   .terminal {
     width: min(1000px, 100%);
@@ -459,7 +459,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: clamp(64px, 9vh, 116px) clamp(20px, 5vw, 56px) 0;
+    padding: clamp(8px, 1.5vh, 24px) clamp(20px, 5vw, 56px) 0;
     transition: background-color 0.5s ease;
   }
   .summary {
