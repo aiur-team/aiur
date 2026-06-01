@@ -16,7 +16,6 @@ defmodule Aiur.Init do
   alias Aiur.GitHub.Labels
 
   @config_file_name ".aiurconfig"
-  @legacy_file_name "WORKFLOW.md"
   @env_file_name ".env"
   @env_example_file_name ".env.example"
   @token_url "https://github.com/settings/tokens"
@@ -517,11 +516,9 @@ defmodule Aiur.Init do
   end
 
   defp existing_config_path do
-    cwd = File.cwd!()
+    path = Path.join(File.cwd!(), @config_file_name)
 
-    [@config_file_name, @legacy_file_name]
-    |> Enum.map(&Path.join(cwd, &1))
-    |> Enum.find(&File.regular?/1)
+    if File.regular?(path), do: path
   end
 
   defp detect_repo do
