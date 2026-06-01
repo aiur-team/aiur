@@ -16,3 +16,6 @@ test-sandbox/
 # Local runtime artifacts
 .claude/scheduled_tasks.lock
 .context/
+
+# Local Netlify folder
+.netlify
