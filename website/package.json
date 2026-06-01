@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "assert": "tsx scripts/assert-sim.ts"
+    "assert": "tsx scripts/assert-sim.ts",
+    "shot": "tsx scripts/shot.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

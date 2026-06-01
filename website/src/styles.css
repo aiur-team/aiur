@@ -421,6 +421,15 @@
   /* the posted user message + the input box read as full-pane-width bands
      (content is padded to OC_PANE_W chars inside the span, so the tint spans
      the whole pane row without bleeding across the joined dashboard column) */
+  /* fill the full line box (not just the glyph em) so consecutive banded rows
+     touch with no gap and the left bars read as one continuous rail */
+  .tui-pre .oc-userblock,
+  .tui-pre .oc-field {
+    display: inline-block;
+    height: 1.5em;
+    line-height: 1.5em;
+    vertical-align: bottom;
+  }
   .tui-pre .oc-userblock { background-color: color-mix(in srgb, var(--term-accent) 16%, transparent); }
   .tui-pre .oc-field { background-color: color-mix(in srgb, var(--term-fg) 8%, transparent); }
   .term-screen .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.72em; }

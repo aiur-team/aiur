@@ -270,7 +270,7 @@ export interface OpencodeScript {
 
 export const OPENCODE_SCRIPT: OpencodeScript = {
   chip: "Build · issue-321",
-  inputLabel: "Build · issue-321 its-everdred/shopwave",
+  inputLabel: "issue-321 its-everdred/shopwave",
   history: [
     { kind: "prose", text: "Adding product analytics to the checkout funnel." },
     { kind: "cmd", text: "npm install heap-analytics" },

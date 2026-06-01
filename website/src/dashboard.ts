@@ -328,7 +328,7 @@ function ocBand(content: Seg, cls: string): string {
   return `<span class="${cls}">${ocPad(content).h}</span>`;
 }
 
-const ocGutter = (): Seg => ({ h: `<span class="oc-gutter">▌</span>`, w: 1 });
+const ocGutter = (): Seg => ({ h: `<span class="oc-gutter">│</span>`, w: 1 });
 const ocCursor = (): Seg => ({ h: `<span class="cursor"></span>`, w: 1 });
 // Solid one-column accent bar for the banded rows (input field + posted user
 // block). CSS gives the cell a filled background so the bands read as a single
@@ -384,8 +384,8 @@ function ocInputField(loopSec: number): string[] {
   );
   const label = cat(
     ocBar(),
+    padStart(raw(trunc(OPENCODE_SCRIPT.inputLabel, OC_PANE_W - 3), "dim"), OC_PANE_W - 2),
     raw(" "),
-    raw(trunc(OPENCODE_SCRIPT.inputLabel, OC_PANE_W - 3), "dim"),
   );
   return [
     ocBand(blank, "oc-field"),
@@ -449,11 +449,12 @@ export function buildOpencodeLines(
   );
 
   const field = ocInputField(loopSec);
-  const transcriptRows = rows - 1 - field.length; // minus chip + input field
+  // minus chip + one separator blank + input field
+  const transcriptRows = rows - 2 - field.length;
   const transcript = ocTranscript(loopSec).slice(-transcriptRows);
   while (transcript.length < transcriptRows) transcript.unshift(ocBlank());
 
-  return [ocPlain(chip), ...transcript, ...field];
+  return [ocPlain(chip), ...transcript, ocBlank(), ...field];
 }
 
 // The ticket the operator "takes the wheel" on during the beat (R3).
