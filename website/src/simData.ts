@@ -137,7 +137,7 @@ export const TICKETS: TicketScript[] = [
       { t: 2, phase: "decide", progress: 55, latest: "needs a decision: analytics library" },
       // operator picks "brainstorm" at the beat's reply → flips to brainstorm
       { t: 22, phase: "brainstorm", progress: 58, latest: "brainstorming analytics options" },
-      { t: 34, phase: "brainstorm", progress: 64, latest: "researching PostHog (first-class TS types)" },
+      { t: 34, phase: "brainstorm", progress: 64, latest: "researching TS-friendly options" },
     ],
   },
   {
@@ -220,10 +220,10 @@ export const EVENTS: LogEvent[] = [
   { t: 26, kind: "read", id: 321, text: "read TypeScript analytics SDK comparison" },
   { t: 27, kind: "publish", id: 318, text: 'pushed commit: "OAuth callback handler"' },
   { t: 29, kind: "receive", id: 319, text: "← #318 pushed: OAuth callback handler" },
-  { t: 30, kind: "publish", id: 321, text: "brainstorming: PostHog · Plausible · Rudderstack" },
+  { t: 30, kind: "publish", id: 321, text: "comparing analytics options" },
   { t: 31, kind: "publish", id: 319, text: "pulled in #318, rebasing onto /auth/callback" },
   { t: 33, kind: "publish", id: 319, text: "updated plan to incorporate #318 callback" },
-  { t: 34, kind: "publish", id: 321, text: "researching PostHog — first-class TS types" },
+  { t: 34, kind: "publish", id: 321, text: "researching TS-friendly options" },
   // ambient traffic fills the rest of the loop (denser)
   { t: 38, kind: "publish", id: 314, text: "done — awaiting review" },
   { t: 42, kind: "publish", id: 322, text: "implementing sliding window limiter" },
