@@ -100,11 +100,11 @@ defmodule Aiur.CoreTest do
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
   end
 
-  test "current WORKFLOW.md file is valid and complete" do
+  test "current operator .aiurconfig file is valid and complete" do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
-      Workflow.set_workflow_file_path(Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!()))
+      Workflow.set_workflow_file_path(Path.expand("local-workflows/aiur.local.aiurconfig", File.cwd!()))
 
       assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
       assert is_map(config)
@@ -134,8 +134,8 @@ defmodule Aiur.CoreTest do
 
   test "checked-in workflow examples parse and portable examples stay generic" do
     workflow_paths =
-      Path.wildcard("examples/workflows/*.md") ++
-        Path.wildcard("local-workflows/WORKFLOW.*.local.md")
+      Path.wildcard("examples/workflows/*.aiurconfig") ++
+        Path.wildcard("local-workflows/*.local.aiurconfig")
 
     assert Enum.any?(workflow_paths)
 
@@ -145,7 +145,10 @@ defmodule Aiur.CoreTest do
       assert String.trim(prompt) != ""
     end
 
-    portable_paths = Path.wildcard("examples/workflows/*.md")
+    portable_paths =
+      Path.wildcard("examples/workflows/*.aiurconfig") ++
+        Path.wildcard("examples/workflows/*.prompt.md")
+
     machine_local_pattern = ~r/(\/home\/|100\.\d+\.\d+\.\d+|applekid|orangekid|its-applekid|ethereum-optimism)/
 
     for path <- portable_paths do
@@ -155,9 +158,9 @@ defmodule Aiur.CoreTest do
 
   test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
     workflow_paths = [
-      "examples/workflows/github-codex.md",
-      "local-workflows/WORKFLOW.aiur.local.md",
-      "local-workflows/WORKFLOW.actions.local.md"
+      "examples/workflows/github-codex.aiurconfig",
+      "local-workflows/aiur.local.aiurconfig",
+      "local-workflows/actions.local.aiurconfig"
     ]
 
     for path <- workflow_paths do
@@ -205,13 +208,13 @@ defmodule Aiur.CoreTest do
     assert Config.settings!().tracker.assignee == env_assignee
   end
 
-  test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
+  test "workflow file path defaults to .aiurconfig in the current working directory when app env is unset" do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
       Workflow.clear_workflow_file_path()
 
-      assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
+      assert Workflow.workflow_file_path() == Path.join(File.cwd!(), ".aiurconfig")
     after
       Workflow.set_workflow_file_path(original_workflow_path)
     end
@@ -219,7 +222,7 @@ defmodule Aiur.CoreTest do
 
   test "workflow file path resolves from app env when set" do
     original_workflow_path = Workflow.workflow_file_path()
-    app_workflow_path = "/tmp/app/WORKFLOW.md"
+    app_workflow_path = "/tmp/app/.aiurconfig"
 
     try do
       Workflow.set_workflow_file_path(app_workflow_path)
@@ -230,25 +233,17 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "workflow load accepts prompt-only files without front matter" do
-    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "PROMPT_ONLY_WORKFLOW.md")
-    File.write!(workflow_path, "Prompt only\n")
-
-    assert {:ok, %{config: %{}, prompt: "Prompt only", prompt_template: "Prompt only"}} =
-             Workflow.load(workflow_path)
-  end
-
-  test "workflow load accepts unterminated front matter with an empty prompt" do
-    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "UNTERMINATED_WORKFLOW.md")
-    File.write!(workflow_path, "---\ntracker:\n  kind: linear\n")
+  test "workflow load accepts a config with no prompt_file and an empty prompt" do
+    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "no-prompt.aiurconfig")
+    File.write!(workflow_path, "tracker:\n  kind: linear\n")
 
     assert {:ok, %{config: %{"tracker" => %{"kind" => "linear"}}, prompt: "", prompt_template: ""}} =
              Workflow.load(workflow_path)
   end
 
-  test "workflow load rejects non-map front matter" do
-    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "INVALID_FRONT_MATTER_WORKFLOW.md")
-    File.write!(workflow_path, "---\n- not-a-map\n---\nPrompt body\n")
+  test "workflow load rejects a config that does not decode to a map" do
+    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "not-a-map.aiurconfig")
+    File.write!(workflow_path, "- not-a-map\n")
 
     assert {:error, :workflow_front_matter_not_a_map} = Workflow.load(workflow_path)
   end
@@ -1094,14 +1089,14 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "in-repo WORKFLOW.md renders correctly" do
+  test "in-repo operator .aiurconfig renders correctly" do
     workflow_path = Workflow.workflow_file_path()
 
-    Workflow.set_workflow_file_path(Path.expand("local-workflows/WORKFLOW.aiur.local.md", File.cwd!()))
+    Workflow.set_workflow_file_path(Path.expand("local-workflows/aiur.local.aiurconfig", File.cwd!()))
 
     issue = %Issue{
       identifier: "MT-616",
-      title: "Use rich templates for WORKFLOW.md",
+      title: "Use rich templates for the prompt",
       description: "Render with rich template variables",
       state: "In Progress",
       url: "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd",
@@ -1113,7 +1108,7 @@ defmodule Aiur.CoreTest do
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
     assert prompt =~ "MT-616"
-    assert prompt =~ "Use rich templates for WORKFLOW.md"
+    assert prompt =~ "Use rich templates for the prompt"
     assert prompt =~ "In Progress"
     assert prompt =~ "Render with rich template variables"
     assert prompt =~ "templating"
