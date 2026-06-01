@@ -1,6 +1,6 @@
 defmodule Aiur.CLI do
   @moduledoc """
-  Escript entrypoint for running Aiur with an explicit WORKFLOW.md path.
+  Escript entrypoint for running Aiur with an explicit .aiurconfig path.
   """
 
   alias Aiur.LogFile
@@ -106,7 +106,7 @@ defmodule Aiur.CLI do
              :ok <- maybe_set_server_port(opts, deps),
              :ok <- maybe_set_server_host(opts, deps),
              :ok <- maybe_set_interactive(opts) do
-          run(Path.expand("WORKFLOW.md"), deps)
+          run(Aiur.Workflow.detect_run_folder_config(), deps)
         end
 
       {opts, [workflow_path], []} ->
@@ -138,13 +138,14 @@ defmodule Aiur.CLI do
           {:error, "Failed to start Aiur with workflow #{expanded_path}: #{inspect(reason)}"}
       end
     else
-      {:error, "Workflow file not found: #{expanded_path}"}
+      {:error,
+       "Config file not found: #{expanded_path}. Run `aiur init` to scaffold a .aiurconfig."}
     end
   end
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-WORKFLOW.md]\n       aiur init [--force]"
+    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]\n       aiur init [--force]"
   end
 
   @spec runtime_deps() :: deps()
