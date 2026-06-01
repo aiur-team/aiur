@@ -56,16 +56,24 @@ const MIN_COLS = 44;
 function fullGeom(c: number): Geom {
   const width = Math.max(MIN_COLS, c);
   const inner = width - 4; // "│ " + " │"
-  const fixed = MARKER + IDW + AGENTW + STATUSW + PROGW + TIMEW; // 32
-  const flex = Math.max(TITLE_MIN + LATEST_MIN, inner - fixed);
+  const fixedFull = MARKER + IDW + AGENTW + STATUSW + PROGW + TIMEW; // 32
+  // Drop the AGENT column when there isn't room for it alongside the TITLE and
+  // LATEST minimums (R: "hide the agent column if there's not enough room").
+  const agent = inner - fixedFull >= TITLE_MIN + LATEST_MIN ? AGENTW : 0;
+  const fixed = fixedFull - (AGENTW - agent);
+  // No hard flex floor: the flex columns get exactly the inner width that's left
+  // so the ticket rows can never be wider than the border. When that's below the
+  // TITLE/LATEST minimums the cells simply truncate with an ellipsis — text is
+  // shortened, never clipped, and the box always closes at the terminal width.
+  const flex = Math.max(0, inner - fixed);
   let title = Math.max(TITLE_MIN, Math.min(TITLE_CAP, Math.round(flex * 0.46)));
   let latest = flex - title;
   if (latest < LATEST_MIN) {
-    latest = LATEST_MIN;
+    latest = Math.min(flex, LATEST_MIN);
     title = flex - latest;
   }
   return {
-    id: IDW, agent: AGENTW, status: STATUSW, title,
+    id: IDW, agent, status: STATUSW, title,
     latest, prog: PROGW, time: TIMEW,
     inner, width, dropLatest: false,
   };

@@ -371,6 +371,13 @@
     overflow: hidden;
     padding: clamp(8px, 1.4vw, 16px);
     display: grid;
+    /* Pin the single column to the box width. Without this the implicit track
+       sizes to the pre's max-content (its full untruncated width), so #termScreen
+       — width:100% of that track — reports a width wider than the viewport. That
+       inflated width is what fitWidth and the aspect-ratio layout check both read,
+       so cols never shrinks (text/border clip off-screen) and a portrait phone can
+       measure wider-than-tall and wrongly pick the side-by-side split. */
+    grid-template-columns: minmax(0, 1fr);
     place-items: center;
     container-type: inline-size;
   }
