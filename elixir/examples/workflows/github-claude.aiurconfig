@@ -1,4 +1,3 @@
----
 tracker:
   kind: github
   active_states:
@@ -21,15 +20,4 @@ agent:
   max_turns: 20
 claude:
   command: aiur-claude
----
-
-You are working on GitHub issue `{{ issue.identifier }}`.
-
-Title: {{ issue.title }}
-
-Body:
-{% if issue.description %}
-{{ issue.description }}
-{% else %}
-No description provided.
-{% endif %}
+prompt_file: github-claude.prompt.md

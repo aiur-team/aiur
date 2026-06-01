@@ -1,0 +1,42 @@
+tracker:
+  kind: github
+  active_states:
+    - todo
+    - in-progress
+    - human-review
+    - rework
+    - merging
+  terminal_states:
+    - done
+    - cancelled
+    - canceled
+github:
+  repo: your-org/your-repo
+  label_prefix: agent
+polling:
+  interval_seconds: 30
+server:
+  host: 127.0.0.1
+  port: 4000
+workspace:
+  root: ~/code/aiur-workspaces
+hooks:
+  after_create: |
+    git clone "$AIUR_REPOSITORY_URL" .
+    issue_id="$(basename "$PWD")"
+    git checkout -b "aiur/${issue_id}" origin/main
+  before_remove: |
+    git status --short
+agent:
+  kind: codex
+  max_concurrent_agents: 2
+  max_turns: 12
+  # Optional: route per issue by its `complexity:N` label. Unlisted levels and
+  # unlabeled issues fall back to `kind`; a `model:<backend>` issue label
+  # overrides both. (Requires a `claude:` block for the routed backend.)
+  # routing:
+  #   4: claude
+  #   5: claude
+codex:
+  command: codex app-server
+prompt_file: github-codex.prompt.md
