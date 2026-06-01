@@ -138,8 +138,7 @@ defmodule Aiur.CLI do
           {:error, "Failed to start Aiur with workflow #{expanded_path}: #{inspect(reason)}"}
       end
     else
-      {:error,
-       "Config file not found: #{expanded_path}. Run `aiur init` to scaffold a .aiurconfig."}
+      {:error, "Config file not found: #{expanded_path}. Run `aiur init` to scaffold a .aiurconfig."}
     end
   end
 

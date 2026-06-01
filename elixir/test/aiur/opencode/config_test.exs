@@ -27,7 +27,7 @@ defmodule Aiur.Opencode.ConfigTest do
       assert Config.serve_args() == []
     end
 
-    test "reads overrides from WORKFLOW.md" do
+    test "reads overrides from .aiurconfig" do
       write_workflow_file!(Aiur.Workflow.workflow_file_path(),
         opencode_command: "/tmp/opencode",
         opencode_bridge_port: 5000,

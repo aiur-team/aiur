@@ -63,7 +63,7 @@ tmux -L "$OUTER_SOCKET" new-session -d -s "$OUTER_SESSION" -x 220 -y 60
 # this invocation specifically. The inner scripts/aiur then creates its own isolated
 # tmux server on its own socket.
 tmux -L "$OUTER_SOCKET" send-keys -t "$OUTER_SESSION" \
-  "cd $REPO_ROOT && unset TMUX TMUX_PANE && scripts/aiur '$REPO_ROOT/elixir/WORKFLOW.md'" \
+  "cd $REPO_ROOT && unset TMUX TMUX_PANE && scripts/aiur '$REPO_ROOT/elixir/.aiurconfig'" \
   Enter
 
 # Wait for the BEAM to write phase=ready for warm_server + hidden_window + agent_list.

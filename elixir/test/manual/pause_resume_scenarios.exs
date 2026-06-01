@@ -101,7 +101,7 @@ bootstrap_children = [
 
 workflow_root = Path.join(System.tmp_dir!(), "aiur_manual_#{System.unique_integer([:positive])}")
 File.mkdir_p!(workflow_root)
-workflow_file = Path.join(workflow_root, "WORKFLOW.md")
+workflow_file = Path.join(workflow_root, ".aiurconfig")
 
 File.write!(workflow_file, """
 ---

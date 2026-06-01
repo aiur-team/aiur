@@ -305,7 +305,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Jason.decode!(missing_token["output"]) == %{
              "error" => %{
-               "message" => "Aiur is missing Linear auth. Set `linear.api_key` in `WORKFLOW.md` or export `LINEAR_API_KEY`."
+               "message" => "Aiur is missing Linear auth. Set `linear.api_key` in `.aiurconfig` or export `LINEAR_API_KEY`."
              }
            }
 

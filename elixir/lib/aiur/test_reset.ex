@@ -563,7 +563,7 @@ defmodule Aiur.TestReset do
   #
   # We don't go through `Aiur.Workspace.remove_issue_workspaces/1`
   # because that calls `Aiur.Config.settings!()` which requires
-  # WORKFLOW.md to be present and parseable — the reset task runs
+  # .aiurconfig to be present and parseable — the reset task runs
   # outside any orchestrator boot, so it may not have a workflow
   # context. Instead we compute the workspace root from
   # `Aiur.Config.workspace_root/0` if available; if not, fall back

@@ -6,11 +6,13 @@ operational practices that aren't in the main README.
 
 ## Layout
 
-- `elixir/WORKFLOW.md` — generic template. Customize it for the project you
-  point Aiur at.
-- `elixir/examples/workflows/` — portable example workflows (Linear+Codex,
-  GitHub+Codex, GitHub+Claude). Copy one when starting fresh.
-- `elixir/local-workflows/` — machine-local operational workflows that are
+- `.aiurconfig` — the single Aiur config file (pure YAML). An optional
+  `prompt_file:` key points at a sibling Liquid prompt template. Run
+  `aiur init` to scaffold one.
+- `elixir/examples/workflows/` — portable example configs (Linear+Codex,
+  GitHub+Codex, GitHub+Claude), each an `.aiurconfig` plus a `.prompt.md`
+  template. Copy a pair when starting fresh.
+- `elixir/local-workflows/` — machine-local operational configs that are
   checked in but are **not** portable defaults. Used by the built-in `aiur`
   profiles.
 - `scripts/aiur` — thin wrapper around `bin/aiur`. Auto-detects OS

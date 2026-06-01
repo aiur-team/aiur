@@ -123,11 +123,11 @@ defmodule Aiur.ExtensionsTest do
       match?({:ok, %{prompt: "Second prompt"}}, Workflow.current())
     end)
 
-    File.write!(Workflow.workflow_file_path(), "---\ntracker: [\n---\nBroken prompt\n")
+    File.write!(Workflow.workflow_file_path(), "tracker: [\n")
     assert {:error, _reason} = WorkflowStore.force_reload()
     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
 
-    third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "THIRD_WORKFLOW.md")
+    third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "third.aiurconfig")
     write_workflow_file!(third_workflow, prompt: "Third prompt")
     Workflow.set_workflow_file_path(third_workflow)
     assert {:ok, %{prompt: "Third prompt"}} = Workflow.current()
@@ -139,7 +139,7 @@ defmodule Aiur.ExtensionsTest do
   end
 
   test "workflow store init stops on missing workflow file" do
-    missing_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "MISSING_WORKFLOW.md")
+    missing_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "missing.aiurconfig")
     Workflow.set_workflow_file_path(missing_path)
 
     assert {:stop, {:missing_workflow_file, ^missing_path, :enoent}} = WorkflowStore.init([])
@@ -148,8 +148,8 @@ defmodule Aiur.ExtensionsTest do
   test "workflow store start_link and poll callback cover missing-file error paths" do
     ensure_workflow_store_running()
     existing_path = Workflow.workflow_file_path()
-    manual_path = Path.join(Path.dirname(existing_path), "MANUAL_WORKFLOW.md")
-    missing_path = Path.join(Path.dirname(existing_path), "MANUAL_MISSING_WORKFLOW.md")
+    manual_path = Path.join(Path.dirname(existing_path), "manual.aiurconfig")
+    missing_path = Path.join(Path.dirname(existing_path), "manual-missing.aiurconfig")
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
 
@@ -165,7 +165,7 @@ defmodule Aiur.ExtensionsTest do
     assert Process.alive?(manual_pid)
 
     state = :sys.get_state(manual_pid)
-    File.write!(manual_path, "---\ntracker: [\n---\nBroken prompt\n")
+    File.write!(manual_path, "tracker: [\n")
     assert {:noreply, returned_state} = WorkflowStore.handle_info(:poll, state)
     assert returned_state.workflow.prompt == "Manual workflow prompt"
     refute returned_state.stamp == nil
