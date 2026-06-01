@@ -138,6 +138,29 @@ defmodule Aiur.ExtensionsTest do
     assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
   end
 
+  test "workflow store reloads when only the prompt_file body changes" do
+    ensure_workflow_store_running()
+    original_path = Workflow.workflow_file_path()
+
+    config_path = Path.join(Path.dirname(original_path), "prompt_reload.aiurconfig")
+    write_workflow_file!(config_path, prompt: "Original prompt body")
+    Workflow.set_workflow_file_path(config_path)
+
+    assert {:ok, %{prompt: "Original prompt body"}} = Workflow.current()
+
+    # Edit only the referenced prompt_file; the .aiurconfig bytes are untouched.
+    prompt_basename = String.trim_leading(Path.basename(config_path), ".") <> ".prompt.md"
+    File.write!(Path.join(Path.dirname(config_path), prompt_basename), "Edited prompt body\n")
+    send(WorkflowStore, :poll)
+
+    assert_eventually(fn ->
+      match?({:ok, %{prompt: "Edited prompt body"}}, Workflow.current())
+    end)
+
+    Workflow.set_workflow_file_path(original_path)
+    WorkflowStore.force_reload()
+  end
+
   test "workflow store init stops on missing workflow file" do
     missing_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "missing.aiurconfig")
     Workflow.set_workflow_file_path(missing_path)

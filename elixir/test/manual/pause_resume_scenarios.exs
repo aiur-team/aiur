@@ -104,7 +104,6 @@ File.mkdir_p!(workflow_root)
 workflow_file = Path.join(workflow_root, ".aiurconfig")
 
 File.write!(workflow_file, """
----
 tracker:
   kind: memory
   active_states:
@@ -125,9 +124,6 @@ agent:
   max_concurrent_agents: 1
 codex:
   command: /bin/true
----
-
-Body
 """)
 
 Workflow.set_workflow_file_path(workflow_file)

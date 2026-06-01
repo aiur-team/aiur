@@ -402,7 +402,7 @@ defmodule Aiur.Config do
         "Failed to parse #{label}: #{inspect(raw_reason)}"
 
       :workflow_front_matter_not_a_map ->
-        "Failed to parse #{label}: workflow front matter must decode to a map"
+        "Failed to parse #{label}: top-level YAML must be a map"
 
       other ->
         "Invalid #{label} config: #{inspect(other)}"

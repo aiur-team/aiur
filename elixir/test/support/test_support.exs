@@ -66,7 +66,7 @@ defmodule Aiur.TestSupport do
 
     config_yaml =
       if is_binary(prompt) and prompt != "" do
-        prompt_basename = Path.basename(path) <> ".prompt.md"
+        prompt_basename = String.trim_leading(Path.basename(path), ".") <> ".prompt.md"
         File.write!(Path.join(Path.dirname(path), prompt_basename), prompt <> "\n")
         config_yaml <> "prompt_file: #{prompt_basename}\n"
       else

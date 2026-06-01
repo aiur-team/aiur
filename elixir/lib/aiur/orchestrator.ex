@@ -744,8 +744,12 @@ defmodule Aiur.Orchestrator do
         Logger.error("Missing .aiurconfig at #{path}: #{inspect(reason)}")
         state
 
+      {:error, {:missing_prompt_file, path, reason}} ->
+        Logger.error("Missing prompt_file at #{path}: #{inspect(reason)}")
+        state
+
       {:error, :workflow_front_matter_not_a_map} ->
-        Logger.error("Failed to parse .aiurconfig: workflow front matter must decode to a map")
+        Logger.error("Failed to parse .aiurconfig: top-level YAML must be a map")
         state
 
       {:error, {:workflow_parse_error, reason}} ->

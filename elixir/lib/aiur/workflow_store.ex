@@ -120,8 +120,10 @@ defmodule Aiur.WorkflowStore do
       {:ok, stamp} when stamp == state.stamp ->
         {:ok, state}
 
-      {:ok, _stamp} ->
-        reload_path(path, state)
+      {:ok, stamp} ->
+        # Advance the stamp before reloading so a persistently-broken config or
+        # missing prompt_file logs once per change instead of every poll.
+        reload_path(path, %{state | stamp: stamp})
 
       {:error, reason} ->
         log_reload_error(path, reason)
