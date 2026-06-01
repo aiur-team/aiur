@@ -109,8 +109,11 @@ const MIN_LOG_LINES = 6;
 const WIDE_LOG_LINES = 3;
 const FIXED_ROWS = NON_TICKET_ROWS + VISIBLE_TICKETS;
 let logLines = MIN_LOG_LINES;
-// Desktop-width flag. Drives the pinned 3-line log section and the
-// side-by-side beat split. Set by chooseLayout from the viewport width.
+// Smallest opencode pane (chip + blank + 3-row input + a little transcript) we
+// render in the stacked layout, so a short portrait viewport never starves it.
+const OC_MIN_ROWS = 8;
+// Wide-terminal flag. Only sets the log-line floor (a minimum; fitLogLines
+// computes the real count from height). Set by chooseLayout.
 let wide = true;
 
 const PHASE_EMOJI: Record<Phase, string> = {
@@ -557,24 +560,27 @@ export function renderFrame(nowMs: number, baseMs: number): string {
     });
   } else if (sideBySide) {
     // Abbreviated dashboard stays a fixed 30 cols; the pane absorbs the rest of
-    // the grid width so the combined split fills the terminal exactly.
+    // the grid width. Both columns are the same height (the dashboard's), so the
+    // combined split fills the terminal exactly — no overflow, no padded floor.
     const paneW = Math.max(MIN_COLS, cols - DASH_BOX_W_ABBR - OC_GUTTER);
     const dash = buildDashboardLines(loopSec, spinIdx, {
       dropLatest: true,
       selectedId: DRIVEN_ID,
     });
-    const pane = buildOpencodeLines(loopSec, spinIdx, OC_TOTAL_ROWS, paneW);
+    const pane = buildOpencodeLines(loopSec, spinIdx, dash.length, paneW);
     body = joinColumns(dash, pane, paneW);
   } else {
-    // Stacked (narrow portrait): the opencode pane is the focus and should claim
-    // roughly the bottom two-thirds. Render a compact dashboard (one log line)
-    // on top, then a full-width pane sized to ~2x the dashboard height.
+    // Stacked (portrait): a compact dashboard (one log line) on top, then the
+    // pane fills the remaining height. The pane is sized to the height slack so
+    // the stack totals the terminal's row count exactly — no bottom clipping.
     const dash = buildDashboardLines(loopSec, spinIdx, {
       dropLatest: false,
       selectedId: DRIVEN_ID,
       logOverride: 1,
     });
-    const pane = buildOpencodeLines(loopSec, spinIdx, dash.length * 2, cols);
+    const gridRows = FIXED_ROWS + logLines;
+    const paneRows = Math.max(OC_MIN_ROWS, gridRows - dash.length - 1);
+    const pane = buildOpencodeLines(loopSec, spinIdx, paneRows, cols);
     body = [...dash, stackRule(), ...pane];
   }
 
@@ -589,17 +595,16 @@ export function startDashboard(screen: HTMLElement): void {
   // the input field empty, and the cursor static (CSS suppresses its blink).
   const nowMs = (): number => (reduce ? baseMs + 22_000 : performance.now());
 
-  // Wide flag + side-by-side-vs-stacked for the beat split. Both layouts render
-  // the same 96-col grid width, so the split choice is readability/aspect, not
-  // fit. Stack only on a truly narrow portrait viewport — landscape and medium
-  // widths keep the dashboard and pane side by side (a hysteresis dead-band of
-  // 600–680px prevents flip-flop near the threshold).
+  // Pick the beat split from the terminal's own aspect ratio: a wider-than-tall
+  // box puts the dashboard and pane side by side; a taller-than-wide (portrait)
+  // box stacks the pane below. Using the element's own width:height ratio rather
+  // than viewport width / orientation media queries is DPR-proof — high-density
+  // iOS screens were reporting "wide" and forcing the side-by-side desktop split
+  // onto portrait phones, clipping the pane off the right edge.
   const chooseLayout = (): void => {
-    const w = screen.getBoundingClientRect().width;
-    const portrait = window.matchMedia("(orientation: portrait)").matches;
-    wide = w >= 700;
-    if (!portrait || w >= 680) sideBySide = true;
-    else if (w < 600) sideBySide = false;
+    const r = screen.getBoundingClientRect();
+    sideBySide = r.width > r.height;
+    wide = r.width >= 700;
   };
 
   const tick = (): void => {
@@ -633,7 +638,11 @@ export function startDashboard(screen: HTMLElement): void {
     const pre = screen.querySelector(".tui-pre") as HTMLElement | null;
     if (!pre) return;
     const floorLines = wide ? WIDE_LOG_LINES : MIN_LOG_LINES;
-    const lineH = pre.getBoundingClientRect().height / (FIXED_ROWS + logLines);
+    // Per-row height from the actual rendered row count, not the assumed
+    // pane-closed count: the measured frame can be a beat frame (reduced motion
+    // freezes mid-beat) with a different number of rows.
+    const renderedRows = (pre.textContent ?? "").split("\n").length;
+    const lineH = pre.getBoundingClientRect().height / renderedRows;
     const avail = screen.clientHeight;
     if (lineH > 0 && avail > 0) {
       logLines = Math.max(floorLines, Math.floor(avail / lineH) - FIXED_ROWS);
