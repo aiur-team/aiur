@@ -474,9 +474,8 @@ profile_value() {
 }
 
 load_profiles() {
-  add_profile "default" "$repo_root" "local-workflows/aiur.local.aiurconfig" "" "" "aiur"
-  add_profile "aiur" "$repo_root" "local-workflows/aiur.local.aiurconfig" "" "" "aiur"
-  add_profile "actions" "$repo_root" "local-workflows/actions.local.aiurconfig" "" "" "aiur-actions"
+  add_profile "default" "$repo_root" "../.aiurconfig" "" "" "aiur"
+  add_profile "aiur" "$repo_root" "../.aiurconfig" "" "" "aiur"
 
   if [ -r "$config_file" ]; then
     while IFS='|' read -r name root workflow port logs_root service extra; do

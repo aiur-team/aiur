@@ -104,7 +104,7 @@ defmodule Aiur.CoreTest do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
-      Workflow.set_workflow_file_path(Path.expand("local-workflows/aiur.local.aiurconfig", File.cwd!()))
+      Workflow.set_workflow_file_path(Path.expand("../.aiurconfig", File.cwd!()))
 
       assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
       assert is_map(config)
@@ -135,7 +135,7 @@ defmodule Aiur.CoreTest do
   test "checked-in workflow examples parse and portable examples stay generic" do
     workflow_paths =
       Path.wildcard("examples/workflows/*.aiurconfig") ++
-        Path.wildcard("local-workflows/*.local.aiurconfig")
+        Path.wildcard("../.aiurconfig")
 
     assert Enum.any?(workflow_paths)
 
@@ -159,8 +159,7 @@ defmodule Aiur.CoreTest do
   test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
     workflow_paths = [
       "examples/workflows/github-codex.aiurconfig",
-      "local-workflows/aiur.local.aiurconfig",
-      "local-workflows/actions.local.aiurconfig"
+      "../.aiurconfig"
     ]
 
     for path <- workflow_paths do
@@ -1092,7 +1091,7 @@ defmodule Aiur.CoreTest do
   test "in-repo operator .aiurconfig renders correctly" do
     workflow_path = Workflow.workflow_file_path()
 
-    Workflow.set_workflow_file_path(Path.expand("local-workflows/aiur.local.aiurconfig", File.cwd!()))
+    Workflow.set_workflow_file_path(Path.expand("../.aiurconfig", File.cwd!()))
 
     issue = %Issue{
       identifier: "MT-616",

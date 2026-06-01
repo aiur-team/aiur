@@ -25,7 +25,7 @@ if config_env() == :test do
 
   workflow_file_path_for_tests =
     [
-      "../local-workflows/aiur.local.aiurconfig",
+      "../../.aiurconfig",
       "../test/fixtures/test.aiurconfig"
     ]
     |> Enum.map(&Path.expand(&1, __DIR__))

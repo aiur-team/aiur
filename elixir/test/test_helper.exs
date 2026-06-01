@@ -23,7 +23,7 @@ File.mkdir_p!(test_home)
 System.put_env("HOME", test_home)
 
 workflow_file =
-  Path.expand("../local-workflows/aiur.local.aiurconfig", __DIR__)
+  Path.expand("../../.aiurconfig", __DIR__)
 
 test_workflow_fallback = Path.expand("fixtures/test.aiurconfig", __DIR__)
 

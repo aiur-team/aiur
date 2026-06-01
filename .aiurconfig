@@ -126,4 +126,4 @@ opencode:
   bridge_port: 4097
   serve_args: []
   model_prefix: aiur
-prompt_file: aiur.local.prompt.md
+prompt_file: AIUR.md

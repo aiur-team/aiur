@@ -8,7 +8,7 @@
 #
 # Run via:
 #
-#   cp elixir/local-workflows/aiur.local.aiurconfig elixir/.aiurconfig  # if missing
+#   cp .aiurconfig elixir/.aiurconfig  # if missing
 #   mix run scripts/manual_event_flow_e2e.exs
 #
 # (cwd should be `elixir/` for the config file path to resolve.)

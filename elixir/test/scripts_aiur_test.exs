@@ -59,18 +59,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/aiur.local.aiurconfig"
-  end
-
-  test "runs the built-in actions profile in the foreground" do
-    ctx = test_context()
-
-    assert {output, 0} = run_aiur(ctx, ["actions"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
-    assert output =~ "MISE:exec -- ./bin/aiur"
-
-    assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/actions.local.aiurconfig"
+             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./../.aiurconfig"
   end
 
   test "restarts a selected background profile" do
@@ -107,7 +96,7 @@ defmodule ScriptsAiurTest do
     assert command_log =~ "SYSTEMCTL:--user restart aiur\n"
     assert command_log =~ "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur"
     assert command_log =~ "--host 127.0.0.1"
-    assert command_log =~ "./local-workflows/aiur.local.aiurconfig"
+    assert command_log =~ "./../.aiurconfig"
   end
 
   test "restarts every configured background profile once per service" do
@@ -136,7 +125,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
 
     assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/aiur.local.aiurconfig"
+             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./../.aiurconfig"
   end
 
   test "no-arg invocation attaches to an existing default session" do
@@ -158,6 +147,10 @@ defmodule ScriptsAiurTest do
   test "profile invocation attaches to an existing profile session" do
     ctx = test_context()
     session = aiur_tmux_session("actions")
+
+    write_profiles!(ctx, """
+    actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
+    """)
 
     assert {output, 0} = run_aiur(ctx, ["actions"], tmux_has_session: true)
     command_log = command_log(ctx)
@@ -210,7 +203,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
-             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./local-workflows/aiur.local.aiurconfig"
+             "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./../.aiurconfig"
   end
 
   test "runs an ad hoc workflow path with the default repo" do
@@ -242,8 +235,8 @@ defmodule ScriptsAiurTest do
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
-    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "elixir")}/local-workflows/aiur.local.aiurconfig"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*local-workflows/aiur.local.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "elixir")}/../.aiurconfig"
+    assert output =~ "PKILL:-f bin/aiur .*--interactive.*../.aiurconfig"
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
@@ -397,10 +390,8 @@ defmodule ScriptsAiurTest do
 
   test "auto-increments a busy workflow port when no profile port is set" do
     ctx = test_context()
-    workflow_dir = Path.join(ctx.repo_root, "elixir/local-workflows")
-    File.mkdir_p!(workflow_dir)
 
-    File.write!(Path.join(workflow_dir, "aiur.local.aiurconfig"), """
+    File.write!(Path.join(ctx.repo_root, ".aiurconfig"), """
     server:
       host: 127.0.0.1
       port: 4000
@@ -599,7 +590,7 @@ defmodule ScriptsAiurTest do
         )
 
       assert count_occurrences(command_log, "NOHUP:#{ctx.fake_mise} exec -- ./bin/aiur") == 2
-      assert command_log =~ "local-workflows/aiur.local.aiurconfig"
+      assert command_log =~ "../.aiurconfig"
       assert command_log =~ "actions.aiurconfig"
       refute command_log =~ "SYSTEMCTL:"
     end
