@@ -14,8 +14,8 @@ import {
 import { EVENTS, BEAT, OC_TOTAL_ROWS } from "../src/simData";
 
 // Mirror of the reduced-motion freeze offset hardcoded in startDashboard
-// (baseMs + 17_000). Kept in sync by check 6 below.
-const REDUCED_MOTION_SEC = 17;
+// (baseMs + 22_000). Kept in sync by check 6 below.
+const REDUCED_MOTION_SEC = 22;
 
 let failures = 0;
 const fail = (msg: string): void => {

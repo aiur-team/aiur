@@ -385,6 +385,10 @@
     color: var(--term-fg);
     will-change: transform;
   }
+  /* bump the terminal font a couple points on phones (raise the clamp floor) */
+  @media (max-width: 680px) {
+    .tui-pre { font-size: clamp(9px, 2.2cqi, 16.5px); }
+  }
   .tui-pre .tb { color: var(--term-fg); font-weight: 700; }
   .tui-pre .ag-opus { color: var(--term-mag); }
   .tui-pre .ag-sonnet { color: var(--term-accent); }
@@ -395,6 +399,8 @@
   .tui-pre .bar-empty { color: var(--tui-line); }
   .tui-pre .oc-cmd { color: var(--term-ok); }
   .tui-pre .oc-tool { color: var(--term-dim); }
+  /* greyed elaboration under each surfaced option */
+  .tui-pre .oc-dim { color: color-mix(in srgb, var(--term-fg) 56%, var(--term-bg)); }
   .tui-pre .oc-chip { color: var(--term-accent); font-weight: 700; }
   .tui-pre .oc-prompt { color: var(--term-accent); }
   .tui-pre .oc-gutter {
@@ -403,6 +409,18 @@
     width: 1ch;
     text-align: center;
   }
+  /* solid accent rail down the banded rows (posted block + input field) */
+  .tui-pre .oc-bar {
+    display: inline-block;
+    width: 1ch;
+    height: 1.5em;
+    vertical-align: bottom;
+    background: var(--term-accent);
+    color: transparent;
+  }
+  /* the posted user message + the input box read as full-pane-width bands
+     (content is padded to OC_PANE_W chars inside the span, so the tint spans
+     the whole pane row without bleeding across the joined dashboard column) */
   .tui-pre .oc-userblock { background-color: color-mix(in srgb, var(--term-accent) 16%, transparent); }
   .tui-pre .oc-field { background-color: color-mix(in srgb, var(--term-fg) 8%, transparent); }
   .term-screen .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.72em; }
