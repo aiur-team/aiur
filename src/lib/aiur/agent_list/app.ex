@@ -57,7 +57,8 @@ defmodule Aiur.AgentList.App do
           pane_manager: GenServer.name(),
           command_template: String.t(),
           orchestrator: GenServer.name(),
-          max_agents_alert?: boolean()
+          max_agents_alert?: boolean(),
+          remote_control_hint: String.t() | nil
         }
 
   # Public API ----------------------------------------------------------------
@@ -95,6 +96,10 @@ defmodule Aiur.AgentList.App do
 
   @spec toggle_pause(GenServer.server()) :: :ok
   def toggle_pause(server \\ __MODULE__), do: GenServer.cast(server, :toggle_pause)
+
+  @spec toggle_remote_control(GenServer.server()) :: :ok
+  def toggle_remote_control(server \\ __MODULE__),
+    do: GenServer.cast(server, :toggle_remote_control)
 
   @spec adjust_max_concurrent_agents(integer()) :: :ok
   @spec adjust_max_concurrent_agents(GenServer.server(), integer()) :: :ok
@@ -163,6 +168,10 @@ defmodule Aiur.AgentList.App do
       rows: rows,
       help_visible?: false,
       max_agents_alert?: false,
+      # Transient status-line hint string driven by the `r`/Space
+      # remote-control keybinds. Set by `rc_hint/2`, auto-cleared after
+      # a few seconds via `:clear_remote_control_hint`. nil = no hint.
+      remote_control_hint: nil,
       write_fun: write_fun,
       pane_manager: pane_manager,
       orchestrator: orchestrator,
@@ -318,6 +327,12 @@ defmodule Aiur.AgentList.App do
 
   def handle_cast(:toggle_pause, state) do
     state = toggle_selected_agent_pause(state)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_cast(:toggle_remote_control, state) do
+    state = toggle_selected_agent_remote_control(state)
     render(state)
     {:noreply, state}
   end
@@ -653,6 +668,12 @@ defmodule Aiur.AgentList.App do
 
   def handle_info(:clear_max_agents_alert, state) do
     new_state = %{state | max_agents_alert?: false}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info(:clear_remote_control_hint, state) do
+    new_state = %{state | remote_control_hint: nil}
     render(new_state)
     {:noreply, new_state}
   end
@@ -1098,13 +1119,20 @@ defmodule Aiur.AgentList.App do
   defp toggle_selected_agent_pause(state), do: state
 
   defp toggle_agent_pause(%{identifier: identifier, status: :running} = summary, state) do
-    if paused_summary?(summary) do
-      Logger.info("[user-action] resume_agent identifier=#{identifier} source=agent_list")
-      handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
-    else
-      Logger.info("[user-action] pause_agent identifier=#{identifier} source=agent_list")
-      _ = Orchestrator.pause_agent(state.orchestrator, identifier)
-      state
+    cond do
+      remote_control_on_summary?(summary) ->
+        # An RC-on agent is handed off to the Claude app — there is no
+        # local headless driver to pause. Surface the hint and no-op.
+        rc_hint(state, "Agent is in Remote Control — press `r` to return")
+
+      paused_summary?(summary) ->
+        Logger.info("[user-action] resume_agent identifier=#{identifier} source=agent_list")
+        handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
+
+      true ->
+        Logger.info("[user-action] pause_agent identifier=#{identifier} source=agent_list")
+        _ = Orchestrator.pause_agent(state.orchestrator, identifier)
+        state
     end
   end
 
@@ -1114,6 +1142,73 @@ defmodule Aiur.AgentList.App do
   end
 
   defp toggle_agent_pause(_summary, state), do: state
+
+  defp toggle_selected_agent_remote_control(%{selection_focus: :agents} = state) do
+    state.summaries
+    |> Enum.at(state.selection_index)
+    |> toggle_agent_remote_control(state)
+  end
+
+  defp toggle_selected_agent_remote_control(state), do: state
+
+  # `r` only means something for a live agent row. Capability gating
+  # (codex / remote worker / no workspace) lives in the Orchestrator —
+  # we call `set_remote_control` and translate whatever it returns into
+  # a status-line hint, rather than duplicating the gate here.
+  defp toggle_agent_remote_control(%{identifier: identifier, status: :running} = summary, state) do
+    desired = not remote_control_on_summary?(summary)
+    action = if desired, do: "on", else: "off"
+    Logger.info("[user-action] remote_control identifier=#{identifier} desired=#{action} source=agent_list")
+    result = Orchestrator.set_remote_control(state.orchestrator, identifier, desired)
+    handle_remote_control_result(state, result)
+  end
+
+  defp toggle_agent_remote_control(_summary, state) do
+    rc_hint(state, "Remote Control requires a local Claude agent")
+  end
+
+  defp handle_remote_control_result(state, {:ok, :on}) do
+    rc_hint(state, "Remote Control on — continue in the Claude app")
+  end
+
+  defp handle_remote_control_result(state, {:ok, :off}) do
+    rc_hint(state, "Remote Control off — agent resumed")
+  end
+
+  defp handle_remote_control_result(state, {:error, :unsupported}) do
+    rc_hint(state, "Remote Control requires a local Claude agent")
+  end
+
+  defp handle_remote_control_result(state, {:error, :remote_unsupported}) do
+    rc_hint(state, "Remote Control is local-only — this agent runs on a remote worker")
+  end
+
+  defp handle_remote_control_result(state, {:error, :workspace_unavailable}) do
+    rc_hint(state, "Remote Control unavailable — agent has no workspace yet")
+  end
+
+  defp handle_remote_control_result(state, {:error, :remote_control_active}) do
+    rc_hint(state, "Agent is in Remote Control — press `r` to return")
+  end
+
+  defp handle_remote_control_result(state, {:error, _reason}) do
+    rc_hint(state, "Remote Control unavailable")
+  end
+
+  defp remote_control_on_summary?(%{remote_control: %{status: status}})
+       when status in [:launching, :on],
+       do: true
+
+  defp remote_control_on_summary?(_summary), do: false
+
+  defp rc_hint(state, message) do
+    schedule_remote_control_hint_clear()
+    %{state | remote_control_hint: message}
+  end
+
+  defp schedule_remote_control_hint_clear do
+    Process.send_after(self(), :clear_remote_control_hint, 4_000)
+  end
 
   # Navigation forms one continuous ring across the agent rows and the
   # max-agents chip:
@@ -1256,6 +1351,7 @@ defmodule Aiur.AgentList.App do
         :warm_status_dark_mode?,
         Map.get(state, :warm_status_dark_mode?, true)
       )
+      |> Map.put(:remote_control_hint, Map.get(state, :remote_control_hint))
 
     state.write_fun.(Renderer.render(render_state))
     :ok

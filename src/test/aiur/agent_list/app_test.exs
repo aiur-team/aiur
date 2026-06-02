@@ -33,7 +33,17 @@ defmodule Aiur.AgentList.AppTest do
     use GenServer
 
     def start_link(parent), do: GenServer.start_link(__MODULE__, parent)
-    def init(parent), do: {:ok, %{parent: parent, max: 2, resume_result: {:ok, :resumed}, adjust_result: nil}}
+
+    def init(parent),
+      do:
+        {:ok,
+         %{
+           parent: parent,
+           max: 2,
+           resume_result: {:ok, :resumed},
+           adjust_result: nil,
+           rc_result: {:ok, :on}
+         }}
 
     def handle_call(:max_concurrent_agents, _from, state) do
       {:reply, %{active: 0, paused: 0, configured: 2, max: state.max, session_override?: true}, state}
@@ -61,8 +71,14 @@ defmodule Aiur.AgentList.AppTest do
       {:reply, state.adjust_result, state}
     end
 
+    def handle_call({:set_remote_control, identifier, on?}, _from, state) do
+      send(state.parent, {:mock_set_remote_control, identifier, on?})
+      {:reply, state.rc_result, state}
+    end
+
     def handle_cast({:set_resume_result, result}, state), do: {:noreply, %{state | resume_result: result}}
     def handle_cast({:set_adjust_result, result}, state), do: {:noreply, %{state | adjust_result: result}}
+    def handle_cast({:set_rc_result, result}, state), do: {:noreply, %{state | rc_result: result}}
   end
 
   setup do
@@ -451,6 +467,74 @@ defmodule Aiur.AgentList.AppTest do
 
       # Reactivation kicks off in a Task — give it a beat to fire.
       assert_receive {:mock_resume, "DA-ENTER"}, 500
+    end
+  end
+
+  describe "remote control toggle (r)" do
+    test "r on a running agent calls set_remote_control(id, true), then false", %{app: app, orchestrator: orchestrator} do
+      send_running_change(app, [AgentEvents.agent_summary("RC-1", :running, 0)])
+      assert_receive {:rendered, _}, 500
+
+      App.toggle_remote_control(app)
+      assert_receive {:mock_set_remote_control, "RC-1", true}, 500
+
+      # Now simulate the summary coming back RC-on; pressing again toggles off.
+      GenServer.cast(orchestrator, {:set_rc_result, {:ok, :off}})
+      send_running_change(app, [AgentEvents.agent_summary("RC-1", :running, 0, %{remote_control: %{status: :on}})])
+      assert_receive {:rendered, _}, 500
+
+      App.toggle_remote_control(app)
+      assert_receive {:mock_set_remote_control, "RC-1", false}, 500
+    end
+
+    test "r with no selection surfaces a hint and makes no call", %{app: app} do
+      # No running_changed sent — empty summaries, focus is on the max chip.
+      assert_receive {:rendered, _}, 500
+
+      App.toggle_remote_control(app)
+
+      refute_receive {:mock_set_remote_control, _, _}, 200
+
+      wait_until(fn -> App.snapshot(app).remote_control_hint != nil end)
+      assert App.snapshot(app).remote_control_hint =~ "Remote Control"
+    end
+
+    test "an :unsupported result surfaces the local-Claude hint", %{app: app, orchestrator: orchestrator} do
+      GenServer.cast(orchestrator, {:set_rc_result, {:error, :unsupported}})
+      send_running_change(app, [AgentEvents.agent_summary("RC-CDX", :running, 0)])
+      assert_receive {:rendered, _}, 500
+
+      App.toggle_remote_control(app)
+      assert_receive {:mock_set_remote_control, "RC-CDX", true}, 500
+
+      wait_until(fn -> App.snapshot(app).remote_control_hint != nil end)
+      assert App.snapshot(app).remote_control_hint =~ "requires a local Claude agent"
+    end
+
+    test "Space on an RC-on agent does not pause and surfaces a hint", %{app: app} do
+      send_running_change(app, [
+        AgentEvents.agent_summary("RC-ON", :running, 0, %{remote_control: %{status: :on}})
+      ])
+
+      assert_receive {:rendered, _}, 500
+
+      App.toggle_pause(app)
+
+      refute_receive {:mock_pause, "RC-ON"}, 200
+
+      wait_until(fn -> App.snapshot(app).remote_control_hint != nil end)
+      assert App.snapshot(app).remote_control_hint =~ "Remote Control"
+    end
+
+    test "a summary carrying remote_control survives a render cycle (Map.take guard)", %{app: app} do
+      send_running_change(app, [
+        AgentEvents.agent_summary("RC-KEEP", :running, 0, %{remote_control: %{status: :on}})
+      ])
+
+      assert_receive {:rendered, _}, 500
+
+      summary = App.snapshot(app).summaries |> Enum.find(&(&1.identifier == "RC-KEEP"))
+      assert summary.remote_control == %{status: :on}
     end
   end
 end
