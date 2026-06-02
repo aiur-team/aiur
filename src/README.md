@@ -20,7 +20,11 @@ any agent in an opencode-backed chat pane, and send messages directly into a run
 session. A LiveView dashboard at `/` covers the same surface for browser-based operators.
 
 In the CLI agent list, `Enter` opens the selected agent opencode pane and `Space`
-pauses or resumes execution for the selected agent. Navigate above the first agent row
+pauses or resumes execution for the selected agent. Press `r` to open or close Remote
+Control for the selected agent; a 📱 appears next to its identifier while Remote Control
+is on, and you continue the session from the Claude app. Remote Control requires a Claude
+subscription with remote-control access, works only with local Claude agents, and is
+unavailable for Codex or remote-worker agents. Navigate above the first agent row
 to focus the active-agent limit, then use `Left` / `Right` to decrease or increase the
 session-only maximum. The config file remains unchanged; restarting Aiur reloads the
 configured limit.
