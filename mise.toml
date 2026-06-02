@@ -5,5 +5,5 @@ opencode = "latest"
 ripgrep = "latest"
 
 [tasks.setup]
-description = "Symlink the aiurdev dev wrapper onto your PATH (~/.local/bin/aiurdev)"
+description = "Bootstrap the dev environment: install the toolchain and symlink aiurdev onto your PATH"
 run = "$MISE_PROJECT_ROOT/scripts/setup"

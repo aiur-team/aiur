@@ -18,8 +18,9 @@ operational practices that aren't in the main README.
 - `scripts/aiurdev` — thin wrapper around `bin/aiur`, the local dev build of
   the CLI (the npm-installed product command is `aiur`). Auto-detects OS
   (systemd on Linux, `nohup`+PID on macOS) and rebuilds the escript when
-  sources are newer than the binary. Run `mise run setup` (or `npm run setup`)
-  to symlink it onto your `PATH`. See the README for the command surface.
+  sources are newer than the binary. Run `npm run setup` (or `mise run setup`)
+  to install the toolchain and symlink it onto your `PATH`. See the README for
+  the command surface.
 
 ## Running
 

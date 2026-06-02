@@ -30,9 +30,8 @@ configured limit.
 ```bash
 git clone https://github.com/its-everdred/aiur
 cd aiur
-mise install
-mise run setup                   # symlinks the aiurdev dev wrapper onto your PATH
-#   (or, if you prefer npm:  npm run setup)
+npm run setup                    # installs the toolchain (mise + erlang/elixir) and symlinks aiurdev
+#   (or, if you already have mise:  mise run setup)
 cd src && aiurdev init           # scaffolds .aiurconfig in the current repo
 # Or copy a starter pair (the config's prompt_file: points at the sibling template):
 #   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
@@ -45,8 +44,10 @@ aiurdev ./.aiurconfig
 the npm-installed product command. They share the same command surface but use
 isolated runtime namespaces, so both can run side by side.
 
-[mise](https://mise.jdx.dev/) is the recommended runtime manager — `mise.toml` pins
-versions for you. On first run, the `aiurdev` wrapper fetches Hex dependencies,
+`npm run setup` (or `mise run setup`, or `./scripts/setup` directly) bootstraps the
+contributor environment: it installs [mise](https://mise.jdx.dev/) if missing, runs
+`mise install` for the pinned toolchain (`mise.toml`), and symlinks `aiurdev` onto
+your `PATH`. On first run, the `aiurdev` wrapper then fetches Hex dependencies,
 compiles the Elixir app, and builds `bin/aiur`; later runs only rebuild when
 sources change.
 

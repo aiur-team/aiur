@@ -1,14 +1,46 @@
 #!/usr/bin/env sh
-# Symlink the aiurdev dev wrapper onto your PATH (~/.local/bin/aiurdev).
+# Bootstrap the aiur contributor dev environment:
+#   1. install mise if it isn't already on PATH
+#   2. install the pinned toolchain (erlang, elixir, opencode, ripgrep) via mise
+#   3. symlink the aiurdev dev wrapper onto PATH (~/.local/bin/aiurdev)
 # Shared by `mise run setup` and `npm run setup` so the two stay in sync.
+# Safe to re-run: every step is idempotent.
 set -e
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+# 1. mise --------------------------------------------------------------------
+mise_bin=$(command -v mise 2>/dev/null || true)
+if [ -z "$mise_bin" ] && [ -x "$HOME/.local/bin/mise" ]; then
+  mise_bin="$HOME/.local/bin/mise"
+fi
+if [ -z "$mise_bin" ]; then
+  echo "mise not found — installing via https://mise.run ..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://mise.run | sh
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://mise.run | sh
+  else
+    echo "❌ need curl or wget to install mise — install it manually: https://mise.jdx.dev" >&2
+    exit 1
+  fi
+  mise_bin="$HOME/.local/bin/mise"
+fi
+[ -x "$mise_bin" ] || { echo "❌ mise install failed; not found at $mise_bin" >&2; exit 1; }
+echo "using mise at $mise_bin"
+
+# 2. toolchain ---------------------------------------------------------------
+echo "installing the pinned toolchain (first run can take several minutes) ..."
+(cd "$repo_root" && MISE_YES=1 "$mise_bin" trust >/dev/null 2>&1 || true)
+(cd "$repo_root" && MISE_YES=1 "$mise_bin" install)
+
+# 3. symlink aiurdev ---------------------------------------------------------
 mkdir -p "$HOME/.local/bin"
 ln -sf "$repo_root/scripts/aiurdev" "$HOME/.local/bin/aiurdev"
 echo "linked $HOME/.local/bin/aiurdev -> $repo_root/scripts/aiurdev"
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
-  *) echo "note: $HOME/.local/bin is not on your PATH; add it so 'aiurdev' resolves globally" >&2 ;;
+  *) echo "note: $HOME/.local/bin is not on your PATH; add it so 'aiurdev' (and mise) resolve globally" >&2 ;;
 esac
+
+echo "done — run 'aiurdev init' in a repo to scaffold .aiurconfig, then 'aiurdev'"
