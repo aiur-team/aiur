@@ -425,7 +425,10 @@ defmodule Aiur.Claude.RemoteControl do
     name = Keyword.get(opts, :name, "aiur agent")
     permission_mode = Keyword.get(opts, :permission_mode, @default_permission_mode)
 
-    "claude remote-control --spawn session" <>
+    # `--verbose` is required: without it the server never prints the
+    # `Continue coding … https://claude.ai/code/session_…` line to stdout,
+    # so the URL parser can't fire and the entry hangs at `:launching`.
+    "claude remote-control --spawn session --verbose" <>
       " --name #{shell_escape(name)}" <>
       " --permission-mode #{shell_escape(permission_mode)}" <>
       " --debug-file #{shell_escape(debug_file)}"
