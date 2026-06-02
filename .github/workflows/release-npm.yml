@@ -30,14 +30,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # Single installer for Erlang/Elixir across all four images, matching the
-      # versions the rest of CI uses (src/mise.toml). setup-beam does not
+      # versions the rest of CI uses (mise.toml). setup-beam does not
       # provide prebuilt OTP on macOS, so mise is the cross-platform choice.
       - name: Set up mise tools
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           install: true
           cache: true
-          working_directory: src
 
       - name: Cache deps
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
