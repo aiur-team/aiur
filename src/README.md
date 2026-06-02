@@ -31,7 +31,7 @@ configured limit.
 git clone https://github.com/its-everdred/aiur
 cd aiur
 mise install
-cd elixir && ../scripts/aiur init   # scaffolds .aiurconfig in the current repo
+cd src && ../scripts/aiur init   # scaffolds .aiurconfig in the current repo
 # Or copy a starter pair (the config's prompt_file: points at the sibling template):
 #   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
 #   cp examples/workflows/linear-codex.prompt.md linear-codex.prompt.md

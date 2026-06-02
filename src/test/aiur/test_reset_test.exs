@@ -75,7 +75,7 @@ defmodule Aiur.TestResetTest do
       # Synthesize a fully-baked repo: git-init, commit sandbox baselines,
       # write tickets file, then run dry-run.
       tmp = Path.join(System.tmp_dir!(), "aiur_dry_#{System.unique_integer([:positive])}")
-      File.mkdir_p!(Path.join(tmp, "elixir/lib/aiur/sandbox"))
+      File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
       {_, 0} = System.cmd("git", ["config", "user.email", "t@example.com"], cd: tmp)
@@ -87,7 +87,7 @@ defmodule Aiur.TestResetTest do
             "event_flow_unrelated_2.ex",
             "event_flow_unrelated_3.ex"
           ] do
-        File.write!(Path.join([tmp, "elixir/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
+        File.write!(Path.join([tmp, "src/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
       end
 
       File.write!(
@@ -112,7 +112,7 @@ defmodule Aiur.TestResetTest do
 
     test "golden dry-run returns :ok and reads golden_ticket, no side effects" do
       tmp = Path.join(System.tmp_dir!(), "aiur_golden_#{System.unique_integer([:positive])}")
-      File.mkdir_p!(Path.join(tmp, "elixir/lib/aiur/sandbox"))
+      File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
       {_, 0} = System.cmd("git", ["config", "user.email", "t@example.com"], cd: tmp)
@@ -124,7 +124,7 @@ defmodule Aiur.TestResetTest do
             "event_flow_unrelated_2.ex",
             "event_flow_unrelated_3.ex"
           ] do
-        File.write!(Path.join([tmp, "elixir/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
+        File.write!(Path.join([tmp, "src/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
       end
 
       File.write!(Path.join(tmp, ".aiur-test-tickets.json"), ~s({"tickets": [101]}))

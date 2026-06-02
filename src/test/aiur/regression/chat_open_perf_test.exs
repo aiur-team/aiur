@@ -3,7 +3,7 @@ defmodule Aiur.Regression.ChatOpenPerfTest do
   Performance regression for "opening a chat pane takes too long"
   (reported 2026-05-21: ~17 s pane spawn + 7 s convo render).
 
-  Reads `elixir/log/aiur.log` and asserts the most recent
+  Reads `src/log/aiur.log` and asserts the most recent
   `aiur_pane_manager phase=open_visible` event reports an `open_ms`
   below a generous threshold. Catches regressions that re-introduce
   slow rebuild paths or extra serve/attach respawns.

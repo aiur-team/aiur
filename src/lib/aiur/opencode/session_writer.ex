@@ -26,7 +26,7 @@ defmodule Aiur.Opencode.SessionWriter do
   `step-finish`. Events with `turn_id: nil` keep the standalone-message
   shape (step-start + body + step-finish in one transaction).
 
-  See `elixir/docs/notes/opencode-row-shapes-1.15.6.md` for row JSON
+  See `src/docs/notes/opencode-row-shapes-1.15.6.md` for row JSON
   shapes (kept in `Aiur.Opencode.Protocol`).
   """
 

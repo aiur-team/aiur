@@ -199,7 +199,7 @@ if [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
   [ "$testg_mode" -eq 1 ] && test_args+=("--golden")
 
-  if ! (cd "$default_repo_root/elixir" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
+  if ! (cd "$default_repo_root/src" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
     exit 1
   fi
@@ -510,7 +510,7 @@ trim() {
 
 profile_elixir_dir() {
   local profile="$1"
-  printf '%s/elixir' "$(profile_value aiur_root "$profile")"
+  printf '%s/src' "$(profile_value aiur_root "$profile")"
 }
 
 profile_workflow_arg() {
@@ -907,7 +907,7 @@ elixir_list_literal() {
 
 run_control_rpc() {
   local expression="$1"
-  local elixir_dir="$repo_root/elixir"
+  local elixir_dir="$repo_root/src"
   local aiur_bin
   local output
   local status
@@ -1084,7 +1084,7 @@ stop_profile() {
   # match — target the release's BEAM by the erts/bin path that only
   # the release would launch from. Scope to THIS install's elixir_dir
   # so an agent-driven `aiur --test` running from a workspace clone
-  # (e.g. /tmp/issue100-aiur/elixir/...) never reaches the operator's
+  # (e.g. /tmp/issue100-aiur/src/...) never reaches the operator's
   # BEAM under the source checkout. `pkill -f` matches against the
   # whole command line, which would also match THIS very bash process
   # if we use the obvious `-name aiur-orangekid` string here. Avoid
@@ -1930,7 +1930,7 @@ if [ "$logs_mode" -eq 1 ] || [ -n "$log_issue_id" ]; then
     log_elixir_dir="$(profile_elixir_dir "$log_profile")"
     log_logs_root="$(profile_value logs_root "$log_profile")"
   else
-    log_elixir_dir="$repo_root/elixir"
+    log_elixir_dir="$repo_root/src"
     log_logs_root=""
   fi
 
@@ -2006,16 +2006,16 @@ case "${1:-}" in
     # _build/dev/ — then expect ~2min.
     if [ "${2:-}" = "--deps" ]; then
       echo "🔨 clean force-rebuild incl. deps (wiping _build/dev)" >&2
-      rm -rf "$repo_root/elixir/_build/dev"
+      rm -rf "$repo_root/src/_build/dev"
     else
       echo "🔨 force-rebuild aiur app + release (keeping dep artifacts)" >&2
-      rm -rf "$repo_root/elixir/_build/dev/rel"
+      rm -rf "$repo_root/src/_build/dev/rel"
       require_mise
-      (cd "$repo_root/elixir" && "$mise_bin" exec -- mix compile --force) >&2
+      (cd "$repo_root/src" && "$mise_bin" exec -- mix compile --force) >&2
     fi
 
-    ensure_elixir_deps "$repo_root/elixir"
-    build_aiur "$repo_root/elixir"
+    ensure_elixir_deps "$repo_root/src"
+    build_aiur "$repo_root/src"
     exit 0
     ;;
   --bg)

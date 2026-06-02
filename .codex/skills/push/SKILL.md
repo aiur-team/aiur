@@ -101,7 +101,7 @@ fi
 
 tmp_pr_body=$(mktemp)
 gh pr view --json body -q .body > "$tmp_pr_body"
-(cd elixir && mix pr_body.check --file "$tmp_pr_body")
+(cd src && mix pr_body.check --file "$tmp_pr_body")
 rm -f "$tmp_pr_body"
 
 # Show PR URL for the reply

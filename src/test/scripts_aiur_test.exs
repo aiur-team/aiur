@@ -45,8 +45,8 @@ defmodule ScriptsAiurTest do
     """)
 
     assert {output, 0} = run_aiur(ctx, ["actions"])
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/actions.aiurconfig"
-    assert output =~ "PWD=#{Path.join(ctx.actions_repo, "elixir")}"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}/actions.aiurconfig"
+    assert output =~ "PWD=#{Path.join(ctx.actions_repo, "src")}"
     assert output =~ "MISE:exec -- ./bin/aiur --logs-root #{ctx.logs_root}/actions --port 4101"
     assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./actions.aiurconfig"
   end
@@ -55,7 +55,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["aiur"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{Path.join(ctx.repo_root, "src")}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
@@ -122,7 +122,7 @@ defmodule ScriptsAiurTest do
 
     assert {output, 0} = run_aiur(ctx, [])
     refute output =~ "SYSTEMCTL:--user restart"
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{Path.join(ctx.repo_root, "src")}"
 
     assert output =~
              "--i-understand-that-this-will-be-running-without-the-usual-guardrails ./../.aiurconfig"
@@ -199,7 +199,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["run"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{Path.join(ctx.repo_root, "src")}"
     assert output =~ "MISE:exec -- ./bin/aiur"
 
     assert output =~
@@ -210,7 +210,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["custom/operator.aiurconfig"])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{Path.join(ctx.repo_root, "src")}"
     assert output =~ "./custom/operator.aiurconfig"
   end
 
@@ -219,7 +219,7 @@ defmodule ScriptsAiurTest do
     workflow = Path.join(ctx.actions_repo, "operator.aiurconfig")
 
     assert {output, 0} = run_aiur(ctx, [workflow])
-    assert output =~ "PWD=#{Path.join(ctx.repo_root, "elixir")}"
+    assert output =~ "PWD=#{Path.join(ctx.repo_root, "src")}"
     assert output =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails #{workflow}"
   end
 
@@ -235,9 +235,9 @@ defmodule ScriptsAiurTest do
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
-    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "elixir")}/../.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "src")}/../.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*../.aiurconfig"
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/actions.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}/actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
@@ -255,7 +255,7 @@ defmodule ScriptsAiurTest do
     command_log = command_log(ctx)
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
-    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "elixir")}/actions.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}/actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*actions.aiurconfig"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
     assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
@@ -433,7 +433,7 @@ defmodule ScriptsAiurTest do
     ctx = test_context()
     write_mix_lock!(ctx, ["jason"])
 
-    # The repo_root/elixir dir has no deps, _build, or bin/aiur, so
+    # The repo_root/src dir has no deps, _build, or bin/aiur, so
     # ensure_built should fetch deps, compile, then build the escript.
     assert {output, 0} = run_aiur(ctx, ["run", "aiur"], skip_build: false)
 
@@ -448,7 +448,7 @@ defmodule ScriptsAiurTest do
 
   test "fetches dependencies when a locked dep directory is missing" do
     ctx = test_context()
-    elixir_dir = Path.join(ctx.repo_root, "elixir")
+    elixir_dir = Path.join(ctx.repo_root, "src")
 
     write_mix_lock!(ctx, ["jason", "ecto"])
     File.mkdir_p!(Path.join(elixir_dir, "_build"))
@@ -480,7 +480,7 @@ defmodule ScriptsAiurTest do
 
   test "skips dependency bootstrap when build and locked deps exist" do
     ctx = test_context()
-    elixir_dir = Path.join(ctx.repo_root, "elixir")
+    elixir_dir = Path.join(ctx.repo_root, "src")
 
     write_mix_lock!(ctx, ["jason", "ecto"])
     File.mkdir_p!(Path.join(elixir_dir, "_build"))
@@ -504,7 +504,7 @@ defmodule ScriptsAiurTest do
     # ~/.local/bin/aiur → ../github.com/its-everdred/aiur/scripts/aiur),
     # BASH_SOURCE points to the symlink. Without symlink resolution,
     # script_dir = ~/.local/bin and repo_root falls back to ~/.local,
-    # so `cd $repo_root/elixir` fails with "No such file or directory".
+    # so `cd $repo_root/src` fails with "No such file or directory".
     ctx = test_context()
     real_repo = Path.expand("../..", @script)
 
@@ -541,7 +541,7 @@ defmodule ScriptsAiurTest do
       )
 
     assert status == 0
-    assert output =~ "PWD=#{Path.join(real_repo, "elixir")}"
+    assert output =~ "PWD=#{Path.join(real_repo, "src")}"
     refute output =~ "No such file or directory"
   end
 
@@ -646,8 +646,8 @@ defmodule ScriptsAiurTest do
     File.rm_rf!(root)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(root) end)
 
-    File.mkdir_p!(Path.join(repo_root, "elixir"))
-    File.mkdir_p!(Path.join(actions_repo, "elixir"))
+    File.mkdir_p!(Path.join(repo_root, "src"))
+    File.mkdir_p!(Path.join(actions_repo, "src"))
     File.mkdir_p!(Path.join(home_dir, ".config/aiur"))
     File.mkdir_p!(bin_dir)
     File.mkdir_p!(logs_root)
@@ -790,12 +790,12 @@ defmodule ScriptsAiurTest do
       deps
       |> Enum.map_join("\n", fn dep -> ~s(  "#{dep}": {:hex, :#{dep}, "1.0.0"},) end)
 
-    File.write!(Path.join([ctx.repo_root, "elixir", "mix.lock"]), "%{\n#{entries}\n}\n")
+    File.write!(Path.join([ctx.repo_root, "src", "mix.lock"]), "%{\n#{entries}\n}\n")
   end
 
   defp write_fake_release_rpc!(ctx, body, opts \\ []) do
     exit_status = Keyword.get(opts, :exit_status, 0)
-    release_bin = Path.join([ctx.repo_root, "elixir", "_build", "dev", "rel", "aiur", "bin"])
+    release_bin = Path.join([ctx.repo_root, "src", "_build", "dev", "rel", "aiur", "bin"])
     File.mkdir_p!(release_bin)
 
     write_executable!(Path.join(release_bin, "aiur"), """

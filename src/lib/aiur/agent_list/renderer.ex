@@ -730,7 +730,7 @@ defmodule Aiur.AgentList.Renderer do
   # the empty bar alone.
   #
   # At percent: 100 (the agent's stop-work signal — see
-  # `elixir/prompts/shared-agent-instructions.md`'s "Progress emits"
+  # `src/prompts/shared-agent-instructions.md`'s "Progress emits"
   # section), the bar is tinted green so the operator sees at a
   # glance that the agent is done for this iteration. The cell is
   # otherwise wrapped in `@ansi_dim` at the call site; we reset and

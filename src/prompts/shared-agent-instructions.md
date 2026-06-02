@@ -129,7 +129,7 @@ discussion to decide what to do next, use CODEOWNERS as the authority signal:
 
 When you act on a comment, mention the classification briefly in the workpad or
 action log, for example: `Acting on review from @its-everdred (CODEOWNER for
-elixir/lib/aiur/opencode/)`.
+src/lib/aiur/opencode/)`.
 
 ### Dev loop
 

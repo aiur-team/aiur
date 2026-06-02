@@ -39,7 +39,7 @@ defmodule Aiur.LogFile do
       setup_file_handler(log_file)
     else
       # No --debug → no aiur.log at all. Per-agent stdout files
-      # (elixir/log/aiur.<id>.log via Aiur.IssueLog) are unaffected and
+      # (src/log/aiur.<id>.log via Aiur.IssueLog) are unaffected and
       # always written. Quiet default per the spec.
       :ok = remove_existing_handler()
       :ok = remove_default_console_handler()

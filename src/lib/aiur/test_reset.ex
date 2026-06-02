@@ -24,7 +24,7 @@ defmodule Aiur.TestReset do
     - Deletes the `.subscriptions.json` file for the ticket
 
   **Always restored**: sandbox baseline (`git checkout HEAD --
-  elixir/lib/aiur/sandbox/`) — refuses if HEAD doesn't contain the
+  src/lib/aiur/sandbox/`) — refuses if HEAD doesn't contain the
   baseline files.
 
   **Never deleted**: `<logs-root>/<repo>.event_id` (the
@@ -41,10 +41,10 @@ defmodule Aiur.TestReset do
   @tickets_file ".aiur-test-tickets.json"
 
   @baseline_files [
-    "elixir/lib/aiur/sandbox/event_flow_demo.ex",
-    "elixir/lib/aiur/sandbox/event_flow_unrelated_1.ex",
-    "elixir/lib/aiur/sandbox/event_flow_unrelated_2.ex",
-    "elixir/lib/aiur/sandbox/event_flow_unrelated_3.ex"
+    "src/lib/aiur/sandbox/event_flow_demo.ex",
+    "src/lib/aiur/sandbox/event_flow_unrelated_1.ex",
+    "src/lib/aiur/sandbox/event_flow_unrelated_2.ex",
+    "src/lib/aiur/sandbox/event_flow_unrelated_3.ex"
   ]
 
   @type opts :: %{
@@ -63,7 +63,7 @@ defmodule Aiur.TestReset do
   # multi-line function so a real `@@` diff renders.
   @golden_ticket_title "[sandbox] Implement greeting/1 in Aiur.Sandbox.EventFlowDemo"
   @golden_ticket_body """
-  Implement a `greeting/1` function inside `Aiur.Sandbox.EventFlowDemo` at `elixir/lib/aiur/sandbox/event_flow_demo.ex`. The function takes a name and returns a greeting, trimming the input and falling back to a friendly default when blank:
+  Implement a `greeting/1` function inside `Aiur.Sandbox.EventFlowDemo` at `src/lib/aiur/sandbox/event_flow_demo.ex`. The function takes a name and returns a greeting, trimming the input and falling back to a friendly default when blank:
 
   ```elixir
   def greeting(name) when is_binary(name) do

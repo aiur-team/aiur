@@ -4,7 +4,7 @@ defmodule Aiur.Opencode.Db do
   at `~/.local/share/opencode/opencode.db`.
 
   opencode is the upstream owner of the schema — see
-  `elixir/docs/notes/opencode-row-shapes-1.15.6.md` for the row shapes Aiur
+  `src/docs/notes/opencode-row-shapes-1.15.6.md` for the row shapes Aiur
   injects. This module hides `:exqlite` configuration, sets a generous
   `busy_timeout`, retries once on `SQLITE_BUSY`, and exposes a small
   insert + fetch surface plus `^msg` / `^prt` ULID-style ID generators.

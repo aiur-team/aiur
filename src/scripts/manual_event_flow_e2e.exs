@@ -8,10 +8,10 @@
 #
 # Run via:
 #
-#   cp .aiurconfig elixir/.aiurconfig  # if missing
+#   cp .aiurconfig src/.aiurconfig  # if missing
 #   mix run scripts/manual_event_flow_e2e.exs
 #
-# (cwd should be `elixir/` for the config file path to resolve.)
+# (cwd should be `src/` for the config file path to resolve.)
 #
 # Tickets exercised: 99, 100, 101 (pre-created via `gh issue create`
 # during Ticket A sign-off; see .aiur-test-tickets.json for the pinned

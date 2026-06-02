@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: elixir
+        working-directory: src
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -20,12 +20,12 @@ jobs:
         with:
           install: true
           cache: true
-          working_directory: elixir
+          working_directory: src
       - name: Cache deps
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: elixir/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          path: src/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-mix-
       - name: Fetch deps
         run: make deps
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: elixir
+        working-directory: src
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -45,12 +45,12 @@ jobs:
         with:
           install: true
           cache: true
-          working_directory: elixir
+          working_directory: src
       - name: Cache deps
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: elixir/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          path: src/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-mix-
       - name: Fetch deps
         run: make deps
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: elixir
+        working-directory: src
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -72,12 +72,12 @@ jobs:
         with:
           install: true
           cache: true
-          working_directory: elixir
+          working_directory: src
       - name: Cache deps
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: elixir/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          path: src/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-mix-
       - name: Fetch deps
         run: make deps
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: elixir
+        working-directory: src
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -97,18 +97,18 @@ jobs:
         with:
           install: true
           cache: true
-          working_directory: elixir
+          working_directory: src
       - name: Cache deps
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: elixir/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          path: src/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-mix-
       - name: Cache PLT
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: elixir/_build/dev/*.plt*
-          key: ${{ runner.os }}-plt-${{ hashFiles('elixir/mix.lock') }}
+          path: src/_build/dev/*.plt*
+          key: ${{ runner.os }}-plt-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-plt-
       - name: Fetch deps
         run: make deps

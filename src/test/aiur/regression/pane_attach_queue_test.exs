@@ -1,7 +1,7 @@
 defmodule Aiur.Regression.PaneAttachQueueTest do
   @moduledoc """
   Regression coverage for the three bugs + one model shift from
-  `elixir/docs/brainstorms/2026-05-21-pane-attach-queue-and-on-demand-models-requirements.md`.
+  `src/docs/brainstorms/2026-05-21-pane-attach-queue-and-on-demand-models-requirements.md`.
 
   Unit-level AEs are covered here. AE2 (boot race repro), AE5 (manual
   attach with two identifiers in models map), AE6 (attach keybind UX),

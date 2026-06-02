@@ -33,7 +33,7 @@ the work at a higher level._
 - **Optional alert sounds:** users can edit the checked-in `alerts.yaml` file, where each alert
   defines its `name`, `message`, and optional `sound` clips in one place.
 
-See [elixir/README.md](elixir/README.md#configuration) for the supported `.aiurconfig` options and
+See [src/README.md](src/README.md#configuration) for the supported `.aiurconfig` options and
 adapter examples.
 
 ## Running Aiur
@@ -41,7 +41,7 @@ adapter examples.
 Aiur works best in codebases with clear setup instructions, automated validation, and workflow
 conventions that autonomous implementation runs can follow.
 
-See [elixir/README.md](elixir/README.md) for setup, configuration, and the `aiur` command
+See [src/README.md](src/README.md) for setup, configuration, and the `aiur` command
 reference (foreground, background, and `stop` modes on Linux and macOS).
 
 ---

@@ -1,7 +1,7 @@
 # Operating Notes
 
 Context for engineers and coding agents working in this repository. Setup
-lives in [`elixir/README.md`](elixir/README.md); this file captures the
+lives in [`src/README.md`](src/README.md); this file captures the
 operational practices that aren't in the main README.
 
 ## Layout
@@ -9,7 +9,7 @@ operational practices that aren't in the main README.
 - `.aiurconfig` — the single Aiur config file (pure YAML). An optional
   `prompt_file:` key points at a sibling Liquid prompt template. Run
   `aiur init` to scaffold one.
-- `elixir/examples/workflows/` — portable example configs (Linear+Codex,
+- `src/examples/workflows/` — portable example configs (Linear+Codex,
   GitHub+Codex, GitHub+Claude), each an `.aiurconfig` plus a `.prompt.md`
   template. Copy a pair when starting fresh.
 - `.aiurconfig` + `AIUR.md` (repo root) — the machine-local operational

@@ -6,7 +6,7 @@
 # scripts/aiur's __aiur_cleanup or anything that affects BEAM lifecycle.
 #
 # Usage:
-#   bash elixir/test/regression/aiur-shutdown.sh
+#   bash src/test/regression/aiur-shutdown.sh
 #
 # Exits 0 on success, 1 on failure. Cleans up tmux + processes on exit.
 
