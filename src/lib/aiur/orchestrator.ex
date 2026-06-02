@@ -3909,18 +3909,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp cleanup_stray_remote_control_servers do
-    case System.find_executable("pkill") do
-      nil ->
-        :ok
-
-      pkill ->
-        # The Orchestrator has no terminate/2 and does not trap exits, so a
-        # crash/SIGKILL leaves orphan `claude remote-control` servers holding
-        # api.anthropic.com sessions. Reap any tagged by the aiur-rc debug
-        # marker (operator-launched RC sessions don't carry it).
-        System.cmd(pkill, ["-f", "remote-control.*aiur-rc"], stderr_to_stdout: true)
-        :ok
-    end
+    RemoteControl.reap_orphaned_servers()
   rescue
     _ -> :ok
   end

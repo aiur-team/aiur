@@ -481,10 +481,87 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   defp default_debug_file do
-    dir = Path.join(System.tmp_dir!(), "aiur-rc")
-    File.mkdir_p(dir)
-    File.chmod(dir, 0o700)
-    Path.join(dir, "rc-#{System.unique_integer([:positive])}.debug")
+    dir = debug_dir()
+
+    with :ok <- File.mkdir_p(dir),
+         :ok <- File.chmod(dir, 0o700) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.error("Remote Control debug dir setup failed: dir=#{dir} reason=#{inspect(reason)}")
+    end
+
+    # Embed the owning BEAM OS pid so a later instance can tell live RC
+    # servers (owner still running) from orphans (owner dead) — see
+    # reap_orphaned_servers/0.
+    Path.join(dir, "rc-#{os_pid()}-#{System.unique_integer([:positive])}.debug")
+  end
+
+  defp debug_dir, do: Path.join(System.tmp_dir!(), "aiur-rc")
+
+  defp os_pid, do: List.to_string(:os.getpid())
+
+  @doc """
+  Reap `claude remote-control` servers orphaned by a crashed aiur instance.
+
+  The Orchestrator has no `terminate/2` and does not trap exits, so a
+  crash/SIGKILL leaves orphan RC servers holding api.anthropic.com
+  sessions. Each server's `--debug-file` path embeds the owning BEAM OS
+  pid (`rc-<pid>-<n>.debug`); this reaps only servers whose owner pid is
+  no longer alive, so live servers from a side-by-side aiur instance are
+  never touched. Stray debug files for dead owners are swept too.
+  """
+  @spec reap_orphaned_servers() :: :ok
+  def reap_orphaned_servers do
+    dir = debug_dir()
+
+    case File.ls(dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(&String.match?(&1, ~r/^rc-\d+-\d+\.debug$/))
+        |> Enum.each(fn entry -> maybe_reap_orphan(Path.join(dir, entry), entry) end)
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  end
+
+  defp maybe_reap_orphan(path, entry) do
+    case Regex.run(~r/^rc-(\d+)-\d+\.debug$/, entry) do
+      [_, owner_pid] ->
+        unless os_process_alive?(owner_pid) do
+          kill_orphan_server(path)
+          File.rm(path)
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp os_process_alive?(pid) when is_binary(pid) do
+    case System.find_executable("kill") do
+      nil ->
+        true
+
+      kill ->
+        match?({_, 0}, System.cmd(kill, ["-0", pid], stderr_to_stdout: true))
+    end
+  rescue
+    _ -> true
+  end
+
+  defp kill_orphan_server(debug_path) do
+    case System.find_executable("pkill") do
+      nil -> :ok
+      pkill -> System.cmd(pkill, ["-f", "remote-control.*#{Regex.escape(debug_path)}"], stderr_to_stdout: true)
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp default_claude_json, do: Path.join(System.user_home!(), ".claude.json")

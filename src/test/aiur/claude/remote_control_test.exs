@@ -178,4 +178,32 @@ defmodule Aiur.Claude.RemoteControlTest do
       assert :ok = RemoteControl.stop(server)
     end
   end
+
+  describe "reap_orphaned_servers/0" do
+    test "sweeps debug files of dead owners but keeps live owners' files" do
+      dir = Path.join(System.tmp_dir!(), "aiur-rc")
+      File.mkdir_p!(dir)
+
+      # The current BEAM os pid is alive and same-user — its file survives.
+      live_pid = List.to_string(:os.getpid())
+      live = Path.join(dir, "rc-#{live_pid}-#{System.unique_integer([:positive])}.debug")
+      File.write!(live, "")
+
+      # Spawn and reap a child so its pid is reliably dead.
+      {out, 0} = System.cmd("bash", ["-lc", "sleep 60 & p=$!; kill -9 $p; wait $p 2>/dev/null; echo $p"])
+      dead_pid = String.trim(out)
+      dead = Path.join(dir, "rc-#{dead_pid}-#{System.unique_integer([:positive])}.debug")
+      File.write!(dead, "")
+
+      on_exit(fn ->
+        File.rm(live)
+        File.rm(dead)
+      end)
+
+      assert :ok = RemoteControl.reap_orphaned_servers()
+
+      assert File.exists?(live)
+      refute File.exists?(dead)
+    end
+  end
 end
