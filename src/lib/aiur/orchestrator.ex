@@ -3677,7 +3677,6 @@ defmodule Aiur.Orchestrator do
   end
 
   defp launch_remote_control(state, running_entry) do
-    identifier = Map.get(running_entry, :identifier)
     workspace = Map.get(running_entry, :workspace_path)
 
     # Trust the workspace (serialized here) before tearing down the headless
@@ -3689,7 +3688,7 @@ defmodule Aiur.Orchestrator do
 
       {:error, reason} ->
         Logger.error(
-          "Remote Control trust failed: identifier=#{identifier} workspace=#{workspace} reason=#{inspect(reason)}"
+          "Remote Control trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}"
         )
 
         {{:error, {:rc_trust_failed, reason}}, state}
@@ -3732,14 +3731,14 @@ defmodule Aiur.Orchestrator do
             retry_attempts: Map.delete(state.retry_attempts, issue_id)
         }
 
-        Logger.info("Remote Control launching: identifier=#{identifier} workspace=#{workspace}")
+        Logger.info("Remote Control launching: #{rc_log_context(running_entry)} workspace=#{workspace}")
         {{:ok, :on}, refresh_tracked_set(state)}
 
       {:error, reason} ->
         # Launch failed — don't strand the issue with no driver; re-dispatch.
         # Delete the handoff file first so the re-dispatched headless agent
         # doesn't inherit the RC priming prompt.
-        Logger.error("Remote Control launch failed: identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.error("Remote Control launch failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
         delete_remote_control_handoff(workspace)
         issue = Map.get(running_entry, :issue)
 
@@ -3770,8 +3769,13 @@ defmodule Aiur.Orchestrator do
     state = %{state | running: Map.put(state.running, issue_id, cleared)}
     state = refresh_tracked_set(state)
 
-    Logger.info("Remote Control off; re-dispatching: identifier=#{Map.get(running_entry, :identifier)}")
+    Logger.info("Remote Control off; re-dispatching: #{rc_log_context(running_entry)}")
     {{:ok, :off}, do_dispatch_issue(state, issue, nil, nil)}
+  end
+
+  defp rc_log_context(entry) do
+    issue_id = get_in(entry, [:issue, Access.key(:id)])
+    "issue_id=#{issue_id} issue_identifier=#{Map.get(entry, :identifier)}"
   end
 
   defp start_remote_control_server(workspace, identifier) do
@@ -3877,7 +3881,7 @@ defmodule Aiur.Orchestrator do
         rc = entry |> Map.get(:remote_control) |> Map.merge(%{status: :on, session_url: url})
         entry = Map.put(entry, :remote_control, rc)
         state = %{state | running: Map.put(state.running, issue_id, entry)}
-        Logger.info("Remote Control ready: issue_id=#{issue_id}")
+        Logger.info("Remote Control ready: #{rc_log_context(entry)}")
         notify_dashboard(state)
         state
 

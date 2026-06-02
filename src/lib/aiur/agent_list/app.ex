@@ -1187,10 +1187,6 @@ defmodule Aiur.AgentList.App do
     rc_hint(state, "Remote Control unavailable — agent has no workspace yet")
   end
 
-  defp handle_remote_control_result(state, {:error, :remote_control_active}) do
-    rc_hint(state, "Agent is in Remote Control — press `r` to return")
-  end
-
   defp handle_remote_control_result(state, {:error, _reason}) do
     rc_hint(state, "Remote Control unavailable")
   end
