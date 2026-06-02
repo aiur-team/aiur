@@ -10,8 +10,8 @@ PRs, and lets you watch and chat with each agent in real time.
 
 1. **Polls a tracker** (Linear, GitHub Issues, or in-memory) for candidate work.
 2. **Creates an isolated workspace** per selected item and clones your repo into it.
-3. **Launches a coding agent** (Codex or Claude) inside the workspace with your `WORKFLOW.md`
-   prompt and YAML config.
+3. **Launches a coding agent** (Codex or Claude) inside the workspace with your `.aiurconfig`
+   YAML config and prompt template.
 4. **Drives the run** through repeated turns until the item reaches a terminal state
    (`Done`, `Closed`, `Cancelled`, `Duplicate`), then cleans up the workspace.
 
@@ -22,7 +22,7 @@ session. A LiveView dashboard at `/` covers the same surface for browser-based o
 In the CLI agent list, `Enter` opens the selected agent opencode pane and `Space`
 pauses or resumes execution for the selected agent. Navigate above the first agent row
 to focus the active-agent limit, then use `Left` / `Right` to decrease or increase the
-session-only maximum. The workflow file remains unchanged; restarting Aiur reloads the
+session-only maximum. The config file remains unchanged; restarting Aiur reloads the
 configured limit.
 
 ## Quickstart
@@ -31,10 +31,13 @@ configured limit.
 git clone https://github.com/its-everdred/aiur
 cd aiur
 mise install
-cp elixir/examples/workflows/linear-codex.md elixir/WORKFLOW.md
-# Edit elixir/WORKFLOW.md for your tracker, repo, credentials, and workspace.
+cd elixir && ../scripts/aiur init   # scaffolds .aiurconfig in the current repo
+# Or copy a starter pair (the config's prompt_file: points at the sibling template):
+#   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
+#   cp examples/workflows/linear-codex.prompt.md linear-codex.prompt.md
+# Edit .aiurconfig for your tracker, repo, credentials, and workspace.
 export PATH="$PWD/scripts:$PATH"
-aiur ./WORKFLOW.md
+aiur ./.aiurconfig
 ```
 
 [mise](https://mise.jdx.dev/) is the recommended runtime manager — `mise.toml` pins
@@ -46,22 +49,23 @@ Install [opencode](https://opencode.ai) separately for CLI chat panes. Aiur star
 `opencode serve` lazily per pane and routes its OpenAI-compatible provider calls
 back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`.
 
-## Workflows
+## Config
 
-A `WORKFLOW.md` file has YAML front matter for adapters, credentials, and run policy,
-plus a Markdown body used as the prompt template. Supported adapters:
+An `.aiurconfig` file is pure YAML for adapters, credentials, and run policy. An
+optional `prompt_file:` key points at a sibling Markdown/Liquid template used as the
+agent prompt; when omitted, a built-in default prompt is used. Supported adapters:
 
 - **Trackers**: `linear`, `github`, `memory`
 - **Agents**: `codex`, `claude`
 
-Copy one of the starter workflows and edit it for your project:
+Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
-- [examples/workflows/linear-codex.md](examples/workflows/linear-codex.md)
-- [examples/workflows/github-codex.md](examples/workflows/github-codex.md)
-- [examples/workflows/github-claude.md](examples/workflows/github-claude.md)
+- [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)
+- [examples/workflows/github-codex.aiurconfig](examples/workflows/github-codex.aiurconfig)
+- [examples/workflows/github-claude.aiurconfig](examples/workflows/github-claude.aiurconfig)
 
-If `WORKFLOW.md` is missing or has invalid YAML at startup, Aiur won't boot. If a later
-reload fails, Aiur keeps running with the last known good workflow and logs the error
+If `.aiurconfig` is missing or has invalid YAML at startup, Aiur won't boot. If a later
+reload fails, Aiur keeps running with the last known good config and logs the error
 until the file is fixed.
 
 ## Operating with `aiur`
@@ -92,7 +96,7 @@ aiur list
 | `aiur pause --all` | Cooperatively pause the currently running/paused agent snapshot |
 | `aiur resume <id...>` | Resume one or more paused agents by issue ID |
 | `aiur resume --all` | Resume the currently paused agent snapshot |
-| `aiur <path-to-WORKFLOW.md>` | Ad-hoc workflow |
+| `aiur <path-to-.aiurconfig>` | Ad-hoc config |
 
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
@@ -163,8 +167,8 @@ down disposable resources and requires `LINEAR_API_KEY`.
 - `lib/` — application code
 - `test/` — ExUnit suite
 - `scripts/aiur` — operator wrapper
-- `examples/workflows/` — starter workflow files
-- `WORKFLOW.md` — local workflow contract for in-repo runs
+- `examples/workflows/` — starter config + prompt-template pairs
+- `.aiurconfig` — the config contract for in-repo runs
 
 ## License
 

@@ -60,7 +60,10 @@ export LINEAR_API_KEY="lin_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 To generate a key: Linear > Settings > Security & access > Personal API keys
 
-## WORKFLOW.md Prompt Template Errors
+## Prompt Template Errors
+
+The prompt template is the optional Markdown/Liquid file referenced by `prompt_file:`
+in `.aiurconfig`. These errors apply to that template file.
 
 ### Undefined Variable Error
 
@@ -122,20 +125,20 @@ No description provided.
 (Jason.EncodeError) invalid byte 0xEC in <<...>>
 ```
 
-**Cause**: The WORKFLOW.md file is saved in a non-UTF-8 encoding (e.g., EUC-KR, CP949),
-or the issue data contains invalid bytes.
+**Cause**: The prompt template file is saved in a non-UTF-8 encoding (e.g., EUC-KR,
+CP949), or the issue data contains invalid bytes.
 
 **Solution:**
 
-1. Verify that WORKFLOW.md is saved as UTF-8:
+1. Verify that the prompt template file is saved as UTF-8:
    ```bash
-   file -bi WORKFLOW.md
+   file -bi my-prompt.md
    # Expected: text/plain; charset=utf-8
    ```
 2. If it's not UTF-8, convert it:
    ```bash
-   iconv -f EUC-KR -t UTF-8 WORKFLOW.md > WORKFLOW.utf8.md
-   mv WORKFLOW.utf8.md WORKFLOW.md
+   iconv -f EUC-KR -t UTF-8 my-prompt.md > my-prompt.utf8.md
+   mv my-prompt.utf8.md my-prompt.md
    ```
 3. Explicitly set the encoding to UTF-8 when saving in your editor.
 
@@ -149,7 +152,7 @@ or the issue data contains invalid bytes.
 brew install aiur-claude
 ```
 
-WORKFLOW.md configuration:
+`.aiurconfig` configuration:
 
 ```yaml
 claude:
@@ -210,7 +213,7 @@ Check the log files when diagnosing issues:
 tail -f log/aiur.log
 
 # Custom log path
-aiur --logs-root /path/to/logs WORKFLOW.md
+aiur --logs-root /path/to/logs .aiurconfig
 ```
 
 ## FAQ
@@ -226,7 +229,7 @@ aiur --logs-root /path/to/logs WORKFLOW.md
 
 Check the error messages in the logs. Common causes:
 - Incorrect variable names in the prompt template (see "Undefined Variable Error" above)
-- WORKFLOW.md encoding issues (see "JSON Encoding Error" above)
+- Prompt template encoding issues (see "JSON Encoding Error" above)
 - `aiur-claude` or `codex` command not found in PATH
 
 ### Can't access the observability dashboard
@@ -234,7 +237,7 @@ Check the error messages in the logs. Common causes:
 The dashboard is enabled by specifying a port with the `--port` option:
 
 ```bash
-aiur --port 4000 WORKFLOW.md
+aiur --port 4000 .aiurconfig
 ```
 
 Then access it at `http://127.0.0.1:4000`.

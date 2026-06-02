@@ -684,7 +684,7 @@ defmodule Aiur.Codex.DynamicTool do
   defp tool_error_payload(:missing_linear_api_token) do
     %{
       "error" => %{
-        "message" => "Aiur is missing Linear auth. Set `linear.api_key` in `WORKFLOW.md` or export `LINEAR_API_KEY`."
+        "message" => "Aiur is missing Linear auth. Set `linear.api_key` in `.aiurconfig` or export `LINEAR_API_KEY`."
       }
     }
   end

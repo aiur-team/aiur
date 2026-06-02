@@ -719,37 +719,41 @@ defmodule Aiur.Orchestrator do
       %{state | initial_dispatch_cycle: false}
     else
       {:error, :missing_linear_api_token} ->
-        Logger.error("Linear API token missing in WORKFLOW.md")
+        Logger.error("Linear API token missing in .aiurconfig")
         state
 
       {:error, :missing_linear_project_slug} ->
-        Logger.error("Linear project slug missing in WORKFLOW.md")
+        Logger.error("Linear project slug missing in .aiurconfig")
         state
 
       {:error, :missing_tracker_kind} ->
-        Logger.error("Tracker kind missing in WORKFLOW.md")
+        Logger.error("Tracker kind missing in .aiurconfig")
 
         state
 
       {:error, {:unsupported_tracker_kind, kind}} ->
-        Logger.error("Unsupported tracker kind in WORKFLOW.md: #{inspect(kind)}")
+        Logger.error("Unsupported tracker kind in .aiurconfig: #{inspect(kind)}")
 
         state
 
       {:error, {:invalid_workflow_config, message}} ->
-        Logger.error("Invalid WORKFLOW.md config: #{message}")
+        Logger.error("Invalid .aiurconfig config: #{message}")
         state
 
       {:error, {:missing_workflow_file, path, reason}} ->
-        Logger.error("Missing WORKFLOW.md at #{path}: #{inspect(reason)}")
+        Logger.error("Missing .aiurconfig at #{path}: #{inspect(reason)}")
+        state
+
+      {:error, {:missing_prompt_file, path, reason}} ->
+        Logger.error("Missing prompt_file at #{path}: #{inspect(reason)}")
         state
 
       {:error, :workflow_front_matter_not_a_map} ->
-        Logger.error("Failed to parse WORKFLOW.md: workflow front matter must decode to a map")
+        Logger.error("Failed to parse .aiurconfig: top-level YAML must be a map")
         state
 
       {:error, {:workflow_parse_error, reason}} ->
-        Logger.error("Failed to parse WORKFLOW.md: #{inspect(reason)}")
+        Logger.error("Failed to parse .aiurconfig: #{inspect(reason)}")
         state
 
       {:error, reason} ->

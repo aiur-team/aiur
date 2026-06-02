@@ -1,4 +1,3 @@
----
 tracker:
   kind: github
   active_states:
@@ -31,11 +30,3 @@ events:
   block_state_debounce_seconds: 30
   custom_events_per_turn_max: 10
   codeowners_refresh_seconds: 3600
----
-
-# Test Workflow
-
-Minimal workflow used as a CI/test fallback when no per-machine
-`WORKFLOW.md` or `local-workflows/WORKFLOW.aiur.local.md` is present.
-Real config lives in those untracked files; this fixture only exists
-so `Aiur.Config.settings!/0` can load during tests.

@@ -123,11 +123,11 @@ defmodule Aiur.ExtensionsTest do
       match?({:ok, %{prompt: "Second prompt"}}, Workflow.current())
     end)
 
-    File.write!(Workflow.workflow_file_path(), "---\ntracker: [\n---\nBroken prompt\n")
+    File.write!(Workflow.workflow_file_path(), "tracker: [\n")
     assert {:error, _reason} = WorkflowStore.force_reload()
     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
 
-    third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "THIRD_WORKFLOW.md")
+    third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "third.aiurconfig")
     write_workflow_file!(third_workflow, prompt: "Third prompt")
     Workflow.set_workflow_file_path(third_workflow)
     assert {:ok, %{prompt: "Third prompt"}} = Workflow.current()
@@ -138,8 +138,31 @@ defmodule Aiur.ExtensionsTest do
     assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
   end
 
+  test "workflow store reloads when only the prompt_file body changes" do
+    ensure_workflow_store_running()
+    original_path = Workflow.workflow_file_path()
+
+    config_path = Path.join(Path.dirname(original_path), "prompt_reload.aiurconfig")
+    write_workflow_file!(config_path, prompt: "Original prompt body")
+    Workflow.set_workflow_file_path(config_path)
+
+    assert {:ok, %{prompt: "Original prompt body"}} = Workflow.current()
+
+    # Edit only the referenced prompt_file; the .aiurconfig bytes are untouched.
+    prompt_basename = String.trim_leading(Path.basename(config_path), ".") <> ".prompt.md"
+    File.write!(Path.join(Path.dirname(config_path), prompt_basename), "Edited prompt body\n")
+    send(WorkflowStore, :poll)
+
+    assert_eventually(fn ->
+      match?({:ok, %{prompt: "Edited prompt body"}}, Workflow.current())
+    end)
+
+    Workflow.set_workflow_file_path(original_path)
+    WorkflowStore.force_reload()
+  end
+
   test "workflow store init stops on missing workflow file" do
-    missing_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "MISSING_WORKFLOW.md")
+    missing_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "missing.aiurconfig")
     Workflow.set_workflow_file_path(missing_path)
 
     assert {:stop, {:missing_workflow_file, ^missing_path, :enoent}} = WorkflowStore.init([])
@@ -148,8 +171,8 @@ defmodule Aiur.ExtensionsTest do
   test "workflow store start_link and poll callback cover missing-file error paths" do
     ensure_workflow_store_running()
     existing_path = Workflow.workflow_file_path()
-    manual_path = Path.join(Path.dirname(existing_path), "MANUAL_WORKFLOW.md")
-    missing_path = Path.join(Path.dirname(existing_path), "MANUAL_MISSING_WORKFLOW.md")
+    manual_path = Path.join(Path.dirname(existing_path), "manual.aiurconfig")
+    missing_path = Path.join(Path.dirname(existing_path), "manual-missing.aiurconfig")
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
 
@@ -165,7 +188,7 @@ defmodule Aiur.ExtensionsTest do
     assert Process.alive?(manual_pid)
 
     state = :sys.get_state(manual_pid)
-    File.write!(manual_path, "---\ntracker: [\n---\nBroken prompt\n")
+    File.write!(manual_path, "tracker: [\n")
     assert {:noreply, returned_state} = WorkflowStore.handle_info(:poll, state)
     assert returned_state.workflow.prompt == "Manual workflow prompt"
     refute returned_state.stamp == nil

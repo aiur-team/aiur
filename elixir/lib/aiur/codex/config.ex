@@ -67,7 +67,7 @@ defmodule Aiur.Codex.Config do
       if byte_size(String.trim(command())) > 0 do
         :ok
       else
-        {:error, "Codex command missing — set codex.command in WORKFLOW.md"}
+        {:error, "Codex command missing — set codex.command in .aiurconfig"}
       end
     end
   end
@@ -79,7 +79,7 @@ defmodule Aiur.Codex.Config do
 
       value when is_binary(value) ->
         case String.trim(value) do
-          "" -> {:error, "Invalid codex.approval_policy in WORKFLOW.md: #{inspect(value)}"}
+          "" -> {:error, "Invalid codex.approval_policy in .aiurconfig: #{inspect(value)}"}
           _trimmed -> {:ok, value}
         end
 
@@ -87,7 +87,7 @@ defmodule Aiur.Codex.Config do
         {:ok, value}
 
       value ->
-        {:error, "Invalid codex.approval_policy in WORKFLOW.md: #{inspect(value)}"}
+        {:error, "Invalid codex.approval_policy in .aiurconfig: #{inspect(value)}"}
     end
   end
 
@@ -98,12 +98,12 @@ defmodule Aiur.Codex.Config do
 
       value when is_binary(value) ->
         case String.trim(value) do
-          "" -> {:error, "Invalid codex.thread_sandbox in WORKFLOW.md: #{inspect(value)}"}
+          "" -> {:error, "Invalid codex.thread_sandbox in .aiurconfig: #{inspect(value)}"}
           _trimmed -> {:ok, value}
         end
 
       value ->
-        {:error, "Invalid codex.thread_sandbox in WORKFLOW.md: #{inspect(value)}"}
+        {:error, "Invalid codex.thread_sandbox in .aiurconfig: #{inspect(value)}"}
     end
   end
 
@@ -116,7 +116,7 @@ defmodule Aiur.Codex.Config do
         {:ok, value}
 
       value ->
-        {:error, "Invalid codex.turn_sandbox_policy in WORKFLOW.md: #{inspect(value)}"}
+        {:error, "Invalid codex.turn_sandbox_policy in .aiurconfig: #{inspect(value)}"}
     end
   end
 

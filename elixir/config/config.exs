@@ -25,8 +25,8 @@ if config_env() == :test do
 
   workflow_file_path_for_tests =
     [
-      "../local-workflows/WORKFLOW.aiur.local.md",
-      "../test/fixtures/test_workflow.md"
+      "../../.aiurconfig",
+      "../test/fixtures/test.aiurconfig"
     ]
     |> Enum.map(&Path.expand(&1, __DIR__))
     |> Enum.find(&File.exists?/1)

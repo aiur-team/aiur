@@ -182,7 +182,7 @@ defmodule Aiur.Opencode.SlotPolicy do
   end
 
   # Pre-warm slot count is governed by the new `pre_warmed_sessions`
-  # WORKFLOW setting (default 3). Capped at `max_concurrent_agents`
+  # `.aiurconfig` setting (default 3). Capped at `max_concurrent_agents`
   # because spawning more pre-warm slots than the orchestrator will
   # ever fill with active agents wastes opencode-serve processes.
   # `pre_warmed_sessions = 0` is valid: no slots boot, every open

@@ -1,6 +1,6 @@
 defmodule Aiur.Config do
   @moduledoc """
-  Runtime configuration loaded from `WORKFLOW.md`.
+  Runtime configuration loaded from `.aiurconfig`.
   """
 
   alias Aiur.Config.Schema
@@ -170,7 +170,7 @@ defmodule Aiur.Config do
   Number of opencode-serve instances to pre-warm at boot. Each pre-
   warmed slot binds to a different active ticket as its leadoff so
   the user's first click on that ticket opens its chat pane in
-  <100 ms. Defaults to 3 when absent from WORKFLOW. `0` is valid
+  <100 ms. Defaults to 3 when absent from `.aiurconfig`. `0` is valid
   and disables pre-warm entirely (all opens go through the cold
   placeholder path).
   """
@@ -393,13 +393,16 @@ defmodule Aiur.Config do
         "Invalid #{label} config: #{message}"
 
       {:missing_workflow_file, path, raw_reason} ->
-        "Missing #{Path.basename(path)} at #{path}: #{inspect(raw_reason)}"
+        "Missing #{Path.basename(path)} at #{path}: #{inspect(raw_reason)}. Run `aiur init` to scaffold a .aiurconfig."
+
+      {:missing_prompt_file, path, raw_reason} ->
+        "Missing prompt_file at #{path}: #{inspect(raw_reason)}"
 
       {:workflow_parse_error, raw_reason} ->
         "Failed to parse #{label}: #{inspect(raw_reason)}"
 
       :workflow_front_matter_not_a_map ->
-        "Failed to parse #{label}: workflow front matter must decode to a map"
+        "Failed to parse #{label}: top-level YAML must be a map"
 
       other ->
         "Invalid #{label} config: #{inspect(other)}"

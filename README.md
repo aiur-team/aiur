@@ -33,7 +33,7 @@ the work at a higher level._
 - **Optional alert sounds:** users can edit the checked-in `alerts.yaml` file, where each alert
   defines its `name`, `message`, and optional `sound` clips in one place.
 
-See [elixir/README.md](elixir/README.md#configuration) for the supported `WORKFLOW.md` options and
+See [elixir/README.md](elixir/README.md#configuration) for the supported `.aiurconfig` options and
 adapter examples.
 
 ## Running Aiur

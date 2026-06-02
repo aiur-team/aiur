@@ -24,8 +24,8 @@ The service solves four operational problems:
 - It turns issue execution into a repeatable daemon workflow instead of manual scripts.
 - It isolates agent execution in per-issue workspaces so agent commands run only inside per-issue
   workspace directories.
-- It keeps the workflow policy in-repo (`WORKFLOW.md`) so teams version the agent prompt and runtime
-  settings with their code.
+- It keeps the workflow policy in-repo (`.aiurconfig`, plus an optional referenced prompt template)
+  so teams version the agent prompt and runtime settings with their code.
 - It provides enough observability to operate and debug multiple concurrent agent runs.
 
 Implementations are expected to document their trust and safety posture explicitly. This
@@ -50,7 +50,7 @@ Important boundary:
 - Create deterministic per-issue workspaces and preserve them across runs.
 - Stop active runs when issue state changes make them ineligible.
 - Recover from transient failures with exponential backoff.
-- Load runtime behavior from a repository-owned `WORKFLOW.md` contract.
+- Load runtime behavior from a repository-owned `.aiurconfig` contract.
 - Expose operator-visible observability (at minimum structured logs).
 - Support tracker/filesystem-driven restart recovery without requiring a persistent database; exact
   in-memory scheduler state is not restored.
@@ -71,8 +71,8 @@ Important boundary:
 ### 3.1 Main Components
 
 1. `Workflow Loader`
-   - Reads `WORKFLOW.md`.
-   - Parses YAML front matter and prompt body.
+   - Reads `.aiurconfig`.
+   - Parses the YAML config and resolves the optional `prompt_file:` template.
    - Returns `{config, prompt_template}`.
 
 2. `Config Layer`
@@ -100,7 +100,7 @@ Important boundary:
 
 6. `Agent Runner`
    - Creates workspace.
-   - Builds prompt from issue + workflow template.
+   - Builds prompt from issue + prompt template.
    - Launches the coding agent app-server client.
    - Streams agent updates back to the orchestrator.
 
@@ -119,11 +119,11 @@ Important boundary:
 Aiur is easiest to port when kept in these layers:
 
 1. `Policy Layer` (repo-defined)
-   - `WORKFLOW.md` prompt body.
+   - The prompt template referenced by `.aiurconfig`'s `prompt_file:` (or the built-in default).
    - Team-specific rules for ticket handling, validation, and handoff.
 
 2. `Configuration Layer` (typed getters)
-   - Parses front matter into typed runtime settings.
+   - Parses the `.aiurconfig` YAML into typed runtime settings.
    - Handles defaults, environment tokens, and path normalization.
 
 3. `Coordination Layer` (orchestrator)
@@ -181,12 +181,13 @@ Fields:
 
 #### 4.1.2 Workflow Definition
 
-Parsed `WORKFLOW.md` payload:
+Parsed `.aiurconfig` payload:
 
 - `config` (map)
-  - YAML front matter root object.
+  - YAML root object.
 - `prompt_template` (string)
-  - Markdown body after front matter, trimmed.
+  - Contents of the resolved `prompt_file:` template, trimmed, or the built-in default when no
+    `prompt_file:` is configured.
 
 #### 4.1.3 Service Config (Typed View)
 
@@ -293,43 +294,45 @@ Fields:
 
 ### 5.1 File Discovery and Path Resolution
 
-Workflow file path precedence:
+Config file path precedence:
 
 1. Explicit application/runtime setting (set by CLI startup path).
-2. Default: `WORKFLOW.md` in the current process working directory.
+2. Default: `.aiurconfig` in the current process working directory.
 
 Loader behavior:
 
 - If the file cannot be read, return `missing_workflow_file` error.
-- The workflow file is expected to be repository-owned and version-controlled.
+- The config file is expected to be repository-owned and version-controlled.
 
 ### 5.2 File Format
 
-`WORKFLOW.md` is a Markdown file with OPTIONAL YAML front matter.
+`.aiurconfig` is a pure YAML file.
 
 Design note:
 
-- `WORKFLOW.md` SHOULD be self-contained enough to describe and run different workflows (prompt,
-  runtime settings, hooks, and tracker selection/config) without requiring out-of-band
+- `.aiurconfig` SHOULD be self-contained enough to describe and run different workflows (prompt
+  reference, runtime settings, hooks, and tracker selection/config) without requiring out-of-band
   service-specific configuration.
 
 Parsing rules:
 
-- If file starts with `---`, parse lines until the next `---` as YAML front matter.
-- Remaining lines become the prompt body.
-- If front matter is absent, treat the entire file as prompt body and use an empty config map.
-- YAML front matter MUST decode to a map/object; non-map YAML is an error.
-- Prompt body is trimmed before use.
+- The file is parsed as a single YAML document.
+- The YAML MUST decode to a map/object; non-map YAML is an error.
+- An optional `prompt_file:` key names a prompt template; its contents become the prompt body.
+- When `prompt_file:` is absent or empty, a built-in default prompt is used.
+- A `prompt_file:` that names a file which cannot be read is a `missing_prompt_file` error.
+- The prompt body is trimmed before use.
 
 Returned workflow object:
 
-- `config`: front matter root object (not nested under a `config` key).
-- `prompt_template`: trimmed Markdown body.
+- `config`: YAML root object (not nested under a `config` key).
+- `prompt_template`: trimmed prompt body from `prompt_file:` or the built-in default.
 
-### 5.3 Front Matter Schema
+### 5.3 Config Schema
 
 Top-level keys:
 
+- `prompt_file`
 - `tracker`
 - `polling`
 - `workspace`
@@ -341,10 +344,17 @@ Unknown keys SHOULD be ignored for forward compatibility.
 
 Note:
 
-- The workflow front matter is extensible. Extensions MAY define additional top-level keys without
+- The config is extensible. Extensions MAY define additional top-level keys without
   changing the core schema above.
 - Extensions SHOULD document their field schema, defaults, validation rules, and whether changes
   apply dynamically or require restart.
+
+#### 5.3.0 `prompt_file` (string)
+
+- OPTIONAL path to a prompt template file (typically Liquid/Markdown).
+- Relative paths are resolved relative to the directory containing `.aiurconfig`.
+- When absent or empty, a built-in default prompt is used.
+- A named file that cannot be read is a `missing_prompt_file` error.
 
 #### 5.3.1 `tracker` (object)
 
@@ -381,7 +391,7 @@ Fields:
 - `root` (path string or `$VAR`)
   - Default: `<system-temp>/aiur_workspaces`
   - `~` is expanded.
-  - Relative paths are resolved relative to the directory containing `WORKFLOW.md`.
+  - Relative paths are resolved relative to the directory containing `.aiurconfig`.
   - The effective workspace root is normalized to an absolute path before use.
 
 #### 5.3.4 `hooks` (object)
@@ -469,7 +479,8 @@ fields locally if they want stricter startup checks.
 
 ### 5.4 Prompt Template Contract
 
-The Markdown body of `WORKFLOW.md` is the per-issue prompt template.
+The prompt template referenced by `.aiurconfig`'s `prompt_file:` (or the built-in default) is the
+per-issue prompt template.
 
 Rendering requirements:
 
@@ -513,8 +524,8 @@ Dispatch gating behavior:
 
 Configuration is resolved in this order:
 
-1. Select the workflow file path (explicit runtime setting, otherwise cwd default).
-2. Parse YAML front matter into a raw config map.
+1. Select the config file path (explicit runtime setting, otherwise cwd default).
+2. Parse the `.aiurconfig` YAML into a raw config map.
 3. Apply built-in defaults for missing OPTIONAL fields.
 4. Resolve `$VAR_NAME` indirection only for config values that explicitly contain `$VAR_NAME`.
 5. Coerce and validate typed values.
@@ -530,13 +541,13 @@ Value coercion semantics:
   - Apply expansion only to values intended to be local filesystem paths; do not rewrite URIs or
     arbitrary shell command strings.
 - Relative `workspace.root` values resolve relative to the directory containing the selected
-  `WORKFLOW.md`.
+  `.aiurconfig`.
 
 ### 6.2 Dynamic Reload Semantics
 
 Dynamic reload is REQUIRED:
 
-- The software MUST detect `WORKFLOW.md` changes.
+- The software MUST detect `.aiurconfig` changes (including changes to the referenced `prompt_file:`).
 - On change, it MUST re-read and re-apply workflow config and prompt template without restart.
 - The software MUST attempt to adjust live behavior to the new config (for example polling
   cadence, concurrency limits, active/terminal states, codex settings, workspace paths/hooks, and
@@ -1375,7 +1386,7 @@ Extension config:
 Enablement (extension):
 
 - Start the HTTP server when a CLI `--port` argument is provided.
-- Start the HTTP server when `server.port` is present in `WORKFLOW.md` front matter.
+- Start the HTTP server when `server.port` is present in `.aiurconfig`.
 - The `server` top-level key is owned by this extension.
 - Positive `server.port` values bind that port.
 - Implementations SHOULD bind loopback by default (`127.0.0.1` or host equivalent) unless explicitly
@@ -1532,8 +1543,9 @@ API design notes:
 ### 14.1 Failure Classes
 
 1. `Workflow/Config Failures`
-   - Missing `WORKFLOW.md`
-   - Invalid YAML front matter
+   - Missing `.aiurconfig`
+   - Invalid YAML (non-map root)
+   - Missing or unreadable `prompt_file:`
    - Unsupported tracker kind or missing tracker credentials/project slug
    - Missing coding-agent executable
 
@@ -1603,9 +1615,9 @@ After restart:
 
 Operators can control behavior by:
 
-- Editing `WORKFLOW.md` (prompt and most runtime settings).
-- `WORKFLOW.md` changes are detected and re-applied automatically without restart according to
-  Section 6.2.
+- Editing `.aiurconfig` (runtime settings) or its referenced `prompt_file:` (prompt).
+- `.aiurconfig` and `prompt_file:` changes are detected and re-applied automatically without restart
+  according to Section 6.2.
 - Changing issue states in the tracker:
   - terminal state -> running session is stopped and workspace cleaned when reconciled
   - non-active state -> running session is stopped without cleanup
@@ -1649,7 +1661,7 @@ RECOMMENDED additional hardening for ports:
 
 ### 15.4 Hook Script Safety
 
-Workspace hooks are arbitrary shell scripts from `WORKFLOW.md`.
+Workspace hooks are arbitrary shell scripts from `.aiurconfig`.
 
 Implications:
 
@@ -1943,15 +1955,15 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 ### 17.1 Workflow and Config Parsing
 
-- Workflow file path precedence:
+- Config file path precedence:
   - explicit runtime path is used when provided
-  - cwd default is `WORKFLOW.md` when no explicit runtime path is provided
-- Workflow file changes are detected and trigger re-read/re-apply without restart
-- Invalid workflow reload keeps last known good effective configuration and emits an
+  - cwd default is `.aiurconfig` when no explicit runtime path is provided
+- Config file and `prompt_file:` changes are detected and trigger re-read/re-apply without restart
+- Invalid reload keeps last known good effective configuration and emits an
   operator-visible error
-- Missing `WORKFLOW.md` returns typed error
-- Invalid YAML front matter returns typed error
-- Front matter non-map returns typed error
+- Missing `.aiurconfig` returns typed error
+- Non-map YAML returns typed error
+- Missing or unreadable `prompt_file:` returns typed error
 - Config defaults apply when OPTIONAL values are missing
 - `tracker.kind` validation enforces currently supported kind (`linear`)
 - `tracker.api_key` works (including `$VAR` indirection)
@@ -2050,9 +2062,9 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 ### 17.7 CLI and Host Lifecycle
 
-- CLI accepts a positional workflow path argument (`path-to-WORKFLOW.md`)
-- CLI uses `./WORKFLOW.md` when no workflow path argument is provided
-- CLI errors on nonexistent explicit workflow path or missing default `./WORKFLOW.md`
+- CLI accepts a positional config path argument (`path-to-.aiurconfig`)
+- CLI uses `./.aiurconfig` when no config path argument is provided
+- CLI errors on nonexistent explicit config path or missing default `./.aiurconfig`
 - CLI surfaces startup failure cleanly
 - CLI exits with success when application starts and shuts down normally
 - CLI exits nonzero when startup fails or the host process exits abnormally
@@ -2080,10 +2092,10 @@ Use the same validation profiles as Section 17:
 
 ### 18.1 REQUIRED for Conformance
 
-- Workflow path selection supports explicit runtime path and cwd default
-- `WORKFLOW.md` loader with YAML front matter + prompt body split
+- Config path selection supports explicit runtime path and cwd default
+- `.aiurconfig` loader with YAML config + optional `prompt_file:` template resolution
 - Typed config layer with defaults and `$` resolution
-- Dynamic `WORKFLOW.md` watch/reload/re-apply for config and prompt
+- Dynamic `.aiurconfig` (and `prompt_file:`) watch/reload/re-apply for config and prompt
 - Polling orchestrator with single-authority mutable state
 - Issue tracker client with candidate fetch + state refresh + terminal fetch
 - Workspace manager with sanitized per-issue workspaces
@@ -2106,7 +2118,7 @@ Use the same validation profiles as Section 17:
 - `linear_graphql` client-side tool extension exposes raw Linear GraphQL access through the
   app-server session using configured Aiur auth.
 - TODO: Persist retry queue and session metadata across process restarts.
-- TODO: Make observability settings configurable in workflow front matter without prescribing UI
+- TODO: Make observability settings configurable in `.aiurconfig` without prescribing UI
   implementation details.
 - TODO: Add first-class tracker write APIs (comments/state transitions) in the orchestrator instead
   of only via agent tools.

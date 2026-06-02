@@ -46,7 +46,7 @@ defmodule Aiur.CLITest do
       end
     }
 
-    assert {:error, banner} = CLI.evaluate(["WORKFLOW.md"], deps)
+    assert {:error, banner} = CLI.evaluate([".aiurconfig"], deps)
     assert banner =~ "This Aiur implementation is a low key engineering preview."
     assert banner =~ "Codex will run without any guardrails."
     assert banner =~ "Aiur is not a supported product and is presented as-is."
@@ -59,9 +59,9 @@ defmodule Aiur.CLITest do
     refute_received :started
   end
 
-  test "defaults to WORKFLOW.md when workflow path is missing" do
+  test "defaults to .aiurconfig when workflow path is missing" do
     deps = %{
-      file_regular?: fn path -> Path.basename(path) == "WORKFLOW.md" end,
+      file_regular?: fn path -> Path.basename(path) == ".aiurconfig" end,
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
@@ -74,7 +74,7 @@ defmodule Aiur.CLITest do
 
   test "uses an explicit workflow path override when provided" do
     parent = self()
-    workflow_path = "tmp/custom/WORKFLOW.md"
+    workflow_path = "tmp/custom/operator.config"
     expanded_path = Path.expand(workflow_path)
 
     deps = %{
@@ -112,7 +112,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, "--logs-root", "tmp/custom-logs", "WORKFLOW.md"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "--logs-root", "tmp/custom-logs", ".aiurconfig"], deps)
     assert_received {:logs_root, expanded_path}
     assert expanded_path == Path.expand("tmp/custom-logs")
   end
@@ -132,7 +132,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, "--host", "127.0.0.1", "WORKFLOW.md"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "--host", "127.0.0.1", ".aiurconfig"], deps)
     assert_received {:host, "127.0.0.1"}
   end
 
@@ -146,7 +146,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert {:error, message} = CLI.evaluate([@ack_flag, "--host", "   ", "WORKFLOW.md"], deps)
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--host", "   ", ".aiurconfig"], deps)
     assert message =~ "Usage: aiur"
   end
 
@@ -160,8 +160,8 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
-    assert message =~ "Workflow file not found:"
+    assert {:error, message} = CLI.evaluate([@ack_flag, ".aiurconfig"], deps)
+    assert message =~ "Config file not found:"
   end
 
   test "returns startup error when app cannot start" do
@@ -174,7 +174,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:error, :boom} end
     }
 
-    assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+    assert {:error, message} = CLI.evaluate([@ack_flag, ".aiurconfig"], deps)
     assert message =~ "Failed to start Aiur with workflow"
     assert message =~ ":boom"
   end
@@ -189,7 +189,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], deps)
   end
 
   test "routes a bare init subcommand to the wizard with force false" do
@@ -216,7 +216,7 @@ defmodule Aiur.CLITest do
         end
       })
 
-    assert :ok = CLI.evaluate([@ack_flag, "some/WORKFLOW.md"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "some/.aiurconfig"], deps)
     assert_received {:workflow_checked, _path}
   end
 
@@ -240,7 +240,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, "--interactive", "WORKFLOW.md"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "--interactive", ".aiurconfig"], deps)
     assert Application.get_env(:aiur, :interactive_cli) == true
   end
 end

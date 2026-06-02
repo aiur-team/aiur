@@ -1,4 +1,3 @@
----
 tracker:
   kind: github
   # `human-review` is intentionally NOT in active_states: once the agent
@@ -29,26 +28,10 @@ server:
 workspace:
   root: ~/code/aiur-workspaces
 hooks:
-  # 10 minutes per hook. Observed: cold clone + mise install + mix
-  # deps.get + mix compile takes ~3:30 on a warm machine, longer on
-  # a cold one. The previous 60s default silently killed every hook
-  # at the deps.get step (output is swallowed by `>/dev/null 2>&1`),
-  # so every agent paid 3-4 min for `mix deps.get` on first
-  # productive turn instead of starting with warm caches.
   timeout_ms: 600000
   after_create: |
     git clone https://github.com/its-everdred/aiur.git .
     issue_id="$(basename "$PWD")"
-    # Branch off the operator's current working branch instead of
-    # `origin/main` so agent workspaces include the in-flight fixes
-    # the operator has committed but not yet merged — specifically
-    # the agent-workspace guards in scripts/aiur and
-    # Aiur.TestReset.run/1. Without this, agents that recursively
-    # invoke `./scripts/aiur --test` from inside the workspace bypass
-    # both guards (the workspace ships a pre-guard snapshot from
-    # main) and wipe the operator's sandbox tickets mid-run. Branch
-    # name lives here so a workflow-only edit can re-target the
-    # source once the fixes land on main.
     git fetch origin kevin/e2e-pubsub-test >/dev/null 2>&1 || true
     base_ref="$(git rev-parse --verify origin/kevin/e2e-pubsub-test 2>/dev/null || echo origin/main)"
     git checkout -b "aiur/${issue_id}" "$base_ref"
@@ -111,7 +94,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  kind: codex
+  kind: claude
   max_concurrent_agents: 6
   max_turns: 12
   # Per-issue backend routing by `complexity:N` label. Unlisted levels and
@@ -143,109 +126,4 @@ opencode:
   bridge_port: 4097
   serve_args: []
   model_prefix: aiur
----
-
-You are working on tracker issue `{{ issue.identifier }}` for the Aiur repository.
-
-Issue:
-
-- Number: `{{ issue.identifier }}`
-- Title: {{ issue.title }}
-- State label: {{ issue.state }}
-- Labels: {{ issue.labels }}
-- URL: {{ issue.url }}
-
-Description:
-
-{% if issue.description %}
-{{ issue.description }}
-{% else %}
-No description provided.
-{% endif %}
-
-{% if attempt %}
-Continuation context:
-
-- Retry attempt #{{ attempt }}.
-- Read the existing `## Agent Workpad`, local agent logs, and git state before choosing a phase.
-- Resume from the workpad handoff instead of restarting brainstorm or repeating completed work.
-- Treat the handoff as the source of truth for current phase, decisions, validation already run, and next steps.
-{% endif %}
-
-## Required Setup
-
-- Use the local tracker and repository auth already configured for this environment.
-- Work in the current workspace checkout. The `.git` directory IS writable here — do NOT copy it to `.git-writable` (that's a pattern from the GitHub Actions workflow, not this one). Use `git` directly with no `GIT_DIR=...` prefix.
-- `mise exec -- mix` and `mise exec -- rg` work out of the box — `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` are pre-set per workspace and `mise trust` has already been run on the workspace `elixir/mise.toml`. Do not redeclare these env vars on individual commands.
-- For module-only verification (pure function calls, no app supervision needed), use `mix run --no-start -e ...`. Plain `mix run -e ...` tries to start the full Aiur application and fails in agent workspaces (no local `WORKFLOW.md`).
-- For real implementation tickets, branch from `origin/main`, keep changes small, add tests, run compile and lint, push to `origin`, and open a PR.
-- For test tickets that explicitly say not to change code, do not create commits or PRs.
-
-GitHub issue state is label-based:
-
-- `agent:todo`
-- `agent:in-progress`
-- `agent:human-review`
-- `agent:rework`
-- `agent:merging`
-- `agent:done`
-- `agent:cancelled`
-- `agent:canceled`
-
-## Workflow
-
-1. Read the issue and current labels.
-2. If state is `todo`, move it to `in-progress`.
-3. Find or create one persistent issue comment titled `## Agent Workpad`.
-4. Keep all progress, plan, validation, PR URL, blockers, final notes, and the current handoff in that single workpad comment.
-5. Follow the issue instructions exactly.
-6. Use judgment based on feature size.
-7. Large feature asks should usually follow the full loop `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-review`.
-8. Smaller asks may skip brainstorm, plan, or review when the extra step would be overhead, but err on the side of using these skills when in doubt.
-9. Move the issue to `Human Review` when implementation work is ready for review.
-10. Move the issue to `Done` only when the issue explicitly says the agent should close it out without human review.
-11. Before ending a turn while the issue remains active, update the handoff with current phase, key decisions, validation completed, and remaining next steps.
-
-## Alert Milestones
-
-When the work naturally enters one of the standard delivery phases, emit these custom alerts through
-the shared `emit_alert` function:
-
-- `phase.brainstorm.start` and `phase.brainstorm.end` when using `ce-brainstorm`
-- `phase.plan.start` and `phase.plan.end` when using `ce-plan`
-- `phase.work.start` and `phase.work.end` when using `ce-work`
-- `phase.review.start` and `phase.review.end` when using `ce-review`
-
-Use concrete messages. Do not emit system-owned alerts under `task.*`, `agent.*`,
-or `chat.*`.
-
-## Workpad Template
-
-Use and update this single issue comment:
-
-````md
-## Agent Workpad
-
-```text
-<hostname>:<abs-workdir>@<short-sha>
-```
-
-### Plan
-
-- [ ] ...
-
-### Validation
-
-- [ ] ...
-
-### Handoff
-
-- Phase: ...
-- Decisions: ...
-- Completed validation: ...
-- Next steps: ...
-
-### Final Notes
-
-- ...
-````
+prompt_file: AIUR.md

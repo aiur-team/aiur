@@ -1,4 +1,3 @@
----
 tracker:
   kind: linear
   active_states:
@@ -26,15 +25,4 @@ agent:
   max_turns: 20
 codex:
   command: codex app-server
----
-
-You are working on Linear issue `{{ issue.identifier }}`.
-
-Title: {{ issue.title }}
-
-Body:
-{% if issue.description %}
-{{ issue.description }}
-{% else %}
-No description provided.
-{% endif %}
+prompt_file: linear-codex.prompt.md
