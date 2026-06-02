@@ -49,7 +49,7 @@ make all
 `make all` covers correctness of the code (format, lint, coverage,
 dialyzer, test suite). It is **not** a manual test of the running
 service. See `../AGENTS.md#manual-testing--the-only-definition` —
-"manual testing" means running `scripts/aiur --test --force --allow-remote`
+"manual testing" means running `scripts/aiurdev --test --force --allow-remote`
 end to end and driving the TUI as a user would. Do not call the feature
 "working" or "shipped" until you have actually used the running CLI and
 observed the intended rendered output. HTTP API calls and `tmux

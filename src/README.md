@@ -31,17 +31,21 @@ configured limit.
 git clone https://github.com/its-everdred/aiur
 cd aiur
 mise install
-cd src && ../scripts/aiur init   # scaffolds .aiurconfig in the current repo
+mise run setup                   # symlinks the aiurdev dev wrapper onto your PATH
+cd src && aiurdev init           # scaffolds .aiurconfig in the current repo
 # Or copy a starter pair (the config's prompt_file: points at the sibling template):
 #   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
 #   cp examples/workflows/linear-codex.prompt.md linear-codex.prompt.md
 # Edit .aiurconfig for your tracker, repo, credentials, and workspace.
-export PATH="$PWD/scripts:$PATH"
-aiur ./.aiurconfig
+aiurdev ./.aiurconfig
 ```
 
+`aiurdev` is the local dev build of the wrapper, run from a repo clone; `aiur` is
+the npm-installed product command. They share the same command surface but use
+isolated runtime namespaces, so both can run side by side.
+
 [mise](https://mise.jdx.dev/) is the recommended runtime manager — `mise.toml` pins
-versions for you. On first run, the `aiur` wrapper fetches Hex dependencies,
+versions for you. On first run, the `aiurdev` wrapper fetches Hex dependencies,
 compiles the Elixir app, and builds `bin/aiur`; later runs only rebuild when
 sources change.
 
@@ -68,66 +72,65 @@ If `.aiurconfig` is missing or has invalid YAML at startup, Aiur won't boot. If 
 reload fails, Aiur keeps running with the last known good config and logs the error
 until the file is fixed.
 
-## Operating with `aiur`
+## Operating with `aiurdev`
 
-`scripts/aiur` wraps `./bin/aiur` with named profiles, foreground/background modes,
+`scripts/aiurdev` wraps `./bin/aiur` with named profiles, foreground/background modes,
 operator controls, and a `stop` verb. It autodetects Linux (systemd `--user`) vs
 macOS (`nohup` + PID file). On a fresh clone it also runs `mix deps.get`,
 `mix compile`, and `mix release --overwrite` before launching Aiur.
-Put `scripts/` on your `PATH`:
+After `mise run setup`, `aiurdev` is on your `PATH`:
 
 ```bash
-export PATH="$PWD/scripts:$PATH"
-aiur list
+aiurdev list
 ```
 
 | Command | What it does |
 |---|---|
-| `aiur` | Attach to the default profile's existing tmux session, or start it in the foreground with a local-only bind |
-| `aiur <profile>` | Attach to the profile's existing tmux session, or start it in the foreground |
-| `aiur --fresh [profile]` | Start a fresh foreground session even when a tmux session already exists |
-| `aiur run <profile>` | Named profile, fresh foreground session |
-| `aiur --bg [profile\|all]` | Background mode |
-| `aiur stop [profile\|all]` | Stop foreground processes and background services |
-| `aiur list` | Show configured profiles |
-| `aiur build` | Rebuild `bin/aiur` |
-| `aiur status` | Show active agents and their running/paused/idle state |
-| `aiur pause <id...>` | Cooperatively pause one or more running agents by issue ID |
-| `aiur pause --all` | Cooperatively pause the currently running/paused agent snapshot |
-| `aiur resume <id...>` | Resume one or more paused agents by issue ID |
-| `aiur resume --all` | Resume the currently paused agent snapshot |
-| `aiur <path-to-.aiurconfig>` | Ad-hoc config |
+| `aiurdev` | Attach to the default profile's existing tmux session, or start it in the foreground with a local-only bind |
+| `aiurdev <profile>` | Attach to the profile's existing tmux session, or start it in the foreground |
+| `aiurdev --fresh [profile]` | Start a fresh foreground session even when a tmux session already exists |
+| `aiurdev run <profile>` | Named profile, fresh foreground session |
+| `aiurdev --bg [profile\|all]` | Background mode |
+| `aiurdev stop [profile\|all]` | Stop foreground processes and background services |
+| `aiurdev list` | Show configured profiles |
+| `aiurdev build` | Rebuild `bin/aiur` |
+| `aiurdev status` | Show active agents and their running/paused/idle state |
+| `aiurdev pause <id...>` | Cooperatively pause one or more running agents by issue ID |
+| `aiurdev pause --all` | Cooperatively pause the currently running/paused agent snapshot |
+| `aiurdev resume <id...>` | Resume one or more paused agents by issue ID |
+| `aiurdev resume --all` | Resume the currently paused agent snapshot |
+| `aiurdev <path-to-.aiurconfig>` | Ad-hoc config |
 
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
 
 ```bash
-aiur pause 44
-aiur pause 44 45 46
-aiur pause 44,45,46
-aiur resume 44
-aiur status
+aiurdev pause 44
+aiurdev pause 44 45 46
+aiurdev pause 44,45,46
+aiurdev resume 44
+aiurdev status
 ```
 
 Pause is cooperative: the running agent receives the same pause request used by the
 dashboard and agent-list pane, then stops at its next safe turn boundary. Pausing an
 already-paused agent is a no-op and exits successfully.
 
-Profiles live at `~/.config/aiur/aiur.profiles` (six pipe-separated fields per line:
+Profiles live at `~/.config/aiurdev/aiurdev.profiles` (six pipe-separated fields per line:
 `name|root|workflow|port|logs_root|service`). Environment overrides come from
-`~/.config/aiur-dashboard.env`, `.env`, and `.env.local` in that order. `.env*` are
+`~/.config/aiurdev-dashboard.env`, `.env`, and `.env.local` in that order. `.env*` are
 gitignored at the repo root.
 
-By default `aiur` injects `--host 127.0.0.1` so the dashboard stays local. Pass `--host`
+By default `aiurdev` injects `--host 127.0.0.1` so the dashboard stays local. Pass `--host`
 explicitly to opt out.
 
 Use `--port <N>` before the command/profile name to override the configured profile or
 workflow port for one invocation:
 
 ```bash
-aiur --port 4099
-aiur --port 4099 --bg
-aiur --port 4102 actions
+aiurdev --port 4099
+aiurdev --port 4099 --bg
+aiurdev --port 4102 actions
 ```
 
 When no `--port` override is present and the configured port is busy, the wrapper tries
@@ -166,7 +169,7 @@ down disposable resources and requires `LINEAR_API_KEY`.
 
 - `lib/` — application code
 - `test/` — ExUnit suite
-- `scripts/aiur` — operator wrapper
+- `scripts/aiurdev` — operator wrapper (local dev build)
 - `examples/workflows/` — starter config + prompt-template pairs
 - `.aiurconfig` — the config contract for in-repo runs
 

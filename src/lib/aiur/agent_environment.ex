@@ -48,11 +48,11 @@ defmodule Aiur.AgentEnvironment do
       {~c"HEX_HOME", String.to_charlist(hex)},
       {~c"MIX_HOME", String.to_charlist(mix)},
       {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(mise)},
-      # Marker so any nested invocation of `scripts/aiur` from inside
+      # Marker so any nested invocation of `scripts/aiurdev` from inside
       # an agent's workspace can detect it is running under an agent
       # and refuse destructive commands (`--test`, `--test3`, `stop`).
       # Without this, agents that try "manual CLI verification" by
-      # running `./scripts/aiur --test` reset the operator's sandbox
+      # running `./scripts/aiurdev --test` reset the operator's sandbox
       # tickets and kill the parent BEAM mid-run.
       {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
     ]

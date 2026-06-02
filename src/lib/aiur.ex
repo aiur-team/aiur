@@ -115,7 +115,7 @@ defmodule Aiur.Application do
   #   SIGTERM -> `init:stop()` -> same path
   # SIGHUP defaults to ignored on most VMs; we explicitly opt it into the
   # same graceful path so a terminal-close kills opencode sessions too.
-  # Layer 2 (the bash trap in `scripts/aiur`) backstops these. Layer 3 is
+  # Layer 2 (the bash trap in `scripts/aiurdev`) backstops these. Layer 3 is
   # boot-time GC in `Aiur.Opencode.SessionGC` for uncatchable signals (SIGKILL, OOM).
   defp install_signal_handlers do
     try do

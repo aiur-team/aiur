@@ -101,11 +101,11 @@ defmodule Aiur.TestReset do
   end
 
   # Refuse to run from inside an agent workspace. The script-level
-  # guard in `scripts/aiur` is necessary but not sufficient: each
-  # agent's workspace ships with its own copy of `scripts/aiur` from
+  # guard in `scripts/aiurdev` is necessary but not sufficient: each
+  # agent's workspace ships with its own copy of `scripts/aiurdev` from
   # whatever sha was cloned at workspace creation time. If that
   # snapshot predates the script guard, an agent that types
-  # `./scripts/aiur --test` from inside its workspace would still
+  # `./scripts/aiurdev --test` from inside its workspace would still
   # reach `mix aiur.test.reset`. Catching the recursive call here
   # gives us defense at the only layer the agent's workspace cannot
   # roll back through. Two signals — the env marker set by

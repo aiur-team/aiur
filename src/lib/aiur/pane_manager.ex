@@ -233,7 +233,7 @@ defmodule Aiur.PaneManager do
       {:error, reason} ->
         Logger.warning(
           "PaneManager: cannot resolve agent-list pane (#{inspect(reason)}). " <>
-            "Aiur must run inside a tmux pane started by scripts/aiur. Refusing to start."
+            "Aiur must run inside a tmux pane started by the aiur launcher. Refusing to start."
         )
 
         {:stop, :no_agent_list_pane}

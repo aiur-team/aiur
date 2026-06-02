@@ -2,7 +2,7 @@ defmodule Aiur.Distribution do
   @moduledoc """
   Aiur's Erlang distribution bring-up and monitoring.
 
-  `scripts/aiur` launches the BEAM with a distributed release node and a
+  `scripts/aiurdev` launches the BEAM with a distributed release node and a
   stable per-host cookie. This module is called from `Application.start/2`
   to validate the runtime environment and start monitoring for pane-node
   lifecycle events.

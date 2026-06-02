@@ -175,7 +175,7 @@ defmodule Aiur.MixProject do
   # OTP release for `bin/aiur`. Releases (unlike escripts) ship priv
   # directories on disk so NIFs like `exqlite/priv/sqlite3_nif.so` load
   # correctly. The post-assemble step writes a small wrapper at the
-  # project root's `bin/aiur` so `scripts/aiur` can keep invoking
+  # project root's `bin/aiur` so `scripts/aiurdev` can keep invoking
   # `./bin/aiur <args>` unchanged.
   defp releases do
     [
