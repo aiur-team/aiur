@@ -76,7 +76,7 @@ defmodule Aiur.Regression.PrewarmCompleteTimeTest do
     test "last attach_pool_warm event fires within #{@max_prewarm_ms} ms of slot_chain_complete" do
       unless File.exists?(@log_path) do
         flunk("""
-        #{@log_path} does not exist — boot aiur via scripts/aiur,
+        #{@log_path} does not exist — boot aiur via scripts/aiurdev,
         wait for all ⚡ to appear, then re-run.
         """)
       end

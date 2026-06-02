@@ -122,15 +122,15 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
     end
   end
 
-  describe "scripts/aiur cleanup trap is idempotent + signal-isolated" do
-    @script_path Path.expand("../../../../scripts/aiur", __DIR__)
+  describe "scripts/aiurdev cleanup trap is idempotent + signal-isolated" do
+    @script_path Path.expand("../../../../scripts/aiurdev", __DIR__)
 
     test "__aiur_cleanup guards against re-entry" do
       source = File.read!(@script_path)
 
       assert source =~ ~r/__aiur_cleanup_ran/,
              """
-             scripts/aiur must guard __aiur_cleanup against re-entry
+             scripts/aiurdev must guard __aiur_cleanup against re-entry
              with a `__aiur_cleanup_ran` flag. Without the guard, an
              INT + EXIT interleave (Ctrl+C during a foreground run)
              calls the function twice while bash's function-call
@@ -148,7 +148,7 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
 
       refute source =~ ~r/trap '__aiur_cleanup' EXIT INT TERM HUP/,
              """
-             scripts/aiur must NOT register the same handler for EXIT
+             scripts/aiurdev must NOT register the same handler for EXIT
              and the signal traps in one statement. Bash will fire the
              signal trap and then the EXIT trap while still inside the
              function's call-stack frame — re-entering the handler.

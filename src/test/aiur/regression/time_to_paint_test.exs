@@ -67,7 +67,7 @@ defmodule Aiur.Regression.TimeToPaintTest do
     test "most recent placeholder_visible event reports wall_ms below threshold" do
       unless File.exists?(@log_path) do
         flunk("""
-        #{@log_path} does not exist — boot aiur via scripts/aiur and
+        #{@log_path} does not exist — boot aiur via scripts/aiurdev and
         open at least one agent chat, then re-run.
         """)
       end
@@ -84,7 +84,7 @@ defmodule Aiur.Regression.TimeToPaintTest do
       if events == [] do
         flunk("""
         No `aiur_perf phase=placeholder_spawn_done` events found in
-        #{@log_path}. Open at least one agent chat via scripts/aiur,
+        #{@log_path}. Open at least one agent chat via scripts/aiurdev,
         then re-run.
         """)
       end

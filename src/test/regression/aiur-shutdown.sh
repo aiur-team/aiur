@@ -1,9 +1,9 @@
 #!/bin/bash
 # End-to-end manual regression for Bug A: Ctrl+C leaves stale BEAM node.
 #
-# Drives scripts/aiur via tmux + a PTY emulator, sends Ctrl+C, asserts
+# Drives scripts/aiurdev via tmux + a PTY emulator, sends Ctrl+C, asserts
 # the aiur BEAM is gone within 10 s. Run manually after touching
-# scripts/aiur's __aiur_cleanup or anything that affects BEAM lifecycle.
+# scripts/aiurdev's __aiur_cleanup or anything that affects BEAM lifecycle.
 #
 # Usage:
 #   bash src/test/regression/aiur-shutdown.sh
@@ -36,7 +36,7 @@ set -a
 source /home/orangekid/github/aiur/.env
 set +a
 cd /home/orangekid/github/aiur
-exec script -qc "/home/orangekid/github/aiur/scripts/aiur" /dev/null
+exec script -qc "/home/orangekid/github/aiur/scripts/aiurdev" /dev/null
 EOF
 chmod +x "$WRAPPER"
 

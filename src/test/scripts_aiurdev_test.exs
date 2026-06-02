@@ -1,13 +1,13 @@
-defmodule ScriptsAiurTest do
+defmodule ScriptsAiurdevTest do
   use ExUnit.Case, async: true
 
-  @script Path.expand("../../scripts/aiur", __DIR__)
+  @script Path.expand("../../scripts/aiurdev", __DIR__)
 
   test "prints help without starting anything" do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["--help"])
-    assert output =~ "Usage: aiur"
+    assert output =~ "Usage: aiurdev"
     refute output =~ "MISE:"
     refute output =~ "SYSTEMCTL:"
     refute output =~ "PKILL:"
@@ -18,7 +18,7 @@ defmodule ScriptsAiurTest do
 
     assert {output, 64} = run_aiur(ctx, ["missing"])
     assert output =~ "Unknown profile: missing"
-    assert output =~ "Usage: aiur"
+    assert output =~ "Usage: aiurdev"
     refute output =~ "MISE:"
   end
 
@@ -73,7 +73,7 @@ defmodule ScriptsAiurTest do
     command_log = command_log(ctx)
 
     assert command_log =~ "SYSTEMCTL:--user set-environment RELEASE_DISTRIBUTION=name"
-    assert command_log =~ "RELEASE_NODE=aiur-"
+    assert command_log =~ "RELEASE_NODE=aiurdev-"
     assert command_log =~ "RELEASE_COOKIE="
     assert output =~ "SYSTEMCTL:--user restart aiur-actions\n"
     assert output =~ "SYSTEMCTL:--user status aiur-actions --no-pager\n"
@@ -236,11 +236,11 @@ defmodule ScriptsAiurTest do
     assert command_log =~ "SYSTEMCTL:--user stop aiur\n"
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
     assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "src")}/../.aiurconfig"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*../.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.repo_root, "src")}.*bin/aiur .*--interactive.*../.aiurconfig"
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}/actions.aiurconfig"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*actions.aiurconfig"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*actions.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*--port 4101"
     refute output =~ "MISE:"
   end
 
@@ -256,9 +256,9 @@ defmodule ScriptsAiurTest do
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}/actions.aiurconfig"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*actions.aiurconfig"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
-    assert output =~ "PKILL:-f bin/aiur .*--interactive.*--port 4101"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*actions.aiurconfig"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
+    assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*--port 4101"
     refute command_log =~ "SYSTEMCTL:--user stop aiur\n"
     refute output =~ "MISE:"
   end
@@ -318,7 +318,7 @@ defmodule ScriptsAiurTest do
     command_log = command_log(ctx)
     assert command_log =~ ~S|AIUR_RELEASE:rpc Aiur.AgentControlCLI.pause(["44", "45", "46"])| <> "\n"
     assert command_log =~ "RELEASE_DISTRIBUTION=name\n"
-    assert command_log =~ "RELEASE_NODE=aiur-"
+    assert command_log =~ "RELEASE_NODE=aiurdev-"
   end
 
   test "pause --all targets the all snapshot helper" do
@@ -358,7 +358,7 @@ defmodule ScriptsAiurTest do
 
     assert {output, 64} = run_aiur(ctx, ["pause", "44,bad"])
 
-    assert output =~ "aiur: pause expects issue IDs or --all"
+    assert output =~ "aiurdev: pause expects issue IDs or --all"
     refute File.exists?(ctx.command_log) && command_log(ctx) =~ "AIUR_RELEASE:"
   end
 
@@ -368,7 +368,7 @@ defmodule ScriptsAiurTest do
 
     assert {output, 1} = run_aiur(ctx, ["pause", "44"])
 
-    assert output =~ "aiur: no running aiur node"
+    assert output =~ "aiurdev: no running aiur node"
     refute output =~ ":noconnection"
   end
 
@@ -426,7 +426,7 @@ defmodule ScriptsAiurTest do
     assert output =~ "❌ Aiur exited during startup"
     assert output =~ "Failed to start Aiur: {:shutdown, :eaddrinuse}"
     assert output =~ "Hint: port already in use."
-    assert output =~ "try `aiur --port <N>`"
+    assert output =~ "try `aiurdev --port <N>`"
   end
 
   test "auto-rebuilds bin/aiur when missing" do
@@ -501,7 +501,7 @@ defmodule ScriptsAiurTest do
 
   test "resolves repo root when invoked through a symlink" do
     # Regression: when the script is invoked via a symlink on PATH (e.g.
-    # ~/.local/bin/aiur → ../github.com/its-everdred/aiur/scripts/aiur),
+    # ~/.local/bin/aiurdev → ../github.com/its-everdred/aiur/scripts/aiurdev),
     # BASH_SOURCE points to the symlink. Without symlink resolution,
     # script_dir = ~/.local/bin and repo_root falls back to ~/.local,
     # so `cd $repo_root/src` fails with "No such file or directory".
@@ -513,7 +513,7 @@ defmodule ScriptsAiurTest do
 
     File.mkdir_p!(symlink_dir)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(symlink_dir) end)
-    symlink = Path.join(symlink_dir, "aiur")
+    symlink = Path.join(symlink_dir, "aiurdev")
     File.ln_s!(@script, symlink)
 
     # Invoke via the symlink WITHOUT AIUR_REPO_ROOT — force the script to
@@ -648,7 +648,7 @@ defmodule ScriptsAiurTest do
 
     File.mkdir_p!(Path.join(repo_root, "src"))
     File.mkdir_p!(Path.join(actions_repo, "src"))
-    File.mkdir_p!(Path.join(home_dir, ".config/aiur"))
+    File.mkdir_p!(Path.join(home_dir, ".config/aiurdev"))
     File.mkdir_p!(bin_dir)
     File.mkdir_p!(logs_root)
     File.mkdir_p!(bg_state_dir)
@@ -864,11 +864,11 @@ defmodule ScriptsAiurTest do
   end
 
   defp aiur_tmux_session(profile) do
-    "aiur-#{System.get_env("USER") || "user"}-#{profile}"
+    "aiurdev-#{System.get_env("USER") || "user"}-#{profile}"
   end
 
   defp aiur_tmux_socket do
-    "aiur-#{System.get_env("USER") || "user"}"
+    "aiurdev-#{System.get_env("USER") || "user"}"
   end
 
   defp command_log(ctx) do

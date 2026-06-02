@@ -123,7 +123,7 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
     test "warm-path opens render opencode under 750 ms threshold" do
       unless File.exists?(@log_path) do
         flunk("""
-        #{@log_path} does not exist — boot aiur via scripts/aiur,
+        #{@log_path} does not exist — boot aiur via scripts/aiurdev,
         wait for a ⚡ to appear, press Enter on that agent, then re-run.
         """)
       end

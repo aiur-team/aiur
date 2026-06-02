@@ -2,15 +2,15 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
   @moduledoc """
   Regression for "Ctrl+C leaves a stale BEAM node" (reported 2026-05-21).
 
-  After pressing Ctrl+C in the foreground `aiur` terminal, the next
-  `aiur` invocation used to fail with one of:
+  After pressing Ctrl+C in the foreground `aiurdev` terminal, the next
+  `aiurdev` invocation used to fail with one of:
 
-      Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1 seems to be
+      Protocol 'inet_tcp': the name aiurdev-orangekid@127.0.0.1 seems to be
       in use by another Erlang node
 
-      aiur: port 4000 in use; bound to 4001 instead
+      aiurdev: port 4000 in use; bound to 4001 instead
 
-  Root cause: `scripts/aiur`'s `__aiur_cleanup` trap only deleted opencode
+  Root cause: `scripts/aiurdev`'s `__aiur_cleanup` trap only deleted opencode
   session DB entries — it didn't signal the detached aiur tmux session's
   BEAM to shut down.
 
@@ -23,9 +23,9 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
 
   use ExUnit.Case, async: true
 
-  @scripts_aiur Path.expand("../../../../scripts/aiur", __DIR__)
+  @scripts_aiur Path.expand("../../../../scripts/aiurdev", __DIR__)
 
-  describe "scripts/aiur __aiur_cleanup" do
+  describe "scripts/aiurdev __aiur_cleanup" do
     test "kills the aiur tmux session on EXIT/INT/TERM/HUP" do
       source = File.read!(@scripts_aiur)
 
@@ -78,7 +78,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
   end
 
-  # Pull the __aiur_cleanup function body out of scripts/aiur for source
+  # Pull the __aiur_cleanup function body out of scripts/aiurdev for source
   # asserts. Stops at the next top-level function or trap line.
   defp extract_cleanup_block(source) do
     # Match the function body, then any trailing comment block (the

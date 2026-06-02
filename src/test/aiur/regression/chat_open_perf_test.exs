@@ -9,7 +9,7 @@ defmodule Aiur.Regression.ChatOpenPerfTest do
   slow rebuild paths or extra serve/attach respawns.
 
   Tagged `:perf_regression` so CI without a live aiur can skip. To
-  exercise: run `scripts/aiur`, open at least one agent chat, then:
+  exercise: run `scripts/aiurdev`, open at least one agent chat, then:
 
       mix test --include perf_regression test/aiur/regression/chat_open_perf_test.exs
   """
@@ -37,7 +37,7 @@ defmodule Aiur.Regression.ChatOpenPerfTest do
   test "most recent open_visible reports open_ms below threshold" do
     unless File.exists?(@log_path) do
       flunk("""
-      #{@log_path} does not exist — boot aiur via scripts/aiur and
+      #{@log_path} does not exist — boot aiur via scripts/aiurdev and
       open at least one agent chat, then re-run.
       """)
     end
@@ -54,7 +54,7 @@ defmodule Aiur.Regression.ChatOpenPerfTest do
     if open_events == [] do
       flunk("""
       No `aiur_pane_manager phase=open_visible` events found in #{@log_path}.
-      Open at least one agent chat via scripts/aiur, then re-run.
+      Open at least one agent chat via scripts/aiurdev, then re-run.
       """)
     end
 
