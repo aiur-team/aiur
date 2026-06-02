@@ -220,6 +220,33 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       RemoteControl.stop(server_pid)
     end
 
+    test "the ready handler flips a launching entry to :on without a url", %{workspace: workspace} do
+      {_result, state, _agent_pid, _agent_ref} = launch!(workspace)
+      server_pid = state.running["issue-CLA-RC"][:remote_control].server_pid
+
+      updated = Orchestrator.mark_remote_control_ready_for_test(state, server_pid)
+      rc = updated.running["issue-CLA-RC"][:remote_control]
+
+      assert rc.status == :on
+      assert rc.session_url == nil
+
+      RemoteControl.stop(server_pid)
+    end
+
+    test "the ready handler leaves an entry the url already promoted", %{workspace: workspace} do
+      {_result, state, _agent_pid, _agent_ref} = launch!(workspace)
+      server_pid = state.running["issue-CLA-RC"][:remote_control].server_pid
+
+      promoted = Orchestrator.update_remote_control_url_for_test(state, server_pid, @rc_url)
+      after_ready = Orchestrator.mark_remote_control_ready_for_test(promoted, server_pid)
+      rc = after_ready.running["issue-CLA-RC"][:remote_control]
+
+      assert rc.status == :on
+      assert rc.session_url == @rc_url
+
+      RemoteControl.stop(server_pid)
+    end
+
     test "an RC server DOWN clears RC state but keeps the deactivated entry", %{workspace: workspace} do
       {_result, state, _agent_pid, _agent_ref} = launch!(workspace)
       server_pid = state.running["issue-CLA-RC"][:remote_control].server_pid

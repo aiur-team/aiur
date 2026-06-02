@@ -275,6 +275,10 @@ defmodule Aiur.Orchestrator do
     {:noreply, update_remote_control_url(state, server_pid, url)}
   end
 
+  def handle_info({:remote_control_ready, server_pid}, state) when is_pid(server_pid) do
+    {:noreply, mark_remote_control_ready(state, server_pid)}
+  end
+
   def handle_info({:remote_control_exit, server_pid, status}, state) when is_pid(server_pid) do
     Logger.info("Remote Control session exited: status=#{inspect(status)}")
     {:noreply, clear_remote_control_for_server(state, server_pid)}
@@ -955,6 +959,13 @@ defmodule Aiur.Orchestrator do
   def update_remote_control_url_for_test(%State{} = state, server_pid, url)
       when is_pid(server_pid) and is_binary(url) do
     update_remote_control_url(state, server_pid, url)
+  end
+
+  @doc false
+  @spec mark_remote_control_ready_for_test(State.t(), pid()) :: State.t()
+  def mark_remote_control_ready_for_test(%State{} = state, server_pid)
+      when is_pid(server_pid) do
+    mark_remote_control_ready(state, server_pid)
   end
 
   @doc false
@@ -3687,9 +3698,7 @@ defmodule Aiur.Orchestrator do
         do_launch_remote_control(state, running_entry)
 
       {:error, reason} ->
-        Logger.error(
-          "Remote Control trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}"
-        )
+        Logger.error("Remote Control trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
 
         {{:error, {:rc_trust_failed, reason}}, state}
     end
@@ -3884,6 +3893,30 @@ defmodule Aiur.Orchestrator do
         Logger.info("Remote Control ready: #{rc_log_context(entry)}")
         notify_dashboard(state)
         state
+
+      _ ->
+        state
+    end
+  end
+
+  # The URL line is TTY-gated, so over a non-pty pipe the server signals
+  # readiness on a grace timer instead. Flip a still-`:launching` entry to
+  # `:on` without a URL; leave entries the URL parser already promoted.
+  defp mark_remote_control_ready(state, server_pid) do
+    case find_rc_entry(state.running, fn rc -> Map.get(rc, :server_pid) == server_pid end) do
+      {issue_id, entry} ->
+        case Map.get(entry, :remote_control) do
+          %{status: :launching} = rc ->
+            rc = Map.put(rc, :status, :on)
+            entry = Map.put(entry, :remote_control, rc)
+            state = %{state | running: Map.put(state.running, issue_id, entry)}
+            Logger.info("Remote Control ready: #{rc_log_context(entry)}")
+            notify_dashboard(state)
+            state
+
+          _ ->
+            state
+        end
 
       _ ->
         state

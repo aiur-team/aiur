@@ -168,6 +168,24 @@ defmodule Aiur.Claude.RemoteControlTest do
       assert_receive {:DOWN, ^ref, :process, ^server, :normal}, 5_000
     end
 
+    test "notifies the owner ready after the grace period even without a url" do
+      # Idle process emits no URL line; the grace timer drives readiness.
+      command = "sleep 30"
+
+      {:ok, server} =
+        RemoteControl.start_link(
+          workspace: System.tmp_dir!(),
+          owner: self(),
+          command: command,
+          ready_grace_ms: 0
+        )
+
+      assert_receive {:remote_control_ready, ^server}, 5_000
+      assert RemoteControl.session_url(server) == nil
+
+      assert :ok = RemoteControl.stop(server)
+    end
+
     test "double-stop is a no-op" do
       command = "sleep 30"
 

@@ -50,6 +50,10 @@ defmodule Aiur.Claude.RemoteControl do
   @port_line_bytes 64_000
   # How many trailing assistant text blocks to carry into the handoff.
   @recent_progress_blocks 6
+  # The RC session URL line is TTY-gated, so over a non-pty pipe claude emits
+  # no stdout even though it registers the session. Treat the server as ready
+  # after this grace period so the owner can transition :launching -> :on.
+  @default_ready_grace_ms 1_500
 
   @type start_opt ::
           {:workspace, Path.t()}
@@ -58,6 +62,7 @@ defmodule Aiur.Claude.RemoteControl do
           | {:debug_file, Path.t()}
           | {:owner, pid()}
           | {:command, String.t()}
+          | {:ready_grace_ms, non_neg_integer()}
 
   # ----------------------------------------------------------------- client
 
@@ -88,6 +93,7 @@ defmodule Aiur.Claude.RemoteControl do
     owner = Keyword.get(opts, :owner)
     debug_file = Keyword.get(opts, :debug_file) || default_debug_file()
     command = Keyword.get(opts, :command) || build_command(opts, debug_file)
+    ready_grace_ms = Keyword.get(opts, :ready_grace_ms, @default_ready_grace_ms)
 
     Process.flag(:trap_exit, true)
 
@@ -98,6 +104,8 @@ defmodule Aiur.Claude.RemoteControl do
             {:os_pid, pid} -> pid
             _ -> nil
           end
+
+        Process.send_after(self(), :ready_grace, ready_grace_ms)
 
         {:ok,
          %{
@@ -136,6 +144,11 @@ defmodule Aiur.Claude.RemoteControl do
 
   def handle_info({:EXIT, port, _reason}, %{port: port} = state) do
     {:stop, :normal, %{state | port: nil}}
+  end
+
+  def handle_info(:ready_grace, state) do
+    notify(state, {:remote_control_ready, self()})
+    {:noreply, state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
