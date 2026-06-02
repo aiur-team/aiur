@@ -6,12 +6,4 @@ ripgrep = "latest"
 
 [tasks.setup]
 description = "Symlink the aiurdev dev wrapper onto your PATH (~/.local/bin/aiurdev)"
-run = '''
-mkdir -p "$HOME/.local/bin"
-ln -sf "$MISE_PROJECT_ROOT/scripts/aiurdev" "$HOME/.local/bin/aiurdev"
-echo "linked $HOME/.local/bin/aiurdev -> $MISE_PROJECT_ROOT/scripts/aiurdev"
-case ":$PATH:" in
-  *":$HOME/.local/bin:"*) ;;
-  *) echo "note: $HOME/.local/bin is not on your PATH; add it so 'aiurdev' resolves globally" >&2 ;;
-esac
-'''
+run = "$MISE_PROJECT_ROOT/scripts/setup"

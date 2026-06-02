@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Symlink the aiurdev dev wrapper onto your PATH (~/.local/bin/aiurdev).
+# Shared by `mise run setup` and `npm run setup` so the two stay in sync.
+set -e
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+mkdir -p "$HOME/.local/bin"
+ln -sf "$repo_root/scripts/aiurdev" "$HOME/.local/bin/aiurdev"
+echo "linked $HOME/.local/bin/aiurdev -> $repo_root/scripts/aiurdev"
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) echo "note: $HOME/.local/bin is not on your PATH; add it so 'aiurdev' resolves globally" >&2 ;;
+esac
