@@ -28,6 +28,12 @@ defmodule Aiur.AgentList.Renderer do
   # trailing space.
   @attention_cell_width 4
 
+  # Fixed-width remote-control indicator column, sat immediately right
+  # of the identifier. Always allocated (even when no agent has RC on)
+  # so columns never shift when an agent is handed off. 3 columns:
+  # emoji (2 terminal columns) + trailing space.
+  @rc_cell_width 3
+
   # Maximum width allotted to the Latest column. The column takes
   # remaining inner width up to this cap; if there's less room
   # available, the column shrinks (and the message truncates with `…`).
@@ -108,8 +114,9 @@ defmodule Aiur.AgentList.Renderer do
       markers = compute_markers(state, summaries)
 
       # Footer split: keybinds on left, event emoji legend on right.
-      # When width doesn't fit both, legend wraps to its own row.
-      footer_render = footer_split(inner_width)
+      # When width doesn't fit both, legend wraps to its own row. An
+      # optional RC line (session URL or transient hint) rides above.
+      footer_render = footer_split(inner_width, rc_footer_text(state))
       footer_lines = footer_render.line_count
 
       base_lines = lines_emitted(state, inner_width, footer_lines)
@@ -465,7 +472,20 @@ defmodule Aiur.AgentList.Renderer do
   # - 2 rows: full keybinds alone on row 1, legend below
   #          OR primary keybinds + legend, "v layout" below
   # - 3 rows: primary keybinds, "v layout", legend (extremely narrow)
-  defp footer_split(inner_width) do
+  defp footer_split(inner_width, rc_line) do
+    base = footer_keybinds_split(inner_width)
+
+    case rc_line do
+      text when is_binary(text) and text != "" ->
+        rc_row = [left_only_row(truncate(text, max(inner_width - @footer_left_padding - 1, 0)), inner_width), eol()]
+        %{iodata: [rc_row | base.iodata], line_count: base.line_count + 1}
+
+      _ ->
+        base
+    end
+  end
+
+  defp footer_keybinds_split(inner_width) do
     legend = @events_legend
 
     cond do
@@ -506,6 +526,35 @@ defmodule Aiur.AgentList.Renderer do
           ],
           line_count: 3
         }
+    end
+  end
+
+  # RC footer text: the transient hint takes priority (immediate
+  # feedback after `r`/Space), falling back to the selected RC-on
+  # agent's session URL — the actionable output of the feature. The
+  # URL is a capability token shown to the local operator only; it is
+  # never logged.
+  defp rc_footer_text(state) do
+    case Map.get(state, :remote_control_hint) do
+      hint when is_binary(hint) and hint != "" ->
+        hint
+
+      _ ->
+        selected_remote_control_url(state)
+    end
+  end
+
+  defp selected_remote_control_url(state) do
+    summaries = Map.get(state, :summaries, [])
+    idx = Map.get(state, :selection_index, 0)
+    focus = Map.get(state, :selection_focus, :agents)
+
+    with :agents <- focus,
+         %{remote_control: %{status: :on, session_url: url}} when is_binary(url) <-
+           Enum.at(summaries, idx) do
+      "📱 " <> url
+    else
+      _ -> nil
     end
   end
 
@@ -550,6 +599,7 @@ defmodule Aiur.AgentList.Renderer do
     body = [
       "│   ",
       cell("ID", layout.id_width),
+      cell("", @rc_cell_width),
       "  ",
       cell("", @state_cell_width),
       cell("", @attention_cell_width),
@@ -630,6 +680,7 @@ defmodule Aiur.AgentList.Renderer do
       @ansi_cyan,
       id_cell,
       @ansi_reset,
+      rc_cell(summary),
       "  ",
       state_cell,
       attention_cell,
@@ -646,13 +697,13 @@ defmodule Aiur.AgentList.Renderer do
     runtime_width = @runtime_cell_width + 1
 
     # Visual columns consumed by the body, in order:
-    #   `│ ` (2) + marker (2) + id_cell + `  ` (2) + state_cell (3)
-    #   + attention_cell (4) + title_cell + ` ` (1) + latest_cell
-    #   + progress_block + runtime_block.
+    #   `│ ` (2) + marker (2) + id_cell + rc_cell (3) + `  ` (2)
+    #   + state_cell (3) + attention_cell (4) + title_cell + ` ` (1)
+    #   + latest_cell + progress_block + runtime_block.
     # Sum the parts directly so the right `│` border lands at the
     # same column as the metadata/separator rows above.
     plain_visual =
-      2 + 2 + layout.id_width + 2 + @state_cell_width + @attention_cell_width +
+      2 + 2 + layout.id_width + @rc_cell_width + 2 + @state_cell_width + @attention_cell_width +
         layout.title_width + 1 + layout.latest_width + progress_width + runtime_width
 
     # Reserve the last column for the right `│` border so each row
@@ -721,6 +772,24 @@ defmodule Aiur.AgentList.Renderer do
       end
 
     emoji_cell(text, @attention_cell_width)
+  end
+
+  # Remote-control indicator cell. `:launching` shows 📲 (registration
+  # is a network round-trip, so the operator gets feedback the instant
+  # `r` is pressed, before the URL lands — a distinct glyph from the ⏳
+  # warming marker so the two never read as the same state); `:on`
+  # shows 📱; `:failed` shows ❌; `:off`/absent shows nothing. Width is
+  # fixed at @rc_cell_width regardless so column alignment never shifts.
+  defp rc_cell(summary) do
+    glyph =
+      case Map.get(summary, :remote_control) do
+        %{status: :launching} -> "📲"
+        %{status: :on} -> "📱"
+        %{status: :failed} -> "❌"
+        _ -> ""
+      end
+
+    emoji_cell(glyph, @rc_cell_width)
   end
 
   # Progress + ETA pair, rendered as one cell of fixed width 16:
@@ -963,11 +1032,15 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_title_width)
 
-    # `│ ` (2) + marker (2) + id + `  ` (2) + state (3) + attention (4)
-    # + title + ` ` (1) + [progress block] + runtime_block (8) + ` │`
-    # (1 for the right border the row closes with).
+    # `│ ` (2) + marker (2) + id + rc (3) + `  ` (2) + state (3)
+    # + attention (4) + title + ` ` (1) + [progress block]
+    # + runtime_block (8) + ` │` (1 for the right border the row
+    # closes with).
     runtime_block_width = @runtime_cell_width + 1
-    base_overhead = 2 + 2 + 2 + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
+
+    base_overhead =
+      2 + 2 + @rc_cell_width + 2 + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
+
     show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
     fixed_non_id_overhead = base_overhead + progress_block_width

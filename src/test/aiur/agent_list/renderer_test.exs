@@ -786,4 +786,81 @@ defmodule Aiur.AgentList.RendererTest do
       refute String.contains?(row, @ansi_green)
     end
   end
+
+  describe "remote-control indicator (U5)" do
+    defp rc_row(out, id), do: Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ id))
+
+    test ":on shows 📱, :launching shows 📲, :failed shows ❌, :off shows none" do
+      summaries = [
+        %{identifier: "RC-ON", status: :running, alert_count: 0, remote_control: %{status: :on}},
+        %{identifier: "RC-LCH", status: :running, alert_count: 0, remote_control: %{status: :launching}},
+        %{identifier: "RC-FAIL", status: :running, alert_count: 0, remote_control: %{status: :failed}},
+        %{identifier: "RC-OFF", status: :running, alert_count: 0}
+      ]
+
+      out = render(base_state(%{summaries: summaries, columns: 200}))
+
+      assert visible(rc_row(out, "RC-ON")) =~ "📱"
+      assert visible(rc_row(out, "RC-LCH")) =~ "📲"
+      assert visible(rc_row(out, "RC-FAIL")) =~ "❌"
+
+      # RC-OFF carries no RC glyph (it still shows the ⏳ warming
+      # state marker, which is a separate column — hence we only
+      # refute the RC glyphs here).
+      off = visible(rc_row(out, "RC-OFF"))
+      refute off =~ "📱"
+      refute off =~ "📲"
+      refute off =~ "❌"
+    end
+
+    test "indicator column keeps alignment across statuses (no crash, right border intact)" do
+      summaries = [
+        %{identifier: "RC-ON", status: :running, alert_count: 0, remote_control: %{status: :on}},
+        %{identifier: "RC-OFF", status: :running, alert_count: 0}
+      ]
+
+      out = render(base_state(%{summaries: summaries, columns: 200}))
+
+      # Each agent row closes with the right `│` border regardless of
+      # whether the RC glyph is present (fixed indicator width).
+      on_row = visible(rc_row(out, "RC-ON"))
+      off_row = visible(rc_row(out, "RC-OFF"))
+      assert String.ends_with?(String.trim_trailing(on_row), "│")
+      assert String.ends_with?(String.trim_trailing(off_row), "│")
+    end
+
+    test "selecting an RC-on agent renders its session URL on the footer line" do
+      url = "https://claude.ai/code/session_01ABC"
+
+      summaries = [
+        %{
+          identifier: "RC-URL",
+          status: :running,
+          alert_count: 0,
+          remote_control: %{status: :on, session_url: url}
+        }
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            selection_index: 0,
+            selection_focus: :agents
+          })
+        )
+        |> visible()
+
+      assert out =~ url
+    end
+
+    test "a transient hint is shown on the footer line" do
+      out =
+        render(base_state(%{remote_control_hint: "Remote Control requires a local Claude agent"}))
+        |> visible()
+
+      assert out =~ "Remote Control requires a local Claude agent"
+    end
+  end
 end
