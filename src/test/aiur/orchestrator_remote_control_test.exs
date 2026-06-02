@@ -246,5 +246,70 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       assert_received {:off_result, {:ok, :off}}
       refute Process.alive?(server_pid)
     end
+
+    test "set off deletes the handoff file so the re-dispatched agent is clean", %{workspace: workspace} do
+      {_result, state, _agent_pid, _agent_ref} = launch!(workspace)
+      handoff = Path.join(workspace, "CLAUDE.local.md")
+      assert File.exists?(handoff)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        Orchestrator.set_remote_control_for_test(state, "CLA-RC", false)
+      end)
+
+      refute File.exists?(handoff)
+    end
+
+    test "terminating an RC-active issue stops the server and clears the handoff", %{workspace: workspace} do
+      {_result, state, _agent_pid, _agent_ref} = launch!(workspace)
+      server_pid = state.running["issue-CLA-RC"][:remote_control].server_pid
+      handoff = Path.join(workspace, "CLAUDE.local.md")
+      assert File.exists?(handoff)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        new_state = Orchestrator.terminate_running_issue_for_test(state, "issue-CLA-RC", false)
+        send(self(), {:terminated, new_state})
+      end)
+
+      assert_received {:terminated, new_state}
+      refute Map.has_key?(new_state.running, "issue-CLA-RC")
+      refute Process.alive?(server_pid)
+      refute File.exists?(handoff)
+    end
+
+    test "a trust failure aborts the launch with the headless driver intact", %{workspace: workspace, claude_json: claude_json} do
+      # Point the trust write at a path that can't be created (a file used as
+      # a directory), so ensure_workspace_trusted returns {:error, _}.
+      File.write!(claude_json, "{}")
+      Application.put_env(:aiur, :remote_control_claude_json, Path.join(claude_json, "nested.json"))
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      agent_ref = Process.monitor(agent_pid)
+
+      entry =
+        running_entry("CLA-RC", ["model:claude"],
+          pid: agent_pid,
+          ref: agent_ref,
+          workspace_path: workspace
+        )
+
+      state = state_with([entry])
+
+      {result, new_state} =
+        ExUnit.CaptureLog.capture_log(fn ->
+          send(self(), {:res, Orchestrator.set_remote_control_for_test(state, "CLA-RC", true)})
+        end)
+        |> then(fn _log ->
+          assert_received {:res, res}
+          res
+        end)
+
+      assert {:error, {:rc_trust_failed, _}} = result
+      # State unchanged — driver still alive, no RC entry, no handoff written.
+      assert new_state == state
+      assert Process.alive?(agent_pid)
+      refute File.exists?(Path.join(workspace, "CLAUDE.local.md"))
+
+      Process.exit(agent_pid, :kill)
+    end
   end
 end

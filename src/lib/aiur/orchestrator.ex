@@ -957,6 +957,13 @@ defmodule Aiur.Orchestrator do
     update_remote_control_url(state, server_pid, url)
   end
 
+  @doc false
+  @spec terminate_running_issue_for_test(State.t(), String.t(), boolean()) :: State.t()
+  def terminate_running_issue_for_test(%State{} = state, issue_id, cleanup_workspace)
+      when is_binary(issue_id) and is_boolean(cleanup_workspace) do
+    terminate_running_issue(state, issue_id, cleanup_workspace)
+  end
+
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   defp reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
@@ -1101,6 +1108,12 @@ defmodule Aiur.Orchestrator do
       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
         state = record_session_completion_totals(state, running_entry)
         worker_host = Map.get(running_entry, :worker_host)
+
+        # If RC was active for this entry, stop the server and detach its
+        # monitor — otherwise the terminal-state teardown orphans the
+        # `claude remote-control` process and leaks the monitor ref.
+        stop_running_remote_control(running_entry)
+        delete_remote_control_handoff(Map.get(running_entry, :workspace_path))
 
         if cleanup_workspace do
           cleanup_issue_workspace(identifier, worker_host)
@@ -3664,15 +3677,34 @@ defmodule Aiur.Orchestrator do
   end
 
   defp launch_remote_control(state, running_entry) do
+    identifier = Map.get(running_entry, :identifier)
+    workspace = Map.get(running_entry, :workspace_path)
+
+    # Trust the workspace (serialized here) before tearing down the headless
+    # driver. If trust fails, RC can't start, so abort with the driver intact
+    # rather than stranding the issue with no agent at all.
+    case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
+      :ok ->
+        do_launch_remote_control(state, running_entry)
+
+      {:error, reason} ->
+        Logger.error(
+          "Remote Control trust failed: identifier=#{identifier} workspace=#{workspace} reason=#{inspect(reason)}"
+        )
+
+        {{:error, {:rc_trust_failed, reason}}, state}
+    end
+  end
+
+  defp do_launch_remote_control(state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     workspace = Map.get(running_entry, :workspace_path)
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
-    # Trust the workspace (serialized here) and prime the handoff file the
-    # fresh RC session reads as context — RC has no --prompt/--resume flag.
-    RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts())
+    # Prime the handoff file the fresh RC session reads as context — RC has
+    # no --prompt/--resume flag.
     write_remote_control_handoff(workspace)
 
     # Stop the headless driver so the workspace + app_session are freed.
@@ -3705,7 +3737,10 @@ defmodule Aiur.Orchestrator do
 
       {:error, reason} ->
         # Launch failed — don't strand the issue with no driver; re-dispatch.
+        # Delete the handoff file first so the re-dispatched headless agent
+        # doesn't inherit the RC priming prompt.
         Logger.error("Remote Control launch failed: identifier=#{identifier} reason=#{inspect(reason)}")
+        delete_remote_control_handoff(workspace)
         issue = Map.get(running_entry, :issue)
 
         entry =
@@ -3721,6 +3756,7 @@ defmodule Aiur.Orchestrator do
 
   defp remote_control_off(state, running_entry) do
     stop_running_remote_control(running_entry)
+    delete_remote_control_handoff(Map.get(running_entry, :workspace_path))
 
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     issue = Map.get(running_entry, :issue)
@@ -3785,12 +3821,30 @@ defmodule Aiur.Orchestrator do
 
   defp write_remote_control_handoff(workspace) do
     handoff = RemoteControl.build_handoff(workspace: workspace)
-    File.write(Path.join(workspace, "CLAUDE.local.md"), handoff)
+
+    case File.write(Path.join(workspace, "CLAUDE.local.md"), handoff) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Remote Control handoff write failed: workspace=#{workspace} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
   rescue
     error ->
-      Logger.warning("Remote Control handoff write failed: #{inspect(error)}")
-      :ok
+      Logger.error("Remote Control handoff write crashed: workspace=#{workspace} error=#{inspect(error)}")
+      {:error, error}
   end
+
+  defp delete_remote_control_handoff(workspace) when is_binary(workspace) do
+    case File.rm(Path.join(workspace, "CLAUDE.local.md")) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> Logger.warning("Remote Control handoff delete failed: workspace=#{workspace} reason=#{inspect(reason)}")
+    end
+  end
+
+  defp delete_remote_control_handoff(_workspace), do: :ok
 
   defp remote_control_active_entry?(entry) when is_map(entry) do
     case Map.get(entry, :remote_control) do
