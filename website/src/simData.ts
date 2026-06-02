@@ -1,6 +1,6 @@
 // Data model for the looping Aiur dashboard simulation.
 // Theme: "ShopWave", a fictional e-commerce/payments SaaS.
-// See elixir/docs/brainstorms/2026-05-30-aiur-terminal-simulation-handoff.md
+// See src/docs/brainstorms/2026-05-30-aiur-terminal-simulation-handoff.md
 
 export type Agent = "opus" | "sonnet" | "codex";
 export type Phase =

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Manual CLI verification harness for the 6 acceptance examples in
-# elixir/docs/brainstorms/2026-05-21-aiur-pane-lifecycle-and-background-attach-requirements.md.
+# src/docs/brainstorms/2026-05-21-aiur-pane-lifecycle-and-background-attach-requirements.md.
 #
-# Drives scripts/aiur end-to-end inside an outer tmux session, captures
+# Drives scripts/aiurdev end-to-end inside an outer tmux session, captures
 # phase-log evidence, and reports pass/fail per AE.
 #
 # Exits 0 if every AE passes, 1 otherwise. Each AE has its own check
@@ -15,9 +15,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTER_SOCKET="${OUTER_SOCKET:-aiur-u11-outer}"
 OUTER_SESSION="u11"
 BOOT_TIMEOUT_S=60
-# scripts/aiur sets --logs-root only when the profile config supplies one.
+# scripts/aiurdev sets --logs-root only when the profile config supplies one.
 # For ad-hoc workflows the BEAM defaults to `<elixir_dir>/log/aiur.log`.
-LOG_FILE="$REPO_ROOT/elixir/log/aiur.log"
+LOG_FILE="$REPO_ROOT/src/log/aiur.log"
 
 color_ok='\033[0;32m'
 color_fail='\033[0;31m'
@@ -58,12 +58,12 @@ mkdir -p "$(dirname "$LOG_FILE")"
 echo "Booting aiur in outer tmux..."
 
 tmux -L "$OUTER_SOCKET" new-session -d -s "$OUTER_SESSION" -x 220 -y 60
-# scripts/aiur refuses to launch if $TMUX is set (warns "already inside a tmux session").
+# scripts/aiurdev refuses to launch if $TMUX is set (warns "already inside a tmux session").
 # The pane we just created inherits $TMUX from the outer tmux server, so unset it for
-# this invocation specifically. The inner scripts/aiur then creates its own isolated
+# this invocation specifically. The inner scripts/aiurdev then creates its own isolated
 # tmux server on its own socket.
 tmux -L "$OUTER_SOCKET" send-keys -t "$OUTER_SESSION" \
-  "cd $REPO_ROOT && unset TMUX TMUX_PANE && scripts/aiur '$REPO_ROOT/elixir/.aiurconfig'" \
+  "cd $REPO_ROOT && unset TMUX TMUX_PANE && scripts/aiurdev '$REPO_ROOT/src/.aiurconfig'" \
   Enter
 
 # Wait for the BEAM to write phase=ready for warm_server + hidden_window + agent_list.

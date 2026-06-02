@@ -10,7 +10,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-elixir_dir="$repo_root/elixir"
+elixir_dir="$repo_root/src"
 mix_env="${MIX_ENV:-prod}"
 
 cd "$elixir_dir"

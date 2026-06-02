@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Distribution launcher for the aiur OTP release.
 #
-# Reproduces the interactive run that `scripts/aiur` provides for repo/dev use,
+# Reproduces the interactive run that `scripts/aiurdev` provides for repo/dev use,
 # but with every repo/toolchain assumption stripped out. It drives a relocated
 # `mix release` (bundled ERTS, no Elixir/Erlang on PATH) pointed to by
 # AIUR_RELEASE_DIR: sets the distribution env contract (cookie + named node),
@@ -76,7 +76,7 @@ build_init_cmd() {
 }
 
 # --- distribution env contract ---------------------------------------------
-# Port of scripts/aiur ensure_erlang_cookie + prepare_distribution. A stable
+# Port of scripts/aiurdev ensure_erlang_cookie + prepare_distribution. A stable
 # secret cookie + a 127.0.0.1-pinned long node name so neither BEAM resolves a
 # hostname (Debian maps the hostname to 127.0.1.1, which breaks Node.connect).
 prepare_distribution() {

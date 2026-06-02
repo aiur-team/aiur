@@ -1,7 +1,7 @@
 # Operating Notes
 
 Context for engineers and coding agents working in this repository. Setup
-lives in [`elixir/README.md`](elixir/README.md); this file captures the
+lives in [`src/README.md`](src/README.md); this file captures the
 operational practices that aren't in the main README.
 
 ## Layout
@@ -9,31 +9,34 @@ operational practices that aren't in the main README.
 - `.aiurconfig` — the single Aiur config file (pure YAML). An optional
   `prompt_file:` key points at a sibling Liquid prompt template. Run
   `aiur init` to scaffold one.
-- `elixir/examples/workflows/` — portable example configs (Linear+Codex,
+- `src/examples/workflows/` — portable example configs (Linear+Codex,
   GitHub+Codex, GitHub+Claude), each an `.aiurconfig` plus a `.prompt.md`
   template. Copy a pair when starting fresh.
 - `.aiurconfig` + `AIUR.md` (repo root) — the machine-local operational
   config this repo dogfoods, plus its prompt template. Checked in but **not**
   portable defaults. Used by the built-in `aiur` profile.
-- `scripts/aiur` — thin wrapper around `bin/aiur`. Auto-detects OS
+- `scripts/aiurdev` — thin wrapper around `bin/aiur`, the local dev build of
+  the CLI (the npm-installed product command is `aiur`). Auto-detects OS
   (systemd on Linux, `nohup`+PID on macOS) and rebuilds the escript when
-  sources are newer than the binary. See the README for the command surface.
+  sources are newer than the binary. Run `npm run setup` (or `mise run setup`)
+  to install the toolchain and symlink it onto your `PATH`. See the README for
+  the command surface.
 
 ## Running
 
-`aiur` is the entry point for everything. Don't `mise exec -- mix …` by
+`aiurdev` is the entry point for everything. Don't `mise exec -- mix …` by
 hand unless something is broken.
 
 ```text
-aiur                       # default profile, foreground, local-only bind
-aiur <profile>             # named profile, foreground
-aiur --bg [profile|all]    # background mode
-aiur stop [profile|all]    # stop tracked services + foreground processes
-aiur build                 # explicit rebuild of bin/aiur
-aiur --host …              # opt out of the local-only --host injection
+aiurdev                       # default profile, foreground, local-only bind
+aiurdev <profile>             # named profile, foreground
+aiurdev --bg [profile|all]    # background mode
+aiurdev stop [profile|all]    # stop tracked services + foreground processes
+aiurdev build                 # explicit rebuild of bin/aiur
+aiurdev --host …              # opt out of the local-only --host injection
 ```
 
-`aiur` injects `--host 127.0.0.1` unless you pass `--host` somewhere in
+`aiurdev` injects `--host 127.0.0.1` unless you pass `--host` somewhere in
 the args. Pass `--host` when you want to expose the dashboard over the
 network (e.g. Tailscale, LAN).
 
@@ -83,8 +86,8 @@ makes HTTPS Just Work.
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
 from the environment. Set them empty (or unset) to disable basic auth
 locally. Source these from a gitignored file — `.env`, `.env.local`, or
-`~/.config/aiur-dashboard.env` are all loaded automatically by
-`scripts/aiur` if present.
+`~/.config/aiurdev-dashboard.env` are all loaded automatically by
+`scripts/aiurdev` if present.
 
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
@@ -114,14 +117,14 @@ When the user (or any doc) says "manually test", "run aiur and try it",
 "verify end to end", "see if it works", or anything in that family, the
 **only acceptable verification** is to drive the real CLI:
 
-1. **Launch the actual CLI**: `scripts/aiur --test --force --allow-remote`
+1. **Launch the actual CLI**: `scripts/aiurdev --test --force --allow-remote`
    (or whichever flags the scenario calls for). This must spawn the real
    release binary, the tmux session, opencode-serves, and opencode-attach
    TUI panes — not just the BEAM and not a one-off `mix run`.
 2. **Drive the TUI like a user would.** Press keys, open chat panes
    (Enter on an agent row), type messages into the chat input, navigate
    between panes. From a non-TTY agent environment, use `tmux send-keys`
-   on the live `aiur-orangekid` socket — that **is** how a user
+   on the live `aiurdev-orangekid` socket — that **is** how a user
    interacts; `setsid` is fine for spawning, but interaction must hit
    the running tmux session, not a separate shell.
 3. **Observe what a user actually sees.** Read the rendered chat-pane
@@ -141,7 +144,7 @@ When the user (or any doc) says "manually test", "run aiur and try it",
    only the second satisfies "manually tested".
 
 **Do not report a feature as "working", "verified", or "shipped" until
-you have run `aiur --test` end to end, opened a chat pane, and observed
+you have run `aiurdev --test` end to end, opened a chat pane, and observed
 the rendered output you'd expect a user to see.** "Tests pass + logs
 look right + tmux capture-pane shows a header" is necessary but not
 sufficient. Substituting HTTP or log proxies is never acceptable.
@@ -165,13 +168,13 @@ This pattern was validated live and is the canonical recipe — do not
 substitute HTTP, curl, mix scripts, or background-mode launches.
 
 1. **Spawn aiur inside a wrapper tmux on a separate socket.** The
-   wrapper supplies the pty `scripts/aiur` needs for its internal
+   wrapper supplies the pty `scripts/aiurdev` needs for its internal
    `tmux attach`. Unset `$TMUX` before launching or aiur refuses to
    nest:
 
    ```bash
    tmux -L claude-driver new-session -d -s aiur-driver -x 220 -y 60 \
-     "bash -c 'unset TMUX; AIUR_DEBUG=1 exec mise exec -- ./scripts/aiur --test' 2>&1 \
+     "bash -c 'unset TMUX; AIUR_DEBUG=1 exec mise exec -- ./scripts/aiurdev --test' 2>&1 \
         | tee /tmp/aiur-driver-startup.log; sleep 3600"
    ```
 
@@ -182,7 +185,7 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    + build + boot take ~30-60s):
 
    ```bash
-   until tmux -L aiur-orangekid has-session -t aiur-orangekid-default 2>/dev/null
+   until tmux -L aiurdev-orangekid has-session -t aiurdev-orangekid-default 2>/dev/null
    do sleep 3; done
    ```
 
@@ -191,7 +194,7 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    pane `0.1`, active):
 
    ```bash
-   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.0 Enter
+   tmux -L aiurdev-orangekid send-keys -t aiurdev-orangekid-default:0.0 Enter
    ```
 
    **Precondition (validated 2026-05-29):** `Enter` only swaps in the
@@ -206,9 +209,9 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    ```bash
    # wait until at least one row has booted past the warm-up glyphs,
    # then capture 0.0 to see which row is selected (▶)
-   until tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.0 -p \
+   until tmux -L aiurdev-orangekid capture-pane -t aiurdev-orangekid-default:0.0 -p \
        | grep -vqE 'Warming up|Starting codex|Queueing agent'; do sleep 5; done
-   tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.0 -p -S -40
+   tmux -L aiurdev-orangekid capture-pane -t aiurdev-orangekid-default:0.0 -p -S -40
    ```
 
    The AgentList **re-sorts live** (running agents bubble to the top),
@@ -220,9 +223,9 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    message text as a single argument, then `Enter` separately:
 
    ```bash
-   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.1 \
+   tmux -L aiurdev-orangekid send-keys -t aiurdev-orangekid-default:0.1 \
      "your operator message here"
-   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.1 Enter
+   tmux -L aiurdev-orangekid send-keys -t aiurdev-orangekid-default:0.1 Enter
    ```
 
    Verify it landed by `capture-pane -p` on `0.1` — you should see
@@ -235,7 +238,7 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
 5. **Capture what the user sees** at any time:
 
    ```bash
-   tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.1 -p -S -200
+   tmux -L aiurdev-orangekid capture-pane -t aiurdev-orangekid-default:0.1 -p -S -200
    ```
 
 6. **Inner pane layout reference** (from `list-panes -a`):
@@ -245,16 +248,16 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    - `1.1`, `1.2`, `1.3` — opencode chat slots (hidden until swapped
      into window 0)
 
-7. **Cleanup**: `mise exec -- ./scripts/aiur stop` from a fresh shell
+7. **Cleanup**: `mise exec -- ./scripts/aiurdev stop` from a fresh shell
    (it kills both the inner BEAM and tmux session). Then
    `tmux -L claude-driver kill-server`.
 
 Gotchas worth remembering:
 - `--bg` mode does **not** start the workflow/agents (no chat panes,
-  no live activity). Always use foreground `aiur --test` for manual
+  no live activity). Always use foreground `aiurdev --test` for manual
   testing.
 - The wrapper-tmux socket name (e.g. `claude-driver`) is the agent's
-  choice and must NOT collide with `aiur-orangekid` (aiur's own
+  choice and must NOT collide with `aiurdev-orangekid` (aiur's own
   internal socket).
 - `send-keys` accepts both literal strings and tmux key names
   (`Enter`, `Tab`, `Up`, etc.) — pass them as separate arguments.
@@ -263,7 +266,7 @@ Gotchas worth remembering:
 
 A single `capture-pane` is a snapshot. To watch how a pane evolves —
 how the opencode chat renders commands, tool results, and **file-edit
-diffs** as an agent works — run `aiur --debug`. A debug session
+diffs** as an agent works — run `aiurdev --debug`. A debug session
 automatically records each `OC | <issue>` chat pane into its own
 stitched transcript under the log dir: `log/record/chat.<issue>.ansi`.
 The chat panes have no logfile of their own, so this is the only durable
