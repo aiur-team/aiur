@@ -3887,10 +3887,12 @@ defmodule Aiur.Orchestrator do
   defp update_remote_control_url(state, server_pid, url) do
     case find_rc_entry(state.running, fn rc -> Map.get(rc, :server_pid) == server_pid end) do
       {issue_id, entry} ->
-        rc = entry |> Map.get(:remote_control) |> Map.merge(%{status: :on, session_url: url})
+        rc = Map.get(entry, :remote_control)
+        was_launching = Map.get(rc, :status) == :launching
+        rc = Map.merge(rc, %{status: :on, session_url: url})
         entry = Map.put(entry, :remote_control, rc)
         state = %{state | running: Map.put(state.running, issue_id, entry)}
-        Logger.info("Remote Control ready: #{rc_log_context(entry)}")
+        if was_launching, do: Logger.info("Remote Control ready: #{rc_log_context(entry)}")
         notify_dashboard(state)
         state
 
