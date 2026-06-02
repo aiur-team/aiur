@@ -32,6 +32,7 @@ git clone https://github.com/its-everdred/aiur
 cd aiur
 mise install
 mise run setup                   # symlinks the aiurdev dev wrapper onto your PATH
+#   (or, if you prefer npm:  npm run setup)
 cd src && aiurdev init           # scaffolds .aiurconfig in the current repo
 # Or copy a starter pair (the config's prompt_file: points at the sibling template):
 #   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
