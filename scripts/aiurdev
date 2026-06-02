@@ -4,7 +4,7 @@ set -euo pipefail
 # Agent-workspace guard. When an agent runs inside its workspace,
 # aiur sets `AIUR_AGENT_WORKSPACE=<workspace path>` in its env
 # (Aiur.AgentEnvironment.workspace_env/1). If we see that marker,
-# refuse to do anything — `scripts/aiur --test`/`--test3` calls
+# refuse to do anything — `scripts/aiurdev --test`/`--test3` calls
 # `stop all` which pkill-s the operator's BEAM, and `mix aiur.test.reset`
 # wipes the sandbox tickets back to agent:todo, destroying the
 # in-flight run. Agents that try "manual CLI verification" by
@@ -35,7 +35,7 @@ case "${PWD:-}" in
 esac
 
 # Resolve symlinks so the script works when invoked via a symlink on PATH
-# (e.g. `ln -s .../scripts/aiur ~/.local/bin/aiur`). Without this, BASH_SOURCE
+# (e.g. `ln -s .../scripts/aiurdev ~/.local/bin/aiurdev`). Without this, BASH_SOURCE
 # returns the symlink path and script_dir resolves to the symlink's parent.
 src="${BASH_SOURCE[0]}"
 while [ -L "$src" ]; do
@@ -46,21 +46,21 @@ done
 script_dir="$(cd -P "$(dirname "$src")" && pwd)"
 default_repo_root="$(cd "$script_dir/.." && pwd)"
 repo_root="${AIUR_REPO_ROOT:-$default_repo_root}"
-config_file="${AIUR_CONFIG_FILE:-$HOME/.config/aiur/aiur.profiles}"
-env_file="${AIUR_ENV_FILE:-$HOME/.config/aiur-dashboard.env}"
+config_file="${AIUR_CONFIG_FILE:-$HOME/.config/aiurdev/aiurdev.profiles}"
+env_file="${AIUR_ENV_FILE:-$HOME/.config/aiurdev-dashboard.env}"
 mise_bin="${AIUR_MISE_BIN:-$(command -v mise 2>/dev/null || true)}"
 systemctl_bin="${AIUR_SYSTEMCTL_BIN:-systemctl}"
 pkill_bin="${AIUR_PKILL_BIN:-pkill}"
 nohup_bin="${AIUR_NOHUP_BIN:-nohup}"
 kill_bin="${AIUR_KILL_BIN:-kill}"
 tmux_bin="${AIUR_TMUX_BIN:-$(command -v tmux 2>/dev/null || echo tmux)}"
-bg_state_dir="${AIUR_BG_STATE_DIR:-$HOME/.local/state/aiur}"
+bg_state_dir="${AIUR_BG_STATE_DIR:-$HOME/.local/state/aiurdev}"
 
 aiur_os="${AIUR_OS_OVERRIDE:-$(uname -s)}"
 
 # --host: when present, let the workflow's configured host stand (typical for
 # Tailscale or LAN exposure). When absent, the wrapper injects
-# `--host 127.0.0.1` so a default `aiur` run binds locally only.
+# `--host 127.0.0.1` so a default `aiurdev` run binds locally only.
 expose_host=0
 debug_mode=0
 clear_mode=0
@@ -165,13 +165,13 @@ for arg in "$@"; do
 done
 
 if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
-  echo "❌ --clear requires --debug (e.g. \`aiur --debug --clear\`)" >&2
+  echo "❌ --clear requires --debug (e.g. \`aiurdev --debug --clear\`)" >&2
   exit 64
 fi
 
 # --test (golden ticket) and --test3 (3-ticket blocker chain) both
 # run the sandbox reset BEFORE launching. They compose with any
-# other flag — e.g. `aiur --test --debug --clear` resets the golden
+# other flag — e.g. `aiurdev --test --debug --clear` resets the golden
 # sandbox ticket then launches normally with debug + clear-logs.
 # Auto-passes `--confirm` so it's a single-command workflow;
 # `--force` / `--allow-remote` are forwarded for the rare overrides.
@@ -325,23 +325,23 @@ declare -a profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: aiur [list|status|pause <id...|--all>|resume <id...|--all>|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
+Usage: aiurdev [list|status|pause <id...|--all>|resume <id...|--all>|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
 
 Without args, attach to an existing default session or run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
 With a profile name, attach to its existing session or run that profile's workflow in the foreground.
 With --bg, restart background services only and return. Defaults to the default profile.
 With all, restart the other configured services and run the default profile in the foreground.
-With stop, stop a backgrounded profile (`aiur --bg ...`) or every profile.
-Foregrounded runs (`aiur`, `aiur --test`, etc.) self-clean on exit via the
-script's EXIT/INT/TERM/HUP trap — `aiur stop` is not needed for those.
+With stop, stop a backgrounded profile (`aiurdev --bg ...`) or every profile.
+Foregrounded runs (`aiurdev`, `aiurdev --test`, etc.) self-clean on exit via the
+script's EXIT/INT/TERM/HUP trap — `aiurdev stop` is not needed for those.
 With status, list active agents and their pause/run state.
 With pause/resume, control one or more agents by issue ID. IDs can be
 space-separated or comma-separated. Use --all to target the current snapshot.
 
 Options:
   --debug              enable verbose debug logging (sets AIUR_DEBUG=1).
-                       Tail logs in another terminal: `aiur --logs`.
+                       Tail logs in another terminal: `aiurdev --logs`.
                        Also records each opencode chat pane into
                        `log/record/chat.<issue>.ansi` (ANSI preserved, so
                        grep rendered diffs for `@@`, not "```diff").
@@ -353,17 +353,17 @@ Options:
                        Must be combined with --debug.
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
-                       Useful in a separate terminal alongside `aiur --debug`.
+                       Useful in a separate terminal alongside `aiurdev --debug`.
   --fresh, --new       start a fresh foreground session even if an
                        existing Aiur tmux session is available to attach.
   --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
                        Aiur.IssueLog writes for an active
                        conversation pane. Does not start agents.
-                       Example: `aiur --log 25`
+                       Example: `aiurdev --log 25`
   --host               leave the workflow's configured host alone (default
                        binds to 127.0.0.1 for loopback-only access).
   --port <N>           override the profile/workflow port for this invocation.
-                       Without this, aiur auto-increments up to 9 ports when
+                       Without this, aiurdev auto-increments up to 9 ports when
                        the configured port is already in use.
   build [--deps]       force a rebuild of the aiur app + release
                        (~30s). Pass `--deps` to also wipe the deps'
@@ -398,7 +398,7 @@ Foreground dashboard controls:
   esc or ctrl-c        return from conversation to agent selection
   q                    quit from navigation mode
 
-Profiles are loaded from ~/.config/aiur/aiur.profiles when present.
+Profiles are loaded from ~/.config/aiurdev/aiurdev.profiles when present.
 Each non-comment line uses:
   name|aiur_root|workflow|port|logs_root|service
 
@@ -805,7 +805,7 @@ prepare_distribution() {
   # hostname to `127.0.1.1` while we listen on `127.0.0.1` — the resulting
   # IP mismatch shows up as `Node.connect -> false` with no helpful error.
   # Skipping the resolver entirely makes connection deterministic.
-  local node_name="${AIUR_RELEASE_NODE:-aiur-${USER}@127.0.0.1}"
+  local node_name="${AIUR_RELEASE_NODE:-aiurdev-${USER}@127.0.0.1}"
 
   # Read the cookie and set it explicitly for both release scripts and any
   # local helper node that needs to connect to the running Aiur BEAM.
@@ -925,7 +925,7 @@ run_control_rpc() {
   set -e
 
   if [ "$status" -ne 0 ]; then
-    echo "aiur: no running aiur node at ${RELEASE_NODE:-aiur-${USER}@127.0.0.1}; start Aiur and try again" >&2
+    echo "aiurdev: no running aiur node at ${RELEASE_NODE:-aiurdev-${USER}@127.0.0.1}; start Aiur and try again" >&2
     return 1
   fi
 
@@ -961,7 +961,7 @@ control_command() {
   case "$command" in
     status)
       if [ "$#" -ne 0 ]; then
-        echo "aiur: status does not accept arguments" >&2
+        echo "aiurdev: status does not accept arguments" >&2
         exit 64
       fi
 
@@ -970,7 +970,7 @@ control_command() {
       ;;
     pause | resume)
       if ! parse_issue_targets 1 "$@"; then
-        echo "aiur: $command expects issue IDs or --all (examples: aiur $command 44 45,46; aiur $command --all)" >&2
+        echo "aiurdev: $command expects issue IDs or --all (examples: aiurdev $command 44 45,46; aiurdev $command --all)" >&2
         exit 64
       fi
 
@@ -988,7 +988,7 @@ control_command() {
 }
 
 ensure_aiur_state_dir() {
-  mkdir -p -m 0700 "$HOME/.config/aiur" 2>/dev/null || true
+  mkdir -p -m 0700 "$HOME/.config/aiurdev" 2>/dev/null || true
 }
 
 check_tmux() {
@@ -1061,33 +1061,33 @@ stop_profile() {
 
   if [[ "$workflow" = /* ]]; then
     "$pkill_bin" -f "$workflow" 2>/dev/null || true
-    "$pkill_bin" -f "bin/aiur .*--interactive.*$workflow" 2>/dev/null || true
+    "$pkill_bin" -f "$elixir_dir.*bin/aiur .*--interactive.*$workflow" 2>/dev/null || true
   else
     "$pkill_bin" -f "$elixir_dir/${workflow#./}" 2>/dev/null || true
     "$pkill_bin" -f "$elixir_dir/$workflow" 2>/dev/null || true
-    "$pkill_bin" -f "bin/aiur .*--interactive.*${workflow#./}" 2>/dev/null || true
-    "$pkill_bin" -f "bin/aiur .*--interactive.*$workflow" 2>/dev/null || true
+    "$pkill_bin" -f "$elixir_dir.*bin/aiur .*--interactive.*${workflow#./}" 2>/dev/null || true
+    "$pkill_bin" -f "$elixir_dir.*bin/aiur .*--interactive.*$workflow" 2>/dev/null || true
   fi
 
   if [ -n "$logs_root" ]; then
-    "$pkill_bin" -f "bin/aiur .*--interactive.*--logs-root $logs_root" 2>/dev/null || true
+    "$pkill_bin" -f "$elixir_dir.*bin/aiur .*--interactive.*--logs-root $logs_root" 2>/dev/null || true
   fi
 
   if [ -n "$port" ]; then
-    "$pkill_bin" -f "bin/aiur .*--interactive.*--port $port" 2>/dev/null || true
+    "$pkill_bin" -f "$elixir_dir.*bin/aiur .*--interactive.*--port $port" 2>/dev/null || true
   fi
 
   "$pkill_bin" -f "$elixir_dir.*bin/aiur" 2>/dev/null || true
 
   # The OTP release replaces `bin/aiur` with `beam.smp ... -name
-  # aiur-orangekid@<host>`. The escript-era patterns above no longer
+  # aiurdev-orangekid@<host>`. The escript-era patterns above no longer
   # match — target the release's BEAM by the erts/bin path that only
   # the release would launch from. Scope to THIS install's elixir_dir
-  # so an agent-driven `aiur --test` running from a workspace clone
+  # so an agent-driven `aiurdev --test` running from a workspace clone
   # (e.g. /tmp/issue100-aiur/src/...) never reaches the operator's
   # BEAM under the source checkout. `pkill -f` matches against the
   # whole command line, which would also match THIS very bash process
-  # if we use the obvious `-name aiur-orangekid` string here. Avoid
+  # if we use the obvious `-name aiurdev-orangekid` string here. Avoid
   # self-kill by enumerating PIDs first and signalling them directly.
   for pid in $(pgrep -f "$elixir_dir/_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
     [ "$pid" = "$$" ] && continue
@@ -1360,16 +1360,16 @@ print_startup_failure() {
   fi
 
   echo >&2
-  echo "Hint: port already in use. Aiur automatically tries the next 9 ports; try \`aiur --port <N>\` or set a different port in your profile." >&2
+  echo "Hint: port already in use. Aiur automatically tries the next 9 ports; try \`aiurdev --port <N>\` or set a different port in your profile." >&2
 }
 
 aiur_tmux_session_name() {
   local profile="$1"
-  printf 'aiur-%s-%s' "${USER:-user}" "$profile"
+  printf 'aiurdev-%s-%s' "${USER:-user}" "$profile"
 }
 
 aiur_tmux_socket_name() {
-  printf 'aiur-%s' "${USER:-user}"
+  printf 'aiurdev-%s' "${USER:-user}"
 }
 
 resolve_aiur_tmux_conf() {
@@ -1379,7 +1379,7 @@ resolve_aiur_tmux_conf() {
     return
   fi
 
-  local user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/aiur/tmux.conf"
+  local user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/aiurdev/tmux.conf"
   if [ -f "$user_conf" ]; then
     printf '%s\n' "$user_conf"
     return
@@ -1512,7 +1512,7 @@ run_in_tmux() {
 
   # Persist session/socket/conf so the conversation pane subcommand and the
   # Elixir Tmux client can target the same isolated server.
-  printf '%s\n' "$session" >"$HOME/.config/aiur/state"
+  printf '%s\n' "$session" >"$HOME/.config/aiurdev/state"
   export AIUR_TMUX_SESSION="$session"
   export AIUR_TMUX_SOCKET="$socket"
   export AIUR_TMUX_CONF="$conf"
@@ -1580,8 +1580,8 @@ run_in_tmux() {
     # Shut the aiur BEAM down. The detached tmux session running aiur
     # outlives this trap; without an explicit stop the BEAM keeps
     # holding the registered Erlang node name and port 4000, breaking
-    # the next `aiur` invocation with:
-    #     Protocol 'inet_tcp': the name aiur-orangekid@... seems to
+    # the next `aiurdev` invocation with:
+    #     Protocol 'inet_tcp': the name aiurdev-orangekid@... seems to
     #     be in use by another Erlang node
     #
     # `bin/aiur stop` (OTP release RPC) doesn't work here — we start
@@ -1703,7 +1703,7 @@ run_in_tmux() {
           # aiur.log (fresh test runs always want a clean orchestrator
           # log). Unrelated per-issue logs (operator's other work)
           # survive. To force a blanket nuke alongside a test run,
-          # pass --clear explicitly: `aiur --test --clear`.
+          # pass --clear explicitly: `aiurdev --test --clear`.
           tickets_file="$default_repo_root/.aiur-test-tickets.json"
           rm -f "$log_dir/aiur.log" 2>/dev/null || true
           if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
@@ -1722,7 +1722,7 @@ run_in_tmux() {
       fi
 
       # Reap BEAM hot-load shared libraries and debug pipe-pane captures.
-      # Each aiur run writes ~8 MB of `.so` files into /tmp that the BEAM
+      # Each aiurdev run writes ~8 MB of `.so` files into /tmp that the BEAM
       # never cleans up; 1900+ of them accumulated to 15 GB on one box,
       # bricking the next `mix release` with "no space left on device".
       # Pipe-pane captures (per-slot stderr logs) add ~60 MB per run.
