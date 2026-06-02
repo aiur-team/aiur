@@ -53,6 +53,7 @@ defmodule Aiur.Application do
         {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
         {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
         {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
+        {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Claude.RemoteControl.Supervisor},
         {Task.Supervisor, name: Aiur.TaskSupervisor},
         Aiur.WorkflowStore,
         Aiur.Events.IdGenerator,

@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
   alias Aiur.Opencode.ActiveTurns
   alias AiurWeb.ObservabilityPubSub
@@ -116,6 +117,7 @@ defmodule Aiur.Orchestrator do
     }
 
     run_terminal_workspace_cleanup()
+    cleanup_stray_remote_control_servers()
     init_tracked_set_table()
     install_event_tracked_fn()
     subscribe_to_orchestrator_topics()
@@ -268,50 +270,27 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  def handle_info({:remote_control_url, server_pid, url}, state)
+      when is_pid(server_pid) and is_binary(url) do
+    {:noreply, update_remote_control_url(state, server_pid, url)}
+  end
+
+  def handle_info({:remote_control_exit, server_pid, status}, state) when is_pid(server_pid) do
+    Logger.info("Remote Control session exited: status=#{inspect(status)}")
+    {:noreply, clear_remote_control_for_server(state, server_pid)}
+  end
+
   def handle_info(
         {:DOWN, ref, :process, _pid, reason},
         %{running: running} = state
       ) do
-    case find_issue_id_for_ref(running, ref) do
+    case find_rc_entry(running, fn rc -> Map.get(rc, :ref) == ref end) do
+      {issue_id, entry} ->
+        Logger.info("Remote Control server down: issue_id=#{issue_id} reason=#{inspect(reason)}")
+        {:noreply, drop_remote_control(state, issue_id, entry)}
+
       nil ->
-        {:noreply, state}
-
-      issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
-
-        state =
-          case reason do
-            :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
-
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-        notify_dashboard(state)
-        {:noreply, state}
+        handle_agent_down(state, ref, reason)
     end
   end
 
@@ -428,6 +407,50 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp handle_agent_down(%{running: running} = state, ref, reason) do
+    case find_issue_id_for_ref(running, ref) do
+      nil ->
+        {:noreply, state}
+
+      issue_id ->
+        {running_entry, state} = pop_running_entry(state, issue_id)
+        state = record_session_completion_totals(state, running_entry)
+        session_id = running_entry_session_id(running_entry)
+
+        state =
+          case reason do
+            :normal ->
+              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+              state
+              |> complete_issue(issue_id)
+              |> schedule_issue_retry(issue_id, 1, %{
+                identifier: running_entry.identifier,
+                delay_type: :continuation,
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+
+            _ ->
+              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+              next_attempt = next_retry_attempt_from_running(running_entry)
+
+              schedule_issue_retry(state, issue_id, next_attempt, %{
+                identifier: running_entry.identifier,
+                error: "agent exited: #{inspect(reason)}",
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+          end
+
+        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+
+        notify_dashboard(state)
+        {:noreply, state}
+    end
   end
 
   defp parse_pr_review_comment_topic(topic) do
@@ -898,6 +921,40 @@ defmodule Aiur.Orchestrator do
   @spec select_worker_host_for_test(term(), String.t() | nil) :: String.t() | nil | :no_worker_capacity
   def select_worker_host_for_test(%State{} = state, preferred_worker_host) do
     select_worker_host(state, preferred_worker_host)
+  end
+
+  @doc false
+  @spec set_remote_control_for_test(State.t(), String.t(), boolean()) :: {term(), State.t()}
+  def set_remote_control_for_test(%State{} = state, identifier, on?)
+      when is_binary(identifier) and is_boolean(on?) do
+    set_remote_control_reply(state, identifier, on?)
+  end
+
+  @doc false
+  @spec reactivate_issue_for_test(State.t(), map()) :: {term(), State.t()}
+  def reactivate_issue_for_test(%State{} = state, running_entry) when is_map(running_entry) do
+    reactivate_issue(state, running_entry)
+  end
+
+  @doc false
+  @spec remote_control_active_entry_for_test?(map()) :: boolean()
+  def remote_control_active_entry_for_test?(entry), do: remote_control_active_entry?(entry)
+
+  @doc false
+  @spec remote_control_summary_for_test(map()) :: map() | nil
+  def remote_control_summary_for_test(entry), do: remote_control_summary(entry)
+
+  @doc false
+  @spec drop_remote_control_for_server_for_test(State.t(), pid()) :: State.t()
+  def drop_remote_control_for_server_for_test(%State{} = state, server_pid) when is_pid(server_pid) do
+    clear_remote_control_for_server(state, server_pid)
+  end
+
+  @doc false
+  @spec update_remote_control_url_for_test(State.t(), pid(), String.t()) :: State.t()
+  def update_remote_control_url_for_test(%State{} = state, server_pid, url)
+      when is_pid(server_pid) and is_binary(url) do
+    update_remote_control_url(state, server_pid, url)
   end
 
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
@@ -2048,7 +2105,8 @@ defmodule Aiur.Orchestrator do
               title: title,
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working
+              work_state: get_in(entry, [:control, :status]) || :working,
+              remote_control: remote_control_summary(entry)
             })
         end
       end)
@@ -2072,7 +2130,8 @@ defmodule Aiur.Orchestrator do
               title: get_in(entry, [:issue, Access.key(:title)]),
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working
+              work_state: get_in(entry, [:control, :status]) || :working,
+              remote_control: remote_control_summary(entry)
             })
           ]
         end
@@ -2487,6 +2546,23 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
+  def set_remote_control(issue_identifier, on?), do: set_remote_control(__MODULE__, issue_identifier, on?)
+
+  @spec set_remote_control(GenServer.server(), String.t(), boolean()) ::
+          {:ok, :on | :off} | {:error, term()}
+  def set_remote_control(server, issue_identifier, on?)
+      when is_binary(issue_identifier) and is_boolean(on?) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:set_remote_control, issue_identifier, on?}, 10_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec claim_next_queue_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
     GenServer.call(server, {:claim_next_queue_item, issue_identifier}, 5_000)
@@ -2892,6 +2968,17 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:set_remote_control, issue_identifier, on?}, _from, state)
+      when is_binary(issue_identifier) and is_boolean(on?) do
+    {reply, state} = set_remote_control_reply(state, issue_identifier, on?)
+    notify_dashboard(state)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:set_remote_control, _issue_identifier, _on?}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
   def handle_call(:max_concurrent_agents, _from, state) do
     {:reply, max_concurrent_agent_status(state), state}
   end
@@ -3276,10 +3363,19 @@ defmodule Aiur.Orchestrator do
   # or merges its PR). No `pending_reactivation` flag — the existing
   # `max_concurrent_agents` gate is the natural backpressure.
   defp reactivate_issue(%State{} = state, running_entry) do
-    if active_running_count(state.running) >= max_concurrent_agent_limit(state) do
-      {{:error, :max_concurrent_agents_reached}, state}
-    else
-      do_reactivate(state, running_entry)
+    cond do
+      # An agent handed off to Remote Control is operator-driven; an
+      # autonomous reactivation (PR comment, space-key, label flip) would
+      # restart the headless driver underneath the live RC session — the
+      # dual-driver collision this feature forbids. Press `r` to return.
+      remote_control_active_entry?(running_entry) ->
+        {{:error, :remote_control_active}, state}
+
+      active_running_count(state.running) >= max_concurrent_agent_limit(state) ->
+        {{:error, :max_concurrent_agents_reached}, state}
+
+      true ->
+        do_reactivate(state, running_entry)
     end
   end
 
@@ -3529,6 +3625,250 @@ defmodule Aiur.Orchestrator do
       safe_checkpoints: CodingAgent.safe_checkpoints(backend),
       status: :working
     }
+  end
+
+  # ----------------------------------------------------------- remote control
+
+  defp set_remote_control_reply(state, issue_identifier, on?) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      running_entry when is_map(running_entry) ->
+        if on?, do: remote_control_on(state, running_entry), else: remote_control_off(state, running_entry)
+
+      _ ->
+        {{:error, :not_running}, state}
+    end
+  end
+
+  defp remote_control_on(state, running_entry) do
+    backend = CodingAgent.backend_for(Map.get(running_entry, :issue))
+
+    cond do
+      # Already handed off — toggling on again is a no-op.
+      remote_control_active_entry?(running_entry) ->
+        {{:ok, :on}, state}
+
+      not CodingAgent.remote_control?(backend) ->
+        {{:error, :unsupported}, state}
+
+      # v1 is local-only: a remote worker_host means the RC server would
+      # spawn on the wrong machine.
+      not is_nil(Map.get(running_entry, :worker_host)) ->
+        {{:error, :remote_unsupported}, state}
+
+      is_nil(Map.get(running_entry, :workspace_path)) ->
+        {{:error, :workspace_unavailable}, state}
+
+      true ->
+        launch_remote_control(state, running_entry)
+    end
+  end
+
+  defp launch_remote_control(state, running_entry) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    identifier = Map.get(running_entry, :identifier)
+    workspace = Map.get(running_entry, :workspace_path)
+    pid = Map.get(running_entry, :pid)
+    ref = Map.get(running_entry, :ref)
+
+    # Trust the workspace (serialized here) and prime the handoff file the
+    # fresh RC session reads as context — RC has no --prompt/--resume flag.
+    RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts())
+    write_remote_control_handoff(workspace)
+
+    # Stop the headless driver so the workspace + app_session are freed.
+    # Demonitor BEFORE killing so the agent :DOWN handler doesn't fire a
+    # retry/continuation that re-dispatches under the operator.
+    close_active_chat_streams(identifier, :remote_control)
+    if is_reference(ref), do: Process.demonitor(ref, [:flush])
+    if is_pid(pid), do: terminate_task(pid)
+
+    case start_remote_control_server(workspace, identifier) do
+      {:ok, server_pid} ->
+        server_ref = Process.monitor(server_pid)
+        rc = %{status: :launching, server_pid: server_pid, ref: server_ref, session_url: nil}
+
+        entry =
+          running_entry
+          |> Map.put(:pid, nil)
+          |> Map.put(:ref, nil)
+          |> put_in([:control, :status], :deactivated)
+          |> Map.put(:remote_control, rc)
+
+        state = %{
+          state
+          | running: Map.put(state.running, issue_id, entry),
+            retry_attempts: Map.delete(state.retry_attempts, issue_id)
+        }
+
+        Logger.info("Remote Control launching: identifier=#{identifier} workspace=#{workspace}")
+        {{:ok, :on}, refresh_tracked_set(state)}
+
+      {:error, reason} ->
+        # Launch failed — don't strand the issue with no driver; re-dispatch.
+        Logger.error("Remote Control launch failed: identifier=#{identifier} reason=#{inspect(reason)}")
+        issue = Map.get(running_entry, :issue)
+
+        entry =
+          running_entry
+          |> Map.put(:pid, nil)
+          |> Map.put(:ref, nil)
+          |> Map.delete(:remote_control)
+
+        state = %{state | running: Map.put(state.running, issue_id, entry)}
+        {{:error, {:rc_launch_failed, reason}}, do_dispatch_issue(state, issue, nil, nil)}
+    end
+  end
+
+  defp remote_control_off(state, running_entry) do
+    stop_running_remote_control(running_entry)
+
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    issue = Map.get(running_entry, :issue)
+
+    cleared =
+      running_entry
+      |> Map.delete(:remote_control)
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+
+    state = %{state | running: Map.put(state.running, issue_id, cleared)}
+    state = refresh_tracked_set(state)
+
+    Logger.info("Remote Control off; re-dispatching: identifier=#{Map.get(running_entry, :identifier)}")
+    {{:ok, :off}, do_dispatch_issue(state, issue, nil, nil)}
+  end
+
+  defp start_remote_control_server(workspace, identifier) do
+    opts =
+      [workspace: workspace, name: "aiur #{identifier}", owner: self()]
+      |> maybe_put_rc_command()
+
+    spec = %{
+      id: RemoteControl,
+      start: {RemoteControl, :start_link, [opts]},
+      restart: :temporary
+    }
+
+    DynamicSupervisor.start_child(RemoteControl.Supervisor, spec)
+  end
+
+  # Tests inject a harmless command here to stand in for the real
+  # `claude remote-control` spawn (see Aiur.Claude.RemoteControl `:command`).
+  defp maybe_put_rc_command(opts) do
+    case Application.get_env(:aiur, :remote_control_command) do
+      command when is_binary(command) -> Keyword.put(opts, :command, command)
+      _ -> opts
+    end
+  end
+
+  # Tests redirect the trust-config write off the real `~/.claude.json`.
+  defp remote_control_trust_opts do
+    case Application.get_env(:aiur, :remote_control_claude_json) do
+      path when is_binary(path) -> [path: path]
+      _ -> []
+    end
+  end
+
+  defp stop_remote_control_server(server_pid) when is_pid(server_pid), do: RemoteControl.stop(server_pid)
+  defp stop_remote_control_server(_server_pid), do: :ok
+
+  defp stop_running_remote_control(running_entry) do
+    case Map.get(running_entry, :remote_control) do
+      %{server_pid: server_pid, ref: ref} ->
+        if is_reference(ref), do: Process.demonitor(ref, [:flush])
+        stop_remote_control_server(server_pid)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp write_remote_control_handoff(workspace) do
+    handoff = RemoteControl.build_handoff(workspace: workspace)
+    File.write(Path.join(workspace, "CLAUDE.local.md"), handoff)
+  rescue
+    error ->
+      Logger.warning("Remote Control handoff write failed: #{inspect(error)}")
+      :ok
+  end
+
+  defp remote_control_active_entry?(entry) when is_map(entry) do
+    case Map.get(entry, :remote_control) do
+      %{status: status} -> status in [:launching, :on]
+      _ -> false
+    end
+  end
+
+  defp remote_control_active_entry?(_entry), do: false
+
+  defp remote_control_summary(entry) do
+    case Map.get(entry, :remote_control) do
+      %{status: status} = rc -> %{status: status, session_url: Map.get(rc, :session_url)}
+      _ -> nil
+    end
+  end
+
+  defp find_rc_entry(running, match_fun) do
+    Enum.find_value(running, fn {issue_id, entry} ->
+      case Map.get(entry, :remote_control) do
+        rc when is_map(rc) -> if match_fun.(rc), do: {issue_id, entry}, else: nil
+        _ -> nil
+      end
+    end)
+  end
+
+  defp update_remote_control_url(state, server_pid, url) do
+    case find_rc_entry(state.running, fn rc -> Map.get(rc, :server_pid) == server_pid end) do
+      {issue_id, entry} ->
+        rc = entry |> Map.get(:remote_control) |> Map.merge(%{status: :on, session_url: url})
+        entry = Map.put(entry, :remote_control, rc)
+        state = %{state | running: Map.put(state.running, issue_id, entry)}
+        Logger.info("Remote Control ready: issue_id=#{issue_id}")
+        notify_dashboard(state)
+        state
+
+      _ ->
+        state
+    end
+  end
+
+  defp clear_remote_control_for_server(state, server_pid) do
+    case find_rc_entry(state.running, fn rc -> Map.get(rc, :server_pid) == server_pid end) do
+      {issue_id, entry} -> drop_remote_control(state, issue_id, entry)
+      _ -> state
+    end
+  end
+
+  # RC server is gone (self-exit, crash, or operator-stop). Detach its
+  # monitor and clear the RC state; the entry stays `:deactivated` (stopped,
+  # no driver) so the operator can press `r` to re-dispatch or space to wake.
+  defp drop_remote_control(state, issue_id, entry) do
+    case Map.get(entry, :remote_control) do
+      %{ref: ref} when is_reference(ref) -> Process.demonitor(ref, [:flush])
+      _ -> :ok
+    end
+
+    entry = Map.delete(entry, :remote_control)
+    state = %{state | running: Map.put(state.running, issue_id, entry)}
+    notify_dashboard(state)
+    state
+  end
+
+  defp cleanup_stray_remote_control_servers do
+    case System.find_executable("pkill") do
+      nil ->
+        :ok
+
+      pkill ->
+        # The Orchestrator has no terminate/2 and does not trap exits, so a
+        # crash/SIGKILL leaves orphan `claude remote-control` servers holding
+        # api.anthropic.com sessions. Reap any tagged by the aiur-rc debug
+        # marker (operator-launched RC sessions don't carry it).
+        System.cmd(pkill, ["-f", "remote-control.*aiur-rc"], stderr_to_stdout: true)
+        :ok
+    end
+  rescue
+    _ -> :ok
   end
 
   defp issue_tag(%Issue{} = issue) do
