@@ -108,6 +108,15 @@ defmodule Aiur.CodingAgentTest do
       end
     end
 
+    test "remote_control? is true for claude, false for codex" do
+      assert CodingAgent.remote_control?("claude")
+      refute CodingAgent.remote_control?("codex")
+    end
+
+    test "remote_control? is false for an unknown backend" do
+      refute CodingAgent.remote_control?("opencode")
+    end
+
     test "override_labels seeds all three tag layers per backend" do
       labels = CodingAgent.override_labels()
       assert "model:claude" in labels

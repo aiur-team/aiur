@@ -55,6 +55,7 @@ defmodule Aiur.CodingAgent do
         transcript: Aiur.Codex.Transcript,
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
+        remote_control: false,
         models: ["gpt-5.5"]
       },
       "claude" => %{
@@ -62,6 +63,7 @@ defmodule Aiur.CodingAgent do
         transcript: Aiur.Claude.Transcript,
         can_interrupt: true,
         safe_checkpoints: [:notification],
+        remote_control: true,
         models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
       }
     }
@@ -202,6 +204,18 @@ defmodule Aiur.CodingAgent do
   @doc "Delivery-policy default: which checkpoint kinds are safe to deliver on."
   @spec safe_checkpoints(backend()) :: [atom()]
   def safe_checkpoints(backend), do: fetch_backend!(backend).safe_checkpoints
+
+  @doc """
+  Whether the backend can hand an agent off to a `claude remote-control`
+  session. Unknown backends are not RC-capable.
+  """
+  @spec remote_control?(backend()) :: boolean()
+  def remote_control?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :remote_control, false)
+      :error -> false
+    end
+  end
 
   @spec start_session(Path.t()) :: {:ok, map()} | {:error, term()}
   @spec start_session(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
