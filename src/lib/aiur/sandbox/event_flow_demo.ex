@@ -3,4 +3,12 @@ defmodule Aiur.Sandbox.EventFlowDemo do
   # Baseline scaffold for the 3-ticket event-flow sandbox. Agents on
   # the test tickets flesh this out during the manual --test workflow;
   # `aiur --test` restores this file to HEAD before each fresh run.
+
+  @spec greeting(String.t()) :: String.t()
+  def greeting(name) when is_binary(name) do
+    case String.trim(name) do
+      "" -> "Hello, friend!"
+      trimmed -> "Hello, #{trimmed}!"
+    end
+  end
 end
