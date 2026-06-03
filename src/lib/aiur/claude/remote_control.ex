@@ -54,6 +54,11 @@ defmodule Aiur.Claude.RemoteControl do
   # no stdout even though it registers the session. Treat the server as ready
   # after this grace period so the owner can transition :launching -> :on.
   @default_ready_grace_ms 1_500
+  # On teardown, wait for the RC process to exit after SIGTERM before deleting
+  # its --debug-file. claude flushes a shutdown log to that file as it exits;
+  # deleting first lets the dying process re-create the file as an orphan.
+  @kill_grace_ms 2_000
+  @kill_poll_ms 25
 
   @type start_opt ::
           {:workspace, Path.t()}
@@ -155,9 +160,9 @@ defmodule Aiur.Claude.RemoteControl do
 
   @impl true
   def terminate(_reason, state) do
-    kill_process(state.os_pid)
+    graceful_kill(state.os_pid)
     close_port(state.port)
-    delete_debug_file(state.debug_file)
+    delete_debug_files(state.debug_file)
     :ok
   end
 
@@ -471,13 +476,43 @@ defmodule Aiur.Claude.RemoteControl do
     end
   end
 
-  defp kill_process(nil), do: :ok
+  @doc false
+  # SIGTERM the process and block until it actually exits (so its debug-file
+  # flush completes before we delete), escalating to SIGKILL if it overstays.
+  @spec graceful_kill(nil | integer()) :: :ok
+  def graceful_kill(nil), do: :ok
 
-  defp kill_process(os_pid) when is_integer(os_pid) do
-    System.cmd("kill", ["-TERM", Integer.to_string(os_pid)], stderr_to_stdout: true)
+  def graceful_kill(os_pid) when is_integer(os_pid) do
+    pid = Integer.to_string(os_pid)
+    System.cmd("kill", ["-TERM", pid], stderr_to_stdout: true)
+
+    unless await_exit(pid, @kill_grace_ms) do
+      System.cmd("kill", ["-KILL", pid], stderr_to_stdout: true)
+      await_exit(pid, @kill_grace_ms)
+    end
+
     :ok
   rescue
     _ -> :ok
+  end
+
+  defp await_exit(pid, budget_ms) do
+    deadline = System.monotonic_time(:millisecond) + budget_ms
+    do_await_exit(pid, deadline)
+  end
+
+  defp do_await_exit(pid, deadline) do
+    cond do
+      not os_process_alive?(pid) ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(@kill_poll_ms)
+        do_await_exit(pid, deadline)
+    end
   end
 
   defp close_port(nil), do: :ok
@@ -489,9 +524,16 @@ defmodule Aiur.Claude.RemoteControl do
     ArgumentError -> :ok
   end
 
-  defp delete_debug_file(nil), do: :ok
+  @doc false
+  # Remove the --debug-file and every sibling claude derived from it (per-session
+  # files like `<base>-cse_<id>.debug`). The `rc-<beam>-<n>` stem is unique to
+  # this server instance, so the wildcard never touches another server's files.
+  @spec delete_debug_files(nil | Path.t()) :: :ok
+  def delete_debug_files(nil), do: :ok
 
-  defp delete_debug_file(path) do
+  def delete_debug_files(path) do
+    base = String.replace_suffix(path, ".debug", "")
+    Enum.each(Path.wildcard(base <> "*"), &File.rm/1)
     File.rm(path)
     :ok
   end
@@ -534,7 +576,7 @@ defmodule Aiur.Claude.RemoteControl do
     case File.ls(dir) do
       {:ok, entries} ->
         entries
-        |> Enum.filter(&String.match?(&1, ~r/^rc-\d+-\d+\.debug$/))
+        |> Enum.filter(&String.match?(&1, ~r/^rc-\d+-\d+.*\.debug$/))
         |> Enum.each(fn entry -> maybe_reap_orphan(Path.join(dir, entry), entry) end)
 
       _ ->
@@ -545,7 +587,7 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   defp maybe_reap_orphan(path, entry) do
-    case Regex.run(~r/^rc-(\d+)-\d+\.debug$/, entry) do
+    case Regex.run(~r/^rc-(\d+)-\d+.*\.debug$/, entry) do
       [_, owner_pid] ->
         unless os_process_alive?(owner_pid) do
           kill_orphan_server(path)

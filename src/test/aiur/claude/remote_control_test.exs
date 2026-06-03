@@ -195,6 +195,58 @@ defmodule Aiur.Claude.RemoteControlTest do
       assert :ok = RemoteControl.stop(server)
       assert :ok = RemoteControl.stop(server)
     end
+
+  end
+
+  describe "graceful_kill/1" do
+    test "blocks until the OS process has actually exited" do
+      # Child handles SIGTERM after a deliberate delay (mirrors claude flushing
+      # its debug-file on the way down). A correct teardown must not return —
+      # and must not delete the debug-file — until that exit completes.
+      command = "trap 'sleep 0.25; exit 0' TERM; printf 'up\\n'; while true; do sleep 0.05; done"
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+          [:binary, :exit_status, :stderr_to_stdout, args: [~c"-lc", String.to_charlist(command)], line: 64_000]
+        )
+
+      {:os_pid, os_pid} = :erlang.port_info(port, :os_pid)
+      on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true) end)
+
+      # "up" prints only after the trap is installed — wait for it so SIGTERM
+      # can't beat the trap and hit bash's default (instant) disposition.
+      assert_receive {^port, {:data, {:eol, "up"}}}, 2_000
+
+      started = System.monotonic_time(:millisecond)
+      assert :ok = RemoteControl.graceful_kill(os_pid)
+      elapsed = System.monotonic_time(:millisecond) - started
+
+      # Waited out the child's ~250ms shutdown, and the process is gone on return.
+      assert elapsed >= 150
+      refute match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true))
+    end
+  end
+
+  describe "delete_debug_files/1" do
+    test "removes the --debug-file and the per-session siblings claude derives from it" do
+      dir = Path.join(System.tmp_dir!(), "aiur-rc")
+      File.mkdir_p!(dir)
+      stem = "rc-#{List.to_string(:os.getpid())}-#{System.unique_integer([:positive])}"
+      main = Path.join(dir, "#{stem}.debug")
+      sibling = Path.join(dir, "#{stem}-cse_01ABC.debug")
+      # A different server instance's file must be left untouched.
+      other = Path.join(dir, "rc-#{List.to_string(:os.getpid())}-#{System.unique_integer([:positive])}.debug")
+
+      Enum.each([main, sibling, other], &File.write!(&1, ""))
+      on_exit(fn -> Enum.each([main, sibling, other], &File.rm/1) end)
+
+      assert :ok = RemoteControl.delete_debug_files(main)
+
+      refute File.exists?(main)
+      refute File.exists?(sibling)
+      assert File.exists?(other)
+    end
   end
 
   describe "reap_orphaned_servers/0" do
@@ -210,18 +262,24 @@ defmodule Aiur.Claude.RemoteControlTest do
       # Spawn and reap a child so its pid is reliably dead.
       {out, 0} = System.cmd("bash", ["-lc", "sleep 60 & p=$!; kill -9 $p; wait $p 2>/dev/null; echo $p"])
       dead_pid = String.trim(out)
-      dead = Path.join(dir, "rc-#{dead_pid}-#{System.unique_integer([:positive])}.debug")
+      dead_n = System.unique_integer([:positive])
+      dead = Path.join(dir, "rc-#{dead_pid}-#{dead_n}.debug")
+      # claude also leaves a per-session sibling; it must be swept too.
+      dead_sibling = Path.join(dir, "rc-#{dead_pid}-#{dead_n}-cse_01XYZ.debug")
       File.write!(dead, "")
+      File.write!(dead_sibling, "")
 
       on_exit(fn ->
         File.rm(live)
         File.rm(dead)
+        File.rm(dead_sibling)
       end)
 
       assert :ok = RemoteControl.reap_orphaned_servers()
 
       assert File.exists?(live)
       refute File.exists?(dead)
+      refute File.exists?(dead_sibling)
     end
   end
 end
