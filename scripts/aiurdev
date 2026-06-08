@@ -191,6 +191,11 @@ if [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   # Recursive call into the same script's `stop all` subcommand —
   # stop_all() lives later in this file, so direct call would hit
   # bash's forward-reference limitation.
+  # Sweep orphaned tmux sockets (dead aiur sessions / agent drivers) on
+  # every test launch. Any test flag routes through this block, so this
+  # covers --test, --test3, and future test modes alike. Runs before the
+  # stop so the count the operator sees reflects the real backlog.
+  "$0" sweep || true
   echo "🛑 stopping any running aiur" >&2
   "$0" stop all >/dev/null 2>&1 || true
 
@@ -1039,6 +1044,8 @@ stop_profile() {
   local service
   local logs_root
   local port
+  local socket
+  local session
 
   require_profile "$profile"
 
@@ -1047,6 +1054,8 @@ stop_profile() {
   service="$(profile_value service "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
   port="$(profile_value port "$profile")"
+  socket="$(aiur_tmux_socket_name)"
+  session="$(aiur_tmux_session_name "$profile")"
 
   case "$aiur_os" in
     Darwin*)
@@ -1099,6 +1108,30 @@ stop_profile() {
     esac
   done
 
+  # Wait out graceful BEAM shutdown (Aiur.Shutdown callbacks), then
+  # SIGKILL any straggler. A synchronous stop is what lets a fresh
+  # `--test`/`--test3` launch trust the slate is clean before it binds
+  # the port — the old fire-and-forget stop returned while the BEAM was
+  # still up, and the relaunch raced it.
+  local stop_wait=0
+  while [ $stop_wait -lt 30 ]; do
+    pgrep -f "$elixir_dir/_build/.*rel/aiur/erts.*beam.smp" >/dev/null 2>&1 || break
+    sleep 0.1
+    stop_wait=$((stop_wait + 1))
+  done
+  for pid in $(pgrep -f "$elixir_dir/_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
+    [ "$pid" = "$$" ] && continue
+    [ "$(ps -p "$pid" -o comm= 2>/dev/null || true)" = "beam.smp" ] \
+      && "$kill_bin" -KILL "$pid" 2>/dev/null || true
+  done
+
+  # Tear down the inner aiur tmux session. This also disconnects any
+  # leaked wrapper bash parked in `tmux attach` on it — its attach
+  # returns and it unwinds cleanly (reaping only its own, now-dead,
+  # BEAM). Scoped to aiur's dedicated socket, so claude-driver-style
+  # harness servers are untouched.
+  "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
+
   # Reap orphan `opencode attach ...` client processes. The operator
   # spawns these per-pane and they outlive the BEAM when the parent
   # shell dies abruptly (Claude restart, `kill -9 beam.smp`, etc.). Once
@@ -1112,12 +1145,54 @@ stop_profile() {
   # leaving them around squats the loopback ports the next operator
   # would otherwise pick up cleanly.
   "$pkill_bin" -u "$(id -u)" -f "^opencode serve --port 0 --hostname 127\\.0\\.0\\.1$" 2>/dev/null || true
+
+  # Wait for the dashboard port to be released before returning, so the
+  # next launch doesn't lose the bind race to a socket still in TIME_WAIT
+  # or held by a BEAM mid-exit. Best-effort: skip if ss is unavailable.
+  if [ -n "$port" ] && command -v ss >/dev/null 2>&1; then
+    local port_wait=0
+    while [ $port_wait -lt 30 ]; do
+      ss -ltn 2>/dev/null | grep -q ":$port " || break
+      sleep 0.1
+      port_wait=$((port_wait + 1))
+    done
+  fi
 }
 
 stop_all() {
   for profile in "${profile_names[@]}"; do
     stop_profile "$profile"
   done
+}
+
+# Remove orphaned tmux socket files left by dead aiur sessions and agent
+# drivers. tmux leaves the socket behind when a server is SIGKILLed or
+# its host crashes; `aiur-pm-live-<pid>` orphans accumulate fast (901 on
+# one box). Only sweeps sockets whose server is unresponsive — a live
+# session (`aiurdev-orangekid`) or an active agent driver (`claude-driver`)
+# is never touched. Scoped to aiur-named and `*-driver` sockets so
+# unrelated tmux servers are left alone.
+sweep_dead_tmux_sockets() {
+  local sockdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+  [ -d "$sockdir" ] || return 0
+  local removed=0 name path
+  for path in "$sockdir"/*; do
+    [ -S "$path" ] || continue
+    name="${path##*/}"
+    case "$name" in
+      aiur*|*-driver|*-driver-*) ;;
+      *) continue ;;
+    esac
+    if ! "$tmux_bin" -L "$name" list-sessions >/dev/null 2>&1; then
+      if rm -f "$path" 2>/dev/null; then
+        removed=$((removed + 1))
+      fi
+    fi
+  done
+  if [ "$removed" -gt 0 ]; then
+    echo "🧹 swept $removed dead aiur tmux socket(s)" >&2
+  fi
+  return 0
 }
 
 start_bg_nohup() {
@@ -1496,6 +1571,32 @@ aiur_record_session() {
   done
 }
 
+# Resolve the release BEAM pid running under a process subtree. Used to
+# scope a wrapper's teardown to the BEAM it actually launched: a leaked
+# wrapper must never reap a BEAM started by a different invocation (its
+# EXIT trap once pattern-matched every aiur BEAM and killed a freshly
+# launched one belonging to a concurrent `--test` run). Breadth-first
+# walk from the tmux pane process; matches beam.smp whose cmdline points
+# at this install's release dir.
+_aiur_beam_under_pid() {
+  local root="$1" dir="$2"
+  local queue="$root" next pid comm
+  while [ -n "${queue// /}" ]; do
+    next=""
+    for pid in $queue; do
+      comm="$(ps -p "$pid" -o comm= 2>/dev/null | tr -d ' ')"
+      if [ "$comm" = "beam.smp" ] \
+        && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qF "$dir/"; then
+        printf '%s\n' "$pid"
+        return 0
+      fi
+      next="$next $(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ')"
+    done
+    queue="$next"
+  done
+  return 1
+}
+
 run_in_tmux() {
   local profile="$1"
   local elixir_dir="$2"
@@ -1561,6 +1662,10 @@ run_in_tmux() {
   }
 
   __aiur_cleanup_ran=0
+  # tmux pane pid of the inner session this wrapper launches; set after
+  # new-session succeeds. The EXIT trap resolves the BEAM under it and
+  # reaps ONLY that BEAM (see _aiur_beam_under_pid).
+  __aiur_owned_pane_pid=""
   __aiur_cleanup() {
     [ "${__aiur_cleanup_ran:-0}" = 1 ] && return 0
     __aiur_cleanup_ran=1
@@ -1603,37 +1708,27 @@ run_in_tmux() {
     # `set -u` (script line 2) would crash here if `run_foreground` had
     # already returned by the time the trap fires (e.g., on EXIT after
     # tmux attach finished naturally).
+    # Reap ONLY the BEAM this wrapper launched, resolved from our own
+    # inner tmux pane. Pattern-matching every release BEAM here let a
+    # leaked wrapper kill a BEAM belonging to a concurrent invocation.
     local trap_elixir_dir="${elixir_dir:-}"
-    if [ -n "$trap_elixir_dir" ]; then
-      local beam_pids
-      beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-      if [ -n "$beam_pids" ]; then
-        local pid
-        for pid in $beam_pids; do
-          # Don't kill ourselves; we're not a BEAM, but defensive.
-          [ "$pid" = "$$" ] && continue
-          kill -TERM "$pid" 2>/dev/null || true
-        done
+    local owned_beam=""
+    if [ -n "$trap_elixir_dir" ] && [ -n "${__aiur_owned_pane_pid:-}" ]; then
+      owned_beam="$(_aiur_beam_under_pid "$__aiur_owned_pane_pid" "$trap_elixir_dir" 2>/dev/null || true)"
+    fi
+    if [ -n "$owned_beam" ] && [ "$owned_beam" != "$$" ]; then
+      kill -TERM "$owned_beam" 2>/dev/null || true
 
-        # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
-        # SIGKILL any stragglers. SIGTERM lets Aiur.Shutdown's supervisor
-        # tree run termination callbacks (session GC, file cleanup).
-        local kill_wait=0
-        while [ $kill_wait -lt 30 ]; do
-          beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-          [ -z "$beam_pids" ] && break
-          sleep 0.1
-          kill_wait=$((kill_wait + 1))
-        done
-
-        beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-        if [ -n "$beam_pids" ]; then
-          for pid in $beam_pids; do
-            [ "$pid" = "$$" ] && continue
-            kill -KILL "$pid" 2>/dev/null || true
-          done
-        fi
-      fi
+      # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
+      # SIGKILL if it lingers. SIGTERM lets Aiur.Shutdown's supervisor
+      # tree run termination callbacks (session GC, file cleanup).
+      local kill_wait=0
+      while [ $kill_wait -lt 30 ]; do
+        kill -0 "$owned_beam" 2>/dev/null || break
+        sleep 0.1
+        kill_wait=$((kill_wait + 1))
+      done
+      kill -0 "$owned_beam" 2>/dev/null && kill -KILL "$owned_beam" 2>/dev/null || true
     fi
 
     if [ -n "$sessions_file" ] && [ -s "$sessions_file" ]; then
@@ -1838,6 +1933,11 @@ run_in_tmux() {
     exit 1
   fi
 
+  # Record the inner pane process so the EXIT trap reaps only the BEAM
+  # spawned under THIS session, never a sibling invocation's.
+  __aiur_owned_pane_pid="$("$tmux_bin" -L "$socket" -f "$conf" \
+    display-message -p -t "$session" '#{pane_pid}' 2>/dev/null || true)"
+
   local grace_ticks="${AIUR_STARTUP_GRACE_TICKS:-30}"
   local grace_sleep="${AIUR_STARTUP_GRACE_SLEEP:-0.1}"
   local tick
@@ -2041,6 +2141,11 @@ case "${1:-}" in
       stop_profile "$target"
     fi
 
+    sweep_dead_tmux_sockets
+    exit 0
+    ;;
+  sweep)
+    sweep_dead_tmux_sockets
     exit 0
     ;;
   "" | default)
