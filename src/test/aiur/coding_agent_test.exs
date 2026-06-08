@@ -41,6 +41,29 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
+  describe "model:claude-remote alias (forces RC, resolves to claude-repl)" do
+    test "the alias resolves whole to the claude-repl backend, no variant" do
+      assert CodingAgent.override_backend(issue(["model:claude-remote"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-remote"])) == nil
+    end
+
+    test "the alias is not mis-split into backend claude + variant remote" do
+      refute CodingAgent.override_backend(issue(["model:claude-remote"])) == "claude"
+      refute CodingAgent.model_for(issue(["model:claude-remote"])) == "remote"
+    end
+
+    test "remote_control_forced? is true only when the alias label is present" do
+      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote"]))
+      refute CodingAgent.remote_control_forced?(issue(["model:claude-repl"]))
+      refute CodingAgent.remote_control_forced?(issue(["model:claude"]))
+      refute CodingAgent.remote_control_forced?(issue(["complexity:5"]))
+    end
+
+    test "the alias label is auto-seeded" do
+      assert "model:claude-remote" in CodingAgent.override_labels()
+    end
+  end
+
   describe "backend_for/1 precedence (override beats routing/default)" do
     test "a model: override wins over a complexity: label that would route elsewhere" do
       assert CodingAgent.backend_for(issue(["model:claude", "complexity:5"])) == "claude"

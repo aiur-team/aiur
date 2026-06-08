@@ -348,8 +348,7 @@ defmodule Aiur.AgentRunner do
        when is_binary(issue_id) and is_pid(recipient) do
     send(
       recipient,
-      {:repl_session_runtime, issue_id,
-       %{pane_id: Map.get(session, :pane_id), os_pid: Map.get(session, :os_pid)}}
+      {:repl_session_runtime, issue_id, %{pane_id: Map.get(session, :pane_id), os_pid: Map.get(session, :os_pid)}}
     )
 
     :ok
@@ -364,11 +363,12 @@ defmodule Aiur.AgentRunner do
 
     backend = CodingAgent.backend_for(issue)
     model = CodingAgent.model_for(issue)
-    rc? = Config.agent_remote_control?() and CodingAgent.remote_control?(backend)
 
-    Logger.info(
-      "Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}"
-    )
+    rc? =
+      (CodingAgent.remote_control_forced?(issue) or Config.agent_remote_control?()) and
+        CodingAgent.remote_control?(backend)
+
+    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}")
 
     with {:ok, session} <-
            start_agent_session(workspace,
@@ -417,9 +417,7 @@ defmodule Aiur.AgentRunner do
       {:error, reason} when backend == "claude-repl" ->
         Aiur.Perf.event(:repl_start_fallback, backend: backend, reason: inspect(reason))
 
-        Logger.warning(
-          "claude-repl start_session failed (#{inspect(reason)}); falling back to headless claude"
-        )
+        Logger.warning("claude-repl start_session failed (#{inspect(reason)}); falling back to headless claude")
 
         fallback_opts = opts |> Keyword.put(:backend, "claude") |> Keyword.delete(:remote_control)
 

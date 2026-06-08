@@ -44,6 +44,14 @@ defmodule Aiur.CodingAgent do
   # is recognized rather than mis-split into `claude` + variant `repl`.
   @model_override_label ~r/^model:([A-Za-z0-9.\-]+)$/
 
+  # Label-only aliases that resolve to a real backend. `model:claude-remote`
+  # is the operator-facing name for the persistent REPL backend (`claude-repl`)
+  # and additionally forces remote-control ON for the issue (see
+  # `remote_control_forced?/1`), overriding the global opt-in default. The
+  # alias is resolved before the known-backend match so `claude-remote` is
+  # never mis-split into backend `claude` + variant `remote`.
+  @backend_aliases %{"claude-remote" => "claude-repl"}
+
   @doc """
   Registry of supported coding-agent backends. Each entry carries the
   modules, delivery-policy defaults, and the model variants worth
@@ -96,7 +104,11 @@ defmodule Aiur.CodingAgent do
   Derived from the registry so new backends/models seed automatically.
   """
   @spec override_labels() :: [String.t()]
-  def override_labels, do: override_labels(known_backends())
+  def override_labels, do: override_labels(known_backends()) ++ alias_labels()
+
+  @doc "Label-only alias override labels (e.g. `model:claude-remote`)."
+  @spec alias_labels() :: [String.t()]
+  def alias_labels, do: Enum.map(Map.keys(@backend_aliases), &"model:#{&1}")
 
   @doc """
   `override_labels/0` restricted to the given backends. Each backend
@@ -172,6 +184,14 @@ defmodule Aiur.CodingAgent do
   # before its trailing segment is mistaken for a variant.
   @spec resolve_backend_spec(String.t(), [backend()]) :: {backend(), String.t() | nil} | nil
   defp resolve_backend_spec(spec, known) do
+    case Map.fetch(@backend_aliases, spec) do
+      {:ok, backend} -> {backend, nil}
+      :error -> resolve_known_backend_spec(spec, known)
+    end
+  end
+
+  @spec resolve_known_backend_spec(String.t(), [backend()]) :: {backend(), String.t() | nil} | nil
+  defp resolve_known_backend_spec(spec, known) do
     known
     |> Enum.sort_by(&(-String.length(&1)))
     |> Enum.find_value(fn backend ->
@@ -254,6 +274,27 @@ defmodule Aiur.CodingAgent do
       {:ok, entry} -> Map.get(entry, :remote_control, false)
       :error -> false
     end
+  end
+
+  @doc """
+  Whether an issue carries a `model:<alias>` label that forces remote
+  control ON regardless of the global `agent.remote_control` opt-in
+  default. Only the label-only aliases (e.g. `model:claude-remote`) force
+  RC; a bare `model:claude-repl` selects the transport but leaves RC to the
+  global default.
+  """
+  @spec remote_control_forced?(Issue.t()) :: boolean()
+  def remote_control_forced?(%Issue{} = issue) do
+    alias_specs = MapSet.new(Map.keys(@backend_aliases))
+
+    issue
+    |> Issue.label_names()
+    |> Enum.any?(fn label ->
+      case Regex.run(@model_override_label, to_string(label)) do
+        [_, spec] -> MapSet.member?(alias_specs, spec)
+        _ -> false
+      end
+    end)
   end
 
   @doc """
