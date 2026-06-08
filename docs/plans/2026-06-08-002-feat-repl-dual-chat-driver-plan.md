@@ -468,7 +468,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 - [ ] U9. **Rewire the `r` key: promote a running agent to `claude-remote` by re-dispatch**
 
-**Goal:** Replace the old RC handoff toggle so pressing `r` on a running non-remote agent (headless `claude` or `codex`) stops the current agent and re-dispatches the same issue as `claude-remote` (persistent REPL + forced RC), resuming the existing transcript/session by cwd. An already-remote agent is left as-is (or its existing toggle-off behavior is preserved per current UX).
+**Goal:** Replace the old RC handoff toggle so pressing `r` on a running non-remote agent (headless `claude` or `codex`) **adds the `model:claude-remote` label** to the issue, stops the current agent, and re-dispatches the same issue as `claude-remote` (persistent REPL + forced RC), resuming the existing transcript/session by cwd. `r` stays a true toggle: pressed on an already-remote agent it **removes the label** and re-dispatches as the default (non-remote) backend. The `model:claude-remote` label is the durable single source of truth for remote-ness — it survives crash-triggered re-dispatches (the orchestrator re-fetches labels from GitHub on retry) and drives the agent-list remote indicator.
 
 **Requirements:** R9, R0 (the re-dispatched agent self-drives; RC is the takeover channel), R8 (re-dispatch uses the `claude-remote` selection so RC is forced).
 
