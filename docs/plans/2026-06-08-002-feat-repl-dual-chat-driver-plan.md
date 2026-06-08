@@ -45,12 +45,16 @@ The interactive REPL + `/remote-control` path removes both limits at once. The c
   - **Setting #2 — remote-control opt-in** (new): consulted *only* when the resolved backend supports RC (claude). **Defaults to OFF.** The operator opts a session (or the global default) into RC; agents are not auto-parked into a human-driven cloud session by default.
   - **Transport vs. RC are decoupled.** The persistent interactive REPL is a *transport* that may improve chat UX (faster turns, mid-turn receipt) **even with RC off**. Whether interactive-REPL becomes the default transport for plain `claude` (no RC) is gated on the U0 spike proving a real UX win; until then the headless backend stays the claude default. RC is an opt-in layer *on top* of the interactive transport, never implied by it.
 - R7. Clean teardown — on session end the `claude` REPL process and its tmux pane are confirmed dead (no orphan posting comments / opening duplicate PRs, the blocking bug #1 from origin).
+- R8. **Operator-facing `model:claude-remote` label (redesign 2026-06-08).** A single label, `model:claude-remote`, selects the REPL transport **and** forces remote-control ON for that one issue, overriding the global Setting #2 default (which stays OFF). It is a *label-only alias* resolving to the internal `claude-repl` backend — the backend key is **not** renamed. This realizes "transport ≠ RC" at the label layer: `model:claude-repl` = transport only (RC follows the global default), `model:claude-remote` = transport + forced RC. The alias is auto-seeded as a GitHub label and must resolve as a whole (never mis-split into backend `claude` + variant `remote`).
+- R9. **`r` key promotes a running agent to remote (redesign 2026-06-08).** Pressing `r` on any running non-remote agent (headless `claude` *or* `codex`) stops the current agent and **re-dispatches the same issue as `claude-remote`** (persistent REPL + RC), resuming the existing transcript/session by cwd. This replaces the old RC handoff toggle (`set_remote_control` → `launch_remote_control` → `do_launch_remote_control` spawning `claude remote-control --spawn`). Consistent with R0: the re-dispatched agent self-drives; RC is the takeover channel layered on.
 
 **Origin actors:** Operator (drives agents from opencode and/or Claude app), Dev/integrator (sets the default surface).
 **Origin flows:** F1 follow-along while RC on; F2 reverse handoff; F3 default-mode launch; F4 handoff-bug fixes. This plan reframes F1–F3 (dual-chat makes follow-along *also* chattable; no handoff needed because the agent never leaves aiur's process) and carries F4's orphan-kill into R7.
 **Origin acceptance examples:** AE — "default_mode launches agents straight into RC" is satisfied via the R6 opt-in (when the operator enables the `remote_control` setting, agents launch straight into REPL+RC); we deliberately do NOT make this the unconditional default. AE — "after any handoff the previous driver's claude OS process is confirmed dead" → R7.
 
 > **Origin supersession note:** the origin doc states dual-chat is "proven impossible." That verdict was for the `--print`/flag and `claude remote-control` subcommand paths only. The interactive-REPL `/remote-control` path is different and is now proven possible (memory `rc-dual-surface-state`, Q1-RESOLVED). This plan supersedes the origin's *approach* while preserving its still-valid sub-goals (orphan-kill, default-mode, keeping both surfaces useful).
+>
+> **In-plan redesign note (2026-06-08, after U0–U7 built):** the operator chose two refinements that postdate the original U0–U7 scope and are captured as R8/R9 + U8/U9. (1) The operator-facing way to force RC for a single issue is the `model:claude-remote` *label alias* (U8), not editing the global opt-in. (2) The `r` key no longer toggles the old `claude remote-control --spawn` handoff; it **promotes a running agent** by stopping it and re-dispatching the same issue as `claude-remote` (U9). The internal `claude-repl` backend key is unchanged; `claude-remote` is purely a label-layer alias.
 
 ---
 
@@ -107,6 +111,8 @@ None needed — tmux send-keys driving and transcript tailing are established lo
 - **Instant delivery = a new delivery policy.** Add `delivery_policy: :immediate` (or `:repl`) that, for REPL-backed sessions, sends the operator text straight to the pane via `send_operator_message/2` without waiting for a checkpoint. Rationale: the persistent REPL is the thing that makes R3 possible; gate it on the backend being REPL so other backends are unaffected.
 - **Permission mode.** Interactive `claude` prompts for tool permissions by default, which would stall autonomous turns. The driver must launch the REPL in the same non-interactive permission posture the headless app-server uses (the configured `permission_mode`). Exact flag/affordance for the interactive REPL is an execution-time unknown (U0/U1) — verify whether `--permission-mode` on the interactive launch is honored, or whether a `/permissions` affordance is required.
 - **One RC URL per agent.** Each REPL session has its own RC capability URL. It is a capability token: surface it only to the local operator, never log it (memory + origin constraint). Parity (R5) is about *capability* (both surfaces can act), not about auto-connecting the phone.
+- **`claude-remote` is a label-only alias, not a backend (R8).** The registry key stays `claude-repl`; a small alias map (`claude-remote → claude-repl`) is consulted *before* the longest-prefix backend match so `model:claude-remote` resolves whole and never mis-splits into backend `claude` + variant `remote`. A separate "forced-RC" predicate detects the alias label on the issue and forces RC ON for that issue only, OR-ed with the global Setting #2 default. Rationale: gives the operator a one-label switch to force dual-chat per issue without renaming the backend everywhere or flipping the global default; keeps "transport ≠ RC" expressible at the label layer (`model:claude-repl` = transport only, `model:claude-remote` = transport + forced RC). The alias is added to the auto-seeded `model:*` label set.
+- **`r` promotes by re-dispatch, not by toggling a separate RC process (R9).** The old `r`-key path attached a *separate* `claude remote-control --spawn` handoff process (mutually exclusive with the headless driver). The redesign makes `r` stop the running agent and re-dispatch the same issue as `claude-remote` (REPL + forced RC), resuming the transcript by cwd. Rationale: with the persistent-REPL backend there is no longer a reason to run a second, mutually-exclusive RC process — one agent, one transcript, RC attached at launch via the flag (U1). This unifies "follow + chat from both surfaces" under a single agent and retires the handoff toggle. Consistent with R0: the re-dispatched agent keeps self-driving; RC is the takeover channel.
 
 ---
 
@@ -428,6 +434,71 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
+- [ ] U8. **Operator-facing `model:claude-remote` label alias that forces RC**
+
+**Goal:** Add the label-only alias `model:claude-remote` → backend `claude-repl` that, when present on an issue, forces remote-control ON for that issue regardless of the global Setting #2 default. Keep `claude-repl` as the internal backend key everywhere; auto-seed the alias as a GitHub label.
+
+**Requirements:** R8 (and upholds R6's "Setting #2 defaults OFF" globally — the alias is a per-issue override, not a default flip).
+
+**Dependencies:** U5 (registry + `backend_for/1` resolution), U6 (the `remote_control` opt-in this alias overrides).
+
+**Files:**
+- Modify: `src/lib/aiur/coding_agent.ex` — alias map consulted before the longest-prefix backend match in spec resolution; a public forced-RC predicate over an issue's labels; add the alias to the auto-seeded `model:*` label set.
+- Modify: `src/lib/aiur/agent_runner.ex` — the RC-resolution line so `rc?` is `(forced? OR global opt-in) AND backend RC-capable`.
+- Modify: `src/lib/aiur/github/labels.ex` (or wherever `override_labels/0` is consumed for seeding) — ensure the alias label is created in the repo.
+- Test: `src/test/aiur/coding_agent_test.exs`, `src/test/aiur/agent_runner_test.exs`.
+
+**Approach:**
+- Resolve `model:claude-remote` via an explicit alias map checked *first*, returning `{"claude-repl", nil}` so it never falls through to the `claude` prefix match (the mis-split bug). Bare `model:claude-repl` keeps resolving to transport-only (RC per global default).
+- A forced-RC predicate scans the issue's labels for an alias whose presence forces RC; `agent_runner` OR-es it with the global opt-in before AND-ing with backend RC-capability. No other backend is affected.
+- Seed the alias label alongside the existing `model:<backend>[-variant]` labels so it exists in GitHub for the operator to apply.
+
+**Patterns to follow:** the existing `resolve_backend_spec/2` longest-match resolution and `override_labels/1` seeding in `src/lib/aiur/coding_agent.ex`; the existing `rc?` computation in `run_codex_turns` (`src/lib/aiur/agent_runner.ex`).
+
+**Test scenarios:**
+- Happy path: an issue labeled `model:claude-remote` resolves backend `claude-repl`, pins no model variant, and the forced-RC predicate returns true.
+- Happy path: `model:claude-repl` (no alias) resolves `claude-repl` and forced-RC is false (RC follows the global default).
+- Edge case: `model:claude-remote` is NOT mis-resolved to backend `claude` + variant `remote`.
+- Integration: in `run_codex_turns`, an alias-labeled issue yields `rc? = true` even with the global `agent.remote_control` default OFF; a non-RC-capable backend with the alias still yields `rc? = false` (AND with capability holds).
+- Seeding: `override_labels/0` includes `model:claude-remote`.
+
+**Verification:** Dispatch an issue labeled `model:claude-remote` through `scripts/aiur` with the global RC default OFF; confirm it launches the REPL agent with `--remote-control` attached and self-drives (R0), while an issue labeled only `model:claude-repl` launches the REPL transport with RC off.
+
+---
+
+- [ ] U9. **Rewire the `r` key: promote a running agent to `claude-remote` by re-dispatch**
+
+**Goal:** Replace the old RC handoff toggle so pressing `r` on a running non-remote agent (headless `claude` or `codex`) stops the current agent and re-dispatches the same issue as `claude-remote` (persistent REPL + forced RC), resuming the existing transcript/session by cwd. An already-remote agent is left as-is (or its existing toggle-off behavior is preserved per current UX).
+
+**Requirements:** R9, R0 (the re-dispatched agent self-drives; RC is the takeover channel), R8 (re-dispatch uses the `claude-remote` selection so RC is forced).
+
+**Dependencies:** U5, U6, U8 (re-dispatch targets the `claude-remote` alias), U1–U4 (the REPL backend the agent is promoted into).
+
+**Files:**
+- Modify: `src/lib/aiur/agent_list/app.ex` — the `r`-key handler (`toggle_remote_control` cast → `toggle_selected_agent_remote_control` → `toggle_agent_remote_control` → `handle_remote_control_result`) so it requests promotion/re-dispatch instead of the old toggle.
+- Modify: `src/lib/aiur/orchestrator.ex` — replace the old `set_remote_control` → `launch_remote_control` → `do_launch_remote_control` (`claude remote-control --spawn` handoff) with a stop-current-agent + re-dispatch-as-`claude-remote` flow that resumes the issue's transcript by cwd. Retire the now-dead handoff path as part of the end-of-build dead-code pass (guarded: do not break codex or the headless fallback).
+- Test: `src/test/aiur/orchestrator_test.exs`, and an `agent_list` test for the `r`-key cast routing if one exists.
+
+**Approach:**
+- On `r` for a running non-remote agent: stop the current agent cleanly (existing stop path), then re-dispatch the same issue selecting the `claude-remote` alias (forces RC via U8) so the new REPL agent resumes the existing transcript/session via cwd+mtime resolution (no new conversation).
+- Reuse the existing dispatch entry point rather than the bespoke handoff spawn; the `claude remote-control --spawn` path becomes unreachable for this flow and is removed under the dead-code guards.
+- Keep the result feedback the `r` key already surfaces (`{:ok, :on}` / `{:error, :unsupported}` analogues) so the AgentList UX still reports success/failure.
+
+**Patterns to follow:** the existing dispatch flow used by the orchestrator to start an issue's agent; the existing `r`-key cast plumbing in `src/lib/aiur/agent_list/app.ex`; transcript-resume-by-cwd from `src/lib/aiur/claude/remote_control.ex`.
+
+**Execution note:** Manual repro first — dispatch a plain `codex`/headless-`claude` agent, press `r`, confirm the old agent stops and a `claude-remote` REPL agent resumes the same transcript — then a failing test, then the rewire.
+
+**Test scenarios:**
+- Happy path: `r` on a running headless-`claude` agent stops it and re-dispatches the issue as `claude-remote` (REPL + RC), same workspace/transcript.
+- Happy path: `r` on a running `codex` agent does the same (codex is non-RC-capable, so promotion is the only way it reaches RC).
+- Edge case: `r` on an agent that is already `claude-remote`/RC does not double-dispatch (no-op or documented toggle-off, matching current UX).
+- Error path: re-dispatch failure surfaces a clear result to the AgentList (no silent stop that strands the issue with no running agent).
+- Integration: after promotion, the resumed agent self-drives the issue end-to-end (R0) with RC attached, and both surfaces act on one transcript (R5).
+
+**Verification:** Through `scripts/aiur`: start an issue on `codex` (or headless `claude`), press `r` in the AgentList, confirm the original agent is gone (no orphan, R7), a `claude-remote` REPL agent is running on the same issue/transcript with RC attached, and it continues autonomously.
+
+---
+
 ## System-Wide Impact
 
 - **Interaction graph:** new pane lifecycle touches `Aiur.Tmux`, `PaneManager`/`HiddenWindow` conventions, `AgentRunner` (`on_message` + run_turn callsites), `chat_completions.ex` (inbound), `AgentPubSub`/`AgentChat` (delivery policy + fan-out), `orchestrator.ex` (running-entry tracking + teardown), `shutdown.ex` (sweep), the `CodingAgent` registry.
@@ -450,6 +521,8 @@ Decision matrix — input source vs. effect (the parity/sync model):
 | One RC URL per agent leaks if logged | Capability-token discipline: surface to local operator only, never to logs/files (enforced in U1). |
 | Scaling: N agents = N live `claude` REPLs + N RC sessions | v1 local-only; rely on existing concurrency limits; note resource cost, revisit if it bites. |
 | Rewrite regresses the proven headless path | New backend is additive; headless `claude` untouched and remains the fallback. |
+| `r`-key promotion (U9) stops the old agent but re-dispatch fails, stranding the issue with no running agent | Surface re-dispatch failure to the AgentList (U9 error path); resume by cwd so a retry re-attaches the same transcript; the issue stays in an active label state for the orchestrator to pick up. |
+| `model:claude-remote` mis-resolves to backend `claude` + variant `remote` | Alias map consulted before longest-prefix backend match; explicit test asserts whole-alias resolution (U8). |
 
 ---
 
@@ -459,7 +532,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 - `aiur_perf` lifecycle logs (always-on): REPL spawn, RC-activation, first-output, fallback-to-headless, teardown outcome.
 - Memory: on completion, update `rc-dual-surface-state` (Q2 integration → done) and `rc-cloud-mediated`.
 - Branch/rollback: all work on `kevin/repl-dualchat`; `kevin/remotecontrol` (toggle/handoff) remains the revert target.
-- **Dead-code cleanup (end-of-build pass, operator directive 2026-06-08):** after the REPL driver is proven, delete code the rewrite genuinely orphans — but with two hard guards: (1) **codex must still work** — never delete shared infrastructure codex depends on (delivery-policy plumbing, transcript/pubsub, `Aiur.Tmux` helpers, the codex app-server path, registry machinery); (2) the **headless `claude` backend is intentionally retained** as the R6 fallback, so it is NOT "unused" and must not be removed in v1. Scope deletions to what the REPL work alone makes unreachable; if unsure whether codex needs something, keep it and flag it, don't delete.
+- **Dead-code cleanup (end-of-build pass, operator directive 2026-06-08):** after the REPL driver is proven, delete code the rewrite genuinely orphans — but with two hard guards: (1) **codex must still work** — never delete shared infrastructure codex depends on (delivery-policy plumbing, transcript/pubsub, `Aiur.Tmux` helpers, the codex app-server path, registry machinery); (2) the **headless `claude` backend is intentionally retained** as the R6 fallback, so it is NOT "unused" and must not be removed in v1. Scope deletions to what the REPL work alone makes unreachable; if unsure whether codex needs something, keep it and flag it, don't delete. The old RC handoff path (`launch_remote_control` / `do_launch_remote_control` spawning `claude remote-control --spawn`) becomes unreachable once U9 lands and is a prime candidate for this pass — under the same guards.
 
 ---
 
@@ -473,6 +546,9 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ### Phase 3 — Integration, opt-in config, hardening
 - U5 (registry/routing/parity), U6 (two-setting opt-in + fallback), U7 (teardown). Ends with the REPL+RC mode available as an opt-in (RC default OFF), both surfaces at parity when on, zero orphans.
+
+### Phase 4 — Operator-facing controls (redesign 2026-06-08)
+- U8 (`model:claude-remote` label alias forces RC per issue), U9 (`r` key promotes a running agent by re-dispatching it as `claude-remote`, retiring the old handoff toggle). Ends with the operator able to force dual-chat on any issue via one label, and to promote any running agent to remote with a keystroke — the global RC default still OFF.
 
 ---
 
