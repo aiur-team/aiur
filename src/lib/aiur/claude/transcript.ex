@@ -59,20 +59,25 @@ defmodule Aiur.Claude.Transcript do
   `assistant` record carries a content *array* (text / thinking / tool_use
   blocks), so this returns a list of events, one per renderable block.
 
-  Non-conversational records (`bridge-session`, `system`,
+  A bare user prompt string (the operator's own typed message, which the
+  harness writes with `message.content` as a plain string) maps to a
+  single `:user` event so replayed history shows messages from both
+  surfaces. Non-conversational records (`bridge-session`, `system`,
   `file-history-snapshot`, `ai-title`, `last-prompt`, `permission-mode`,
-  `attachment`, `queue-operation`, `pr-link`) and bare user prompt strings
-  yield `[]`.
+  `attachment`, `queue-operation`, `pr-link`) yield `[]`.
   """
   @spec extract_disk_record(map(), String.t() | nil) :: [AgentEvents.transcript_event()]
   def extract_disk_record(record, fallback_turn_id) when is_map(record) do
     case get(record, :type) do
-      type when type in ["assistant", "user"] ->
+      "assistant" ->
         timestamp = disk_timestamp(record)
 
         record
         |> disk_content_blocks()
         |> Enum.flat_map(&events_for_block(&1, fallback_turn_id, timestamp))
+
+      "user" ->
+        extract_user_record(record, fallback_turn_id)
 
       _ ->
         []
@@ -80,6 +85,24 @@ defmodule Aiur.Claude.Transcript do
   end
 
   def extract_disk_record(_record, _fallback_turn_id), do: []
+
+  # A user record is either the operator's typed prompt (`content` is a
+  # bare string -> a `:user` event) or a batch of `tool_result` blocks
+  # (`content` is a list -> tool events), never both.
+  defp extract_user_record(record, fallback_turn_id) do
+    timestamp = disk_timestamp(record)
+
+    case get(get(record, :message) || %{}, :content) do
+      text when is_binary(text) and text != "" ->
+        [AgentEvents.transcript_event(:user, text, timestamp: timestamp, turn_id: fallback_turn_id)]
+
+      content when is_list(content) ->
+        Enum.flat_map(content, &events_for_block(&1, fallback_turn_id, timestamp))
+
+      _ ->
+        []
+    end
+  end
 
   defp events_for_block(block, turn_id, timestamp) do
     case block_to_event(block, turn_id, timestamp) do

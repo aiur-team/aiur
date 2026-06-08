@@ -344,8 +344,15 @@ defmodule Aiur.Claude.TranscriptTest do
       assert event.payload.output == "line A\nline B"
     end
 
-    test "a bare user prompt string yields no events" do
-      assert [] = Transcript.extract_disk_record(user_record("please fix the bug"), "turn-1")
+    test "a bare user prompt string → one :user event (operator's typed message)" do
+      assert [event] = Transcript.extract_disk_record(user_record("please fix the bug"), "turn-1")
+      assert event.role == :user
+      assert event.body == "please fix the bug"
+      assert event.turn_id == "turn-1"
+    end
+
+    test "an empty user prompt string yields no events" do
+      assert [] = Transcript.extract_disk_record(user_record(""), "turn-1")
     end
 
     test "non-conversational records are skipped" do
