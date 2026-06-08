@@ -113,6 +113,62 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert event.body == "from the phone"
   end
 
+  test "fires on_turn_end with the terminal stop_reason of an assistant record", %{path: path, test_pid: tp} do
+    on_message = fn event -> send(tp, {:event, event}) end
+    on_turn_end = fn reason -> send(tp, {:turn_end, reason}) end
+
+    record =
+      Jason.encode!(%{
+        "type" => "assistant",
+        "timestamp" => "2026-06-08T12:00:00.000Z",
+        "message" => %{
+          "role" => "assistant",
+          "stop_reason" => "end_turn",
+          "content" => [%{"type" => "text", "text" => "Done."}]
+        }
+      }) <> "\n"
+
+    File.write!(path, record)
+
+    {:ok, tailer} =
+      start_supervised(
+        {TranscriptTailer,
+         [path: path, on_message: on_message, on_turn_end: on_turn_end, turn_id: "turn-1", interval_ms: nil, from: :start]},
+        id: {:tailer, System.unique_integer([:positive])}
+      )
+
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:event, %{body: "Done."}}
+    assert_receive {:turn_end, "end_turn"}
+  end
+
+  test "does not fire on_turn_end for an intra-turn (tool_use) assistant record", %{path: path, test_pid: tp} do
+    on_turn_end = fn reason -> send(tp, {:turn_end, reason}) end
+
+    record =
+      Jason.encode!(%{
+        "type" => "assistant",
+        "timestamp" => "2026-06-08T12:00:00.000Z",
+        "message" => %{
+          "role" => "assistant",
+          "stop_reason" => "tool_use",
+          "content" => [%{"type" => "text", "text" => "Working."}]
+        }
+      }) <> "\n"
+
+    File.write!(path, record)
+
+    {:ok, tailer} =
+      start_supervised(
+        {TranscriptTailer,
+         [path: path, on_message: fn _ -> :ok end, on_turn_end: on_turn_end, turn_id: "turn-1", interval_ms: nil, from: :start]},
+        id: {:tailer, System.unique_integer([:positive])}
+      )
+
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    refute_receive {:turn_end, _}, 100
+  end
+
   test "from: :end ignores pre-existing history", %{path: path, test_pid: tp} do
     File.write!(path, assistant_line("history one") <> assistant_line("history two"))
     tailer = start_tailer(path, tp, from: :end)

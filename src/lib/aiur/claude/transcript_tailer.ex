@@ -27,9 +27,14 @@ defmodule Aiur.Claude.TranscriptTailer do
 
   @default_interval_ms 400
 
+  # Terminal `stop_reason` values on an assistant record — the in-transcript
+  # equivalent of the JSON-RPC `turn/completed` notification.
+  @turn_end_reasons ~w(end_turn stop_sequence max_tokens)
+
   @type option ::
           {:path, Path.t()}
           | {:on_message, (Aiur.AgentEvents.transcript_event() -> any())}
+          | {:on_turn_end, (String.t() -> any())}
           | {:turn_id, String.t() | nil}
           | {:from, :start | :end}
           | {:interval_ms, pos_integer() | nil}
@@ -53,6 +58,7 @@ defmodule Aiur.Claude.TranscriptTailer do
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
     on_message = Keyword.fetch!(opts, :on_message)
+    on_turn_end = Keyword.get(opts, :on_turn_end, fn _reason -> :ok end)
     turn_id = Keyword.get(opts, :turn_id)
     interval_ms = Keyword.get(opts, :interval_ms, @default_interval_ms)
 
@@ -66,6 +72,7 @@ defmodule Aiur.Claude.TranscriptTailer do
       path: path,
       offset: offset,
       on_message: on_message,
+      on_turn_end: on_turn_end,
       turn_id: turn_id,
       interval_ms: interval_ms
     }
@@ -165,12 +172,32 @@ defmodule Aiur.Claude.TranscriptTailer do
         {:ok, record} ->
           events = Transcript.extract_disk_record(record, state.turn_id)
           Enum.each(events, state.on_message)
+          maybe_fire_turn_end(state, record)
           acc + length(events)
 
         :error ->
           acc
       end
     end)
+  end
+
+  # An assistant record whose `stop_reason` is terminal is the on-disk
+  # equivalent of the JSON-RPC `turn/completed` notification.
+  defp maybe_fire_turn_end(state, record) do
+    case terminal_stop_reason(record) do
+      nil -> :ok
+      reason -> state.on_turn_end.(reason)
+    end
+  end
+
+  defp terminal_stop_reason(record) do
+    with "assistant" <- Map.get(record, "type"),
+         message when is_map(message) <- Map.get(record, "message"),
+         reason when reason in @turn_end_reasons <- Map.get(message, "stop_reason") do
+      reason
+    else
+      _ -> nil
+    end
   end
 
   defp decode(line) do

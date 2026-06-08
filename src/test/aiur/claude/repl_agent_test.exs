@@ -169,4 +169,173 @@ defmodule Aiur.Claude.ReplAgentTest do
 
     assert :ok = Task.await(task, 2_000)
   end
+
+  # --------------------------------------------------------------- run_turn/4
+
+  defp turn_session(tmux, transcript_path, pane \\ "%50") do
+    %{
+      backend: "claude-repl",
+      pane_id: pane,
+      os_pid: 4242,
+      workspace: System.tmp_dir!(),
+      transcript_path: transcript_path,
+      model: nil,
+      remote_control: false,
+      rc_name: "x",
+      tmux: tmux
+    }
+  end
+
+  defp temp_transcript do
+    path = Path.join(System.tmp_dir!(), "repl-turn-#{System.unique_integer([:positive])}.jsonl")
+    File.write!(path, "")
+    path
+  end
+
+  # An assistant record whose `stop_reason` is terminal — the tailer reads
+  # this as the turn-completion signal.
+  defp completion_record(text) do
+    Jason.encode!(%{
+      "type" => "assistant",
+      "timestamp" => "2026-06-08T12:00:00.000Z",
+      "message" => %{
+        "role" => "assistant",
+        "stop_reason" => "end_turn",
+        "content" => [%{"type" => "text", "text" => text}]
+      }
+    }) <> "\n"
+  end
+
+  # Answer the send-keys + Enter + pane-liveness dance for one turn, appending
+  # the completion record after the prompt is sent (the tailer reads `from:
+  # :end`, so it only sees records written after run_turn started it).
+  defp drive_completing_turn(tmux, path, text, task) do
+    assert_receive {:tmux_mock_out, "send-keys -t " <> rest1}, 1_000
+    assert rest1 =~ "-l "
+    respond(tmux, "")
+
+    assert_receive {:tmux_mock_out, "send-keys -t " <> rest2}, 1_000
+    assert String.ends_with?(rest2, "Enter")
+    respond(tmux, "")
+
+    File.write!(path, completion_record(text), [:append])
+
+    assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000
+    respond(tmux, "4242\n")
+
+    Task.await(task, 2_000)
+  end
+
+  # Keep answering pane-liveness polls (pane alive) until the run_turn task
+  # finishes — used by the timeout case, which never appends a completion.
+  defp drain_pane_pid(tmux, task) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        drain_pane_pid(tmux, task)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> result
+          nil -> drain_pane_pid(tmux, task)
+        end
+    end
+  end
+
+  test "run_turn sends the prompt, streams transcript events, completes on end_turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+    tp = self()
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "do the thing", %{},
+          on_message: fn m -> send(tp, {:msg, m}) end,
+          poll_interval_ms: 10
+        )
+      end)
+
+    assert {:ok, result} = drive_completing_turn(tmux, path, "All done.", task)
+    assert result.result == :completed
+    assert is_binary(result.turn_id)
+    assert is_binary(result.session_id)
+
+    assert_receive {:msg, %{event: :session_started, turn_id: tid}}
+    assert tid == result.turn_id
+    assert_receive {:msg, %{event: :transcript, transcript_event: %{role: :assistant, body: "All done."}}}
+    assert_receive {:msg, %{event: :turn_completed}}
+  end
+
+  test "run_turn rejects an empty/whitespace prompt without sending keys", %{tmux: tmux} do
+    session = turn_session(tmux, temp_transcript())
+
+    assert {:error, :empty_prompt} = ReplAgent.run_turn(session, "   ", %{}, [])
+    refute_receive {:tmux_mock_out, _}, 100
+  end
+
+  test "run_turn errors when the session has no transcript path", %{tmux: tmux} do
+    session = turn_session(tmux, nil)
+
+    assert {:error, :no_transcript} = ReplAgent.run_turn(session, "hi", %{}, [])
+    refute_receive {:tmux_mock_out, _}, 100
+  end
+
+  test "run_turn returns :turn_timeout when no completion arrives", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "hang forever", %{},
+          turn_timeout_ms: 80,
+          poll_interval_ms: 15
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
+    respond(tmux, "")
+
+    assert {:error, :turn_timeout} = drain_pane_pid(tmux, task)
+  end
+
+  test "run_turn surfaces :repl_gone when the pane dies mid-turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "work", %{}, poll_interval_ms: 10)
+      end)
+
+    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
+    respond(tmux, "")
+
+    assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000
+    respond_error(tmux, "can't find pane\n")
+
+    assert {:error, :repl_gone} = Task.await(task, 2_000)
+  end
+
+  test "two sequential run_turns reuse one session (no respawn)", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    t1 = Task.async(fn -> ReplAgent.run_turn(session, "first", %{}, poll_interval_ms: 10) end)
+    assert {:ok, r1} = drive_completing_turn(tmux, path, "one", t1)
+
+    t2 = Task.async(fn -> ReplAgent.run_turn(session, "second", %{}, poll_interval_ms: 10) end)
+    assert {:ok, r2} = drive_completing_turn(tmux, path, "two", t2)
+
+    assert r1.thread_id == r2.thread_id
+    assert r1.turn_id != r2.turn_id
+    refute_receive {:tmux_mock_out, "new-window" <> _}, 100
+  end
 end

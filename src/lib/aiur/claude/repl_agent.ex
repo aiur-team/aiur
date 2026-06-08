@@ -24,11 +24,16 @@ defmodule Aiur.Claude.ReplAgent do
 
   alias Aiur.Claude.Config
   alias Aiur.Claude.RemoteControl
+  alias Aiur.Claude.TranscriptTailer
   alias Aiur.Tmux
 
   @ready_prompt "❯"
   @ready_poll_ms 200
   @ready_timeout_ms 15_000
+
+  # How often `run_turn` drains the transcript tailer and checks pane
+  # liveness while a turn is in flight.
+  @turn_poll_ms 250
 
   @type session :: %{
           backend: String.t(),
@@ -130,11 +135,145 @@ defmodule Aiur.Claude.ReplAgent do
     Aiur.Claude.CodingAgent.normalize_event(event)
   end
 
-  @doc false
-  # Implemented in U3 (run_turn over the REPL). Defined here to satisfy the
-  # CodingAgent behaviour while the lifecycle (U1) lands first.
-  @spec run_turn(session(), String.t(), map(), keyword()) :: {:error, :not_implemented}
-  def run_turn(_session, _prompt, _issue, _opts \\ []), do: {:error, :not_implemented}
+  @doc """
+  Drive one turn over the persistent REPL.
+
+  Sends `prompt` to the live pane (`send_keys_literal` + `Enter`), tails the
+  shared transcript for this turn's output (forwarding each extracted
+  `transcript_event` to `on_message`), and blocks until the agent's terminal
+  `stop_reason` lands or a backstop fires:
+
+    * `{:ok, %{result, session_id, thread_id, turn_id}}` on completion
+    * `{:error, :empty_prompt}` if the prompt is blank (no keys sent)
+    * `{:error, :no_transcript}` if the session never resolved a transcript path
+    * `{:error, :turn_timeout}` if no completion arrives within the backstop;
+      the session stays usable for the next turn
+    * `{:error, :repl_gone}` if the pane dies mid-turn
+
+  The turn tailer is opened `from: :end` so it captures only this turn's
+  newly-appended records — it never replays prior history as input.
+  """
+  @spec run_turn(session(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def run_turn(session, prompt, issue, opts \\ [])
+
+  def run_turn(_session, prompt, _issue, _opts) when not is_binary(prompt),
+    do: {:error, :empty_prompt}
+
+  def run_turn(%{transcript_path: nil}, _prompt, _issue, _opts),
+    do: {:error, :no_transcript}
+
+  def run_turn(%{} = session, prompt, _issue, opts) do
+    if String.trim(prompt) == "" do
+      {:error, :empty_prompt}
+    else
+      drive_turn(session, prompt, opts)
+    end
+  end
+
+  defp drive_turn(session, prompt, opts) do
+    on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
+    poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
+    timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
+
+    {thread_id, turn_id} = turn_ids(session.transcript_path)
+    session_id = "#{thread_id}-#{turn_id}"
+
+    emit(on_message, :session_started, %{
+      session_id: session_id,
+      thread_id: thread_id,
+      turn_id: turn_id
+    })
+
+    {:ok, tailer} = start_turn_tailer(session, turn_id, on_message)
+
+    Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
+    Tmux.send_enter(session.tmux, session.pane_id)
+
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    result = await_turn(session, tailer, turn_id, deadline, poll_ms)
+    stop_tailer(tailer)
+
+    case result do
+      :ok ->
+        emit(on_message, :turn_completed, %{session_id: session_id, turn_id: turn_id})
+        {:ok, %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
+
+      {:error, reason} ->
+        emit(on_message, :turn_ended_with_error, %{session_id: session_id, reason: reason})
+        {:error, reason}
+    end
+  end
+
+  # The tailer fires `on_turn_end` from its own process; route that back to
+  # this run_turn process so the await loop can unblock. Each transcript
+  # event is wrapped so the orchestrator's transcript dispatch passes it
+  # through unchanged (see `Aiur.Claude.Transcript.extract/2`).
+  defp start_turn_tailer(session, turn_id, on_message) do
+    parent = self()
+
+    TranscriptTailer.start_link(
+      path: session.transcript_path,
+      from: :end,
+      turn_id: turn_id,
+      interval_ms: nil,
+      on_message: fn event ->
+        emit_transcript(on_message, event)
+      end,
+      on_turn_end: fn reason ->
+        send(parent, {:turn_end, turn_id, reason})
+      end
+    )
+  end
+
+  defp await_turn(session, tailer, turn_id, deadline, poll_ms) do
+    cond do
+      System.monotonic_time(:millisecond) >= deadline ->
+        {:error, :turn_timeout}
+
+      not pane_alive?(session) ->
+        {:error, :repl_gone}
+
+      true ->
+        TranscriptTailer.poll(tailer)
+
+        receive do
+          {:turn_end, ^turn_id, _reason} -> :ok
+        after
+          0 ->
+            Process.sleep(poll_ms)
+            await_turn(session, tailer, turn_id, deadline, poll_ms)
+        end
+    end
+  end
+
+  defp pane_alive?(%{tmux: tmux, pane_id: pane_id}) do
+    match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
+  end
+
+  defp stop_tailer(tailer) do
+    if Process.alive?(tailer), do: GenServer.stop(tailer, :normal, 1_000)
+    :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  # Thread id is the transcript file's UUID (stable for the life of the
+  # persistent session); the turn id appends a per-turn counter since the
+  # REPL has no JSON-RPC `turn.id`.
+  defp turn_ids(transcript_path) do
+    uuid = transcript_path |> Path.basename() |> Path.rootname()
+    counter = System.unique_integer([:positive, :monotonic])
+    {uuid, "#{uuid}-#{counter}"}
+  end
+
+  defp emit(on_message, event, details) do
+    on_message.(Map.merge(details, %{event: event, timestamp: DateTime.utc_now()}))
+  end
+
+  defp emit_transcript(on_message, event) do
+    on_message.(%{event: :transcript, transcript_event: event, timestamp: DateTime.utc_now()})
+  end
 
   @doc false
   # Implemented in U4 (instant mid-turn operator delivery).

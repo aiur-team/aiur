@@ -31,6 +31,12 @@ defmodule Aiur.Claude.Transcript do
   @edit_tools ~w(Edit Write MultiEdit NotebookEdit)
 
   @spec extract(map(), String.t() | nil) :: {:ok, AgentEvents.transcript_event()} | :skip
+  # The interactive-REPL backend tails the transcript and emits already-extracted
+  # events (see `extract_disk_record/2`), wrapping each in `%{transcript_event: ...}`
+  # before handing it to the orchestrator's `on_message`. Pass those straight
+  # through so the REPL backend shares the codex/JSON-RPC dispatch path.
+  def extract(%{transcript_event: %{role: _} = event}, _fallback_turn_id), do: {:ok, event}
+
   def extract(message, fallback_turn_id) when is_map(message) do
     with "item/created" <- notification_method(message),
          item when is_map(item) <- notification_item(message) do

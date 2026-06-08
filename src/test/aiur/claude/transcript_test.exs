@@ -169,6 +169,13 @@ defmodule Aiur.Claude.TranscriptTest do
       assert :skip = Transcript.extract(message, nil)
     end
 
+    test "passes a pre-extracted REPL transcript_event straight through" do
+      event = Aiur.AgentEvents.transcript_event(:assistant, "from the repl", turn_id: "turn-z")
+      message = %{event: :transcript, transcript_event: event}
+
+      assert {:ok, ^event} = Transcript.extract(message, "fallback")
+    end
+
     test "falls back to provided turn_id when params omit it" do
       message = %{
         payload: %{

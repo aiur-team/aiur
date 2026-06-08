@@ -174,6 +174,19 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Send a single `Enter` keypress to `pane_id` (tmux's `send-keys Enter`,
+  the named key — not literal text). Submits a line previously staged
+  with `send_keys_literal/3`.
+  """
+  @spec send_enter(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def send_enter(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:send_enter, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Capture the visible contents of `pane_id` as a list of lines
   (tmux's `capture-pane -p`). Used for coarse lifecycle signals
   (REPL readiness / idle prompt) where the transcript has no marker.
@@ -438,6 +451,13 @@ defmodule Aiur.Tmux do
 
   def handle_call({:send_keys_literal, pane_id, text}, _from, state) do
     case run_args(state, ["send-keys", "-t", pane_id, "-l", text]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:send_enter, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "Enter"]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end
