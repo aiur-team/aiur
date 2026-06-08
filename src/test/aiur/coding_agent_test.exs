@@ -19,6 +19,18 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.override_backend(issue(["model:claude-opus-4-8"])) == "claude"
     end
 
+    test "a hyphenated backend is resolved whole, not split into backend+variant" do
+      # `claude-repl` must win over the shorter `claude` so its trailing
+      # `repl` segment is not mistaken for a model variant.
+      assert CodingAgent.override_backend(issue(["model:claude-repl"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-repl"])) == nil
+    end
+
+    test "a hyphenated backend still pins a trailing variant" do
+      assert CodingAgent.override_backend(issue(["model:claude-repl-opus-4-8"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-repl-opus-4-8"])) == "opus-4-8"
+    end
+
     test "unknown backend in a model: tag is ignored" do
       assert CodingAgent.override_backend(issue(["model:bogus"])) == nil
       assert CodingAgent.override_backend(issue(["model:bogus-x"])) == nil

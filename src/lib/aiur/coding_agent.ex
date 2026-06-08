@@ -36,10 +36,13 @@ defmodule Aiur.CodingAgent do
   @complexity_label ~r/^complexity:(\d+)$/
   # `model:<backend>` selects a backend with its configured default model.
   # `model:<backend>-<variant>` additionally pins a model string passed to
-  # that backend (e.g. `model:claude-opus-4-8`). The variant charset is
+  # that backend (e.g. `model:claude-opus-4-8`). The whole spec charset is
   # restricted to word/dot/dash so it is safe to splice into a backend's
-  # spawned command without shell-injection risk.
-  @model_override_label ~r/^model:([a-z]+)(?:-([A-Za-z0-9.\-]+))?$/
+  # spawned command without shell-injection risk. The backend/variant
+  # boundary is resolved against the known-backend list (see
+  # `resolve_backend_spec/2`), so a hyphenated backend like `claude-repl`
+  # is recognized rather than mis-split into `claude` + variant `repl`.
+  @model_override_label ~r/^model:([A-Za-z0-9.\-]+)$/
 
   @doc """
   Registry of supported coding-agent backends. Each entry carries the
@@ -93,8 +96,19 @@ defmodule Aiur.CodingAgent do
   Derived from the registry so new backends/models seed automatically.
   """
   @spec override_labels() :: [String.t()]
-  def override_labels do
-    Enum.flat_map(backends(), fn {backend, entry} ->
+  def override_labels, do: override_labels(known_backends())
+
+  @doc """
+  `override_labels/0` restricted to the given backends. Each backend
+  contributes only its own `model:<backend>[-<variant>]` labels, so a
+  hyphenated backend (`claude-repl`) is never seeded by selecting a
+  shorter-named one (`claude`).
+  """
+  @spec override_labels([backend()]) :: [String.t()]
+  def override_labels(selected) do
+    backends()
+    |> Map.take(selected)
+    |> Enum.flat_map(fn {backend, entry} ->
       variant_labels = Enum.map(Map.get(entry, :models, []), &"model:#{backend}-#{&1}")
       ["model:#{backend}" | variant_labels]
     end)
@@ -147,14 +161,26 @@ defmodule Aiur.CodingAgent do
   @spec match_override(term(), [backend()]) :: {backend(), String.t() | nil} | nil
   defp match_override(label, known) do
     case Regex.run(@model_override_label, to_string(label)) do
-      [_, backend] -> known_backend_match(backend, nil, known)
-      [_, backend, variant] -> known_backend_match(backend, variant, known)
+      [_, spec] -> resolve_backend_spec(spec, known)
       _ -> nil
     end
   end
 
-  defp known_backend_match(backend, variant, known) do
-    if backend in known, do: {backend, variant}
+  # Resolve `model:<spec>` to `{backend, variant | nil}`. Prefer the longest
+  # known backend the spec names exactly or prefixes with `-`, so a
+  # hyphenated backend (`claude-repl`) wins over a shorter one (`claude`)
+  # before its trailing segment is mistaken for a variant.
+  @spec resolve_backend_spec(String.t(), [backend()]) :: {backend(), String.t() | nil} | nil
+  defp resolve_backend_spec(spec, known) do
+    known
+    |> Enum.sort_by(&(-String.length(&1)))
+    |> Enum.find_value(fn backend ->
+      cond do
+        spec == backend -> {backend, nil}
+        String.starts_with?(spec, backend <> "-") -> {backend, String.replace_prefix(spec, backend <> "-", "")}
+        true -> nil
+      end
+    end)
   end
 
   @doc false

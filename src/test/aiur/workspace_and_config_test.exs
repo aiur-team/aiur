@@ -1126,6 +1126,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
              {:routing, {msg, []}} -> msg =~ "unknown backend"
              _ -> false
            end)
+
+    repl =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "claude-repl"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert repl.errors == []
   end
 
   test "complexity prompts normalize string levels and reject bad levels/values" do

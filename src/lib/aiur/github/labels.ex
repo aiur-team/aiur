@@ -6,8 +6,8 @@ defmodule Aiur.GitHub.Labels do
 
     * **state** — `<prefix>:<state>` for every agent lifecycle state the
       orchestrator sets and reads.
-    * **model** — `Aiur.CodingAgent.override_labels/0` filtered to the backends
-      the operator chose, so an issue can be pinned to a specific agent/model.
+    * **model** — `Aiur.CodingAgent.override_labels/1` for the backends the
+      operator chose, so an issue can be pinned to a specific agent/model.
     * **complexity** — `complexity:1`..`complexity:5`, routed to an agent via
       `agent.routing`.
 
@@ -44,13 +44,7 @@ defmodule Aiur.GitHub.Labels do
   def state_labels(prefix), do: Enum.map(@state_suffixes, &"#{prefix}:#{&1}")
 
   @spec model_labels([String.t()]) :: [String.t()]
-  def model_labels(backends) do
-    Enum.filter(CodingAgent.override_labels(), fn label ->
-      Enum.any?(backends, fn backend ->
-        label == "model:#{backend}" or String.starts_with?(label, "model:#{backend}-")
-      end)
-    end)
-  end
+  def model_labels(backends), do: CodingAgent.override_labels(backends)
 
   @spec complexity_labels() :: [String.t()]
   def complexity_labels, do: Enum.map(1..5, &"complexity:#{&1}")
