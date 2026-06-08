@@ -347,13 +347,14 @@ defmodule Aiur.AgentRunner do
 
     backend = CodingAgent.backend_for(issue)
     model = CodingAgent.model_for(issue)
+    rc? = Config.agent_remote_control?() and CodingAgent.remote_control?(backend)
 
-    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)}")
+    Logger.info(
+      "Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}"
+    )
 
     with {:ok, session} <-
-           CodingAgent.start_session(workspace, backend: backend, model: model, worker_host: worker_host) do
-      session = Map.put(session, :backend, backend)
-
+           start_agent_session(workspace, backend: backend, model: model, worker_host: worker_host, remote_control: rc?) do
       try do
         do_run_codex_turns(
           session,
@@ -370,6 +371,41 @@ defmodule Aiur.AgentRunner do
       after
         CodingAgent.stop_session(session)
       end
+    end
+  end
+
+  @doc false
+  # Start the resolved backend's session, tagging it with its backend so
+  # later dispatch resolves the right adapter. The persistent-REPL backend
+  # can fail to start (no tmux, REPL never ready, RC activation failed); a
+  # tmux/RC problem must never strand an issue, so fall back once to the
+  # headless `claude` backend and record why. `start_fun` is injectable for
+  # tests; production uses `CodingAgent.start_session/2`.
+  @spec start_agent_session(Path.t(), keyword(), (Path.t(), keyword() -> {:ok, map()} | {:error, term()})) ::
+          {:ok, map()} | {:error, term()}
+  def start_agent_session(workspace, opts, start_fun \\ &CodingAgent.start_session/2) do
+    backend = Keyword.fetch!(opts, :backend)
+
+    case start_fun.(workspace, opts) do
+      {:ok, session} ->
+        {:ok, Map.put(session, :backend, backend)}
+
+      {:error, reason} when backend == "claude-repl" ->
+        Aiur.Perf.event(:repl_start_fallback, backend: backend, reason: inspect(reason))
+
+        Logger.warning(
+          "claude-repl start_session failed (#{inspect(reason)}); falling back to headless claude"
+        )
+
+        fallback_opts = opts |> Keyword.put(:backend, "claude") |> Keyword.delete(:remote_control)
+
+        case start_fun.(workspace, fallback_opts) do
+          {:ok, session} -> {:ok, Map.put(session, :backend, "claude")}
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 

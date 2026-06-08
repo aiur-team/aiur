@@ -1135,6 +1135,18 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert repl.errors == []
   end
 
+  test "remote_control opt-in defaults OFF and parses an explicit true" do
+    # Setting #2 is orthogonal to :kind; the default is the single flip
+    # point for always-remote, so a fresh parse must land on false.
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.remote_control == false
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{remote_control: true}})
+
+    assert settings.agent.remote_control == true
+  end
+
   test "complexity prompts normalize string levels and reject bad levels/values" do
     assert Schema.normalize_complexity_prompts(nil) == %{}
 

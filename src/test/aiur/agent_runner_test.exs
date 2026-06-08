@@ -83,4 +83,59 @@ defmodule Aiur.AgentRunnerTest do
       assert :ok = AgentRunner.post_aiur_turn_markers("13", "tNONE", [], fn _, _, _ -> :ok end)
     end
   end
+
+  describe "start_agent_session/3" do
+    test "tags the started session with its backend" do
+      start_fun = fn _workspace, _opts -> {:ok, %{handle: :h}} end
+
+      assert {:ok, session} =
+               AgentRunner.start_agent_session("/ws", [backend: "codex", model: nil], start_fun)
+
+      assert session.backend == "codex"
+    end
+
+    test "claude-repl start failure falls back to headless claude" do
+      parent = self()
+
+      start_fun = fn _workspace, opts ->
+        send(parent, {:attempt, Keyword.fetch!(opts, :backend), Keyword.get(opts, :remote_control)})
+
+        case Keyword.fetch!(opts, :backend) do
+          "claude-repl" -> {:error, :repl_not_ready}
+          "claude" -> {:ok, %{handle: :headless}}
+        end
+      end
+
+      assert {:ok, session} =
+               AgentRunner.start_agent_session(
+                 "/ws",
+                 [backend: "claude-repl", model: "opus", remote_control: true],
+                 start_fun
+               )
+
+      assert session.backend == "claude"
+      # The REPL attempt carries the RC opt-in; the headless retry drops it.
+      assert_received {:attempt, "claude-repl", true}
+      assert_received {:attempt, "claude", nil}
+    end
+
+    test "a non-repl backend failure does NOT fall back" do
+      start_fun = fn _workspace, _opts -> {:error, :boom} end
+
+      assert {:error, :boom} =
+               AgentRunner.start_agent_session("/ws", [backend: "claude", model: nil], start_fun)
+    end
+
+    test "a repl failure whose headless retry also fails surfaces the retry error" do
+      start_fun = fn _workspace, opts ->
+        case Keyword.fetch!(opts, :backend) do
+          "claude-repl" -> {:error, :repl_not_ready}
+          "claude" -> {:error, :headless_down}
+        end
+      end
+
+      assert {:error, :headless_down} =
+               AgentRunner.start_agent_session("/ws", [backend: "claude-repl", model: nil], start_fun)
+    end
+  end
 end

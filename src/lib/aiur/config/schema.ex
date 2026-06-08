@@ -161,6 +161,10 @@ defmodule Aiur.Config.Schema do
     @primary_key false
     embedded_schema do
       field(:kind, :string, default: "codex")
+      # Setting #2 (RC opt-in), orthogonal to :kind. Only consulted when the
+      # resolved backend is RC-capable. This default is the single flip point
+      # for always-remote: change `false` here and every dispatch attaches RC.
+      field(:remote_control, :boolean, default: false)
       field(:max_concurrent_agents, :integer, default: 10)
       field(:max_turns, :integer, default: 20)
       field(:max_retry_attempts, :integer, default: 3)
@@ -179,6 +183,7 @@ defmodule Aiur.Config.Schema do
         attrs,
         [
           :kind,
+          :remote_control,
           :max_concurrent_agents,
           :max_turns,
           :max_retry_attempts,

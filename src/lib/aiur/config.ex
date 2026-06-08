@@ -90,6 +90,17 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Setting #2: whether dispatched agents attach a `claude remote-control`
+  session. Orthogonal to `agent_kind/0` and only meaningful for an
+  RC-capable backend. The default lives in `Config.Schema` so flipping to
+  always-remote is a one-line change there.
+  """
+  @spec agent_remote_control?() :: boolean()
+  def agent_remote_control? do
+    settings!().agent.remote_control || false
+  end
+
+  @doc """
   Per-complexity-level guidance strings, keyed by complexity level.
   Appended to the end of the rendered prompt for an issue carrying the
   matching `complexity:<n>` label. Returns `%{}` when unset or the config
