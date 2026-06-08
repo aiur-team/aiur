@@ -69,6 +69,7 @@ The interactive REPL + `/remote-control` path removes both limits at once. The c
 
 - Retiring the symphony-claude app-server entirely: keep it available as the fallback backend (R6) until the REPL driver is proven in real use. A later PR can remove it if it becomes dead weight.
 - Lossless RC→local reverse handoff (origin R2): no longer needed in the common case (the agent stays in aiur's process), so it drops out of v1. If a "detach to pure cloud RC" mode is ever wanted, plan it separately.
+- **Headless `claude` OS-process orphan on brutal-kill teardown (found during U9 manual verification 2026-06-08):** `terminate_task/1` kills the BEAM AgentRunner task, but the headless backend's `claude.exe --print` grandchild (spawned under a `bash -lc` wrapper) reparents to init and survives. This affects every brutal-kill stop path (`terminate_running_issue`, `deactivate_running_issue`, and U9's `teardown_for_redispatch`), not U9 alone. REPL/RC agents are reaped correctly because their `repl_os_pid` is tracked and `kill_repl_session` → `RemoteControl.graceful_kill` handles it; headless agents track no os_pid. Fix: track the headless os_pid (or process-group) on the running entry and reap it in the shared teardown, under the R6 "never break headless fallback" guard.
 
 ---
 
@@ -434,7 +435,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U8. **Operator-facing `model:claude-remote` label alias that forces RC**
+- [x] U8. **Operator-facing `model:claude-remote` label alias that forces RC**
 
 **Goal:** Add the label-only alias `model:claude-remote` → backend `claude-repl` that, when present on an issue, forces remote-control ON for that issue regardless of the global Setting #2 default. Keep `claude-repl` as the internal backend key everywhere; auto-seed the alias as a GitHub label.
 
@@ -466,7 +467,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U9. **Rewire the `r` key: promote a running agent to `claude-remote` by re-dispatch**
+- [x] U9. **Rewire the `r` key: promote a running agent to `claude-remote` by re-dispatch**
 
 **Goal:** Replace the old RC handoff toggle so pressing `r` on a running non-remote agent (headless `claude` or `codex`) **adds the `model:claude-remote` label** to the issue, stops the current agent, and re-dispatches the same issue as `claude-remote` (persistent REPL + forced RC), resuming the existing transcript/session by cwd. `r` stays a true toggle: pressed on an already-remote agent it **removes the label** and re-dispatches as the default (non-remote) backend. The `model:claude-remote` label is the durable single source of truth for remote-ness — it survives crash-triggered re-dispatches (the orchestrator re-fetches labels from GitHub on retry) and drives the agent-list remote indicator.
 
