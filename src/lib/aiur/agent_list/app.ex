@@ -1168,11 +1168,11 @@ defmodule Aiur.AgentList.App do
   end
 
   defp handle_remote_control_result(state, {:ok, :on}) do
-    rc_hint(state, "Remote Control on — continue in the Claude app")
+    rc_hint(state, "Switching to remote — REPL + Claude app, same transcript")
   end
 
   defp handle_remote_control_result(state, {:ok, :off}) do
-    rc_hint(state, "Remote Control off — agent resumed")
+    rc_hint(state, "Remote off — re-dispatching on the default backend")
   end
 
   defp handle_remote_control_result(state, {:error, :unsupported}) do

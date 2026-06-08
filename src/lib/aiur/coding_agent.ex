@@ -298,6 +298,15 @@ defmodule Aiur.CodingAgent do
   end
 
   @doc """
+  The canonical operator-facing label that forces remote control on for an
+  issue (`model:claude-remote`). Added/removed by the AgentList `r` key to
+  promote/demote a running agent; it is the durable source of truth for
+  remote-ness across re-dispatches.
+  """
+  @spec remote_control_alias_label() :: String.t()
+  def remote_control_alias_label, do: "model:claude-remote"
+
+  @doc """
   Whether the backend takes operator messages immediately (pass-through to
   the live process) instead of holding them at a `:checkpoint`. True only
   for the persistent-REPL backend, whose native input queue accepts a

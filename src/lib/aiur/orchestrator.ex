@@ -3709,118 +3709,115 @@ defmodule Aiur.Orchestrator do
   defp set_remote_control_reply(state, issue_identifier, on?) do
     case find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
-        if on?, do: remote_control_on(state, running_entry), else: remote_control_off(state, running_entry)
+        if on?, do: promote_to_remote(state, running_entry), else: demote_from_remote(state, running_entry)
 
       _ ->
         {{:error, :not_running}, state}
     end
   end
 
-  defp remote_control_on(state, running_entry) do
-    backend = CodingAgent.backend_for(Map.get(running_entry, :issue))
+  # Promote any running agent (headless `claude` or `codex`) to `claude-remote`:
+  # add the durable `model:claude-remote` label, stop the current agent, and
+  # re-dispatch the same issue. The re-dispatch resolves `claude-repl` + forced
+  # RC (the alias from `CodingAgent`) and resumes the transcript by cwd, so the
+  # operator gets a persistent REPL with RC attached on the same conversation.
+  defp promote_to_remote(state, running_entry) do
+    issue = Map.get(running_entry, :issue)
+    workspace = Map.get(running_entry, :workspace_path)
 
     cond do
-      # Already handed off — toggling on again is a no-op.
-      remote_control_active_entry?(running_entry) ->
+      # Already remote (label present) — toggling on again is a no-op.
+      CodingAgent.remote_control_forced?(issue) ->
         {{:ok, :on}, state}
 
-      not CodingAgent.remote_control?(backend) ->
-        {{:error, :unsupported}, state}
-
-      # v1 is local-only: a remote worker_host means the RC server would
-      # spawn on the wrong machine.
+      # v1 is local-only: a remote worker_host means the RC session would
+      # attach on the wrong machine.
       not is_nil(Map.get(running_entry, :worker_host)) ->
         {{:error, :remote_unsupported}, state}
+
+      is_nil(workspace) ->
+        {{:error, :workspace_unavailable}, state}
+
+      true ->
+        # Trust the workspace before tearing down the current agent. If trust
+        # fails RC can't attach, so abort with the current agent intact rather
+        # than stranding the issue with no running agent.
+        case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
+          :ok ->
+            do_promote_to_remote(state, running_entry, issue)
+
+          {:error, reason} ->
+            Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
+
+            {{:error, {:rc_trust_failed, reason}}, state}
+        end
+    end
+  end
+
+  defp do_promote_to_remote(state, running_entry, issue) do
+    label = CodingAgent.remote_control_alias_label()
+
+    case Tracker.add_label(Map.get(running_entry, :identifier), label) do
+      :ok ->
+        relabeled = add_issue_label(issue, label)
+        state = teardown_for_redispatch(state, running_entry)
+        Logger.info("Remote Control promote; re-dispatching as claude-remote: #{rc_log_context(running_entry)}")
+        {{:ok, :on}, do_dispatch_issue(state, relabeled, nil, nil)}
+
+      {:error, reason} ->
+        Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+        {{:error, {:rc_label_failed, reason}}, state}
+    end
+  end
+
+  # Demote a `claude-remote` agent back to the default backend: remove the
+  # label, stop the current REPL agent, and re-dispatch. `r` is a true toggle.
+  defp demote_from_remote(state, running_entry) do
+    issue = Map.get(running_entry, :issue)
+
+    cond do
+      # Not remote (no label) — toggling off again is a no-op.
+      not CodingAgent.remote_control_forced?(issue) ->
+        {{:ok, :off}, state}
 
       is_nil(Map.get(running_entry, :workspace_path)) ->
         {{:error, :workspace_unavailable}, state}
 
       true ->
-        launch_remote_control(state, running_entry)
+        label = CodingAgent.remote_control_alias_label()
+
+        case Tracker.remove_label(Map.get(running_entry, :identifier), label) do
+          :ok ->
+            relabeled = remove_issue_label(issue, label)
+            state = teardown_for_redispatch(state, running_entry)
+            Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
+            {{:ok, :off}, do_dispatch_issue(state, relabeled, nil, nil)}
+
+          {:error, reason} ->
+            Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+            {{:error, {:rc_label_failed, reason}}, state}
+        end
     end
   end
 
-  defp launch_remote_control(state, running_entry) do
-    workspace = Map.get(running_entry, :workspace_path)
-
-    # Trust the workspace (serialized here) before tearing down the headless
-    # driver. If trust fails, RC can't start, so abort with the driver intact
-    # rather than stranding the issue with no agent at all.
-    case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
-      :ok ->
-        do_launch_remote_control(state, running_entry)
-
-      {:error, reason} ->
-        Logger.error("Remote Control trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
-
-        {{:error, {:rc_trust_failed, reason}}, state}
-    end
-  end
-
-  defp do_launch_remote_control(state, running_entry) do
+  # Stop the current agent cleanly so the same issue can be re-dispatched under
+  # a different backend. Mirrors `terminate_running_issue/3`'s task-teardown
+  # half (stop RC, kill the REPL pane+pid, close chat streams, demonitor, kill
+  # the task) but KEEPS the entry in `state.running` and does NOT clean the
+  # workspace or release the claim — the workspace is reused so the re-dispatched
+  # agent resumes the transcript by cwd. Demonitor BEFORE killing so the agent
+  # :DOWN handler doesn't fire a retry that re-dispatches underneath us.
+  defp teardown_for_redispatch(state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
-    workspace = Map.get(running_entry, :workspace_path)
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
-    # Prime the handoff file the fresh RC session reads as context — RC has
-    # no --prompt/--resume flag.
-    write_remote_control_handoff(workspace)
-
-    # Stop the headless driver so the workspace + app_session are freed.
-    # Demonitor BEFORE killing so the agent :DOWN handler doesn't fire a
-    # retry/continuation that re-dispatches under the operator.
+    stop_running_remote_control(running_entry)
+    kill_repl_session(running_entry)
     close_active_chat_streams(identifier, :remote_control)
     if is_reference(ref), do: Process.demonitor(ref, [:flush])
     if is_pid(pid), do: terminate_task(pid)
-
-    case start_remote_control_server(workspace, identifier) do
-      {:ok, server_pid} ->
-        server_ref = Process.monitor(server_pid)
-        rc = %{status: :launching, server_pid: server_pid, ref: server_ref, session_url: nil}
-
-        entry =
-          running_entry
-          |> Map.put(:pid, nil)
-          |> Map.put(:ref, nil)
-          |> put_in([:control, :status], :deactivated)
-          |> Map.put(:remote_control, rc)
-
-        state = %{
-          state
-          | running: Map.put(state.running, issue_id, entry),
-            retry_attempts: Map.delete(state.retry_attempts, issue_id)
-        }
-
-        Logger.info("Remote Control launching: #{rc_log_context(running_entry)} workspace=#{workspace}")
-        {{:ok, :on}, refresh_tracked_set(state)}
-
-      {:error, reason} ->
-        # Launch failed — don't strand the issue with no driver; re-dispatch.
-        # Delete the handoff file first so the re-dispatched headless agent
-        # doesn't inherit the RC priming prompt.
-        Logger.error("Remote Control launch failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
-        delete_remote_control_handoff(workspace)
-        issue = Map.get(running_entry, :issue)
-
-        entry =
-          running_entry
-          |> Map.put(:pid, nil)
-          |> Map.put(:ref, nil)
-          |> Map.delete(:remote_control)
-
-        state = %{state | running: Map.put(state.running, issue_id, entry)}
-        {{:error, {:rc_launch_failed, reason}}, do_dispatch_issue(state, issue, nil, nil)}
-    end
-  end
-
-  defp remote_control_off(state, running_entry) do
-    stop_running_remote_control(running_entry)
-    delete_remote_control_handoff(Map.get(running_entry, :workspace_path))
-
-    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
-    issue = Map.get(running_entry, :issue)
 
     cleared =
       running_entry
@@ -3828,39 +3825,26 @@ defmodule Aiur.Orchestrator do
       |> Map.put(:pid, nil)
       |> Map.put(:ref, nil)
 
-    state = %{state | running: Map.put(state.running, issue_id, cleared)}
-    state = refresh_tracked_set(state)
+    %{
+      state
+      | running: Map.put(state.running, issue_id, cleared),
+        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+    }
+  end
 
-    Logger.info("Remote Control off; re-dispatching: #{rc_log_context(running_entry)}")
-    {{:ok, :off}, do_dispatch_issue(state, issue, nil, nil)}
+  defp add_issue_label(%Issue{labels: labels} = issue, label) do
+    down = String.downcase(label)
+    if down in labels, do: issue, else: %{issue | labels: labels ++ [down]}
+  end
+
+  defp remove_issue_label(%Issue{labels: labels} = issue, label) do
+    down = String.downcase(label)
+    %{issue | labels: Enum.reject(labels, &(&1 == down))}
   end
 
   defp rc_log_context(entry) do
     issue_id = get_in(entry, [:issue, Access.key(:id)])
     "issue_id=#{issue_id} issue_identifier=#{Map.get(entry, :identifier)}"
-  end
-
-  defp start_remote_control_server(workspace, identifier) do
-    opts =
-      [workspace: workspace, name: "aiur #{identifier}", owner: self()]
-      |> maybe_put_rc_command()
-
-    spec = %{
-      id: RemoteControl,
-      start: {RemoteControl, :start_link, [opts]},
-      restart: :temporary
-    }
-
-    DynamicSupervisor.start_child(RemoteControl.Supervisor, spec)
-  end
-
-  # Tests inject a harmless command here to stand in for the real
-  # `claude remote-control` spawn (see Aiur.Claude.RemoteControl `:command`).
-  defp maybe_put_rc_command(opts) do
-    case Application.get_env(:aiur, :remote_control_command) do
-      command when is_binary(command) -> Keyword.put(opts, :command, command)
-      _ -> opts
-    end
   end
 
   # Tests redirect the trust-config write off the real `~/.claude.json`.
@@ -3899,23 +3883,6 @@ defmodule Aiur.Orchestrator do
     :ok
   end
 
-  defp write_remote_control_handoff(workspace) do
-    handoff = RemoteControl.build_handoff(workspace: workspace)
-
-    case File.write(Path.join(workspace, "CLAUDE.local.md"), handoff) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Remote Control handoff write failed: workspace=#{workspace} reason=#{inspect(reason)}")
-        {:error, reason}
-    end
-  rescue
-    error ->
-      Logger.error("Remote Control handoff write crashed: workspace=#{workspace} error=#{inspect(error)}")
-      {:error, error}
-  end
-
   defp delete_remote_control_handoff(workspace) when is_binary(workspace) do
     case File.rm(Path.join(workspace, "CLAUDE.local.md")) do
       :ok -> :ok
@@ -3935,10 +3902,20 @@ defmodule Aiur.Orchestrator do
 
   defp remote_control_active_entry?(_entry), do: false
 
+  # The `model:claude-remote` label is the durable source of truth for
+  # remote-ness, so the AgentList indicator (and the `r`-key toggle direction)
+  # derives from it: a labeled issue is `:on`. The REPL transport surfaces no
+  # session URL of its own, so leave it nil.
   defp remote_control_summary(entry) do
-    case Map.get(entry, :remote_control) do
-      %{status: status} = rc -> %{status: status, session_url: Map.get(rc, :session_url)}
-      _ -> nil
+    issue = Map.get(entry, :issue)
+
+    if is_map(issue) and match?(%Issue{}, issue) and CodingAgent.remote_control_forced?(issue) do
+      %{status: :on, session_url: nil}
+    else
+      case Map.get(entry, :remote_control) do
+        %{status: status} = rc -> %{status: status, session_url: Map.get(rc, :session_url)}
+        _ -> nil
+      end
     end
   end
 

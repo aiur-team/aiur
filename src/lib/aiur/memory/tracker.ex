@@ -67,6 +67,18 @@ defmodule Aiur.Memory.Tracker do
     :ok
   end
 
+  @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
+  def add_label(issue_id, label) do
+    send_event({:memory_tracker_add_label, issue_id, label})
+    :ok
+  end
+
+  @spec remove_label(String.t(), String.t()) :: :ok | {:error, term()}
+  def remove_label(issue_id, label) do
+    send_event({:memory_tracker_remove_label, issue_id, label})
+    :ok
+  end
+
   defp configured_issues do
     Application.get_env(:aiur, :memory_tracker_issues, [])
   end
