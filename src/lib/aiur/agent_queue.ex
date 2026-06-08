@@ -8,6 +8,7 @@ defmodule Aiur.AgentQueue do
       when is_binary(issue_identifier) and is_binary(text) do
     delivery_policy = Keyword.get(opts, :delivery_policy, :checkpoint)
     interrupt_requested = delivery_policy == :interrupt
+    immediate = delivery_policy == :immediate
 
     %{
       target_issue_identifier: issue_identifier,
@@ -16,10 +17,11 @@ defmodule Aiur.AgentQueue do
       event_type: :text,
       body: %{text: text},
       delivery: %{
-        priority: if(interrupt_requested, do: :now, else: :next),
+        priority: if(interrupt_requested or immediate, do: :now, else: :next),
         durability: :durable,
-        consume_at: :safe_checkpoint,
+        consume_at: if(immediate, do: :immediate, else: :safe_checkpoint),
         interrupt_requested: interrupt_requested,
+        immediate: immediate,
         fallback: Keyword.get(opts, :fallback)
       },
       causal_refs: Keyword.get(opts, :causal_refs, []),

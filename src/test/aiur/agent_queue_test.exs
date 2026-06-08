@@ -23,6 +23,25 @@ defmodule Aiur.AgentQueueTest do
     assert AgentQueueStore.list_pending(store, "MT-100") == []
   end
 
+  test "immediate delivery policy flags pass-through, now priority, immediate consume point" do
+    item = AgentQueue.operator_message("MT-110", "steer now", delivery_policy: :immediate)
+
+    assert item.delivery.immediate == true
+    assert item.delivery.priority == :now
+    assert item.delivery.consume_at == :immediate
+    # Immediate is pass-through, not aiur-driven interrupt.
+    assert item.delivery.interrupt_requested == false
+  end
+
+  test "default (checkpoint) delivery holds at a safe checkpoint, not immediate" do
+    item = AgentQueue.operator_message("MT-111", "later is fine")
+
+    assert item.delivery.immediate == false
+    assert item.delivery.consume_at == :safe_checkpoint
+    assert item.delivery.priority == :next
+    assert item.delivery.interrupt_requested == false
+  end
+
   test "coordination event remains claimable for a non-running issue later" do
     store = AgentQueueStore.new()
 

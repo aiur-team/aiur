@@ -3276,6 +3276,25 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # `:auto` lets the caller defer to the backend: the persistent REPL takes
+  # operator messages immediately mid-turn; everything else holds at a safe
+  # checkpoint (native codex/headless-claude turn UX).
+  defp normalize_delivery_request(:auto, _fallback, %{immediate_delivery: true}) do
+    {:ok, [delivery_policy: :immediate]}
+  end
+
+  defp normalize_delivery_request(:auto, _fallback, _capabilities) do
+    {:ok, [delivery_policy: :checkpoint]}
+  end
+
+  defp normalize_delivery_request(:immediate, _fallback, %{immediate_delivery: true}) do
+    {:ok, [delivery_policy: :immediate]}
+  end
+
+  defp normalize_delivery_request(:immediate, _fallback, _capabilities) do
+    {:error, :immediate_not_supported}
+  end
+
   defp normalize_delivery_request(:checkpoint, _fallback, _capabilities) do
     {:ok, [delivery_policy: :checkpoint]}
   end
@@ -3347,7 +3366,7 @@ defmodule Aiur.Orchestrator do
     if Process.alive?(pid) do
       send(
         pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true}
+        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true}
       )
     end
 
@@ -3626,20 +3645,26 @@ defmodule Aiur.Orchestrator do
     running_entry = find_running_by_identifier(state.running, issue_identifier)
     can_interrupt = get_in(running_entry || %{}, [:control, :can_interrupt]) == true
     safe_checkpoints = get_in(running_entry || %{}, [:control, :safe_checkpoints]) || []
+    immediate_delivery = get_in(running_entry || %{}, [:control, :immediate_delivery]) == true
     accepts_operator_messages = not is_nil(running_entry)
 
     %{
       accepts_operator_messages: accepts_operator_messages,
       can_interrupt: can_interrupt,
-      accepted_delivery_policies: accepted_delivery_policies(can_interrupt),
+      immediate_delivery: immediate_delivery,
+      accepted_delivery_policies: accepted_delivery_policies(can_interrupt, immediate_delivery),
       safe_checkpoints: safe_checkpoints,
       status: get_in(running_entry || %{}, [:control, :status]) || :working,
       queue_depth: queue_depth_for_issue(state, issue_identifier)
     }
   end
 
-  defp accepted_delivery_policies(true), do: [:checkpoint, :interrupt]
-  defp accepted_delivery_policies(false), do: [:checkpoint]
+  # The REPL backend forwards operator messages straight into the live
+  # process, so it offers :immediate instead of the hold-then-deliver
+  # :checkpoint / :interrupt policies.
+  defp accepted_delivery_policies(_can_interrupt, true), do: [:immediate]
+  defp accepted_delivery_policies(true, false), do: [:checkpoint, :interrupt]
+  defp accepted_delivery_policies(false, false), do: [:checkpoint]
 
   defp default_running_control(%Issue{} = issue) do
     backend = CodingAgent.backend_for(issue)
@@ -3647,6 +3672,7 @@ defmodule Aiur.Orchestrator do
     %{
       can_interrupt: CodingAgent.can_interrupt?(backend),
       safe_checkpoints: CodingAgent.safe_checkpoints(backend),
+      immediate_delivery: CodingAgent.immediate_delivery?(backend),
       status: :working
     }
   end

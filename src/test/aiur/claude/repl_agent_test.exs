@@ -267,6 +267,117 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert_receive {:msg, %{event: :turn_completed}}
   end
 
+  # Pump all interleaved mock traffic (pane-liveness polls + the mid-turn
+  # inject's send-keys) until the run_turn task finishes. Captures the
+  # injected text and writes the completion record only after the inject's
+  # Enter, so the turn can't complete before the operator message lands.
+  defp pump_mid_turn(tmux, path, task, injected \\ nil) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        pump_mid_turn(tmux, path, task, injected)
+
+      {:tmux_mock_out, "send-keys -t %50 -l " <> text} ->
+        respond(tmux, "")
+        pump_mid_turn(tmux, path, task, text)
+
+      {:tmux_mock_out, "send-keys -t %50 Enter"} ->
+        respond(tmux, "")
+        if injected, do: File.write!(path, completion_record("done"), [:append])
+        pump_mid_turn(tmux, path, task, injected)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> {result, injected}
+          nil -> pump_mid_turn(tmux, path, task, injected)
+        end
+    end
+  end
+
+  test "an operator message landing mid-turn is typed straight into the live pane", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+    tp = self()
+
+    on_operator = fn ->
+      {:deliver_text, "steer left", fn _ -> send(tp, :delivered) end, fn _ -> send(tp, :failed) end}
+    end
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "start work", %{},
+          on_operator_message: on_operator,
+          poll_interval_ms: 10
+        )
+      end)
+
+    # Prompt is sent first (before the await loop), deterministically.
+    assert_receive {:tmux_mock_out, "send-keys -t %50 -l start work"}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+    respond(tmux, "")
+
+    # Operator steers mid-turn; the orchestrator's deliver-now broadcast
+    # reaches the await loop running in this task's process.
+    send(task.pid, {:agent_queue_updated, "MT-1", 1, true})
+
+    assert {result, injected} = pump_mid_turn(tmux, path, task)
+    assert injected == "steer left"
+    assert_receive :delivered, 1_000
+    assert {:ok, %{result: :completed}} = result
+  end
+
+  test "a non-deliver-now queue update is ignored mid-turn (no inject)", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+    tp = self()
+
+    on_operator = fn ->
+      send(tp, :claimed)
+      :noop
+    end
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "work", %{},
+          on_operator_message: on_operator,
+          poll_interval_ms: 10
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, "send-keys -t %50 -l work"}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+    respond(tmux, "")
+
+    # deliver_now=false (checkpoint-class) and the bare 3-tuple must NOT
+    # claim or inject — the REPL only injects on the deliver-now signal.
+    send(task.pid, {:agent_queue_updated, "MT-1", 1, false})
+    send(task.pid, {:agent_queue_updated, "MT-1", 2})
+    refute_receive :claimed, 100
+
+    File.write!(path, completion_record("done"), [:append])
+    assert {:ok, %{result: :completed}} = drive_pane_to_completion(tmux, task)
+  end
+
+  # Answer only pane-liveness polls until the turn completes (used when no
+  # inject is expected, so there are no extra send-keys to drain).
+  defp drive_pane_to_completion(tmux, task) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        drive_pane_to_completion(tmux, task)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> result
+          nil -> drive_pane_to_completion(tmux, task)
+        end
+    end
+  end
+
   test "run_turn rejects an empty/whitespace prompt without sending keys", %{tmux: tmux} do
     session = turn_session(tmux, temp_transcript())
 

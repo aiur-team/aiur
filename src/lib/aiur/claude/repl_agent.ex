@@ -173,6 +173,7 @@ defmodule Aiur.Claude.ReplAgent do
 
   defp drive_turn(session, prompt, opts) do
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
+    on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
 
@@ -191,7 +192,7 @@ defmodule Aiur.Claude.ReplAgent do
     Tmux.send_enter(session.tmux, session.pane_id)
 
     deadline = System.monotonic_time(:millisecond) + timeout_ms
-    result = await_turn(session, tailer, turn_id, deadline, poll_ms)
+    result = await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
     stop_tailer(tailer)
 
     case result do
@@ -226,7 +227,7 @@ defmodule Aiur.Claude.ReplAgent do
     )
   end
 
-  defp await_turn(session, tailer, turn_id, deadline, poll_ms) do
+  defp await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator) do
     cond do
       System.monotonic_time(:millisecond) >= deadline ->
         {:error, :turn_timeout}
@@ -238,12 +239,44 @@ defmodule Aiur.Claude.ReplAgent do
         TranscriptTailer.poll(tailer)
 
         receive do
-          {:turn_end, ^turn_id, _reason} -> :ok
+          {:turn_end, ^turn_id, _reason} ->
+            :ok
+
+          # An operator message landed mid-turn. The REPL accepts input
+          # while the agent works, so claim it and type it straight into
+          # the live pane rather than holding it for a checkpoint.
+          {:agent_queue_updated, _identifier, _item_id, true} ->
+            deliver_immediate_operator_message(session, on_operator)
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+
+          {:agent_queue_updated, _identifier, _item_id, _deliver_now} ->
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+
+          {:agent_queue_updated, _identifier, _item_id} ->
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
         after
           0 ->
             Process.sleep(poll_ms)
-            await_turn(session, tailer, turn_id, deadline, poll_ms)
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
         end
+    end
+  end
+
+  # The claim callback (supplied by the runner) talks to the orchestrator
+  # queue and hands back the operator text plus consume/restore callbacks,
+  # so the driver stays decoupled from the queue store. `:noop` means
+  # nothing was claimable (e.g. a racing drain already took it).
+  defp deliver_immediate_operator_message(session, on_operator) do
+    case on_operator.() do
+      {:deliver_text, text, on_success, on_failure}
+      when is_binary(text) and is_function(on_success, 1) and is_function(on_failure, 1) ->
+        case send_operator_message(session, %{kind: :text, body: text}) do
+          {:ok, request_id} -> on_success.(%{request_id: request_id})
+          {:error, reason} -> on_failure.(reason)
+        end
+
+      :noop ->
+        :ok
     end
   end
 

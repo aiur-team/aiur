@@ -486,11 +486,13 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
-  # Queue at the next safe checkpoint; mirrors native codex/claude CLI
-  # UX. Wait time is captured by `Aiur.OperatorWaitLog`.
+  # `:auto` lets the backend decide: the persistent-REPL backend takes the
+  # message immediately mid-turn, while codex/headless-claude hold it at the
+  # next safe checkpoint (native CLI UX). Wait time is captured by
+  # `Aiur.OperatorWaitLog`.
   defp send_operator(identifier, text, turn_id) do
     AgentChat.send(identifier, text,
-      delivery_policy: :checkpoint,
+      delivery_policy: :auto,
       turn_id: turn_id
     )
   end

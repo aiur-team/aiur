@@ -417,6 +417,7 @@ defmodule Aiur.AgentRunner do
         issue,
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
+        on_operator_message: operator_immediate_handler(issue, orchestrator),
         tool_executor: tool_executor(issue, workspace, worker_host)
       )
 
@@ -672,6 +673,7 @@ defmodule Aiur.AgentRunner do
         issue,
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
+        on_operator_message: operator_immediate_handler(issue, orchestrator),
         tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
       )
 
@@ -1019,6 +1021,27 @@ defmodule Aiur.AgentRunner do
   end
 
   defp close_aiur_turn_streams(_issue, _aiur_turn_id, _reason), do: :ok
+
+  # Mid-turn delivery for the persistent-REPL backend: when an operator
+  # message lands while the agent is working, the driver invokes this to
+  # claim the next operator item and type it straight into the live pane.
+  # The claimed item moves to `delivered`, so the turn-end
+  # `consume_delivered_queue_items` sweep retires it — it is never also run
+  # as a separate follow-up turn. A send failure restores it to pending so
+  # the normal turn-boundary drain re-attempts.
+  defp operator_immediate_handler(issue, orchestrator) do
+    fn ->
+      case claim_next_operator_item(orchestrator, issue.identifier) do
+        {:ok, item} ->
+          record_operator_delivery(item, issue)
+
+          {:deliver_text, queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
+
+        :empty ->
+          :noop
+      end
+    end
+  end
 
   defp safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->
