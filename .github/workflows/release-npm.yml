@@ -1,0 +1,311 @@
+name: release-npm
+
+# Builds a native, self-contained OTP release per OS/arch and uploads each as a
+# packed npm tarball. Triggered on version tags (real releases) or manually
+# (workflow_dispatch) for dry runs. Publishing is handled by a separate job (U6).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-14
+            target: darwin-arm64
+          - runner: macos-13
+            target: darwin-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Single installer for Erlang/Elixir across all four images, matching the
+      # versions the rest of CI uses (mise.toml). setup-beam does not
+      # provide prebuilt OTP on macOS, so mise is the cross-platform choice.
+      - name: Set up mise tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: true
+          cache: true
+
+      - name: Cache deps
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: src/deps
+          key: ${{ runner.os }}-${{ matrix.target }}-mix-${{ hashFiles('src/mix.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-mix-
+
+      - name: Compute version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release
+        id: build
+        env:
+          MIX_ENV: prod
+        run: |
+          release_dir=$(bash packaging/scripts/build-release.sh)
+          echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble platform package
+        id: assemble
+        run: |
+          out=$(node packaging/scripts/assemble-platform-package.mjs \
+            --release "${{ steps.build.outputs.release_dir }}" \
+            --target "${{ matrix.target }}" \
+            --version "${{ steps.version.outputs.version }}")
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Pack tarball
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd "${{ steps.assemble.outputs.out }}"
+          npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aiur-cli-${{ matrix.target }}
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  # Prove a real global install yields a working interactive aiur on each target
+  # — not just --version. Runs on tags and on workflow_dispatch dry runs.
+  smoke:
+    name: smoke ${{ matrix.target }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-14
+            target: darwin-arm64
+          - runner: macos-13
+            target: darwin-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install tmux
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install tmux
+          else
+            sudo apt-get update && sudo apt-get install -y tmux
+          fi
+          tmux -V
+
+      - name: Download matching platform artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aiur-cli-${{ matrix.target }}
+          path: artifacts
+
+      - name: Compute version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stamp and pack launcher
+        run: |
+          node packaging/scripts/stamp-versions.mjs "${{ steps.version.outputs.version }}"
+          mkdir -p launcher
+          cd packaging/npm/aiur-cli
+          npm pack --pack-destination "$GITHUB_WORKSPACE/launcher"
+
+      # Local tarballs + --offline asserts R4: nothing is fetched at install time
+      # (no postinstall, no registry round-trip). Optional deps for the other
+      # three targets are simply skipped, leaving a single-platform footprint.
+      - name: Global install from local tarballs (offline)
+        run: |
+          npm config set prefix "$HOME/.npm-global"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+          npm install -g --offline launcher/*.tgz artifacts/*.tgz
+
+      - name: Version pre-check
+        run: aiur --version
+
+      - name: Interactive TUI renders
+        run: |
+          mkdir -p fixture
+          cat > fixture/WORKFLOW.md <<'EOF'
+          ---
+          tracker:
+            kind: memory
+          polling:
+            interval_seconds: 5
+          max_vertical_panes: 3
+          pre_warmed_sessions: 0
+          server:
+            host: 127.0.0.1
+            port: 4000
+          workspace:
+            root: /tmp/aiur-smoke-workspaces
+          ---
+
+          # Smoke Workflow
+          EOF
+          cd fixture
+          tmux new-session -d -s smoke -x 200 -y 50 "cd $PWD; aiur >run.log 2>&1"
+          for i in $(seq 1 40); do
+            tmux capture-pane -t smoke -p 2>/dev/null | grep -q 'AIUR' && break
+            sleep 1
+          done
+          tmux capture-pane -t smoke -p | tee pane.txt || true
+          tmux send-keys -t smoke q 2>/dev/null || true
+          if ! grep -q 'AIUR' pane.txt; then
+            echo "TUI did not render; run log:" >&2
+            cat run.log >&2 || true
+            exit 1
+          fi
+
+      - name: Single-platform footprint
+        run: |
+          root="$HOME/.npm-global/lib/node_modules"
+          present=$(ls "$root" | grep -E '^aiur-cli-(linux|darwin)-(x64|arm64)$' | wc -l | tr -d ' ')
+          echo "platform packages installed: $present"
+          test "$present" -eq 1
+          test -d "$root/aiur-cli-${{ matrix.target }}"
+
+  # Exercise a non-npm package manager (bun) to confirm os/cpu resolution works
+  # beyond npm. One target is enough to cover the cross-manager path.
+  smoke-bun:
+    name: smoke-bun linux-x64
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+      - name: Download matching platform artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aiur-cli-linux-x64
+          path: artifacts
+      - name: Compute version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Stamp and pack launcher
+        run: |
+          node packaging/scripts/stamp-versions.mjs "${{ steps.version.outputs.version }}"
+          mkdir -p launcher
+          cd packaging/npm/aiur-cli
+          npm pack --pack-destination "$GITHUB_WORKSPACE/launcher"
+      - name: Global install via bun and resolve
+        run: |
+          export BUN_INSTALL="$HOME/.bun"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          bun add -g ./launcher/*.tgz ./artifacts/*.tgz
+          "$HOME/.bun/bin/aiur" --version
+
+  # Publish all five packages in lockstep, advancing `latest` only after every
+  # publish succeeds. Tag events only — never on workflow_dispatch dry runs.
+  publish:
+    name: publish
+    needs: [build, smoke, smoke-bun]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Compute version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Never start a partial publish: require all four platform tarballs.
+      - name: Verify all platform artifacts present
+        run: |
+          shopt -s globstar nullglob
+          tarballs=(artifacts/**/*.tgz)
+          echo "found ${#tarballs[@]} platform tarballs"
+          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            if ! ls artifacts/aiur-cli-$t/*.tgz >/dev/null 2>&1; then
+              echo "missing platform artifact for $t — aborting before any publish" >&2
+              exit 1
+            fi
+          done
+
+      - name: Stamp launcher version and dependency pins
+        run: node packaging/scripts/stamp-versions.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Pack launcher
+        run: |
+          mkdir -p artifacts/launcher
+          cd packaging/npm/aiur-cli
+          npm pack --pack-destination "$GITHUB_WORKSPACE/artifacts/launcher"
+
+      # Publish under a holding tag first so `latest` is untouched until all
+      # five versions exist on the registry.
+      - name: Publish platform packages (holding tag)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            npm publish artifacts/aiur-cli-$t/*.tgz --tag next --access public
+          done
+
+      - name: Publish launcher (holding tag)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish artifacts/launcher/*.tgz --tag next --access public
+
+      # Only reached if every publish above succeeded.
+      - name: Advance latest dist-tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          for pkg in aiur-cli aiur-cli-linux-x64 aiur-cli-linux-arm64 aiur-cli-darwin-x64 aiur-cli-darwin-arm64; do
+            npm dist-tag add "$pkg@$v" latest
+          done

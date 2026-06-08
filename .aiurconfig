@@ -1,0 +1,129 @@
+tracker:
+  kind: github
+  # `human-review` is intentionally NOT in active_states: once the agent
+  # flips the label after pushing a PR, its turn loop should end so it
+  # doesn't burn turns polling `gh pr view` / `gh issue view` waiting
+  # for a human review that may take hours. The issue stays open in
+  # GitHub; the orchestrator picks the agent back up when the label
+  # flips back to `agent:in-progress` (rework) or `merging`.
+  active_states:
+    - todo
+    - in-progress
+    - rework
+    - merging
+  terminal_states:
+    - done
+    - cancelled
+    - canceled
+github:
+  repo: its-everdred/aiur
+  label_prefix: agent
+polling:
+  interval_seconds: 5
+max_vertical_panes: 3
+pre_warmed_sessions: 3
+server:
+  host: 100.81.109.51
+  port: 4000
+workspace:
+  root: ~/code/aiur-workspaces
+hooks:
+  timeout_ms: 600000
+  after_create: |
+    git clone https://github.com/its-everdred/aiur.git .
+    issue_id="$(basename "$PWD")"
+    git fetch origin kevin/e2e-pubsub-test >/dev/null 2>&1 || true
+    base_ref="$(git rev-parse --verify origin/kevin/e2e-pubsub-test 2>/dev/null || echo origin/main)"
+    git checkout -b "aiur/${issue_id}" "$base_ref"
+    mkdir -p ./.aiur-hex ./.aiur-mix
+    if [ -f mise.toml ]; then
+      mise trust mise.toml >/dev/null 2>&1 || true
+      mise install >/dev/null 2>&1 || true
+    fi
+    # Warm Hex + dep compile caches so the agent's first `mix` call
+    # doesn't waste 30-60s on cold deps.get + first-time-compile.
+    # Failures are non-fatal: if the workspace can't fetch deps now
+    # (network blip, dep change), the agent's first `mix deps.get`
+    # will pick it up.
+    if [ -f src/mix.exs ]; then
+      # Output flows back to Workspace.run_hook via System.cmd
+      # (stderr_to_stdout: true). Don't redirect to /dev/null — that
+      # masks silent failures where mix exits cleanly but didn't
+      # actually fetch deps (e.g. mise exec failing, hex install
+      # erroring). The Elixir side logs a tail of the output on
+      # success and the full output on non-zero exit. `|| true` is
+      # retained so the hook is non-fatal for the agent boot path:
+      # if deps prefetch fails, the agent picks it up on first
+      # `mix` call, just slower.
+      HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
+        MISE_TRUSTED_CONFIG_PATHS="$PWD/mise.toml" \
+        bash -c 'cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
+        2>&1 | tail -200 || true
+    fi
+  before_run: |
+    if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      git clone https://github.com/its-everdred/aiur.git .
+      issue_id="$(basename "$PWD")"
+      git checkout -b "aiur/${issue_id}" origin/main
+    fi
+    mkdir -p ./.aiur-hex ./.aiur-mix
+    if [ -f mise.toml ]; then
+      mise trust mise.toml >/dev/null 2>&1 || true
+      mise install >/dev/null 2>&1 || true
+    fi
+    # Idempotent deps + compile warm-up on every dispatch. Free when the
+    # cache is warm (mix deps.get + mix compile no-op in seconds); pays
+    # off when the workspace is a fresh clone, an aiur --debug resume
+    # against an existing dir, or after a deps lockfile bump.
+    if [ -f src/mix.exs ]; then
+      # Output flows back to Workspace.run_hook via System.cmd
+      # (stderr_to_stdout: true). Don't redirect to /dev/null — that
+      # masks silent failures where mix exits cleanly but didn't
+      # actually fetch deps (e.g. mise exec failing, hex install
+      # erroring). The Elixir side logs a tail of the output on
+      # success and the full output on non-zero exit. `|| true` is
+      # retained so the hook is non-fatal for the agent boot path:
+      # if deps prefetch fails, the agent picks it up on first
+      # `mix` call, just slower.
+      HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
+        MISE_TRUSTED_CONFIG_PATHS="$PWD/mise.toml" \
+        bash -c 'cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
+        2>&1 | tail -200 || true
+    fi
+  before_remove: |
+    git status --short
+agent:
+  kind: claude
+  max_concurrent_agents: 6
+  max_turns: 12
+  # Per-issue backend routing by `complexity:N` label. Unlisted levels and
+  # unlabeled issues fall back to `kind`. A `model:<backend>` issue label
+  # overrides both. Levels 4 and 5 route to Claude for stronger reasoning.
+  routing:
+    4: claude
+    5: claude
+claude:
+  command: aiur-claude
+  version: opus-4-8
+  # `model` is omitted so the app-server / claude CLI uses its own default
+  # model. Set it (e.g. model: claude-sonnet-4-6) to pin turns to a
+  # specific model; the value is sent verbatim as `claude --model <value>`.
+codex:
+  command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
+  approval_policy: never
+  thread_sandbox: workspace-write
+  turn_sandbox_policy:
+    type: workspaceWrite
+    writableRoots:
+      - /home/applekid/code/aiur-workspaces
+      - /home/orangekid/code/aiur-workspaces
+      - /tmp
+    networkAccess: true
+opencode:
+  command: opencode
+  bridge_host: 127.0.0.1
+  bridge_port: 4097
+  serve_args: []
+  model_prefix: aiur
+prompt_file: AIUR.md

@@ -16,7 +16,7 @@
 #   start_epoch — latest .aiur-test3-runs.jsonl line's started_at, or
 #                 the contents of .aiur-test3-timer.pid's start_epoch
 #   end_epoch   — finished_at from JSONL, or `now`
-#   log_path    — elixir/log/aiur.log
+#   log_path    — src/log/aiur.log
 #
 # Output is human-readable with absolute timestamps and elapsed-from-
 # work.start deltas per phase. Designed to be appended to TEST3-RUNS.md
@@ -32,7 +32,7 @@ set -euo pipefail
 
 repo_root="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 runs_log="$repo_root/.aiur-test3-runs.jsonl"
-default_log="$repo_root/elixir/log/aiur.log"
+default_log="$repo_root/src/log/aiur.log"
 
 start_epoch="${1:-}"
 end_epoch="${2:-}"

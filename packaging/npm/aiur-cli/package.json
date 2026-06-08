@@ -1,0 +1,31 @@
+{
+  "name": "aiur-cli",
+  "version": "0.0.0",
+  "description": "AI Unit Runtime for Executors — placeholder, full release coming soon.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/its-everdred/aiur",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-everdred/aiur.git"
+  },
+  "bin": {
+    "aiur": "bin/aiur.js"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "files": [
+    "bin/aiur.js",
+    "libexec/aiur-launch.sh",
+    "share/aiur.tmux.conf"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "aiur-cli-linux-x64": "0.0.0",
+    "aiur-cli-linux-arm64": "0.0.0",
+    "aiur-cli-darwin-x64": "0.0.0",
+    "aiur-cli-darwin-arm64": "0.0.0"
+  }
+}

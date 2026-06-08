@@ -28,7 +28,7 @@ description:
 - `issue_id`: Linear UUID (stable internal ID)
 - `session_id`: Codex thread-turn pair (`<thread_id>-<turn_id>`)
 
-`elixir/docs/logging.md` requires these fields for issue/session lifecycle logs. Use
+`src/docs/logging.md` requires these fields for issue/session lifecycle logs. Use
 them as your join keys during debugging.
 
 ## Quick Triage (Stuck Run)
@@ -115,4 +115,4 @@ concurrent runs.
 - Prefer `rg` over `grep` for speed on large logs.
 - Check rotated logs (`log/aiur.log*`) before concluding data is missing.
 - If required context fields are missing in new log statements, align with
-  `elixir/docs/logging.md` conventions.
+  `src/docs/logging.md` conventions.

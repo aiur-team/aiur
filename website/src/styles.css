@@ -222,9 +222,15 @@
 
   .scrollcue {
     position: fixed;
-    bottom: 20px;
-    left: 62%;
-    transform: translateX(-50%);
+    /* sit in the gap above the terminal peek (which occupies the bottom
+       clamp(64px,9vh,104px) of the first screen), not overlapping its title */
+    bottom: clamp(92px, 14vh, 136px);
+    /* center without transform: the fadeUp animation animates transform, which
+       would otherwise clobber a translateX(-50%) and shove the cue off-center */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
+    width: max-content;
     z-index: 30;
     font-family: "JetBrains Mono", monospace;
     font-size: 11px;
@@ -270,6 +276,8 @@
       opacity: 1;
       transform: none;
     }
+    /* freeze the operator's input cursor on the static beat frame */
+    .term-screen .cursor { animation: none; opacity: 1; }
   }
 
   /* ---------- terminal section ---------- */
@@ -311,13 +319,13 @@
     --term-h: clamp(420px, 74vh, 660px);
     position: relative;
     z-index: 5;
-    min-height: 100vh;
-    /* keep a constant peek above the fold regardless of viewport height */
-    margin-top: calc(-50vh + (var(--term-h) / 2) - var(--peek));
+    /* pull the terminal up so a constant peek shows above the fold; the section
+       is only as tall as the terminal plus bottom room for its shadow to fade,
+       so the summary below sits close instead of a dead half-viewport away */
+    margin-top: calc(-1 * var(--peek));
     display: flex;
-    align-items: center;
     justify-content: center;
-    padding: 0 clamp(18px, 4vw, 48px);
+    padding: 0 clamp(18px, 4vw, 48px) clamp(72px, 10vh, 120px);
   }
   .terminal {
     width: min(1000px, 100%);
@@ -363,6 +371,13 @@
     overflow: hidden;
     padding: clamp(8px, 1.4vw, 16px);
     display: grid;
+    /* Pin the single column to the box width. Without this the implicit track
+       sizes to the pre's max-content (its full untruncated width), so #termScreen
+       — width:100% of that track — reports a width wider than the viewport. That
+       inflated width is what fitWidth and the aspect-ratio layout check both read,
+       so cols never shrinks (text/border clip off-screen) and a portrait phone can
+       measure wider-than-tall and wrongly pick the side-by-side split. */
+    grid-template-columns: minmax(0, 1fr);
     place-items: center;
     container-type: inline-size;
   }
@@ -383,6 +398,10 @@
     color: var(--term-fg);
     will-change: transform;
   }
+  /* bump the terminal font a couple points on phones (raise the clamp floor) */
+  @media (max-width: 680px) {
+    .tui-pre { font-size: clamp(9px, 2.2cqi, 16.5px); }
+  }
   .tui-pre .tb { color: var(--term-fg); font-weight: 700; }
   .tui-pre .ag-opus { color: var(--term-mag); }
   .tui-pre .ag-sonnet { color: var(--term-accent); }
@@ -391,6 +410,41 @@
   .tui-pre .e1 { display: inline-block; width: 1ch; text-align: center; }
   .tui-pre .bd { color: var(--tui-line); }
   .tui-pre .bar-empty { color: var(--tui-line); }
+  .tui-pre .oc-cmd { color: var(--term-ok); }
+  .tui-pre .oc-tool { color: var(--term-dim); }
+  /* greyed elaboration under each surfaced option */
+  .tui-pre .oc-dim { color: color-mix(in srgb, var(--term-fg) 56%, var(--term-bg)); }
+  .tui-pre .oc-chip { color: var(--term-accent); font-weight: 700; }
+  .tui-pre .oc-prompt { color: var(--term-accent); }
+  .tui-pre .oc-gutter {
+    color: var(--term-accent);
+    display: inline-block;
+    width: 1ch;
+    text-align: center;
+  }
+  /* solid accent rail down the banded rows (posted block + input field) */
+  .tui-pre .oc-bar {
+    display: inline-block;
+    width: 1ch;
+    height: 1.5em;
+    vertical-align: bottom;
+    background: var(--term-accent);
+    color: transparent;
+  }
+  /* the posted user message + the input box read as full-pane-width bands
+     (content is padded to OC_PANE_W chars inside the span, so the tint spans
+     the whole pane row without bleeding across the joined dashboard column) */
+  /* fill the full line box (not just the glyph em) so consecutive banded rows
+     touch with no gap and the left bars read as one continuous rail */
+  .tui-pre .oc-userblock,
+  .tui-pre .oc-field {
+    display: inline-block;
+    height: 1.5em;
+    line-height: 1.5em;
+    vertical-align: bottom;
+  }
+  .tui-pre .oc-userblock { background-color: color-mix(in srgb, var(--term-accent) 16%, transparent); }
+  .tui-pre .oc-field { background-color: color-mix(in srgb, var(--term-fg) 8%, transparent); }
   .term-screen .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.72em; }
   .term-screen .pr { color: var(--term-accent); margin-right: 10px; }
   .term-screen .ok  { color: var(--term-ok); }
@@ -403,7 +457,7 @@
   .term-screen .spin { color: var(--term-accent); display: inline-block; width: 1ch; }
   .term-screen .cursor {
     display: inline-block;
-    width: 8.5px;
+    width: 1ch;
     height: 1.05em;
     transform: translateY(2px);
     background: var(--term-fg);
@@ -418,7 +472,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: clamp(64px, 9vh, 116px) clamp(20px, 5vw, 56px) 0;
+    padding: clamp(8px, 1.5vh, 24px) clamp(20px, 5vw, 56px) 0;
     transition: background-color 0.5s ease;
   }
   .summary {

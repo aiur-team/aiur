@@ -1,0 +1,9 @@
+[tools]
+erlang = "28"
+elixir = "1.19.5-otp-28"
+opencode = "latest"
+ripgrep = "latest"
+
+[tasks.setup]
+description = "Bootstrap the dev environment: install the toolchain and symlink aiurdev onto your PATH"
+run = "$MISE_PROJECT_ROOT/scripts/setup"

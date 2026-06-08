@@ -1,0 +1,9 @@
+{
+  "name": "aiur",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Contributor dev-tooling entrypoints for the aiur repo. The published CLI lives in packaging/npm/aiur-cli.",
+  "scripts": {
+    "setup": "scripts/setup"
+  }
+}

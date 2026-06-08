@@ -1,0 +1,109 @@
+defmodule Aiur.GitHub.Labels do
+  @moduledoc """
+  Derives and idempotently creates the GitHub labels aiur depends on.
+
+  Three families:
+
+    * **state** — `<prefix>:<state>` for every agent lifecycle state the
+      orchestrator sets and reads.
+    * **model** — `Aiur.CodingAgent.override_labels/0` filtered to the backends
+      the operator chose, so an issue can be pinned to a specific agent/model.
+    * **complexity** — `complexity:1`..`complexity:5`, routed to an agent via
+      `agent.routing`.
+
+  Network calls go through an injected `request_fun` so the wizard is testable
+  with no real HTTP. Headers mirror `Aiur.GitHub.Client`.
+  """
+
+  alias Aiur.CodingAgent
+
+  @base_url "https://api.github.com"
+  @api_version "2022-11-28"
+
+  # Agent lifecycle state suffixes the orchestrator manages. Source of truth is
+  # the live label set in `Aiur.TestReset.reset_labels_command_args/1`; keep the
+  # two in sync.
+  @state_suffixes ~w(todo in-progress human-review rework merging done error cancelled canceled)
+
+  @type request :: %{
+          method: :post,
+          url: String.t(),
+          token: String.t(),
+          body: map()
+        }
+  @type response :: {:ok, %{status: integer(), body: term()}} | {:error, term()}
+  @type request_fun :: (request() -> response())
+
+  @doc "Full label set to create for a repo, given the label prefix and chosen backends."
+  @spec label_set(String.t(), [String.t()]) :: [String.t()]
+  def label_set(prefix, backends) do
+    state_labels(prefix) ++ model_labels(backends) ++ complexity_labels()
+  end
+
+  @spec state_labels(String.t()) :: [String.t()]
+  def state_labels(prefix), do: Enum.map(@state_suffixes, &"#{prefix}:#{&1}")
+
+  @spec model_labels([String.t()]) :: [String.t()]
+  def model_labels(backends) do
+    Enum.filter(CodingAgent.override_labels(), fn label ->
+      Enum.any?(backends, fn backend ->
+        label == "model:#{backend}" or String.starts_with?(label, "model:#{backend}-")
+      end)
+    end)
+  end
+
+  @spec complexity_labels() :: [String.t()]
+  def complexity_labels, do: Enum.map(1..5, &"complexity:#{&1}")
+
+  @doc """
+  Create each label, stopping at the first hard failure. An existing label
+  (HTTP 422 `already_exists`) counts as success so re-running is safe.
+  """
+  @spec ensure(String.t(), String.t(), String.t(), [String.t()], keyword()) ::
+          :ok | {:error, term()}
+  def ensure(owner, repo, token, labels, opts \\ []) do
+    request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+    url = "#{@base_url}/repos/#{owner}/#{repo}/labels"
+
+    Enum.reduce_while(labels, :ok, fn label, :ok ->
+      case create_label(request_fun, url, token, label) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp create_label(request_fun, url, token, label) do
+    case request_fun.(%{method: :post, url: url, token: token, body: %{"name" => label}}) do
+      {:ok, %{status: status}} when status in 200..299 ->
+        :ok
+
+      {:ok, %{status: 422, body: body}} ->
+        if already_exists?(body),
+          do: :ok,
+          else: {:error, {:github_api_status, 422, label}}
+
+      {:ok, %{status: status}} ->
+        {:error, {:github_api_status, status, label}}
+
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
+    end
+  end
+
+  defp already_exists?(%{"errors" => errors}) when is_list(errors) do
+    Enum.any?(errors, fn error -> is_map(error) and error["code"] == "already_exists" end)
+  end
+
+  defp already_exists?(_body), do: false
+
+  defp default_request_fun(%{method: :post, url: url, token: token, body: body}) do
+    headers = [
+      {"Authorization", "Bearer #{token}"},
+      {"Accept", "application/vnd.github+json"},
+      {"X-GitHub-Api-Version", @api_version}
+    ]
+
+    Req.post(url, headers: headers, json: body, connect_options: [timeout: 30_000])
+  end
+end
