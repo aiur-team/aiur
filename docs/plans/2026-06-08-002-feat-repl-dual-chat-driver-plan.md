@@ -176,7 +176,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ## Implementation Units
 
-- [ ] U0. **Spike (HARD GO/NO-GO GATE): turn-completion + mid-turn-injection + permission posture + transport-UX**
+- [x] U0. **Spike (HARD GO/NO-GO GATE): turn-completion + mid-turn-injection + permission posture + transport-UX**
 
 **This is a gate, not a step.** No production code in U1+ is written until U0 answers its questions. The make-or-break finding is (b): if a live REPL will NOT accept a message mid-turn (even via interrupt-then-send), then R3 (instant mid-turn receipt — the user's requirement #2) is not achievable as designed and the plan must change before building. The dual-chat spike only proved *sequential* turns land in one transcript; mid-turn injection during an actively-generating turn is **unproven** and is the highest-risk assumption in this plan.
 
@@ -207,7 +207,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U1. **REPL session lifecycle: spawn pane, activate RC, resolve transcript**
+- [x] U1. **REPL session lifecycle: spawn pane, activate RC, resolve transcript**
 
 **Goal:** New `Aiur.Claude.ReplAgent.start_session/2` and `stop_session/1`: spawn interactive `claude` in a (hidden) tmux pane, wait for REPL readiness, issue `/remote-control`, resolve the transcript path (cwd+mtime), and return a session map `%{backend: "claude-repl", pane_id, transcript_path, cwd, thread/uuid, model}`.
 
@@ -243,7 +243,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U2. **Transcript-jsonl tailer → transcript events**
+- [x] U2. **Transcript-jsonl tailer → transcript events**
 
 **Goal:** A per-session tailer that watches the resolved transcript jsonl, reads newly-appended records, maps them through `Aiur.Claude.Transcript.extract/2` (extended for on-disk record shapes), and invokes the driver's `on_message` callback — the REPL-mode replacement for the JSON-RPC notification stream.
 
@@ -276,7 +276,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U3. **`run_turn/4` over the REPL**
+- [x] U3. **`run_turn/4` over the REPL**
 
 **Goal:** Implement `ReplAgent.run_turn/4`: send the prompt to the pane, stream transcript-tailer events to `on_message`, detect turn completion (U0 signal), and return `{:ok, result}` / `{:error, reason}` with the same shape the orchestrator expects. Preserve `session_id`/`thread_id`/`turn_id` semantics.
 
@@ -307,7 +307,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U4. **Instant mid-turn operator delivery (`send_operator_message` + `:immediate` policy)**
+- [x] U4. **Instant mid-turn operator delivery (`send_operator_message` + `:immediate` policy)**
 
 **Goal:** `ReplAgent.send_operator_message/2` injects operator text straight into the live REPL pane via `send_keys`, and opencode operator messages for REPL-backed sessions use a new `delivery_policy: :immediate` so they reach the agent mid-turn instead of waiting for a checkpoint (R3).
 
@@ -345,7 +345,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U5. **Register the `claude-repl` backend + routing + parity wiring**
+- [x] U5. **Register the `claude-repl` backend + routing + parity wiring**
 
 **Goal:** Add the `claude-repl` entry to the `Aiur.CodingAgent` registry so dispatch, transcript module, delivery defaults, RC-capability, routing labels, and config validation all resolve; verify feature parity (R5) across both surfaces through the shared transcript.
 
@@ -374,7 +374,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U6. **Two-setting surface config (RC opt-in, default OFF) + safe fallback**
+- [x] U6. **Two-setting surface config (RC opt-in, default OFF) + safe fallback**
 
 **Goal:** Implement the R6 two-setting model. Setting #1 (default backend/model) is unchanged. Add Setting #2 — a `remote_control` opt-in, consulted only for RC-capable backends, **defaulting OFF**. Optionally (gated on U0(d)) allow interactive-REPL to be the default *transport* for `claude` with RC still off. Provide a documented fallback to the headless `claude` backend if REPL launch fails, so a tmux/RC problem never strands an issue.
 
@@ -404,7 +404,7 @@ Decision matrix — input source vs. effect (the parity/sync model):
 
 ---
 
-- [ ] U7. **Teardown hardening: no orphaned REPL process or pane**
+- [x] U7. **Teardown hardening: no orphaned REPL process or pane**
 
 **Goal:** Guarantee R7 across all exit paths (normal completion, error, orchestrator shutdown, crash): the `claude` REPL OS process and its tmux pane are confirmed dead. This subsumes the origin's blocking bug #1.
 
