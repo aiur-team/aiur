@@ -370,13 +370,11 @@ defmodule Aiur.AgentRunner do
 
     Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}")
 
-    with {:ok, session} <-
-           start_agent_session(workspace,
-             backend: backend,
-             model: model,
-             worker_host: worker_host,
-             remote_control: rc?
-           ) do
+    session_opts =
+      [backend: backend, model: model, worker_host: worker_host, remote_control: rc?]
+      |> maybe_put_rc_name(rc?, issue)
+
+    with {:ok, session} <- start_agent_session(workspace, session_opts) do
       report_repl_session(codex_update_recipient, issue, session)
 
       try do
@@ -396,6 +394,26 @@ defmodule Aiur.AgentRunner do
         CodingAgent.stop_session(session)
       end
     end
+  end
+
+  # The `--remote-control <name>` string is what the operator sees as the
+  # chat title in the Claude app / mobile, so derive it from the issue
+  # ("Aiur 99 - Title") rather than the opaque `aiur-repl-<pid>-<n>` window
+  # name. Only set when RC is active; headless and RC-off REPL sessions keep
+  # the default name.
+  defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
+  defp maybe_put_rc_name(opts, false, _issue), do: opts
+
+  @doc false
+  def rc_session_name(issue) do
+    label = issue.identifier || issue.id
+    title = issue.title || ""
+
+    "Aiur #{label} - #{title}"
+    |> String.replace(~r/[[:cntrl:]'"`]/u, " ")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+    |> String.slice(0, 60)
   end
 
   @doc false

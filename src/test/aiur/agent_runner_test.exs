@@ -138,4 +138,26 @@ defmodule Aiur.AgentRunnerTest do
                AgentRunner.start_agent_session("/ws", [backend: "claude-repl", model: nil], start_fun)
     end
   end
+
+  describe "rc_session_name/1" do
+    test "builds the operator-facing chat title from identifier and title" do
+      issue = %{identifier: "99", id: "gid-99", title: "Add greeting"}
+      assert AgentRunner.rc_session_name(issue) == "Aiur 99 - Add greeting"
+    end
+
+    test "falls back to id when identifier is nil" do
+      issue = %{identifier: nil, id: "212", title: "Fix it"}
+      assert AgentRunner.rc_session_name(issue) == "Aiur 212 - Fix it"
+    end
+
+    test "strips control chars and quotes, collapses whitespace" do
+      issue = %{identifier: "5", id: "5", title: "a\t'b'\n  `c`"}
+      assert AgentRunner.rc_session_name(issue) == "Aiur 5 - a b c"
+    end
+
+    test "truncates to 60 characters" do
+      issue = %{identifier: "7", id: "7", title: String.duplicate("x", 100)}
+      assert String.length(AgentRunner.rc_session_name(issue)) == 60
+    end
+  end
 end

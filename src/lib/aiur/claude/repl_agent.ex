@@ -76,8 +76,9 @@ defmodule Aiur.Claude.ReplAgent do
     expanded = Path.expand(workspace)
     model = Keyword.get(opts, :model) || Config.model()
     rc? = Keyword.get(opts, :remote_control, false)
-    rc_name = Keyword.get(opts, :rc_name) || default_repl_name()
-    window_name = Keyword.get(opts, :window_name) || rc_name
+    repl_name = default_repl_name()
+    rc_name = Keyword.get(opts, :rc_name) || repl_name
+    window_name = Keyword.get(opts, :window_name) || repl_name
 
     # Captured before spawn so per-turn resolution can ignore any stale
     # transcript left by a prior run on this same workspace — claude writes
