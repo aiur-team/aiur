@@ -338,4 +338,57 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert r1.turn_id != r2.turn_id
     refute_receive {:tmux_mock_out, "new-window" <> _}, 100
   end
+
+  # ----------------------------------------------------- send_operator_message/2
+
+  test "send_operator_message types the text and submits with one Enter", %{tmux: tmux} do
+    session = turn_session(tmux, temp_transcript())
+
+    task = Task.async(fn -> ReplAgent.send_operator_message(session, %{kind: :text, body: "try this"}) end)
+
+    assert_receive {:tmux_mock_out, "send-keys -t %50 -l try this"}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+    respond(tmux, "")
+
+    assert {:ok, request_id} = Task.await(task, 2_000)
+    assert is_integer(request_id)
+  end
+
+  # The text is typed into a live PTY, so control bytes are collapsed to
+  # spaces: an embedded newline must NOT submit early, and Esc/control
+  # codes must NOT reach the REPL as keybindings. The single trailing
+  # Enter is the only submit.
+  test "send_operator_message neutralizes a hostile control-char payload", %{tmux: tmux} do
+    session = turn_session(tmux, temp_transcript())
+    hostile = "rm -rf\nyes\e[2J\tand more\r\ndrop table"
+
+    task = Task.async(fn -> ReplAgent.send_operator_message(session, %{kind: :text, body: hostile}) end)
+
+    assert_receive {:tmux_mock_out, "send-keys -t %50 -l " <> typed}, 1_000
+    respond(tmux, "")
+    # No raw control bytes survived, and it is one line (no embedded Enter).
+    refute typed =~ ~r/[\x00-\x1f\x7f]/
+    assert typed == "rm -rf yes [2J and more drop table"
+    assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+    respond(tmux, "")
+
+    assert {:ok, _} = Task.await(task, 2_000)
+    # Exactly one submit — the explicit Enter, not one per embedded newline.
+    refute_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 100
+  end
+
+  test "send_operator_message rejects a blank message without sending keys", %{tmux: tmux} do
+    session = turn_session(tmux, temp_transcript())
+
+    assert {:error, :empty_message} = ReplAgent.send_operator_message(session, %{kind: :text, body: "  \n\t "})
+    refute_receive {:tmux_mock_out, _}, 100
+  end
+
+  test "send_operator_message rejects a non-text payload", %{tmux: tmux} do
+    session = turn_session(tmux, temp_transcript())
+
+    assert {:error, :invalid_message} = ReplAgent.send_operator_message(session, %{kind: :image})
+    refute_receive {:tmux_mock_out, _}, 100
+  end
 end

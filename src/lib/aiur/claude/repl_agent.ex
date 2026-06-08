@@ -275,11 +275,50 @@ defmodule Aiur.Claude.ReplAgent do
     on_message.(%{event: :transcript, transcript_event: event, timestamp: DateTime.utc_now()})
   end
 
-  @doc false
-  # Implemented in U4 (instant mid-turn operator delivery).
+  @doc """
+  Inject an operator message straight into the live REPL pane.
+
+  This is the whole of mid-turn delivery: sanitize the text, type it with
+  `send_keys_literal`, then submit with one `Enter`. The agent's native
+  input queue does the rest — it folds the message in at the next natural
+  boundary without aborting in-flight work, so there is no bespoke
+  interrupt-then-send path here (cutting the agent off is a separate,
+  explicit parity action, not this one).
+
+  Operator text is typed verbatim into a PTY, so it is sanitized first:
+  every control byte (newlines that would submit early, `Esc`/C0/C1
+  sequences that would trip the REPL's own keybindings) is collapsed to a
+  space. The single trailing `Enter` is the only submit.
+  """
   @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
-          {:error, :not_implemented}
-  def send_operator_message(_session, _payload), do: {:error, :not_implemented}
+          {:ok, integer()} | {:error, term()}
+  def send_operator_message(%{tmux: tmux, pane_id: pane_id}, %{kind: :text, body: body})
+      when is_binary(body) do
+    case sanitize_pane_input(body) do
+      "" ->
+        {:error, :empty_message}
+
+      text ->
+        with :ok <- Tmux.send_keys_literal(tmux, pane_id, text),
+             :ok <- Tmux.send_enter(tmux, pane_id) do
+          {:ok, System.unique_integer([:positive])}
+        end
+    end
+  end
+
+  def send_operator_message(_session, _payload), do: {:error, :invalid_message}
+
+  # Operator content is typed into a live PTY via `send-keys -l`, which
+  # emits the bytes verbatim. Collapse every control byte to a space so a
+  # crafted message cannot submit early (embedded newline), abort the agent
+  # (`Esc`), or inject terminal escape codes / extra keystrokes. The one
+  # explicit `Enter` in send_operator_message/2 is the only submit.
+  defp sanitize_pane_input(body) do
+    body
+    |> String.replace(~r/[\x00-\x1f\x7f]/, " ")
+    |> String.replace(~r/ {2,}/, " ")
+    |> String.trim()
+  end
 
   # ------------------------------------------------------------------ internals
 
