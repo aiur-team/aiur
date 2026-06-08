@@ -168,6 +168,62 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert_receive {:tmux_mock_out, "kill-pane -t %88"}, 1_000
     respond(tmux, "")
 
+    # Teardown then verifies the pane is gone before logging the outcome.
+    assert_receive {:tmux_mock_out, "display-message -p -t %88 \#{pane_pid}"}, 1_000
+    respond_error(tmux, "can't find pane\n")
+
+    assert :ok = Task.await(task, 2_000)
+  end
+
+  # --------------------------------------------------------- reaper / sweep
+
+  test "reap_orphaned_panes kills only aiur-repl panes whose owner is dead", %{tmux: tmux} do
+    dead_owner = "999999999"
+    live_owner = List.to_string(:os.getpid())
+
+    task = Task.async(fn -> ReplAgent.reap_orphaned_panes(tmux) end)
+
+    assert_receive {:tmux_mock_out, "list-windows -a -F " <> _}, 1_000
+
+    respond(
+      tmux,
+      "aiur-repl-#{dead_owner}-1\t%10\naiur-repl-#{live_owner}-2\t%11\nagents\t%12\n"
+    )
+
+    # Only the dead-owner REPL pane is reaped: resolve its pid, then kill it.
+    assert_receive {:tmux_mock_out, "display-message -p -t %10 \#{pane_pid}"}, 1_000
+    respond_error(tmux, "no pane\n")
+    assert_receive {:tmux_mock_out, "kill-pane -t %10"}, 1_000
+    respond(tmux, "")
+
+    # The live-owner REPL pane and the unrelated window are never touched.
+    refute_receive {:tmux_mock_out, "kill-pane -t %11"}, 200
+    refute_receive {:tmux_mock_out, "kill-pane -t %12"}, 200
+
+    assert :ok = Task.await(task, 2_000)
+  end
+
+  test "sweep_own_panes kills only this instance's REPL panes", %{tmux: tmux} do
+    self_owner = List.to_string(:os.getpid())
+    other_owner = "999999999"
+
+    task = Task.async(fn -> ReplAgent.sweep_own_panes(tmux) end)
+
+    assert_receive {:tmux_mock_out, "list-windows -a -F " <> _}, 1_000
+
+    respond(
+      tmux,
+      "aiur-repl-#{self_owner}-1\t%20\naiur-repl-#{other_owner}-2\t%21\n"
+    )
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %20 \#{pane_pid}"}, 1_000
+    respond_error(tmux, "no pane\n")
+    assert_receive {:tmux_mock_out, "kill-pane -t %20"}, 1_000
+    respond(tmux, "")
+
+    # A side-by-side instance's pane is left alone.
+    refute_receive {:tmux_mock_out, "kill-pane -t %21"}, 200
+
     assert :ok = Task.await(task, 2_000)
   end
 

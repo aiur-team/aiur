@@ -224,6 +224,19 @@ defmodule Aiur.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  List every window on the server as `{window_name, active_pane_id}` tuples
+  (tmux's `list-windows -a`). Used by the REPL pane reaper/sweep to find
+  `aiur-repl-*` windows across all sessions.
+  """
+  @spec list_windows(GenServer.server()) :: {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def list_windows(server \\ __MODULE__) do
+    GenServer.call(server, :list_windows, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @spec session(GenServer.server()) :: String.t()
   def session(server \\ __MODULE__), do: GenServer.call(server, :session)
 
@@ -428,6 +441,22 @@ defmodule Aiur.Tmux do
     end
   end
 
+  def handle_call(:list_windows, _from, state) do
+    case run_args(state, ["list-windows", "-a", "-F", "\#{window_name}\t\#{pane_id}"]) do
+      {:ok, lines} ->
+        windows =
+          lines
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.flat_map(&parse_window_line/1)
+
+        {:reply, {:ok, windows}, state}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
   def handle_call({:list_panes, window_target}, _from, state) do
     case run_args(state, ["list-panes", "-t", window_target, "-F", "\#{pane_id}"]) do
       {:ok, pane_ids} ->
@@ -555,6 +584,13 @@ defmodule Aiur.Tmux do
   def handle_info(_other, state), do: {:noreply, state}
 
   # Internals -----------------------------------------------------------------
+
+  defp parse_window_line(line) do
+    case String.split(line, "\t", parts: 2) do
+      [name, pane_id] -> [{name, pane_id}]
+      _ -> []
+    end
+  end
 
   defp run_command(%{transport: {:mock, pid}}, cmd) do
     send(pid, {:tmux_mock_out, cmd})

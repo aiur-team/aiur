@@ -33,6 +33,7 @@ defmodule Aiur.Shutdown do
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
     safely(fn -> SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
+    safely(fn -> Aiur.Claude.ReplAgent.sweep_own_panes() end, "sweep_repl_panes")
     safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")
     :ok
   end

@@ -315,6 +315,22 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  def handle_info({:repl_session_runtime, issue_id, info}, %{running: running} = state)
+      when is_binary(issue_id) and is_map(info) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        updated_running_entry =
+          running_entry
+          |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
+          |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
+
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+    end
+  end
+
   def handle_info(
         {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
         %{running: running} = state
@@ -1126,6 +1142,11 @@ defmodule Aiur.Orchestrator do
         stop_running_remote_control(running_entry)
         delete_remote_control_handoff(Map.get(running_entry, :workspace_path))
 
+        # `terminate_task/1` brutally kills the runner task, skipping the
+        # `after stop_session` cleanup — kill the tracked REPL pane + pid
+        # here so neither orphans on abort/terminal-state teardown.
+        kill_repl_session(running_entry)
+
         if cleanup_workspace do
           cleanup_issue_workspace(identifier, worker_host)
         end
@@ -1189,6 +1210,10 @@ defmodule Aiur.Orchestrator do
         # duplicate "No turn activity in 10 minutes" system messages
         # into the chat pane (one per pre-warm slot).
         close_active_chat_streams(identifier, :deactivated)
+
+        # Same brutal-kill gap as terminate_running_issue: reach the
+        # tracked REPL pane + pid before the runner task dies.
+        kill_repl_session(running_entry)
 
         if is_pid(pid) do
           terminate_task(pid)
@@ -1886,6 +1911,8 @@ defmodule Aiur.Orchestrator do
             last_codex_timestamp: nil,
             last_codex_event: nil,
             codex_app_server_pid: nil,
+            repl_pane_id: nil,
+            repl_os_pid: nil,
             agent_input_tokens: 0,
             agent_output_tokens: 0,
             agent_total_tokens: 0,
@@ -3858,6 +3885,20 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # Kill the persistent-REPL pane + claude OS pid tracked on the running
+  # entry. Idempotent and tolerant of a half-dead session (pane gone but
+  # pid alive, or vice versa) — each kill is independent and a missing
+  # pane/pid is a no-op.
+  defp kill_repl_session(running_entry) do
+    pane_id = Map.get(running_entry, :repl_pane_id)
+    os_pid = Map.get(running_entry, :repl_os_pid)
+
+    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
+    RemoteControl.graceful_kill(os_pid)
+
+    :ok
+  end
+
   defp write_remote_control_handoff(workspace) do
     handoff = RemoteControl.build_handoff(workspace: workspace)
 
@@ -3975,6 +4016,7 @@ defmodule Aiur.Orchestrator do
 
   defp cleanup_stray_remote_control_servers do
     RemoteControl.reap_orphaned_servers()
+    Aiur.Claude.ReplAgent.reap_orphaned_panes()
   rescue
     _ -> :ok
   end

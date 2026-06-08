@@ -340,6 +340,23 @@ defmodule Aiur.AgentRunner do
 
   defp send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
+  # The persistent-REPL pane + claude OS pid are owned by this runner task.
+  # An abort/shutdown brutally kills the task, skipping the `after
+  # stop_session` cleanup, so report them to the orchestrator's running
+  # entry — the only place an abort path can still reach them.
+  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude-repl"} = session)
+       when is_binary(issue_id) and is_pid(recipient) do
+    send(
+      recipient,
+      {:repl_session_runtime, issue_id,
+       %{pane_id: Map.get(session, :pane_id), os_pid: Map.get(session, :os_pid)}}
+    )
+
+    :ok
+  end
+
+  defp report_repl_session(_recipient, _issue, _session), do: :ok
+
   defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
@@ -354,7 +371,14 @@ defmodule Aiur.AgentRunner do
     )
 
     with {:ok, session} <-
-           start_agent_session(workspace, backend: backend, model: model, worker_host: worker_host, remote_control: rc?) do
+           start_agent_session(workspace,
+             backend: backend,
+             model: model,
+             worker_host: worker_host,
+             remote_control: rc?
+           ) do
+      report_repl_session(codex_update_recipient, issue, session)
+
       try do
         do_run_codex_turns(
           session,
