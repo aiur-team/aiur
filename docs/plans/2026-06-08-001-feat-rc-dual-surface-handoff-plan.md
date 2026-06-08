@@ -106,6 +106,11 @@ The current handoff is lossy and leaky: forward (local→RC) primes a `CLAUDE.lo
 - **Sequencing:** Bug #1/U2 + U3 are the only items with a real incident behind them. Consider shipping U2+U3 first (decoupled), then U0 → (U1/U4/U5/U6/U7) as a second wave gated on the resume spike.
 - **U1 module extraction** — `Aiur.Claude.Projects`'s only consumers (U4, U5) are in this same PR; the extraction + delegation wrapper may be premature abstraction. Alternative: add the two new functions directly to `remote_control.ex` and extract later when a third consumer appears. Low stakes; implementer's call.
 
+### Related Problems Surfaced (out of this plan's scope, tracked for follow-up)
+
+- **Mid-turn operator input lands too late.** opencode user messages flow through `AgentChat.send(..., delivery_policy: :checkpoint)` (chat_completions.ex:491), so they wait for the next *safe checkpoint*. On a long autonomous feature turn that's effectively the END of the feature — operator steering almost never arrives mid-work. This is a distinct problem from RC handoff but shares the "operator can't interject" pain. Needs its own design (interruptible/urgent delivery path, or a true streaming input channel). Captured here so it isn't lost; not addressed by U0–U7.
+- **REPL dual-chat route (untested).** Prior "dual-chat impossible" verdict only tested launch-flag combos and the `claude remote-control` subcommand — NOT an interactive `claude` REPL + the runtime `/remote-control` slash command. That path is being investigated separately on `kevin/repl-dualchat`. If it pans out, it would supersede the read-only-follow-along framing of this plan; if not, this plan (remote-mode toggle) stands.
+
 ### Deferred to Implementation
 
 - **`claude --resume` viability + which identifier it accepts** — promoted to the **U0 gate** (blocks U5/U6); verify with a scratch session before building. Fallback is enriched text handoff.
