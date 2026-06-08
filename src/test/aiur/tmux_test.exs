@@ -123,4 +123,95 @@ defmodule Aiur.TmuxTest do
 
     assert {:error, _} = Task.await(task, 1_000)
   end
+
+  test "capture_pane/2 returns the pane's visible lines", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.capture_pane(name, "%42")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "capture-pane -p -t %42"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\nline one\n❯\n%end 1 1 0\n"})
+
+    assert {:ok, ["line one", "❯"]} = Task.await(task, 1_000)
+  end
+
+  test "kill_pane/2 issues kill-pane and returns :ok", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.kill_pane(name, "%42")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "kill-pane -t %42"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert :ok = Task.await(task, 1_000)
+  end
+
+  test "kill_pane/2 treats an already-gone pane as :ok", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.kill_pane(name, "%gone")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, _}, 1_000
+
+    send(
+      GenServer.whereis(name),
+      {:tmux_mock_data, "%begin 1 1 0\ncan't find pane: %gone\n%error 1 1 0\n"}
+    )
+
+    assert :ok = Task.await(task, 1_000)
+  end
+
+  test "pane_pid/2 parses the integer pid for a pane", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.pane_pid(name, "%42")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "display-message -p -t %42 \#{pane_pid}"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n12345\n%end 1 1 0\n"})
+
+    assert {:ok, 12_345} = Task.await(task, 1_000)
+  end
+
+  test "pane_pid/2 returns an error when no pid is printed", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.pane_pid(name, "%42")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, _}, 1_000
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert {:error, :no_pane_pid} = Task.await(task, 1_000)
+  end
 end

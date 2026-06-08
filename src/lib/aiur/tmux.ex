@@ -173,6 +173,44 @@ defmodule Aiur.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  Capture the visible contents of `pane_id` as a list of lines
+  (tmux's `capture-pane -p`). Used for coarse lifecycle signals
+  (REPL readiness / idle prompt) where the transcript has no marker.
+  """
+  @spec capture_pane(GenServer.server(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def capture_pane(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:capture_pane, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Kill `pane_id` (tmux's `kill-pane`). Returns `:ok` even when the pane
+  is already gone, so teardown is idempotent.
+  """
+  @spec kill_pane(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def kill_pane(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:kill_pane, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Return the OS pid of the top process running in `pane_id`
+  (tmux's `\#{pane_pid}`). Used to graceful-kill the REPL's `claude`
+  process on teardown.
+  """
+  @spec pane_pid(GenServer.server(), String.t()) :: {:ok, integer()} | {:error, term()}
+  def pane_pid(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:pane_pid, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @spec session(GenServer.server()) :: String.t()
   def session(server \\ __MODULE__), do: GenServer.call(server, :session)
 
@@ -402,6 +440,45 @@ defmodule Aiur.Tmux do
     case run_args(state, ["send-keys", "-t", pane_id, "-l", text]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:capture_pane, pane_id}, _from, state) do
+    case run_args(state, ["capture-pane", "-p", "-t", pane_id]) do
+      {:ok, lines} -> {:reply, {:ok, lines}, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:pane_pid, pane_id}, _from, state) do
+    case run_args(state, ["display-message", "-p", "-t", pane_id, "\#{pane_pid}"]) do
+      {:ok, [pid_str | _]} ->
+        case Integer.parse(String.trim(pid_str)) do
+          {pid, _} -> {:reply, {:ok, pid}, state}
+          :error -> {:reply, {:error, :no_pane_pid}, state}
+        end
+
+      {:ok, []} ->
+        {:reply, {:error, :no_pane_pid}, state}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
+  def handle_call({:kill_pane, pane_id}, _from, state) do
+    case run_args(state, ["kill-pane", "-t", pane_id]) do
+      {:ok, _} ->
+        {:reply, :ok, state}
+
+      # A pane that's already gone ("can't find pane") is success for
+      # idempotent teardown; other failures surface.
+      {:error, reason} = err ->
+        if reason |> List.wrap() |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "can't find pane"))) do
+          {:reply, :ok, state}
+        else
+          {:reply, err, state}
+        end
     end
   end
 

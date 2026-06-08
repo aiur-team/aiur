@@ -294,7 +294,17 @@ defmodule Aiur.Claude.RemoteControl do
     String.replace(workspace, ~r/[\/.]/, "-")
   end
 
-  defp resolve_transcript_path(opts) do
+  @doc """
+  Resolve the transcript `.jsonl` path for a session.
+
+  With `:transcript_path` set, returns it verbatim. Otherwise resolves the
+  newest cwd-matching transcript in the workspace's project dir (cwd+mtime
+  rule — see `newest_transcript/2`). Returns `nil` when none is found.
+  Shared with `Aiur.Claude.ReplAgent`, whose REPL sessions resolve the same
+  way (the interactive `/remote-control` path writes no `bridge-pointer.json`).
+  """
+  @spec resolve_transcript_path(keyword()) :: Path.t() | nil
+  def resolve_transcript_path(opts) do
     case Keyword.get(opts, :transcript_path) do
       path when is_binary(path) ->
         path
@@ -306,10 +316,14 @@ defmodule Aiur.Claude.RemoteControl do
     end
   end
 
-  # Most-recently-modified `.jsonl` whose records reference the workspace
-  # cwd. The project dir is already workspace-scoped, so newest-by-mtime is
-  # the primary rule; the cwd check guards against a stale unrelated file.
-  defp newest_transcript(dir, workspace) do
+  @doc """
+  Most-recently-modified `.jsonl` in `dir` whose records reference the
+  workspace cwd. The project dir is already workspace-scoped, so
+  newest-by-mtime is the primary rule; the cwd check guards against a
+  stale unrelated file. Returns `nil` when `dir` has no matching file.
+  """
+  @spec newest_transcript(Path.t(), Path.t()) :: Path.t() | nil
+  def newest_transcript(dir, workspace) do
     case File.ls(dir) do
       {:ok, names} ->
         names
