@@ -65,6 +65,19 @@ defmodule Aiur.CodingAgent do
         safe_checkpoints: [:notification],
         remote_control: true,
         models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+      },
+      "claude-repl" => %{
+        adapter: Aiur.Claude.ReplAgent,
+        transcript: Aiur.Claude.Transcript,
+        # The persistent REPL has no JSON-RPC turn/interrupt; operator
+        # messages are typed straight into the live pane and the agent's
+        # native input queue folds them in, so there is no checkpoint to
+        # hold at and no aiur-driven interrupt.
+        can_interrupt: false,
+        safe_checkpoints: [],
+        immediate_delivery: true,
+        remote_control: true,
+        models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
       }
     }
   end
@@ -213,6 +226,20 @@ defmodule Aiur.CodingAgent do
   def remote_control?(backend) do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :remote_control, false)
+      :error -> false
+    end
+  end
+
+  @doc """
+  Whether the backend takes operator messages immediately (pass-through to
+  the live process) instead of holding them at a `:checkpoint`. True only
+  for the persistent-REPL backend, whose native input queue accepts a
+  message mid-turn. Unknown backends are not immediate-delivery.
+  """
+  @spec immediate_delivery?(backend()) :: boolean()
+  def immediate_delivery?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :immediate_delivery, false)
       :error -> false
     end
   end

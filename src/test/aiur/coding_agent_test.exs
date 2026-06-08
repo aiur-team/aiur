@@ -86,20 +86,32 @@ defmodule Aiur.CodingAgentTest do
 
   describe "registry dispatch" do
     test "known_backends comes from the registry" do
-      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "codex"]
+      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex"]
     end
 
     test "adapter and transcript_module resolve per backend" do
       assert CodingAgent.adapter("claude") == Aiur.Claude.CodingAgent
       assert CodingAgent.adapter("codex") == Aiur.Codex.CodingAgent
+      assert CodingAgent.adapter("claude-repl") == Aiur.Claude.ReplAgent
       assert CodingAgent.transcript_module("claude") == Aiur.Claude.Transcript
       assert CodingAgent.transcript_module("codex") == Aiur.Codex.Transcript
+      assert CodingAgent.transcript_module("claude-repl") == Aiur.Claude.Transcript
     end
 
     test "delivery-policy defaults come from the registry" do
       assert CodingAgent.can_interrupt?("codex")
       assert CodingAgent.safe_checkpoints("codex") == [:notification, :tool_result]
       assert CodingAgent.safe_checkpoints("claude") == [:notification]
+      # The REPL backend holds nothing back: no interrupt, no checkpoint.
+      refute CodingAgent.can_interrupt?("claude-repl")
+      assert CodingAgent.safe_checkpoints("claude-repl") == []
+    end
+
+    test "immediate_delivery? is true only for the REPL backend" do
+      assert CodingAgent.immediate_delivery?("claude-repl")
+      refute CodingAgent.immediate_delivery?("claude")
+      refute CodingAgent.immediate_delivery?("codex")
+      refute CodingAgent.immediate_delivery?("opencode")
     end
 
     test "unknown backend fails loud" do
@@ -110,6 +122,7 @@ defmodule Aiur.CodingAgentTest do
 
     test "remote_control? is true for claude, false for codex" do
       assert CodingAgent.remote_control?("claude")
+      assert CodingAgent.remote_control?("claude-repl")
       refute CodingAgent.remote_control?("codex")
     end
 
