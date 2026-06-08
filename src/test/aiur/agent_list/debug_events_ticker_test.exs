@@ -45,7 +45,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "💬 42"
     end
 
-    test "events render inline with the agent table; legend lives in the footer" do
+    test "events render inline with the agent table" do
       events = [
         debug_entry(:read, topic: "ticket.42.branch.push", id: 4290, identifier: "42"),
         debug_entry(:receive, topic: "ticket.42.branch.push", id: 4287, identifier: "99"),
@@ -66,9 +66,6 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "💬 42 pushed"
       assert output =~ "📬 99 ← 42: pushed"
       assert output =~ "📄 42 ingested: pushed"
-
-      # Legend now renders in the footer (outside the box), not above the events.
-      assert output =~ "💬 publish · 📬 receive · 📄 read"
     end
 
     test "newest event renders BELOW older events (anchored to bottom)" do

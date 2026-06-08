@@ -113,9 +113,9 @@ defmodule Aiur.AgentList.Renderer do
 
       markers = compute_markers(state, summaries)
 
-      # Footer split: keybinds on left, event emoji legend on right.
-      # When width doesn't fit both, legend wraps to its own row. An
-      # optional RC line (session URL or transient hint) rides above.
+      # Footer: keybinds below the box. When width is tight, `v layout`
+      # wraps to its own row. An optional RC line (session URL or
+      # transient hint) rides above the keybinds.
       footer_render = footer_split(inner_width, rc_footer_text(state))
       footer_lines = footer_render.line_count
 
@@ -452,26 +452,20 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  # Footer keybinds. `v layout` rides on the primary row when there's
+  # Footer keybinds. `v layout` rides on the full row when there's
   # room, otherwise wraps to a second row so we don't truncate the more
-  # frequently used keybinds (select/open/pause/help/quit).
-  @keybinds_full "↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
-  @keybinds_primary "↑/↓ select   enter open   space pause/resume   ? help   q quit"
+  # frequently used keybinds (select/open/pause/remote/help/quit).
+  @keybinds_full "↑/↓ select   enter open   space pause/resume   r remote   v layout   ? help   q quit"
+  @keybinds_primary "↑/↓ select   enter open   space pause/resume   r remote   ? help   q quit"
   @keybinds_secondary "v layout"
-  @events_legend "💬 publish · 📬 receive · 📄 read"
   @footer_left_padding 2
   @footer_left_padding_str "  "
-  @footer_gap 2
 
-  # Bottom rows: keybinds on the left, event legend on the right. Both
-  # render BELOW the bordered AgentList box (no right `│` wall). The
-  # cascade prefers fewer rows when width permits and always keeps both
-  # the keybinds and the legend visible.
+  # Bottom rows: keybinds rendered BELOW the bordered AgentList box (no
+  # right `│` wall). The cascade prefers fewer rows when width permits.
   #
-  # - 1 row: full keybinds + legend fit side-by-side
-  # - 2 rows: full keybinds alone on row 1, legend below
-  #          OR primary keybinds + legend, "v layout" below
-  # - 3 rows: primary keybinds, "v layout", legend (extremely narrow)
+  # - 1 row: full keybinds fit
+  # - 2 rows: primary keybinds, "v layout" below (narrow)
   defp footer_split(inner_width, rc_line) do
     base = footer_keybinds_split(inner_width)
 
@@ -486,46 +480,18 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   defp footer_keybinds_split(inner_width) do
-    legend = @events_legend
-
-    cond do
-      fits_on_one_row?(@keybinds_full, legend, inner_width) ->
-        %{iodata: [side_by_side_row(@keybinds_full, legend, inner_width), eol()], line_count: 1}
-
-      visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width ->
-        %{
-          iodata: [
-            left_only_row(@keybinds_full, inner_width),
-            eol(),
-            left_only_row(legend, inner_width),
-            eol()
-          ],
-          line_count: 2
-        }
-
-      fits_on_one_row?(@keybinds_primary, legend, inner_width) ->
-        %{
-          iodata: [
-            side_by_side_row(@keybinds_primary, legend, inner_width),
-            eol(),
-            left_only_row(@keybinds_secondary, inner_width),
-            eol()
-          ],
-          line_count: 2
-        }
-
-      true ->
-        %{
-          iodata: [
-            left_only_row(@keybinds_primary, inner_width),
-            eol(),
-            left_only_row(@keybinds_secondary, inner_width),
-            eol(),
-            left_only_row(legend, inner_width),
-            eol()
-          ],
-          line_count: 3
-        }
+    if visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width do
+      %{iodata: [left_only_row(@keybinds_full, inner_width), eol()], line_count: 1}
+    else
+      %{
+        iodata: [
+          left_only_row(@keybinds_primary, inner_width),
+          eol(),
+          left_only_row(@keybinds_secondary, inner_width),
+          eol()
+        ],
+        line_count: 2
+      }
     end
   end
 
@@ -556,31 +522,6 @@ defmodule Aiur.AgentList.Renderer do
     else
       _ -> nil
     end
-  end
-
-  defp fits_on_one_row?(left, right, inner_width) do
-    needed = @footer_left_padding + visual_width(left) + @footer_gap + visual_width(right) + 1
-    needed <= inner_width
-  end
-
-  # `  <left>   …gap…   <right> ` padded to inner_width.
-  defp side_by_side_row(left, right, inner_width) do
-    pad = String.duplicate(" ", @footer_left_padding)
-    body = pad <> left
-
-    body_width = visual_width(body)
-    right_width = visual_width(right)
-    # Reserve trailing column for autowrap safety; spacer fills the rest.
-    spacer = String.duplicate(" ", max(inner_width - body_width - right_width - 1, 1))
-
-    [
-      @ansi_dim,
-      body,
-      spacer,
-      right,
-      " ",
-      @ansi_reset
-    ]
   end
 
   defp left_only_row(text, inner_width) do
