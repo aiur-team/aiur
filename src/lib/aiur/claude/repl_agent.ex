@@ -35,12 +35,29 @@ defmodule Aiur.Claude.ReplAgent do
   # liveness while a turn is in flight.
   @turn_poll_ms 250
 
+  # Cold start: claude writes no session jsonl until the first user message
+  # is submitted, so the first turn sends the prompt, then waits for the file
+  # to materialize before tailing it.
+  @transcript_wait_ms 10_000
+  @transcript_poll_ms 100
+
+  # The REPL renders its prompt glyph before it actually accepts keystrokes,
+  # so right after spawn the first send can be dropped. After typing we
+  # confirm the text echoed into the input buffer before pressing Enter, and
+  # retype once if the keystrokes were lost — otherwise Enter submits a blank
+  # line and the turn silently does nothing.
+  @echo_confirm_ms 3_000
+  @echo_retype_after_ms 600
+  @echo_poll_ms 100
+
   @type session :: %{
           backend: String.t(),
           pane_id: String.t(),
           os_pid: integer() | nil,
           workspace: Path.t(),
           transcript_path: Path.t() | nil,
+          projects_dir: Path.t() | nil,
+          started_at: integer(),
           model: String.t() | nil,
           remote_control: boolean(),
           rc_name: String.t() | nil,
@@ -56,20 +73,25 @@ defmodule Aiur.Claude.ReplAgent do
     rc_name = Keyword.get(opts, :rc_name) || "aiur-repl-#{System.unique_integer([:positive])}"
     window_name = Keyword.get(opts, :window_name) || rc_name
 
+    # Captured before spawn so per-turn resolution can ignore any stale
+    # transcript left by a prior run on this same workspace — claude writes
+    # the live session's jsonl only at first-message time, always after this.
+    started_at = System.os_time(:second)
+
     command = build_command(expanded, model, rc?, rc_name)
 
     Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?)
 
     case Tmux.new_hidden_window(tmux, window_name, command) do
       {:ok, pane_id} ->
-        finish_start(tmux, pane_id, expanded, model, rc?, rc_name, opts)
+        finish_start(tmux, pane_id, expanded, model, rc?, rc_name, started_at, opts)
 
       {:error, _reason} = err ->
         err
     end
   end
 
-  defp finish_start(tmux, pane_id, expanded, model, rc?, rc_name, opts) do
+  defp finish_start(tmux, pane_id, expanded, model, rc?, rc_name, started_at, opts) do
     timeout = Keyword.get(opts, :ready_timeout_ms, @ready_timeout_ms)
 
     case await_ready(tmux, pane_id, timeout) do
@@ -79,12 +101,6 @@ defmodule Aiur.Claude.ReplAgent do
             {:ok, pid} -> pid
             _ -> nil
           end
-
-        transcript_path =
-          RemoteControl.resolve_transcript_path(
-            workspace: expanded,
-            projects_dir: Keyword.get(opts, :projects_dir)
-          )
 
         Aiur.Perf.event(:repl_agent_ready,
           workspace: expanded,
@@ -99,7 +115,9 @@ defmodule Aiur.Claude.ReplAgent do
            pane_id: pane_id,
            os_pid: os_pid,
            workspace: expanded,
-           transcript_path: transcript_path,
+           transcript_path: nil,
+           started_at: started_at,
+           projects_dir: Keyword.get(opts, :projects_dir),
            model: model,
            remote_control: rc?,
            rc_name: rc_name,
@@ -145,13 +163,16 @@ defmodule Aiur.Claude.ReplAgent do
 
     * `{:ok, %{result, session_id, thread_id, turn_id}}` on completion
     * `{:error, :empty_prompt}` if the prompt is blank (no keys sent)
-    * `{:error, :no_transcript}` if the session never resolved a transcript path
+    * `{:error, :no_transcript}` if a cold-start turn's jsonl never appeared
     * `{:error, :turn_timeout}` if no completion arrives within the backstop;
       the session stays usable for the next turn
     * `{:error, :repl_gone}` if the pane dies mid-turn
 
-  The turn tailer is opened `from: :end` so it captures only this turn's
-  newly-appended records — it never replays prior history as input.
+  On a warm turn the tailer opens `from: :end` so it captures only this
+  turn's newly-appended records. On a cold-start turn (no jsonl yet) the
+  prompt is sent first so claude creates the file, then the tailer opens
+  `from: :start` to pick up records written before it attached. Either way
+  the tailer never replays prior history as input to the agent.
   """
   @spec run_turn(session(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -159,9 +180,6 @@ defmodule Aiur.Claude.ReplAgent do
 
   def run_turn(_session, prompt, _issue, _opts) when not is_binary(prompt),
     do: {:error, :empty_prompt}
-
-  def run_turn(%{transcript_path: nil}, _prompt, _issue, _opts),
-    do: {:error, :no_transcript}
 
   def run_turn(%{} = session, prompt, _issue, opts) do
     if String.trim(prompt) == "" do
@@ -177,32 +195,147 @@ defmodule Aiur.Claude.ReplAgent do
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
 
-    {thread_id, turn_id} = turn_ids(session.transcript_path)
-    session_id = "#{thread_id}-#{turn_id}"
+    case prepare_turn(session, prompt) do
+      {:ok, transcript_path, from, prompt_sent?} ->
+        session = %{session | transcript_path: transcript_path}
+        {thread_id, turn_id} = turn_ids(transcript_path)
+        session_id = "#{thread_id}-#{turn_id}"
 
-    emit(on_message, :session_started, %{
-      session_id: session_id,
-      thread_id: thread_id,
-      turn_id: turn_id
-    })
+        emit(on_message, :session_started, %{
+          session_id: session_id,
+          thread_id: thread_id,
+          turn_id: turn_id
+        })
 
-    {:ok, tailer} = start_turn_tailer(session, turn_id, on_message)
+        {:ok, tailer} = start_turn_tailer(session, turn_id, from, on_message)
 
-    Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
-    Tmux.send_enter(session.tmux, session.pane_id)
+        # Warm turns send AFTER the tailer attaches so no record is missed;
+        # cold turns already sent the prompt to create the transcript.
+        unless prompt_sent?, do: send_prompt(session, prompt)
 
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    result = await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
-    stop_tailer(tailer)
+        deadline = System.monotonic_time(:millisecond) + timeout_ms
+        result = await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+        stop_tailer(tailer)
 
-    case result do
-      :ok ->
-        emit(on_message, :turn_completed, %{session_id: session_id, turn_id: turn_id})
-        {:ok, %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
+        case result do
+          :ok ->
+            emit(on_message, :turn_completed, %{session_id: session_id, turn_id: turn_id})
+
+            {:ok,
+             %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
+
+          {:error, reason} ->
+            emit(on_message, :turn_ended_with_error, %{session_id: session_id, reason: reason})
+            {:error, reason}
+        end
 
       {:error, reason} ->
-        emit(on_message, :turn_ended_with_error, %{session_id: session_id, reason: reason})
         {:error, reason}
+    end
+  end
+
+  # Resolve the transcript for THIS turn and decide how to tail it.
+  #
+  # The orchestrator re-threads the original (possibly nil-transcript)
+  # session each turn, so we re-resolve from the workspace every time.
+  #
+  #   * WARM — the jsonl already exists: tail `from: :end` (this turn only),
+  #     and let the caller send the prompt after the tailer attaches.
+  #   * COLD — no jsonl yet: send the prompt first so claude creates the
+  #     file, wait for it to appear, then tail `from: :start` to pick up the
+  #     records written before the tailer attached.
+  defp prepare_turn(session, prompt) do
+    resolved = session.transcript_path || resolve_session_transcript(session)
+
+    if is_binary(resolved) and File.exists?(resolved) do
+      {:ok, resolved, :end, false}
+    else
+      send_prompt(session, prompt)
+
+      case await_transcript(session) do
+        {:ok, path} -> {:ok, path, :start, true}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # Resolve THIS session's transcript, ignoring any file older than spawn so
+  # a re-run on a reused workspace never tails the prior session's jsonl.
+  defp resolve_session_transcript(session) do
+    RemoteControl.resolve_transcript_path(
+      workspace: session.workspace,
+      projects_dir: Map.get(session, :projects_dir),
+      since: Map.get(session, :started_at, 0)
+    )
+  end
+
+  defp send_prompt(session, prompt) do
+    confirm_typed(session, prompt)
+    Tmux.send_enter(session.tmux, session.pane_id)
+  end
+
+  # Type the prompt, then poll the input buffer until our text echoes. This
+  # reads the pane only to confirm input was accepted (not to scrape output).
+  defp confirm_typed(session, prompt) do
+    prefix = echo_prefix(prompt)
+    Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
+    start = System.monotonic_time(:millisecond)
+    poll_echo(session, prompt, prefix, start, false)
+  end
+
+  defp poll_echo(session, prompt, prefix, start, retyped?) do
+    elapsed = System.monotonic_time(:millisecond) - start
+
+    cond do
+      input_echoes?(session, prefix) ->
+        :ok
+
+      elapsed >= @echo_confirm_ms ->
+        :ok
+
+      not retyped? and elapsed >= @echo_retype_after_ms ->
+        # The glyph showed before the REPL was live and the keystrokes were
+        # dropped; type once more now that it has finished initializing.
+        Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
+        Process.sleep(@echo_poll_ms)
+        poll_echo(session, prompt, prefix, start, true)
+
+      true ->
+        Process.sleep(@echo_poll_ms)
+        poll_echo(session, prompt, prefix, start, retyped?)
+    end
+  end
+
+  defp input_echoes?(session, prefix) do
+    case Tmux.capture_pane(session.tmux, session.pane_id) do
+      {:ok, lines} -> lines |> Enum.join("\n") |> String.contains?(prefix)
+      _ -> false
+    end
+  end
+
+  defp echo_prefix(prompt) do
+    prompt |> String.trim() |> String.slice(0, 24)
+  end
+
+  # Poll for the session jsonl to materialize after a cold-start prompt.
+  defp await_transcript(session) do
+    deadline = System.monotonic_time(:millisecond) + @transcript_wait_ms
+    await_transcript(session, deadline)
+  end
+
+  defp await_transcript(session, deadline) do
+    path = resolve_session_transcript(session)
+
+    cond do
+      is_binary(path) and File.exists?(path) ->
+        {:ok, path}
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        {:error, :no_transcript}
+
+      true ->
+        Process.sleep(@transcript_poll_ms)
+        await_transcript(session, deadline)
     end
   end
 
@@ -210,12 +343,12 @@ defmodule Aiur.Claude.ReplAgent do
   # this run_turn process so the await loop can unblock. Each transcript
   # event is wrapped so the orchestrator's transcript dispatch passes it
   # through unchanged (see `Aiur.Claude.Transcript.extract/2`).
-  defp start_turn_tailer(session, turn_id, on_message) do
+  defp start_turn_tailer(session, turn_id, from, on_message) do
     parent = self()
 
     TranscriptTailer.start_link(
       path: session.transcript_path,
-      from: :end,
+      from: from,
       turn_id: turn_id,
       interval_ms: nil,
       on_message: fn event ->

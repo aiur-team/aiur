@@ -312,7 +312,8 @@ defmodule Aiur.Claude.RemoteControl do
       _ ->
         workspace = Keyword.fetch!(opts, :workspace)
         projects_dir = Keyword.get(opts, :projects_dir) || default_projects_dir()
-        newest_transcript(Path.join(projects_dir, workspace_slug(workspace)), workspace)
+        since = Keyword.get(opts, :since, 0)
+        newest_transcript(Path.join(projects_dir, workspace_slug(workspace)), workspace, since)
     end
   end
 
@@ -322,13 +323,14 @@ defmodule Aiur.Claude.RemoteControl do
   newest-by-mtime is the primary rule; the cwd check guards against a
   stale unrelated file. Returns `nil` when `dir` has no matching file.
   """
-  @spec newest_transcript(Path.t(), Path.t()) :: Path.t() | nil
-  def newest_transcript(dir, workspace) do
+  @spec newest_transcript(Path.t(), Path.t(), integer()) :: Path.t() | nil
+  def newest_transcript(dir, workspace, since \\ 0) do
     case File.ls(dir) do
       {:ok, names} ->
         names
         |> Enum.filter(&String.ends_with?(&1, ".jsonl"))
         |> Enum.map(&Path.join(dir, &1))
+        |> Enum.filter(&(file_mtime_unix(&1) >= since))
         |> Enum.sort_by(&file_mtime/1, {:desc, DateTime})
         |> Enum.find(&transcript_matches_cwd?(&1, workspace))
 
@@ -338,9 +340,13 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   defp file_mtime(path) do
+    DateTime.from_unix!(file_mtime_unix(path))
+  end
+
+  defp file_mtime_unix(path) do
     case File.stat(path, time: :posix) do
-      {:ok, %{mtime: mtime}} -> DateTime.from_unix!(mtime)
-      _ -> DateTime.from_unix!(0)
+      {:ok, %{mtime: mtime}} -> mtime
+      _ -> 0
     end
   end
 

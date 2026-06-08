@@ -1,6 +1,7 @@
 defmodule Aiur.Claude.ReplAgentTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.ReplAgent
   alias Aiur.Tmux
 
@@ -192,6 +193,17 @@ defmodule Aiur.Claude.ReplAgentTest do
     path
   end
 
+  # A user record carrying the workspace cwd — resolve_transcript_path needs
+  # at least one cwd-matching record to claim a jsonl as this session's.
+  defp user_record(cwd) do
+    Jason.encode!(%{
+      "type" => "user",
+      "cwd" => cwd,
+      "timestamp" => "2026-06-08T12:00:00.000Z",
+      "message" => %{"role" => "user", "content" => "hello"}
+    }) <> "\n"
+  end
+
   # An assistant record whose `stop_reason` is terminal — the tailer reads
   # this as the turn-completion signal.
   defp completion_record(text) do
@@ -206,17 +218,29 @@ defmodule Aiur.Claude.ReplAgentTest do
     }) <> "\n"
   end
 
-  # Answer the send-keys + Enter + pane-liveness dance for one turn, appending
-  # the completion record after the prompt is sent (the tailer reads `from:
-  # :end`, so it only sees records written after run_turn started it).
-  defp drive_completing_turn(tmux, path, text, task) do
+  # Consume one prompt submission: literal type, echo-confirm capture-pane
+  # (answered with the prompt echoed back so the buffer check passes), then
+  # Enter. Returns the typed prompt.
+  defp expect_prompt_submit(tmux) do
     assert_receive {:tmux_mock_out, "send-keys -t " <> rest1}, 1_000
     assert rest1 =~ "-l "
     respond(tmux, "")
+    prompt = rest1 |> String.split(" -l ", parts: 2) |> List.last()
+
+    assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
+    respond(tmux, "❯ #{prompt}\n")
 
     assert_receive {:tmux_mock_out, "send-keys -t " <> rest2}, 1_000
     assert String.ends_with?(rest2, "Enter")
     respond(tmux, "")
+    prompt
+  end
+
+  # Answer the send-keys + Enter + pane-liveness dance for one turn, appending
+  # the completion record after the prompt is sent (the tailer reads `from:
+  # :end`, so it only sees records written after run_turn started it).
+  defp drive_completing_turn(tmux, path, text, task) do
+    expect_prompt_submit(tmux)
 
     File.write!(path, completion_record(text), [:append])
 
@@ -315,6 +339,8 @@ defmodule Aiur.Claude.ReplAgentTest do
     # Prompt is sent first (before the await loop), deterministically.
     assert_receive {:tmux_mock_out, "send-keys -t %50 -l start work"}, 1_000
     respond(tmux, "")
+    assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
+    respond(tmux, "❯ start work\n")
     assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
     respond(tmux, "")
 
@@ -349,6 +375,8 @@ defmodule Aiur.Claude.ReplAgentTest do
 
     assert_receive {:tmux_mock_out, "send-keys -t %50 -l work"}, 1_000
     respond(tmux, "")
+    assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
+    respond(tmux, "❯ work\n")
     assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
     respond(tmux, "")
 
@@ -385,11 +413,35 @@ defmodule Aiur.Claude.ReplAgentTest do
     refute_receive {:tmux_mock_out, _}, 100
   end
 
-  test "run_turn errors when the session has no transcript path", %{tmux: tmux} do
-    session = turn_session(tmux, nil)
+  test "run_turn cold-starts: sends the prompt, awaits the jsonl, then tails it", %{tmux: tmux} do
+    # Fresh workspace — claude has not written the session jsonl yet, so the
+    # session carries a nil transcript_path and resolve finds nothing.
+    ws = Path.join(System.tmp_dir!(), "repl-cold-#{System.unique_integer([:positive])}")
+    projects_dir = Path.join(System.tmp_dir!(), "repl-proj-#{System.unique_integer([:positive])}")
+    slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
+    File.mkdir_p!(slug_dir)
+    on_exit(fn -> File.rm_rf!(ws) end)
+    on_exit(fn -> File.rm_rf!(projects_dir) end)
 
-    assert {:error, :no_transcript} = ReplAgent.run_turn(session, "hi", %{}, [])
-    refute_receive {:tmux_mock_out, _}, 100
+    session =
+      turn_session(tmux, nil)
+      |> Map.put(:workspace, ws)
+      |> Map.put(:projects_dir, projects_dir)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "hello", %{}, poll_interval_ms: 15)
+      end)
+
+    # Cold start sends the prompt BEFORE any transcript exists.
+    expect_prompt_submit(tmux)
+
+    # claude now materializes the cwd-matching jsonl with a terminal record.
+    path = Path.join(slug_dir, "#{System.unique_integer([:positive])}.jsonl")
+    File.write!(path, user_record(ws) <> completion_record("done"))
+
+    assert {:ok, result} = drain_pane_pid(tmux, task)
+    assert result.result == :completed
   end
 
   test "run_turn returns :turn_timeout when no completion arrives", %{tmux: tmux} do
@@ -405,10 +457,7 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
-    respond(tmux, "")
-    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
-    respond(tmux, "")
+    expect_prompt_submit(tmux)
 
     assert {:error, :turn_timeout} = drain_pane_pid(tmux, task)
   end
@@ -423,10 +472,7 @@ defmodule Aiur.Claude.ReplAgentTest do
         ReplAgent.run_turn(session, "work", %{}, poll_interval_ms: 10)
       end)
 
-    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
-    respond(tmux, "")
-    assert_receive {:tmux_mock_out, "send-keys -t " <> _}, 1_000
-    respond(tmux, "")
+    expect_prompt_submit(tmux)
 
     assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000
     respond_error(tmux, "can't find pane\n")
