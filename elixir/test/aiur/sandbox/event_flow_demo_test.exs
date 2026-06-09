@@ -3,7 +3,7 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
 
   alias Aiur.Sandbox.EventFlowDemo
 
-  test "function_a/0 returns the sandbox sentinel value" do
+  test "function_a/0 returns the event-flow seed value" do
     assert EventFlowDemo.function_a() == 42
   end
 
