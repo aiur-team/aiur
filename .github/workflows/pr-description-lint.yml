@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: elixir
+        working-directory: src
 
     steps:
       - name: Checkout
@@ -20,7 +20,7 @@ jobs:
         with:
           install: true
           cache: true
-          working_directory: elixir
+          working_directory: src
 
       - name: Validate PR description format
         env:
