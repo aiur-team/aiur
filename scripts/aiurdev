@@ -1756,6 +1756,12 @@ run_in_tmux() {
       fi
     done
 
+    # Reap the agent-driver tmux sockets this run left orphaned now that the
+    # BEAM is down, rather than deferring them to the next invocation's
+    # pre-launch sweep. Only unresponsive servers are removed, so a
+    # side-by-side aiur instance's live sockets are never touched.
+    sweep_dead_tmux_sockets
+
     return $exit_code
   }
 

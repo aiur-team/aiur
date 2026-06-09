@@ -55,6 +55,18 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              "__aiur_cleanup MUST SIGKILL stragglers after the SIGTERM grace period — otherwise a wedged BEAM leaks port 4000 forever"
     end
 
+    test "sweeps orphaned agent-driver tmux sockets on close" do
+      source = File.read!(@scripts_aiur)
+      cleanup_block = extract_cleanup_block(source)
+
+      assert cleanup_block =~ ~r/sweep_dead_tmux_sockets/,
+             """
+             __aiur_cleanup MUST call sweep_dead_tmux_sockets so the agent-driver
+             sockets this run orphaned are reaped at close, not deferred to the
+             next invocation's pre-launch sweep.
+             """
+    end
+
     test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
       source = File.read!(@scripts_aiur)
 
