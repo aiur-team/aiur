@@ -22,6 +22,8 @@ defmodule Aiur.Shutdown do
 
   require Logger
 
+  alias Aiur.Claude.{RemoteControl, ReplAgent}
+  alias Aiur.Config
   alias Aiur.Opencode.SessionWriterRegistry
 
   @default_cleanup_timeout_ms 5_000
@@ -33,7 +35,7 @@ defmodule Aiur.Shutdown do
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
     safely(fn -> SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
-    safely(fn -> Aiur.Claude.ReplAgent.sweep_own_panes() end, "sweep_repl_panes")
+    safely(fn -> ReplAgent.sweep_own_panes() end, "sweep_repl_panes")
     safely(fn -> reap_workspace_agents() end, "reap_workspace_agents")
     safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")
     :ok
@@ -44,7 +46,7 @@ defmodule Aiur.Shutdown do
   # workspace root) never touches live agents.
   defp reap_workspace_agents do
     if Application.get_env(:aiur, :interactive_cli, false) do
-      Aiur.Claude.RemoteControl.reap_workspace_agents(Aiur.Config.workspace_root())
+      RemoteControl.reap_workspace_agents(Config.workspace_root())
     end
 
     :ok

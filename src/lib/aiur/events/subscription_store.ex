@@ -120,9 +120,9 @@ defmodule Aiur.Events.SubscriptionStore do
   @doc """
   Adds a binding. The reason string is free-form metadata used for
   observability (`"auto:blocked_by(42)"`, `"manual:aiur_subscribe"`).
-  Idempotent: re-adding an existing topic refreshes the reason but
-  keeps the original `subscription_created_at_event_id` so bootstrap
-  replay isn't reset.
+  Idempotent: re-adding an existing topic keeps the original reason and
+  `subscription_created_at_event_id` so bootstrap replay isn't reset and
+  reason-filtered removal cannot drop manually retained subscriptions.
   """
   @spec add_subscription(String.t(), String.t(), String.t()) :: :ok
   def add_subscription(identifier, topic, reason)

@@ -444,6 +444,12 @@ defmodule Aiur.AgentRunner do
   # guard. A trust failure is logged but not fatal: the degrade path still
   # lands a working headless agent rather than stranding the issue.
   @doc false
+  @spec maybe_trust_remote_control_workspace(
+          Path.t(),
+          boolean(),
+          worker_host(),
+          (Path.t() -> :ok | {:error, term()})
+        ) :: :ok
   def maybe_trust_remote_control_workspace(workspace, rc?, worker_host, trust_fun)
 
   def maybe_trust_remote_control_workspace(workspace, true, nil, trust_fun)
@@ -461,6 +467,7 @@ defmodule Aiur.AgentRunner do
   def maybe_trust_remote_control_workspace(_workspace, _rc?, _worker_host, _trust_fun), do: :ok
 
   @doc false
+  @spec rc_session_name(Issue.t()) :: String.t()
   def rc_session_name(issue) do
     label = issue.identifier || issue.id
     title = issue.title || ""
@@ -1165,14 +1172,18 @@ defmodule Aiur.AgentRunner do
     fn ->
       case claim_next_operator_item(orchestrator, issue.identifier) do
         {:ok, item} ->
-          record_operator_delivery(item, issue)
-
-          {:deliver_text, queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
+          immediate_operator_delivery(issue, orchestrator, item)
 
         :empty ->
           :noop
       end
     end
+  end
+
+  defp immediate_operator_delivery(issue, orchestrator, item) do
+    record_operator_delivery(item, issue)
+
+    {:deliver_text, queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
   end
 
   defp safe_checkpoint_handler(issue, orchestrator) do

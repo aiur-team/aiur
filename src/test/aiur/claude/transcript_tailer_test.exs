@@ -130,10 +130,18 @@ defmodule Aiur.Claude.TranscriptTailerTest do
 
     File.write!(path, record)
 
+    tailer_opts = [
+      path: path,
+      on_message: on_message,
+      on_turn_end: on_turn_end,
+      turn_id: "turn-1",
+      interval_ms: nil,
+      from: :start
+    ]
+
     {:ok, tailer} =
       start_supervised(
-        {TranscriptTailer,
-         [path: path, on_message: on_message, on_turn_end: on_turn_end, turn_id: "turn-1", interval_ms: nil, from: :start]},
+        {TranscriptTailer, tailer_opts},
         id: {:tailer, System.unique_integer([:positive])}
       )
 
@@ -158,10 +166,18 @@ defmodule Aiur.Claude.TranscriptTailerTest do
 
     File.write!(path, record)
 
+    tailer_opts = [
+      path: path,
+      on_message: fn _ -> :ok end,
+      on_turn_end: on_turn_end,
+      turn_id: "turn-1",
+      interval_ms: nil,
+      from: :start
+    ]
+
     {:ok, tailer} =
       start_supervised(
-        {TranscriptTailer,
-         [path: path, on_message: fn _ -> :ok end, on_turn_end: on_turn_end, turn_id: "turn-1", interval_ms: nil, from: :start]},
+        {TranscriptTailer, tailer_opts},
         id: {:tailer, System.unique_integer([:positive])}
       )
 

@@ -53,8 +53,12 @@ defmodule Aiur.Codex.CodingAgentTest do
       end
 
     cond do
-      is_integer(first_child) -> first_child
-      System.monotonic_time(:millisecond) >= deadline -> nil
+      is_integer(first_child) ->
+        first_child
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        nil
+
       true ->
         Process.sleep(25)
         do_wait_for_child(parent, deadline)

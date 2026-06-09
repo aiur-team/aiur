@@ -424,8 +424,7 @@ defmodule Aiur.Claude.ReplAgent do
   defp finish_turn(:ok, on_message, session_id, thread_id, turn_id) do
     emit(on_message, :turn_completed, %{session_id: session_id, turn_id: turn_id})
 
-    {:ok,
-     %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
+    {:ok, %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
   end
 
   defp finish_turn({:error, reason}, on_message, session_id, _thread_id, _turn_id) do

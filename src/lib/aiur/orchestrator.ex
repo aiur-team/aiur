@@ -22,7 +22,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
-  alias Aiur.Claude.RemoteControl
+  alias Aiur.Claude.{RemoteControl, ReplAgent}
   alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
   alias Aiur.Opencode.ActiveTurns
   alias AiurWeb.ObservabilityPubSub
@@ -3882,7 +3882,7 @@ defmodule Aiur.Orchestrator do
 
   defp cleanup_stray_remote_control_servers do
     RemoteControl.reap_orphaned_servers()
-    Aiur.Claude.ReplAgent.reap_orphaned_panes()
+    ReplAgent.reap_orphaned_panes()
   rescue
     _ -> :ok
   end

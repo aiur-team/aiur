@@ -189,15 +189,17 @@ defmodule Aiur.Claude.RemoteControl do
       {:ok, contents} ->
         contents
         |> String.split("\n", trim: true)
-        |> Enum.flat_map(fn line ->
-          case Jason.decode(line) do
-            {:ok, record} when is_map(record) -> [record]
-            _ -> []
-          end
-        end)
+        |> Enum.flat_map(&decode_transcript_record/1)
 
       {:error, _} ->
         []
+    end
+  end
+
+  defp decode_transcript_record(line) do
+    case Jason.decode(line) do
+      {:ok, record} when is_map(record) -> [record]
+      _ -> []
     end
   end
 

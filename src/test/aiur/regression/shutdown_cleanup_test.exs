@@ -41,15 +41,15 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              """
     end
 
-    test "SIGTERMs any remaining release BEAM (belt-and-suspenders)" do
+    test "SIGTERMs the release BEAM owned by this wrapper" do
       source = File.read!(@scripts_aiur)
       cleanup_block = extract_cleanup_block(source)
 
-      assert cleanup_block =~ ~r/pgrep -f "\$(?:trap_)?elixir_dir\/.*rel\/aiur\/erts.*beam\.smp"/,
-             "__aiur_cleanup MUST enumerate this release's BEAM pids by their erts/beam.smp path"
+      assert cleanup_block =~ ~r/_aiur_beam_under_pid "\$__aiur_owned_pane_pid" "\$trap_elixir_dir"/,
+             "__aiur_cleanup MUST resolve the BEAM owned by this wrapper's tmux pane"
 
       assert cleanup_block =~ ~r/kill -TERM/,
-             "__aiur_cleanup MUST send SIGTERM to remaining BEAM pids so OTP supervisors run shutdown callbacks"
+             "__aiur_cleanup MUST send SIGTERM to the owned BEAM so OTP supervisors run shutdown callbacks"
 
       assert cleanup_block =~ ~r/kill -KILL/,
              "__aiur_cleanup MUST SIGKILL stragglers after the SIGTERM grace period — otherwise a wedged BEAM leaks port 4000 forever"
