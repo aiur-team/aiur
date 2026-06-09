@@ -63,8 +63,12 @@ defmodule Aiur.Claude.ReplAgent do
   # `… https://claude.ai/code/session_… ` banner to the pane as it attaches,
   # alongside the ready prompt. Scan the pane for it once the REPL is ready;
   # it is a capability token surfaced only to the operator display, never
-  # logged. Capture is best-effort — a missing URL never blocks readiness.
-  @url_capture_timeout_ms 2_000
+  # logged. The banner is also the proof RC attached: an account without RC
+  # entitlement never prints it, so its absence within this budget is taken
+  # as RC-unavailable and degrades the session to the non-RC backend (see
+  # `build_ready_session/3`). The window is generous so a slow-but-working
+  # attach is never mistaken for an unavailable one.
+  @url_capture_timeout_ms 10_000
   @url_poll_ms 150
 
   @type session :: %{
@@ -101,16 +105,26 @@ defmodule Aiur.Claude.ReplAgent do
 
     Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?)
 
+    ctx = %{
+      tmux: tmux,
+      workspace: expanded,
+      model: model,
+      rc?: rc?,
+      rc_name: rc_name,
+      started_at: started_at,
+      opts: opts
+    }
+
     case Tmux.new_hidden_window(tmux, window_name, command) do
       {:ok, pane_id} ->
-        finish_start(tmux, pane_id, expanded, model, rc?, rc_name, started_at, opts)
+        finish_start(ctx, pane_id)
 
       {:error, _reason} = err ->
         err
     end
   end
 
-  defp finish_start(tmux, pane_id, expanded, model, rc?, rc_name, started_at, opts) do
+  defp finish_start(%{tmux: tmux, opts: opts} = ctx, pane_id) do
     timeout = Keyword.get(opts, :ready_timeout_ms, @ready_timeout_ms)
 
     case await_ready(tmux, pane_id, timeout) do
@@ -122,29 +136,13 @@ defmodule Aiur.Claude.ReplAgent do
           end
 
         Aiur.Perf.event(:repl_agent_ready,
-          workspace: expanded,
+          workspace: ctx.workspace,
           pane_id: pane_id,
           os_pid: os_pid,
-          remote_control: rc?
+          remote_control: ctx.rc?
         )
 
-        session_url = if rc?, do: capture_session_url(tmux, pane_id), else: nil
-
-        {:ok,
-         %{
-           backend: "claude-repl",
-           pane_id: pane_id,
-           os_pid: os_pid,
-           workspace: expanded,
-           transcript_path: nil,
-           started_at: started_at,
-           projects_dir: Keyword.get(opts, :projects_dir),
-           model: model,
-           remote_control: rc?,
-           rc_name: rc_name,
-           session_url: session_url,
-           tmux: tmux
-         }}
+        build_ready_session(ctx, pane_id, os_pid)
 
       {:error, :repl_not_ready} = err ->
         # Readiness failed but the pane exists — kill it so nothing leaks.
@@ -153,11 +151,58 @@ defmodule Aiur.Claude.ReplAgent do
     end
   end
 
-  # Best-effort scan of the just-ready pane for the Remote Control session
-  # URL. Polls briefly because the banner can land a beat after the prompt;
-  # returns nil if it never appears so URL capture never blocks the session.
-  defp capture_session_url(tmux, pane_id) do
-    deadline = System.monotonic_time(:millisecond) + @url_capture_timeout_ms
+  # A `--remote-control` REPL only earns RC mode if it actually attaches: the
+  # REPL prints a `https://claude.ai/code/session_…` banner once the cloud
+  # session goes live. On an account without RC entitlement the banner never
+  # appears (and every later `send-keys` would time out as
+  # `:prompt_not_delivered`), so a missing banner means RC-unavailable. Tear
+  # the pane down and return `:remote_control_unavailable` so the runner
+  # degrades to the non-RC headless backend rather than stranding the issue.
+  # A non-RC REPL skips this gate entirely.
+  defp build_ready_session(%{rc?: true} = ctx, pane_id, os_pid) do
+    case capture_session_url(ctx.tmux, pane_id, ctx.opts) do
+      url when is_binary(url) ->
+        {:ok, repl_session(ctx, pane_id, os_pid, url)}
+
+      nil ->
+        Tmux.kill_pane(ctx.tmux, pane_id)
+        RemoteControl.graceful_kill(os_pid)
+
+        Aiur.Perf.event(:repl_agent_rc_unavailable, workspace: ctx.workspace, pane_id: pane_id)
+        Logger.warning("claude-repl remote-control did not attach; degrading to non-RC backend")
+
+        {:error, :remote_control_unavailable}
+    end
+  end
+
+  defp build_ready_session(%{rc?: false} = ctx, pane_id, os_pid) do
+    {:ok, repl_session(ctx, pane_id, os_pid, nil)}
+  end
+
+  defp repl_session(ctx, pane_id, os_pid, session_url) do
+    %{
+      backend: "claude-repl",
+      pane_id: pane_id,
+      os_pid: os_pid,
+      workspace: ctx.workspace,
+      transcript_path: nil,
+      started_at: ctx.started_at,
+      projects_dir: Keyword.get(ctx.opts, :projects_dir),
+      model: ctx.model,
+      remote_control: ctx.rc?,
+      rc_name: ctx.rc_name,
+      session_url: session_url,
+      tmux: ctx.tmux
+    }
+  end
+
+  # Scan the just-ready pane for the Remote Control session URL. Polls until
+  # the banner lands or the budget elapses — it can appear a beat after the
+  # prompt. Returns nil when it never appears; for an RC session that nil is
+  # the RC-unavailable signal (see `build_ready_session/3`).
+  defp capture_session_url(tmux, pane_id, opts) do
+    timeout = Keyword.get(opts, :url_capture_timeout_ms, @url_capture_timeout_ms)
+    deadline = System.monotonic_time(:millisecond) + timeout
     do_capture_session_url(tmux, pane_id, deadline)
   end
 

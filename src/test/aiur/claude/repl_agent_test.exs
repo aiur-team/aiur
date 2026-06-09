@@ -102,6 +102,45 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert session.session_url == "https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG"
   end
 
+  test "start_session degrades to :remote_control_unavailable when the RC banner never appears", %{tmux: tmux} do
+    ws = System.tmp_dir!()
+
+    task =
+      Task.async(fn ->
+        ReplAgent.start_session(ws,
+          tmux: tmux,
+          remote_control: true,
+          rc_name: "aiur-rc-test",
+          window_name: "aiur-rc-test",
+          # 0ms budget: the first banner-less capture exhausts it, so RC is
+          # judged unavailable and the session degrades.
+          url_capture_timeout_ms: 0,
+          projects_dir: "/nonexistent-projects-dir"
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
+    respond(tmux, "%8\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
+    respond(tmux, "❯\n")
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+    # A safe, certainly-dead pid so the degradation's graceful_kill is a no-op.
+    respond(tmux, "2147480000\n")
+
+    # RC banner scan finds no `claude.ai/code/session_…` URL.
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
+    respond(tmux, "❯\n")
+
+    # An unattached RC pane must be torn down, not left leaking.
+    assert_receive {:tmux_mock_out, "kill-pane -t %8"}, 1_000
+    respond(tmux, "")
+
+    assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
+  end
+
   test "start_session kills the pane and errors when the REPL never becomes ready", %{tmux: tmux} do
     ws = System.tmp_dir!()
 
