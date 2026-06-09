@@ -354,7 +354,30 @@ defmodule Aiur.AgentRunner do
     :ok
   end
 
+  # The headless `claude` backend runs under a `bash -lc` wrapper that does
+  # not exec; its claude/node grandchildren reparent to init when the bash
+  # pid dies, so report the bash os_pid for the orchestrator to tree-reap on
+  # brutal-kill teardown (the runner task's `after stop_session` is skipped).
+  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude"} = session)
+       when is_binary(issue_id) and is_pid(recipient) do
+    case headless_os_pid(session) do
+      nil -> :ok
+      pid -> send(recipient, {:repl_session_runtime, issue_id, %{headless_os_pid: pid}})
+    end
+
+    :ok
+  end
+
   defp report_repl_session(_recipient, _issue, _session), do: :ok
+
+  defp headless_os_pid(%{metadata: %{claude_app_server_pid: pid}}) when is_binary(pid) do
+    case Integer.parse(pid) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  defp headless_os_pid(_session), do: nil
 
   defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)

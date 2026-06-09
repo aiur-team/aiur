@@ -228,6 +228,67 @@ defmodule Aiur.Claude.RemoteControlTest do
     end
   end
 
+  describe "graceful_kill_tree/1" do
+    test "reaps the bash wrapper AND its surviving child (the headless orphan)" do
+      # Mirror the headless backend: a `bash -lc` wrapper that forks a child
+      # it does NOT exec into. Killing only the bash pid leaves that child
+      # reparented to init — the exact orphan U7/#109 must prevent. The job
+      # is backgrounded so the shell's SIGTERM does not propagate to it.
+      command = "sleep 600 & printf 'up\\n'; wait"
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+          [:binary, :exit_status, :stderr_to_stdout, args: [~c"-lc", String.to_charlist(command)], line: 64_000]
+        )
+
+      {:os_pid, bash_pid} = :erlang.port_info(port, :os_pid)
+      assert_receive {^port, {:data, {:eol, "up"}}}, 2_000
+
+      child_pid = wait_for_child(bash_pid, 2_000)
+
+      on_exit(fn ->
+        for p <- [bash_pid, child_pid], is_integer(p) do
+          System.cmd("kill", ["-KILL", Integer.to_string(p)], stderr_to_stdout: true)
+        end
+      end)
+
+      # The child is a real, distinct descendant that single-pid graceful_kill
+      # would strand — that is the whole point of the tree variant.
+      assert is_integer(child_pid)
+      assert child_pid != bash_pid
+      assert os_alive?(child_pid)
+
+      assert :ok = RemoteControl.graceful_kill_tree(bash_pid)
+
+      refute os_alive?(bash_pid)
+      refute os_alive?(child_pid)
+    end
+
+    defp wait_for_child(parent, budget_ms) do
+      deadline = System.monotonic_time(:millisecond) + budget_ms
+      do_wait_for_child(parent, deadline)
+    end
+
+    defp do_wait_for_child(parent, deadline) do
+      first_child =
+        case System.cmd("pgrep", ["-P", Integer.to_string(parent)], stderr_to_stdout: true) do
+          {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1) |> List.first()
+          _ -> nil
+        end
+
+      cond do
+        is_integer(first_child) -> first_child
+        System.monotonic_time(:millisecond) >= deadline -> nil
+        true ->
+          Process.sleep(25)
+          do_wait_for_child(parent, deadline)
+      end
+    end
+
+    defp os_alive?(pid), do: match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
+  end
+
   describe "delete_debug_files/1" do
     test "removes the --debug-file and the per-session siblings claude derives from it" do
       dir = Path.join(System.tmp_dir!(), "aiur-rc")

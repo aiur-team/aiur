@@ -326,6 +326,7 @@ defmodule Aiur.Orchestrator do
           running_entry
           |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
           |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
+          |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
 
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
@@ -1913,6 +1914,7 @@ defmodule Aiur.Orchestrator do
             codex_app_server_pid: nil,
             repl_pane_id: nil,
             repl_os_pid: nil,
+            headless_os_pid: nil,
             agent_input_tokens: 0,
             agent_output_tokens: 0,
             agent_total_tokens: 0,
@@ -3879,6 +3881,10 @@ defmodule Aiur.Orchestrator do
 
     if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
     RemoteControl.graceful_kill(os_pid)
+
+    # The headless fallback has no pane; its `bash -lc` wrapper leaves
+    # claude/node grandchildren that reparent to init, so reap the subtree.
+    RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
 
     :ok
   end

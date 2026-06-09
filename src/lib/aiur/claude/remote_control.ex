@@ -516,6 +516,39 @@ defmodule Aiur.Claude.RemoteControl do
     _ -> :ok
   end
 
+  @doc false
+  # Like graceful_kill/1 but also reaps the process subtree. The headless
+  # `claude` backend runs under a `bash -lc` wrapper that does NOT exec, so
+  # its `claude`/node grandchildren reparent to init when the bash pid dies
+  # and would survive teardown. Descendants are snapshotted while the root is
+  # still alive (once it dies the parent link is lost), then each is
+  # graceful-killed alongside the root.
+  @spec graceful_kill_tree(nil | integer()) :: :ok
+  def graceful_kill_tree(nil), do: :ok
+
+  def graceful_kill_tree(os_pid) when is_integer(os_pid) do
+    descendants = collect_descendants(os_pid)
+    graceful_kill(os_pid)
+    Enum.each(descendants, &graceful_kill/1)
+    :ok
+  end
+
+  defp collect_descendants(pid) when is_integer(pid) do
+    children =
+      case System.find_executable("pgrep") do
+        nil ->
+          []
+
+        pgrep ->
+          case System.cmd(pgrep, ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
+            {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1)
+            _ -> []
+          end
+      end
+
+    children ++ Enum.flat_map(children, &collect_descendants/1)
+  end
+
   defp await_exit(pid, budget_ms) do
     deadline = System.monotonic_time(:millisecond) + budget_ms
     do_await_exit(pid, deadline)
