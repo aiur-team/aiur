@@ -185,6 +185,31 @@ defmodule Aiur.TmuxTest do
     assert {:ok, ["line one", "❯"]} = Task.await(task, 1_000)
   end
 
+  test "paste_text/3 loads a buffer then pastes it into the pane", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.paste_text(name, "%42", "multi\nline\nprompt")
+      end)
+
+    assert_receive :ready
+
+    assert_receive {:tmux_mock_out, "load-buffer -b " <> rest1}, 1_000
+    [buffer, tmp] = String.split(rest1, " ", parts: 2)
+    assert String.starts_with?(buffer, "aiur-paste-")
+    assert File.read!(tmp) == "multi\nline\nprompt"
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "paste-buffer -d -b #{buffer} -t %42"
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert :ok = Task.await(task, 1_000)
+    refute File.exists?(tmp)
+  end
+
   test "kill_pane/2 issues kill-pane and returns :ok", %{name: name} do
     parent = self()
 

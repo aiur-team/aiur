@@ -48,16 +48,22 @@ defmodule Aiur.Claude.ReplAgent do
   @transcript_poll_ms 100
 
   # The REPL renders its prompt glyph (`@ready_prompt`) before it actually
-  # accepts keystrokes — and a `--remote-control` session lags further while
-  # it connects — so the first send is routinely dropped. Delivery is only
-  # safe once the typed text echoes into the input buffer, so we keep
-  # re-typing (clearing the line first) on `@echo_retype_ms` until the echo
-  # confirms or `@echo_confirm_ms` elapses; only then does Enter submit.
-  # Without this, Enter submits a blank line and the turn silently does
-  # nothing, the transcript never appears, and the run fails `:no_transcript`.
+  # accepts input — and a `--remote-control` session lags further while it
+  # connects — so the first paste is routinely dropped. Delivery is only safe
+  # once the prompt lands in the input buffer, so we keep re-pasting (clearing
+  # the line first) on `@echo_retype_ms` until the buffer confirms it or
+  # `@echo_confirm_ms` elapses; only then does Enter submit. Without this,
+  # Enter submits a blank line and the turn silently does nothing, the
+  # transcript never appears, and the run fails `:no_transcript`.
   @echo_confirm_ms 20_000
   @echo_retype_ms 1_500
   @echo_poll_ms 100
+
+  # A multi-line prompt is delivered as a bracketed paste, which the REPL
+  # renders as a collapsed `[Pasted text +N lines]` chip rather than echoing
+  # the literal text — so the buffer-landed check matches this chip as well as
+  # a verbatim prefix (short single-line prompts still echo literally).
+  @paste_indicator "[Pasted text"
 
   # When launched with `--remote-control`, the REPL prints a
   # `… https://claude.ai/code/session_… ` banner to the pane as it attaches,
@@ -346,7 +352,7 @@ defmodule Aiur.Claude.ReplAgent do
   @doc """
   Drive one turn over the persistent REPL.
 
-  Sends `prompt` to the live pane (`send_keys_literal` + `Enter`), tails the
+  Sends `prompt` to the live pane (`paste_text` + `Enter`), tails the
   shared transcript for this turn's output (forwarding each extracted
   `transcript_event` to `on_message`), and blocks until the agent's terminal
   `stop_reason` lands or a backstop fires:
@@ -474,17 +480,18 @@ defmodule Aiur.Claude.ReplAgent do
     end
   end
 
-  # Type the prompt, then poll the input buffer until our text echoes. The
-  # REPL renders its glyph before it accepts keystrokes (and an RC session
-  # lags further), so the first send is routinely dropped — keep clearing the
-  # line and re-typing on `retype_ms` until the echo lands. Fail loudly with
-  # `:prompt_not_delivered` if the budget elapses with no echo, rather than
-  # submitting a blank line. Reads the pane only to confirm input (not output).
+  # Paste the prompt, then poll the input buffer until it lands. The REPL
+  # renders its glyph before it accepts input (and an RC session lags
+  # further), so the first paste is routinely dropped — keep clearing the line
+  # and re-pasting on `retype_ms` until the buffer reflects it. Fail loudly
+  # with `:prompt_not_delivered` if the budget elapses with nothing landed,
+  # rather than submitting a blank line. Reads the pane only to confirm input
+  # (not output).
   defp confirm_typed(session, prompt, opts) do
     confirm_ms = Keyword.get(opts, :prompt_confirm_ms, @echo_confirm_ms)
     retype_ms = Keyword.get(opts, :prompt_retype_ms, @echo_retype_ms)
     prefix = echo_prefix(prompt)
-    Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
+    Tmux.paste_text(session.tmux, session.pane_id, prompt)
     now = System.monotonic_time(:millisecond)
     poll_echo(session, prompt, prefix, confirm_ms, retype_ms, now, now)
   end
@@ -500,10 +507,10 @@ defmodule Aiur.Claude.ReplAgent do
         {:error, :prompt_not_delivered}
 
       System.monotonic_time(:millisecond) - last_retype >= retype_ms ->
-        # The keystrokes were dropped (glyph showed before the REPL was live);
-        # clear any partial buffer and re-type now that it may be ready.
+        # The paste was dropped (glyph showed before the REPL was live);
+        # clear any partial buffer and re-paste now that it may be ready.
         Tmux.clear_input(session.tmux, session.pane_id)
-        Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
+        Tmux.paste_text(session.tmux, session.pane_id, prompt)
         Process.sleep(@echo_poll_ms)
         now = System.monotonic_time(:millisecond)
         poll_echo(session, prompt, prefix, confirm_ms, retype_ms, start, now)
@@ -516,8 +523,12 @@ defmodule Aiur.Claude.ReplAgent do
 
   defp input_echoes?(session, prefix) do
     case Tmux.capture_pane(session.tmux, session.pane_id) do
-      {:ok, lines} -> lines |> Enum.join("\n") |> String.contains?(prefix)
-      _ -> false
+      {:ok, lines} ->
+        joined = Enum.join(lines, "\n")
+        String.contains?(joined, prefix) or String.contains?(joined, @paste_indicator)
+
+      _ ->
+        false
     end
   end
 

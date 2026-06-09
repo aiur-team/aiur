@@ -174,6 +174,24 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Inject `text` into `pane_id` as a single paste via a tmux paste buffer
+  (`load-buffer` from a temp file, then `paste-buffer`). Unlike
+  `send_keys_literal/3`, this is not bounded by tmux's ~16KB command-length
+  limit, so it can deliver large multi-line prompts in one shot. An
+  application with bracketed-paste enabled (the interactive `claude` REPL
+  does) receives it as a single paste rather than a keystroke-by-keystroke
+  burst.
+  """
+  @spec paste_text(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def paste_text(server \\ __MODULE__, pane_id, text)
+      when is_binary(pane_id) and is_binary(text) do
+    GenServer.call(server, {:paste_text, pane_id, text})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Send a single `Enter` keypress to `pane_id` (tmux's `send-keys Enter`,
   the named key — not literal text). Submits a line previously staged
   with `send_keys_literal/3`.
@@ -498,6 +516,10 @@ defmodule Aiur.Tmux do
     end
   end
 
+  def handle_call({:paste_text, pane_id, text}, _from, state) do
+    {:reply, paste_via_buffer(state, pane_id, text), state}
+  end
+
   def handle_call({:send_enter, pane_id}, _from, state) do
     case run_args(state, ["send-keys", "-t", pane_id, "Enter"]) do
       {:ok, _} -> {:reply, :ok, state}
@@ -689,6 +711,28 @@ defmodule Aiur.Tmux do
           {output, status} ->
             handle_tmux_exit(String.trim(output), status, full_args)
         end
+    end
+  end
+
+  # Inject text via a tmux paste buffer so delivery isn't capped by tmux's
+  # ~16KB `send-keys` command-length limit. `load-buffer` reads the text from
+  # a temp file (keeping it off the command line entirely); `paste-buffer -d`
+  # pastes it into the pane and drops the buffer. The buffer name is unique so
+  # concurrent panes never clobber each other's pending paste.
+  defp paste_via_buffer(state, pane_id, text) do
+    buffer = "aiur-paste-#{System.unique_integer([:positive])}"
+    tmp = Path.join(System.tmp_dir!(), buffer)
+
+    try do
+      with :ok <- File.write(tmp, text),
+           {:ok, _} <- run_args(state, ["load-buffer", "-b", buffer, tmp]),
+           {:ok, _} <- run_args(state, ["paste-buffer", "-d", "-b", buffer, "-t", pane_id]) do
+        :ok
+      else
+        {:error, _} = err -> err
+      end
+    after
+      File.rm(tmp)
     end
   end
 

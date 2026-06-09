@@ -323,22 +323,22 @@ defmodule Aiur.Claude.ReplAgentTest do
     }) <> "\n"
   end
 
-  # Consume one prompt submission: literal type, echo-confirm capture-pane
-  # (answered with the prompt echoed back so the buffer check passes), then
-  # Enter. Returns the typed prompt.
+  # Consume one prompt submission: paste (load-buffer + paste-buffer),
+  # buffer-landed capture-pane (answered with a `[Pasted text]` chip so the
+  # check passes), then Enter.
   defp expect_prompt_submit(tmux) do
-    assert_receive {:tmux_mock_out, "send-keys -t " <> rest1}, 1_000
-    assert rest1 =~ "-l "
+    assert_receive {:tmux_mock_out, "load-buffer " <> _}, 1_000
     respond(tmux, "")
-    prompt = rest1 |> String.split(" -l ", parts: 2) |> List.last()
+    assert_receive {:tmux_mock_out, "paste-buffer " <> _}, 1_000
+    respond(tmux, "")
 
     assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
-    respond(tmux, "❯ #{prompt}\n")
+    respond(tmux, "[Pasted text +5 lines]\n")
 
     assert_receive {:tmux_mock_out, "send-keys -t " <> rest2}, 1_000
     assert String.ends_with?(rest2, "Enter")
     respond(tmux, "")
-    prompt
+    :ok
   end
 
   # Answer the send-keys + Enter + pane-liveness dance for one turn, appending
@@ -441,11 +441,13 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    # Prompt is sent first (before the await loop), deterministically.
-    assert_receive {:tmux_mock_out, "send-keys -t %50 -l start work"}, 1_000
+    # Prompt is pasted first (before the await loop), deterministically.
+    assert_receive {:tmux_mock_out, "load-buffer " <> _}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "paste-buffer " <> _}, 1_000
     respond(tmux, "")
     assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
-    respond(tmux, "❯ start work\n")
+    respond(tmux, "[Pasted text +1 lines]\n")
     assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
     respond(tmux, "")
 
@@ -478,10 +480,12 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, "send-keys -t %50 -l work"}, 1_000
+    assert_receive {:tmux_mock_out, "load-buffer " <> _}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "paste-buffer " <> _}, 1_000
     respond(tmux, "")
     assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
-    respond(tmux, "❯ work\n")
+    respond(tmux, "[Pasted text +1 lines]\n")
     assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
     respond(tmux, "")
 
@@ -554,6 +558,14 @@ defmodule Aiur.Claude.ReplAgentTest do
   # and the turn completes.
   defp drive_retype_turn(tmux, path, task, retyped? \\ false) do
     receive do
+      {:tmux_mock_out, "load-buffer " <> _} ->
+        respond(tmux, "")
+        drive_retype_turn(tmux, path, task, retyped?)
+
+      {:tmux_mock_out, "paste-buffer " <> _} ->
+        respond(tmux, "")
+        drive_retype_turn(tmux, path, task, retyped?)
+
       {:tmux_mock_out, "send-keys -t " <> rest} ->
         respond(tmux, "")
         drive_retype_turn(tmux, path, task, retyped? or String.contains?(rest, " C-u"))
@@ -597,6 +609,14 @@ defmodule Aiur.Claude.ReplAgentTest do
   # exhausts its budget.
   defp drain_no_echo(tmux, task) do
     receive do
+      {:tmux_mock_out, "load-buffer " <> _} ->
+        respond(tmux, "")
+        drain_no_echo(tmux, task)
+
+      {:tmux_mock_out, "paste-buffer " <> _} ->
+        respond(tmux, "")
+        drain_no_echo(tmux, task)
+
       {:tmux_mock_out, "send-keys -t " <> _} ->
         respond(tmux, "")
         drain_no_echo(tmux, task)
