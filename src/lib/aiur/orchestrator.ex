@@ -270,32 +270,8 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
-  def handle_info({:remote_control_url, server_pid, url}, state)
-      when is_pid(server_pid) and is_binary(url) do
-    {:noreply, update_remote_control_url(state, server_pid, url)}
-  end
-
-  def handle_info({:remote_control_ready, server_pid}, state) when is_pid(server_pid) do
-    {:noreply, mark_remote_control_ready(state, server_pid)}
-  end
-
-  def handle_info({:remote_control_exit, server_pid, status}, state) when is_pid(server_pid) do
-    Logger.info("Remote Control session exited: status=#{inspect(status)}")
-    {:noreply, clear_remote_control_for_server(state, server_pid)}
-  end
-
-  def handle_info(
-        {:DOWN, ref, :process, _pid, reason},
-        %{running: running} = state
-      ) do
-    case find_rc_entry(running, fn rc -> Map.get(rc, :ref) == ref end) do
-      {issue_id, entry} ->
-        Logger.info("Remote Control server down: issue_id=#{issue_id} reason=#{inspect(reason)}")
-        {:noreply, drop_remote_control(state, issue_id, entry)}
-
-      nil ->
-        handle_agent_down(state, ref, reason)
-    end
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    handle_agent_down(state, ref, reason)
   end
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, %{running: running} = state)
@@ -959,32 +935,8 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
-  @spec remote_control_active_entry_for_test?(map()) :: boolean()
-  def remote_control_active_entry_for_test?(entry), do: remote_control_active_entry?(entry)
-
-  @doc false
   @spec remote_control_summary_for_test(map()) :: map() | nil
   def remote_control_summary_for_test(entry), do: remote_control_summary(entry)
-
-  @doc false
-  @spec drop_remote_control_for_server_for_test(State.t(), pid()) :: State.t()
-  def drop_remote_control_for_server_for_test(%State{} = state, server_pid) when is_pid(server_pid) do
-    clear_remote_control_for_server(state, server_pid)
-  end
-
-  @doc false
-  @spec update_remote_control_url_for_test(State.t(), pid(), String.t()) :: State.t()
-  def update_remote_control_url_for_test(%State{} = state, server_pid, url)
-      when is_pid(server_pid) and is_binary(url) do
-    update_remote_control_url(state, server_pid, url)
-  end
-
-  @doc false
-  @spec mark_remote_control_ready_for_test(State.t(), pid()) :: State.t()
-  def mark_remote_control_ready_for_test(%State{} = state, server_pid)
-      when is_pid(server_pid) do
-    mark_remote_control_ready(state, server_pid)
-  end
 
   @doc false
   @spec terminate_running_issue_for_test(State.t(), String.t(), boolean()) :: State.t()
@@ -1137,12 +1089,6 @@ defmodule Aiur.Orchestrator do
       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
         state = record_session_completion_totals(state, running_entry)
         worker_host = Map.get(running_entry, :worker_host)
-
-        # If RC was active for this entry, stop the server and detach its
-        # monitor — otherwise the terminal-state teardown orphans the
-        # `claude remote-control` process and leaks the monitor ref.
-        stop_running_remote_control(running_entry)
-        delete_remote_control_handoff(Map.get(running_entry, :workspace_path))
 
         # `terminate_task/1` brutally kills the runner task, skipping the
         # `after stop_session` cleanup — kill the tracked REPL pane + pid
@@ -3436,19 +3382,10 @@ defmodule Aiur.Orchestrator do
   # or merges its PR). No `pending_reactivation` flag — the existing
   # `max_concurrent_agents` gate is the natural backpressure.
   defp reactivate_issue(%State{} = state, running_entry) do
-    cond do
-      # An agent handed off to Remote Control is operator-driven; an
-      # autonomous reactivation (PR comment, space-key, label flip) would
-      # restart the headless driver underneath the live RC session — the
-      # dual-driver collision this feature forbids. Press `r` to return.
-      remote_control_active_entry?(running_entry) ->
-        {{:error, :remote_control_active}, state}
-
-      active_running_count(state.running) >= max_concurrent_agent_limit(state) ->
-        {{:error, :max_concurrent_agents_reached}, state}
-
-      true ->
-        do_reactivate(state, running_entry)
+    if active_running_count(state.running) >= max_concurrent_agent_limit(state) do
+      {{:error, :max_concurrent_agents_reached}, state}
+    else
+      do_reactivate(state, running_entry)
     end
   end
 
@@ -3816,7 +3753,6 @@ defmodule Aiur.Orchestrator do
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
-    stop_running_remote_control(running_entry)
     kill_repl_session(running_entry)
     close_active_chat_streams(identifier, :remote_control)
     if is_reference(ref), do: Process.demonitor(ref, [:flush])
@@ -3824,7 +3760,6 @@ defmodule Aiur.Orchestrator do
 
     cleared =
       running_entry
-      |> Map.delete(:remote_control)
       |> Map.put(:pid, nil)
       |> Map.put(:ref, nil)
 
@@ -3858,20 +3793,6 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp stop_remote_control_server(server_pid) when is_pid(server_pid), do: RemoteControl.stop(server_pid)
-  defp stop_remote_control_server(_server_pid), do: :ok
-
-  defp stop_running_remote_control(running_entry) do
-    case Map.get(running_entry, :remote_control) do
-      %{server_pid: server_pid, ref: ref} ->
-        if is_reference(ref), do: Process.demonitor(ref, [:flush])
-        stop_remote_control_server(server_pid)
-
-      _ ->
-        :ok
-    end
-  end
-
   # Kill the persistent-REPL pane + claude OS pid tracked on the running
   # entry. Idempotent and tolerant of a half-dead session (pane gone but
   # pid alive, or vice versa) — each kill is independent and a missing
@@ -3890,25 +3811,6 @@ defmodule Aiur.Orchestrator do
     :ok
   end
 
-  defp delete_remote_control_handoff(workspace) when is_binary(workspace) do
-    case File.rm(Path.join(workspace, "CLAUDE.local.md")) do
-      :ok -> :ok
-      {:error, :enoent} -> :ok
-      {:error, reason} -> Logger.warning("Remote Control handoff delete failed: workspace=#{workspace} reason=#{inspect(reason)}")
-    end
-  end
-
-  defp delete_remote_control_handoff(_workspace), do: :ok
-
-  defp remote_control_active_entry?(entry) when is_map(entry) do
-    case Map.get(entry, :remote_control) do
-      %{status: status} -> status in [:launching, :on]
-      _ -> false
-    end
-  end
-
-  defp remote_control_active_entry?(_entry), do: false
-
   # The `model:claude-remote` label is the durable source of truth for
   # remote-ness, so the AgentList indicator (and the `r`-key toggle direction)
   # derives from it: a labeled issue is `:on`. The REPL prints its RC session
@@ -3919,84 +3821,7 @@ defmodule Aiur.Orchestrator do
 
     if is_map(issue) and match?(%Issue{}, issue) and CodingAgent.remote_control_forced?(issue) do
       %{status: :on, session_url: Map.get(entry, :repl_rc_session_url)}
-    else
-      case Map.get(entry, :remote_control) do
-        %{status: status} = rc -> %{status: status, session_url: Map.get(rc, :session_url)}
-        _ -> nil
-      end
     end
-  end
-
-  defp find_rc_entry(running, match_fun) do
-    Enum.find_value(running, fn {issue_id, entry} ->
-      case Map.get(entry, :remote_control) do
-        rc when is_map(rc) -> if match_fun.(rc), do: {issue_id, entry}, else: nil
-        _ -> nil
-      end
-    end)
-  end
-
-  defp update_remote_control_url(state, server_pid, url) do
-    case find_rc_entry(state.running, fn rc -> Map.get(rc, :server_pid) == server_pid end) do
-      {issue_id, entry} ->
-        rc = Map.get(entry, :remote_control)
-        was_launching = Map.get(rc, :status) == :launching
-        rc = Map.merge(rc, %{status: :on, session_url: url})
-        entry = Map.put(entry, :remote_control, rc)
-        state = %{state | running: Map.put(state.running, issue_id, entry)}
-        if was_launching, do: Logger.info("Remote Control ready: #{rc_log_context(entry)}")
-        notify_dashboard(state)
-        state
-
-      _ ->
-        state
-    end
-  end
-
-  # The URL line is TTY-gated, so over a non-pty pipe the server signals
-  # readiness on a grace timer instead. Flip a still-`:launching` entry to
-  # `:on` without a URL; leave entries the URL parser already promoted.
-  defp mark_remote_control_ready(state, server_pid) do
-    case find_rc_entry(state.running, fn rc -> Map.get(rc, :server_pid) == server_pid end) do
-      {issue_id, entry} ->
-        case Map.get(entry, :remote_control) do
-          %{status: :launching} = rc ->
-            rc = Map.put(rc, :status, :on)
-            entry = Map.put(entry, :remote_control, rc)
-            state = %{state | running: Map.put(state.running, issue_id, entry)}
-            Logger.info("Remote Control ready: #{rc_log_context(entry)}")
-            notify_dashboard(state)
-            state
-
-          _ ->
-            state
-        end
-
-      _ ->
-        state
-    end
-  end
-
-  defp clear_remote_control_for_server(state, server_pid) do
-    case find_rc_entry(state.running, fn rc -> Map.get(rc, :server_pid) == server_pid end) do
-      {issue_id, entry} -> drop_remote_control(state, issue_id, entry)
-      _ -> state
-    end
-  end
-
-  # RC server is gone (self-exit, crash, or operator-stop). Detach its
-  # monitor and clear the RC state; the entry stays `:deactivated` (stopped,
-  # no driver) so the operator can press `r` to re-dispatch or space to wake.
-  defp drop_remote_control(state, issue_id, entry) do
-    case Map.get(entry, :remote_control) do
-      %{ref: ref} when is_reference(ref) -> Process.demonitor(ref, [:flush])
-      _ -> :ok
-    end
-
-    entry = Map.delete(entry, :remote_control)
-    state = %{state | running: Map.put(state.running, issue_id, entry)}
-    notify_dashboard(state)
-    state
   end
 
   defp cleanup_stray_remote_control_servers do
