@@ -104,6 +104,49 @@ defmodule Aiur.TmuxTest do
     assert {:ok, ["%10", "%11"]} = Task.await(task, 1_000)
   end
 
+  test "new_hidden_window/3 creates a background window and returns its pane id", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.new_hidden_window(name, "aiur-repl-1", "exec claude")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "new-window -d -n aiur-repl-1 -P -F \#{pane_id} exec claude"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%5\n%end 1 1 0\n"})
+    assert {:ok, "%5"} = Task.await(task, 1_000)
+  end
+
+  test "new_hidden_window/3 bootstraps the session when no server is running", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.new_hidden_window(name, "aiur-repl-1", "exec claude")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, "new-window" <> _}, 1_000
+
+    # No tmux server on the socket yet — `new-window` fails.
+    send(
+      GenServer.whereis(name),
+      {:tmux_mock_data, "%begin 1 1 0\nno server running on /tmp/tmux-1001/test\n%error 1 1 0\n"}
+    )
+
+    # Falls back to `new-session`, which starts the server and the window.
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "new-session -d -s test -n aiur-repl-1 -P -F \#{pane_id} exec claude"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%7\n%end 1 1 0\n"})
+    assert {:ok, "%7"} = Task.await(task, 1_000)
+  end
+
   test "move_pane_hidden/3 surfaces tmux errors as {:error, _}", %{name: name} do
     parent = self()
 

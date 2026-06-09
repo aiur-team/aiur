@@ -557,9 +557,23 @@ defmodule Aiur.Tmux do
     args = ["new-window", "-d", "-n", window_name, "-P", "-F", "\#{pane_id}", command_to_run]
 
     case run_args(state, args) do
-      {:ok, [pane_id | _]} -> {:reply, {:ok, String.trim(pane_id)}, state}
-      {:ok, []} -> {:reply, {:error, :no_pane_id}, state}
-      {:error, _} = err -> {:reply, err, state}
+      {:ok, [pane_id | _]} ->
+        {:reply, {:ok, String.trim(pane_id)}, state}
+
+      {:ok, []} ->
+        {:reply, {:error, :no_pane_id}, state}
+
+      # `new-window` needs a running server. When aiur runs standalone (TUI
+      # in the terminal or a `--bg` nohup BEAM, not inside an aiurdev tmux
+      # session), the socket has no server yet — so the first REPL spawn must
+      # create the session, which starts the server, rather than failing into
+      # the headless fallback. Later spawns reuse the server via `new-window`.
+      {:error, reason} = err ->
+        if no_server?(reason) do
+          {:reply, bootstrap_window(state, window_name, command_to_run), state}
+        else
+          {:reply, err, state}
+        end
     end
   end
 
@@ -604,6 +618,36 @@ defmodule Aiur.Tmux do
   def handle_info(_other, state), do: {:noreply, state}
 
   # Internals -----------------------------------------------------------------
+
+  defp no_server?(reason) do
+    reason
+    |> List.wrap()
+    |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "no server running")))
+  end
+
+  # Create the holder session detached, running the REPL command as its first
+  # window — `new-session` starts the server when none exists, so the pane is
+  # spawned in one shot and `-P -F #{pane_id}` prints its id.
+  defp bootstrap_window(state, window_name, command_to_run) do
+    args = [
+      "new-session",
+      "-d",
+      "-s",
+      state.session,
+      "-n",
+      window_name,
+      "-P",
+      "-F",
+      "\#{pane_id}",
+      command_to_run
+    ]
+
+    case run_args(state, args) do
+      {:ok, [pane_id | _]} -> {:ok, String.trim(pane_id)}
+      {:ok, []} -> {:error, :no_pane_id}
+      {:error, _} = err -> err
+    end
+  end
 
   defp parse_window_line(line) do
     case String.split(line, "\t", parts: 2) do
