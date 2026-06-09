@@ -398,6 +398,10 @@ defmodule Aiur.AgentRunner do
 
     Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}")
 
+    maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
+      Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
+    end)
+
     session_opts =
       [backend: backend, model: model, worker_host: worker_host, remote_control: rc?]
       |> maybe_put_rc_name(rc?, issue)
@@ -431,6 +435,30 @@ defmodule Aiur.AgentRunner do
   # the default name.
   defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
   defp maybe_put_rc_name(opts, false, _issue), do: opts
+
+  # Seed the workspace trust flag before an RC REPL spawns. RC refuses to
+  # start in an untrusted directory; without this the REPL sticks on the
+  # trust dialog and silently degrades to the headless backend. Only the
+  # local path is trusted — RC is local-only (a remote worker_host's
+  # workspace lives on another machine), matching `promote_to_remote`'s
+  # guard. A trust failure is logged but not fatal: the degrade path still
+  # lands a working headless agent rather than stranding the issue.
+  @doc false
+  def maybe_trust_remote_control_workspace(workspace, rc?, worker_host, trust_fun)
+
+  def maybe_trust_remote_control_workspace(workspace, true, nil, trust_fun)
+      when is_binary(workspace) and is_function(trust_fun, 1) do
+    case trust_fun.(workspace) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("remote-control workspace trust failed; RC may degrade to headless: workspace=#{workspace} reason=#{inspect(reason)}")
+        :ok
+    end
+  end
+
+  def maybe_trust_remote_control_workspace(_workspace, _rc?, _worker_host, _trust_fun), do: :ok
 
   @doc false
   def rc_session_name(issue) do

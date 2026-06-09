@@ -139,6 +139,34 @@ defmodule Aiur.AgentRunnerTest do
     end
   end
 
+  describe "maybe_trust_remote_control_workspace/4" do
+    test "trusts the workspace for a local RC dispatch" do
+      parent = self()
+      trust_fun = fn ws -> send(parent, {:trusted, ws}) && :ok end
+
+      assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
+      assert_received {:trusted, "/ws/9"}
+    end
+
+    test "does not trust when RC is off" do
+      trust_fun = fn _ws -> flunk("trust must not run for non-RC dispatch") end
+      assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", false, nil, trust_fun)
+    end
+
+    test "does not trust a remote-worker dispatch (RC is local-only)" do
+      trust_fun = fn _ws -> flunk("trust must not run for a remote worker host") end
+      assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", true, "box-2", trust_fun)
+    end
+
+    test "a trust failure is swallowed so the issue is not stranded" do
+      trust_fun = fn _ws -> {:error, :enoent} end
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
+      end)
+    end
+  end
+
   describe "rc_session_name/1" do
     test "builds the operator-facing chat title from identifier and title" do
       issue = %{identifier: "99", id: "gid-99", title: "Add greeting"}

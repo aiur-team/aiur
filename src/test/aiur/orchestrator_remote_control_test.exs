@@ -255,6 +255,29 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     end
   end
 
+  describe "ensure_remote_control_trust/2 (direct-dispatch trust seeding)" do
+    setup do
+      claude_json = Path.join(System.tmp_dir!(), "rc-claude-#{System.unique_integer([:positive])}.json")
+      Application.put_env(:aiur, :remote_control_claude_json, claude_json)
+
+      on_exit(fn ->
+        Application.delete_env(:aiur, :remote_control_claude_json)
+        File.rm(claude_json)
+      end)
+
+      {:ok, claude_json: claude_json}
+    end
+
+    test "seeds hasTrustDialogAccepted for the workspace", %{claude_json: claude_json} do
+      workspace = "/home/op/code/aiur-workspaces/777"
+
+      assert :ok = Orchestrator.ensure_remote_control_trust(workspace)
+
+      config = claude_json |> File.read!() |> Jason.decode!()
+      assert get_in(config, ["projects", workspace, "hasTrustDialogAccepted"]) == true
+    end
+  end
+
   # Run `fun` with logs captured (re-dispatch spins a supervised task that
   # logs as it boots), forwarding its return value out of the capture.
   defp capture_and_return(fun) do

@@ -2584,6 +2584,31 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @doc """
+  Pre-seed the workspace trust flag for a remote-control dispatch.
+
+  RC refuses to start in an untrusted directory, so an RC-labeled issue
+  dispatched directly (not via the `r` key) must seed `hasTrustDialogAccepted`
+  before its REPL spawns — otherwise the REPL sticks on the trust dialog and
+  degrades to the headless backend. The runner computes RC-ness from a
+  concurrent task, so it routes through this serialized call (the trust
+  read-modify-write on `~/.claude.json` must not race a parallel dispatch).
+  """
+  @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
+  def ensure_remote_control_trust(workspace), do: ensure_remote_control_trust(__MODULE__, workspace)
+
+  @spec ensure_remote_control_trust(GenServer.server(), Path.t()) :: :ok | {:error, term()}
+  def ensure_remote_control_trust(server, workspace) when is_binary(workspace) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:ensure_remote_control_trust, workspace}, 10_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec claim_next_queue_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
     GenServer.call(server, {:claim_next_queue_item, issue_identifier}, 5_000)
@@ -2998,6 +3023,11 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:set_remote_control, _issue_identifier, _on?}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:ensure_remote_control_trust, workspace}, _from, state)
+      when is_binary(workspace) do
+    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
   end
 
   def handle_call(:max_concurrent_agents, _from, state) do
