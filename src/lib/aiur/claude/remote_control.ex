@@ -304,6 +304,51 @@ defmodule Aiur.Claude.RemoteControl do
     :ok
   end
 
+  @doc """
+  Reap agent processes whose working directory lives under `workspace_root`.
+
+  Called on aiur shutdown to kill any `claude`/`node` grandchild the headless
+  backend left reparented to init. Scoped strictly to processes whose `cwd` is
+  *under* the workspace root (never the root itself), so an operator's
+  out-of-band interactive claude — running anywhere else — is never touched.
+  """
+  @spec reap_workspace_agents(Path.t(), keyword()) :: :ok
+  def reap_workspace_agents(workspace_root, opts \\ []) when is_binary(workspace_root) do
+    proc_dir = Keyword.get(opts, :proc_dir, "/proc")
+    kill_fun = Keyword.get(opts, :kill_fun, &graceful_kill/1)
+
+    workspace_root
+    |> workspace_agent_pids(proc_dir)
+    |> Enum.each(kill_fun)
+
+    :ok
+  end
+
+  defp workspace_agent_pids(workspace_root, proc_dir) do
+    case File.ls(proc_dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(fn entry ->
+          String.match?(entry, ~r/^\d+$/) and
+            workspace_agent?(Path.join(proc_dir, entry), workspace_root)
+        end)
+        |> Enum.map(&String.to_integer/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp workspace_agent?(proc_entry, workspace_root) do
+    with {:ok, comm} <- File.read(Path.join(proc_entry, "comm")),
+         true <- String.trim(comm) in ~w(claude node),
+         {:ok, cwd} <- File.read_link(Path.join(proc_entry, "cwd")) do
+      cwd != workspace_root and String.starts_with?(cwd <> "/", workspace_root <> "/")
+    else
+      _ -> false
+    end
+  end
+
   defp maybe_reap_orphan(path, entry) do
     case Regex.run(~r/^rc-(\d+)-\d+.*\.debug$/, entry) do
       [_, owner_pid] ->

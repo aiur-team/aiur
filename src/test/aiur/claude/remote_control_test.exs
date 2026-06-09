@@ -194,4 +194,56 @@ defmodule Aiur.Claude.RemoteControlTest do
       refute File.exists?(dead_sibling)
     end
   end
+
+  describe "reap_workspace_agents/2" do
+    setup do
+      root = Path.join(System.tmp_dir!(), "rwa-root-#{System.unique_integer([:positive])}")
+      proc = Path.join(System.tmp_dir!(), "rwa-proc-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(proc)
+      on_exit(fn -> File.rm_rf(proc) end)
+      {:ok, root: root, proc: proc}
+    end
+
+    defp fake_proc(proc, pid, comm, cwd) do
+      dir = Path.join(proc, Integer.to_string(pid))
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "comm"), comm <> "\n")
+      File.ln_s!(cwd, Path.join(dir, "cwd"))
+    end
+
+    defp collect_killed(acc) do
+      receive do
+        {:killed, pid} -> collect_killed([pid | acc])
+      after
+        0 -> acc
+      end
+    end
+
+    test "kills only claude/node processes whose cwd is under the workspace root", %{root: root, proc: proc} do
+      fake_proc(proc, 100, "claude", Path.join(root, "101"))
+      fake_proc(proc, 200, "node", Path.join([root, "101", "sub"]))
+      fake_proc(proc, 300, "claude", "/home/op/github/aiur")
+      fake_proc(proc, 400, "bash", Path.join(root, "101"))
+      fake_proc(proc, 500, "claude", root)
+      File.mkdir_p!(Path.join(proc, "notapid"))
+
+      parent = self()
+      kill_fun = fn pid -> send(parent, {:killed, pid}) end
+
+      assert :ok = RemoteControl.reap_workspace_agents(root, proc_dir: proc, kill_fun: kill_fun)
+
+      assert Enum.sort(collect_killed([])) == [100, 200]
+    end
+
+    test "no-ops when the workspace root has no agents", %{root: root, proc: proc} do
+      fake_proc(proc, 300, "claude", "/home/op/github/aiur")
+
+      parent = self()
+      kill_fun = fn pid -> send(parent, {:killed, pid}) end
+
+      assert :ok = RemoteControl.reap_workspace_agents(root, proc_dir: proc, kill_fun: kill_fun)
+
+      assert collect_killed([]) == []
+    end
+  end
 end
