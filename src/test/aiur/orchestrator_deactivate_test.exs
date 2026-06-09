@@ -1273,6 +1273,89 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "whole-app shutdown reaping (terminate/2)" do
+    test "reaps every running entry's headless agent subtree on shutdown" do
+      # Mirror the headless backend: a `bash -lc` wrapper that forks a child
+      # it never execs. On whole-app shutdown the supervisor brutally kills
+      # the AgentRunner task (skipping `after stop_session`), so without a
+      # terminate/2 reap the child reparents to init and keeps committing.
+      command = "sleep 600 & printf 'up\\n'; wait"
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+          [:binary, :exit_status, :stderr_to_stdout, args: [~c"-lc", String.to_charlist(command)], line: 64_000]
+        )
+
+      {:os_pid, bash_pid} = :erlang.port_info(port, :os_pid)
+      assert_receive {^port, {:data, {:eol, "up"}}}, 2_000
+
+      child_pid = shutdown_wait_for_child(bash_pid, 2_000)
+
+      on_exit(fn ->
+        for p <- [bash_pid, child_pid], is_integer(p) do
+          System.cmd("kill", ["-KILL", Integer.to_string(p)], stderr_to_stdout: true)
+        end
+      end)
+
+      assert is_integer(child_pid)
+      assert shutdown_os_alive?(child_pid)
+
+      issue_id = "issue-shutdown-reap"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: "SHD-1",
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: "SHD-1"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working},
+            headless_os_pid: bash_pid
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      assert :ok = Orchestrator.terminate(:shutdown, state)
+
+      refute shutdown_os_alive?(bash_pid)
+      refute shutdown_os_alive?(child_pid)
+    end
+
+    defp shutdown_wait_for_child(parent, budget_ms) do
+      deadline = System.monotonic_time(:millisecond) + budget_ms
+      do_shutdown_wait_for_child(parent, deadline)
+    end
+
+    defp do_shutdown_wait_for_child(parent, deadline) do
+      first_child =
+        case System.cmd("pgrep", ["-P", Integer.to_string(parent)], stderr_to_stdout: true) do
+          {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1) |> List.first()
+          _ -> nil
+        end
+
+      cond do
+        is_integer(first_child) ->
+          first_child
+
+        System.monotonic_time(:millisecond) >= deadline ->
+          nil
+
+        true ->
+          Process.sleep(25)
+          do_shutdown_wait_for_child(parent, deadline)
+      end
+    end
+
+    defp shutdown_os_alive?(pid),
+      do: match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
+  end
+
   describe "branch-push topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid ticket.<id>.branch.push topic" do
       assert {:ok, "99"} =

@@ -101,6 +101,10 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def init(_opts) do
+    # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
+    # which reaps every running agent's process tree (see `terminate/2`).
+    Process.flag(:trap_exit, true)
+
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
@@ -125,6 +129,23 @@ defmodule Aiur.Orchestrator do
 
     {:ok, state}
   end
+
+  # On whole-app shutdown the supervisor brutally kills the AgentRunner
+  # tasks, skipping their `after stop_session` cleanup, and the per-issue
+  # `kill_repl_session` path never runs. A headless `claude` backend runs
+  # under a `bash -lc` wrapper whose claude/node grandchildren reparent to
+  # init when the bash pid dies, so they survive the shutdown and can still
+  # land a commit/push. The orchestrator stops before `Aiur.TaskSupervisor`
+  # (later in the child list), so the bash pids are still alive here and
+  # their subtrees are collectible — reap every running entry before the
+  # tasks die.
+  @impl true
+  def terminate(_reason, %State{running: running}) when is_map(running) do
+    Enum.each(running, fn {_issue_id, entry} -> kill_repl_session(entry) end)
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   # Subscribe to the topics the orchestrator routes itself:
   #
