@@ -62,6 +62,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert session.model == "claude-opus-4-8"
     assert session.remote_control == false
     assert session.transcript_path == nil
+    assert session.session_url == nil
   end
 
   test "start_session passes --remote-control when opted in", %{tmux: tmux} do
@@ -88,8 +89,17 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
     respond(tmux, "10\n")
 
+    # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+
+    respond(
+      tmux,
+      "  /remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG\n❯\n"
+    )
+
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.remote_control == true
+    assert session.session_url == "https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG"
   end
 
   test "start_session kills the pane and errors when the REPL never becomes ready", %{tmux: tmux} do

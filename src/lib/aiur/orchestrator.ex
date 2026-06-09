@@ -327,6 +327,7 @@ defmodule Aiur.Orchestrator do
           |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
           |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
           |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
+          |> maybe_put_runtime_value(:repl_rc_session_url, info[:session_url])
 
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
@@ -3910,13 +3911,14 @@ defmodule Aiur.Orchestrator do
 
   # The `model:claude-remote` label is the durable source of truth for
   # remote-ness, so the AgentList indicator (and the `r`-key toggle direction)
-  # derives from it: a labeled issue is `:on`. The REPL transport surfaces no
-  # session URL of its own, so leave it nil.
+  # derives from it: a labeled issue is `:on`. The REPL prints its RC session
+  # URL to the pane at attach; the runner forwards it to `:repl_rc_session_url`
+  # for the operator-facing display only (it is a capability token, never logged).
   defp remote_control_summary(entry) do
     issue = Map.get(entry, :issue)
 
     if is_map(issue) and match?(%Issue{}, issue) and CodingAgent.remote_control_forced?(issue) do
-      %{status: :on, session_url: nil}
+      %{status: :on, session_url: Map.get(entry, :repl_rc_session_url)}
     else
       case Map.get(entry, :remote_control) do
         %{status: status} = rc -> %{status: status, session_url: Map.get(rc, :session_url)}

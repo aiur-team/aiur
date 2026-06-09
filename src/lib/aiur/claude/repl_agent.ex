@@ -56,6 +56,14 @@ defmodule Aiur.Claude.ReplAgent do
   @echo_retype_after_ms 600
   @echo_poll_ms 100
 
+  # When launched with `--remote-control`, the REPL prints a
+  # `… https://claude.ai/code/session_… ` banner to the pane as it attaches,
+  # alongside the ready prompt. Scan the pane for it once the REPL is ready;
+  # it is a capability token surfaced only to the operator display, never
+  # logged. Capture is best-effort — a missing URL never blocks readiness.
+  @url_capture_timeout_ms 2_000
+  @url_poll_ms 150
+
   @type session :: %{
           backend: String.t(),
           pane_id: String.t(),
@@ -67,6 +75,7 @@ defmodule Aiur.Claude.ReplAgent do
           model: String.t() | nil,
           remote_control: boolean(),
           rc_name: String.t() | nil,
+          session_url: String.t() | nil,
           tmux: GenServer.server()
         }
 
@@ -116,6 +125,8 @@ defmodule Aiur.Claude.ReplAgent do
           remote_control: rc?
         )
 
+        session_url = if rc?, do: capture_session_url(tmux, pane_id), else: nil
+
         {:ok,
          %{
            backend: "claude-repl",
@@ -128,6 +139,7 @@ defmodule Aiur.Claude.ReplAgent do
            model: model,
            remote_control: rc?,
            rc_name: rc_name,
+           session_url: session_url,
            tmux: tmux
          }}
 
@@ -135,6 +147,34 @@ defmodule Aiur.Claude.ReplAgent do
         # Readiness failed but the pane exists — kill it so nothing leaks.
         Tmux.kill_pane(tmux, pane_id)
         err
+    end
+  end
+
+  # Best-effort scan of the just-ready pane for the Remote Control session
+  # URL. Polls briefly because the banner can land a beat after the prompt;
+  # returns nil if it never appears so URL capture never blocks the session.
+  defp capture_session_url(tmux, pane_id) do
+    deadline = System.monotonic_time(:millisecond) + @url_capture_timeout_ms
+    do_capture_session_url(tmux, pane_id, deadline)
+  end
+
+  defp do_capture_session_url(tmux, pane_id, deadline) do
+    url =
+      case Tmux.capture_pane(tmux, pane_id) do
+        {:ok, lines} -> lines |> Enum.join("\n") |> RemoteControl.parse_session_url()
+        _ -> nil
+      end
+
+    cond do
+      is_binary(url) ->
+        url
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        nil
+
+      true ->
+        Process.sleep(@url_poll_ms)
+        do_capture_session_url(tmux, pane_id, deadline)
     end
   end
 

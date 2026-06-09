@@ -241,6 +241,13 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       assert Orchestrator.remote_control_summary_for_test(entry) == %{status: :on, session_url: nil}
     end
 
+    test "a labeled entry surfaces the captured REPL RC session URL" do
+      url = "https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG"
+      entry = running_entry("REM-U", [@remote_label], repl_rc_session_url: url)
+
+      assert Orchestrator.remote_control_summary_for_test(entry) == %{status: :on, session_url: url}
+    end
+
     test "a non-remote issue reads as nil" do
       entry = running_entry("CLA-S", ["model:claude"], [])
 

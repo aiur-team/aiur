@@ -348,7 +348,12 @@ defmodule Aiur.AgentRunner do
        when is_binary(issue_id) and is_pid(recipient) do
     send(
       recipient,
-      {:repl_session_runtime, issue_id, %{pane_id: Map.get(session, :pane_id), os_pid: Map.get(session, :os_pid)}}
+      {:repl_session_runtime, issue_id,
+       %{
+         pane_id: Map.get(session, :pane_id),
+         os_pid: Map.get(session, :os_pid),
+         session_url: Map.get(session, :session_url)
+       }}
     )
 
     :ok
