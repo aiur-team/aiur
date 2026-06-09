@@ -44,16 +44,19 @@ defmodule Aiur.Claude.ReplAgent do
   # Cold start: claude writes no session jsonl until the first user message
   # is submitted, so the first turn sends the prompt, then waits for the file
   # to materialize before tailing it.
-  @transcript_wait_ms 10_000
+  @transcript_wait_ms 15_000
   @transcript_poll_ms 100
 
-  # The REPL renders its prompt glyph before it actually accepts keystrokes,
-  # so right after spawn the first send can be dropped. After typing we
-  # confirm the text echoed into the input buffer before pressing Enter, and
-  # retype once if the keystrokes were lost — otherwise Enter submits a blank
-  # line and the turn silently does nothing.
-  @echo_confirm_ms 3_000
-  @echo_retype_after_ms 600
+  # The REPL renders its prompt glyph (`@ready_prompt`) before it actually
+  # accepts keystrokes — and a `--remote-control` session lags further while
+  # it connects — so the first send is routinely dropped. Delivery is only
+  # safe once the typed text echoes into the input buffer, so we keep
+  # re-typing (clearing the line first) on `@echo_retype_ms` until the echo
+  # confirms or `@echo_confirm_ms` elapses; only then does Enter submit.
+  # Without this, Enter submits a blank line and the turn silently does
+  # nothing, the transcript never appears, and the run fails `:no_transcript`.
+  @echo_confirm_ms 20_000
+  @echo_retype_ms 1_500
   @echo_poll_ms 100
 
   # When launched with `--remote-control`, the REPL prints a
@@ -337,7 +340,7 @@ defmodule Aiur.Claude.ReplAgent do
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
 
-    case prepare_turn(session, prompt) do
+    case prepare_turn(session, prompt, opts) do
       {:ok, transcript_path, from, prompt_sent?} ->
         session = %{session | transcript_path: transcript_path}
         {thread_id, turn_id} = turn_ids(transcript_path)
@@ -353,20 +356,17 @@ defmodule Aiur.Claude.ReplAgent do
 
         # Warm turns send AFTER the tailer attaches so no record is missed;
         # cold turns already sent the prompt to create the transcript.
-        unless prompt_sent?, do: send_prompt(session, prompt)
+        send_result = if prompt_sent?, do: :ok, else: send_prompt(session, prompt, opts)
 
-        deadline = System.monotonic_time(:millisecond) + timeout_ms
-        result = await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
-        stop_tailer(tailer)
-
-        case result do
+        case send_result do
           :ok ->
-            emit(on_message, :turn_completed, %{session_id: session_id, turn_id: turn_id})
-
-            {:ok,
-             %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
+            deadline = System.monotonic_time(:millisecond) + timeout_ms
+            result = await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+            stop_tailer(tailer)
+            finish_turn(result, on_message, session_id, thread_id, turn_id)
 
           {:error, reason} ->
+            stop_tailer(tailer)
             emit(on_message, :turn_ended_with_error, %{session_id: session_id, reason: reason})
             {:error, reason}
         end
@@ -374,6 +374,18 @@ defmodule Aiur.Claude.ReplAgent do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp finish_turn(:ok, on_message, session_id, thread_id, turn_id) do
+    emit(on_message, :turn_completed, %{session_id: session_id, turn_id: turn_id})
+
+    {:ok,
+     %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
+  end
+
+  defp finish_turn({:error, reason}, on_message, session_id, _thread_id, _turn_id) do
+    emit(on_message, :turn_ended_with_error, %{session_id: session_id, reason: reason})
+    {:error, reason}
   end
 
   # Resolve the transcript for THIS turn and decide how to tail it.
@@ -386,17 +398,15 @@ defmodule Aiur.Claude.ReplAgent do
   #   * COLD — no jsonl yet: send the prompt first so claude creates the
   #     file, wait for it to appear, then tail `from: :start` to pick up the
   #     records written before the tailer attached.
-  defp prepare_turn(session, prompt) do
+  defp prepare_turn(session, prompt, opts) do
     resolved = session.transcript_path || resolve_session_transcript(session)
 
     if is_binary(resolved) and File.exists?(resolved) do
       {:ok, resolved, :end, false}
     else
-      send_prompt(session, prompt)
-
-      case await_transcript(session) do
-        {:ok, path} -> {:ok, path, :start, true}
-        {:error, reason} -> {:error, reason}
+      with :ok <- send_prompt(session, prompt, opts),
+           {:ok, path} <- await_transcript(session) do
+        {:ok, path, :start, true}
       end
     end
   end
@@ -411,40 +421,52 @@ defmodule Aiur.Claude.ReplAgent do
     )
   end
 
-  defp send_prompt(session, prompt) do
-    confirm_typed(session, prompt)
-    Tmux.send_enter(session.tmux, session.pane_id)
+  # Only submit (Enter) once the typed prompt has actually echoed into the
+  # input buffer; a dropped send must never be committed as a blank line.
+  defp send_prompt(session, prompt, opts) do
+    case confirm_typed(session, prompt, opts) do
+      :ok -> Tmux.send_enter(session.tmux, session.pane_id)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  # Type the prompt, then poll the input buffer until our text echoes. This
-  # reads the pane only to confirm input was accepted (not to scrape output).
-  defp confirm_typed(session, prompt) do
+  # Type the prompt, then poll the input buffer until our text echoes. The
+  # REPL renders its glyph before it accepts keystrokes (and an RC session
+  # lags further), so the first send is routinely dropped — keep clearing the
+  # line and re-typing on `retype_ms` until the echo lands. Fail loudly with
+  # `:prompt_not_delivered` if the budget elapses with no echo, rather than
+  # submitting a blank line. Reads the pane only to confirm input (not output).
+  defp confirm_typed(session, prompt, opts) do
+    confirm_ms = Keyword.get(opts, :prompt_confirm_ms, @echo_confirm_ms)
+    retype_ms = Keyword.get(opts, :prompt_retype_ms, @echo_retype_ms)
     prefix = echo_prefix(prompt)
     Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
-    start = System.monotonic_time(:millisecond)
-    poll_echo(session, prompt, prefix, start, false)
+    now = System.monotonic_time(:millisecond)
+    poll_echo(session, prompt, prefix, confirm_ms, retype_ms, now, now)
   end
 
-  defp poll_echo(session, prompt, prefix, start, retyped?) do
+  defp poll_echo(session, prompt, prefix, confirm_ms, retype_ms, start, last_retype) do
     elapsed = System.monotonic_time(:millisecond) - start
 
     cond do
       input_echoes?(session, prefix) ->
         :ok
 
-      elapsed >= @echo_confirm_ms ->
-        :ok
+      elapsed >= confirm_ms ->
+        {:error, :prompt_not_delivered}
 
-      not retyped? and elapsed >= @echo_retype_after_ms ->
-        # The glyph showed before the REPL was live and the keystrokes were
-        # dropped; type once more now that it has finished initializing.
+      System.monotonic_time(:millisecond) - last_retype >= retype_ms ->
+        # The keystrokes were dropped (glyph showed before the REPL was live);
+        # clear any partial buffer and re-type now that it may be ready.
+        Tmux.clear_input(session.tmux, session.pane_id)
         Tmux.send_keys_literal(session.tmux, session.pane_id, prompt)
         Process.sleep(@echo_poll_ms)
-        poll_echo(session, prompt, prefix, start, true)
+        now = System.monotonic_time(:millisecond)
+        poll_echo(session, prompt, prefix, confirm_ms, retype_ms, start, now)
 
       true ->
         Process.sleep(@echo_poll_ms)
-        poll_echo(session, prompt, prefix, start, retyped?)
+        poll_echo(session, prompt, prefix, confirm_ms, retype_ms, start, last_retype)
     end
   end
 

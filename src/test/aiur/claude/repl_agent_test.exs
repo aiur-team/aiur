@@ -510,6 +510,91 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert result.result == :completed
   end
 
+  # Drive a turn whose first keystrokes are dropped: capture-pane reports no
+  # echo until a clear_input (C-u) retype lands, after which the prompt echoes
+  # and the turn completes.
+  defp drive_retype_turn(tmux, path, task, retyped? \\ false) do
+    receive do
+      {:tmux_mock_out, "send-keys -t " <> rest} ->
+        respond(tmux, "")
+        drive_retype_turn(tmux, path, task, retyped? or String.contains?(rest, " C-u"))
+
+      {:tmux_mock_out, "capture-pane" <> _} ->
+        if retyped?, do: respond(tmux, "❯ retry me\n"), else: respond(tmux, "❯\n")
+        drive_retype_turn(tmux, path, task, retyped?)
+
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        File.write!(path, completion_record("ok"), [:append])
+        drive_retype_turn(tmux, path, task, retyped?)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> result
+          nil -> drive_retype_turn(tmux, path, task, retyped?)
+        end
+    end
+  end
+
+  test "run_turn re-types after a dropped send and submits once the echo lands", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "retry me", %{},
+          poll_interval_ms: 10,
+          prompt_confirm_ms: 5_000,
+          prompt_retype_ms: 10
+        )
+      end)
+
+    assert {:ok, result} = drive_retype_turn(tmux, path, task)
+    assert result.result == :completed
+  end
+
+  # Answer every tmux poll but never echo the prompt, so confirm_typed
+  # exhausts its budget.
+  defp drain_no_echo(tmux, task) do
+    receive do
+      {:tmux_mock_out, "send-keys -t " <> _} ->
+        respond(tmux, "")
+        drain_no_echo(tmux, task)
+
+      {:tmux_mock_out, "capture-pane" <> _} ->
+        respond(tmux, "❯\n")
+        drain_no_echo(tmux, task)
+
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        drain_no_echo(tmux, task)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> result
+          nil -> drain_no_echo(tmux, task)
+        end
+    end
+  end
+
+  test "run_turn fails :prompt_not_delivered when the echo never lands", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "never echoes", %{},
+          poll_interval_ms: 10,
+          prompt_confirm_ms: 200,
+          prompt_retype_ms: 50
+        )
+      end)
+
+    assert {:error, :prompt_not_delivered} = drain_no_echo(tmux, task)
+  end
+
   test "run_turn returns :turn_timeout when no completion arrives", %{tmux: tmux} do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)

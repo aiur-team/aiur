@@ -187,6 +187,19 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Clear the pane's current input line (tmux's `send-keys C-u`). Used to
+  discard any partially-landed keystrokes before re-typing a prompt, so a
+  retry can't concatenate onto a stale buffer.
+  """
+  @spec clear_input(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def clear_input(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:clear_input, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Capture the visible contents of `pane_id` as a list of lines
   (tmux's `capture-pane -p`). Used for coarse lifecycle signals
   (REPL readiness / idle prompt) where the transcript has no marker.
@@ -487,6 +500,13 @@ defmodule Aiur.Tmux do
 
   def handle_call({:send_enter, pane_id}, _from, state) do
     case run_args(state, ["send-keys", "-t", pane_id, "Enter"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:clear_input, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "C-u"]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end
