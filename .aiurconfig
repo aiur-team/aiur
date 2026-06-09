@@ -94,7 +94,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  kind: claude
+  kind: codex
   max_concurrent_agents: 6
   max_turns: 12
   # Per-issue backend routing by `complexity:N` label. Unlisted levels and
