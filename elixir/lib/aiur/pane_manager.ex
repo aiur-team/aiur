@@ -565,13 +565,17 @@ defmodule Aiur.PaneManager do
           # plus the schedule + grab info pair. Demote to debug when the
           # server is gone so the log isn't flooded with the same dead-
           # server message until the next operator reboot.
-          if dead_tmux?(reason) do
-            Logger.debug("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
-          else
-            Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
-          end
+          log_screen_grab_error(pane_id, label, reason)
       end
     end)
+  end
+
+  defp log_screen_grab_error(pane_id, label, reason) do
+    if dead_tmux?(reason) do
+      Logger.debug("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
+    else
+      Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
+    end
   end
 
   # `Aiur.Tmux.command/2` returns `{:error, trimmed_stderr}` on failure.

@@ -497,14 +497,18 @@ defmodule Aiur.Tmux do
             # operator BEAM running. Demote those to debug so the log
             # isn't flooded — pane_manager still treats `{:error, _}`
             # the same way, so behavior doesn't change.
-            if String.contains?(trimmed, "no server running") do
-              Logger.debug("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
-            else
-              Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
-            end
+            log_tmux_exit(status, full_args, trimmed)
 
             {:error, trimmed}
         end
+    end
+  end
+
+  defp log_tmux_exit(status, full_args, trimmed) do
+    if String.contains?(trimmed, "no server running") do
+      Logger.debug("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
+    else
+      Logger.warning("Tmux exec exit=#{status} args=#{inspect(full_args)} output=#{inspect(trimmed)}")
     end
   end
 

@@ -117,20 +117,18 @@ defmodule Aiur.Events.GithubFirehose do
   end
 
   defp publish_one(event, opts) do
-    cond do
-      pre_boot?(event, opts) ->
-        # The GitHub Events API surfaces the same historical events for
-        # ~24h. On operator restart the dedup ETS table is empty, so
-        # every PR-opened / push that happened before this boot would
-        # fire as a fresh event and confuse blockee subscribers (e.g.
-        # 101 reacts to a #100 push that already happened last run).
-        # Drop anything older than the operator's boot wall-clock minus
-        # a small jitter window. Real-time events created after boot
-        # always pass through. Tests inject `boot_time:` directly.
-        :pre_boot_drop
-
-      true ->
-        do_publish_one(event, opts)
+    if pre_boot?(event, opts) do
+      # The GitHub Events API surfaces the same historical events for
+      # ~24h. On operator restart the dedup ETS table is empty, so
+      # every PR-opened / push that happened before this boot would
+      # fire as a fresh event and confuse blockee subscribers (e.g.
+      # 101 reacts to a #100 push that already happened last run).
+      # Drop anything older than the operator's boot wall-clock minus
+      # a small jitter window. Real-time events created after boot
+      # always pass through. Tests inject `boot_time:` directly.
+      :pre_boot_drop
+    else
+      do_publish_one(event, opts)
     end
   end
 

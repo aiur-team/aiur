@@ -642,14 +642,18 @@ defmodule Aiur.Codex.CodingAgent do
           # line that requires combing through 1000s of lines of
           # debug-tier `Ignoring message while waiting for response`
           # detail to reconstruct.
-          if codex_error_method?(method) do
-            Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
-          else
-            Logger.debug("Codex notification: #{inspect(method)}")
-          end
+          log_codex_notification(method, payload)
 
           {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
         end
+    end
+  end
+
+  defp log_codex_notification(method, payload) do
+    if codex_error_method?(method) do
+      Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
+    else
+      Logger.debug("Codex notification: #{inspect(method)}")
     end
   end
 
