@@ -9,6 +9,7 @@ defmodule Aiur.Codex.CodingAgent do
 
   require Logger
   alias Aiur.{AgentEnvironment, Config, PathSafety, SSH}
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
 
   @initialize_id 1
@@ -1369,6 +1370,16 @@ defmodule Aiur.Codex.CodingAgent do
         :ok
 
       _ ->
+        # Reap the descendant tree (node -> rust app-server) BEFORE closing the
+        # port. `Port.close` only kills the bash wrapper; its children would
+        # reparent to init and keep holding the global ~/.codex/state_5.sqlite
+        # lock, poisoning every subsequent codex agent. Collecting descendants
+        # must happen while the wrapper is still alive to anchor the pgrep walk.
+        case :erlang.port_info(port, :os_pid) do
+          {:os_pid, os_pid} -> RemoteControl.graceful_kill_tree(os_pid)
+          _ -> :ok
+        end
+
         try do
           Port.close(port)
           :ok
