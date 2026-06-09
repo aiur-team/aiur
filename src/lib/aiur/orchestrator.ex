@@ -3862,16 +3862,21 @@ defmodule Aiur.Orchestrator do
     :ok
   end
 
-  # The `model:claude-remote` label is the durable source of truth for
-  # remote-ness, so the AgentList indicator (and the `r`-key toggle direction)
-  # derives from it: a labeled issue is `:on`. The REPL prints its RC session
-  # URL to the pane at attach; the runner forwards it to `:repl_rc_session_url`
-  # for the operator-facing display only (it is a capability token, never logged).
+  # The indicator reflects a *live* remote session, not the label. The REPL
+  # only earns RC mode when it actually attaches and prints its
+  # `https://claude.ai/code/session_…` banner, which the runner forwards to
+  # `:repl_rc_session_url` (a capability token, never logged). A labeled issue
+  # whose RC never attached — degraded to headless, or routed to a backend that
+  # has no RC path at all (codex) — has no URL, so it shows no phone icon.
   defp remote_control_summary(entry) do
     issue = Map.get(entry, :issue)
 
-    if is_map(issue) and match?(%Issue{}, issue) and CodingAgent.remote_control_forced?(issue) do
-      %{status: :on, session_url: Map.get(entry, :repl_rc_session_url)}
+    with true <- is_map(issue) and match?(%Issue{}, issue),
+         true <- CodingAgent.remote_control_forced?(issue),
+         url when is_binary(url) <- Map.get(entry, :repl_rc_session_url) do
+      %{status: :on, session_url: url}
+    else
+      _ -> nil
     end
   end
 

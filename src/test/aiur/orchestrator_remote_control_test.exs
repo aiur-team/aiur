@@ -234,11 +234,11 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     end
   end
 
-  describe "remote-control summary derives from the label" do
-    test "an issue carrying the remote label reads as :on" do
+  describe "remote-control summary reflects a live RC session" do
+    test "a labeled entry with no captured URL reads as nil (RC not attached)" do
       entry = running_entry("REM-S", [@remote_label], [])
 
-      assert Orchestrator.remote_control_summary_for_test(entry) == %{status: :on, session_url: nil}
+      assert Orchestrator.remote_control_summary_for_test(entry) == nil
     end
 
     test "a labeled entry surfaces the captured REPL RC session URL" do
