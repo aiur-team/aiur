@@ -758,4 +758,21 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert {:error, :invalid_message} = ReplAgent.send_operator_message(session, %{kind: :image})
     refute_receive {:tmux_mock_out, _}, 100
   end
+
+  # ----------------------------------------------------------------- interrupt/1
+
+  test "interrupt sends Ctrl+C to the pane", %{tmux: tmux} do
+    session = turn_session(tmux, temp_transcript())
+
+    task = Task.async(fn -> ReplAgent.interrupt(session) end)
+
+    assert_receive {:tmux_mock_out, "send-keys -t %50 C-c"}, 1_000
+    respond(tmux, "")
+
+    assert :ok = Task.await(task, 2_000)
+  end
+
+  test "interrupt rejects a session without a pane" do
+    assert {:error, :invalid_session} = ReplAgent.interrupt(%{})
+  end
 end

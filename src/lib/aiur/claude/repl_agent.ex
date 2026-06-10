@@ -693,6 +693,22 @@ defmodule Aiur.Claude.ReplAgent do
 
   def send_operator_message(_session, _payload), do: {:error, :invalid_message}
 
+  @doc """
+  Interrupt the REPL's current turn by sending `Ctrl+C` to its pane.
+
+  This is the explicit operator-interrupt path: unlike
+  `send_operator_message/2`, which lets Claude's native queue fold a
+  message in at the next boundary without aborting in-flight work, this
+  cuts the active turn at Claude's next safe point so a queued message is
+  drained immediately.
+  """
+  @spec interrupt(session()) :: :ok | {:error, term()}
+  def interrupt(%{tmux: tmux, pane_id: pane_id}) when is_binary(pane_id) do
+    Tmux.send_interrupt(tmux, pane_id)
+  end
+
+  def interrupt(_session), do: {:error, :invalid_session}
+
   # Operator content is typed into a live PTY via `send-keys -l`, which
   # emits the bytes verbatim. Collapse every control byte to a space so a
   # crafted message cannot submit early (embedded newline), abort the agent

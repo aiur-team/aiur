@@ -228,6 +228,24 @@ defmodule Aiur.TmuxTest do
     assert :ok = Task.await(task, 1_000)
   end
 
+  test "send_interrupt/2 issues send-keys C-c and returns :ok", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.send_interrupt(name, "%42")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "send-keys -t %42 C-c"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert :ok = Task.await(task, 1_000)
+  end
+
   test "kill_pane/2 treats an already-gone pane as :ok", %{name: name} do
     parent = self()
 

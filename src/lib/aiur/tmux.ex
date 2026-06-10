@@ -218,6 +218,19 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Send a single `Ctrl+C` (tmux's `send-keys C-c`) to `pane_id`. Interrupts
+  the foreground program; for the interactive `claude` REPL this stops the
+  current turn at its next safe point so a queued message is consumed.
+  """
+  @spec send_interrupt(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def send_interrupt(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:send_interrupt, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Capture the visible contents of `pane_id` as a list of lines
   (tmux's `capture-pane -p`). Used for coarse lifecycle signals
   (REPL readiness / idle prompt) where the transcript has no marker.
@@ -529,6 +542,13 @@ defmodule Aiur.Tmux do
 
   def handle_call({:clear_input, pane_id}, _from, state) do
     case run_args(state, ["send-keys", "-t", pane_id, "C-u"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:send_interrupt, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "C-c"]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end
