@@ -172,7 +172,7 @@ defmodule Aiur.Claude.ReplAgent do
 
       nil ->
         Tmux.kill_pane(ctx.tmux, pane_id)
-        RemoteControl.graceful_kill(os_pid)
+        RemoteControl.graceful_kill_tree(os_pid)
 
         Aiur.Perf.event(:repl_agent_rc_unavailable, workspace: ctx.workspace, pane_id: pane_id)
         Logger.warning("claude-repl remote-control did not attach; degrading to non-RC backend")
@@ -237,7 +237,7 @@ defmodule Aiur.Claude.ReplAgent do
     os_pid = Map.get(session, :os_pid)
 
     Tmux.kill_pane(tmux, pane_id)
-    RemoteControl.graceful_kill(os_pid)
+    RemoteControl.graceful_kill_tree(os_pid)
 
     pane_gone? = not match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
     pid_gone? = os_pid_gone?(os_pid)
@@ -313,7 +313,7 @@ defmodule Aiur.Claude.ReplAgent do
       end
 
     Tmux.kill_pane(tmux, pane_id)
-    RemoteControl.graceful_kill(os_pid)
+    RemoteControl.graceful_kill_tree(os_pid)
     :ok
   end
 
