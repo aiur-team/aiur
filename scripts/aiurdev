@@ -1916,6 +1916,12 @@ run_in_tmux() {
     if [ "${AIUR_DEBUG:-}" != "" ]; then
       printf 'export AIUR_DEBUG=%q\n' "$AIUR_DEBUG"
     fi
+    # The wrapper pid is this foreground bash process — it runs `tmux
+    # attach` and exits the moment the operator detaches or closes the
+    # window. `Aiur.LauncherWatchdog` polls it and self-halts the BEAM
+    # when it disappears, so a detached release never keeps agents
+    # running after the UI is gone.
+    printf 'export AIUR_LAUNCHER_PID=%q\n' "$$"
     printf '%q' "$mise_bin"
     local arg
     for arg in "$@"; do

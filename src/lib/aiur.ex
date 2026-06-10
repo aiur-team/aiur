@@ -39,7 +39,8 @@ defmodule Aiur.Application do
           Aiur.PaneManager,
           Aiur.Opencode.PrewarmSupervisor,
           Aiur.AgentList.App,
-          Aiur.AgentList.Input
+          Aiur.AgentList.Input,
+          Aiur.LauncherWatchdog
         ]
       else
         []
