@@ -210,6 +210,8 @@ defmodule Aiur.PaneManager do
         {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
       end
 
+      publish_control_url(tmux)
+
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
@@ -237,6 +239,32 @@ defmodule Aiur.PaneManager do
         )
 
         {:stop, :no_agent_list_pane}
+    end
+  end
+
+  # Publish the dashboard's bound base URL as a global tmux option so the
+  # opencode Ctrl+C key binding (aiur.tmux.conf) can reach the control
+  # endpoint. Best-effort: if the server isn't bound or the option can't
+  # be set, the binding sees an empty value and degrades to a plain pane
+  # close, which is the pre-bridge behaviour.
+  defp publish_control_url(tmux) do
+    with port when is_integer(port) and port > 0 <- Aiur.HttpServer.bound_port() do
+      url = "http://#{control_url_host()}:#{port}"
+      _ = Tmux.command(tmux, "set-option -g @aiur_control_url #{url}")
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("PaneManager: could not publish control url: #{inspect(error)}")
+      :ok
+  end
+
+  defp control_url_host do
+    case Aiur.Config.server_host() do
+      host when host in ["0.0.0.0", "::", "", nil] -> "127.0.0.1"
+      host when is_binary(host) -> host
+      _ -> "127.0.0.1"
     end
   end
 

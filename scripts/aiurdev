@@ -1945,6 +1945,13 @@ run_in_tmux() {
     exit 1
   fi
 
+  # Point the opencode Ctrl+C binding (aiur.tmux.conf) at the bridge
+  # helper that ships beside the conf. The BEAM publishes the matching
+  # @aiur_control_url once its dashboard binds; until then (or if this
+  # set fails) the binding degrades to a plain pane close.
+  "$tmux_bin" -L "$socket" -f "$conf" \
+    set-option -g @aiur_ctrlc "$(dirname "$conf")/aiur-pane-ctrlc" 2>/dev/null || true
+
   # Record the inner pane process so the EXIT trap reaps only the BEAM
   # spawned under THIS session, never a sibling invocation's.
   __aiur_owned_pane_pid="$("$tmux_bin" -L "$socket" -f "$conf" \

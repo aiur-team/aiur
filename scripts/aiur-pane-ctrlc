@@ -1,0 +1,57 @@
+#!/usr/bin/env sh
+# Opencode pane Ctrl+C bridge. Bound to `C-c` for non-agent-list panes in
+# aiur.tmux.conf. Asks Aiur what a Ctrl+C should do for the agent painted
+# into this pane (drain a queued message, pause an idle agent, or close
+# the pane when already paused) and acts on the answer.
+#
+# The whole point is safe degradation: if Aiur is unreachable, the URL is
+# unset, or anything else goes wrong, we fall back to plain `kill-pane`,
+# which is exactly the pre-bridge behaviour. The 3-state UX is a pure
+# enhancement layered on top — a failure here never strands the operator
+# with a pane they cannot close.
+#
+# Args:
+#   $1  tmux pane id (e.g. "%9")
+#   $2  control base URL (e.g. "http://127.0.0.1:4000"), may be empty
+#
+# Runs inside tmux `run-shell`, so `$TMUX` is set and a bare `tmux`
+# command targets the same server/socket.
+set -u
+
+pane_id="${1:-}"
+control_url="${2:-}"
+
+close_pane() {
+  [ -n "$pane_id" ] && tmux kill-pane -t "$pane_id" 2>/dev/null
+  exit 0
+}
+
+# No pane to act on, or no idea where Aiur is listening: degrade to close.
+[ -z "$pane_id" ] && exit 0
+[ -z "$control_url" ] && close_pane
+
+# Loopback dashboards bind without auth; only attach credentials when the
+# operator has explicitly configured them for a non-loopback bind.
+auth_args=""
+if [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
+  auth_args="--user ${AIUR_DASHBOARD_USERNAME}:${AIUR_DASHBOARD_PASSWORD}"
+fi
+
+# shellcheck disable=SC2086
+response="$(
+  curl -fsS -m 2 \
+    -H 'X-Aiur-Request: 1' \
+    -H 'Origin: http://127.0.0.1' \
+    --data-urlencode "pane_id=${pane_id}" \
+    $auth_args \
+    "${control_url}/api/v1/pane/interrupt" 2>/dev/null
+)" || close_pane
+
+# The agent handled the keypress (drained its queue or paused). Leave the
+# pane open so the operator stays in the conversation.
+case "$response" in
+  *interrupted* | *paused*) exit 0 ;;
+esac
+
+# close_pane, an error, or any unexpected body: close the pane.
+close_pane

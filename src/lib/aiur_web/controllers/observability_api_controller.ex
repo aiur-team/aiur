@@ -47,6 +47,26 @@ defmodule AiurWeb.ObservabilityApiController do
     |> render_send_message_response(conn, issue_identifier)
   end
 
+  # Opencode Ctrl+C bridge. The tmux key binding POSTs the pane id here;
+  # the orchestrator derives the 3-state action from the agent's live
+  # state. Any error degrades to `close_pane` so a failed bridge call
+  # never leaves the operator unable to close the pane (the binding's
+  # fallback behaviour).
+  @spec pane_interrupt(Conn.t(), map()) :: Conn.t()
+  def pane_interrupt(conn, %{"pane_id" => pane_id}) when is_binary(pane_id) and pane_id != "" do
+    action =
+      case Aiur.AgentChat.pane_interrupt(pane_id) do
+        {:ok, action} -> action
+        {:error, _reason} -> :close_pane
+      end
+
+    json(conn, %{action: action})
+  end
+
+  def pane_interrupt(conn, _params) do
+    error_response(conn, 422, "missing_pane_id", "pane_id is required")
+  end
+
   @spec method_not_allowed(Conn.t(), map()) :: Conn.t()
   def method_not_allowed(conn, _params) do
     error_response(conn, 405, "method_not_allowed", "Method not allowed")
