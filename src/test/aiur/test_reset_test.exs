@@ -204,6 +204,46 @@ defmodule Aiur.TestResetTest do
     end
   end
 
+  # Regression: a single `gh issue edit` to set agent:todo is flaky — GitHub
+  # GraphQL intermittently 401s during a reset. When it failed, the ticket was
+  # left unlabeled and the orchestrator never dispatched it, stranding the whole
+  # 3-ticket chain (e.g. #101 pauses forever waiting on the never-dispatched
+  # #100 → ~90 min timeout). apply_label_reset/5 retries the pair, then reports
+  # failure so the caller can refuse to launch a doomed run.
+  describe "apply_label_reset/5" do
+    test "succeeds on the first attempt when both calls exit 0" do
+      counter = :counters.new(1, [])
+
+      runner = fn _argv ->
+        :counters.add(counter, 1, 1)
+        {"", 0}
+      end
+
+      assert :ok = TestReset.apply_label_reset(["remove"], ["add"], runner, 3, 0)
+      # one remove + one add, no retries
+      assert :counters.get(counter, 1) == 2
+    end
+
+    test "retries on a transient failure and then succeeds" do
+      agent = start_supervised!({Agent, fn -> 0 end})
+
+      # Fail the very first gh call (a 401 on the remove step), then succeed.
+      runner = fn _argv ->
+        n = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+        if n == 0, do: {"HTTP 401", 1}, else: {"", 0}
+      end
+
+      assert :ok = TestReset.apply_label_reset(["remove"], ["add"], runner, 3, 0)
+    end
+
+    test "returns {:error, output} after exhausting all attempts" do
+      runner = fn _argv -> {"HTTP 401: Requires authentication\n", 1} end
+
+      assert {:error, "HTTP 401: Requires authentication"} =
+               TestReset.apply_label_reset(["remove"], ["add"], runner, 3, 0)
+    end
+  end
+
   # Regression: `aiur --test` cleared labels, workspace, PR, and remote
   # branch — but did NOT touch the issue's comments. Agents store their
   # workpad as a comment whose body starts with `## Agent Workpad`, so

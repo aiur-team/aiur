@@ -294,11 +294,27 @@ defmodule Aiur.TestReset do
 
   defp maybe_execute(tickets, %{confirm: true} = opts) do
     say("🧪 aiur --test3 resetting sandbox (#{length(tickets)} tickets)")
-    Enum.each(tickets, &reset_one(&1, opts))
+    results = Enum.map(tickets, &reset_one(&1, opts))
     restore_baseline(opts)
     ensure_opencode_theme()
-    say("✅ --test3 reset complete")
-    :ok
+
+    case unlabeled_tickets(results) do
+      [] ->
+        say("✅ --test3 reset complete")
+        :ok
+
+      failed_ids ->
+        abort(
+          "could not label #{inspect(failed_ids)} as agent:todo after retries — " <>
+            "refusing to launch a run that can't dispatch these tickets"
+        )
+
+        {:error, {:labels_unset, failed_ids}}
+    end
+  end
+
+  defp unlabeled_tickets(results) do
+    for {:error, {:label_reset_failed, id, _}} <- results, do: id
   end
 
   # `:golden` (--test, the full-render-surface ticket) drives the
@@ -334,11 +350,19 @@ defmodule Aiur.TestReset do
 
     case resolve_ticket(tickets_data, opts, spec) do
       {:ok, id} ->
-        reset_one(id, opts)
+        label_result = reset_one(id, opts)
         restore_baseline(opts)
         ensure_opencode_theme()
-        say("✅ #{spec.flag} reset complete (ticket ##{id})")
-        :ok
+
+        case label_result do
+          {:error, {:label_reset_failed, ^id, _}} ->
+            abort("could not label ##{id} as agent:todo after retries — refusing to launch")
+            {:error, {:labels_unset, [id]}}
+
+          _ ->
+            say("✅ #{spec.flag} reset complete (ticket ##{id})")
+            :ok
+        end
 
       {:error, reason} ->
         abort("#{kind}-ticket resolution failed: #{inspect(reason)}")
@@ -694,14 +718,56 @@ defmodule Aiur.TestReset do
   # the label entirely. That left issues in an unlabeled state, which
   # made the orchestrator skip dispatching them and the user's chat
   # pane render no agent text (no codex turn → no transcript events).
+  # GitHub's GraphQL endpoint intermittently 401s during a reset (and its
+  # label index lags), so a single `gh issue edit` attempt is flaky. When it
+  # fails, the ticket is left without `agent:todo` and the orchestrator never
+  # dispatches it — for the 3-ticket blocker chain that strands the whole run
+  # (e.g. #101 opens its PR then pauses forever waiting on the never-dispatched
+  # #100, timing out ~90 min later). Retry a few times, then return an error so
+  # the caller refuses to launch a run that can't dispatch this ticket.
+  @label_reset_attempts 3
+  @label_reset_backoff_ms 1_500
+
   defp reset_labels(id) do
     [remove_argv, add_argv] = reset_labels_command_args(id)
+    runner = fn argv -> System.cmd("gh", argv, stderr_to_stdout: true) end
 
-    with {_, 0} <- System.cmd("gh", remove_argv, stderr_to_stdout: true),
-         {_, 0} <- System.cmd("gh", add_argv, stderr_to_stdout: true) do
-      ok("##{id} labels → agent:todo")
+    case apply_label_reset(remove_argv, add_argv, runner, @label_reset_attempts, @label_reset_backoff_ms) do
+      :ok ->
+        ok("##{id} labels → agent:todo")
+        :ok
+
+      {:error, output} ->
+        warn("##{id} label reset FAILED after #{@label_reset_attempts} attempts: #{output}")
+        {:error, {:label_reset_failed, id, output}}
+    end
+  end
+
+  @doc """
+  Run the remove-then-add label pair through `runner`, retrying the pair up to
+  `attempts` times on any non-zero `gh` exit. Returns `:ok` once both calls
+  succeed, or `{:error, last_output}` after the final attempt fails.
+
+  `runner` is an argv -> `{output, exit_code}` function (injected so the
+  retry/abort contract can be tested without shelling out to real `gh`).
+  IO-free by design: callers handle logging.
+  """
+  @type gh_runner :: ([String.t()] -> {String.t(), non_neg_integer()})
+
+  @spec apply_label_reset([String.t()], [String.t()], gh_runner(), pos_integer(), non_neg_integer()) ::
+          :ok | {:error, String.t()}
+  def apply_label_reset(remove_argv, add_argv, runner, attempts, backoff_ms)
+      when attempts > 0 do
+    with {_, 0} <- runner.(remove_argv),
+         {_, 0} <- runner.(add_argv) do
+      :ok
     else
-      {output, _} -> warn("##{id} label reset: #{String.trim(output)}")
+      {_output, _code} when attempts > 1 ->
+        if backoff_ms > 0, do: Process.sleep(backoff_ms)
+        apply_label_reset(remove_argv, add_argv, runner, attempts - 1, backoff_ms)
+
+      {output, _code} ->
+        {:error, String.trim(to_string(output))}
     end
   end
 
