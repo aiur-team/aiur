@@ -44,6 +44,11 @@ defmodule Aiur.AgentChat do
     if byte_size(text) > 500, do: binary_part(text, 0, 500) <> "…", else: text
   end
 
+  @spec interrupt(String.t()) :: :ok | {:error, term()}
+  def interrupt(issue_identifier) when is_binary(issue_identifier) do
+    Orchestrator.interrupt_agent(issue_identifier)
+  end
+
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}
   def pause(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.pause_agent(issue_identifier)

@@ -80,11 +80,13 @@ defmodule Aiur.CodingAgent do
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
-        # The persistent REPL has no JSON-RPC turn/interrupt; operator
-        # messages are typed straight into the live pane and the agent's
-        # native input queue folds them in, so there is no checkpoint to
-        # hold at and no aiur-driven interrupt.
-        can_interrupt: false,
+        # Operator messages are typed straight into the live pane and the
+        # agent's native input queue folds them in, so there is no
+        # checkpoint to hold at — `safe_checkpoints` stays empty and
+        # delivery is immediate. Interrupt is the explicit out-of-band
+        # action: `ReplAgent.interrupt/1` sends Ctrl+C to the pane, cutting
+        # the active turn so a queued message drains right away.
+        can_interrupt: true,
         safe_checkpoints: [],
         immediate_delivery: true,
         remote_control: true,

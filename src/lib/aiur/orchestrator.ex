@@ -2508,6 +2508,21 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
+  def interrupt_agent(issue_identifier), do: interrupt_agent(__MODULE__, issue_identifier)
+
+  @spec interrupt_agent(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def interrupt_agent(server, issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:interrupt_agent, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(issue_identifier), do: resume_agent(__MODULE__, issue_identifier)
 
@@ -3004,6 +3019,14 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:interrupt_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    {:reply, interrupt_agent_reply(state, issue_identifier), state}
+  end
+
+  def handle_call({:interrupt_agent, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
   def handle_call({:resume_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
     {reply, state} = resume_issue(state, issue_identifier)
     notify_dashboard(state)
@@ -3466,6 +3489,24 @@ defmodule Aiur.Orchestrator do
     send_running_control_message(state, issue_identifier, fn request_id ->
       {:pause_agent, request_id}
     end)
+  end
+
+  # Out-of-band interrupt: send Ctrl+C straight to the REPL pane so Claude
+  # cuts its active turn and its native queue drains the waiting message.
+  # Only the persistent-REPL backend exposes a pane to interrupt; every
+  # other backend folds operator input at a turn boundary instead, so they
+  # report `:interrupt_not_supported`.
+  defp interrupt_agent_reply(state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      %{repl_pane_id: pane_id} when is_binary(pane_id) ->
+        ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id})
+
+      running_entry when is_map(running_entry) ->
+        {:error, :interrupt_not_supported}
+
+      _ ->
+        {:error, :not_running}
+    end
   end
 
   defp do_reactivate(%State{} = state, running_entry) do

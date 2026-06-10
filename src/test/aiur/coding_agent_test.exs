@@ -137,8 +137,9 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.can_interrupt?("codex")
       assert CodingAgent.safe_checkpoints("codex") == [:notification, :tool_result]
       assert CodingAgent.safe_checkpoints("claude") == [:notification]
-      # The REPL backend holds nothing back: no interrupt, no checkpoint.
-      refute CodingAgent.can_interrupt?("claude-repl")
+      # The REPL holds nothing at a checkpoint, but Ctrl+C to its pane is
+      # an out-of-band interrupt, so it advertises the capability.
+      assert CodingAgent.can_interrupt?("claude-repl")
       assert CodingAgent.safe_checkpoints("claude-repl") == []
     end
 
