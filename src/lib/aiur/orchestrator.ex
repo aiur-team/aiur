@@ -3853,7 +3853,10 @@ defmodule Aiur.Orchestrator do
     os_pid = Map.get(running_entry, :repl_os_pid)
 
     if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
-    RemoteControl.graceful_kill(os_pid)
+
+    # The REPL pane's `exec claude` can spawn tool/MCP children that would
+    # orphan and keep working on a single-pid kill, so reap the subtree.
+    RemoteControl.graceful_kill_tree(os_pid)
 
     # The headless fallback has no pane; its `bash -lc` wrapper leaves
     # claude/node grandchildren that reparent to init, so reap the subtree.
