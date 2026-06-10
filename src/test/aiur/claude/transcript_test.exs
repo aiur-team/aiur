@@ -355,6 +355,36 @@ defmodule Aiur.Claude.TranscriptTest do
       assert [] = Transcript.extract_disk_record(user_record(""), "turn-1")
     end
 
+    test "a queued_command attachment → one :user event (Claude Remote Control message)" do
+      record = %{
+        "type" => "attachment",
+        "timestamp" => "2026-06-10T20:38:33.461Z",
+        "attachment" => %{
+          "type" => "queued_command",
+          "commandMode" => "prompt",
+          "prompt" => "hi from claude remote control app"
+        }
+      }
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.role == :user
+      assert event.body == "hi from claude remote control app"
+      assert event.turn_id == "turn-1"
+    end
+
+    test "a slash-command attachment is skipped (control input, not chat)" do
+      record = %{
+        "type" => "attachment",
+        "attachment" => %{
+          "type" => "queued_command",
+          "commandMode" => "command",
+          "prompt" => "/compact"
+        }
+      }
+
+      assert [] = Transcript.extract_disk_record(record, "turn-1")
+    end
+
     test "non-conversational records are skipped" do
       for type <- ~w(bridge-session system file-history-snapshot ai-title last-prompt permission-mode attachment queue-operation pr-link) do
         assert [] = Transcript.extract_disk_record(%{"type" => type, "message" => %{}}, "turn-1")

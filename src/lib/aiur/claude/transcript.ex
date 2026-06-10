@@ -62,9 +62,11 @@ defmodule Aiur.Claude.Transcript do
   A bare user prompt string (the operator's own typed message, which the
   harness writes with `message.content` as a plain string) maps to a
   single `:user` event so replayed history shows messages from both
-  surfaces. Non-conversational records (`bridge-session`, `system`,
+  surfaces. A `queued_command` `attachment` is a Claude Remote Control
+  app message (the only on-disk trace of one) and also maps to a `:user`
+  event. Non-conversational records (`bridge-session`, `system`,
   `file-history-snapshot`, `ai-title`, `last-prompt`, `permission-mode`,
-  `attachment`, `queue-operation`, `pr-link`) yield `[]`.
+  `queue-operation`, `pr-link`) yield `[]`.
   """
   @spec extract_disk_record(map(), String.t() | nil) :: [AgentEvents.transcript_event()]
   def extract_disk_record(record, fallback_turn_id) when is_map(record) do
@@ -78,6 +80,9 @@ defmodule Aiur.Claude.Transcript do
 
       "user" ->
         extract_user_record(record, fallback_turn_id)
+
+      "attachment" ->
+        extract_attachment_record(record, fallback_turn_id)
 
       _ ->
         []
@@ -101,6 +106,28 @@ defmodule Aiur.Claude.Transcript do
 
       _ ->
         []
+    end
+  end
+
+  # A Claude Remote Control app message is persisted only as a
+  # `queued_command` attachment — the relay never writes a `type: "user"`
+  # record for it — so without this clause RC-origin messages never reach
+  # the opencode conversation pane. Slash-commands (`commandMode` other
+  # than `"prompt"`) are control input, not chat, so they stay dropped.
+  defp extract_attachment_record(record, fallback_turn_id) do
+    attachment = get(record, :attachment) || %{}
+
+    with "queued_command" <- get(attachment, :type),
+         "prompt" <- get(attachment, :commandMode),
+         prompt when is_binary(prompt) and prompt != "" <- get(attachment, :prompt) do
+      [
+        AgentEvents.transcript_event(:user, prompt,
+          timestamp: disk_timestamp(record),
+          turn_id: fallback_turn_id
+        )
+      ]
+    else
+      _ -> []
     end
   end
 
