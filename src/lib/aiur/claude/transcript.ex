@@ -123,7 +123,8 @@ defmodule Aiur.Claude.Transcript do
       [
         AgentEvents.transcript_event(:user, prompt,
           timestamp: disk_timestamp(record),
-          turn_id: fallback_turn_id
+          turn_id: fallback_turn_id,
+          payload: %{origin: :remote}
         )
       ]
     else

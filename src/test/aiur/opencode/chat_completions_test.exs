@@ -160,6 +160,11 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       assert out == "\n> 🔔 awaiting approval\n"
     end
 
+    test ":user (Remote Control message) renders as a blockquote with speech emoji" do
+      out = ChatCompletions.format_delta(:user, "hi from claude remote control app")
+      assert out == "\n> 💬 hi from claude remote control app\n"
+    end
+
     test "unknown role passes the body through unchanged" do
       assert ChatCompletions.format_delta(:assistant, "hi") == "hi"
     end

@@ -161,6 +161,16 @@ defmodule Aiur.Opencode.ChatCompletions do
         conn = chunk(conn, completion_id, delta, nil)
         codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, role)
 
+      # A remote-origin user message (typed in the Claude Remote Control
+      # app) is the one `:user` event opencode never echoed locally, so
+      # render it. Opencode-origin `:user` events carry no payload and
+      # fall through to the drop clause below to avoid double-rendering
+      # the operator's own typed input.
+      {:transcript_event, %{role: :user, body: body, payload: %{origin: :remote}}} ->
+        delta = bar_connector(last_role, :system) <> format_delta(:user, body)
+        conn = chunk(conn, completion_id, delta, nil)
+        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, :system)
+
       {:transcript_event, %{role: :user}} ->
         codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
 
@@ -309,6 +319,8 @@ defmodule Aiur.Opencode.ChatCompletions do
   def format_delta(:reasoning, body, _event), do: "\n_#{body}_\n"
   def format_delta(:alert, body, _event), do: "\n> 🔔 #{body}\n"
   def format_delta(:system, body, _event), do: "\n> #{body}\n"
+  # Remote Control app message — the only `:user` line the bridge renders.
+  def format_delta(:user, body, _event), do: "\n> 💬 #{body}\n"
   def format_delta(_role, body, _event), do: body
 
   # Render a command-style line as `> <prefix>\`<body>\`` so the
