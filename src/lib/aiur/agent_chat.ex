@@ -6,6 +6,7 @@ defmodule Aiur.AgentChat do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator}
+  alias Aiur.Opencode.SlotRegistry
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
   @spec send(String.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
@@ -47,6 +48,18 @@ defmodule Aiur.AgentChat do
   @spec interrupt(String.t()) :: :ok | {:error, term()}
   def interrupt(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.interrupt_agent(issue_identifier)
+  end
+
+  @spec pane_interrupt(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane} | {:error, term()}
+  def pane_interrupt(pane_id) when is_binary(pane_id) do
+    case SlotRegistry.find_by_pane_id(pane_id) do
+      {:ok, _slot_index, issue_identifier} ->
+        Orchestrator.pane_interrupt(issue_identifier)
+
+      :not_found ->
+        {:error, :no_pane_agent}
+    end
   end
 
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}

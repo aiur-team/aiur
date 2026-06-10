@@ -23,6 +23,10 @@ defmodule Aiur.AgentChatTest do
     assert reason in [:unavailable, :not_running]
   end
 
+  test "pane_interrupt reports no_pane_agent for an unknown pane" do
+    assert {:error, :no_pane_agent} = AgentChat.pane_interrupt("%no-such-pane")
+  end
+
   test "capabilities delegates to orchestrator control path" do
     assert {:ok, capabilities} = AgentChat.capabilities("MT-CHAT")
     assert capabilities.accepted_delivery_policies == [:checkpoint]

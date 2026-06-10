@@ -152,6 +152,29 @@ defmodule Aiur.Opencode.SlotRegistryTest do
     send(pid_b, :exit)
   end
 
+  test "find_by_pane_id/1 returns the slot painted into a pane" do
+    parent = self()
+    ref = make_ref()
+
+    pid =
+      spawn(fn ->
+        :ok = SlotRegistry.register_self(40)
+        :ok = SlotRegistry.update_pane_state(40, "agent-p", "%200")
+        send(parent, {ref, :ready})
+
+        receive do
+          :exit -> :ok
+        end
+      end)
+
+    assert_receive {^ref, :ready}, 1_000
+
+    assert {:ok, 40, "agent-p"} = SlotRegistry.find_by_pane_id("%200")
+    assert :not_found = SlotRegistry.find_by_pane_id("%999")
+
+    send(pid, :exit)
+  end
+
   test "find_visible/1 ignores slots whose pane_id is nil (not yet painted)" do
     parent = self()
     ref = make_ref()

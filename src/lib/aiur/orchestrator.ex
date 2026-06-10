@@ -2523,6 +2523,23 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec pane_interrupt(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane} | {:error, term()}
+  def pane_interrupt(issue_identifier), do: pane_interrupt(__MODULE__, issue_identifier)
+
+  @spec pane_interrupt(GenServer.server(), String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane} | {:error, term()}
+  def pane_interrupt(server, issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:pane_interrupt, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(issue_identifier), do: resume_agent(__MODULE__, issue_identifier)
 
@@ -3027,6 +3044,14 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:pane_interrupt, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    {:reply, pane_interrupt_reply(state, issue_identifier), state}
+  end
+
+  def handle_call({:pane_interrupt, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
   def handle_call({:resume_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
     {reply, state} = resume_issue(state, issue_identifier)
     notify_dashboard(state)
@@ -3506,6 +3531,66 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         {:error, :not_running}
+    end
+  end
+
+  # Operator pressed Ctrl+C on the agent's opencode pane. The action is
+  # derived from the agent's live state, matching the Claude/Codex mental
+  # model: a queued message drains right away, an idle agent pauses, and a
+  # second press on an already-paused agent closes the pane (the caller
+  # performs the kill; the agent stays parked and paused). Only the
+  # persistent-REPL backend exposes a pane to drain, so other backends
+  # report `:interrupt_not_supported` and the caller falls back to a plain
+  # pane close.
+  defp pane_interrupt_reply(state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      %{repl_pane_id: pane_id} = entry when is_binary(pane_id) ->
+        action =
+          pane_interrupt_action(
+            paused_running_entry?(entry),
+            queue_depth_for_issue(state, issue_identifier)
+          )
+
+        perform_pane_interrupt(action, state, issue_identifier, pane_id)
+
+      running_entry when is_map(running_entry) ->
+        {:error, :interrupt_not_supported}
+
+      _ ->
+        {:error, :not_running}
+    end
+  end
+
+  defp perform_pane_interrupt(:close_pane, _state, _issue_identifier, _pane_id),
+    do: {:ok, :close_pane}
+
+  defp perform_pane_interrupt(:interrupt, _state, _issue_identifier, pane_id) do
+    case ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id}) do
+      :ok -> {:ok, :interrupted}
+      other -> other
+    end
+  end
+
+  defp perform_pane_interrupt(:pause, state, issue_identifier, _pane_id) do
+    case send_pause_control_message(state, issue_identifier) do
+      {:ok, _request_id} -> {:ok, :paused}
+      other -> other
+    end
+  end
+
+  @doc """
+  Pure 3-state Ctrl+C decision. A paused agent closes its pane; an agent
+  with a queued message drains it; an idle agent pauses. Public so the
+  mapping can be unit-tested without scaffolding the REPL pane or queue.
+  """
+  @spec pane_interrupt_action(boolean(), non_neg_integer()) ::
+          :close_pane | :interrupt | :pause
+  def pane_interrupt_action(paused?, queue_depth)
+      when is_boolean(paused?) and is_integer(queue_depth) do
+    cond do
+      paused? -> :close_pane
+      queue_depth > 0 -> :interrupt
+      true -> :pause
     end
   end
 
