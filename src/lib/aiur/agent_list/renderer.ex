@@ -507,31 +507,13 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  # RC footer text: the transient hint takes priority (immediate
-  # feedback after `r`/Space), falling back to the selected RC-on
-  # agent's session URL — the actionable output of the feature. The
-  # URL is a capability token shown to the local operator only; it is
-  # never logged.
+  # RC footer text: just the transient hint (immediate feedback after the
+  # `r`/Space toggle). The session URL itself now rides in the agent's
+  # chat-pane top border (set via tmux in `Aiur.AgentList.App`) so it
+  # travels with the pane it belongs to instead of floating in the footer.
   defp rc_footer_text(state) do
     case Map.get(state, :remote_control_hint) do
-      hint when is_binary(hint) and hint != "" ->
-        hint
-
-      _ ->
-        selected_remote_control_url(state)
-    end
-  end
-
-  defp selected_remote_control_url(state) do
-    summaries = Map.get(state, :summaries, [])
-    idx = Map.get(state, :selection_index, 0)
-    focus = Map.get(state, :selection_focus, :agents)
-
-    with :agents <- focus,
-         %{remote_control: %{status: :on, session_url: url}} when is_binary(url) <-
-           Enum.at(summaries, idx) do
-      "📱 " <> url
-    else
+      hint when is_binary(hint) and hint != "" -> hint
       _ -> nil
     end
   end

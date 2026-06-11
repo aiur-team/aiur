@@ -829,7 +829,10 @@ defmodule Aiur.AgentList.RendererTest do
       assert String.ends_with?(String.trim_trailing(off_row), "│")
     end
 
-    test "selecting an RC-on agent renders its session URL on the footer line" do
+    test "an RC-on agent's session URL is kept OFF the footer (it rides the pane border now)" do
+      # The capability-token URL moved to the chat-pane top border (set via
+      # tmux in Aiur.AgentList.App) so it travels with the pane it belongs
+      # to. The agent-list footer must no longer surface it.
       url = "https://claude.ai/code/session_01ABC"
 
       summaries = [
@@ -852,7 +855,7 @@ defmodule Aiur.AgentList.RendererTest do
         )
         |> visible()
 
-      assert out =~ url
+      refute out =~ url
     end
 
     test "a transient hint is shown on the footer line" do

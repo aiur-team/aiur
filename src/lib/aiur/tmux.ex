@@ -37,6 +37,24 @@ defmodule Aiur.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  Show `text` in this pane's top border, or clear it when `text` is `nil`.
+
+  Goes through a silent exec that never logs the value: the only caller
+  surfaces the Remote Control session URL, a capability token that must
+  never reach `log/`. The generic `command/3` path logs every exec at
+  debug (and logs args on error), so it can't carry this value.
+  """
+  @spec set_pane_border(GenServer.server(), String.t(), String.t() | nil) ::
+          :ok | {:error, term()}
+  def set_pane_border(server \\ __MODULE__, pane_id, text)
+      when is_binary(pane_id) and (is_binary(text) or is_nil(text)) do
+    GenServer.call(server, {:set_pane_border, pane_id, text})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @spec subscribe_events(GenServer.server()) :: :ok | {:error, term()}
   def subscribe_events(server \\ __MODULE__) do
     GenServer.call(server, {:subscribe, self()})
@@ -380,6 +398,18 @@ defmodule Aiur.Tmux do
   @impl true
   def handle_call({:command, cmd}, _from, state) do
     {:reply, run_command(state, cmd), state}
+  end
+
+  def handle_call({:set_pane_border, pane_id, nil}, _from, state) do
+    _ = run_args_silent(state, ["set-option", "-pu", "-t", pane_id, "pane-border-status"])
+    _ = run_args_silent(state, ["set-option", "-pu", "-t", pane_id, "pane-border-format"])
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_pane_border, pane_id, text}, _from, state) when is_binary(text) do
+    _ = run_args_silent(state, ["set-option", "-p", "-t", pane_id, "pane-border-status", "top"])
+    _ = run_args_silent(state, ["set-option", "-p", "-t", pane_id, "pane-border-format", text])
+    {:reply, :ok, state}
   end
 
   def handle_call({:split_pane, target_pane, direction, percent, command_to_run, silent?}, _from, state) do
@@ -732,6 +762,38 @@ defmodule Aiur.Tmux do
             handle_tmux_exit(String.trim(output), status, full_args)
         end
     end
+  end
+
+  # Like `run_args/2` but never logs the args — they may carry the RC
+  # session URL (a capability token). The mock transport already routes to
+  # the test pid rather than Logger, so only the shell path needs a
+  # value-free variant; on error it logs the subcommand and status only.
+  defp run_args_silent(%{transport: {:mock, _}} = state, args), do: run_args(state, args)
+
+  defp run_args_silent(%{transport: :shell}, args) do
+    full_args = prepend_socket(args)
+
+    case System.find_executable("tmux") do
+      nil ->
+        Logger.warning("Tmux exec failed: tmux not in $PATH")
+        {:error, :no_tmux_executable}
+
+      tmux ->
+        case System.cmd(tmux, full_args, stderr_to_stdout: true) do
+          {output, 0} ->
+            {:ok, output |> String.trim_trailing("\n") |> String.split("\n", trim: true)}
+
+          {output, status} ->
+            Logger.warning("Tmux silent exec exit=#{status} subcommand=#{redact_subcommand(args)}")
+            {:error, String.trim(output)}
+        end
+    end
+  end
+
+  # First two tokens identify the operation (e.g. "set-option -p") without
+  # exposing any value argument that might contain a secret.
+  defp redact_subcommand(args) do
+    args |> Enum.take(2) |> Enum.join(" ")
   end
 
   # Inject text via a tmux paste buffer so delivery isn't capped by tmux's

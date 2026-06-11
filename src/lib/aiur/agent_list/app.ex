@@ -137,6 +137,7 @@ defmodule Aiur.AgentList.App do
     write_fun = Keyword.get(opts, :write_fun, &IO.write/1)
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
     orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+    tmux = Keyword.get(opts, :tmux, Aiur.Tmux)
     command_template = Keyword.get(opts, :command_template, default_command_template())
     {cols, rows} = terminal_geometry()
 
@@ -175,7 +176,13 @@ defmodule Aiur.AgentList.App do
       write_fun: write_fun,
       pane_manager: pane_manager,
       orchestrator: orchestrator,
+      tmux: tmux,
       command_template: command_template,
+      # pane_id => RC border text currently applied to that pane's top
+      # border, so reconcile only re-issues tmux set-option when the text
+      # actually changes. The text holds the RC session URL (a capability
+      # token) and so lives only in memory — never logged or rendered.
+      rc_pane_borders: %{},
       # slot_index → currently-visible identifier (nil = slot idle).
       # Updated on `:slot_session_changed` PubSub events from Slot workers.
       # This is the single source of truth for the agent-list circle
@@ -517,6 +524,82 @@ defmodule Aiur.AgentList.App do
     end
   end
 
+  # --- Remote Control pane-border surfacing (#13) ------------------------
+  #
+  # The RC session URL is remote control's actionable output: a capability
+  # token the operator opens on their phone to drive the agent. It rides in
+  # the agent's chat-pane top border (set via tmux) rather than the
+  # agent-list footer, so it travels with the pane it belongs to and stays
+  # unambiguous when several RC agents are open at once.
+  #
+  # Reconcile runs on `:running_changed` (URL arrives/changes, or RC
+  # toggles) and `:pane_opened` (a pane the URL can attach to appears). It
+  # diffs the desired border per open pane against what was last applied and
+  # only calls tmux for panes that changed, so the 1 Hz running_changed tick
+  # doesn't re-issue set-option every second.
+  defp reconcile_rc_pane_borders(state) do
+    open_panes = safe_list_open_panes(state.pane_manager)
+    {changes, applied} = rc_border_changes(open_panes, state.summaries, state.rc_pane_borders)
+
+    Enum.each(changes, fn {pane_id, text} ->
+      Aiur.Tmux.set_pane_border(state.tmux, pane_id, text)
+    end)
+
+    %{state | rc_pane_borders: applied}
+  end
+
+  defp safe_list_open_panes(pane_manager) do
+    PaneManager.list_open_panes(pane_manager)
+  catch
+    :exit, _ -> %{}
+  end
+
+  @doc false
+  # Pure reconciliation: given the open panes (identifier => pane_id), the
+  # agent summaries, and the borders already applied (pane_id => text),
+  # return `{changes, next_applied}`. `changes` is the `{pane_id, text | nil}`
+  # list to push to tmux (nil clears the border); `next_applied` tracks only
+  # currently-open panes, so closed panes self-prune (tmux drops a dead
+  # pane's options on its own).
+  @spec rc_border_changes(
+          %{optional(String.t()) => String.t()},
+          [map()],
+          %{optional(String.t()) => String.t()}
+        ) :: {[{String.t(), String.t() | nil}], %{optional(String.t()) => String.t()}}
+  def rc_border_changes(open_panes, summaries, applied) do
+    url_by_id =
+      summaries
+      |> Enum.map(fn s -> {to_string(Map.get(s, :identifier)), rc_border_text(s)} end)
+      |> Map.new()
+
+    desired =
+      Map.new(open_panes, fn {identifier, pane_id} ->
+        {pane_id, Map.get(url_by_id, to_string(identifier))}
+      end)
+
+    changes =
+      Enum.flat_map(desired, fn {pane_id, text} ->
+        if Map.get(applied, pane_id) == text, do: [], else: [{pane_id, text}]
+      end)
+
+    next_applied =
+      desired
+      |> Enum.reject(fn {_pane_id, text} -> is_nil(text) end)
+      |> Map.new()
+
+    {changes, next_applied}
+  end
+
+  # The border string for a summary, or nil when the agent has no live RC
+  # session. `#` is doubled because tmux's `pane-border-format` treats it as
+  # the start of a format expansion; claude session URLs carry none today,
+  # but doubling stops a stray `#` from corrupting the border.
+  defp rc_border_text(%{remote_control: %{status: :on, session_url: url}}) when is_binary(url) do
+    " 📱 " <> String.replace(url, "#", "##") <> " "
+  end
+
+  defp rc_border_text(_summary), do: nil
+
   @impl true
   def handle_info({:running_changed, summaries}, state) do
     summaries = visible_summaries(summaries)
@@ -592,6 +675,7 @@ defmodule Aiur.AgentList.App do
         progress_by_id: progress_by_id
     }
 
+    new_state = reconcile_rc_pane_borders(new_state)
     render(new_state)
     {:noreply, new_state}
   end
@@ -618,7 +702,11 @@ defmodule Aiur.AgentList.App do
   # AttachPool's `visible_in` is set (which fires at leadoff-paint
   # time, before the user has opened anything).
   def handle_info({:status_changed, %{identifier: id, status: :pane_opened}}, state) do
-    new_state = update_in(state.opened_panes, &MapSet.put(&1, to_string(id)))
+    new_state =
+      state
+      |> update_in([:opened_panes], &MapSet.put(&1, to_string(id)))
+      |> reconcile_rc_pane_borders()
+
     render(new_state)
     {:noreply, new_state}
   end

@@ -69,6 +69,58 @@ defmodule Aiur.TmuxTest do
     assert :ok = Task.await(task, 1_000)
   end
 
+  test "set_pane_border/3 turns on the top border and forwards the text to that pane", %{name: name} do
+    parent = self()
+    # The text carries the RC session URL — a capability token. This test
+    # asserts it reaches tmux on the pane-border-format arg; the security
+    # property (never logged) is enforced by the dedicated silent exec path
+    # in Tmux, which logs no args.
+    url = "https://claude.ai/code/session_TESTONLY"
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.set_pane_border(name, "%9", " 📱 #{url} ")
+      end)
+
+    assert_receive :ready
+
+    assert_receive {:tmux_mock_out, status_cmd}, 1_000
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert_receive {:tmux_mock_out, format_cmd}, 1_000
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert :ok = Task.await(task, 1_000)
+
+    assert status_cmd == "set-option -p -t %9 pane-border-status top"
+    assert format_cmd =~ "set-option -p -t %9 pane-border-format"
+    assert format_cmd =~ url
+  end
+
+  test "set_pane_border/3 with nil unsets both border options on that pane", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.set_pane_border(name, "%9", nil)
+      end)
+
+    assert_receive :ready
+
+    assert_receive {:tmux_mock_out, unset_status}, 1_000
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert_receive {:tmux_mock_out, unset_format}, 1_000
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert :ok = Task.await(task, 1_000)
+
+    assert unset_status == "set-option -pu -t %9 pane-border-status"
+    assert unset_format == "set-option -pu -t %9 pane-border-format"
+  end
+
   test "move_pane_visible/3 issues move-pane -s -t -h (no -d) to the visible target", %{name: name} do
     parent = self()
 
