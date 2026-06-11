@@ -53,13 +53,18 @@ defmodule Aiur.AgentChat do
   @spec pane_interrupt(String.t()) ::
           {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
   def pane_interrupt(pane_id) when is_binary(pane_id) do
-    case SlotRegistry.find_by_pane_id(pane_id) do
-      {:ok, _slot_index, issue_identifier} ->
-        Orchestrator.pane_interrupt(issue_identifier)
+    {via, result} =
+      case SlotRegistry.find_by_pane_id(pane_id) do
+        {:ok, _slot_index, issue_identifier} ->
+          {{:slot, issue_identifier}, Orchestrator.pane_interrupt(issue_identifier)}
 
-      :not_found ->
-        Orchestrator.pane_interrupt_by_pane_id(pane_id)
-    end
+        :not_found ->
+          {:pane_id, Orchestrator.pane_interrupt_by_pane_id(pane_id)}
+      end
+
+    Logger.info("aiur_ctrlc bridge pane_id=#{pane_id} via=#{inspect(via)} result=#{inspect(result)}")
+
+    result
   end
 
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}

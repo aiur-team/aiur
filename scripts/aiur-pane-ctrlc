@@ -21,14 +21,23 @@ set -u
 pane_id="${1:-}"
 control_url="${2:-}"
 
+# Always-on breadcrumb so a Ctrl+C that closes a pane leaves evidence of which
+# branch ran — the tmux binding and this helper are otherwise invisible to
+# aiur.log. One line per press; pane id and outcome only, never the URL.
+log_ctrlc() {
+  printf '%s ctrlc pane_id=%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$pane_id" "$1" \
+    >> "${TMPDIR:-/tmp}/aiur-ctrlc.log" 2>/dev/null || true
+}
+
 close_pane() {
+  log_ctrlc "action=close_pane reason=${1:-degraded}"
   [ -n "$pane_id" ] && tmux kill-pane -t "$pane_id" 2>/dev/null
   exit 0
 }
 
 # No pane to act on, or no idea where Aiur is listening: degrade to close.
 [ -z "$pane_id" ] && exit 0
-[ -z "$control_url" ] && close_pane
+[ -z "$control_url" ] && close_pane "no_control_url"
 
 # Loopback dashboards bind without auth; only attach credentials when the
 # operator has explicitly configured them for a non-loopback bind.
@@ -45,14 +54,17 @@ response="$(
     --data-urlencode "pane_id=${pane_id}" \
     $auth_args \
     "${control_url}/api/v1/pane/interrupt" 2>/dev/null
-)" || close_pane
+)" || close_pane "curl_failed"
 
 # The agent handled the keypress (delivered a queued message, drained its
 # queue, or paused). Leave the pane open so the operator stays in the
 # conversation.
 case "$response" in
-  *interrupted* | *paused* | *deliver_queue*) exit 0 ;;
+  *interrupted* | *paused* | *deliver_queue*)
+    log_ctrlc "action=keep_open response=${response}"
+    exit 0
+    ;;
 esac
 
 # close_pane, an error, or any unexpected body: close the pane.
-close_pane
+close_pane "response=${response}"
