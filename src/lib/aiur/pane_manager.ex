@@ -1539,7 +1539,7 @@ defmodule Aiur.PaneManager do
         AgentPubSub.broadcast_status_change(identifier, :pane_closed)
         new_state = forget_pane_by_identifier(state, pane_id)
         _ = apply_layout(new_state)
-        new_state
+        refocus_agent_list_if_focused(new_state, pane_id)
 
       :error ->
         # Unknown pane (could be the agent-list pane itself, a loading
@@ -1551,7 +1551,22 @@ defmodule Aiur.PaneManager do
           |> drop_placeholder_by_pane(pane_id)
 
         _ = apply_layout(new_state)
-        new_state
+        refocus_agent_list_if_focused(new_state, pane_id)
+    end
+  end
+
+  # When the pane the user was focused in dies, tmux auto-selects an
+  # adjacent agent pane — so keystrokes keep landing in opencode and the
+  # agent list looks frozen (j/k/arrows do nothing). Pull focus back to
+  # the agent-list anchor pane so the list stays drivable. Only fires for
+  # the focused pane: a background pane dying must not yank the user out
+  # of the pane they are actually using.
+  defp refocus_agent_list_if_focused(state, closed_pane_id) do
+    if closed_pane_id == state.last_attached_pane_id do
+      _ = Tmux.command(state.tmux, "select-pane -t #{state.agent_list_pane}")
+      %{state | last_attached_pane_id: nil}
+    else
+      state
     end
   end
 

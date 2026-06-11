@@ -304,6 +304,38 @@ defmodule Aiur.PaneManagerTest do
     refute Map.has_key?(panes, "MT-1")
   end
 
+  test "focused pane dying returns focus to the agent-list pane", %{tmux: tmux, pm: pm} do
+    open_in_slot(pm, tmux, "MT-1", "%10")
+
+    # Attaching marks %10 as the focused pane (last_attached_pane_id).
+    attach_task = Task.async(fn -> PaneManager.attach_conversation(pm, "MT-1", "echo hi") end)
+    drain_focus(tmux, "%10")
+    assert {:ok, "%10"} = Task.await(attach_task, 1_000)
+
+    # The focused pane dies (e.g. user hit Ctrl+C and opencode closed it).
+    send(GenServer.whereis(pm), {:tmux_event, {:notification, :pane_died, "%10"}})
+
+    drain_layout_apply(tmux)
+    # Focus must snap back to the agent-list pane so j/k/arrows reach it.
+    drain_focus(tmux, "%1")
+  end
+
+  test "background pane dying does not steal focus", %{tmux: tmux, pm: pm} do
+    open_in_slot(pm, tmux, "MT-1", "%10")
+    open_in_slot(pm, tmux, "MT-2", "%11")
+
+    # User is focused in %11; %10 is a background pane.
+    attach_task = Task.async(fn -> PaneManager.attach_conversation(pm, "MT-2", "echo hi") end)
+    drain_focus(tmux, "%11")
+    assert {:ok, "%11"} = Task.await(attach_task, 1_000)
+
+    send(GenServer.whereis(pm), {:tmux_event, {:notification, :pane_died, "%10"}})
+    drain_layout_apply(tmux)
+
+    # No refocus should fire — the user stays in the pane they were using.
+    refute_receive {:tmux_mock_out, "select-pane -t " <> _}, 200
+  end
+
   test "toggle_orientation flips state and re-applies the layout", %{tmux: tmux, pm: pm} do
     assert PaneManager.orientation(pm) == :horizontal
 
