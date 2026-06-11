@@ -144,6 +144,38 @@ defmodule Aiur.OrchestratorInterruptTest do
       # Second Ctrl+C, now that the agent reads as paused, closes the pane.
       assert {:ok, :close_pane} = Orchestrator.pane_interrupt("repl-1")
     end
+
+    test "queued message on a REPL agent never closes the pane even if the interrupt fails",
+         %{orchestrator: pid} do
+      # Dual-surface agent (opencode pane + repl pane) carrying a queued
+      # operator message. Ctrl+C routes through the repl_pane_id branch, which
+      # fires a hardware interrupt. `:interrupt` is only ever chosen when a
+      # message is queued, so a failed interrupt (repl pane already gone, tmux
+      # hiccup) must still keep the pane open for the message to fold — never
+      # propagate the error, which the bridge controller maps to :close_pane
+      # and the helper turns into a kill-pane, dropping the queued input.
+      entry =
+        running_entry("repl-1", %{
+          repl_pane_id: "%9",
+          control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
+        })
+
+      :sys.replace_state(pid, fn state ->
+        {queue_store, _item} =
+          Aiur.AgentQueueStore.enqueue(state.queue_store, %{
+            target_issue_identifier: "repl-1",
+            source: :operator,
+            category: :operator_message,
+            event_type: :operator_message,
+            body: %{text: "hi from opencode"}
+          })
+
+        %{state | running: %{"repl-1" => entry}, queue_store: queue_store}
+      end)
+
+      # No tmux server backs %9 in the test env, so Tmux.send_interrupt fails.
+      assert {:ok, :interrupted} = Orchestrator.pane_interrupt("repl-1")
+    end
   end
 
   describe "pane_interrupt_by_pane_id/1" do

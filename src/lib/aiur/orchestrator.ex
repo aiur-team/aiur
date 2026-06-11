@@ -3634,13 +3634,14 @@ defmodule Aiur.Orchestrator do
     do: {{:ok, :deliver_queue}, state}
 
   defp perform_pane_interrupt(:interrupt, state, _entry, _issue_identifier, pane_id) do
-    reply =
-      case ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id}) do
-        :ok -> {:ok, :interrupted}
-        other -> other
-      end
-
-    {reply, state}
+    # `:interrupt` is only ever chosen when a message is queued. The hardware
+    # interrupt is best-effort: a failure (repl pane already gone, tmux hiccup)
+    # must not close the pane out from under the pending message — propagating
+    # the error makes the bridge controller map it to :close_pane and the
+    # helper kill the pane, dropping the queued input. Keep the pane open so
+    # the message folds at the next turn boundary.
+    _ = ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id})
+    {{:ok, :interrupted}, state}
   end
 
   # Optimistically flip the entry to `:paused` (mirrors `maybe_pause_on_request`)
