@@ -58,7 +58,8 @@ defmodule Aiur.AgentEvents do
           optional(:title) => String.t() | nil,
           optional(:runtime_seconds) => non_neg_integer(),
           optional(:turn_count) => non_neg_integer(),
-          optional(:work_state) => atom() | String.t()
+          optional(:work_state) => atom() | String.t(),
+          optional(:backend) => String.t()
         }
 
   @type transcript_message :: {:transcript_event, transcript_event()}

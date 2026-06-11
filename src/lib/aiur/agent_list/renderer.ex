@@ -836,11 +836,28 @@ defmodule Aiur.AgentList.Renderer do
         Map.get(summary, :status) == :queued -> "Queueing agent…"
         is_nil(attach) -> "Warming up…"
         match?(%{visible_in: nil}, attach) -> "Warming up…"
-        not has_content -> "Starting codex…"
+        not has_content -> starting_phrase(summary)
         true -> ""
       end
 
     if phrase == "", do: "", else: spinner <> " " <> phrase
+  end
+
+  # The "Starting" placeholder should name the agent's own engine, not a
+  # hardcoded backend. The summary carries the resolved backend string
+  # (e.g. "claude-repl", "codex"); the engine family is its first segment.
+  defp starting_phrase(summary) do
+    case engine_word(summary) do
+      nil -> "Starting…"
+      word -> "Starting #{word}…"
+    end
+  end
+
+  defp engine_word(summary) do
+    case Map.get(summary, :backend) do
+      backend when is_binary(backend) -> backend |> String.split("-") |> List.first()
+      _ -> nil
+    end
   end
 
   defp latest_event_message(nil), do: ""

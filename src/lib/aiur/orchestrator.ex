@@ -2127,6 +2127,7 @@ defmodule Aiur.Orchestrator do
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working,
+              backend: entry_backend(entry),
               remote_control: remote_control_summary(entry)
             })
         end
@@ -2152,6 +2153,7 @@ defmodule Aiur.Orchestrator do
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working,
+              backend: entry_backend(entry),
               remote_control: remote_control_summary(entry)
             })
           ]
@@ -2160,6 +2162,16 @@ defmodule Aiur.Orchestrator do
 
     (polled_summaries ++ extra_running)
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
+  end
+
+  # Resolved backend string for a running entry, so the agent list can name
+  # the agent's own engine in its placeholder rather than guessing. nil when
+  # the entry carries no issue; agent_summary drops the nil.
+  defp entry_backend(entry) do
+    case Map.get(entry, :issue) do
+      %Issue{} = issue -> CodingAgent.backend_for(issue)
+      _ -> nil
+    end
   end
 
   defp agent_statuses(%State{} = state) do

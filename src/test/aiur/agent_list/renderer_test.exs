@@ -400,6 +400,40 @@ defmodule Aiur.AgentList.RendererTest do
     refute no_paint =~ "⚪"
   end
 
+  describe "Starting-phase placeholder names the agent's own engine" do
+    defp starting_state(backend) do
+      summary = %{identifier: "MT-S", status: :running, alert_count: 0, work_state: :working}
+      summary = if backend, do: Map.put(summary, :backend, backend), else: summary
+
+      base_state(%{
+        columns: 200,
+        summaries: [summary],
+        attach_state: %{"MT-S" => %{attach_count: 1, visible_in: 1}},
+        agents_with_content: MapSet.new()
+      })
+    end
+
+    test "a claude-repl agent reads Starting claude, never codex" do
+      out = render(starting_state("claude-repl")) |> visible()
+
+      assert out =~ "Starting claude…"
+      refute out =~ "codex"
+    end
+
+    test "a codex agent reads Starting codex" do
+      out = render(starting_state("codex")) |> visible()
+
+      assert out =~ "Starting codex…"
+    end
+
+    test "an unknown backend falls back to a generic Starting…" do
+      out = render(starting_state(nil)) |> visible()
+
+      assert out =~ "Starting…"
+      refute out =~ "codex"
+    end
+  end
+
   test "warm-status row removed entirely (no ⬜️/🔲 glyphs in any render)" do
     summaries = [
       %{identifier: "MT-A", status: :running, alert_count: 0, work_state: :working}
