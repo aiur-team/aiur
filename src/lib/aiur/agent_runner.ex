@@ -44,10 +44,28 @@ defmodule Aiur.AgentRunner do
         :ok
 
       {:error, reason} ->
-        Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
-        raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
+        if transient_run_error?(reason) do
+          Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
+          :ok
+        else
+          Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
+          raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
+        end
     end
   end
+
+  # A mid-turn REPL pane death (`:repl_gone`) is a transient, recoverable
+  # condition — the cloud-mediated remote-control pane dropped (flaky link or
+  # operator-closed pane), not a broken agent. Raising on it would exit the
+  # Task abnormally, booking a *failure* retry that counts against
+  # max_retry_attempts; a few disconnects would then strand the issue. Exiting
+  # cleanly instead lets the orchestrator schedule a cheap continuation
+  # re-dispatch with a fresh pane (the thrash breaker still guards against a
+  # tight respawn loop).
+  @doc false
+  @spec transient_run_error?(term()) :: boolean()
+  def transient_run_error?(:repl_gone), do: true
+  def transient_run_error?(_reason), do: false
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")

@@ -188,4 +188,24 @@ defmodule Aiur.AgentRunnerTest do
       assert String.length(AgentRunner.rc_session_name(issue)) == 60
     end
   end
+
+  # A mid-turn REPL pane death (`:repl_gone`) means the cloud-mediated RC
+  # pane vanished while the agent was working — a flaky connection drop or an
+  # operator-closed pane, not a broken agent. If `run/3` raised on it, the
+  # Task would exit abnormally and the orchestrator would book a *failure*
+  # retry (10s backoff, counts against max_retry_attempts), so a few
+  # disconnects would make aiur give up on the issue entirely. Treating it as
+  # transient lets the run exit cleanly → a cheap continuation re-dispatch
+  # with a fresh pane, which is the right recovery for a flaky RC link.
+  describe "transient_run_error?/1" do
+    test "a mid-turn REPL pane death is transient so the run re-dispatches instead of hard-failing" do
+      assert AgentRunner.transient_run_error?(:repl_gone)
+    end
+
+    test "a genuine agent failure is NOT transient so it still surfaces as a hard error" do
+      refute AgentRunner.transient_run_error?(:prompt_not_delivered)
+      refute AgentRunner.transient_run_error?(:no_transcript)
+      refute AgentRunner.transient_run_error?({:workspace_prepare_failed, :enoent})
+    end
+  end
 end
