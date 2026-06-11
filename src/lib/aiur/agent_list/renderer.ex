@@ -342,9 +342,14 @@ defmodule Aiur.AgentList.Renderer do
   defp agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
     do: metadata_row_iolist("Agents:", "n/a", @ansi_gray, inner_width)
 
-  defp project_row(nil, inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
-  defp project_row("", inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
-  defp project_row(label, inner_width), do: metadata_row_iolist("Project:", label, @ansi_cyan, inner_width)
+  defp project_row(nil, inner_width),
+    do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
+
+  defp project_row("", inner_width),
+    do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
+
+  defp project_row(label, inner_width),
+    do: metadata_row_iolist("Project:", label, @ansi_cyan, inner_width)
 
   defp dashboard_row(nil, inner_width),
     do: metadata_row_iolist("Dashboard:", "n/a", @ansi_gray, inner_width)
@@ -471,7 +476,14 @@ defmodule Aiur.AgentList.Renderer do
 
     case rc_line do
       text when is_binary(text) and text != "" ->
-        rc_row = [left_only_row(truncate(text, max(inner_width - @footer_left_padding - 1, 0)), inner_width), eol()]
+        rc_row = [
+          left_only_row(
+            truncate(text, max(inner_width - @footer_left_padding - 1, 0)),
+            inner_width
+          ),
+          eol()
+        ]
+
         %{iodata: [rc_row | base.iodata], line_count: base.line_count + 1}
 
       _ ->
@@ -925,7 +937,9 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  defp summary_emoji(%{work_state: work_state}, _markers, _phase), do: AgentEvents.state_emoji(work_state)
+  defp summary_emoji(%{work_state: work_state}, _markers, _phase),
+    do: AgentEvents.state_emoji(work_state)
+
   defp summary_emoji(_, _markers, _phase), do: "⚫"
 
   defp phase_emoji(:brainstorm), do: "🧠"
@@ -985,7 +999,10 @@ defmodule Aiur.AgentList.Renderer do
     base_overhead =
       2 + 2 + @rc_cell_width + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
 
-    show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
+    show_progress? =
+      inner_width - base_overhead - @min_id_width - @min_title_width - 1 >=
+        @progress_cell_width + 1
+
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
     fixed_non_id_overhead = base_overhead + progress_block_width
 
@@ -1011,7 +1028,9 @@ defmodule Aiur.AgentList.Renderer do
     constrained? = natural_title_width + @max_latest_width > remaining_after_id
 
     title_cap =
-      if constrained?, do: min(@title_constrained_cap, natural_title_width), else: natural_title_width
+      if constrained?,
+        do: min(@title_constrained_cap, natural_title_width),
+        else: natural_title_width
 
     title_target = min(title_cap, max(remaining_after_id - @min_latest_width, 0))
     title_width = max(min(title_target, remaining_after_id), 0)
@@ -1127,23 +1146,73 @@ defmodule Aiur.AgentList.Renderer do
   # Everything else (Latin-1 supplement, arrows, box drawing, …) is 1.
   defp codepoint_width(_cp), do: 1
 
+  @csi_re ~r/^\e\[[0-9;?]*[A-Za-z]/
+  # Matches both OSC 8 forms (open carries a URL, close has an empty URL),
+  # terminated by ST (`\e\\`) or BEL (`\a`).
+  @osc8_re ~r/^\e\]8;;[^\e\a]*(?:\e\\|\a)/
+  @osc8_close_re ~r/^\e\]8;;(?:\e\\|\a)/
+
   # Truncate `text` to at most `limit` visual columns, splitting on
-  # grapheme boundaries so a multi-codepoint emoji is never cut.
+  # grapheme boundaries so a multi-codepoint emoji is never cut. ANSI CSI
+  # runs and OSC 8 hyperlink wrappers pass through at zero width and are
+  # never split — counting their bytes against the budget would cut inside
+  # an escape sequence, and the terminal then swallows the broken run,
+  # hiding the whole line. If truncation lands inside an open hyperlink,
+  # the link is closed so the trailing ellipsis renders outside it.
   defp truncate_visual(_text, limit) when limit <= 0, do: ""
 
   defp truncate_visual(text, limit) do
-    text
-    |> String.graphemes()
-    |> Enum.reduce_while({"", 0}, fn g, {acc, used} ->
-      w = grapheme_width(g)
+    {acc, _used, open_link?} = take_visible(text, limit, [], 0, false)
+    result = IO.iodata_to_binary(acc)
+    if open_link?, do: result <> "\e]8;;\e\\", else: result
+  end
 
-      if used + w > limit do
-        {:halt, {acc, used}}
-      else
-        {:cont, {acc <> g, used + w}}
-      end
-    end)
-    |> elem(0)
+  defp take_visible("", _limit, acc, used, open?), do: {acc, used, open?}
+
+  defp take_visible(text, limit, acc, used, open?) do
+    case split_escape(text) do
+      {:osc_close, seq, rest} -> take_visible(rest, limit, [acc, seq], used, false)
+      {:osc_open, seq, rest} -> take_visible(rest, limit, [acc, seq], used, true)
+      {:csi, seq, rest} -> take_visible(rest, limit, [acc, seq], used, open?)
+      :none -> take_grapheme(text, limit, acc, used, open?)
+    end
+  end
+
+  defp take_grapheme(text, limit, acc, used, open?) do
+    {g, rest} = String.next_grapheme(text)
+    w = grapheme_width(g)
+
+    if used + w > limit do
+      {acc, used, open?}
+    else
+      take_visible(rest, limit, [acc, g], used + w, open?)
+    end
+  end
+
+  # Peel a leading ANSI/OSC escape sequence off `text`, returning its kind,
+  # the sequence, and the remainder — or `:none` when `text` starts with a
+  # visible grapheme.
+  defp split_escape(text) do
+    case Regex.run(@osc8_re, text, return: :binary) do
+      [seq | _] -> {osc_kind(seq), seq, drop_prefix(text, seq)}
+      nil -> split_csi(text)
+    end
+  end
+
+  defp split_csi(text) do
+    case Regex.run(@csi_re, text, return: :binary) do
+      [seq | _] -> {:csi, seq, drop_prefix(text, seq)}
+      nil -> :none
+    end
+  end
+
+  defp osc_kind(seq) do
+    if Regex.match?(@osc8_close_re, seq), do: :osc_close, else: :osc_open
+  end
+
+  defp drop_prefix(text, prefix) do
+    plen = byte_size(prefix)
+    binary_part(text, plen, byte_size(text) - plen)
   end
 
   # Pad a (raw, no-ansi) text to exactly `inner_width` visual columns,
@@ -1257,7 +1326,8 @@ defmodule Aiur.AgentList.Renderer do
     {iodata, 1 + capacity}
   end
 
-  defp selected_identifier(%{selection_index: idx, summaries: summaries}) when is_list(summaries) do
+  defp selected_identifier(%{selection_index: idx, summaries: summaries})
+       when is_list(summaries) do
     case Enum.at(summaries, idx) do
       %{identifier: id} when is_binary(id) -> id
       _ -> nil
@@ -1374,7 +1444,8 @@ defmodule Aiur.AgentList.Renderer do
   # carries the same content. Comments (issue.commented /
   # pr.review_comment) survive because a comment on the agent's OWN
   # ticket is a genuine signal worth surfacing.
-  defp ticker_self_echo?(:receive, topic, %{identifier: id}) when is_binary(topic) and is_binary(id) do
+  defp ticker_self_echo?(:receive, topic, %{identifier: id})
+       when is_binary(topic) and is_binary(id) do
     source = event_source_ticket_id(topic)
     suffix = topic_suffix(topic)
 
@@ -1389,20 +1460,25 @@ defmodule Aiur.AgentList.Renderer do
 
   # For publishes, the subject is the source ticket itself.
   # For receives / reads, the subject is the receiving ticket.
-  defp event_subject_id(:publish, _entry, source_id, _rendering_identifier) when is_binary(source_id),
-    do: source_id
+  defp event_subject_id(:publish, _entry, source_id, _rendering_identifier)
+       when is_binary(source_id),
+       do: source_id
 
-  defp event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
-    do: id
+  defp event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier)
+       when is_binary(id),
+       do: id
 
-  defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
-    do: id
+  defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier)
+       when is_binary(id),
+       do: id
 
-  defp event_subject_id(:read, _entry, source_id, _rendering_identifier) when is_binary(source_id),
-    do: source_id
+  defp event_subject_id(:read, _entry, source_id, _rendering_identifier)
+       when is_binary(source_id),
+       do: source_id
 
-  defp event_subject_id(_kind, _entry, _source_id, rendering_identifier) when is_binary(rendering_identifier),
-    do: rendering_identifier
+  defp event_subject_id(_kind, _entry, _source_id, rendering_identifier)
+       when is_binary(rendering_identifier),
+       do: rendering_identifier
 
   defp event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
 
@@ -1579,8 +1655,11 @@ defmodule Aiur.AgentList.Renderer do
       last = commits |> List.last() |> commit_message()
 
       case last do
-        nil -> {"pushed #{count} #{commits_word(count)}", ""}
-        msg -> {"pushed #{count} #{commits_word(count)}, last:", " \"" <> clip_summary(msg) <> "\""}
+        nil ->
+          {"pushed #{count} #{commits_word(count)}", ""}
+
+        msg ->
+          {"pushed #{count} #{commits_word(count)}, last:", " \"" <> clip_summary(msg) <> "\""}
       end
     else
       {"pushed", ""}
@@ -1622,7 +1701,8 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  defp cross_receive_summary(suffix, body) when suffix in ["issue.commented", "pr.review_comment"] do
+  defp cross_receive_summary(suffix, body)
+       when suffix in ["issue.commented", "pr.review_comment"] do
     comment_body_summary(body)
   end
 
@@ -1737,7 +1817,8 @@ defmodule Aiur.AgentList.Renderer do
 
   # Linkify "PR" / "comment" tokens in the verb phrase. Falls back to
   # the subject's issue URL when the body has no PR-specific URL.
-  defp link_verb_phrase(verb_phrase, _kind, suffix, body, repo, fallback_url) when is_binary(verb_phrase) do
+  defp link_verb_phrase(verb_phrase, _kind, suffix, body, repo, fallback_url)
+       when is_binary(verb_phrase) do
     cond do
       repo == nil ->
         verb_phrase
