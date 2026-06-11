@@ -541,7 +541,6 @@ defmodule Aiur.AgentList.Renderer do
       "│   ",
       cell("ID", layout.id_width),
       cell("", @rc_cell_width),
-      "  ",
       cell("", @state_cell_width),
       cell("", @attention_cell_width),
       cell("TITLE", layout.title_width),
@@ -622,7 +621,6 @@ defmodule Aiur.AgentList.Renderer do
       id_cell,
       @ansi_reset,
       rc_cell(summary),
-      "  ",
       state_cell,
       attention_cell,
       title_cell,
@@ -638,13 +636,13 @@ defmodule Aiur.AgentList.Renderer do
     runtime_width = @runtime_cell_width + 1
 
     # Visual columns consumed by the body, in order:
-    #   `│ ` (2) + marker (2) + id_cell + rc_cell (3) + `  ` (2)
+    #   `│ ` (2) + marker (2) + id_cell + rc_cell (3)
     #   + state_cell (3) + attention_cell (4) + title_cell + ` ` (1)
     #   + latest_cell + progress_block + runtime_block.
     # Sum the parts directly so the right `│` border lands at the
     # same column as the metadata/separator rows above.
     plain_visual =
-      2 + 2 + layout.id_width + @rc_cell_width + 2 + @state_cell_width + @attention_cell_width +
+      2 + 2 + layout.id_width + @rc_cell_width + @state_cell_width + @attention_cell_width +
         layout.title_width + 1 + layout.latest_width + progress_width + runtime_width
 
     # Reserve the last column for the right `│` border so each row
@@ -978,14 +976,14 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_title_width)
 
-    # `│ ` (2) + marker (2) + id + rc (3) + `  ` (2) + state (3)
+    # `│ ` (2) + marker (2) + id + rc (3) + state (3)
     # + attention (4) + title + ` ` (1) + [progress block]
     # + runtime_block (8) + ` │` (1 for the right border the row
     # closes with).
     runtime_block_width = @runtime_cell_width + 1
 
     base_overhead =
-      2 + 2 + @rc_cell_width + 2 + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
+      2 + 2 + @rc_cell_width + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
 
     show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
