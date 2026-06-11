@@ -612,10 +612,14 @@ defmodule Aiur.AgentList.App do
     #   compaction. `:deactivated` rows stay in the AgentList so their
     #   bar / latest / attention chips survive across the human-review
     #   transition.
-    # - `slot_ids` (visible minus :paused minus :deactivated): drives
-    #   AttachPool seeding so the warmed opencode pane is released for
-    #   `:paused` and `:deactivated` rows. AttachPool reclaims their
-    #   slot for newly-queued agents the user starts in their place.
+    # - `slot_ids` (visible minus :paused minus :deactivated): the
+    #   spawn-eligible set. Drives AttachPool seeding so a `:deactivated`
+    #   row releases its warmed opencode pane and AttachPool reclaims the
+    #   slot for newly-queued agents the user starts in its place.
+    # - `retain_ids` (visible :paused, not :deactivated): the keep-pane
+    #   set. A Ctrl+C pause holds the agent's opencode pane open until an
+    #   explicit close (second Ctrl+C → :deactivated). Passing these to
+    #   seed keeps their attachment instead of detaching on pause.
     visible_ids =
       summaries
       |> Enum.filter(fn s -> Map.get(s, :status) == :running end)
@@ -632,7 +636,17 @@ defmodule Aiur.AgentList.App do
       |> Enum.map(&Map.get(&1, :identifier))
       |> Enum.reject(&is_nil/1)
 
-    _ = safely_seed_attach_pool(slot_ids)
+    retain_ids =
+      summaries
+      |> Enum.filter(fn s ->
+        Map.get(s, :status) == :running and
+          paused_summary?(s) and
+          not deactivated_summary?(s)
+      end)
+      |> Enum.map(&Map.get(&1, :identifier))
+      |> Enum.reject(&is_nil/1)
+
+    _ = safely_seed_attach_pool(slot_ids, retain_ids)
 
     visible_set = MapSet.new(Enum.map(visible_ids, &to_string/1))
 
@@ -1099,10 +1113,10 @@ defmodule Aiur.AgentList.App do
     Application.get_env(:aiur, :warm_status_dark_mode?, true)
   end
 
-  defp safely_seed_attach_pool([]), do: :ok
+  defp safely_seed_attach_pool([], []), do: :ok
 
-  defp safely_seed_attach_pool(identifiers) do
-    AttachPool.seed(identifiers)
+  defp safely_seed_attach_pool(identifiers, retain_ids) do
+    AttachPool.seed(AttachPool, identifiers, retain_ids)
   rescue
     _ -> :ok
   catch
