@@ -50,10 +50,20 @@ defmodule Aiur.OrchestratorInterruptTest do
     end
   end
 
-  describe "pane_interrupt_action_no_pane/1" do
-    test "active agent pauses, paused agent closes the pane" do
-      assert :pause = Orchestrator.pane_interrupt_action_no_pane(false)
-      assert :close_pane = Orchestrator.pane_interrupt_action_no_pane(true)
+  describe "pane_interrupt_action_no_pane/2" do
+    test "active agent pauses, paused agent closes the pane when queue is empty" do
+      assert :pause = Orchestrator.pane_interrupt_action_no_pane(false, 0)
+      assert :close_pane = Orchestrator.pane_interrupt_action_no_pane(true, 0)
+    end
+
+    test "a queued message takes priority over both pause and close" do
+      # Pane-less backends fold operator input at the next turn boundary.
+      # When a message is already queued, Ctrl+C must let it deliver rather
+      # than pause an active agent or close a paused one out from under the
+      # pending message — otherwise the operator's queued input is lost.
+      assert :deliver_queue = Orchestrator.pane_interrupt_action_no_pane(false, 1)
+      assert :deliver_queue = Orchestrator.pane_interrupt_action_no_pane(true, 1)
+      assert :deliver_queue = Orchestrator.pane_interrupt_action_no_pane(false, 3)
     end
   end
 
@@ -75,6 +85,32 @@ defmodule Aiur.OrchestratorInterruptTest do
       assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :paused
 
       assert {:ok, :close_pane} = Orchestrator.pane_interrupt("codex-1")
+    end
+
+    test "pane-less backend with a queued message delivers it instead of pausing",
+         %{orchestrator: pid} do
+      # The Bug 2 regression: a Ctrl+C on an opencode agent with a queued
+      # operator message closed/paused the pane, dropping the queued input.
+      # With queue-first semantics the press leaves the agent working so the
+      # queued message folds at its next turn boundary.
+      entry = running_entry("codex-1")
+
+      :sys.replace_state(pid, fn state ->
+        {queue_store, _item} =
+          Aiur.AgentQueueStore.enqueue(state.queue_store, %{
+            target_issue_identifier: "codex-1",
+            source: :operator,
+            category: :operator_message,
+            event_type: :operator_message,
+            body: %{text: "do the thing"}
+          })
+
+        %{state | running: %{"codex-1" => entry}, queue_store: queue_store}
+      end)
+
+      assert {:ok, :deliver_queue} = Orchestrator.pane_interrupt("codex-1")
+      # The agent stays working — no optimistic pause flip.
+      assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :working
     end
 
     test "paused REPL agent closes its pane", %{orchestrator: pid} do

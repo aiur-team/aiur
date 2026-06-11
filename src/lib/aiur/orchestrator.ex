@@ -2524,11 +2524,11 @@ defmodule Aiur.Orchestrator do
   end
 
   @spec pane_interrupt(String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane} | {:error, term()}
+          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
   def pane_interrupt(issue_identifier), do: pane_interrupt(__MODULE__, issue_identifier)
 
   @spec pane_interrupt(GenServer.server(), String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane} | {:error, term()}
+          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
   def pane_interrupt(server, issue_identifier) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:pane_interrupt, issue_identifier}, 5_000)
@@ -3556,12 +3556,19 @@ defmodule Aiur.Orchestrator do
 
       running_entry when is_map(running_entry) ->
         # No REPL pane to hardware-interrupt, but the agent still folds a
-        # pause at its next turn boundary. Apply the pause→close half of the
-        # 3-state flow: the first Ctrl+C parks the agent (pane stays open),
-        # a second press on the now-paused agent closes it. Without this the
-        # caller collapses an unsupported-interrupt error to an immediate
-        # kill-pane, nuking the pane on the very first press.
-        action = pane_interrupt_action_no_pane(paused_running_entry?(running_entry))
+        # pause at its next turn boundary. A queued operator message takes
+        # priority: the press lets it deliver instead of pausing/closing the
+        # pane out from under it. With an empty queue the pause→close flow
+        # applies — first Ctrl+C parks the agent (pane stays open), a second
+        # press on the now-paused agent closes it. Without this the caller
+        # collapses an unsupported-interrupt error to an immediate kill-pane,
+        # nuking the pane on the very first press.
+        action =
+          pane_interrupt_action_no_pane(
+            paused_running_entry?(running_entry),
+            queue_depth_for_issue(state, issue_identifier)
+          )
+
         perform_pane_interrupt(action, state, running_entry, issue_identifier, nil)
 
       _ ->
@@ -3571,6 +3578,13 @@ defmodule Aiur.Orchestrator do
 
   defp perform_pane_interrupt(:close_pane, state, _entry, _issue_identifier, _pane_id),
     do: {{:ok, :close_pane}, state}
+
+  # A queued operator message is already pending delivery. Take no destructive
+  # action — leave the agent working (or paused) and the pane open so the
+  # message folds at the next turn boundary. The bridge keeps the pane open on
+  # this reply rather than closing it.
+  defp perform_pane_interrupt(:deliver_queue, state, _entry, _issue_identifier, _pane_id),
+    do: {{:ok, :deliver_queue}, state}
 
   defp perform_pane_interrupt(:interrupt, state, _entry, _issue_identifier, pane_id) do
     reply =
@@ -3611,15 +3625,24 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc """
-  Pure 2-state Ctrl+C decision for backends with no interruptible pane
-  (codex/opencode). A paused agent closes its pane; an active agent pauses.
-  There is no REPL queue to drain — operator input folds at the next turn
-  boundary — so the `:interrupt` branch of the 3-state flow never applies.
-  Public so the mapping can be unit-tested without scaffolding a worker.
+  Pure Ctrl+C decision for backends with no interruptible pane
+  (codex/opencode). A queued operator message takes priority: the press lets
+  it deliver (the pane stays open and the message folds at the agent's next
+  turn boundary) rather than pausing or closing the pane out from under the
+  pending input. With an empty queue the 2-state pause→close flow applies: a
+  paused agent closes its pane, an active agent pauses. Public so the mapping
+  can be unit-tested without scaffolding a worker.
   """
-  @spec pane_interrupt_action_no_pane(boolean()) :: :close_pane | :pause
-  def pane_interrupt_action_no_pane(true), do: :close_pane
-  def pane_interrupt_action_no_pane(false), do: :pause
+  @spec pane_interrupt_action_no_pane(boolean(), non_neg_integer()) ::
+          :deliver_queue | :close_pane | :pause
+  def pane_interrupt_action_no_pane(paused?, queue_depth)
+      when is_boolean(paused?) and is_integer(queue_depth) do
+    cond do
+      queue_depth > 0 -> :deliver_queue
+      paused? -> :close_pane
+      true -> :pause
+    end
+  end
 
   defp do_reactivate(%State{} = state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])

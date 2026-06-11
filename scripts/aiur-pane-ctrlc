@@ -47,10 +47,11 @@ response="$(
     "${control_url}/api/v1/pane/interrupt" 2>/dev/null
 )" || close_pane
 
-# The agent handled the keypress (drained its queue or paused). Leave the
-# pane open so the operator stays in the conversation.
+# The agent handled the keypress (delivered a queued message, drained its
+# queue, or paused). Leave the pane open so the operator stays in the
+# conversation.
 case "$response" in
-  *interrupted* | *paused*) exit 0 ;;
+  *interrupted* | *paused* | *deliver_queue*) exit 0 ;;
 esac
 
 # close_pane, an error, or any unexpected body: close the pane.

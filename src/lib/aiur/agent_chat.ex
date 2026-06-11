@@ -51,7 +51,7 @@ defmodule Aiur.AgentChat do
   end
 
   @spec pane_interrupt(String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane} | {:error, term()}
+          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
   def pane_interrupt(pane_id) when is_binary(pane_id) do
     case SlotRegistry.find_by_pane_id(pane_id) do
       {:ok, _slot_index, issue_identifier} ->
