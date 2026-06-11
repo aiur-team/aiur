@@ -224,7 +224,7 @@ defmodule Aiur.AgentList.Renderer do
          "⏳  warming up — pane not yet ready",
          "🧠  brainstorming",
          "📋  planning",
-         "🛠️  implementing",
+         "🔨  implementing",
          "🔍  reviewing",
          "🟢  working — pane open now (no active phase)",
          "⏸️  agent paused by operator",
@@ -905,7 +905,7 @@ defmodule Aiur.AgentList.Renderer do
   defp marker_from_attach(_attach, _has_content), do: "⏳"
 
   # `summary_emoji` shows, for a running working agent, the active
-  # workflow phase (🧠/📋/🛠️/🔍 — #68) when one is known, falling back
+  # workflow phase (🧠/📋/🔨/🔍 — #68) when one is known, falling back
   # to the precomputed instant-open marker otherwise. Pre-warm ⏳ still
   # wins while the pane isn't warm. Paused/error/done defer to
   # AgentEvents.
@@ -932,7 +932,12 @@ defmodule Aiur.AgentList.Renderer do
 
   defp phase_emoji(:brainstorm), do: "🧠"
   defp phase_emoji(:plan), do: "📋"
-  defp phase_emoji(:work), do: "🛠️"
+  # U+1F528 hammer, not the U+1F6E0+FE0F hammer-and-wrench: the latter
+  # needs a variation selector to get emoji presentation, and terminals
+  # that default it to text presentation (e.g. Termius on iOS) render it
+  # one column wide, breaking the fixed-width column math here. The plain
+  # hammer has default emoji presentation, so it stays two columns.
+  defp phase_emoji(:work), do: "🔨"
   defp phase_emoji(:review), do: "🔍"
   defp phase_emoji(_), do: nil
 

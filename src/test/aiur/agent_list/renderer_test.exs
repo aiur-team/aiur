@@ -302,7 +302,7 @@ defmodule Aiur.AgentList.RendererTest do
       agents_with_content: MapSet.new(["MT-PH"])
     }
 
-    for {phase, emoji} <- [brainstorm: "🧠", plan: "📋", work: "🛠️", review: "🔍"] do
+    for {phase, emoji} <- [brainstorm: "🧠", plan: "📋", work: "🔨", review: "🔍"] do
       out =
         render(base_state(Map.put(warm, :phase_by_identifier, %{"MT-PH" => phase})))
         |> visible()
@@ -329,7 +329,7 @@ defmodule Aiur.AgentList.RendererTest do
       |> visible()
 
     assert out =~ "⏳"
-    refute out =~ "🛠️"
+    refute out =~ "🔨"
   end
 
   test "warm agent with no active phase falls back to its marker (#68)" do
@@ -356,7 +356,7 @@ defmodule Aiur.AgentList.RendererTest do
 
     assert out =~ "🧠"
     assert out =~ "📋"
-    assert out =~ "🛠️"
+    assert out =~ "🔨"
     assert out =~ "🔍"
   end
 
