@@ -131,10 +131,14 @@ for arg in "$@"; do
       fresh_mode=1
       ;;
     --test3)
+      # Adds --allow-remote to the shared implied set above: the
+      # 3-ticket blocker chain drives the Remote Control agent (#101),
+      # so remote opt-in should come for free with --test3.
       test3_mode=1
       debug_mode=1
       clear_mode=1
       test_force=1
+      test_allow_remote=1
       fresh_mode=1
       ;;
     --force)
