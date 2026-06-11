@@ -74,5 +74,25 @@ defmodule Aiur.OrchestratorInterruptTest do
 
       assert {:ok, :close_pane} = Orchestrator.pane_interrupt("repl-1")
     end
+
+    test "pausing a working REPL agent flips status so a second press closes the pane",
+         %{orchestrator: pid} do
+      entry =
+        running_entry("repl-1", %{
+          repl_pane_id: "%9",
+          control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
+        })
+
+      :sys.replace_state(pid, fn state -> %{state | running: %{"repl-1" => entry}} end)
+
+      # First Ctrl+C on a working, queue-empty agent pauses it and flips the
+      # recorded status optimistically — an idle agent emits no async
+      # worker confirmation, so the close branch would otherwise be unreachable.
+      assert {:ok, :paused} = Orchestrator.pane_interrupt("repl-1")
+      assert get_in(:sys.get_state(pid).running, ["repl-1", :control, :status]) == :paused
+
+      # Second Ctrl+C, now that the agent reads as paused, closes the pane.
+      assert {:ok, :close_pane} = Orchestrator.pane_interrupt("repl-1")
+    end
   end
 end

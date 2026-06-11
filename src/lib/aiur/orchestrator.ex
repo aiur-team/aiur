@@ -3045,7 +3045,8 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_call({:pane_interrupt, issue_identifier}, _from, state) when is_binary(issue_identifier) do
-    {:reply, pane_interrupt_reply(state, issue_identifier), state}
+    {reply, state} = pane_interrupt_reply(state, issue_identifier)
+    {:reply, reply, state}
   end
 
   def handle_call({:pane_interrupt, _issue_identifier}, _from, state) do
@@ -3551,31 +3552,39 @@ defmodule Aiur.Orchestrator do
             queue_depth_for_issue(state, issue_identifier)
           )
 
-        perform_pane_interrupt(action, state, issue_identifier, pane_id)
+        perform_pane_interrupt(action, state, entry, issue_identifier, pane_id)
 
       running_entry when is_map(running_entry) ->
-        {:error, :interrupt_not_supported}
+        {{:error, :interrupt_not_supported}, state}
 
       _ ->
-        {:error, :not_running}
+        {{:error, :not_running}, state}
     end
   end
 
-  defp perform_pane_interrupt(:close_pane, _state, _issue_identifier, _pane_id),
-    do: {:ok, :close_pane}
+  defp perform_pane_interrupt(:close_pane, state, _entry, _issue_identifier, _pane_id),
+    do: {{:ok, :close_pane}, state}
 
-  defp perform_pane_interrupt(:interrupt, _state, _issue_identifier, pane_id) do
-    case ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id}) do
-      :ok -> {:ok, :interrupted}
-      other -> other
-    end
+  defp perform_pane_interrupt(:interrupt, state, _entry, _issue_identifier, pane_id) do
+    reply =
+      case ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id}) do
+        :ok -> {:ok, :interrupted}
+        other -> other
+      end
+
+    {reply, state}
   end
 
-  defp perform_pane_interrupt(:pause, state, issue_identifier, _pane_id) do
-    case send_pause_control_message(state, issue_identifier) do
-      {:ok, _request_id} -> {:ok, :paused}
-      other -> other
-    end
+  # Optimistically flip the entry to `:paused` (mirrors `maybe_pause_on_request`)
+  # so a second Ctrl+C reads the agent as paused and closes the pane. An idle
+  # agent emits no `:worker_control_state :paused` confirmation, so depending on
+  # that async signal alone would strand the agent reporting `:pause` forever
+  # and the close branch would never be reachable. The queued control message
+  # still drives the worker loop when it is mid-turn; its reply is ignored
+  # because the optimistic transition is the source of truth for the UI.
+  defp perform_pane_interrupt(:pause, state, entry, issue_identifier, _pane_id) do
+    _ = send_pause_control_message(state, issue_identifier)
+    {{:ok, :paused}, transition_control_status(state, entry, :paused, "pane.ctrl_c.pause")}
   end
 
   @doc """
