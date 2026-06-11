@@ -167,21 +167,6 @@ defmodule Aiur.Opencode.SessionWriter do
   def handle_call(:await_replay, _from, state), do: {:reply, :ok, state}
 
   @impl true
-  # A Remote Control app message is the one :user event opencode never
-  # echoed locally, so persist it as a genuine user message. Opencode-origin
-  # :user events carry no payload and fall through to the drop clause below
-  # to avoid double-rendering the operator's own typed input.
-  def handle_info({:transcript_event, %{role: :user, payload: %{origin: :remote}} = event}, state) do
-    case write_user_standalone(state, event) do
-      {:ok, _message_id, _parts} ->
-        {:noreply, reset_fk_failures(state)}
-
-      {:error, reason} ->
-        log_session_write_failure("user_write_failed", state.identifier, reason)
-        handle_write_failure(state, reason)
-    end
-  end
-
   def handle_info({:transcript_event, %{role: :user}}, state), do: {:noreply, state}
 
   def handle_info({:transcript_event, event}, state) do
@@ -488,27 +473,6 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   defp write_standalone_in_txn(_conn, _state, _event), do: {:error, :unsupported_role}
-
-  # User message: a single text part, role "user". No step-start/step-finish
-  # scaffolding — those frame assistant turns, not operator input.
-  defp write_user_standalone(state, %{body: body}) do
-    Db.with_conn(fn conn ->
-      message_id = Db.msg_id()
-      text_part_id = Db.prt_id()
-      parts = [{text_part_id, Protocol.text_part_data(body)}]
-
-      with :ok <-
-             Db.insert_message(
-               conn,
-               state.session_id,
-               message_id,
-               Protocol.user_message_data(state.identifier)
-             ),
-           :ok <- insert_part_list(conn, state.session_id, message_id, parts) do
-        {:ok, message_id, tag_parts(message_id, parts)}
-      end
-    end)
-  end
 
   # System-role standalone message — used for cross-ticket event ticker
   # rows (R2 of the chat-pane follow-ups plan). Bypasses
