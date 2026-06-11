@@ -2552,6 +2552,30 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @doc """
+  Ctrl+C entry point keyed on a tmux pane id instead of the issue. A
+  claude-repl/RC pane is not an opencode slot, so the opencode SlotRegistry
+  can't resolve it — this maps the pane back to its running entry via
+  `repl_pane_id` and routes through the same 3-state decision as
+  `pane_interrupt/1`.
+  """
+  @spec pane_interrupt_by_pane_id(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
+  def pane_interrupt_by_pane_id(pane_id), do: pane_interrupt_by_pane_id(__MODULE__, pane_id)
+
+  @spec pane_interrupt_by_pane_id(GenServer.server(), String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
+  def pane_interrupt_by_pane_id(server, pane_id) when is_binary(pane_id) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:pane_interrupt_by_pane_id, pane_id}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(issue_identifier), do: resume_agent(__MODULE__, issue_identifier)
 
@@ -3063,6 +3087,17 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:pane_interrupt, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:pane_interrupt_by_pane_id, pane_id}, _from, state) when is_binary(pane_id) do
+    case find_running_by_repl_pane_id(state.running, pane_id) do
+      %{identifier: identifier} ->
+        {reply, state} = pane_interrupt_reply(state, to_string(identifier))
+        {:reply, reply, state}
+
+      nil ->
+        {:reply, {:error, :no_pane_agent}, state}
+    end
   end
 
   def handle_call({:resume_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
@@ -4093,6 +4128,13 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         nil
+    end)
+  end
+
+  defp find_running_by_repl_pane_id(running, pane_id) do
+    Enum.find_value(running, fn
+      {_issue_id, %{repl_pane_id: ^pane_id} = entry} -> entry
+      _ -> nil
     end)
   end
 

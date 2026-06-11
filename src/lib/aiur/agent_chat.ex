@@ -58,7 +58,7 @@ defmodule Aiur.AgentChat do
         Orchestrator.pane_interrupt(issue_identifier)
 
       :not_found ->
-        {:error, :no_pane_agent}
+        Orchestrator.pane_interrupt_by_pane_id(pane_id)
     end
   end
 

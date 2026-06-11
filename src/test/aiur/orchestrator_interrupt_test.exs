@@ -145,4 +145,31 @@ defmodule Aiur.OrchestratorInterruptTest do
       assert {:ok, :close_pane} = Orchestrator.pane_interrupt("repl-1")
     end
   end
+
+  describe "pane_interrupt_by_pane_id/1" do
+    test "resolves a REPL pane by its pane id and applies the 3-state decision",
+         %{orchestrator: pid} do
+      # The Ctrl+C bridge only carries the tmux pane id, not the issue. A
+      # claude-repl/RC pane is not an opencode slot, so the opencode
+      # SlotRegistry can't resolve it — without a repl_pane_id→issue lookup
+      # the bridge collapsed to a raw kill-pane on the first press. This maps
+      # the pane back to its running entry so the pause→close flow applies.
+      entry =
+        running_entry("repl-1", %{
+          repl_pane_id: "%9",
+          control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
+        })
+
+      :sys.replace_state(pid, fn state -> %{state | running: %{"repl-1" => entry}} end)
+
+      assert {:ok, :paused} = Orchestrator.pane_interrupt_by_pane_id("%9")
+      assert get_in(:sys.get_state(pid).running, ["repl-1", :control, :status]) == :paused
+
+      assert {:ok, :close_pane} = Orchestrator.pane_interrupt_by_pane_id("%9")
+    end
+
+    test "unknown pane reports no_pane_agent" do
+      assert {:error, :no_pane_agent} = Orchestrator.pane_interrupt_by_pane_id("%nope")
+    end
+  end
 end
