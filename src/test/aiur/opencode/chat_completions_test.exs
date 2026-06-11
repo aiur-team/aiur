@@ -170,6 +170,23 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
     end
   end
 
+  describe "finish_reason_for/1" do
+    test ":input_required finishes with stop, not tool_calls" do
+      # A "tool_calls" finish with no tool-call payload makes opencode
+      # re-open the chat-completion request for the same unanswered
+      # __aiur_turn__ marker, busy-looping until the ActiveTurns entry
+      # expires (~60s) and pegging the TUI. "stop" ends the turn so the
+      # agent resumes via a fresh marker after the dashboard approval.
+      assert ChatCompletions.finish_reason_for(:input_required) == "stop"
+      refute ChatCompletions.finish_reason_for(:input_required) == "tool_calls"
+    end
+
+    test "failed and done reasons also finish with stop" do
+      assert ChatCompletions.finish_reason_for({:failed, :boom}) == "stop"
+      assert ChatCompletions.finish_reason_for(:done) == "stop"
+    end
+  end
+
   describe "bar_connector/2" do
     # When two consecutive blockquote-rendered chunks are emitted to
     # opencode-attach, the blank line BETWEEN them needs a `> ` prefix

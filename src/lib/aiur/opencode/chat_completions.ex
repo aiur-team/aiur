@@ -238,12 +238,12 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
-  defp finalize_stream(conn, completion_id, {:failed, reason}) do
+  defp finalize_stream(conn, completion_id, {:failed, reason} = r) do
     conn = chunk(conn, completion_id, "\n**system:** " <> inspect(reason), nil)
-    chunk(conn, completion_id, nil, "stop")
+    chunk(conn, completion_id, nil, finish_reason_for(r))
   end
 
-  defp finalize_stream(conn, completion_id, :input_required) do
+  defp finalize_stream(conn, completion_id, :input_required = r) do
     conn =
       chunk(
         conn,
@@ -252,11 +252,26 @@ defmodule Aiur.Opencode.ChatCompletions do
         nil
       )
 
-    chunk(conn, completion_id, nil, "tool_calls")
+    chunk(conn, completion_id, nil, finish_reason_for(r))
   end
 
-  defp finalize_stream(conn, completion_id, _reason),
-    do: chunk(conn, completion_id, nil, "stop")
+  defp finalize_stream(conn, completion_id, reason),
+    do: chunk(conn, completion_id, nil, finish_reason_for(reason))
+
+  # OpenAI finish_reason for a closed bridge turn. Always "stop".
+  #
+  # Critically NOT "tool_calls" for :input_required: a "tool_calls"
+  # finish with no tool-call payload makes opencode's agent loop re-open
+  # the chat-completion request to "run the tools and continue". But the
+  # last user message is still the unanswered `__aiur_turn__:<id>` marker
+  # whose ActiveTurns entry is now {:closed, :input_required}, so every
+  # re-open returns "tool_calls" again and opencode busy-loops until the
+  # entry expires (~60s) — pegging CPU and starving the TUI input loop.
+  # "stop" ends the turn cleanly; the agent resumes via a fresh marker
+  # once the approval is resolved in the dashboard.
+  @doc false
+  @spec finish_reason_for(term()) :: String.t()
+  def finish_reason_for(_reason), do: "stop"
 
   # Format a transcript event's body as a chat-completion delta. The
   # SQL part written by SessionWriter is authoritative; this is the
