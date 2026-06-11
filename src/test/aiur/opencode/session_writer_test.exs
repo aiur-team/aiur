@@ -133,7 +133,9 @@ defmodule Aiur.Opencode.SessionWriterTest do
       assert count_messages(session_id) == 1
     end
 
-    test ":user role events are dropped without writes", %{session_id: session_id} do
+    test "opencode-origin :user events are dropped without writes", %{session_id: session_id} do
+      # Locally-typed input is echoed by opencode itself; writing it again
+      # would double-render the operator's own message.
       state = build_state(session_id)
 
       {:noreply, new_state} =
@@ -144,6 +146,27 @@ defmodule Aiur.Opencode.SessionWriterTest do
 
       assert new_state == state
       assert count_messages(session_id) == 0
+    end
+
+    test "a remote-origin :user event is written as a genuine user-role message", %{
+      session_id: session_id
+    } do
+      # Remote Control messages are never typed into opencode, so opencode
+      # never echoes them. SessionWriter persists them as a real user-role
+      # row so they render as a user turn — not as assistant speech.
+      state = build_state(session_id)
+
+      {:noreply, _state} =
+        SessionWriter.handle_info(
+          {:transcript_event, remote_user_event("hi from claude remote control")},
+          state
+        )
+
+      assert count_messages(session_id) == 1
+      assert message_role(session_id) == "user"
+
+      [text_part] = parts_of_type(session_id, "text")
+      assert Jason.decode!(text_part)["text"] == "hi from claude remote control"
     end
 
     test ":command event with payload writes clean bash tool part shape (U3)", %{
@@ -420,6 +443,29 @@ defmodule Aiur.Opencode.SessionWriterTest do
       sequence: :erlang.unique_integer([:positive, :monotonic]),
       turn_id: Keyword.get(opts, :turn_id)
     }
+  end
+
+  defp remote_user_event(body) do
+    %{
+      role: :user,
+      body: body,
+      timestamp: DateTime.utc_now(),
+      msg_id: nil,
+      sequence: :erlang.unique_integer([:positive, :monotonic]),
+      turn_id: nil,
+      payload: %{origin: :remote}
+    }
+  end
+
+  defp message_role(session_id) do
+    {:ok, conn} = Basic.open(Db.path())
+
+    {:ok, rows, _} =
+      Basic.exec(conn, "SELECT data FROM message WHERE session_id = '#{session_id}'")
+      |> Basic.rows()
+
+    Basic.close(conn)
+    rows |> List.first() |> List.first() |> Jason.decode!() |> Map.get("role")
   end
 
   defp count_messages(session_id) do

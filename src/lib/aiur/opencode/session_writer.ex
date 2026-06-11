@@ -167,6 +167,23 @@ defmodule Aiur.Opencode.SessionWriter do
   def handle_call(:await_replay, _from, state), do: {:reply, :ok, state}
 
   @impl true
+  # Remote Control app messages are never typed into opencode, so opencode
+  # never echoes them. Persist them as a genuine user-role message so they
+  # render as a user turn rather than as assistant speech in the chat pane.
+  def handle_info({:transcript_event, %{role: :user, body: body, payload: %{origin: :remote}}}, state)
+      when is_binary(body) do
+    case write_user_message(state, body) do
+      {:ok, _message_id} ->
+        {:noreply, reset_fk_failures(state)}
+
+      {:error, reason} ->
+        log_session_write_failure("user_write_failed", state.identifier, reason)
+        handle_write_failure(state, reason)
+    end
+  end
+
+  # Opencode-origin user input is echoed natively by opencode; writing it
+  # again would double-render the operator's own message.
   def handle_info({:transcript_event, %{role: :user}}, state), do: {:noreply, state}
 
   def handle_info({:transcript_event, event}, state) do
@@ -506,6 +523,33 @@ defmodule Aiur.Opencode.SessionWriter do
              })
            ),
          :ok <- insert_part_list(conn, state.session_id, message_id, all_parts) do
+      {:ok, message_id}
+    end
+  end
+
+  # Remote-origin user message — a genuine user-role row with a single
+  # text part, the same shape opencode writes for locally-typed input.
+  # No step-start/step-finish parts: those wrap assistant turns, not user
+  # messages.
+  defp write_user_message(state, body) when is_binary(body) do
+    Db.with_conn(fn conn -> write_user_message_in_txn(conn, state, body) end)
+  end
+
+  defp write_user_message_in_txn(conn, state, body) do
+    message_id = Db.msg_id()
+    text_part_id = Db.prt_id()
+
+    with :ok <-
+           Db.insert_message(
+             conn,
+             state.session_id,
+             message_id,
+             Protocol.user_message_data(state.identifier)
+           ),
+         :ok <-
+           insert_part_list(conn, state.session_id, message_id, [
+             {text_part_id, Protocol.text_part_data(body)}
+           ]) do
       {:ok, message_id}
     end
   end

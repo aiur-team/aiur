@@ -160,13 +160,35 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       assert out == "\n> 🔔 awaiting approval\n"
     end
 
-    test ":user (Remote Control message) renders as a blockquote with speech emoji" do
-      out = ChatCompletions.format_delta(:user, "hi from claude remote control app")
-      assert out == "\n> 💬 hi from claude remote control app\n"
-    end
-
     test "unknown role passes the body through unchanged" do
       assert ChatCompletions.format_delta(:assistant, "hi") == "hi"
+    end
+  end
+
+  describe "transcript_delta/2" do
+    test "a remote-origin :user event drops — never streams as an assistant delta" do
+      # Rendering the Remote Control message inline in the assistant SSE
+      # made it read as agent speech. It must drop here and instead be
+      # persisted as a genuine user-role message by SessionWriter.
+      event = %{role: :user, body: "hi from the Remote Control app", payload: %{origin: :remote}}
+
+      assert ChatCompletions.transcript_delta(event, nil) == :drop
+      assert ChatCompletions.transcript_delta(event, :assistant) == :drop
+    end
+
+    test "an opencode-origin :user event (no remote payload) also drops" do
+      assert ChatCompletions.transcript_delta(%{role: :user, body: "typed locally", payload: nil}, :assistant) ==
+               :drop
+    end
+
+    test "an :assistant event streams its body verbatim as a delta" do
+      assert ChatCompletions.transcript_delta(%{role: :assistant, body: "hello"}, nil) ==
+               {:delta, "hello", :assistant}
+    end
+
+    test "a :command event streams as a dim blockquote delta" do
+      assert ChatCompletions.transcript_delta(%{role: :command, body: "ls"}, nil) ==
+               {:delta, "\n> $ `ls`\n", :command}
     end
   end
 

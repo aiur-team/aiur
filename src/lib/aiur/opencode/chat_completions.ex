@@ -155,24 +155,15 @@ defmodule Aiur.Opencode.ChatCompletions do
   # one growing assistant message (Approach C.2 per the brainstorm).
   defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role) do
     receive do
-      {:transcript_event, %{role: role, body: body} = event}
-      when role in [:assistant, :command, :system, :alert, :reasoning, :tool] ->
-        delta = bar_connector(last_role, role) <> format_delta(role, body, event)
-        conn = chunk(conn, completion_id, delta, nil)
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, role)
+      {:transcript_event, event} ->
+        case transcript_delta(event, last_role) do
+          {:delta, delta, new_role} ->
+            conn = chunk(conn, completion_id, delta, nil)
+            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, new_role)
 
-      # A remote-origin user message (typed in the Claude Remote Control
-      # app) is the one `:user` event opencode never echoed locally, so
-      # render it. Opencode-origin `:user` events carry no payload and
-      # fall through to the drop clause below to avoid double-rendering
-      # the operator's own typed input.
-      {:transcript_event, %{role: :user, body: body, payload: %{origin: :remote}}} ->
-        delta = bar_connector(last_role, :system) <> format_delta(:user, body)
-        conn = chunk(conn, completion_id, delta, nil)
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, :system)
-
-      {:transcript_event, %{role: :user}} ->
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
+          :drop ->
+            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
+        end
 
       # R2 live render — cross-ticket event ticker row for THIS agent.
       # DebugLog broadcasts on a global topic; filter via
@@ -273,6 +264,26 @@ defmodule Aiur.Opencode.ChatCompletions do
   @spec finish_reason_for(term()) :: String.t()
   def finish_reason_for(_reason), do: "stop"
 
+  # Map a transcript event to the assistant-SSE delta the bridge should
+  # stream for it, or `:drop` when the event must not stream through the
+  # assistant response at all.
+  #
+  # `:user` events always drop. Opencode echoes locally-typed input
+  # natively, and a remote-origin (Remote Control app) user message is
+  # persisted as a genuine user-role message by `Aiur.Opencode.SessionWriter`
+  # so it renders as a user turn — streaming it here would render the
+  # operator's words as assistant speech.
+  @doc false
+  @spec transcript_delta(map(), atom() | nil) :: {:delta, String.t(), atom()} | :drop
+  def transcript_delta(%{role: :user}, _last_role), do: :drop
+
+  def transcript_delta(%{role: role, body: body} = event, last_role)
+      when role in [:assistant, :command, :system, :alert, :reasoning, :tool] do
+    {:delta, bar_connector(last_role, role) <> format_delta(role, body, event), role}
+  end
+
+  def transcript_delta(_event, _last_role), do: :drop
+
   # Format a transcript event's body as a chat-completion delta. The
   # SQL part written by SessionWriter is authoritative; this is the
   # live-stream summary. Public so tests can exercise it without going
@@ -334,8 +345,6 @@ defmodule Aiur.Opencode.ChatCompletions do
   def format_delta(:reasoning, body, _event), do: "\n_#{body}_\n"
   def format_delta(:alert, body, _event), do: "\n> 🔔 #{body}\n"
   def format_delta(:system, body, _event), do: "\n> #{body}\n"
-  # Remote Control app message — the only `:user` line the bridge renders.
-  def format_delta(:user, body, _event), do: "\n> 💬 #{body}\n"
   def format_delta(_role, body, _event), do: body
 
   # Render a command-style line as `> <prefix>\`<body>\`` so the
