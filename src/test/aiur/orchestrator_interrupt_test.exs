@@ -50,17 +50,31 @@ defmodule Aiur.OrchestratorInterruptTest do
     end
   end
 
+  describe "pane_interrupt_action_no_pane/1" do
+    test "active agent pauses, paused agent closes the pane" do
+      assert :pause = Orchestrator.pane_interrupt_action_no_pane(false)
+      assert :close_pane = Orchestrator.pane_interrupt_action_no_pane(true)
+    end
+  end
+
   describe "pane_interrupt/1" do
     test "unknown issue reports not_running" do
       assert {:error, :not_running} = Orchestrator.pane_interrupt("MISSING")
     end
 
-    test "backend without a REPL pane is unsupported", %{orchestrator: pid} do
+    test "pane-less backend pauses on first press, then closes on the second",
+         %{orchestrator: pid} do
+      # Codex/opencode agents have no REPL pane to hardware-interrupt, but a
+      # Ctrl+C must not nuke the pane on the first press. The first press
+      # pauses (pane stays open); a second press on the paused agent closes.
       :sys.replace_state(pid, fn state ->
         %{state | running: %{"codex-1" => running_entry("codex-1")}}
       end)
 
-      assert {:error, :interrupt_not_supported} = Orchestrator.pane_interrupt("codex-1")
+      assert {:ok, :paused} = Orchestrator.pane_interrupt("codex-1")
+      assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :paused
+
+      assert {:ok, :close_pane} = Orchestrator.pane_interrupt("codex-1")
     end
 
     test "paused REPL agent closes its pane", %{orchestrator: pid} do

@@ -3555,7 +3555,14 @@ defmodule Aiur.Orchestrator do
         perform_pane_interrupt(action, state, entry, issue_identifier, pane_id)
 
       running_entry when is_map(running_entry) ->
-        {{:error, :interrupt_not_supported}, state}
+        # No REPL pane to hardware-interrupt, but the agent still folds a
+        # pause at its next turn boundary. Apply the pause→close half of the
+        # 3-state flow: the first Ctrl+C parks the agent (pane stays open),
+        # a second press on the now-paused agent closes it. Without this the
+        # caller collapses an unsupported-interrupt error to an immediate
+        # kill-pane, nuking the pane on the very first press.
+        action = pane_interrupt_action_no_pane(paused_running_entry?(running_entry))
+        perform_pane_interrupt(action, state, running_entry, issue_identifier, nil)
 
       _ ->
         {{:error, :not_running}, state}
@@ -3602,6 +3609,17 @@ defmodule Aiur.Orchestrator do
       true -> :pause
     end
   end
+
+  @doc """
+  Pure 2-state Ctrl+C decision for backends with no interruptible pane
+  (codex/opencode). A paused agent closes its pane; an active agent pauses.
+  There is no REPL queue to drain — operator input folds at the next turn
+  boundary — so the `:interrupt` branch of the 3-state flow never applies.
+  Public so the mapping can be unit-tested without scaffolding a worker.
+  """
+  @spec pane_interrupt_action_no_pane(boolean()) :: :close_pane | :pause
+  def pane_interrupt_action_no_pane(true), do: :close_pane
+  def pane_interrupt_action_no_pane(false), do: :pause
 
   defp do_reactivate(%State{} = state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
