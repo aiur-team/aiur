@@ -336,6 +336,30 @@ defmodule Aiur.PaneManagerTest do
     refute_receive {:tmux_mock_out, "select-pane -t " <> _}, 200
   end
 
+  test "focused pane vanishing via the reconcile poll returns focus to the agent list",
+       %{tmux: tmux, pm: pm} do
+    # Production never receives the control-mode :pane_died event — it detects a
+    # vanished pane through the screen-grab reconcile poll (release_stale_visible_pane).
+    # That drop path must refocus the agent list too, otherwise closing an
+    # opencode pane leaves j/k/arrows landing in a dead pane (the #16 lockup).
+    open_in_slot(pm, tmux, "MT-1", "%10")
+
+    attach_task = Task.async(fn -> PaneManager.attach_conversation(pm, "MT-1", "echo hi") end)
+    drain_focus(tmux, "%10")
+    assert {:ok, "%10"} = Task.await(attach_task, 1_000)
+
+    # A fresh open triggers the reconcile poll. Report %10 as gone (only %1 is
+    # live) so the focused pane is dropped via the production reconcile path.
+    open_task = Task.async(fn -> PaneManager.open_conversation(pm, "MT-2", "echo MT-2") end)
+    drain_reconcile_if_requested(tmux, ["%1"])
+    # The reconcile drop must snap focus back to the agent-list pane.
+    drain_focus(tmux, "%1")
+    respond_split(tmux, "%11")
+    drain_focus(tmux, "%11")
+    drain_layout_apply(tmux)
+    assert {:ok, "%11"} = Task.await(open_task, 1_000)
+  end
+
   test "toggle_orientation flips state and re-applies the layout", %{tmux: tmux, pm: pm} do
     assert PaneManager.orientation(pm) == :horizontal
 

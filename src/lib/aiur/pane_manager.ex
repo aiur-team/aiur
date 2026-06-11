@@ -1611,7 +1611,9 @@ defmodule Aiur.PaneManager do
 
     Logger.info("aiur_pane_manager phase=reconcile_drop_stale_pane identifier=#{identifier} slot=#{slot} pane_id=#{pane_id}")
 
-    forget_pane_by_identifier(state, pane_id)
+    state
+    |> forget_pane_by_identifier(pane_id)
+    |> refocus_agent_list_if_focused(pane_id)
   end
 
   defp drop_stale_placeholders(state, live_panes) do
