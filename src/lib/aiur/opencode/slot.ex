@@ -766,8 +766,22 @@ defmodule Aiur.Opencode.Slot do
     end
 
     if is_pid(state.server_pid), do: GenServer.stop(state.server_pid)
+
+    case terminate_pane_command(state) do
+      nil -> :ok
+      cmd -> _ = Tmux.command(Tmux, cmd)
+    end
+
     :ok
   end
+
+  # The slot owns its opencode-attach pane. On teardown the pane must be
+  # killed, or the attach client and its inner tmux session outlive an Aiur
+  # quit and leak the whole UI subtree. Returns nil when there is no pane.
+  def terminate_pane_command(%{pane_id: pane_id}) when is_binary(pane_id),
+    do: "kill-pane -t #{pane_id}"
+
+  def terminate_pane_command(_state), do: nil
 
   defp reap_session_writer(%{writer_pid: pid, session_id: session_id}, base_url) do
     _ = ApiClient.delete_session(base_url, session_id)
