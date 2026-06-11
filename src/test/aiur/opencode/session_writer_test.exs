@@ -146,6 +146,25 @@ defmodule Aiur.Opencode.SessionWriterTest do
       assert count_messages(session_id) == 0
     end
 
+    test "remote-origin :user events write a genuine user message", %{session_id: session_id} do
+      state = build_state(session_id)
+
+      event =
+        transcript_event(:user, "hi from the remote control app",
+          turn_id: "t1",
+          payload: %{origin: :remote}
+        )
+
+      {:noreply, _state} = SessionWriter.handle_info({:transcript_event, event}, state)
+
+      assert count_messages(session_id) == 1
+      [message_id] = message_ids(session_id)
+      assert message_role(session_id, message_id) == "user"
+
+      [text_part] = parts_of_type(session_id, "text")
+      assert Jason.decode!(text_part)["text"] == "hi from the remote control app"
+    end
+
     test ":command event with payload writes clean bash tool part shape (U3)", %{
       session_id: session_id
     } do
@@ -418,8 +437,34 @@ defmodule Aiur.Opencode.SessionWriterTest do
       timestamp: DateTime.utc_now(),
       msg_id: nil,
       sequence: :erlang.unique_integer([:positive, :monotonic]),
-      turn_id: Keyword.get(opts, :turn_id)
+      turn_id: Keyword.get(opts, :turn_id),
+      payload: Keyword.get(opts, :payload)
     }
+  end
+
+  defp message_ids(session_id) do
+    {:ok, conn} = Basic.open(Db.path())
+
+    {:ok, rows, _} =
+      Basic.exec(conn, "SELECT id FROM message WHERE session_id = '#{session_id}'")
+      |> Basic.rows()
+
+    Basic.close(conn)
+    Enum.map(rows, fn [id] -> id end)
+  end
+
+  defp message_role(session_id, message_id) do
+    {:ok, conn} = Basic.open(Db.path())
+
+    {:ok, rows, _} =
+      Basic.exec(
+        conn,
+        "SELECT data FROM message WHERE session_id = '#{session_id}' AND id = '#{message_id}'"
+      )
+      |> Basic.rows()
+
+    Basic.close(conn)
+    rows |> List.first() |> List.first() |> Jason.decode!() |> Map.get("role")
   end
 
   defp count_messages(session_id) do
