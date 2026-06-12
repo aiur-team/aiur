@@ -504,6 +504,15 @@ defmodule Aiur.AgentList.RendererTest do
     assert raw =~ "\e[H"
   end
 
+  test "wraps the frame in a synchronized update so partial frames never paint" do
+    # DEC 2026 begin/end: a slow consumer otherwise renders a partial
+    # frame, splitting multi-byte glyphs into transient `?` replacement
+    # characters (the agent-list "??????" flicker during initial load).
+    raw = render(base_state())
+    assert String.starts_with?(raw, "\e[?2026h")
+    assert String.ends_with?(raw, "\e[?2026l")
+  end
+
   test "clears every row below the last rendered content (no stale-footer bug)" do
     # A frame that renders fewer rows must leave the rows below it
     # blank. We assert the trailing escape sequence positions the

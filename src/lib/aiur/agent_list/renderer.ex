@@ -130,6 +130,15 @@ defmodule Aiur.AgentList.Renderer do
       {events_iodata, events_line_count} = events_block(state, inner_width, events_budget)
 
       [
+        # Begin synchronized update (DEC 2026): the terminal buffers the
+        # whole frame and paints it atomically at the matching `?2026l`.
+        # Without it, a slow consumer can render a PARTIAL frame — and a
+        # multi-byte glyph (emoji, OSC 8 link, box drawing) split across
+        # the partial boundary momentarily paints as `?` replacement
+        # characters in the divider/events region during busy redraws
+        # (the "??????" flicker). Terminals without 2026 support ignore
+        # the sequence; tmux >= 3.4 passes it through.
+        "\e[?2026h",
         # Cursor controls at frame start:
         #   `\e[?25l`  hide cursor
         #   `\e[?12l`  disable cursor blinking (some terminals show
@@ -173,7 +182,9 @@ defmodule Aiur.AgentList.Renderer do
         # cost is six bytes per tick.
         "\e[?25l",
         "\e[?12l",
-        "\e[H"
+        "\e[H",
+        # End synchronized update — the frame paints atomically here.
+        "\e[?2026l"
       ]
     end
   end
