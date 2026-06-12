@@ -143,6 +143,7 @@ defmodule Aiur.PaneManager do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @spec close_conversation(GenServer.server(), String.t()) :: :ok | {:error, term()}
   def close_conversation(server \\ __MODULE__, identifier) when is_binary(identifier) do
     GenServer.call(server, {:close, identifier})
   end
