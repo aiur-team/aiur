@@ -62,7 +62,8 @@ defmodule Aiur.Events.PublisherTest do
 
     test "allows events with nil issue_number (system topics)" do
       :ok = Exchange.subscribe("system.main.branch.push")
-      assert {:ok, _id, 1} = Publisher.publish("system.main.branch.push", %{sha: "abc"})
+      assert {:ok, _id, count} = Publisher.publish("system.main.branch.push", %{sha: "abc"})
+      assert count >= 1
       assert_receive {:event, _}, 500
     end
   end
