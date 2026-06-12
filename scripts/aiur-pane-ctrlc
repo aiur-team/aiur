@@ -20,6 +20,9 @@ set -u
 
 pane_id="${1:-}"
 control_url="${2:-}"
+# Optional action: "hide" skips the 3-state interrupt query and goes
+# straight to hide-with-kill-fallback (the Ctrl+Q binding's path).
+mode="${3:-interrupt}"
 
 # Always-on breadcrumb so a Ctrl+C that closes a pane leaves evidence of which
 # branch ran — the tmux binding and this helper are otherwise invisible to
@@ -35,9 +38,29 @@ close_pane() {
   exit 0
 }
 
+# Closing a chat pane must never kill the opencode-attach process — ask
+# Aiur to HIDE the pane (move it to the warm window, slot binding kept)
+# so reopening swaps the same pane back instantly. Only when the hide
+# call fails (Aiur down, unknown pane) does this degrade to kill-pane.
+hide_pane() {
+  if [ -n "$control_url" ]; then
+    # shellcheck disable=SC2086
+    if curl -fsS -m 2 \
+      -H 'X-Aiur-Request: 1' \
+      -H 'Origin: http://127.0.0.1' \
+      --data-urlencode "pane_id=${pane_id}" \
+      $auth_args \
+      "${control_url}/api/v1/pane/hide" >/dev/null 2>&1; then
+      log_ctrlc "action=hide_pane reason=${1:-requested}"
+      exit 0
+    fi
+  fi
+
+  close_pane "hide_failed_${1:-requested}"
+}
+
 # No pane to act on, or no idea where Aiur is listening: degrade to close.
 [ -z "$pane_id" ] && exit 0
-[ -z "$control_url" ] && close_pane "no_control_url"
 
 # Loopback dashboards bind without auth; only attach credentials when the
 # operator has explicitly configured them for a non-loopback bind.
@@ -45,6 +68,11 @@ auth_args=""
 if [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
   auth_args="--user ${AIUR_DASHBOARD_USERNAME}:${AIUR_DASHBOARD_PASSWORD}"
 fi
+
+# Ctrl+Q path: unconditional hide (kill only as fallback).
+[ "$mode" = "hide" ] && hide_pane "ctrl_q"
+
+[ -z "$control_url" ] && close_pane "no_control_url"
 
 # shellcheck disable=SC2086
 response="$(
@@ -77,5 +105,7 @@ case "$response" in
     ;;
 esac
 
-# close_pane, an error, or any unexpected body: close the pane.
-close_pane "response=${response}"
+# close_pane, an error, or any unexpected body: hide the pane (the
+# paused agent's session and attach process stay alive; reopen swaps the
+# same pane back). Kill only when the hide call itself fails.
+hide_pane "response=${response}"

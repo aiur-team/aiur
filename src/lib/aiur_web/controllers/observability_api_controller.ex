@@ -67,6 +67,24 @@ defmodule AiurWeb.ObservabilityApiController do
     error_response(conn, 422, "missing_pane_id", "pane_id is required")
   end
 
+  @doc """
+  Hide a chat pane without touching agent or slot state: the pane moves to
+  the hidden warm window (opencode-attach process intact) and reopening
+  swaps the same pane back instantly. Callers (Ctrl+Q / the Ctrl+C bridge's
+  close branch) fall back to a plain kill-pane on any non-200.
+  """
+  @spec pane_hide(Conn.t(), map()) :: Conn.t()
+  def pane_hide(conn, %{"pane_id" => pane_id}) when is_binary(pane_id) and pane_id != "" do
+    case Aiur.PaneManager.hide_by_pane_id(pane_id) do
+      :ok -> json(conn, %{action: :hidden})
+      {:error, reason} -> error_response(conn, 409, "hide_failed", inspect(reason))
+    end
+  end
+
+  def pane_hide(conn, _params) do
+    error_response(conn, 422, "missing_pane_id", "pane_id is required")
+  end
+
   @spec method_not_allowed(Conn.t(), map()) :: Conn.t()
   def method_not_allowed(conn, _params) do
     error_response(conn, 405, "method_not_allowed", "Method not allowed")

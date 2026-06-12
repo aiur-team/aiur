@@ -123,6 +123,26 @@ defmodule Aiur.PaneManager do
   end
 
   @spec close_conversation(GenServer.server(), agent_id()) :: :ok | {:error, term()}
+  @doc """
+  Hide the conversation pane WITHOUT releasing its slot: the pane moves to
+  the hidden warm window with its opencode-attach process intact and the
+  slot keeps its identifier binding, so reopening swaps the same pane back
+  via `Slot.set_visible/2`'s fast path — no respawn, no prewarm wait. This
+  is the Ctrl+Q / Ctrl+C-close semantic; the agent-list close
+  (`close_conversation/2`) additionally deselects so the slot frees up.
+
+  Returns `{:error, :not_slot_pane}` for panes no slot owns — callers fall
+  back to a plain kill.
+  """
+  @spec hide_by_pane_id(GenServer.server(), String.t()) ::
+          :ok | {:error, :not_slot_pane | term()}
+  def hide_by_pane_id(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:hide_by_pane_id, pane_id}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_pane_manager}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   def close_conversation(server \\ __MODULE__, identifier) when is_binary(identifier) do
     GenServer.call(server, {:close, identifier})
   end
@@ -322,6 +342,18 @@ defmodule Aiur.PaneManager do
 
       :error ->
         {:reply, {:error, :not_open}, state}
+    end
+  end
+
+  def handle_call({:hide_by_pane_id, pane_id}, _from, state) do
+    case Map.fetch(state.pane_to_identifier, pane_id) do
+      {:ok, identifier} ->
+        Logger.info("[user-action] hide_pane identifier=#{identifier} pane_id=#{pane_id}")
+
+        hide_slot_pane(state, identifier, pane_id)
+
+      :error ->
+        {:reply, {:error, :not_slot_pane}, state}
     end
   end
 
@@ -705,6 +737,40 @@ defmodule Aiur.PaneManager do
     case command_to_run do
       "__aiur_opencode__ " <> _ -> open_opencode_pane(state, identifier, opts, from)
       _ -> open_generic_pane(state, identifier, command_to_run, from)
+    end
+  end
+
+  # Hide-without-deselect: the pane (opencode-attach process intact) moves
+  # to the hidden warm window and the slot KEEPS its identifier binding, so
+  # reopen hits `Slot.set_visible/2`'s fast path and swaps this same pane
+  # back instantly. Only slot panes hide; anything else reports
+  # :not_slot_pane so the caller can fall back to a kill.
+  defp hide_slot_pane(state, identifier, pane_id) do
+    case slot_for_pane(state, pane_id) do
+      {:ok, slot_index, _slot_pid} ->
+        hidden_window = HiddenWindow.window_name()
+
+        case Tmux.move_pane_hidden(state.tmux, pane_id, hidden_window) do
+          :ok ->
+            new_state = forget_pane_by_identifier(state, pane_id)
+            _ = apply_layout(new_state)
+            AgentPubSub.broadcast_status_change(identifier, :pane_closed)
+            refocus_agent_list_if_focused(new_state, pane_id)
+
+            Logger.info("aiur_pane_manager phase=hide_pane elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}")
+
+            Aiur.Perf.event(:pane_hide, identifier: identifier, slot: slot_index, pane_id: pane_id)
+
+            {:reply, :ok, new_state}
+
+          {:error, reason} ->
+            Logger.warning("aiur_pane_manager phase=hide_pane_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)}")
+
+            {:reply, {:error, reason}, state}
+        end
+
+      :not_found ->
+        {:reply, {:error, :not_slot_pane}, state}
     end
   end
 

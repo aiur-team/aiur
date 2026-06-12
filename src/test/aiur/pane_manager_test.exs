@@ -202,6 +202,12 @@ defmodule Aiur.PaneManagerTest do
     assert PaneManager.list_open_panes(pm) == %{}
   end
 
+  test "hide_by_pane_id reports :not_slot_pane for unknown panes (caller falls back to kill)", %{
+    pm: pm
+  } do
+    assert {:error, :not_slot_pane} = PaneManager.hide_by_pane_id(pm, "%999")
+  end
+
   test "opening the same identifier twice returns the existing pane", %{tmux: tmux, pm: pm} do
     open_in_slot(pm, tmux, "MT-1", "%10")
 
