@@ -4,16 +4,16 @@ defmodule Aiur.Sandbox.EventFlowDemo do
   # the test tickets flesh this out during the manual --test workflow;
   # `aiur --test` restores this file to HEAD before each fresh run.
 
-  # function_a/0 and function_b/0 are stubs matching the agreed
-  # contracts from #99 and #100 — added here so function_c/0 compiles
-  # and runs while those upstream tickets are still in flight. To be
-  # replaced by the real implementations on merge.
-  @spec function_a() :: 42
+  # function_a/0 is the real implementation integrated from aiur/99
+  # (e5897ce). function_b/0 is a stub matching the agreed contract
+  # from #100 — kept local so function_c/0 compiles and runs while
+  # that ticket is in flight; swapped on its branch.push.
+  @spec function_a() :: integer()
   def function_a, do: 42
 
-  @spec function_b() :: 43
+  @spec function_b() :: integer()
   def function_b, do: function_a() + 1
 
-  @spec function_c() :: 1849
+  @spec function_c() :: integer()
   def function_c, do: function_b() * function_b()
 end
