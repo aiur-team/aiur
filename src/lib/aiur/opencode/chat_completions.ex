@@ -170,7 +170,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
       {:closed, reason} ->
         Logger.info("opencode_bridge turn_stream_late_close identifier=#{identifier} aiur_turn=#{parent_id} reason=#{inspect(reason)}")
-        _ = DebugLog.unsubscribe()
+        unsubscribe_stream(identifier)
         finalize_stream(conn, completion_id, reason)
 
       :not_found ->
@@ -179,7 +179,7 @@ defmodule Aiur.Opencode.ChatCompletions do
         # run_turn never completed. Close without rendering the 10-minute
         # watchdog notice.
         Logger.info("opencode_bridge turn_stream_phantom identifier=#{identifier} aiur_turn=#{parent_id}")
-        _ = DebugLog.unsubscribe()
+        unsubscribe_stream(identifier)
         finalize_stream(conn, completion_id, :done)
     end
   end
@@ -223,7 +223,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
       {:aiur_turn_done, ^identifier, ^parent_id, reason} ->
         Logger.info("opencode_bridge turn_stream_close identifier=#{identifier} aiur_turn=#{parent_id} reason=#{inspect(reason)}")
-        _ = DebugLog.unsubscribe()
+        unsubscribe_stream(identifier)
         finalize_stream(conn, completion_id, reason)
 
       :heartbeat ->
@@ -254,6 +254,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
       {:turn_watchdog, ^parent_id} ->
         Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{parent_id}")
+        unsubscribe_stream(identifier)
 
         conn =
           chunk(
@@ -269,6 +270,8 @@ defmodule Aiur.Opencode.ChatCompletions do
         codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
     after
       @watchdog_ms ->
+        unsubscribe_stream(identifier)
+
         conn =
           chunk(
             conn,
@@ -279,6 +282,17 @@ defmodule Aiur.Opencode.ChatCompletions do
 
         chunk(conn, completion_id, nil, "timeout")
     end
+  end
+
+  # Drop BOTH subscriptions this stream opened. The agent-topic unsubscribe
+  # is the duplication fix: opencode reopens a completion per segment on one
+  # keep-alive connection, Bandit reuses the handler process, and without
+  # this each segment's `subscribe_agent/1` stacks another subscription so
+  # one broadcast event streams N copies into the assistant message.
+  defp unsubscribe_stream(identifier) do
+    _ = DebugLog.unsubscribe()
+    _ = AgentPubSub.unsubscribe_agent(identifier)
+    :ok
   end
 
   # Stream one transcript event's delta, then either close the segment at a
@@ -311,7 +325,7 @@ defmodule Aiur.Opencode.ChatCompletions do
     Logger.info("opencode_bridge turn_stream_segment_close identifier=#{identifier} aiur_turn=#{parent_id} seg=#{seg.n}")
 
     :ok = TurnMarkers.post_continuation(identifier, parent_id, seg.n + 1, seg.writer)
-    _ = DebugLog.unsubscribe()
+    unsubscribe_stream(identifier)
     chunk(conn, completion_id, nil, "stop")
   end
 

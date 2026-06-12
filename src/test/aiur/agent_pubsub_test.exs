@@ -20,6 +20,34 @@ defmodule Aiur.AgentPubSubTest do
       refute_receive {:transcript_event, _}, 50
     end
 
+    test "stacked subscriptions duplicate delivery; unsubscribe clears the process" do
+      # The bridge reuses one keep-alive process across segments. Each
+      # segment's subscribe_agent stacks another subscription, so a single
+      # broadcast is delivered once PER stacked subscription — the source of
+      # the N-copies-per-pane duplication. The fix: unsubscribe on every
+      # close path clears the process's subscriptions so the next segment's
+      # single subscribe delivers exactly one copy.
+      :ok = AgentPubSub.subscribe_agent("MT-DUP")
+      :ok = AgentPubSub.subscribe_agent("MT-DUP")
+      event = AgentEvents.transcript_event(:command, "ls")
+
+      :ok = AgentPubSub.broadcast_transcript("MT-DUP", event)
+      assert_receive {:transcript_event, ^event}
+      assert_receive {:transcript_event, ^event}
+      refute_receive {:transcript_event, ^event}, 50
+
+      # One unsubscribe clears ALL stacked subscriptions for this process.
+      :ok = AgentPubSub.unsubscribe_agent("MT-DUP")
+      :ok = AgentPubSub.broadcast_transcript("MT-DUP", event)
+      refute_receive {:transcript_event, ^event}, 50
+
+      # Next segment's single subscribe delivers exactly one copy.
+      :ok = AgentPubSub.subscribe_agent("MT-DUP")
+      :ok = AgentPubSub.broadcast_transcript("MT-DUP", event)
+      assert_receive {:transcript_event, ^event}
+      refute_receive {:transcript_event, ^event}, 50
+    end
+
     test "broadcast_transcript also fires :agent_chat_active on the global topic" do
       :ok = AgentPubSub.subscribe_agent_chat_active()
       event = AgentEvents.transcript_event(:assistant, "first words")
