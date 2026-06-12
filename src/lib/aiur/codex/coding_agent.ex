@@ -57,7 +57,8 @@ defmodule Aiur.Codex.CodingAgent do
 
       # Local spawns run bash -lc "codex … app-server"; a remote spawn's
       # local pid is the ssh client, so the cmdline guard expects that.
-      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]}, comm: if(is_binary(worker_host), do: "ssh", else: "codex"))
+      reaper_comm = if is_binary(worker_host), do: "ssh", else: "codex"
+      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]}, comm: reaper_comm)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do

@@ -784,6 +784,7 @@ defmodule Aiur.Opencode.Slot do
   # The slot owns its opencode-attach pane. On teardown the pane must be
   # killed, or the attach client and its inner tmux session outlive an Aiur
   # quit and leak the whole UI subtree. Returns nil when there is no pane.
+  @spec terminate_pane_command(map()) :: String.t() | nil
   def terminate_pane_command(%{pane_id: pane_id}) when is_binary(pane_id),
     do: "kill-pane -t #{pane_id}"
 

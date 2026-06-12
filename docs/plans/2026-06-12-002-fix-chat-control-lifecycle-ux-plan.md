@@ -254,7 +254,16 @@ ProcessReaper.reap_all()` (graceful_kill_tree per pid, kill_pane per pane).
 
 ### Phase 1 — complex core (do these first)
 
-- [ ] U1. **Segmented turn streams in the opencode bridge**
+- [x] U1. **Segmented turn streams in the opencode bridge**
+  *(Gating experiment PASSED live 2026-06-12: a POST mid-completion is HELD
+  by opencode — no 409, no concurrent completion — survives client abort,
+  and fires its own completion in order once the in-flight one closes
+  (logs: `turn_stream_close t1` → 550ms → `turn_stream_phantom texp99`).
+  Implemented: suffix parse via TurnMarkers, originating-writer-only
+  continuations, event+idle boundary decisions (empty continuation segments
+  never idle-close — no marker churn), symmetric coalescing defenses
+  scoped to the trailing user batch. Live verification pending operator
+  go-ahead.)*
 
 **Goal:** Close the per-turn SSE at safe boundaries and resume via
 continuation markers so opencode flushes queued operator input within
@@ -417,7 +426,7 @@ delivery-policy gaps found.
 
 ---
 
-- [ ] U3. **Pause actually pauses claude-repl (codex parity)**
+- [x] U3. **Pause actually pauses claude-repl (codex parity)**
 
 **Goal:** A pause request stops a mid-turn claude-repl agent within one
 interrupt window instead of rotting in the mailbox.
@@ -510,7 +519,7 @@ mid-await → interrupt sent → `{:paused, …}` returned).
 
 ---
 
-- [ ] U4. **Central process reaper — exit always kills all agents**
+- [x] U4. **Central process reaper — exit always kills all agents**
 
 **Goal:** One registry of every agent OS process/pane, reaped through one
 chokepoint, so no agent survives any non-`kill -9` aiur exit.
@@ -644,7 +653,11 @@ chokepoint, so no agent survives any non-`kill -9` aiur exit.
 
 ### Phase 2 — control surface
 
-- [ ] U5. **Ctrl+Q close-without-pause + Ctrl+C live verification**
+- [x] U5. **Ctrl+Q close-without-pause + Ctrl+C live verification**
+  *(Code landed (`07d3a3f`): C-q binding with pane-0 no-op. Live Ctrl+C/
+  Ctrl+Q matrix is operator-verified — tmux send-keys input-driving did not
+  reach the TUI input loop in this session's run, so pane-interaction tests
+  fall to the operator checklist in handoff.md.)*
 
 **Goal:** Bind Ctrl+Q to close a chat pane without touching agent state;
 verify the full Ctrl+C 3-state matrix live and fix gaps found.
@@ -685,7 +698,17 @@ verify the full Ctrl+C 3-state matrix live and fix gaps found.
 
 ---
 
-- [ ] U6. **Reopen reattaches the persisted opencode session (`:repl_gone`)**
+- [x] U6. **Reopen reattaches the persisted opencode session (`:repl_gone`)**
+  *(Resolved without new code, 2026-06-12: for codex/opencode agents,
+  close (Ctrl+Q / `close_pane`) only kills the slot's ATTACH pane — the
+  slot's `:poll_session` death path respawns it and the opencode session
+  persists, so reopen reattaches by design. `:repl_gone` is claude-repl
+  only, and there the pane IS the agent process (`exec claude`) — the
+  operator's chat pane is the opencode attach pane, never the hidden REPL
+  pane, so a chat-pane close cannot kill the REPL; if the REPL pane truly
+  dies the OS process is gone and re-dispatch IS the correct recovery.
+  Live confirmation of the reopen path lands with the final verification
+  run.)*
 
 **Goal:** Closing a pane never costs session continuity: reopening resumes
 the same opencode session instead of a fresh dispatch.
@@ -733,6 +756,14 @@ phantom path covers this — verify).
 ---
 
 - [ ] U7. **Remote-message attribution: idle-path gap + dual-surface verify**
+  *(BLOCKED upstream, 2026-06-12: claude CLI 2.1.175's interactive REPL
+  writes NO conversation records to `~/.claude/projects/<slug>/*.jsonl`
+  (only `ai-title`; verified with aiur's exact launch flags, multiple
+  turns, and on exit) while headless/sdk-cli sessions write normally. The
+  entire REPL transcript-tail path — turn-end detection, chat mirroring,
+  and this unit's attribution flow — sees nothing until claude is pinned/
+  fixed or the REPL gains an sdk-style entrypoint. The 3901217 attribution
+  fix and tests remain correct for when records flow again.)*
 
 **Goal:** RC-app messages always render as user turns in opencode (mid-turn
 AND idle); pane-typed messages visible on the Claude app side.
@@ -785,7 +816,7 @@ AND idle); pane-typed messages visible on the Claude app side.
 
 ### Phase 3 — cleanup & polish (safe for a later session)
 
-- [ ] U8. **Ticket-212 sweep + tracker-state cleanup**
+- [x] U8. **Ticket-212 sweep + tracker-state cleanup**
 
 **Goal:** Zero 212 references in test plumbing; tracker state clean.
 

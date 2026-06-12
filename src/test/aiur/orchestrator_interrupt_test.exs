@@ -1,6 +1,8 @@
 defmodule Aiur.OrchestratorInterruptTest do
   use Aiur.TestSupport
 
+  alias Aiur.Opencode.ActiveTurns
+
   defp running_entry(identifier, extra \\ %{}) do
     Map.merge(
       %{
@@ -103,8 +105,8 @@ defmodule Aiur.OrchestratorInterruptTest do
       # return :send_interrupt so the bridge forwards Esc, and Aiur must leave
       # the agent :working (no optimistic pause flip).
       entry = running_entry("codex-1")
-      Aiur.Opencode.ActiveTurns.put("codex-1", "turn-1")
-      on_exit(fn -> Aiur.Opencode.ActiveTurns.mark_closed("codex-1", "turn-1", :test_cleanup) end)
+      ActiveTurns.put("codex-1", "turn-1")
+      on_exit(fn -> ActiveTurns.mark_closed("codex-1", "turn-1", :test_cleanup) end)
 
       :sys.replace_state(pid, fn state ->
         %{state | running: %{"codex-1" => entry}}

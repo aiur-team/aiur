@@ -196,21 +196,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg) do
     receive do
       {:transcript_event, event} ->
-        case transcript_delta(event, last_role) do
-          {:delta, delta, new_role} ->
-            conn = chunk(conn, completion_id, delta, nil)
-            seg = %{seg | last_event_at: now_ms(), streamed?: true}
-
-            if seg.writer != nil and
-                 segment_boundary?(new_role, now_ms() - seg.opened_at, seg.threshold_ms) do
-              close_segment(conn, identifier, parent_id, completion_id, seg)
-            else
-              codex_turn_stream_loop(conn, identifier, parent_id, completion_id, new_role, seg)
-            end
-
-          :drop ->
-            codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
-        end
+        stream_event_then_continue(conn, identifier, parent_id, completion_id, last_role, seg, event)
 
       # R2 live render — cross-ticket event ticker row for THIS agent.
       # DebugLog broadcasts on a global topic; filter via
@@ -292,6 +278,27 @@ defmodule Aiur.Opencode.ChatCompletions do
           )
 
         chunk(conn, completion_id, nil, "timeout")
+    end
+  end
+
+  # Stream one transcript event's delta, then either close the segment at a
+  # boundary or keep looping. Split from the receive loop for readability
+  # (and credo's complexity budget).
+  defp stream_event_then_continue(conn, identifier, parent_id, completion_id, last_role, seg, event) do
+    case transcript_delta(event, last_role) do
+      {:delta, delta, new_role} ->
+        conn = chunk(conn, completion_id, delta, nil)
+        seg = %{seg | last_event_at: now_ms(), streamed?: true}
+
+        if seg.writer != nil and
+             segment_boundary?(new_role, now_ms() - seg.opened_at, seg.threshold_ms) do
+          close_segment(conn, identifier, parent_id, completion_id, seg)
+        else
+          codex_turn_stream_loop(conn, identifier, parent_id, completion_id, new_role, seg)
+        end
+
+      :drop ->
+        codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
     end
   end
 

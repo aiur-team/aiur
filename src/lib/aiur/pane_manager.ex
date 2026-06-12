@@ -264,7 +264,6 @@ defmodule Aiur.PaneManager do
     case Aiur.Config.server_host() do
       host when host in ["0.0.0.0", "::", "", nil] -> "127.0.0.1"
       host when is_binary(host) -> host
-      _ -> "127.0.0.1"
     end
   end
 

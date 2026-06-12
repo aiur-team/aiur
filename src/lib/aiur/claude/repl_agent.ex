@@ -666,21 +666,19 @@ defmodule Aiur.Claude.ReplAgent do
   # is quiescent before the runner parks. Expiry logs and parks anyway —
   # never an error, never an infinite loop (see @pause_confirm_ms).
   defp await_pause_confirm(tailer, turn_id, deadline, poll_ms) do
-    cond do
-      System.monotonic_time(:millisecond) >= deadline ->
-        Logger.warning("repl_pause pause_confirm_timeout turn_id=#{turn_id}")
-        :timeout
+    if System.monotonic_time(:millisecond) >= deadline do
+      Logger.warning("repl_pause pause_confirm_timeout turn_id=#{turn_id}")
+      :timeout
+    else
+      TranscriptTailer.poll(tailer)
 
-      true ->
-        TranscriptTailer.poll(tailer)
-
-        receive do
-          {:turn_end, ^turn_id, _reason} -> :ok
-        after
-          0 ->
-            Process.sleep(poll_ms)
-            await_pause_confirm(tailer, turn_id, deadline, poll_ms)
-        end
+      receive do
+        {:turn_end, ^turn_id, _reason} -> :ok
+      after
+        0 ->
+          Process.sleep(poll_ms)
+          await_pause_confirm(tailer, turn_id, deadline, poll_ms)
+      end
     end
   end
 
@@ -772,7 +770,10 @@ defmodule Aiur.Claude.ReplAgent do
   cuts the active turn at Claude's next safe point so a queued message is
   drained immediately.
   """
-  @spec interrupt(session()) :: :ok | {:error, term()}
+  # Accepts any map carrying :tmux + a binary :pane_id — callers like the
+  # orchestrator's pane-interrupt path build a minimal `%{tmux:, pane_id:}`
+  # rather than threading a full session().
+  @spec interrupt(map()) :: :ok | {:error, term()}
   def interrupt(%{tmux: tmux, pane_id: pane_id}) when is_binary(pane_id) do
     Tmux.send_interrupt(tmux, pane_id)
   end
