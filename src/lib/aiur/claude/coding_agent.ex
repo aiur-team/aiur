@@ -35,6 +35,7 @@ defmodule Aiur.Claude.CodingAgent do
     with :ok <- validate_workspace_cwd(workspace),
          {:ok, port} <- start_port(workspace) do
       metadata = port_metadata(port)
+      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]}, comm: "claude")
       expanded_workspace = Path.expand(workspace)
 
       case do_start_session(port, expanded_workspace) do
@@ -766,6 +767,11 @@ defmodule Aiur.Claude.CodingAgent do
         :ok
 
       _ ->
+        case :erlang.port_info(port, :os_pid) do
+          {:os_pid, os_pid} -> Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+          _ -> :ok
+        end
+
         try do
           Port.close(port)
           :ok

@@ -433,6 +433,8 @@ defmodule Aiur.Opencode.Slot do
            ) do
       Logger.info("opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}")
 
+      Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
+
       Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
       Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
@@ -768,8 +770,12 @@ defmodule Aiur.Opencode.Slot do
     if is_pid(state.server_pid), do: GenServer.stop(state.server_pid)
 
     case terminate_pane_command(state) do
-      nil -> :ok
-      cmd -> _ = Tmux.command(Tmux, cmd)
+      nil ->
+        :ok
+
+      cmd ->
+        Aiur.ProcessReaper.unregister({:pane, state.pane_id})
+        _ = Tmux.command(Tmux, cmd)
     end
 
     :ok
@@ -1032,6 +1038,7 @@ defmodule Aiur.Opencode.Slot do
     if is_binary(state.pane_id) do
       Logger.warning("opencode_slot phase=kill_for_respawn slot=#{state.slot_index} old_pane_id=#{state.pane_id} session_id=#{session_id}")
 
+      Aiur.ProcessReaper.unregister({:pane, state.pane_id})
       _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
     end
 
@@ -1053,6 +1060,7 @@ defmodule Aiur.Opencode.Slot do
         pane_id: pane_id
       )
 
+      Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
       maybe_start_pipe_pane(state.slot_index, pane_id)
 
       {:ok, pane_id}

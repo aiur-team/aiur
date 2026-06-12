@@ -34,7 +34,13 @@ defmodule Aiur.Shutdown do
   """
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
+    # Kind-ordered: agent trees/panes die first (so nothing writes during
+    # session deletion), serves die last (delete_all needs them alive for
+    # its HTTP deletes). drain: true — anything registered after this sweep
+    # is shutdown-orphaned and killed on arrival.
+    safely(fn -> Aiur.ProcessReaper.reap([:agent], drain: true) end, "reap_agents")
     safely(fn -> SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
+    safely(fn -> Aiur.ProcessReaper.reap([:serve], drain: true) end, "reap_serves")
     safely(fn -> ReplAgent.sweep_own_panes() end, "sweep_repl_panes")
     safely(fn -> reap_workspace_agents() end, "reap_workspace_agents")
     safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")

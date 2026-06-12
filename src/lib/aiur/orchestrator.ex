@@ -141,6 +141,11 @@ defmodule Aiur.Orchestrator do
   # tasks die.
   @impl true
   def terminate(_reason, %State{running: running}) when is_map(running) do
+    # Best-effort accelerator: sweep registered agent processes first.
+    # drain: false is load-bearing — terminate/2 also runs on a supervised
+    # crash-restart, and latching the app-lifetime reaper into draining
+    # there would kill every agent the restarted orchestrator spawns.
+    _ = Aiur.ProcessReaper.reap([:agent], drain: false)
     Enum.each(running, fn {_issue_id, entry} -> kill_repl_session(entry) end)
     :ok
   end

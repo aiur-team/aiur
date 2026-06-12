@@ -155,6 +155,11 @@ defmodule Aiur.Claude.ReplAgent do
           remote_control: ctx.rc?
         )
 
+        # The pane runs `exec claude`, so the pane pid IS the REPL; register
+        # both so shutdown reaps survive either teardown path going stale.
+        Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
+        Aiur.ProcessReaper.register(:agent, {:os_pid, os_pid}, comm: "claude")
+
         build_ready_session(ctx, pane_id, os_pid)
 
       {:error, :repl_not_ready} = err ->
@@ -242,6 +247,9 @@ defmodule Aiur.Claude.ReplAgent do
   @spec stop_session(session()) :: :ok
   def stop_session(%{tmux: tmux, pane_id: pane_id} = session) do
     os_pid = Map.get(session, :os_pid)
+
+    Aiur.ProcessReaper.unregister({:pane, pane_id})
+    Aiur.ProcessReaper.unregister({:os_pid, os_pid})
 
     Tmux.kill_pane(tmux, pane_id)
     RemoteControl.graceful_kill_tree(os_pid)

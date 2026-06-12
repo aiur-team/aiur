@@ -55,6 +55,10 @@ defmodule Aiur.Codex.CodingAgent do
          {:ok, port} <- start_port(expanded_workspace, worker_host, model) do
       metadata = port_metadata(port, worker_host)
 
+      # Local spawns run bash -lc "codex … app-server"; a remote spawn's
+      # local pid is the ssh client, so the cmdline guard expects that.
+      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]}, comm: if(is_binary(worker_host), do: "ssh", else: "codex"))
+
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
         {:ok,
@@ -1376,8 +1380,12 @@ defmodule Aiur.Codex.CodingAgent do
         # lock, poisoning every subsequent codex agent. Collecting descendants
         # must happen while the wrapper is still alive to anchor the pgrep walk.
         case :erlang.port_info(port, :os_pid) do
-          {:os_pid, os_pid} -> RemoteControl.graceful_kill_tree(os_pid)
-          _ -> :ok
+          {:os_pid, os_pid} ->
+            Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+            RemoteControl.graceful_kill_tree(os_pid)
+
+          _ ->
+            :ok
         end
 
         try do
