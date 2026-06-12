@@ -708,6 +708,11 @@ defmodule Aiur.Opencode.Slot do
 
           dump_pipe_tail(state.slot_index)
 
+          # The dead pane respawns below, so drop its ProcessReaper entry —
+          # otherwise repeated death/respawn cycles accumulate stale pane
+          # refs that the shutdown sweep would try (and fail) to kill.
+          Aiur.ProcessReaper.unregister({:pane, pane_id})
+
           broadcast_session_changed(state.slot_index, nil)
           # Pane is dead — clear the registry's pane_id too.
           broadcast_visible_changed(state.slot_index, nil, nil)
@@ -767,7 +772,14 @@ defmodule Aiur.Opencode.Slot do
       |> Enum.each(&reap_session_writer(&1, state.base_url))
     end
 
-    if is_pid(state.server_pid), do: GenServer.stop(state.server_pid)
+    # A noproc here (server already down) must not skip the pane reap below.
+    if is_pid(state.server_pid) do
+      try do
+        GenServer.stop(state.server_pid)
+      catch
+        :exit, _ -> :ok
+      end
+    end
 
     case terminate_pane_command(state) do
       nil ->

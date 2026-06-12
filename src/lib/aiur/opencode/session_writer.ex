@@ -35,7 +35,7 @@ defmodule Aiur.Opencode.SessionWriter do
 
   alias Aiur.{AgentPubSub, IssueLog}
   alias Aiur.Events.DebugLog
-  alias Aiur.Opencode.{ActiveTurns, ApiClient, Db, EventRow, Protocol}
+  alias Aiur.Opencode.{ActiveTurns, ApiClient, Db, EventRow, Protocol, TurnMarkers}
 
   # Sweep open turn buffers every 60s; finalize any whose last event
   # is older than this threshold. Bounds memory if codex never sends
@@ -354,7 +354,7 @@ defmodule Aiur.Opencode.SessionWriter do
 
   defp post_catchup_marker(state, aiur_turn_id) do
     payload = %{
-      parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
+      parts: [Protocol.text_part_data(TurnMarkers.marker_text(aiur_turn_id), synthetic: true)]
     }
 
     case ApiClient.post_message(state.base_url, state.session_id, payload) do

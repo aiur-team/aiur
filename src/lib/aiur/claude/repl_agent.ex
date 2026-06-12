@@ -218,13 +218,13 @@ defmodule Aiur.Claude.ReplAgent do
   # the banner lands or the budget elapses — it can appear a beat after the
   # prompt. Returns nil when it never appears; for an RC session that nil is
   # the RC-unavailable signal (see `build_ready_session/3`).
-  # RC-attach evidence comes in two CLI generations:
-  #   * legacy (< 2.1.175): a `/remote-control is active · … https://claude.ai/
-  #     code/session_…` banner prints into the pane — the URL is right there.
-  #   * 2.1.175+: the banner is gone; the footer shows only a tiny
-  #     `/rc active` indicator. The URL must be harvested by running the
-  #     `/rc` slash command, whose dialog prints "This session is available …
-  #     at https://claude.ai/code/session_…", then dismissing it with Esc.
+  # RC-attach evidence takes one of two on-pane forms:
+  #   * banner form: a `/remote-control is active · … https://claude.ai/code/
+  #     session_…` banner prints into the pane — the URL is right there.
+  #   * footer form: only a small `/rc active` indicator shows. Harvest the
+  #     URL by running the `/rc` slash command, whose dialog prints "This
+  #     session is available … at https://claude.ai/code/session_…", then
+  #     dismiss it with Esc.
   # Poll for either signal; missing both within the budget means RC never
   # attached (entitlement absent / link down) and the caller degrades.
   defp capture_session_url(tmux, pane_id, opts) do

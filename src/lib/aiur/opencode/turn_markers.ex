@@ -29,6 +29,10 @@ defmodule Aiur.Opencode.TurnMarkers do
   @spec marker_text(String.t()) :: String.t()
   def marker_text(turn_id) when is_binary(turn_id), do: @marker_prefix <> turn_id
 
+  @doc "The `__aiur_turn__:` prefix every marker text carries."
+  @spec marker_prefix() :: String.t()
+  def marker_prefix, do: @marker_prefix
+
   @doc """
   Split a marker-captured id into `{parent_turn_id, segment_number}`. A bare
   parent id is segment 0.
@@ -122,7 +126,15 @@ defmodule Aiur.Opencode.TurnMarkers do
         {:error, _reason} ->
           Logger.warning("aiur_turn_marker post_retry identifier=#{identifier} marker=#{marker_turn_id}")
 
-          _ = post_one(post_fn, base_url, session_id, payload, identifier)
+          case post_one(post_fn, base_url, session_id, payload, identifier) do
+            :ok ->
+              :ok
+
+            other ->
+              # Both attempts failed — this segment stream stays dark for the
+              # rest of the turn (content renders via SQL only). Surface it.
+              Logger.warning("aiur_turn_marker post_retry_failed identifier=#{identifier} marker=#{marker_turn_id} reason=#{inspect(other)}")
+          end
 
         :ok ->
           :ok
