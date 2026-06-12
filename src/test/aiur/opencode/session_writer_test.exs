@@ -1,7 +1,7 @@
 defmodule Aiur.Opencode.SessionWriterTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Opencode.{Db, SessionWriter}
+  alias Aiur.Opencode.{ActiveTurns, Db, SessionWriter}
   alias Exqlite.Basic
 
   describe "await_replay/2" do
@@ -32,8 +32,8 @@ defmodule Aiur.Opencode.SessionWriterTest do
       # A live bridge stream covers rendering AND persistence (opencode
       # stores the streamed completion); a parallel SQL write here showed
       # every agent log 2-4x in the pane after each segment close.
-      :ok = Aiur.Opencode.ActiveTurns.put("test-id", "t-dedup-1")
-      on_exit(fn -> Aiur.Opencode.ActiveTurns.mark_closed("test-id", "t-dedup-1", :test_cleanup) end)
+      :ok = ActiveTurns.put("test-id", "t-dedup-1")
+      on_exit(fn -> ActiveTurns.mark_closed("test-id", "t-dedup-1", :test_cleanup) end)
 
       {:noreply, state} =
         SessionWriter.handle_info(
@@ -46,7 +46,7 @@ defmodule Aiur.Opencode.SessionWriterTest do
 
       # Once the turn closes, writes resume (between-turn events have no
       # live stream and the SQL row is the only render path).
-      Aiur.Opencode.ActiveTurns.mark_closed("test-id", "t-dedup-1", :done)
+      ActiveTurns.mark_closed("test-id", "t-dedup-1", :done)
 
       {:noreply, _state} =
         SessionWriter.handle_info(
