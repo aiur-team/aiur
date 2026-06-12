@@ -2536,11 +2536,11 @@ defmodule Aiur.Orchestrator do
   end
 
   @spec pane_interrupt(String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt(issue_identifier), do: pane_interrupt(__MODULE__, issue_identifier)
 
   @spec pane_interrupt(GenServer.server(), String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt(server, issue_identifier) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:pane_interrupt, issue_identifier}, 5_000)
@@ -2560,11 +2560,11 @@ defmodule Aiur.Orchestrator do
   `pane_interrupt/1`.
   """
   @spec pane_interrupt_by_pane_id(String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt_by_pane_id(pane_id), do: pane_interrupt_by_pane_id(__MODULE__, pane_id)
 
   @spec pane_interrupt_by_pane_id(GenServer.server(), String.t()) ::
-          {:ok, :interrupted | :paused | :close_pane | :deliver_queue} | {:error, term()}
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt_by_pane_id(server, pane_id) when is_binary(pane_id) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:pane_interrupt_by_pane_id, pane_id}, 5_000)
@@ -3602,18 +3602,19 @@ defmodule Aiur.Orchestrator do
         perform_pane_interrupt(action, state, entry, issue_identifier, pane_id)
 
       running_entry when is_map(running_entry) ->
-        # No REPL pane to hardware-interrupt, but the agent still folds a
-        # pause at its next turn boundary. A queued operator message takes
-        # priority: the press lets it deliver instead of pausing/closing the
-        # pane out from under it. With an empty queue the pause→close flow
-        # applies — first Ctrl+C parks the agent (pane stays open), a second
-        # press on the now-paused agent closes it. Without this the caller
-        # collapses an unsupported-interrupt error to an immediate kill-pane,
-        # nuking the pane on the very first press.
+        # opencode/codex own their queue and turn; Aiur cannot see them via
+        # AgentQueueStore. The one turn-activity signal Aiur owns is
+        # ActiveTurns — a live aiur-mediated codex turn registers there. So a
+        # Ctrl+C on a working agent sends opencode's native interrupt (the
+        # caller forwards Esc to the pane), which drains its queued message and
+        # keeps it working. Only a genuinely idle agent pauses; a second press
+        # on the now-paused agent closes the pane.
+        working? = ActiveTurns.active_turn_ids(issue_identifier) != []
+
         action =
           pane_interrupt_action_no_pane(
             paused_running_entry?(running_entry),
-            queue_depth_for_issue(state, issue_identifier)
+            working?
           )
 
         perform_pane_interrupt(action, state, running_entry, issue_identifier, nil)
@@ -3626,12 +3627,13 @@ defmodule Aiur.Orchestrator do
   defp perform_pane_interrupt(:close_pane, state, _entry, _issue_identifier, _pane_id),
     do: {{:ok, :close_pane}, state}
 
-  # A queued operator message is already pending delivery. Take no destructive
-  # action — leave the agent working (or paused) and the pane open so the
-  # message folds at the next turn boundary. The bridge keeps the pane open on
-  # this reply rather than closing it.
-  defp perform_pane_interrupt(:deliver_queue, state, _entry, _issue_identifier, _pane_id),
-    do: {{:ok, :deliver_queue}, state}
+  # The agent is mid-turn. opencode owns the interrupt: the bridge forwards its
+  # native interrupt key (Esc) to the pane, which drains opencode's queued
+  # operator message and continues the turn. Aiur mutates no state — it does
+  # not flip control status or send a pause message — and the bridge keeps the
+  # pane open on this reply.
+  defp perform_pane_interrupt(:send_interrupt, state, _entry, _issue_identifier, _pane_id),
+    do: {{:ok, :send_interrupt}, state}
 
   defp perform_pane_interrupt(:interrupt, state, _entry, _issue_identifier, pane_id) do
     # `:interrupt` is only ever chosen when a message is queued. The hardware
@@ -3673,21 +3675,22 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc """
-  Pure Ctrl+C decision for backends with no interruptible pane
-  (codex/opencode). A queued operator message takes priority: the press lets
-  it deliver (the pane stays open and the message folds at the agent's next
-  turn boundary) rather than pausing or closing the pane out from under the
-  pending input. With an empty queue the 2-state pause→close flow applies: a
-  paused agent closes its pane, an active agent pauses. Public so the mapping
-  can be unit-tested without scaffolding a worker.
+  Pure Ctrl+C decision for backends with no Aiur-interruptible pane
+  (codex/opencode), which own their own queue and turn. `working?` is the
+  ActiveTurns signal: true when a live aiur-mediated turn is in flight. A
+  working agent gets opencode's native interrupt forwarded (the caller sends
+  Esc to the pane) so its queued message drains and it keeps working — Aiur
+  takes no destructive action and mutates no state. A genuinely idle agent
+  pauses (pane stays open); a second press on the now-paused agent closes it.
+  Public so the mapping can be unit-tested without scaffolding a worker.
   """
-  @spec pane_interrupt_action_no_pane(boolean(), non_neg_integer()) ::
-          :deliver_queue | :close_pane | :pause
-  def pane_interrupt_action_no_pane(paused?, queue_depth)
-      when is_boolean(paused?) and is_integer(queue_depth) do
+  @spec pane_interrupt_action_no_pane(boolean(), boolean()) ::
+          :send_interrupt | :close_pane | :pause
+  def pane_interrupt_action_no_pane(paused?, working?)
+      when is_boolean(paused?) and is_boolean(working?) do
     cond do
-      queue_depth > 0 -> :deliver_queue
       paused? -> :close_pane
+      working? -> :send_interrupt
       true -> :pause
     end
   end

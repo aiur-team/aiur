@@ -56,11 +56,22 @@ response="$(
     "${control_url}/api/v1/pane/interrupt" 2>/dev/null
 )" || close_pane "curl_failed"
 
-# The agent handled the keypress (delivered a queued message, drained its
-# queue, or paused). Leave the pane open so the operator stays in the
-# conversation.
+# opencode owns the interrupt for codex/opencode agents: forward its native
+# interrupt key (Esc) to the pane so it drains its queued operator message and
+# keeps working. Aiur mutates no state on this reply; the keystroke is the
+# whole effect. Pane stays open.
 case "$response" in
-  *interrupted* | *paused* | *deliver_queue*)
+  *send_interrupt*)
+    tmux send-keys -t "$pane_id" Escape 2>/dev/null
+    log_ctrlc "action=send_interrupt response=${response}"
+    exit 0
+    ;;
+esac
+
+# The agent handled the keypress (interrupted its REPL turn or paused). Leave
+# the pane open so the operator stays in the conversation.
+case "$response" in
+  *interrupted* | *paused*)
     log_ctrlc "action=keep_open response=${response}"
     exit 0
     ;;

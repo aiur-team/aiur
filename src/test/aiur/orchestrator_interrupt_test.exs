@@ -51,19 +51,26 @@ defmodule Aiur.OrchestratorInterruptTest do
   end
 
   describe "pane_interrupt_action_no_pane/2" do
-    test "active agent pauses, paused agent closes the pane when queue is empty" do
-      assert :pause = Orchestrator.pane_interrupt_action_no_pane(false, 0)
-      assert :close_pane = Orchestrator.pane_interrupt_action_no_pane(true, 0)
+    test "idle agent pauses, paused agent closes the pane" do
+      # working? = false. opencode/codex own their queue and turn; the only
+      # turn-activity signal Aiur has is ActiveTurns. With no live turn the
+      # agent is genuinely idle: first press pauses, second press (paused)
+      # closes.
+      assert :pause = Orchestrator.pane_interrupt_action_no_pane(false, false)
+      assert :close_pane = Orchestrator.pane_interrupt_action_no_pane(true, false)
     end
 
-    test "a queued message takes priority over both pause and close" do
-      # Pane-less backends fold operator input at the next turn boundary.
-      # When a message is already queued, Ctrl+C must let it deliver rather
-      # than pause an active agent or close a paused one out from under the
-      # pending message — otherwise the operator's queued input is lost.
-      assert :deliver_queue = Orchestrator.pane_interrupt_action_no_pane(false, 1)
-      assert :deliver_queue = Orchestrator.pane_interrupt_action_no_pane(true, 1)
-      assert :deliver_queue = Orchestrator.pane_interrupt_action_no_pane(false, 3)
+    test "a working agent gets opencode's native interrupt instead of pausing" do
+      # working? = true. A Ctrl+C mid-turn must forward opencode's interrupt
+      # (the bridge sends Esc) so its queued operator message drains and the
+      # agent keeps working — never the cosmetic pause that left codex
+      # streaming, and never a close that drops the pending input.
+      assert :send_interrupt = Orchestrator.pane_interrupt_action_no_pane(false, true)
+    end
+
+    test "a paused agent closes even while a turn is still active" do
+      # Paused wins: a second press always closes, regardless of turn state.
+      assert :close_pane = Orchestrator.pane_interrupt_action_no_pane(true, true)
     end
   end
 
@@ -87,29 +94,23 @@ defmodule Aiur.OrchestratorInterruptTest do
       assert {:ok, :close_pane} = Orchestrator.pane_interrupt("codex-1")
     end
 
-    test "pane-less backend with a queued message delivers it instead of pausing",
+    test "pane-less backend mid-turn forwards opencode's interrupt instead of pausing",
          %{orchestrator: pid} do
-      # The Bug 2 regression: a Ctrl+C on an opencode agent with a queued
-      # operator message closed/paused the pane, dropping the queued input.
-      # With queue-first semantics the press leaves the agent working so the
-      # queued message folds at its next turn boundary.
+      # The regression: a Ctrl+C on a working opencode agent flipped a cosmetic
+      # pause while codex kept streaming, and never drained the operator's
+      # queued message (opencode owns that queue, invisible to Aiur). The live
+      # turn registers in ActiveTurns; a press while a turn is active must
+      # return :send_interrupt so the bridge forwards Esc, and Aiur must leave
+      # the agent :working (no optimistic pause flip).
       entry = running_entry("codex-1")
+      Aiur.Opencode.ActiveTurns.put("codex-1", "turn-1")
+      on_exit(fn -> Aiur.Opencode.ActiveTurns.mark_closed("codex-1", "turn-1", :test_cleanup) end)
 
       :sys.replace_state(pid, fn state ->
-        {queue_store, _item} =
-          Aiur.AgentQueueStore.enqueue(state.queue_store, %{
-            target_issue_identifier: "codex-1",
-            source: :operator,
-            category: :operator_message,
-            event_type: :operator_message,
-            body: %{text: "do the thing"}
-          })
-
-        %{state | running: %{"codex-1" => entry}, queue_store: queue_store}
+        %{state | running: %{"codex-1" => entry}}
       end)
 
-      assert {:ok, :deliver_queue} = Orchestrator.pane_interrupt("codex-1")
-      # The agent stays working — no optimistic pause flip.
+      assert {:ok, :send_interrupt} = Orchestrator.pane_interrupt("codex-1")
       assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :working
     end
 
