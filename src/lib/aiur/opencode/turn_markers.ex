@@ -124,17 +124,7 @@ defmodule Aiur.Opencode.TurnMarkers do
           Logger.debug("aiur_turn_marker post_held_open identifier=#{identifier} marker=#{marker_turn_id}")
 
         {:error, _reason} ->
-          Logger.warning("aiur_turn_marker post_retry identifier=#{identifier} marker=#{marker_turn_id}")
-
-          case post_one(post_fn, base_url, session_id, payload, identifier) do
-            :ok ->
-              :ok
-
-            other ->
-              # Both attempts failed — this segment stream stays dark for the
-              # rest of the turn (content renders via SQL only). Surface it.
-              Logger.warning("aiur_turn_marker post_retry_failed identifier=#{identifier} marker=#{marker_turn_id} reason=#{inspect(other)}")
-          end
+          retry_post(post_fn, base_url, session_id, payload, identifier, marker_turn_id)
 
         :ok ->
           :ok
@@ -142,6 +132,20 @@ defmodule Aiur.Opencode.TurnMarkers do
     end)
 
     :ok
+  end
+
+  defp retry_post(post_fn, base_url, session_id, payload, identifier, marker_turn_id) do
+    Logger.warning("aiur_turn_marker post_retry identifier=#{identifier} marker=#{marker_turn_id}")
+
+    case post_one(post_fn, base_url, session_id, payload, identifier) do
+      :ok ->
+        :ok
+
+      other ->
+        # Both attempts failed — this segment stream stays dark for the rest
+        # of the turn (content renders via SQL only). Surface it.
+        Logger.warning("aiur_turn_marker post_retry_failed identifier=#{identifier} marker=#{marker_turn_id} reason=#{inspect(other)}")
+    end
   end
 
   defp marker_payload(turn_id) do
