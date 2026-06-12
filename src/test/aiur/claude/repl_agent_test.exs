@@ -102,6 +102,58 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert session.session_url == "https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG"
   end
 
+  test "start_session harvests the RC URL via /rc when only the footer indicator shows", %{tmux: tmux} do
+    # claude 2.1.175 dropped the startup banner; RC attach is announced only
+    # by a tiny `/rc active` footer note. The URL must be harvested by
+    # running `/rc` and dismissing its dialog with Esc.
+    ws = System.tmp_dir!()
+
+    task =
+      Task.async(fn ->
+        ReplAgent.start_session(ws,
+          tmux: tmux,
+          remote_control: true,
+          rc_name: "aiur-rc-test",
+          window_name: "aiur-rc-test",
+          projects_dir: "/nonexistent-projects-dir"
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
+    respond(tmux, "%7\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    respond(tmux, "❯\n")
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
+    respond(tmux, "10\n")
+
+    # RC evidence scan: no banner URL, but the footer shows `/rc active`.
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    respond(tmux, "❯\n  ⏵⏵ accept edits on (shift+tab to cycle) · /rc active\n")
+
+    # The driver types /rc, submits, scrapes the dialog, then dismisses it.
+    assert_receive {:tmux_mock_out, "send-keys -t %7 -l /rc"}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t %7 Enter"}, 1_000
+    respond(tmux, "")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+
+    respond(
+      tmux,
+      "  Remote Control\n  This session is available in the Claude mobile app and at https://claude.ai/code/session_01TestHarvestUrl42.\n  ❯ Continue\n"
+    )
+
+    assert_receive {:tmux_mock_out, "send-keys -t %7 Escape"}, 1_000
+    respond(tmux, "")
+
+    assert {:ok, session} = Task.await(task, 2_000)
+    assert session.remote_control == true
+    assert session.session_url == "https://claude.ai/code/session_01TestHarvestUrl42"
+  end
+
   test "start_session degrades to :remote_control_unavailable when the RC banner never appears", %{tmux: tmux} do
     ws = System.tmp_dir!()
 

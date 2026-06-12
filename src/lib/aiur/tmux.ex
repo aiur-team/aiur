@@ -249,6 +249,19 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Send a single `Escape` keypress (tmux's `send-keys Escape`) to `pane_id`.
+  Dismisses an in-REPL dialog (e.g. the `/rc` Remote Control panel) without
+  touching the input line.
+  """
+  @spec send_escape(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def send_escape(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:send_escape, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Capture the visible contents of `pane_id` as a list of lines
   (tmux's `capture-pane -p`). Used for coarse lifecycle signals
   (REPL readiness / idle prompt) where the transcript has no marker.
@@ -579,6 +592,13 @@ defmodule Aiur.Tmux do
 
   def handle_call({:send_interrupt, pane_id}, _from, state) do
     case run_args(state, ["send-keys", "-t", pane_id, "C-c"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:send_escape, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "Escape"]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end

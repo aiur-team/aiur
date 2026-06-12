@@ -218,10 +218,65 @@ defmodule Aiur.Claude.ReplAgent do
   # the banner lands or the budget elapses — it can appear a beat after the
   # prompt. Returns nil when it never appears; for an RC session that nil is
   # the RC-unavailable signal (see `build_ready_session/3`).
+  # RC-attach evidence comes in two CLI generations:
+  #   * legacy (< 2.1.175): a `/remote-control is active · … https://claude.ai/
+  #     code/session_…` banner prints into the pane — the URL is right there.
+  #   * 2.1.175+: the banner is gone; the footer shows only a tiny
+  #     `/rc active` indicator. The URL must be harvested by running the
+  #     `/rc` slash command, whose dialog prints "This session is available …
+  #     at https://claude.ai/code/session_…", then dismissing it with Esc.
+  # Poll for either signal; missing both within the budget means RC never
+  # attached (entitlement absent / link down) and the caller degrades.
   defp capture_session_url(tmux, pane_id, opts) do
     timeout = Keyword.get(opts, :url_capture_timeout_ms, @url_capture_timeout_ms)
     deadline = System.monotonic_time(:millisecond) + timeout
-    do_capture_session_url(tmux, pane_id, deadline)
+
+    case poll_rc_evidence(tmux, pane_id, deadline) do
+      {:url, url} -> url
+      :rc_active -> harvest_url_via_rc_command(tmux, pane_id)
+      :none -> nil
+    end
+  end
+
+  defp poll_rc_evidence(tmux, pane_id, deadline) do
+    text =
+      case Tmux.capture_pane(tmux, pane_id) do
+        {:ok, lines} -> Enum.join(lines, "\n")
+        _ -> ""
+      end
+
+    cond do
+      url = RemoteControl.parse_session_url(text) ->
+        {:url, url}
+
+      String.contains?(text, "/rc active") ->
+        :rc_active
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        :none
+
+      true ->
+        Process.sleep(@url_poll_ms)
+        poll_rc_evidence(tmux, pane_id, deadline)
+    end
+  end
+
+  # Type `/rc`, submit, scrape the dialog for the session URL, and ALWAYS
+  # dismiss with Esc so the dialog can't eat the first prompt's keystrokes.
+  # A short dedicated budget: the dialog renders locally (no network wait).
+  @rc_dialog_timeout_ms 5_000
+  defp harvest_url_via_rc_command(tmux, pane_id) do
+    url =
+      with :ok <- Tmux.send_keys_literal(tmux, pane_id, "/rc"),
+           :ok <- Tmux.send_enter(tmux, pane_id) do
+        dialog_deadline = System.monotonic_time(:millisecond) + @rc_dialog_timeout_ms
+        do_capture_session_url(tmux, pane_id, dialog_deadline)
+      else
+        _ -> nil
+      end
+
+    _ = Tmux.send_escape(tmux, pane_id)
+    url
   end
 
   defp do_capture_session_url(tmux, pane_id, deadline) do
