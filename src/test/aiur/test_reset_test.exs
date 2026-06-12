@@ -110,8 +110,8 @@ defmodule Aiur.TestResetTest do
       end
     end
 
-    test "golden dry-run returns :ok and reads golden_ticket, no side effects" do
-      tmp = Path.join(System.tmp_dir!(), "aiur_golden_#{System.unique_integer([:positive])}")
+    test "single dry-run returns :ok and resets only the first ticket, no side effects" do
+      tmp = Path.join(System.tmp_dir!(), "aiur_single_#{System.unique_integer([:positive])}")
       File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
@@ -127,7 +127,7 @@ defmodule Aiur.TestResetTest do
         File.write!(Path.join([tmp, "src/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
       end
 
-      File.write!(Path.join(tmp, ".aiur-test-tickets.json"), ~s({"tickets": [101]}))
+      File.write!(Path.join(tmp, ".aiur-test-tickets.json"), ~s({"tickets": [99, 100, 101]}))
 
       {_, 0} = System.cmd("git", ["add", "."], cd: tmp)
       {_, 0} = System.cmd("git", ["commit", "-m", "baseline"], cd: tmp)
@@ -139,13 +139,16 @@ defmodule Aiur.TestResetTest do
                      TestReset.run(%{
                        repo_root: tmp,
                        confirm: false,
-                       golden: true,
+                       single: true,
                        allow_remote: true
                      })
           end)
 
-        assert output =~ "golden_ticket"
         assert output =~ "--test DRY-RUN"
+        # Single mode narrows the blocker chain to the first ticket only.
+        assert output =~ "- 99"
+        refute output =~ "- 100"
+        refute output =~ "- 101"
       after
         File.rm_rf!(tmp)
       end

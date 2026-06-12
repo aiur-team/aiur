@@ -51,44 +51,9 @@ defmodule Aiur.TestReset do
           optional(:confirm) => boolean(),
           optional(:force) => boolean(),
           optional(:allow_remote) => boolean(),
-          optional(:golden) => boolean(),
+          optional(:single) => boolean(),
           optional(:repo_root) => Path.t()
         }
-
-  # Golden-ticket mode — the `aiur --test` flag. One fixed
-  # complexity:2 ticket whose body deliberately exercises every
-  # chat-render surface (file edit/diff, shell command, tool call,
-  # skill) so a codex run and a Claude run produce the same set of
-  # rendered parts and can be compared 1:1 for parity. It implements a
-  # multi-line function so a real `@@` diff renders.
-  @golden_ticket_title "[sandbox] Implement greeting/1 in Aiur.Sandbox.EventFlowDemo"
-  @golden_ticket_body """
-  Implement a `greeting/1` function inside `Aiur.Sandbox.EventFlowDemo` at `src/lib/aiur/sandbox/event_flow_demo.ex`. The function takes a name and returns a greeting, trimming the input and falling back to a friendly default when blank:
-
-  ```elixir
-  def greeting(name) when is_binary(name) do
-    case String.trim(name) do
-      "" -> "Hello, friend!"
-      trimmed -> "Hello, \#{trimmed}!"
-    end
-  end
-  ```
-
-  This is a fixed, repeatable sandbox exercise used to compare how the chat pane renders **file edits, shell commands, tool calls, and skills** across coding-agent backends. Do every step below so each surface renders:
-
-  1. **Edit** — use your file-edit tool to add the function to the module body (a multi-line edit, so a real diff renders).
-  2. **Command** — run `mise exec -- mix compile` from the repo root to confirm it compiles, then `git --no-pager diff` to view your change.
-  3. **Tools** — read the file back to confirm its final state.
-  4. **Skills** — run `ce-work` to structure the change and `ce-code-review` on the diff before opening the PR.
-
-  Open a draft PR, self-read the diff, then mark the ticket ready for review. The `aiur --test` reset restores the sandbox baseline between runs so this delta is always the asked change.
-
-  ### Complexity routing
-
-  - Signal: `complexity:2`
-  - Run `ce-work` → `ce-code-review`. Skip `ce-brainstorm`, `ce-plan`, and `ce-doc-review`.
-  """
-  @golden_ticket_labels ["agent:todo", "complexity:2"]
 
   @spec run(map() | keyword()) :: :ok | {:error, term()}
   def run(opts \\ %{}) do
@@ -133,11 +98,15 @@ defmodule Aiur.TestReset do
     end
   end
 
-  defp dispatch_reset(tickets_data, %{golden: true} = opts) do
-    with :ok <- guard_clean_git(opts),
+  # `--test` resets only the first pinned ticket (issue 99); `--test3`
+  # resets the whole blocker chain. Both share the per-ticket reset
+  # path — single mode just narrows the set to one.
+  defp dispatch_reset(tickets_data, %{single: true} = opts) do
+    with {:ok, tickets} <- validate_pinned_tickets(tickets_data),
+         :ok <- guard_clean_git(opts),
          :ok <- guard_expected_remote(tickets_data, opts),
          :ok <- guard_baseline_committed(opts.repo_root) do
-      execute_one(tickets_data, opts, :golden)
+      maybe_execute(Enum.take(tickets, 1), opts)
     end
   end
 
@@ -157,7 +126,7 @@ defmodule Aiur.TestReset do
       confirm: Map.get(opts, :confirm, false),
       force: Map.get(opts, :force, false),
       allow_remote: Map.get(opts, :allow_remote, false),
-      golden: Map.get(opts, :golden, false),
+      single: Map.get(opts, :single, false),
       repo_root: Map.get(opts, :repo_root, File.cwd!())
     }
   end
@@ -293,14 +262,14 @@ defmodule Aiur.TestReset do
   end
 
   defp maybe_execute(tickets, %{confirm: true} = opts) do
-    say("🧪 aiur --test3 resetting sandbox (#{length(tickets)} tickets)")
+    say("🧪 aiur resetting sandbox (#{length(tickets)} ticket(s))")
     results = Enum.map(tickets, &reset_one(&1, opts))
     restore_baseline(opts)
     ensure_opencode_theme()
 
     case unlabeled_tickets(results) do
       [] ->
-        say("✅ --test3 reset complete")
+        say("✅ sandbox reset complete")
         :ok
 
       failed_ids ->
@@ -315,153 +284,6 @@ defmodule Aiur.TestReset do
 
   defp unlabeled_tickets(results) do
     for {:error, {:label_reset_failed, id, _}} <- results, do: id
-  end
-
-  # `:golden` (--test, the full-render-surface ticket) drives the
-  # single-ticket reset path. `ticket_spec/1` captures the ticket
-  # title/body/labels and the JSON key it persists under so the
-  # execute/resolve/create path stays single-sourced.
-  defp ticket_spec(:golden) do
-    %{
-      kind: :golden,
-      flag: "--test",
-      json_key: "golden_ticket",
-      title: @golden_ticket_title,
-      body: @golden_ticket_body,
-      labels: @golden_ticket_labels
-    }
-  end
-
-  defp execute_one(_tickets_data, %{confirm: false}, kind) do
-    spec = ticket_spec(kind)
-    say("#{spec.flag} DRY-RUN. Pass --confirm to execute.\n")
-    say("Single-ticket sandbox (#{kind}).")
-    say("Plan:")
-    say("  - Read `#{spec.json_key}` from #{@tickets_file}")
-    say("  - If missing or null, `gh issue create` the #{kind} ticket and persist the ID back")
-    say("  - Reset workpad / workspace / labels for that one ticket")
-    say("  - Restore sandbox baseline (always)")
-    :ok
-  end
-
-  defp execute_one(tickets_data, %{confirm: true} = opts, kind) do
-    spec = ticket_spec(kind)
-    say("🧪 aiur #{spec.flag} (#{kind} ticket) starting")
-
-    case resolve_ticket(tickets_data, opts, spec) do
-      {:ok, id} ->
-        label_result = reset_one(id, opts)
-        restore_baseline(opts)
-        ensure_opencode_theme()
-
-        case label_result do
-          {:error, {:label_reset_failed, ^id, _}} ->
-            abort("could not label ##{id} as agent:todo after retries — refusing to launch")
-            {:error, {:labels_unset, [id]}}
-
-          _ ->
-            say("✅ #{spec.flag} reset complete (ticket ##{id})")
-            :ok
-        end
-
-      {:error, reason} ->
-        abort("#{kind}-ticket resolution failed: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  # If the JSON already pins the ticket id, just verify the issue still
-  # exists; otherwise create a fresh ticket from the spec and write the new
-  # ID back to the JSON so the next run reuses it.
-  defp resolve_ticket(tickets_data, opts, spec) do
-    case Map.get(tickets_data, spec.json_key) do
-      id when is_integer(id) and id > 0 ->
-        if issue_exists?(id) do
-          ok("##{id} reuses existing pinned #{spec.kind} ticket")
-          {:ok, id}
-        else
-          warn("##{id} pinned but missing on GitHub — creating a fresh #{spec.kind} ticket")
-          create_and_persist_ticket(tickets_data, opts, spec)
-        end
-
-      _ ->
-        create_and_persist_ticket(tickets_data, opts, spec)
-    end
-  end
-
-  defp issue_exists?(id) do
-    case System.cmd(
-           "gh",
-           ["issue", "view", to_string(id), "--json", "number"],
-           stderr_to_stdout: true
-         ) do
-      {_, 0} -> true
-      _ -> false
-    end
-  end
-
-  defp create_and_persist_ticket(tickets_data, opts, spec) do
-    with {:ok, id} <- create_issue(spec),
-         :ok <- persist_ticket(tickets_data, id, opts, spec) do
-      ok("##{id} created and persisted to #{@tickets_file}")
-      {:ok, id}
-    end
-  end
-
-  defp create_issue(spec) do
-    argv = [
-      "issue",
-      "create",
-      "--title",
-      spec.title,
-      "--body",
-      spec.body,
-      "--label",
-      Enum.join(spec.labels, ",")
-    ]
-
-    case System.cmd("gh", argv, stderr_to_stdout: true) do
-      {output, 0} ->
-        case parse_issue_number(output) do
-          {:ok, id} -> {:ok, id}
-          :error -> {:error, {:parse_issue_url, output}}
-        end
-
-      {output, _} ->
-        {:error, {:gh_issue_create_failed, String.trim(output)}}
-    end
-  end
-
-  # `gh issue create` prints the new issue URL on a line of its own,
-  # e.g. `https://github.com/owner/repo/issues/142`. The trailing
-  # path segment is the issue number.
-  defp parse_issue_number(output) do
-    output
-    |> String.split(["\n", "\r"], trim: true)
-    |> Enum.find_value(:error, &issue_number_from_line/1)
-  end
-
-  defp issue_number_from_line(line) do
-    case Regex.run(~r{/issues/(\d+)}, String.trim(line)) do
-      [_, n] -> parse_positive_integer(n)
-      _ -> nil
-    end
-  end
-
-  defp parse_positive_integer(raw) do
-    case Integer.parse(raw) do
-      {id, _} when id > 0 -> {:ok, id}
-      _ -> nil
-    end
-  end
-
-  defp persist_ticket(tickets_data, id, opts, spec) do
-    path = Path.join(opts.repo_root, @tickets_file)
-    updated = Map.put(tickets_data, spec.json_key, id)
-    JsonStore.write!(path, updated)
-    :ok
-  rescue
-    e -> {:error, {:tickets_file_write_failed, Exception.message(e)}}
   end
 
   # Install + activate the aiur opencode theme so command/tool

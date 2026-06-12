@@ -108,13 +108,11 @@ for arg in "$@"; do
       logs_mode=1
       ;;
     --test)
-      # --test launches the GOLDEN single ticket: one fixed
-      # complexity:2 issue whose body exercises every chat-render
-      # surface (file edit/diff, shell command, tool call, skill) so
-      # codex and Claude runs are directly comparable on the same
-      # work every time.
+      # --test launches a single sandbox agent: issue 99 (the first
+      # pinned ticket). The reset narrows the blocker chain to that one
+      # ticket so you can drive a single agent end-to-end.
       #
-      # --test (golden ticket) and --test3 (3-ticket blocker chain)
+      # --test (single ticket) and --test3 (3-ticket blocker chain)
       # both imply --debug, --clear, AND --force: when you're testing
       # you want a fresh, debug-instrumented, rebuilt run by default.
       # Stale _build/ silently masking shipped work was a repeated
@@ -173,9 +171,9 @@ if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   exit 64
 fi
 
-# --test (golden ticket) and --test3 (3-ticket blocker chain) both
+# --test (single ticket) and --test3 (3-ticket blocker chain) both
 # run the sandbox reset BEFORE launching. They compose with any
-# other flag — e.g. `aiurdev --test --debug --clear` resets the golden
+# other flag — e.g. `aiurdev --test --debug --clear` resets the single
 # sandbox ticket then launches normally with debug + clear-logs.
 # Auto-passes `--confirm` so it's a single-command workflow;
 # `--force` / `--allow-remote` are forwarded for the rare overrides.
@@ -206,7 +204,7 @@ if [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
-  [ "$testg_mode" -eq 1 ] && test_args+=("--golden")
+  [ "$testg_mode" -eq 1 ] && test_args+=("--single")
 
   if ! (cd "$default_repo_root/src" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
@@ -225,9 +223,8 @@ if [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   tickets_file="$default_repo_root/.aiur-test-tickets.json"
   if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
     if [ "$testg_mode" -eq 1 ]; then
-      # Golden mode (--test): expect exactly one ticket to land under
-      # agent:todo. The reset workflow either reused the pinned golden
-      # ticket or created a fresh one.
+      # Single mode (--test): expect exactly one ticket (issue 99) to
+      # land under agent:todo.
       expected_count=1
     else
       expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
@@ -379,15 +376,10 @@ Options:
                        compiled artifacts and recompile everything
                        from scratch (~2min). Use when auto-rebuild
                        (mtime check) misses a change.
-  --test               reset (or auto-create) the GOLDEN single ticket
-                       — one fixed complexity:2 issue whose body
-                       exercises every chat-render surface (file
-                       edit/diff, shell command, tool call, skill) so
-                       codex and Claude runs are directly comparable on
-                       the same work every time. Auto-confirms the reset;
-                       reuses `golden_ticket` from .aiur-test-tickets.json
-                       (or creates+persists a fresh one). Implies
-                       --debug --clear and rebuilds.
+  --test               reset a single sandbox ticket (issue 99, the
+                       first pinned ticket in .aiur-test-tickets.json)
+                       and launch one agent against it. Auto-confirms
+                       the reset. Implies --debug --clear and rebuilds.
   --test3              reset the 3-ticket events sandbox (per
                        .aiur-test-tickets.json) before launching.
                        Automatically implies --debug --clear (a test run
@@ -1814,7 +1806,7 @@ run_in_tmux() {
           if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
             ids=""
             if [ "$testg_mode" -eq 1 ]; then
-              ids="$(jq -r '.golden_ticket // empty' "$tickets_file" 2>/dev/null)"
+              ids="$(jq -r '.tickets[0]? // empty' "$tickets_file" 2>/dev/null)"
             else
               ids="$(jq -r '.tickets[]?' "$tickets_file" 2>/dev/null)"
             fi
