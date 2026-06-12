@@ -90,10 +90,20 @@ defmodule Aiur.Opencode.TurnMarkers do
   """
   @spec post_continuation(String.t(), String.t(), pos_integer(), writer(), post_fn()) :: :ok
   def post_continuation(identifier, parent_turn_id, seg, writer, post_fn \\ &ApiClient.post_message/3)
-      when is_binary(identifier) and is_binary(parent_turn_id) and is_integer(seg) and seg >= 1 and
-             is_function(post_fn, 3) do
+      when is_binary(parent_turn_id) and is_integer(seg) and seg >= 1 do
+    post_marker(identifier, continuation_id(parent_turn_id, seg), writer, post_fn)
+  end
+
+  @doc """
+  Post an exact marker id to one writer (single retry). Also used to
+  re-post a marker that opencode coalesced behind newer operator text,
+  where the routed request consumed the batch without opening its stream.
+  """
+  @spec post_marker(String.t(), String.t(), writer(), post_fn()) :: :ok
+  def post_marker(identifier, marker_turn_id, writer, post_fn \\ &ApiClient.post_message/3)
+      when is_binary(identifier) and is_binary(marker_turn_id) and is_function(post_fn, 3) do
     %{session_id: session_id, base_url: base_url} = writer
-    payload = parent_turn_id |> continuation_id(seg) |> marker_payload()
+    payload = marker_payload(marker_turn_id)
 
     Task.start(fn ->
       case post_one(post_fn, base_url, session_id, payload, identifier) do
@@ -101,7 +111,7 @@ defmodule Aiur.Opencode.TurnMarkers do
           :ok
 
         :error ->
-          Logger.warning("aiur_turn_marker continuation_retry identifier=#{identifier} parent=#{parent_turn_id} seg=#{seg}")
+          Logger.warning("aiur_turn_marker post_retry identifier=#{identifier} marker=#{marker_turn_id}")
 
           post_one(post_fn, base_url, session_id, payload, identifier)
       end

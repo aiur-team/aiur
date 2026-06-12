@@ -192,6 +192,72 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
     end
   end
 
+  describe "segment boundaries (segmented turn streams)" do
+    test "a tool/command event past the threshold is a boundary" do
+      assert ChatCompletions.segment_boundary?(:tool, 25_000, 20_000)
+      assert ChatCompletions.segment_boundary?(:command, 20_000, 20_000)
+    end
+
+    test "below the threshold nothing is a boundary" do
+      refute ChatCompletions.segment_boundary?(:tool, 19_999, 20_000)
+    end
+
+    test "assistant prose mid-thought is never a boundary" do
+      refute ChatCompletions.segment_boundary?(:assistant, 120_000, 20_000)
+      refute ChatCompletions.segment_boundary?(:reasoning, 120_000, 20_000)
+    end
+
+    test "idle boundary needs threshold age plus one heartbeat of silence" do
+      assert ChatCompletions.idle_segment_boundary?(true, 3, 25_000, 16_000, 20_000, 15_000)
+      refute ChatCompletions.idle_segment_boundary?(true, 3, 25_000, 5_000, 20_000, 15_000)
+      refute ChatCompletions.idle_segment_boundary?(true, 3, 15_000, 16_000, 20_000, 15_000)
+    end
+
+    test "an empty continuation segment never idle-closes (no marker churn)" do
+      refute ChatCompletions.idle_segment_boundary?(false, 2, 120_000, 60_000, 20_000, 15_000)
+    end
+
+    test "the empty turn-opening segment may idle-close (quiet turn start)" do
+      assert ChatCompletions.idle_segment_boundary?(false, 0, 25_000, 16_000, 20_000, 15_000)
+    end
+  end
+
+  describe "trailing_user_texts/1 (coalescing defenses)" do
+    test "collects only the user run since the last assistant message" do
+      body = %{
+        "messages" => [
+          %{"role" => "user", "content" => "old question"},
+          %{"role" => "assistant", "content" => "old answer"},
+          %{"role" => "user", "content" => "fix the tests"},
+          %{"role" => "user", "content" => "__aiur_turn__:t1abc-s2"}
+        ]
+      }
+
+      assert ChatCompletions.trailing_user_texts(body) == [
+               "fix the tests",
+               "__aiur_turn__:t1abc-s2"
+             ]
+    end
+
+    test "parts-shaped content is flattened" do
+      body = %{
+        "messages" => [
+          %{"role" => "assistant", "content" => "x"},
+          %{"role" => "user", "content" => [%{"type" => "text", "text" => "hello"}]}
+        ]
+      }
+
+      assert ChatCompletions.trailing_user_texts(body) == ["hello"]
+    end
+
+    test "no trailing user run yields an empty list" do
+      assert ChatCompletions.trailing_user_texts(%{"messages" => [%{"role" => "assistant", "content" => "x"}]}) ==
+               []
+
+      assert ChatCompletions.trailing_user_texts(%{}) == []
+    end
+  end
+
   describe "finish_reason_for/1" do
     test ":input_required finishes with stop, not tool_calls" do
       # A "tool_calls" finish with no tool-call payload makes opencode

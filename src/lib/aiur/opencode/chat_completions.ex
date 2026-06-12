@@ -15,7 +15,8 @@ defmodule Aiur.Opencode.ChatCompletions do
     Slot,
     SlotRegistry,
     Style,
-    TokenRegistry
+    TokenRegistry,
+    TurnMarkers
   }
 
   @stream_marker_prefix "__aiur_stream__:"
@@ -39,6 +40,13 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   @max_body_bytes 65_536
   @watchdog_ms 600_000
+  # Segmented turn streams: close the per-turn SSE at natural boundaries so
+  # opencode flushes its TUI-local input queue between segments (typed
+  # operator text otherwise sits QUEUED for the whole turn). A continuation
+  # marker (`__aiur_turn__:<parent>-s<N>`) posted just before the close
+  # re-opens streaming for the rest of the turn. Threshold is app-env so
+  # live tuning needs no code change.
+  @default_segment_threshold_ms 20_000
   # SSE keepalive interval. Empirically opencode-attach's HTTP client
   # times out the chat-completion request after ~28-30s of silence and
   # reopens it, which used to create multiple bridge subscribers (3x
@@ -70,10 +78,18 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
-  defp handle_identified_text(_body, conn, identifier, @turn_marker_prefix <> _ = marker) do
+  defp handle_identified_text(body, conn, identifier, @turn_marker_prefix <> _ = marker) do
     case Regex.run(@turn_marker_regex, marker) do
-      [_, aiur_turn_id] -> stream_codex_turn(conn, identifier, aiur_turn_id)
-      _ -> json(conn, 400, %{error: "invalid turn marker"})
+      [_, aiur_turn_id] ->
+        # Coalescing defense: if opencode folded queued operator text into
+        # this request's trailing user batch, the marker (routed as the last
+        # user message) would otherwise silently shadow it. Dispatch any
+        # non-marker text in the batch before streaming the segment.
+        dispatch_shadowed_operator_texts(body, identifier)
+        stream_codex_turn(conn, identifier, aiur_turn_id)
+
+      _ ->
+        json(conn, 400, %{error: "invalid turn marker"})
     end
   end
 
@@ -92,20 +108,32 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp handle_identified_text(body, conn, identifier, raw_text) do
+    # Symmetric coalescing defense: when operator text routes (it was the
+    # LAST user message), a turn marker coalesced earlier in the same
+    # trailing batch would be consumed without ever opening its segment
+    # stream. Re-post any such marker so the segment resumes after this
+    # operator message dispatches.
+    repost_shadowed_markers(body, conn, identifier)
     dispatch_user_text(body, conn, identifier, raw_text)
   end
 
   # Bridge-as-LLM path: an Aiur.AgentRunner posted `__aiur_turn__:<id>` to
   # opencode at the start of a codex turn. opencode wrote that as a user
   # message and now opens this chat-completion request to fetch the
-  # "assistant response". We hold the SSE open and stream every
-  # transcript-event body and turn-event signal that fires on this
-  # identifier's AgentPubSub topic, until the codex turn finishes.
-  # opencode renders ONE assistant message that streams in live —
-  # matching native opencode UX. SessionWriter still writes parts to
-  # SQL in parallel so re-attach renders complete history from disk
-  # (manual-override preserved: agents work without opencode attached).
-  defp stream_codex_turn(conn, identifier, aiur_turn_id) do
+  # "assistant response". We stream every transcript-event body and
+  # turn-event signal that fires on this identifier's AgentPubSub topic
+  # until the codex turn finishes OR a segment boundary closes this SSE —
+  # in which case a continuation marker (`<parent>-s<N>`) was posted just
+  # before the close, opencode flushes any queued operator input, and the
+  # next segment's request resumes streaming. SessionWriter still writes
+  # parts to SQL in parallel so re-attach renders complete history from
+  # disk (manual-override preserved: agents work without opencode attached).
+  #
+  # The marker may carry a `-s<N>` segment suffix; ActiveTurns and
+  # `:aiur_turn_done` are keyed by the bare PARENT id only (an exact-key
+  # lookup with the suffixed id would phantom-close every segment).
+  defp stream_codex_turn(conn, identifier, marker_turn_id) do
+    {parent_id, seg_n} = TurnMarkers.parse_turn_id(marker_turn_id)
     completion_id = "chatcmpl-" <> random_id()
     # Subscribe first so a close broadcast that races our ActiveTurns
     # lookup still lands in the mailbox; we drain it inside the loop.
@@ -121,24 +149,36 @@ defmodule Aiur.Opencode.ChatCompletions do
       |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
       |> Plug.Conn.send_chunked(200)
 
-    case ActiveTurns.lookup(identifier, aiur_turn_id) do
+    case ActiveTurns.lookup(identifier, parent_id) do
       :active ->
-        Logger.info("opencode_bridge turn_stream_open identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
-        Process.send_after(self(), {:turn_watchdog, aiur_turn_id}, @watchdog_ms)
+        Logger.info("opencode_bridge turn_stream_open identifier=#{identifier} aiur_turn=#{parent_id} seg=#{seg_n}")
+        Process.send_after(self(), {:turn_watchdog, parent_id}, @watchdog_ms)
         Process.send_after(self(), :heartbeat, @heartbeat_ms)
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, nil)
+
+        seg = %{
+          n: seg_n,
+          # nil writer = cannot resolve the caller's serve; segmentation is
+          # disabled for this stream and it degrades to the long-held SSE.
+          writer: originating_writer(conn, identifier),
+          opened_at: now_ms(),
+          last_event_at: now_ms(),
+          streamed?: false,
+          threshold_ms: segment_threshold_ms()
+        }
+
+        codex_turn_stream_loop(conn, identifier, parent_id, completion_id, nil, seg)
 
       {:closed, reason} ->
-        Logger.info("opencode_bridge turn_stream_late_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
+        Logger.info("opencode_bridge turn_stream_late_close identifier=#{identifier} aiur_turn=#{parent_id} reason=#{inspect(reason)}")
         _ = DebugLog.unsubscribe()
         finalize_stream(conn, completion_id, reason)
 
       :not_found ->
-        # No AgentRunner registered this aiur_turn_id this boot — the
-        # marker was replayed by opencode-serve from a prior session
-        # whose run_turn never completed. Close without rendering the
-        # 10-minute watchdog notice.
-        Logger.info("opencode_bridge turn_stream_phantom identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
+        # No AgentRunner registered this parent id this boot — the marker
+        # was replayed by opencode-serve from a prior session whose
+        # run_turn never completed. Close without rendering the 10-minute
+        # watchdog notice.
+        Logger.info("opencode_bridge turn_stream_phantom identifier=#{identifier} aiur_turn=#{parent_id}")
         _ = DebugLog.unsubscribe()
         finalize_stream(conn, completion_id, :done)
     end
@@ -153,16 +193,23 @@ defmodule Aiur.Opencode.ChatCompletions do
   # the active turnId (verified empirically), and any internal codex
   # sub-turn boundaries are an implementation detail we render as
   # one growing assistant message (Approach C.2 per the brainstorm).
-  defp codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role) do
+  defp codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg) do
     receive do
       {:transcript_event, event} ->
         case transcript_delta(event, last_role) do
           {:delta, delta, new_role} ->
             conn = chunk(conn, completion_id, delta, nil)
-            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, new_role)
+            seg = %{seg | last_event_at: now_ms(), streamed?: true}
+
+            if seg.writer != nil and
+                 segment_boundary?(new_role, now_ms() - seg.opened_at, seg.threshold_ms) do
+              close_segment(conn, identifier, parent_id, completion_id, seg)
+            else
+              codex_turn_stream_loop(conn, identifier, parent_id, completion_id, new_role, seg)
+            end
 
           :drop ->
-            codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
+            codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
         end
 
       # R2 live render — cross-ticket event ticker row for THIS agent.
@@ -176,32 +223,51 @@ defmodule Aiur.Opencode.ChatCompletions do
         if EventRow.matches?(entry, identifier) do
           case EventRow.from(entry, identifier) do
             nil ->
-              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
+              codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
 
             body ->
               delta = bar_connector(last_role, :event_debug) <> "\n#{body}\n"
               conn = chunk(conn, completion_id, delta, nil)
-              codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, :event_debug)
+              seg = %{seg | last_event_at: now_ms(), streamed?: true}
+              codex_turn_stream_loop(conn, identifier, parent_id, completion_id, :event_debug, seg)
           end
         else
-          codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
+          codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
         end
 
-      {:aiur_turn_done, ^identifier, ^aiur_turn_id, reason} ->
-        Logger.info("opencode_bridge turn_stream_close identifier=#{identifier} aiur_turn=#{aiur_turn_id} reason=#{inspect(reason)}")
+      {:aiur_turn_done, ^identifier, ^parent_id, reason} ->
+        Logger.info("opencode_bridge turn_stream_close identifier=#{identifier} aiur_turn=#{parent_id} reason=#{inspect(reason)}")
         _ = DebugLog.unsubscribe()
         finalize_stream(conn, completion_id, reason)
 
       :heartbeat ->
-        # Empty-delta chunk keeps opencode's HTTP client from timing
-        # out and reopening the chat-completion request mid-turn. The
-        # chunk renders as nothing in the chat pane.
-        conn = chunk(conn, completion_id, nil, nil)
-        Process.send_after(self(), :heartbeat, @heartbeat_ms)
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
+        # The heartbeat doubles as the idle-boundary clock: a segment that
+        # has streamed content but gone quiet closes here so queued
+        # operator input flushes during silent stretches (origin R4's idle
+        # cadence). Empty continuation segments do NOT idle-close — that
+        # would churn one marker per threshold through a long quiet tool
+        # run with nothing to flush it for.
+        if seg.writer != nil and
+             idle_segment_boundary?(
+               seg.streamed?,
+               seg.n,
+               now_ms() - seg.opened_at,
+               now_ms() - seg.last_event_at,
+               seg.threshold_ms,
+               @heartbeat_ms
+             ) do
+          close_segment(conn, identifier, parent_id, completion_id, seg)
+        else
+          # Empty-delta chunk keeps opencode's HTTP client from timing
+          # out and reopening the chat-completion request mid-turn. The
+          # chunk renders as nothing in the chat pane.
+          conn = chunk(conn, completion_id, nil, nil)
+          Process.send_after(self(), :heartbeat, @heartbeat_ms)
+          codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
+        end
 
-      {:turn_watchdog, ^aiur_turn_id} ->
-        Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{aiur_turn_id}")
+      {:turn_watchdog, ^parent_id} ->
+        Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{parent_id}")
 
         conn =
           chunk(
@@ -214,7 +280,7 @@ defmodule Aiur.Opencode.ChatCompletions do
         chunk(conn, completion_id, nil, "timeout")
 
       _other ->
-        codex_turn_stream_loop(conn, identifier, aiur_turn_id, completion_id, last_role)
+        codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
     after
       @watchdog_ms ->
         conn =
@@ -228,6 +294,70 @@ defmodule Aiur.Opencode.ChatCompletions do
         chunk(conn, completion_id, nil, "timeout")
     end
   end
+
+  # Close THIS segment: post the continuation marker for the next segment
+  # to the originating writer FIRST (it queues behind any operator text
+  # opencode is holding), then end the SSE with a normal "stop" so opencode
+  # flushes its queue. Aiur state is untouched — the parent turn stays
+  # :active and the next segment's request resumes streaming.
+  defp close_segment(conn, identifier, parent_id, completion_id, seg) do
+    Logger.info("opencode_bridge turn_stream_segment_close identifier=#{identifier} aiur_turn=#{parent_id} seg=#{seg.n}")
+
+    :ok = TurnMarkers.post_continuation(identifier, parent_id, seg.n + 1, seg.writer)
+    _ = DebugLog.unsubscribe()
+    chunk(conn, completion_id, nil, "stop")
+  end
+
+  @doc false
+  # Event-driven segment boundary: true when the just-streamed event is a
+  # tool/command block end (a natural chat-block boundary for both the codex
+  # and claude-repl event shapes) and the segment has been open at least
+  # `threshold_ms`. Pure so tests need no Plug scaffolding.
+  @spec segment_boundary?(atom(), non_neg_integer(), pos_integer()) :: boolean()
+  def segment_boundary?(role, elapsed_ms, threshold_ms) do
+    role in [:tool, :command] and elapsed_ms >= threshold_ms
+  end
+
+  @doc false
+  # Idle boundary, evaluated on heartbeat ticks: the segment is older than
+  # the threshold AND event-silent for at least one heartbeat. Only a
+  # segment that streamed content (or the turn-opening segment 0, so a
+  # quiet turn start can't strand typed input) may idle-close — an empty
+  # continuation segment closing on idle would churn markers through a
+  # long silent tool run.
+  @spec idle_segment_boundary?(
+          boolean(),
+          non_neg_integer(),
+          non_neg_integer(),
+          non_neg_integer(),
+          pos_integer(),
+          pos_integer()
+        ) :: boolean()
+  def idle_segment_boundary?(streamed?, seg_n, elapsed_ms, silent_ms, threshold_ms, heartbeat_ms) do
+    (streamed? or seg_n == 0) and elapsed_ms >= threshold_ms and silent_ms >= heartbeat_ms
+  end
+
+  # Resolve the writer (serve base_url + session id) whose opencode issued
+  # THIS chat-completion request — continuations must go only to the
+  # originating serve or N attached panes would multiply segment streams
+  # combinatorially. nil disables segmentation for the stream (degrades to
+  # the long-held SSE).
+  defp originating_writer(conn, identifier) do
+    with {:ok, base_url} <- caller_base_url(conn),
+         {:ok, %{session_id: session_id}} <- SessionWriterRegistry.lookup(identifier, base_url) do
+      %{session_id: session_id, base_url: base_url}
+    else
+      _ ->
+        Logger.debug("opencode_bridge segment_writer_unresolved identifier=#{identifier}")
+        nil
+    end
+  end
+
+  defp segment_threshold_ms do
+    Application.get_env(:aiur, :turn_segment_threshold_ms, @default_segment_threshold_ms)
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   defp finalize_stream(conn, completion_id, {:failed, reason} = r) do
     conn = chunk(conn, completion_id, "\n**system:** " <> inspect(reason), nil)
@@ -683,11 +813,7 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp last_user_text(%{"messages" => messages}) when is_list(messages) do
     messages
     |> Enum.reverse()
-    |> Enum.find_value(fn
-      %{"role" => "user", "content" => text} when is_binary(text) -> text
-      %{"role" => "user", "content" => parts} when is_list(parts) -> text_from_parts(parts)
-      _ -> nil
-    end)
+    |> Enum.find_value(&message_user_text/1)
     |> case do
       text when is_binary(text) -> {:ok, text}
       _ -> {:error, :missing_user_message}
@@ -695,6 +821,75 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp last_user_text(_), do: {:error, :missing_user_message}
+
+  defp message_user_text(%{"role" => "user", "content" => text}) when is_binary(text), do: text
+
+  defp message_user_text(%{"role" => "user", "content" => parts}) when is_list(parts),
+    do: text_from_parts(parts)
+
+  defp message_user_text(_), do: nil
+
+  @doc false
+  # The consecutive run of user messages at the END of the request body —
+  # i.e. everything opencode queued since the last assistant reply. Old
+  # history is fenced off by assistant messages, so this never resurfaces
+  # prior turns. Used by both coalescing defenses.
+  @spec trailing_user_texts(map()) :: [String.t()]
+  def trailing_user_texts(%{"messages" => messages}) when is_list(messages) do
+    messages
+    |> Enum.reverse()
+    |> Enum.take_while(fn m -> is_map(m) and Map.get(m, "role") == "user" end)
+    |> Enum.map(&message_user_text/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reverse()
+  end
+
+  def trailing_user_texts(_), do: []
+
+  defp synthetic_marker_text?(text) do
+    String.starts_with?(text, @turn_marker_prefix) or
+      String.starts_with?(text, @stream_marker_prefix)
+  end
+
+  # Operator text coalesced BEHIND the routed marker: dispatch it to the
+  # agent before the segment stream opens, else it is silently dropped.
+  defp dispatch_shadowed_operator_texts(body, identifier) do
+    body
+    |> trailing_user_texts()
+    # The routed (last) message handles itself in the caller.
+    |> Enum.drop(-1)
+    |> Enum.reject(&synthetic_marker_text?/1)
+    |> Enum.each(fn text ->
+      case validate_body(text) do
+        {:ok, sanitized} when sanitized != "" ->
+          Logger.info("opencode_bridge coalesced_operator_text identifier=#{identifier}")
+          _ = send_operator(identifier, sanitized, random_id())
+
+        _ ->
+          :ok
+      end
+    end)
+  end
+
+  # Turn marker coalesced BEHIND routed operator text: re-post it so the
+  # segment stream still opens once this request closes.
+  defp repost_shadowed_markers(body, conn, identifier) do
+    markers =
+      body
+      |> trailing_user_texts()
+      |> Enum.drop(-1)
+      |> Enum.filter(&String.starts_with?(&1, @turn_marker_prefix))
+
+    with [_ | _] <- markers,
+         writer when not is_nil(writer) <- originating_writer(conn, identifier) do
+      Enum.each(markers, fn @turn_marker_prefix <> marker_id ->
+        Logger.info("opencode_bridge shadowed_marker_repost identifier=#{identifier} marker=#{marker_id}")
+        TurnMarkers.post_marker(identifier, marker_id, writer)
+      end)
+    else
+      _ -> :ok
+    end
+  end
 
   defp text_from_parts(parts) do
     Enum.map_join(parts, "", fn
