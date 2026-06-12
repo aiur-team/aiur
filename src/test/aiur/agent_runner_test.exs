@@ -174,8 +174,8 @@ defmodule Aiur.AgentRunnerTest do
     end
 
     test "falls back to id when identifier is nil" do
-      issue = %{identifier: nil, id: "212", title: "Fix it"}
-      assert AgentRunner.rc_session_name(issue) == "Aiur 212 - Fix it"
+      issue = %{identifier: nil, id: "412", title: "Fix it"}
+      assert AgentRunner.rc_session_name(issue) == "Aiur 412 - Fix it"
     end
 
     test "strips control chars and quotes, collapses whitespace" do
