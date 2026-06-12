@@ -29,6 +29,11 @@ defmodule Aiur.LauncherWatchdog do
 
   require Logger
 
+  # The default on_launcher_gone closure calls Aiur.Shutdown.shutdown/1
+  # (no_return by design — it halts the VM), which dialyzer flags as an
+  # anonymous function with no local return. Intentional; suppress.
+  @dialyzer {:nowarn_function, init: 1}
+
   @default_interval_ms 2_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
