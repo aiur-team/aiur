@@ -95,9 +95,18 @@ defmodule Aiur.Opencode.TurnMarkers do
   end
 
   @doc """
-  Post an exact marker id to one writer (single retry). Also used to
-  re-post a marker that opencode coalesced behind newer operator text,
-  where the routed request consumed the batch without opening its stream.
+  Post an exact marker id to one writer. Also used to re-post a marker
+  that opencode coalesced behind newer operator text, where the routed
+  request consumed the batch without opening its stream.
+
+  A `{:transport, :timeout}` is DELIVERY, not failure: opencode holds the
+  POST open until the message's own chat-completion roundtrip finishes
+  (a whole segment or more — far beyond the HTTP receive timeout) but has
+  already queued the message (verified live: a marker whose client aborted
+  at 120s still fired its completion when the in-flight one closed).
+  Retrying on timeout therefore DUPLICATES the marker — one duplicate
+  stream per segment, compounding into N× rendering of every transcript
+  event in the pane. Only genuine connection errors retry once.
   """
   @spec post_marker(String.t(), String.t(), writer(), post_fn()) :: :ok
   def post_marker(identifier, marker_turn_id, writer, post_fn \\ &ApiClient.post_message/3)
@@ -107,13 +116,16 @@ defmodule Aiur.Opencode.TurnMarkers do
 
     Task.start(fn ->
       case post_one(post_fn, base_url, session_id, payload, identifier) do
-        :ok ->
-          :ok
+        {:error, {:transport, :timeout}} ->
+          Logger.debug("aiur_turn_marker post_held_open identifier=#{identifier} marker=#{marker_turn_id}")
 
-        :error ->
+        {:error, _reason} ->
           Logger.warning("aiur_turn_marker post_retry identifier=#{identifier} marker=#{marker_turn_id}")
 
-          post_one(post_fn, base_url, session_id, payload, identifier)
+          _ = post_one(post_fn, base_url, session_id, payload, identifier)
+
+        :ok ->
+          :ok
       end
     end)
 
@@ -129,10 +141,10 @@ defmodule Aiur.Opencode.TurnMarkers do
       {:ok, _} ->
         :ok
 
-      {:error, reason} ->
+      {:error, reason} = error ->
         Logger.debug("aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}")
 
-        :error
+        error
     end
   end
 end

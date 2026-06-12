@@ -38,7 +38,7 @@ defmodule Aiur.Opencode.TurnMarkersTest do
       refute_receive {:posted, _, _, _}, 100
     end
 
-    test "retries once on failure" do
+    test "retries once on a connection error" do
       tp = self()
       writer = %{session_id: "ses_1", base_url: "http://one"}
 
@@ -47,7 +47,7 @@ defmodule Aiur.Opencode.TurnMarkersTest do
       post_fn = fn _base_url, _session_id, _payload ->
         attempt = Agent.get_and_update(agent, fn n -> {n + 1, n + 1} end)
         send(tp, {:attempt, attempt})
-        if attempt == 1, do: {:error, :econnrefused}, else: {:ok, %{}}
+        if attempt == 1, do: {:error, {:transport, :econnrefused}}, else: {:ok, %{}}
       end
 
       :ok = TurnMarkers.post_continuation("99", "t1abc", 1, writer, post_fn)
@@ -55,6 +55,24 @@ defmodule Aiur.Opencode.TurnMarkersTest do
       assert_receive {:attempt, 1}, 1_000
       assert_receive {:attempt, 2}, 1_000
       refute_receive {:attempt, 3}, 100
+    end
+
+    test "NEVER retries on timeout — opencode already queued the marker" do
+      # opencode holds the POST open until the marker's own completion ends
+      # (a whole segment), so the HTTP timeout fires on EVERY continuation.
+      # A retry here duplicated the marker and N×-rendered the whole turn.
+      tp = self()
+      writer = %{session_id: "ses_1", base_url: "http://one"}
+
+      post_fn = fn _base_url, _session_id, _payload ->
+        send(tp, :attempt)
+        {:error, {:transport, :timeout}}
+      end
+
+      :ok = TurnMarkers.post_continuation("99", "t1abc", 1, writer, post_fn)
+
+      assert_receive :attempt, 1_000
+      refute_receive :attempt, 200
     end
   end
 
