@@ -62,6 +62,17 @@ defmodule Aiur.CodingAgentTest do
     test "the alias label is auto-seeded" do
       assert "model:claude-remote" in CodingAgent.override_labels()
     end
+
+    test "an alias-variant label pins the model through the alias" do
+      assert CodingAgent.override_backend(issue(["model:claude-remote-sonnet"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-remote-sonnet"])) == "sonnet"
+    end
+
+    test "an alias-variant label still forces remote control" do
+      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-sonnet"]))
+      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-opus-4-8"]))
+      refute CodingAgent.remote_control_forced?(issue(["model:claude-sonnet"]))
+    end
   end
 
   describe "backend_for/1 precedence (override beats routing/default)" do

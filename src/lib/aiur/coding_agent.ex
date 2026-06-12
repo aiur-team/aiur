@@ -188,8 +188,20 @@ defmodule Aiur.CodingAgent do
   defp resolve_backend_spec(spec, known) do
     case Map.fetch(@backend_aliases, spec) do
       {:ok, backend} -> {backend, nil}
-      :error -> resolve_known_backend_spec(spec, known)
+      :error -> resolve_alias_variant_spec(spec) || resolve_known_backend_spec(spec, known)
     end
+  end
+
+  # `model:claude-remote-sonnet` pins a model variant through the alias.
+  # Without this clause the known-backend match would mis-split it into
+  # backend `claude` + variant `remote-sonnet`.
+  @spec resolve_alias_variant_spec(String.t()) :: {backend(), String.t()} | nil
+  defp resolve_alias_variant_spec(spec) do
+    Enum.find_value(@backend_aliases, fn {alias_name, backend} ->
+      if String.starts_with?(spec, alias_name <> "-") do
+        {backend, String.replace_prefix(spec, alias_name <> "-", "")}
+      end
+    end)
   end
 
   @spec resolve_known_backend_spec(String.t(), [backend()]) :: {backend(), String.t() | nil} | nil
@@ -293,8 +305,12 @@ defmodule Aiur.CodingAgent do
     |> Issue.label_names()
     |> Enum.any?(fn label ->
       case Regex.run(@model_override_label, to_string(label)) do
-        [_, spec] -> MapSet.member?(alias_specs, spec)
-        _ -> false
+        [_, spec] ->
+          MapSet.member?(alias_specs, spec) or
+            Enum.any?(alias_specs, &String.starts_with?(spec, &1 <> "-"))
+
+        _ ->
+          false
       end
     end)
   end
