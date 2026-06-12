@@ -23,7 +23,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore, Topic}
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.Opencode.{ActiveTurns, ApiClient, Protocol, SessionWriterRegistry}
+  alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
 
   @type worker_host :: String.t() | nil
 
@@ -1112,25 +1112,9 @@ defmodule Aiur.AgentRunner do
   defp open_aiur_turn_streams(_issue), do: nil
 
   @doc """
-  Fire `__aiur_turn__:<id>` marker posts to every attached opencode-serve
-  asynchronously. Returns `:ok` immediately so the calling codex turn
-  is not blocked on the round-trip.
-
-  opencode's `POST /session/X/message` is synchronous from its caller's
-  perspective — it holds the request open until the LLM (our bridge)
-  finishes responding, which for an active codex turn can be minutes.
-  A naive synchronous fan-out blocked the next codex turn from even
-  starting for ~30 s per attached server (Req's `receive_timeout`),
-  so chat panes sat empty for ~90 s after dispatch with 3 slots.
-
-  Fire-and-forget is safe here because the marker post is purely a
-  trigger: once opencode receives the synthetic user message, it
-  opens its chat-completion request to our bridge endpoint, and the
-  bridge's `stream_codex_turn/3` subscribes to `AgentPubSub` directly
-  — agent_runner never needs the post's return value.
-
-  The `post_fn` argument is injectable for testing; in production it
-  defaults to `Aiur.Opencode.ApiClient.post_message/3`.
+  Fire `__aiur_turn__:<id>` marker posts to every attached opencode-serve.
+  Delegates to `Aiur.Opencode.TurnMarkers.post_all/4`, which also serves the
+  bridge's continuation markers (segmented turn streams).
   """
   @spec post_aiur_turn_markers(
           String.t(),
@@ -1138,28 +1122,8 @@ defmodule Aiur.AgentRunner do
           [%{session_id: String.t(), base_url: String.t()}],
           (String.t(), String.t(), map() -> {:ok, term()} | {:error, term()})
         ) :: :ok
-  def post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn \\ &ApiClient.post_message/3)
-      when is_binary(identifier) and is_binary(aiur_turn_id) and is_list(writers) and
-             is_function(post_fn, 3) do
-    payload = %{
-      parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
-    }
-
-    for %{session_id: session_id, base_url: base_url} <- writers do
-      Task.start(fn -> post_one_marker(post_fn, base_url, session_id, payload, identifier) end)
-    end
-
-    :ok
-  end
-
-  defp post_one_marker(post_fn, base_url, session_id, payload, identifier) do
-    case post_fn.(base_url, session_id, payload) do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.debug("aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}")
-    end
+  def post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn \\ &ApiClient.post_message/3) do
+    TurnMarkers.post_all(identifier, aiur_turn_id, writers, post_fn)
   end
 
   # Match the close to the marker post — the bridge SSE for this
