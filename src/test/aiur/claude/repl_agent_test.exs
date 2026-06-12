@@ -759,6 +759,129 @@ defmodule Aiur.Claude.ReplAgentTest do
     refute_receive {:tmux_mock_out, _}, 100
   end
 
+  # ------------------------------------------------------------- pause mid-turn
+
+  # Pump pane-liveness polls and the pause's C-c interrupt. When the C-c
+  # lands, append a completion record so the tailer sees the interrupted
+  # turn close (mirrors claude ending the turn after a Ctrl+C).
+  defp pump_pause(tmux, path, task) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        pump_pause(tmux, path, task)
+
+      {:tmux_mock_out, "send-keys -t %50 C-c"} ->
+        respond(tmux, "")
+        File.write!(path, completion_record("interrupted"), [:append])
+        pump_pause(tmux, path, task)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> result
+          nil -> pump_pause(tmux, path, task)
+        end
+    end
+  end
+
+  test "a pause request mid-turn interrupts the REPL and returns {:paused, …}", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "long work", %{}, poll_interval_ms: 10)
+      end)
+
+    expect_prompt_submit(tmux)
+
+    send(task.pid, {:pause_agent, 42})
+
+    assert {:paused, payload} = pump_pause(tmux, path, task)
+    assert payload.request_id == 42
+    assert is_binary(payload.session_id)
+    assert is_binary(payload.turn_id)
+  end
+
+  # Never append a record after the C-c: the pause-confirm deadline expires
+  # and the turn still parks as paused (never {:error, :turn_timeout}).
+  defp pump_pause_no_turn_end(tmux, task) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        pump_pause_no_turn_end(tmux, task)
+
+      {:tmux_mock_out, "send-keys -t %50 C-c"} ->
+        respond(tmux, "")
+        pump_pause_no_turn_end(tmux, task)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> result
+          nil -> pump_pause_no_turn_end(tmux, task)
+        end
+    end
+  end
+
+  test "pause-confirm deadline expiry still parks the agent as paused", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "long work", %{},
+          poll_interval_ms: 10,
+          pause_confirm_ms: 80
+        )
+      end)
+
+    expect_prompt_submit(tmux)
+
+    send(task.pid, {:pause_agent, 7})
+
+    assert {:paused, %{request_id: 7}} = pump_pause_no_turn_end(tmux, task)
+  end
+
+  # A failed C-c (tmux error) must not crash the turn — park as paused.
+  defp pump_pause_interrupt_fails(tmux, task) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        pump_pause_interrupt_fails(tmux, task)
+
+      {:tmux_mock_out, "send-keys -t %50 C-c"} ->
+        respond_error(tmux, "no such pane\n")
+        pump_pause_interrupt_fails(tmux, task)
+    after
+      30 ->
+        case Task.yield(task, 0) do
+          {:ok, result} -> result
+          nil -> pump_pause_interrupt_fails(tmux, task)
+        end
+    end
+  end
+
+  test "a failed interrupt send still parks the agent as paused", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "long work", %{},
+          poll_interval_ms: 10,
+          pause_confirm_ms: 80
+        )
+      end)
+
+    expect_prompt_submit(tmux)
+
+    send(task.pid, {:pause_agent, 9})
+
+    assert {:paused, %{request_id: 9}} = pump_pause_interrupt_fails(tmux, task)
+  end
+
   # ----------------------------------------------------------------- interrupt/1
 
   test "interrupt sends Ctrl+C to the pane", %{tmux: tmux} do

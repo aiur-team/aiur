@@ -41,6 +41,13 @@ defmodule Aiur.Claude.ReplAgent do
   # liveness while a turn is in flight.
   @turn_poll_ms 250
 
+  # After a pause request interrupts the live turn (Ctrl+C to the pane), how
+  # long to wait for the tailer to observe the turn closing before parking
+  # the agent as paused anyway. Expiry parks rather than errors: returning
+  # `{:error, :turn_timeout}` would book a failed turn and possibly
+  # re-dispatch, and looping forever would hang the pause.
+  @pause_confirm_ms 10_000
+
   # Cold start: claude writes no session jsonl until the first user message
   # is submitted, so the first turn sends the prompt, then waits for the file
   # to materialize before tailing it.
@@ -371,7 +378,7 @@ defmodule Aiur.Claude.ReplAgent do
   the tailer never replays prior history as input to the agent.
   """
   @spec run_turn(session(), String.t(), map(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map()} | {:paused, map()} | {:error, term()}
   def run_turn(session, prompt, issue, opts \\ [])
 
   def run_turn(_session, prompt, _issue, _opts) when not is_binary(prompt),
@@ -390,6 +397,7 @@ defmodule Aiur.Claude.ReplAgent do
     on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
+    pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)
 
     case prepare_turn(session, prompt, opts) do
       {:ok, transcript_path, from, prompt_sent?} ->
@@ -412,7 +420,7 @@ defmodule Aiur.Claude.ReplAgent do
         case send_result do
           :ok ->
             deadline = System.monotonic_time(:millisecond) + timeout_ms
-            result = await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+            result = await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
             stop_tailer(tailer)
             finish_turn(result, on_message, session_id, thread_id, turn_id)
 
@@ -431,6 +439,19 @@ defmodule Aiur.Claude.ReplAgent do
     emit(on_message, :turn_completed, %{session_id: session_id, turn_id: turn_id})
 
     {:ok, %{result: :completed, session_id: session_id, thread_id: thread_id, turn_id: turn_id}}
+  end
+
+  # A pause request interrupted this turn. The runner's `{:paused, _}` branch
+  # reads `payload[:session_id]` for its log line, then restores the queue and
+  # parks in its paused wait loop — so the payload must carry the ids.
+  defp finish_turn({:paused, payload}, on_message, session_id, thread_id, turn_id) do
+    emit(on_message, :turn_paused, %{session_id: session_id, turn_id: turn_id})
+
+    {:paused,
+     payload
+     |> Map.put(:session_id, session_id)
+     |> Map.put(:thread_id, thread_id)
+     |> Map.put(:turn_id, turn_id)}
   end
 
   defp finish_turn({:error, reason}, on_message, session_id, _thread_id, _turn_id) do
@@ -579,7 +600,7 @@ defmodule Aiur.Claude.ReplAgent do
     )
   end
 
-  defp await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator) do
+  defp await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms) do
     cond do
       System.monotonic_time(:millisecond) >= deadline ->
         {:error, :turn_timeout}
@@ -599,17 +620,58 @@ defmodule Aiur.Claude.ReplAgent do
           # the live pane rather than holding it for a checkpoint.
           {:agent_queue_updated, _identifier, _item_id, true} ->
             deliver_immediate_operator_message(session, on_operator)
-            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
 
           {:agent_queue_updated, _identifier, _item_id, _deliver_now} ->
-            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
 
           {:agent_queue_updated, _identifier, _item_id} ->
-            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
+
+          # A pause request landed mid-turn. Interrupt the live REPL turn
+          # (Ctrl+C to the pane — same primitive as the queue-drain
+          # `:interrupt` path), wait briefly for the tailer to observe the
+          # turn closing, and park as paused. A failed interrupt send still
+          # parks: the operator asked for a pause, and erroring out would
+          # book a failed turn instead.
+          {:pause_agent, request_id} when is_integer(request_id) ->
+            case interrupt(session) do
+              :ok ->
+                :ok
+
+              {:error, reason} ->
+                Logger.warning("repl_pause interrupt_failed turn_id=#{turn_id} reason=#{inspect(reason)}")
+            end
+
+            confirm_deadline = System.monotonic_time(:millisecond) + pause_confirm_ms
+            await_pause_confirm(tailer, turn_id, confirm_deadline, poll_ms)
+            {:paused, %{request_id: request_id}}
         after
           0 ->
             Process.sleep(poll_ms)
-            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator)
+            await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
+        end
+    end
+  end
+
+  # Wait for the interrupted turn to close in the transcript so the session
+  # is quiescent before the runner parks. Expiry logs and parks anyway —
+  # never an error, never an infinite loop (see @pause_confirm_ms).
+  defp await_pause_confirm(tailer, turn_id, deadline, poll_ms) do
+    cond do
+      System.monotonic_time(:millisecond) >= deadline ->
+        Logger.warning("repl_pause pause_confirm_timeout turn_id=#{turn_id}")
+        :timeout
+
+      true ->
+        TranscriptTailer.poll(tailer)
+
+        receive do
+          {:turn_end, ^turn_id, _reason} -> :ok
+        after
+          0 ->
+            Process.sleep(poll_ms)
+            await_pause_confirm(tailer, turn_id, deadline, poll_ms)
         end
     end
   end
