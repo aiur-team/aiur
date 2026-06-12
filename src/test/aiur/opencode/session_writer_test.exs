@@ -21,6 +21,43 @@ defmodule Aiur.Opencode.SessionWriterTest do
     end
   end
 
+  describe "live-stream dedup" do
+    setup [:db_fixture]
+
+    test "transcript events are NOT written while a live aiur turn streams", %{
+      session_id: session_id
+    } do
+      state = build_state(session_id)
+
+      # A live bridge stream covers rendering AND persistence (opencode
+      # stores the streamed completion); a parallel SQL write here showed
+      # every agent log 2-4x in the pane after each segment close.
+      :ok = Aiur.Opencode.ActiveTurns.put("test-id", "t-dedup-1")
+      on_exit(fn -> Aiur.Opencode.ActiveTurns.mark_closed("test-id", "t-dedup-1", :test_cleanup) end)
+
+      {:noreply, state} =
+        SessionWriter.handle_info(
+          {:transcript_event, transcript_event(:command, "ls", turn_id: "turn_live")},
+          state
+        )
+
+      assert state.turns == %{}
+      assert count_messages(session_id) == 0
+
+      # Once the turn closes, writes resume (between-turn events have no
+      # live stream and the SQL row is the only render path).
+      Aiur.Opencode.ActiveTurns.mark_closed("test-id", "t-dedup-1", :done)
+
+      {:noreply, _state} =
+        SessionWriter.handle_info(
+          {:transcript_event, transcript_event(:command, "ls", turn_id: "turn_live")},
+          state
+        )
+
+      assert count_messages(session_id) == 1
+    end
+  end
+
   describe "turn grouping (U1)" do
     setup [:db_fixture]
 

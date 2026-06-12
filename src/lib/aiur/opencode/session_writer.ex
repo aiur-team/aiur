@@ -187,14 +187,26 @@ defmodule Aiur.Opencode.SessionWriter do
   def handle_info({:transcript_event, %{role: :user}}, state), do: {:noreply, state}
 
   def handle_info({:transcript_event, event}, state) do
-    case write_transcript_event(state, event) do
-      {:ok, _message_id, parts, new_state} ->
-        _ = parts
-        {:noreply, reset_fk_failures(new_state)}
+    # While a live aiur turn streams through the bridge, opencode-serve
+    # itself persists the streamed completion content — writing the same
+    # events here produced a SECOND copy of every command/tool/alert row
+    # that the TUI renders after each segment close (the operator-visible
+    # "every agent log appears 2-4x" duplication). Live-stream-covered
+    # events are skipped; between turns (and when no marker stream ever
+    # opened — both posts failed, logged as post_retry_failed) the SQL
+    # write remains the only render path and proceeds.
+    if live_stream_active?(state) do
+      {:noreply, state}
+    else
+      case write_transcript_event(state, event) do
+        {:ok, _message_id, parts, new_state} ->
+          _ = parts
+          {:noreply, reset_fk_failures(new_state)}
 
-      {:error, reason} ->
-        log_session_write_failure("write_failed", state.identifier, reason)
-        handle_write_failure(state, reason)
+        {:error, reason} ->
+          log_session_write_failure("write_failed", state.identifier, reason)
+          handle_write_failure(state, reason)
+      end
     end
   end
 
@@ -209,13 +221,19 @@ defmodule Aiur.Opencode.SessionWriter do
     # Alerts are still standalone messages — no turn grouping. Reset
     # the FK counter on success so a healthy stream of alerts after a
     # transient FK burst doesn't leave the counter armed at N-1.
-    case write_standalone(state, %{role: :alert, body: message}) do
-      {:ok, _message_id, _parts} ->
-        {:noreply, reset_fk_failures(state)}
+    # Same live-stream dedup as transcript events: the bridge streams
+    # :alert rows into the active assistant message.
+    if live_stream_active?(state) do
+      {:noreply, state}
+    else
+      case write_standalone(state, %{role: :alert, body: message}) do
+        {:ok, _message_id, _parts} ->
+          {:noreply, reset_fk_failures(state)}
 
-      {:error, reason} ->
-        log_session_write_failure("alert_failed", state.identifier, reason)
-        handle_write_failure(state, reason)
+        {:error, reason} ->
+          log_session_write_failure("alert_failed", state.identifier, reason)
+          handle_write_failure(state, reason)
+      end
     end
   end
 
@@ -227,9 +245,10 @@ defmodule Aiur.Opencode.SessionWriter do
   # Cross-ticket event ticker row (R2 of the chat-pane follow-ups plan).
   # DebugLog broadcasts on a global topic; filter via
   # `EventRow.matches?/2` (identifier match OR topic prefix match).
-  # Dedup against re-deliveries by event_id.
+  # Dedup against re-deliveries by event_id. Skipped while a live stream
+  # is rendering the same ticker rows into the active assistant message.
   def handle_info({:event_debug, entry}, state) do
-    if EventRow.matches?(entry, state.identifier) do
+    if EventRow.matches?(entry, state.identifier) and not live_stream_active?(state) do
       handle_matching_event_debug(state, entry)
     else
       {:noreply, state}
@@ -237,6 +256,14 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   def handle_info(_other, state), do: {:noreply, state}
+
+  # A live bridge stream is rendering this identifier's current aiur turn:
+  # markers fan to every attached writer's serve at turn open, so an
+  # :active entry in ActiveTurns means the streamed completion is the
+  # render-and-persist path and SQL writes here would duplicate it.
+  defp live_stream_active?(state) do
+    ActiveTurns.active_turn_ids(state.identifier) != []
+  end
 
   @impl true
   def terminate(_reason, _state), do: :ok
