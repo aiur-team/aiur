@@ -1002,6 +1002,54 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert_receive {:msg, %{event: :turn_completed}}
   end
 
+  test "hook-driven run_turn types a mid-turn operator message into the pane", %{tmux: tmux} do
+    identifier = "MT-HOOKOP-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "do the thing", %{},
+          on_operator_message: fn ->
+            {:deliver_text, "INTERJECT-MSG", fn _ -> :ok end, fn _ -> :ok end}
+          end,
+          poll_interval_ms: 10
+        )
+      end)
+
+    expect_prompt_submit(tmux)
+
+    # An operator message lands mid-turn (immediate-delivery broadcast). The hook
+    # loop must type it straight into the live REPL pane.
+    send(task.pid, {:agent_queue_updated, identifier, 1, true})
+    assert_operator_typed(tmux, "INTERJECT-MSG")
+
+    :ok = HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+  end
+
+  # Drain pane-liveness polls until the operator text is typed (send-keys -l) and
+  # submitted (Enter).
+  defp assert_operator_typed(tmux, text) do
+    receive do
+      {:tmux_mock_out, "send-keys -t %50 -l " <> rest} ->
+        assert rest =~ text
+        respond(tmux, "")
+        assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+        respond(tmux, "")
+        :ok
+
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        assert_operator_typed(tmux, text)
+
+      {:tmux_mock_out, _other} ->
+        respond(tmux, "")
+        assert_operator_typed(tmux, text)
+    after
+      3_000 -> flunk("operator text never typed into the pane")
+    end
+  end
+
   test "hook-driven run_turn returns :repl_gone when the pane dies mid-turn", %{tmux: tmux} do
     identifier = "MT-HOOKGONE-#{System.unique_integer([:positive])}"
     session = hook_session(tmux, identifier)

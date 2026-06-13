@@ -555,6 +555,7 @@ defmodule Aiur.Claude.ReplAgent do
           # An operator message landed mid-turn. The REPL accepts input while the
           # agent works; type it straight in so claude's native queue folds it.
           {:agent_queue_updated, _identifier, _item_id, true} ->
+            Logger.info("repl_hook_turn operator_immediate identifier=#{loop.identifier}")
             deliver_immediate_operator_message(loop.session, loop.on_operator)
             await_hook_turn(loop, deadline, acc)
 
@@ -907,11 +908,20 @@ defmodule Aiur.Claude.ReplAgent do
       {:deliver_text, text, on_success, on_failure}
       when is_binary(text) and is_function(on_success, 1) and is_function(on_failure, 1) ->
         case send_operator_message(session, %{kind: :text, body: text}) do
-          {:ok, request_id} -> on_success.(%{request_id: request_id})
-          {:error, reason} -> on_failure.(reason)
+          {:ok, request_id} ->
+            Logger.info("repl_operator_delivered bytes=#{byte_size(text)} pane=#{session.pane_id}")
+            on_success.(%{request_id: request_id})
+
+          {:error, reason} ->
+            Logger.warning("repl_operator_deliver_failed reason=#{inspect(reason)}")
+            on_failure.(reason)
         end
 
       :noop ->
+        # The queue update fired but nothing was claimable (e.g. the claim call
+        # to the orchestrator returned :empty/timeout under load). Surfacing this
+        # distinguishes "never reached the loop" from "claim came back empty".
+        Logger.info("repl_operator_deliver_noop pane=#{session.pane_id}")
         :ok
     end
   end
