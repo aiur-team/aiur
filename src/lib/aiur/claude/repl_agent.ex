@@ -22,7 +22,9 @@ defmodule Aiur.Claude.ReplAgent do
 
   require Logger
 
+  alias Aiur.AgentEvents
   alias Aiur.Claude.Config
+  alias Aiur.Claude.HookEvents
   alias Aiur.Claude.HookSettings
   alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.TranscriptTailer
@@ -97,6 +99,7 @@ defmodule Aiur.Claude.ReplAgent do
           remote_control: boolean(),
           rc_name: String.t() | nil,
           session_url: String.t() | nil,
+          identifier: String.t() | nil,
           tmux: GenServer.server()
         }
 
@@ -130,6 +133,8 @@ defmodule Aiur.Claude.ReplAgent do
       model: model,
       rc?: rc?,
       rc_name: rc_name,
+      identifier: Keyword.get(opts, :identifier),
+      hooks?: is_binary(settings_path),
       started_at: started_at,
       opts: opts
     }
@@ -216,6 +221,9 @@ defmodule Aiur.Claude.ReplAgent do
       remote_control: ctx.rc?,
       rc_name: ctx.rc_name,
       session_url: session_url,
+      # Set only when lifecycle hooks were injected (see maybe_hook_settings/2);
+      # its presence is what routes run_turn to hook-driven detection.
+      identifier: if(Map.get(ctx, :hooks?, false), do: ctx.identifier, else: nil),
       tmux: ctx.tmux
     }
   end
@@ -462,6 +470,153 @@ defmodule Aiur.Claude.ReplAgent do
   end
 
   defp drive_turn(session, prompt, opts) do
+    if is_binary(Map.get(session, :identifier)) do
+      drive_turn_via_hooks(session, prompt, opts)
+    else
+      drive_turn_via_transcript(session, prompt, opts)
+    end
+  end
+
+  # Hook-driven turn: claude v2.1.177 flushes its transcript lazily, so we drive
+  # turn detection off lifecycle hooks (Aiur.Claude.HookEvents) instead. Send the
+  # prompt, then wait on the agent's hook topic: PostToolUse streams progress and
+  # heartbeats the backstop, Stop completes the turn with `last_assistant_message`.
+  # There is no completion clock — only the Stop event, pane death, or a generous
+  # no-event backstop ends the wait — so a turn that works silently for minutes is
+  # never failed.
+  defp drive_turn_via_hooks(session, prompt, opts) do
+    on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
+    on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
+    poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
+    timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
+    pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)
+    identifier = session.identifier
+
+    :ok = HookEvents.subscribe(identifier)
+
+    try do
+      case send_prompt(session, prompt, opts) do
+        :ok ->
+          # Backstop deadline is reset by every hook event, so it only fires for a
+          # session that has gone fully silent (no tools, no Stop) — not a long turn.
+          deadline = System.monotonic_time(:millisecond) + timeout_ms
+
+          loop = %{
+            session: session,
+            identifier: identifier,
+            on_message: on_message,
+            on_operator: on_operator,
+            poll_ms: poll_ms,
+            pause_confirm_ms: pause_confirm_ms,
+            timeout_ms: timeout_ms
+          }
+
+          loop
+          |> await_hook_turn(deadline, %{session_id: nil, message: nil})
+          |> finish_hook_turn(on_message)
+
+        {:error, reason} ->
+          emit(on_message, :turn_ended_with_error, %{reason: reason})
+          {:error, reason}
+      end
+    after
+      HookEvents.unsubscribe(identifier)
+    end
+  end
+
+  # Receive loop driven by claude lifecycle hooks. Returns `:ok` (with the captured
+  # response/session in `acc`), `{:paused, _}`, or `{:error, reason}`.
+  defp await_hook_turn(loop, deadline, acc) do
+    cond do
+      not pane_alive?(loop.session) ->
+        {:error, :repl_gone}
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        # No hook event at all within the (event-reset) backstop window: treat as a
+        # stalled session. Not the normal completion path — that is the Stop event.
+        Logger.warning("repl_hook_turn backstop_timeout identifier=#{loop.identifier}")
+        {:error, :turn_timeout}
+
+      true ->
+        receive do
+          {:claude_hook, _id, %{event: :stop} = event} ->
+            {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
+
+          {:claude_hook, _id, %{event: :post_tool_use} = event} ->
+            maybe_emit_tool_progress(loop.on_message, event)
+            await_hook_turn(loop, reset_deadline(loop), merge_session(acc, event))
+
+          {:claude_hook, _id, %{event: :user_prompt_submit} = event} ->
+            await_hook_turn(loop, reset_deadline(loop), merge_session(acc, event))
+
+          {:claude_hook, _id, _event} ->
+            await_hook_turn(loop, reset_deadline(loop), acc)
+
+          # An operator message landed mid-turn. The REPL accepts input while the
+          # agent works; type it straight in so claude's native queue folds it.
+          {:agent_queue_updated, _identifier, _item_id, true} ->
+            deliver_immediate_operator_message(loop.session, loop.on_operator)
+            await_hook_turn(loop, deadline, acc)
+
+          {:agent_queue_updated, _identifier, _item_id, _deliver_now} ->
+            await_hook_turn(loop, deadline, acc)
+
+          {:agent_queue_updated, _identifier, _item_id} ->
+            await_hook_turn(loop, deadline, acc)
+
+          # Pause request: interrupt the live REPL turn (Ctrl+C to the pane) and
+          # park as paused. The interrupted turn still fires a Stop hook, which the
+          # next turn's loop drains harmlessly.
+          {:pause_agent, request_id} when is_integer(request_id) ->
+            case interrupt(loop.session) do
+              :ok -> :ok
+              {:error, reason} -> Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
+            end
+
+            {:paused, %{request_id: request_id}}
+        after
+          loop.poll_ms ->
+            await_hook_turn(loop, deadline, acc)
+        end
+    end
+  end
+
+  defp reset_deadline(loop), do: System.monotonic_time(:millisecond) + loop.timeout_ms
+
+  defp merge_session(acc, %{session_id: sid}) when is_binary(sid), do: %{acc | session_id: sid}
+  defp merge_session(acc, _event), do: acc
+
+  # Render PostToolUse as a dim tool-progress row so the opencode pane shows live
+  # work during long turns. Skipped when the tool name is unknown.
+  defp maybe_emit_tool_progress(on_message, %{tool_name: tool}) when is_binary(tool) and tool != "" do
+    emit_transcript(on_message, AgentEvents.transcript_event(:tool, "→ #{tool}"))
+  end
+
+  defp maybe_emit_tool_progress(_on_message, _event), do: :ok
+
+  # Stop completed the turn: broadcast the assistant message (so the bridge renders
+  # it) and return the turn-completed result the runner expects.
+  defp finish_hook_turn({:ok, %{message: message, session_id: session_id}}, on_message) do
+    if is_binary(message) and message != "" do
+      emit_transcript(on_message, AgentEvents.transcript_event(:assistant, message))
+    end
+
+    sid = session_id || "repl-#{System.unique_integer([:positive])}"
+    emit(on_message, :turn_completed, %{session_id: sid})
+    {:ok, %{result: :completed, session_id: sid, message: message}}
+  end
+
+  defp finish_hook_turn({:paused, payload}, on_message) do
+    emit(on_message, :turn_paused, %{session_id: payload[:session_id]})
+    {:paused, payload}
+  end
+
+  defp finish_hook_turn({:error, reason}, on_message) do
+    emit(on_message, :turn_ended_with_error, %{reason: reason})
+    {:error, reason}
+  end
+
+  defp drive_turn_via_transcript(session, prompt, opts) do
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
     on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)

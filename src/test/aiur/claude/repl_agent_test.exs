@@ -1,6 +1,7 @@
 defmodule Aiur.Claude.ReplAgentTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Claude.HookEvents
   alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.ReplAgent
   alias Aiur.Tmux
@@ -949,5 +950,73 @@ defmodule Aiur.Claude.ReplAgentTest do
 
   test "interrupt rejects a session without a pane" do
     assert {:error, :invalid_session} = ReplAgent.interrupt(%{})
+  end
+
+  # --------------------------------------------------- hook-driven turn detection
+
+  # A session carrying an :identifier routes run_turn to the hook path — no
+  # transcript file is read; turn completion rides on the Stop lifecycle hook.
+  defp hook_session(tmux, identifier, pane \\ "%50") do
+    tmux
+    |> turn_session(nil, pane)
+    |> Map.merge(%{remote_control: true, identifier: identifier})
+  end
+
+  test "hook-driven run_turn completes on a Stop hook, streaming tool progress and the answer",
+       %{tmux: tmux} do
+    identifier = "MT-HOOKTURN-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    tp = self()
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "do the thing", %{},
+          on_message: fn m -> send(tp, {:msg, m}) end,
+          poll_interval_ms: 10
+        )
+      end)
+
+    # The prompt is typed/submitted exactly like the transcript path.
+    expect_prompt_submit(tmux)
+
+    # A tool fires (live progress), then the turn completes.
+    :ok = HookEvents.dispatch(identifier, %{"hook_event_name" => "PostToolUse", "tool_name" => "Bash"})
+
+    :ok =
+      HookEvents.dispatch(identifier, %{
+        "hook_event_name" => "Stop",
+        "last_assistant_message" => "All done.",
+        "session_id" => "sess-1"
+      })
+
+    assert {:ok, result} = drain_pane_pid(tmux, task)
+    assert result.result == :completed
+    assert result.message == "All done."
+    assert result.session_id == "sess-1"
+
+    assert_receive {:msg, %{event: :transcript, transcript_event: %{role: :tool, body: "→ Bash"}}}
+
+    assert_receive {:msg,
+                    %{event: :transcript, transcript_event: %{role: :assistant, body: "All done."}}}
+
+    assert_receive {:msg, %{event: :turn_completed}}
+  end
+
+  test "hook-driven run_turn returns :repl_gone when the pane dies mid-turn", %{tmux: tmux} do
+    identifier = "MT-HOOKGONE-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "do the thing", %{}, poll_interval_ms: 10)
+      end)
+
+    expect_prompt_submit(tmux)
+
+    # First liveness poll reports the pane gone -> :repl_gone (no Stop needed).
+    assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000
+    respond_error(tmux, "no server running")
+
+    assert {:error, :repl_gone} = Task.await(task, 2_000)
   end
 end
