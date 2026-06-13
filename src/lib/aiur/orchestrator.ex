@@ -3885,11 +3885,18 @@ defmodule Aiur.Orchestrator do
     |> Enum.map(fn item ->
       %{
         id: item.id,
-        text: get_in(item, [:body, :text]) || "",
+        # item is an %AgentQueueItem{} struct (no Access), so reach into its body
+        # map directly rather than via get_in/2 — the latter crashed the whole
+        # Orchestrator whenever the dashboard rendered an issue with a visible
+        # operator message.
+        text: operator_item_text(item),
         status: item.status
       }
     end)
   end
+
+  defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
+  defp operator_item_text(_item), do: ""
 
   defp issue_control_capabilities(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
     running_entry = find_running_by_identifier(state.running, issue_identifier)

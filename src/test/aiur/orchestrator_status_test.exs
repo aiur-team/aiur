@@ -45,6 +45,41 @@ defmodule Aiur.OrchestratorStatusTest do
     send(pid, :stop)
   end
 
+  test "snapshot renders an issue's pending operator messages without crashing" do
+    orchestrator_name = Module.concat(__MODULE__, :PendingOperatorMsgOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+
+    {store, _item} =
+      Aiur.AgentQueueStore.enqueue(
+        Aiur.AgentQueueStore.new(),
+        Aiur.AgentQueue.operator_message("MT-OP", "hello operator text")
+      )
+
+    entry =
+      "issue-op"
+      |> running_entry("MT-OP", :working)
+      |> Map.merge(%{
+        codex_app_server_pid: nil,
+        last_codex_timestamp: nil,
+        last_codex_message: nil,
+        last_codex_event: nil
+      })
+
+    :sys.replace_state(pid, fn state ->
+      %{state | queue_store: store, running: %{"issue-op" => entry}}
+    end)
+
+    snapshot = Orchestrator.snapshot(orchestrator_name, 1_000)
+
+    # Regression: rendering the visible operator message used to run get_in/2 on
+    # an %AgentQueueItem{} struct, which crashed the whole Orchestrator GenServer
+    # (structs don't implement Access). The struct's body map is reached directly now.
+    refute snapshot == :timeout
+    assert Process.alive?(pid)
+    assert inspect(snapshot) =~ "hello operator text"
+  end
+
   test "session max status counts active agents separately from paused agents" do
     orchestrator_name = Module.concat(__MODULE__, :SessionMaxStatusOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
