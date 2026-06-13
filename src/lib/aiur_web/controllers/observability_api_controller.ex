@@ -5,6 +5,7 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
+  alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
   alias AiurWeb.{Endpoint, Presenter}
   alias Plug.Conn
@@ -93,7 +94,7 @@ defmodule AiurWeb.ObservabilityApiController do
   # any stderr from claude's hook command could disrupt the live session.
   @spec claude_hook(Conn.t(), map()) :: Conn.t()
   def claude_hook(conn, %{"issue_identifier" => identifier} = params) when is_binary(identifier) do
-    _ = Aiur.Claude.HookEvents.dispatch(identifier, Map.drop(params, ["issue_identifier"]))
+    _ = HookEvents.dispatch(identifier, Map.drop(params, ["issue_identifier"]))
     json(conn, %{ok: true})
   end
 
