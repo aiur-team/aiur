@@ -74,15 +74,39 @@ fi
 
 [ -z "$control_url" ] && close_pane "no_control_url"
 
+# The interrupt timeout MUST exceed the orchestrator's own 5s
+# GenServer.call timeout: that call serializes behind the single
+# Orchestrator mailbox, so under load the reply can take seconds. A
+# shorter curl timeout abandons a call that would have succeeded and then
+# (below) degraded to a destructive kill — exactly the race that reset a
+# live conversation when Ctrl+C was pressed on a busy agent.
 # shellcheck disable=SC2086
 response="$(
-  curl -fsS -m 2 \
+  curl -fsS -m 8 \
     -H 'X-Aiur-Request: 1' \
     -H 'Origin: http://127.0.0.1' \
     --data-urlencode "pane_id=${pane_id}" \
     $auth_args \
     "${control_url}/api/v1/pane/interrupt" 2>/dev/null
-)" || close_pane "curl_failed"
+)"
+curl_status=$?
+
+# Curl failed: distinguish "aiur busy" from "aiur unreachable" so a slow
+# call never costs the operator their live pane. Exit 28 is a timeout —
+# the dashboard is alive and the interrupt is almost certainly still
+# being processed server-side, so KEEP THE PANE OPEN (killing it here is
+# what broke the opencode pipe, tripped :repl_gone, and re-dispatched a
+# fresh session). Any other non-zero (connection refused, DNS, HTTP
+# error) means aiur is unreachable or erroring: degrade to a
+# non-destructive hide (session + attach survive); hide_pane itself falls
+# back to kill only if the hide call also fails.
+if [ "$curl_status" -ne 0 ]; then
+  if [ "$curl_status" -eq 28 ]; then
+    log_ctrlc "action=keep_open reason=curl_timeout"
+    exit 0
+  fi
+  hide_pane "curl_failed_${curl_status}"
+fi
 
 # opencode owns the interrupt for codex/opencode agents: forward its native
 # interrupt key (Esc) to the pane so it drains its queued operator message and
