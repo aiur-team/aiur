@@ -369,7 +369,11 @@ defmodule Aiur.Opencode.ChatCompletions do
       %{session_id: session_id, base_url: base_url}
     else
       _ ->
-        Logger.debug("opencode_bridge segment_writer_unresolved identifier=#{identifier}")
+        # Always-on: a nil writer disables segmentation for this stream, so
+        # opencode never gets a segment-close to flush its TUI-local input
+        # queue — typed operator text then sits QUEUED for the whole turn.
+        # Surfacing it at info makes a stuck-codex-input repro diagnosable.
+        Logger.info("opencode_bridge segment_writer_unresolved identifier=#{identifier}")
         nil
     end
   end
