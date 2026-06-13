@@ -23,6 +23,7 @@ defmodule Aiur.Claude.ReplAgent do
   require Logger
 
   alias Aiur.Claude.Config
+  alias Aiur.Claude.HookSettings
   alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.TranscriptTailer
   alias Aiur.Tmux
@@ -114,7 +115,12 @@ defmodule Aiur.Claude.ReplAgent do
     # the live session's jsonl only at first-message time, always after this.
     started_at = System.os_time(:second)
 
-    command = build_command(expanded, model, rc?, rc_name)
+    # RC sessions emit no structured stdout, so turn detection rides on claude
+    # lifecycle hooks POSTed to the dashboard. Inject them via --settings (which
+    # composes with the operator's own settings). Best-effort: a missing
+    # identifier or unbound dashboard degrades to no hooks rather than failing.
+    settings_path = maybe_hook_settings(rc?, Keyword.get(opts, :identifier))
+    command = build_command(expanded, model, rc?, rc_name, settings_path)
 
     Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?)
 
@@ -851,16 +857,42 @@ defmodule Aiur.Claude.ReplAgent do
 
   # `exec` replaces the wrapping shell so the pane's top process IS `claude`,
   # which makes `pane_pid` the process graceful_kill must terminate.
-  defp build_command(workspace, model, rc?, rc_name) do
+  defp build_command(workspace, model, rc?, rc_name, settings_path) do
     flags =
       ["claude"]
       |> append_if(rc?, ["--remote-control", shell_escape(rc_name)])
       |> Kernel.++(["--permission-mode", shell_escape(Config.permission_mode())])
       |> append_if(is_binary(model), ["--model", shell_escape(model || "")])
+      |> append_if(is_binary(settings_path), ["--settings", shell_escape(settings_path || "")])
       |> Enum.join(" ")
 
     "cd #{shell_escape(workspace)} && exec #{flags}"
   end
+
+  # Write the lifecycle-hook settings file for an RC session. Returns the path, or
+  # nil (no hooks wired) when not RC, when the identifier is unknown, or when the
+  # dashboard URL / file write is unavailable — turn detection then falls back to
+  # the legacy transcript path rather than failing the spawn.
+  defp maybe_hook_settings(true, identifier) when is_binary(identifier) do
+    case HookSettings.dashboard_url() do
+      url when is_binary(url) ->
+        case HookSettings.write(identifier, url) do
+          {:ok, path} ->
+            Logger.info("claude_repl hook_settings identifier=#{identifier} path=#{path}")
+            path
+
+          {:error, reason} ->
+            Logger.warning("claude_repl hook_settings_failed identifier=#{identifier} reason=#{inspect(reason)}")
+            nil
+        end
+
+      _ ->
+        Logger.warning("claude_repl hook_settings_skipped identifier=#{identifier} reason=no_dashboard_url")
+        nil
+    end
+  end
+
+  defp maybe_hook_settings(_rc?, _identifier), do: nil
 
   defp append_if(list, true, extra), do: list ++ extra
   defp append_if(list, false, _extra), do: list

@@ -421,7 +421,7 @@ defmodule Aiur.AgentRunner do
     end)
 
     session_opts =
-      [backend: backend, model: model, worker_host: worker_host, remote_control: rc?]
+      [backend: backend, model: model, worker_host: worker_host, remote_control: rc?, identifier: issue.identifier]
       |> maybe_put_rc_name(rc?, issue)
 
     with {:ok, session} <- start_agent_session(workspace, session_opts) do
