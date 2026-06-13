@@ -58,6 +58,8 @@ defmodule AiurWeb.Router do
     match(:*, "/api/v1/pane/interrupt", ObservabilityApiController, :method_not_allowed)
     post("/api/v1/pane/hide", ObservabilityApiController, :pane_hide)
     match(:*, "/api/v1/pane/hide", ObservabilityApiController, :method_not_allowed)
+    post("/api/v1/:issue_identifier/claude-hook", ObservabilityApiController, :claude_hook)
+    match(:*, "/api/v1/:issue_identifier/claude-hook", ObservabilityApiController, :method_not_allowed)
   end
 
   scope "/", AiurWeb do

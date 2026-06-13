@@ -85,6 +85,22 @@ defmodule AiurWeb.ObservabilityApiController do
     error_response(conn, 422, "missing_pane_id", "pane_id is required")
   end
 
+  # Claude Code lifecycle-hook sink for the RC-claude backend. The agent's
+  # `claude --remote-control` session is configured (via `--settings`) to POST
+  # each UserPromptSubmit/PostToolUse/Stop event here; `HookEvents` fans it out on
+  # the agent's PubSub topic so `ReplAgent` can drive turn detection without the
+  # (lazily-flushed, unreliable) transcript file. ALWAYS replies 200: a non-2xx or
+  # any stderr from claude's hook command could disrupt the live session.
+  @spec claude_hook(Conn.t(), map()) :: Conn.t()
+  def claude_hook(conn, %{"issue_identifier" => identifier} = params) when is_binary(identifier) do
+    _ = Aiur.Claude.HookEvents.dispatch(identifier, Map.drop(params, ["issue_identifier"]))
+    json(conn, %{ok: true})
+  end
+
+  def claude_hook(conn, _params) do
+    json(conn, %{ok: true})
+  end
+
   @spec method_not_allowed(Conn.t(), map()) :: Conn.t()
   def method_not_allowed(conn, _params) do
     error_response(conn, 405, "method_not_allowed", "Method not allowed")
