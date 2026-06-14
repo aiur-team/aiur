@@ -32,6 +32,20 @@ defmodule Aiur.Claude.HookEventsTest do
       assert HookEvents.normalize(%{"hook_event_name" => "Stop", "last_assistant_message" => 123}).message ==
                nil
     end
+
+    test "carries transcript_path so the display tailer can follow the active session jsonl" do
+      event =
+        HookEvents.normalize(%{
+          "hook_event_name" => "PostToolUse",
+          "transcript_path" => "/home/u/.claude/projects/-w/abc.jsonl"
+        })
+
+      assert event.transcript_path == "/home/u/.claude/projects/-w/abc.jsonl"
+
+      # absent / non-binary transcript_path normalizes to nil
+      assert HookEvents.normalize(%{"hook_event_name" => "Stop"}).transcript_path == nil
+      assert HookEvents.normalize(%{"transcript_path" => 123}).transcript_path == nil
+    end
   end
 
   describe "dispatch/2" do

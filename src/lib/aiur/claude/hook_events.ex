@@ -34,6 +34,7 @@ defmodule Aiur.Claude.HookEvents do
           prompt: String.t() | nil,
           message: String.t() | nil,
           tool_name: String.t() | nil,
+          transcript_path: String.t() | nil,
           raw: map()
         }
 
@@ -79,6 +80,7 @@ defmodule Aiur.Claude.HookEvents do
       prompt: string_or_nil(Map.get(raw, "prompt")),
       message: string_or_nil(Map.get(raw, "last_assistant_message")),
       tool_name: string_or_nil(Map.get(raw, "tool_name")),
+      transcript_path: string_or_nil(Map.get(raw, "transcript_path")),
       raw: raw
     }
   end
