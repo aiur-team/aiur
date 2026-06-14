@@ -17,6 +17,29 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
   defp call(conn), do: AiurWeb.Endpoint.call(conn, AiurWeb.Endpoint.init([]))
 
+  # AiurWeb.Endpoint is normally the Aiur.HttpServer supervised child, but
+  # Aiur.TestSupport's setup terminates that child and never restarts it. So
+  # under full-suite ordering the endpoint's config ETS table can be gone by
+  # the time these tests run, and Endpoint.call/2 raises on the missing table.
+  # Stand up a throwaway endpoint (server: false, no port bind) whenever none
+  # is running, so Endpoint.call/2 always has its config table.
+  setup do
+    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
+      endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+
+      Application.put_env(
+        :aiur,
+        AiurWeb.Endpoint,
+        Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
+      )
+
+      start_supervised!({AiurWeb.Endpoint, []})
+      on_exit(fn -> Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config) end)
+    end
+
+    :ok
+  end
+
   describe "POST /api/v1/:id/claude-hook" do
     test "dispatches a Stop event to the agent topic and returns 200" do
       :ok = HookEvents.subscribe("MT-EP")
