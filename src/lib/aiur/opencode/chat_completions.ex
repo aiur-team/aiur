@@ -682,10 +682,45 @@ defmodule Aiur.Opencode.ChatCompletions do
   # next safe checkpoint (native CLI UX). Wait time is captured by
   # `Aiur.OperatorWaitLog`.
   defp send_operator(identifier, text, turn_id) do
-    AgentChat.send(identifier, text,
-      delivery_policy: :auto,
-      turn_id: turn_id
-    )
+    case normalize_operator_text(text) do
+      "" ->
+        # Opencode wrapped a synthetic reminder with no operator content
+        # (e.g. its own cwd-change / file-open scaffolding) — nothing for
+        # the agent. Ack cleanly without forwarding.
+        {:ok, :noop}
+
+      normalized ->
+        AgentChat.send(identifier, normalized,
+          delivery_policy: :auto,
+          turn_id: turn_id
+        )
+    end
+  end
+
+  # Opencode wraps operator-typed text in `<system-reminder>` envelopes before
+  # POSTing it to the bridge (confirmed verbatim in the opencode 1.15.6 binary).
+  # The mid-stream interjection form buries the message under "...Please address
+  # this message and continue with your tasks", which makes the agent keep
+  # working instead of answering it. Forward only the operator's genuine text —
+  # exactly what Claude's Remote Control channel delivers — so opencode input is
+  # consumed identically to RC.
+  @operator_wrapper_regex ~r/\A<system-reminder>\nThe user sent the following message:\n(?<msg>[\s\S]*?)\n\nPlease address this message and continue with your tasks\.\n<\/system-reminder>\s*\z/
+
+  @doc false
+  @spec normalize_operator_text(String.t()) :: String.t()
+  def normalize_operator_text(text) when is_binary(text) do
+    cond do
+      caps = Regex.named_captures(@operator_wrapper_regex, text) ->
+        String.trim(caps["msg"])
+
+      String.contains?(text, "<system-reminder>") ->
+        text
+        |> String.replace(~r/<system-reminder>[\s\S]*?<\/system-reminder>/, "")
+        |> String.trim()
+
+      true ->
+        text
+    end
   end
 
   defp emit_error_and_close(conn, completion_id, reason) do

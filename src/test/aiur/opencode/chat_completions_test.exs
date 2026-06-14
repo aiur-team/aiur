@@ -258,6 +258,32 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
     end
   end
 
+  describe "normalize_operator_text/1 (strip opencode <system-reminder> wrappers)" do
+    test "mid-stream interjection form: extracts the raw operator message" do
+      wrapped =
+        "<system-reminder>\nThe user sent the following message:\n" <>
+          "hi from opencode, pause and respond exactly \"123\"\n\n" <>
+          "Please address this message and continue with your tasks.\n</system-reminder>"
+
+      assert ChatCompletions.normalize_operator_text(wrapped) ==
+               "hi from opencode, pause and respond exactly \"123\""
+    end
+
+    test "idle form: strips the 'Message sent at' reminder, keeps the raw text" do
+      wrapped = "<system-reminder>Message sent at Sun 2026-06-14 17:19:23 UTC.</system-reminder>\nhi from ce, respond exactly \"456\""
+
+      assert ChatCompletions.normalize_operator_text(wrapped) == "hi from ce, respond exactly \"456\""
+    end
+
+    test "already-raw operator text passes through unchanged" do
+      assert ChatCompletions.normalize_operator_text("just say banana") == "just say banana"
+    end
+
+    test "a reminder with no operator content normalizes to empty (dropped upstream)" do
+      assert ChatCompletions.normalize_operator_text("<system-reminder>cwd changed to /tmp</system-reminder>") == ""
+    end
+  end
+
   describe "finish_reason_for/1" do
     test ":input_required finishes with stop, not tool_calls" do
       # A "tool_calls" finish with no tool-call payload makes opencode
