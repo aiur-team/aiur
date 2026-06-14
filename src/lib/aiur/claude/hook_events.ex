@@ -23,6 +23,8 @@ defmodule Aiur.Claude.HookEvents do
 
   require Logger
 
+  alias Aiur.Orchestrator
+
   @pubsub Aiur.PubSub
 
   @type kind :: :user_prompt_submit | :post_tool_use | :stop | :unknown
@@ -65,6 +67,12 @@ defmodule Aiur.Claude.HookEvents do
         "tool=#{event.tool_name || "-"} bytes=#{byte_size(event.message || event.prompt || "")}"
     )
 
+    # Every hook is proof the RC-claude agent is alive. Refresh the
+    # orchestrator's stall-watchdog liveness so a long, hook-driven turn is not
+    # killed as "stalled without codex activity" (RC-claude emits no codex
+    # updates). Fire-and-forget; never let it disrupt claude.
+    note_agent_liveness(identifier)
+
     do_broadcast(topic(identifier), {:claude_hook, identifier, event})
   end
 
@@ -92,6 +100,15 @@ defmodule Aiur.Claude.HookEvents do
 
   defp string_or_nil(value) when is_binary(value), do: value
   defp string_or_nil(_), do: nil
+
+  # Best-effort liveness ping to the orchestrator's stall watchdog. Guarded so
+  # a missing orchestrator (early boot / tests) can never crash the hook path.
+  defp note_agent_liveness(identifier) do
+    if Process.whereis(Orchestrator), do: Orchestrator.note_agent_activity(identifier)
+    :ok
+  catch
+    :exit, _ -> :ok
+  end
 
   # Defensive guard mirrors AgentPubSub: producers must not crash if the PubSub
   # registry is absent (early boot / test teardown).

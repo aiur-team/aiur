@@ -3785,6 +3785,42 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # --- Agent liveness from claude hooks -------------------------------------
+  #
+  # An RC-claude agent works via lifecycle hooks (`Aiur.Claude.HookEvents`),
+  # which never produce a codex update — so the stall watchdog's
+  # `last_codex_timestamp` would sit at `started_at` while the agent is busy
+  # and `reconcile_stalled_running_issues` would kill a working agent every
+  # `stall_timeout_ms`. Each hook is proof of life (the same signal
+  # `await_hook_turn` rides for turn detection), so refresh the entry's
+  # activity timestamp on every hook.
+  @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
+  @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
+  def note_agent_activity(server \\ __MODULE__, identifier) when is_binary(identifier) do
+    GenServer.cast(server, {:note_agent_activity, identifier})
+  end
+
+  @doc false
+  @spec note_agent_activity_state(State.t(), String.t()) :: State.t()
+  def note_agent_activity_state(%State{} = state, identifier) when is_binary(identifier) do
+    case find_running_key_by_identifier(state.running, identifier) do
+      nil -> state
+      issue_id -> update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, DateTime.utc_now()))
+    end
+  end
+
+  @impl true
+  def handle_cast({:note_agent_activity, identifier}, state) do
+    {:noreply, note_agent_activity_state(state, identifier)}
+  end
+
+  defp find_running_key_by_identifier(running, identifier) do
+    Enum.find_value(running, fn
+      {issue_id, %{identifier: id}} -> if to_string(id) == identifier, do: issue_id, else: nil
+      _ -> nil
+    end)
+  end
+
   # Freeze the runtime clock while the agent is paused and shift
   # `started_at` forward on resume so `now - started_at` excludes the
   # paused interval. The age column in the agent list (and any other

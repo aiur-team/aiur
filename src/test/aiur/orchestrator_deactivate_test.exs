@@ -939,6 +939,56 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert %{identifier: ^identifier, error: "stalled" <> _} =
                Map.get(next.retry_attempts, issue_id)
     end
+
+    test "claude-hook activity refreshes liveness so an active RC-claude entry is NOT stall-restarted" do
+      # An RC-claude agent works via lifecycle hooks, which never produce a
+      # codex update — so `last_codex_timestamp` stays at `started_at` while
+      # the agent is busy. A hook firing must refresh liveness so the stall
+      # watchdog does not kill a working agent.
+      issue_id = "issue-hook-active"
+      identifier = "STALL-HOOK"
+
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+      worker_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: worker_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: stale_at,
+            last_codex_timestamp: stale_at,
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      # A claude hook fires for this agent -> liveness refreshed to now.
+      refreshed = Orchestrator.note_agent_activity_state(state, identifier)
+
+      next = Orchestrator.apply_stall_check_for_test(refreshed, 60_000)
+
+      assert Map.has_key?(next.running, issue_id), "hook-active entry must NOT be stall-restarted"
+      assert next.retry_attempts == %{}
+    end
+
+    test "note_agent_activity_state is a no-op for an unknown identifier" do
+      state = %Orchestrator.State{
+        running: %{},
+        claimed: MapSet.new(),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      assert Orchestrator.note_agent_activity_state(state, "NOPE") == state
+    end
   end
 
   describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
