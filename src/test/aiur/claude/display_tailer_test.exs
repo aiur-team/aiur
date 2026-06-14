@@ -27,20 +27,20 @@ defmodule Aiur.Claude.DisplayTailerTest do
   defp start_tailer(identifier, opts \\ []) do
     tp = self()
 
-    {:ok, pid} =
-      DisplayTailer.start_link(
-        Keyword.merge(
-          [
-            identifier: identifier,
-            on_message: fn msg -> send(tp, {:fwd, msg}) end,
-            interval_ms: nil
-          ],
-          opts
-        )
-      )
-
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    pid
+    # start_supervised! ties the tailer's lifetime to the ExUnit supervisor, so
+    # it survives the test body and is torn down cleanly (no link-death race
+    # against on_exit, which a plain start_link + GenServer.stop hits).
+    start_supervised!(
+      {DisplayTailer,
+       Keyword.merge(
+         [
+           identifier: identifier,
+           on_message: fn msg -> send(tp, {:fwd, msg}) end,
+           interval_ms: nil
+         ],
+         opts
+       )}
+    )
   end
 
   defp dispatch_path(identifier, path) do
