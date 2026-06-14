@@ -22,7 +22,6 @@ defmodule Aiur.Claude.ReplAgent do
 
   require Logger
 
-  alias Aiur.AgentEvents
   alias Aiur.Claude.Config
   alias Aiur.Claude.HookEvents
   alias Aiur.Claude.HookSettings
@@ -543,7 +542,9 @@ defmodule Aiur.Claude.ReplAgent do
             {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
 
           {:claude_hook, _id, %{event: :post_tool_use} = event} ->
-            maybe_emit_tool_progress(loop.on_message, event)
+            # PostToolUse is a liveness heartbeat for turn detection only — the
+            # conversation (incl. tool I/O) is painted by Aiur.Claude.DisplayTailer
+            # from the transcript jsonl, so nothing is rendered from here.
             await_hook_turn(loop, reset_deadline(loop), merge_session(acc, event))
 
           {:claude_hook, _id, %{event: :user_prompt_submit} = event} ->
@@ -587,21 +588,11 @@ defmodule Aiur.Claude.ReplAgent do
   defp merge_session(acc, %{session_id: sid}) when is_binary(sid), do: %{acc | session_id: sid}
   defp merge_session(acc, _event), do: acc
 
-  # Render PostToolUse as a dim tool-progress row so the opencode pane shows live
-  # work during long turns. Skipped when the tool name is unknown.
-  defp maybe_emit_tool_progress(on_message, %{tool_name: tool}) when is_binary(tool) and tool != "" do
-    emit_transcript(on_message, AgentEvents.transcript_event(:tool, "→ #{tool}"))
-  end
-
-  defp maybe_emit_tool_progress(_on_message, _event), do: :ok
-
-  # Stop completed the turn: broadcast the assistant message (so the bridge renders
-  # it) and return the turn-completed result the runner expects.
+  # Stop completed the turn. The assistant message is NOT rendered from here —
+  # Aiur.Claude.DisplayTailer paints the full conversation from the transcript
+  # jsonl (single display source). `message` is still returned so the runner
+  # keeps its turn-completion bookkeeping (last_assistant_message).
   defp finish_hook_turn({:ok, %{message: message, session_id: session_id}}, on_message) do
-    if is_binary(message) and message != "" do
-      emit_transcript(on_message, AgentEvents.transcript_event(:assistant, message))
-    end
-
     sid = session_id || "repl-#{System.unique_integer([:positive])}"
     emit(on_message, :turn_completed, %{session_id: sid})
     {:ok, %{result: :completed, session_id: sid, message: message}}

@@ -1061,7 +1061,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     end
   end
 
-  test "hook-driven run_turn completes on a Stop hook, streaming tool progress and the answer",
+  test "hook-driven run_turn completes on a Stop hook and emits no display transcript itself",
        %{tmux: tmux} do
     identifier = "MT-HOOKTURN-#{System.unique_integer([:positive])}"
     session = hook_session(tmux, identifier)
@@ -1078,7 +1078,9 @@ defmodule Aiur.Claude.ReplAgentTest do
     # The prompt is pasted and submitted; the hook path does not scrape the echo.
     expect_hook_prompt_submit(tmux)
 
-    # A tool fires (live progress), then the turn completes.
+    # PostToolUse is a liveness heartbeat for turn detection only; Stop carries
+    # the answer for the runner's bookkeeping. Neither paints the pane — the
+    # conversation is rendered by Aiur.Claude.DisplayTailer from the transcript.
     :ok = HookEvents.dispatch(identifier, %{"hook_event_name" => "PostToolUse", "tool_name" => "Bash"})
 
     :ok =
@@ -1093,10 +1095,9 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert result.message == "All done."
     assert result.session_id == "sess-1"
 
-    assert_receive {:msg, %{event: :transcript, transcript_event: %{role: :tool, body: "→ Bash"}}}
-
-    assert_receive {:msg,
-                    %{event: :transcript, transcript_event: %{role: :assistant, body: "All done."}}}
+    # The hook loop emits control events only — no `→ Tool` or assistant rows.
+    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :tool}}}
+    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :assistant}}}
 
     assert_receive {:msg, %{event: :turn_completed}}
   end
