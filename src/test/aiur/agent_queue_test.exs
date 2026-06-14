@@ -33,6 +33,22 @@ defmodule Aiur.AgentQueueTest do
     assert item.delivery.interrupt_requested == false
   end
 
+  test "immediate flag survives enqueue (deliver-now reaches the running REPL)" do
+    # Regression: AgentQueueStore.normalize_delivery used to drop :immediate,
+    # downgrading every claude-repl operator message to checkpoint delivery so
+    # the orchestrator's deliver-now (interrupt_requested or immediate) was
+    # always false and the agent never got the mid-turn paste.
+    store = AgentQueueStore.new()
+
+    {_store, item} =
+      AgentQueue.operator_message("MT-112", "steer now", delivery_policy: :immediate)
+      |> then(&AgentQueueStore.enqueue(store, &1))
+
+    assert item.delivery.immediate == true
+    # This is exactly the orchestrator's deliver-now predicate.
+    assert item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true
+  end
+
   test "default (checkpoint) delivery holds at a safe checkpoint, not immediate" do
     item = AgentQueue.operator_message("MT-111", "later is fine")
 
