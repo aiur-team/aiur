@@ -62,9 +62,15 @@ defmodule Aiur.AgentRunner do
   # cleanly instead lets the orchestrator schedule a cheap continuation
   # re-dispatch with a fresh pane (the thrash breaker still guards against a
   # tight respawn loop).
+  #
+  # An undelivered prompt (`:prompt_not_delivered`) is recoverable the same
+  # way: a single paste that the pane could not confirm (RC input contention,
+  # a slow render) must not tear down an otherwise-healthy agent and crash the
+  # run. Re-dispatch with a fresh pane instead of hard-failing.
   @doc false
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
+  def transient_run_error?(:prompt_not_delivered), do: true
   def transient_run_error?(_reason), do: false
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do

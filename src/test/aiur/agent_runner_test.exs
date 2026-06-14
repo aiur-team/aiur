@@ -202,8 +202,11 @@ defmodule Aiur.AgentRunnerTest do
       assert AgentRunner.transient_run_error?(:repl_gone)
     end
 
+    test "an undelivered prompt is transient so a single failed paste re-dispatches instead of crashing the run" do
+      assert AgentRunner.transient_run_error?(:prompt_not_delivered)
+    end
+
     test "a genuine agent failure is NOT transient so it still surfaces as a hard error" do
-      refute AgentRunner.transient_run_error?(:prompt_not_delivered)
       refute AgentRunner.transient_run_error?(:no_transcript)
       refute AgentRunner.transient_run_error?({:workspace_prepare_failed, :enoent})
     end
