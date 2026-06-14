@@ -962,45 +962,45 @@ defmodule Aiur.Claude.ReplAgentTest do
     |> Map.merge(%{remote_control: true, identifier: identifier})
   end
 
-  # The hook path submits a prompt with a single paste + Enter and confirms
-  # receipt from the UserPromptSubmit hook — it never scrapes the input echo
-  # (no capture-pane), unlike the transcript path's expect_prompt_submit/1.
+  # The hook path pastes, waits (read-only) for the paste to land in the input
+  # box, then submits with Enter — and never clears/retypes the line. Answer one
+  # capture-pane without the chip (it must keep polling, never send C-u), then
+  # one with the chip so Enter fires.
   defp expect_hook_prompt_submit(tmux) do
     assert_receive {:tmux_mock_out, "load-buffer " <> _}, 1_000
     respond(tmux, "")
     assert_receive {:tmux_mock_out, "paste-buffer " <> _}, 1_000
     respond(tmux, "")
+
+    # Paste not landed yet: must keep waiting, must NOT clear the line.
+    assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
+    respond(tmux, "")
+    refute_receive {:tmux_mock_out, "send-keys -t %50 C-u"}, 50
+
+    # Chip present: the paste landed, so Enter submits it.
+    assert_receive {:tmux_mock_out, "capture-pane" <> _}, 1_000
+    respond(tmux, "[Pasted text +5 lines]\n")
+
     assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
     respond(tmux, "")
     :ok
   end
 
-  test "hook-driven run_turn submits via paste+Enter without scraping the input echo",
+  test "hook-driven submit waits for the paste to land before Enter and never clears the input",
        %{tmux: tmux} do
-    identifier = "MT-HOOKNOECHO-#{System.unique_integer([:positive])}"
+    identifier = "MT-HOOKSUBMIT-#{System.unique_integer([:positive])}"
     session = hook_session(tmux, identifier)
-    tp = self()
 
     task =
       Task.async(fn ->
-        ReplAgent.run_turn(session, "do the thing", %{},
-          on_message: fn m -> send(tp, {:msg, m}) end,
-          poll_interval_ms: 10
-        )
+        ReplAgent.run_turn(session, "do the thing", %{}, poll_interval_ms: 10)
       end)
 
-    # Claude folds a mid-turn paste into its native queue and clears the input
-    # box, so echo-confirmation can never match and its clear/retype loop reads
-    # as an interrupt that cancels the live turn. The hook path therefore pastes
-    # once and submits with no capture-pane in between — Enter follows the paste
-    # directly — and rides the UserPromptSubmit hook to confirm receipt.
+    # Enter must follow the paste only once the input echoes it — firing Enter
+    # immediately races the paste-buffer and leaves the prompt unsubmitted, so
+    # claude never starts a turn and no hooks fire. The wait is read-only: it
+    # never sends C-u (that reads as an interrupt that cancels a live turn).
     expect_hook_prompt_submit(tmux)
-
-    :ok =
-      HookEvents.dispatch(identifier, %{
-        "hook_event_name" => "UserPromptSubmit",
-        "prompt" => "do the thing"
-      })
 
     :ok =
       HookEvents.dispatch(identifier, %{
@@ -1011,6 +1011,54 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert {:ok, result} = drain_pane_pid(tmux, task)
     assert result.result == :completed
     assert result.message == "ok"
+  end
+
+  test "hook-driven submit still Enters best-effort when the paste never echoes, never clearing or failing",
+       %{tmux: tmux} do
+    identifier = "MT-HOOKFOLD-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "do the thing", %{}, poll_interval_ms: 10, prompt_confirm_ms: 40)
+      end)
+
+    # A mid-turn fold clears the input box, so the paste chip never appears.
+    # Submit must not clear/retry or fail the run — it Enters best-effort once
+    # the confirm budget elapses and lets the UserPromptSubmit hook confirm.
+    assert_receive {:tmux_mock_out, "load-buffer " <> _}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "paste-buffer " <> _}, 1_000
+    respond(tmux, "")
+
+    drain_captures_until_enter(tmux)
+
+    :ok =
+      HookEvents.dispatch(identifier, %{
+        "hook_event_name" => "Stop",
+        "last_assistant_message" => "ok"
+      })
+
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+  end
+
+  # Answer capture-pane polls with no chip (the paste never echoes) until the
+  # submit gives up waiting and Enters. Fails loudly if it ever clears the line.
+  defp drain_captures_until_enter(tmux) do
+    receive do
+      {:tmux_mock_out, "capture-pane" <> _} ->
+        respond(tmux, "")
+        drain_captures_until_enter(tmux)
+
+      {:tmux_mock_out, "send-keys -t %50 C-u"} ->
+        flunk("submit must never clear the input line")
+
+      {:tmux_mock_out, "send-keys -t %50 Enter"} ->
+        respond(tmux, "")
+        :ok
+    after
+      2_000 -> flunk("submit never reached Enter")
+    end
   end
 
   test "hook-driven run_turn completes on a Stop hook, streaming tool progress and the answer",

@@ -495,7 +495,7 @@ defmodule Aiur.Claude.ReplAgent do
     :ok = HookEvents.subscribe(identifier)
 
     try do
-      case submit_prompt(session, prompt) do
+      case submit_prompt(session, prompt, opts) do
         :ok ->
           # Backstop deadline is reset by every hook event, so it only fires for a
           # session that has gone fully silent (no tools, no Stop) — not a long turn.
@@ -717,18 +717,45 @@ defmodule Aiur.Claude.ReplAgent do
     )
   end
 
-  # Hook-driven (RC) sessions confirm prompt receipt from the UserPromptSubmit
-  # lifecycle hook, not by scraping the input echo. Paste once and submit:
-  # claude folds a mid-turn paste into its native queue and clears the input
-  # box, so echo-confirmation (confirm_typed) can never match — and its
-  # clear/retype loop reads as an interrupt that cancels the live turn and
-  # loses the message, then fails the whole run with `:prompt_not_delivered`.
-  # `paste_text` (load-buffer + paste-buffer) delivers the full prompt as one
-  # atomic buffer, so there is no per-keystroke drop to guard against; the
-  # await_hook_turn loop rides the hooks (UserPromptSubmit … Stop) from here.
-  defp submit_prompt(session, prompt) do
+  # Hook-driven (RC) submit: paste the prompt, wait for it to land in the input
+  # box, then Enter. The wait is load-bearing — a large multi-line paste-buffer
+  # needs a beat before claude's TUI will accept Enter as a submit, so firing
+  # Enter immediately races the paste and leaves the prompt sitting unsubmitted
+  # (claude never starts a turn, no hooks fire). Unlike confirm_typed this never
+  # clears/retypes (that C-u reads as an interrupt that cancels a live turn) and
+  # never fails the run: if the paste does not echo within the budget (claude
+  # folded it into its native queue mid-turn, clearing the input box), Enter
+  # still fires best-effort and the UserPromptSubmit hook confirms receipt.
+  defp submit_prompt(session, prompt, opts) do
     with :ok <- Tmux.paste_text(session.tmux, session.pane_id, prompt) do
+      _ = await_paste_landed(session, prompt, opts)
       Tmux.send_enter(session.tmux, session.pane_id)
+    end
+  end
+
+  # Poll the input buffer (read-only — no clear, no retype) until the paste
+  # lands as the `[Pasted text` chip or the prompt prefix, so Enter submits it
+  # instead of racing the paste-buffer. Best-effort: returns `:timeout` once the
+  # budget elapses rather than erroring, so a mid-turn fold (no chip) still
+  # falls through to a harmless Enter + hook-confirmed receipt.
+  defp await_paste_landed(session, prompt, opts) do
+    confirm_ms = Keyword.get(opts, :prompt_confirm_ms, @echo_confirm_ms)
+    prefix = echo_prefix(prompt)
+    deadline = System.monotonic_time(:millisecond) + confirm_ms
+    poll_paste_landed(session, prefix, deadline)
+  end
+
+  defp poll_paste_landed(session, prefix, deadline) do
+    cond do
+      input_echoes?(session, prefix) ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        :timeout
+
+      true ->
+        Process.sleep(@echo_poll_ms)
+        poll_paste_landed(session, prefix, deadline)
     end
   end
 
