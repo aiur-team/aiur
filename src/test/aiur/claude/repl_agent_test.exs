@@ -962,6 +962,57 @@ defmodule Aiur.Claude.ReplAgentTest do
     |> Map.merge(%{remote_control: true, identifier: identifier})
   end
 
+  # The hook path submits a prompt with a single paste + Enter and confirms
+  # receipt from the UserPromptSubmit hook — it never scrapes the input echo
+  # (no capture-pane), unlike the transcript path's expect_prompt_submit/1.
+  defp expect_hook_prompt_submit(tmux) do
+    assert_receive {:tmux_mock_out, "load-buffer " <> _}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "paste-buffer " <> _}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+    respond(tmux, "")
+    :ok
+  end
+
+  test "hook-driven run_turn submits via paste+Enter without scraping the input echo",
+       %{tmux: tmux} do
+    identifier = "MT-HOOKNOECHO-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    tp = self()
+
+    task =
+      Task.async(fn ->
+        ReplAgent.run_turn(session, "do the thing", %{},
+          on_message: fn m -> send(tp, {:msg, m}) end,
+          poll_interval_ms: 10
+        )
+      end)
+
+    # Claude folds a mid-turn paste into its native queue and clears the input
+    # box, so echo-confirmation can never match and its clear/retype loop reads
+    # as an interrupt that cancels the live turn. The hook path therefore pastes
+    # once and submits with no capture-pane in between — Enter follows the paste
+    # directly — and rides the UserPromptSubmit hook to confirm receipt.
+    expect_hook_prompt_submit(tmux)
+
+    :ok =
+      HookEvents.dispatch(identifier, %{
+        "hook_event_name" => "UserPromptSubmit",
+        "prompt" => "do the thing"
+      })
+
+    :ok =
+      HookEvents.dispatch(identifier, %{
+        "hook_event_name" => "Stop",
+        "last_assistant_message" => "ok"
+      })
+
+    assert {:ok, result} = drain_pane_pid(tmux, task)
+    assert result.result == :completed
+    assert result.message == "ok"
+  end
+
   test "hook-driven run_turn completes on a Stop hook, streaming tool progress and the answer",
        %{tmux: tmux} do
     identifier = "MT-HOOKTURN-#{System.unique_integer([:positive])}"
@@ -976,8 +1027,8 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    # The prompt is typed/submitted exactly like the transcript path.
-    expect_prompt_submit(tmux)
+    # The prompt is pasted and submitted; the hook path does not scrape the echo.
+    expect_hook_prompt_submit(tmux)
 
     # A tool fires (live progress), then the turn completes.
     :ok = HookEvents.dispatch(identifier, %{"hook_event_name" => "PostToolUse", "tool_name" => "Bash"})
@@ -1016,7 +1067,7 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    expect_prompt_submit(tmux)
+    expect_hook_prompt_submit(tmux)
 
     # An operator message lands mid-turn (immediate-delivery broadcast). The hook
     # loop must type it straight into the live REPL pane.
@@ -1059,7 +1110,7 @@ defmodule Aiur.Claude.ReplAgentTest do
         ReplAgent.run_turn(session, "do the thing", %{}, poll_interval_ms: 10)
       end)
 
-    expect_prompt_submit(tmux)
+    expect_hook_prompt_submit(tmux)
 
     # First liveness poll reports the pane gone -> :repl_gone (no Stop needed).
     assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000

@@ -495,7 +495,7 @@ defmodule Aiur.Claude.ReplAgent do
     :ok = HookEvents.subscribe(identifier)
 
     try do
-      case send_prompt(session, prompt, opts) do
+      case submit_prompt(session, prompt) do
         :ok ->
           # Backstop deadline is reset by every hook event, so it only fires for a
           # session that has gone fully silent (no tools, no Stop) — not a long turn.
@@ -715,6 +715,21 @@ defmodule Aiur.Claude.ReplAgent do
       projects_dir: Map.get(session, :projects_dir),
       since: Map.get(session, :started_at, 0)
     )
+  end
+
+  # Hook-driven (RC) sessions confirm prompt receipt from the UserPromptSubmit
+  # lifecycle hook, not by scraping the input echo. Paste once and submit:
+  # claude folds a mid-turn paste into its native queue and clears the input
+  # box, so echo-confirmation (confirm_typed) can never match — and its
+  # clear/retype loop reads as an interrupt that cancels the live turn and
+  # loses the message, then fails the whole run with `:prompt_not_delivered`.
+  # `paste_text` (load-buffer + paste-buffer) delivers the full prompt as one
+  # atomic buffer, so there is no per-keystroke drop to guard against; the
+  # await_hook_turn loop rides the hooks (UserPromptSubmit … Stop) from here.
+  defp submit_prompt(session, prompt) do
+    with :ok <- Tmux.paste_text(session.tmux, session.pane_id, prompt) do
+      Tmux.send_enter(session.tmux, session.pane_id)
+    end
   end
 
   # Only submit (Enter) once the typed prompt has actually echoed into the
