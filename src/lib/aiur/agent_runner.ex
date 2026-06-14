@@ -434,8 +434,7 @@ defmodule Aiur.AgentRunner do
     with {:ok, session} <- start_agent_session(workspace, session_opts) do
       report_repl_session(codex_update_recipient, issue, session)
 
-      display_tailer =
-        maybe_start_display_tailer(session, issue, workspace, codex_update_recipient, worker_host, rc?)
+      display_tailer = maybe_start_display_tailer(session, issue, rc?)
 
       try do
         do_run_codex_turns(
@@ -465,14 +464,24 @@ defmodule Aiur.AgentRunner do
   # their own rich transcript and are left untouched. Started UNLINKED with
   # `owner: self()` so a display failure never affects the run, and it
   # self-stops if the run process dies (`after` handles the normal path).
-  defp maybe_start_display_tailer(session, issue, workspace, recipient, worker_host, rc?) do
+  defp maybe_start_display_tailer(session, issue, rc?) do
     backend = session_backend(session)
 
     if should_display_tail?(backend, rc?, issue.identifier) do
-      on_message = codex_message_handler(recipient, issue, workspace, worker_host, backend)
+      identifier = issue.identifier
+
+      # DISPLAY-ONLY: broadcast straight to the opencode pane's transcript
+      # topic. Do NOT route through codex_message_handler — that also does
+      # per-record AgentEventLog.write (disk) and send_codex_update (to the
+      # shared run recipient), so a `from: :start` backfill burst would hammer
+      # both. The pane render only needs the transcript broadcast.
+      on_message = fn
+        %{transcript_event: event} -> AgentPubSub.broadcast_transcript(identifier, event)
+        _ -> :ok
+      end
 
       case DisplayTailer.start(
-             identifier: issue.identifier,
+             identifier: identifier,
              on_message: on_message,
              owner: self()
            ) do
