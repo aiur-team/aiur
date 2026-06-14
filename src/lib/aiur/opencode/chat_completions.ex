@@ -54,6 +54,11 @@ defmodule Aiur.Opencode.ChatCompletions do
   # well under that timeout keeps the connection warm so each turn has
   # exactly one bridge process.
   @heartbeat_ms 15_000
+  # An empty continuation segment (one that has streamed nothing yet) still
+  # idle-closes so queued operator input flushes during a long quiet claude-repl
+  # thinking phase — but only after this many heartbeats of silence, so a slow
+  # tool run with nothing to flush churns at most one marker per ~2 heartbeats.
+  @empty_continuation_idle_factor 2
 
   @spec handle(map(), Plug.Conn.t()) :: Plug.Conn.t()
   def handle(body, conn) do
@@ -355,7 +360,17 @@ defmodule Aiur.Opencode.ChatCompletions do
           pos_integer()
         ) :: boolean()
   def idle_segment_boundary?(streamed?, seg_n, elapsed_ms, silent_ms, threshold_ms, heartbeat_ms) do
-    (streamed? or seg_n == 0) and elapsed_ms >= threshold_ms and silent_ms >= heartbeat_ms
+    # Streamed content (or the turn-opening segment 0) flushes after the
+    # threshold plus one heartbeat of silence. An empty continuation segment
+    # waits a longer silence before flushing, so a slow quiet tool run doesn't
+    # churn a marker every heartbeat — but it still eventually flushes typed
+    # operator input rather than stranding it for the whole thinking phase.
+    required_silence =
+      if streamed? or seg_n == 0,
+        do: heartbeat_ms,
+        else: @empty_continuation_idle_factor * heartbeat_ms
+
+    elapsed_ms >= threshold_ms and silent_ms >= required_silence
   end
 
   # Resolve the writer (serve base_url + session id) whose opencode issued

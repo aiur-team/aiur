@@ -213,8 +213,13 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       refute ChatCompletions.idle_segment_boundary?(true, 3, 15_000, 16_000, 20_000, 15_000)
     end
 
-    test "an empty continuation segment never idle-closes (no marker churn)" do
-      refute ChatCompletions.idle_segment_boundary?(false, 2, 120_000, 60_000, 20_000, 15_000)
+    test "an empty continuation segment idle-closes after a longer silence (flush, bounded churn)" do
+      # One heartbeat of silence is enough for a streamed segment, but an empty
+      # continuation waits @empty_continuation_idle_factor (2) heartbeats so a
+      # slow quiet tool run doesn't churn a marker every heartbeat.
+      refute ChatCompletions.idle_segment_boundary?(false, 2, 120_000, 16_000, 20_000, 15_000)
+      # After two heartbeats of silence it flushes queued operator input.
+      assert ChatCompletions.idle_segment_boundary?(false, 2, 120_000, 31_000, 20_000, 15_000)
     end
 
     test "the empty turn-opening segment may idle-close (quiet turn start)" do
