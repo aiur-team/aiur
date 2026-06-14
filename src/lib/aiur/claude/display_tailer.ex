@@ -43,6 +43,7 @@ defmodule Aiur.Claude.DisplayTailer do
           | {:on_message, (map() -> any())}
           | {:interval_ms, pos_integer() | nil}
           | {:max_body, pos_integer()}
+          | {:owner, pid()}
           | {:name, GenServer.name()}
 
   @spec start_link([option()]) :: GenServer.on_start()
@@ -50,6 +51,18 @@ defmodule Aiur.Claude.DisplayTailer do
     {name, opts} = Keyword.pop(opts, :name)
     gen_opts = if name, do: [name: name], else: []
     GenServer.start_link(__MODULE__, opts, gen_opts)
+  end
+
+  @doc """
+  Start UNLINKED, so a display failure can never take down the caller (the
+  agent run). Pass `owner: self()` to have the tailer self-terminate if the
+  run process dies — no leak even on a brutal kill that skips normal teardown.
+  """
+  @spec start([option()]) :: GenServer.on_start()
+  def start(opts) do
+    {name, opts} = Keyword.pop(opts, :name)
+    gen_opts = if name, do: [name: name], else: []
+    GenServer.start(__MODULE__, opts, gen_opts)
   end
 
   @doc "Synchronously run one read cycle of the inner tailer. Tests only; production uses the timer."
@@ -63,12 +76,19 @@ defmodule Aiur.Claude.DisplayTailer do
     on_message = Keyword.fetch!(opts, :on_message)
     :ok = HookEvents.subscribe(identifier)
 
+    owner_ref =
+      case Keyword.get(opts, :owner) do
+        owner when is_pid(owner) -> Process.monitor(owner)
+        _ -> nil
+      end
+
     {:ok,
      %{
        identifier: identifier,
        on_message: on_message,
        interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
        max_body: Keyword.get(opts, :max_body, @default_max_body),
+       owner_ref: owner_ref,
        path: nil,
        tailer: nil
      }}
@@ -86,6 +106,12 @@ defmodule Aiur.Claude.DisplayTailer do
   def handle_info({:EXIT, pid, reason}, %{tailer: pid} = state) do
     Logger.warning("display_tailer inner_tailer_down identifier=#{state.identifier} reason=#{inspect(reason)}")
     {:noreply, %{state | tailer: nil, path: nil}}
+  end
+
+  # The owning agent run died: stop following its transcript and shut down.
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{owner_ref: ref} = state) do
+    stop_tailer(state.tailer)
+    {:stop, :normal, state}
   end
 
   def handle_info(_other, state), do: {:noreply, state}

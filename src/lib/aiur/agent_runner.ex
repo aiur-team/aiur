@@ -20,6 +20,7 @@ defmodule Aiur.AgentRunner do
     Workspace
   }
 
+  alias Aiur.Claude.DisplayTailer
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore, Topic}
   alias Aiur.GitHub.IssueDependencies
@@ -433,6 +434,9 @@ defmodule Aiur.AgentRunner do
     with {:ok, session} <- start_agent_session(workspace, session_opts) do
       report_repl_session(codex_update_recipient, issue, session)
 
+      display_tailer =
+        maybe_start_display_tailer(session, issue, workspace, codex_update_recipient, worker_host, rc?)
+
       try do
         do_run_codex_turns(
           session,
@@ -447,9 +451,59 @@ defmodule Aiur.AgentRunner do
           max_turns
         )
       after
+        stop_display_tailer(display_tailer)
         CodingAgent.stop_session(session)
       end
     end
+  end
+
+  # Mirror the full claude transcript into the opencode pane for an RC
+  # claude-repl agent, so the pane and the Remote Control channel are two
+  # views of one conversation (the hook path alone paints only tool names +
+  # the final message). Only the hook-driven RC REPL session has the lazy
+  # transcript the tailer feeds on; headless/codex/RC-off sessions stream
+  # their own rich transcript and are left untouched. Started UNLINKED with
+  # `owner: self()` so a display failure never affects the run, and it
+  # self-stops if the run process dies (`after` handles the normal path).
+  defp maybe_start_display_tailer(session, issue, workspace, recipient, worker_host, rc?) do
+    backend = session_backend(session)
+
+    if should_display_tail?(backend, rc?, issue.identifier) do
+      on_message = codex_message_handler(recipient, issue, workspace, worker_host, backend)
+
+      case DisplayTailer.start(
+             identifier: issue.identifier,
+             on_message: on_message,
+             owner: self()
+           ) do
+        {:ok, pid} ->
+          pid
+
+        {:error, reason} ->
+          Logger.warning("display_tailer start_failed issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+          nil
+      end
+    else
+      nil
+    end
+  end
+
+  # Only the hook-driven RC claude-repl session feeds the display tailer.
+  # A headless-claude fallback (backend "claude"), codex, or RC-off REPL
+  # streams its own rich transcript and must not get a second display source.
+  @doc false
+  @spec should_display_tail?(String.t() | nil, boolean(), String.t() | nil) :: boolean()
+  def should_display_tail?(backend, rc?, identifier) do
+    rc? and backend == "claude-repl" and is_binary(identifier)
+  end
+
+  defp stop_display_tailer(nil), do: :ok
+
+  defp stop_display_tailer(pid) do
+    if Process.alive?(pid), do: GenServer.stop(pid, :normal, 1_000)
+    :ok
+  catch
+    :exit, _ -> :ok
   end
 
   # The `--remote-control <name>` string is what the operator sees as the

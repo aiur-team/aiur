@@ -211,4 +211,21 @@ defmodule Aiur.AgentRunnerTest do
       refute AgentRunner.transient_run_error?({:workspace_prepare_failed, :enoent})
     end
   end
+
+  describe "should_display_tail?/3" do
+    test "only the hook-driven RC claude-repl session feeds the display tailer" do
+      assert AgentRunner.should_display_tail?("claude-repl", true, "101")
+    end
+
+    test "a headless-claude fallback, codex, or RC-off REPL gets no second display source" do
+      # RC requested but the REPL fell back to headless "claude"
+      refute AgentRunner.should_display_tail?("claude", true, "101")
+      # codex streams its own transcript
+      refute AgentRunner.should_display_tail?("codex", true, "101")
+      # claude-repl but RC is off
+      refute AgentRunner.should_display_tail?("claude-repl", false, "101")
+      # no identifier to scope the hook topic
+      refute AgentRunner.should_display_tail?("claude-repl", true, nil)
+    end
+  end
 end

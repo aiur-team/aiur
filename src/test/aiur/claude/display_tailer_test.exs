@@ -157,6 +157,29 @@ defmodule Aiur.Claude.DisplayTailerTest do
     assert {:assistant, "after garbage"} in drain_forwarded()
   end
 
+  test "self-stops when its owning run process dies (no orphan)" do
+    id = "MT-DT-OWNER-#{System.unique_integer([:positive])}"
+    tp = self()
+    owner = spawn(fn -> receive do: (:stop -> :ok) end)
+
+    {:ok, pid} =
+      DisplayTailer.start(
+        identifier: id,
+        on_message: fn _ -> :ok end,
+        interval_ms: nil,
+        owner: owner
+      )
+
+    ref = Process.monitor(pid)
+    assert Process.alive?(pid)
+
+    send(owner, :stop)
+
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
+    refute Process.alive?(pid)
+    _ = tp
+  end
+
   test "caps oversized bodies with an elision marker" do
     id = "MT-DT-CAP-#{System.unique_integer([:positive])}"
     big = String.duplicate("x", 50_000)
