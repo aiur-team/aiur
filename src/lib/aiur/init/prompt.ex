@@ -63,8 +63,9 @@ defmodule Aiur.Init.Prompt do
     buffer = to_string(default || "")
 
     with_terminal(buffer, opts, fn reader ->
-      draw_input(writer, label, buffer)
-      input_loop(reader, writer, label, buffer)
+      prefix = input_header(writer, label, Keyword.get(opts, :hint))
+      draw_input(writer, prefix, buffer)
+      input_loop(reader, writer, prefix, buffer)
     end)
   end
 
@@ -117,7 +118,7 @@ defmodule Aiur.Init.Prompt do
     end
   end
 
-  defp input_loop(reader, writer, label, buffer) do
+  defp input_loop(reader, writer, prefix, buffer) do
     case read_key(reader) do
       key when key in [:enter, :eof] ->
         writer.("\n")
@@ -125,16 +126,16 @@ defmodule Aiur.Init.Prompt do
 
       :backspace ->
         buffer = String.slice(buffer, 0..-2//1)
-        draw_input(writer, label, buffer)
-        input_loop(reader, writer, label, buffer)
+        draw_input(writer, prefix, buffer)
+        input_loop(reader, writer, prefix, buffer)
 
       {:char, <<byte>>} when byte >= 0x20 and byte != 0x7F ->
         buffer = buffer <> <<byte>>
-        draw_input(writer, label, buffer)
-        input_loop(reader, writer, label, buffer)
+        draw_input(writer, prefix, buffer)
+        input_loop(reader, writer, prefix, buffer)
 
       _other ->
-        input_loop(reader, writer, label, buffer)
+        input_loop(reader, writer, prefix, buffer)
     end
   end
 
@@ -175,8 +176,18 @@ defmodule Aiur.Init.Prompt do
     end)
   end
 
-  defp draw_input(writer, label, buffer) do
-    writer.(["\r\e[2K", label, ": ", buffer])
+  # With a hint, the question and a faint indented hint print on their own
+  # lines and the editable field sits below behind a `❯` marker. With no
+  # hint, the field stays inline as `label: <value>`.
+  defp input_header(_writer, label, hint) when hint in [nil, ""], do: label <> ":"
+
+  defp input_header(writer, label, hint) do
+    writer.([label, "\n", IO.ANSI.format([:faint, "  " <> hint]), "\n"])
+    @cursor
+  end
+
+  defp draw_input(writer, prefix, buffer) do
+    writer.(["\r\e[2K", prefix, " ", buffer])
   end
 
   # --- key reading ---

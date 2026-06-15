@@ -46,7 +46,7 @@ defmodule Aiur.Init do
 
   @type io :: %{
           puts: (IO.chardata() -> :ok),
-          input: (String.t(), String.t() | nil -> String.t() | nil),
+          input: (String.t(), String.t() | nil, String.t() | nil -> String.t() | nil),
           select: (String.t(), [String.t()], String.t() -> String.t()),
           multiselect: (String.t(), [String.t()], [String.t()] -> [String.t()]),
           confirm: (String.t(), boolean() -> boolean())
@@ -108,15 +108,17 @@ defmodule Aiur.Init do
     agents = prompt_agents(io)
     routing = prompt_routing(io, agents)
     permission_mode = prompt_permission_mode(io)
-    workspace_root = io.input.("Where should agents work?", "~/code/aiur-workspaces")
+    workspace_root = io.input.("Where should agents work?", "~/code/aiur-workspaces", nil)
     max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
     max_turns = prompt_max_turns(io)
     max_duration = prompt_max_duration(io)
-    hint(io, "Each pre-warmed session keeps an opencode process resident; set this to how many you expect open at once.")
-    pre_warmed = prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-    polling = prompt_int(io, "How often should aiur check the tracker for new agent:todo work? (seconds)", 30, 1)
+
+    pre_warmed =
+      prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0, "Set this to how many opencode panes you expect to open at once.")
+
+    polling = prompt_int(io, "How often should aiur check the tracker for new work? (seconds):", 30, 1)
     # prompt_file is repo-specific, so the general global config omits it.
-    prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md")
+    prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md", nil)
 
     fills =
       build_fills(%{
@@ -252,14 +254,14 @@ defmodule Aiur.Init do
       "github" ->
         # The global config is general, so it omits the repo (auto-detected
         # from the git remote of whatever repo aiur runs in).
-        repo = if location == :global, do: nil, else: io.input.("GitHub repo (owner/name)", deps.detect_repo.())
+        repo = if location == :global, do: nil, else: io.input.("GitHub repo (owner/name)", deps.detect_repo.(), nil)
         %{kind: "github", repo: repo}
 
       "linear" ->
         %{
           kind: "linear",
-          api_key: io.input.("Linear API key", nil),
-          project_slug: io.input.("Linear project slug", nil)
+          api_key: io.input.("Linear API key", nil, nil),
+          project_slug: io.input.("Linear project slug", nil, nil)
         }
 
       "memory" ->
@@ -334,20 +336,20 @@ defmodule Aiur.Init do
     end
   end
 
-  defp prompt_int(io, label, default, min) do
-    case Integer.parse(to_string(io.input.(label, Integer.to_string(default)))) do
+  defp prompt_int(io, label, default, min, hint \\ nil) do
+    case Integer.parse(to_string(io.input.(label, Integer.to_string(default), hint))) do
       {n, ""} when n >= min ->
         n
 
       _ ->
         io.puts.("Enter a whole number ≥ #{min}.")
-        prompt_int(io, label, default, min)
+        prompt_int(io, label, default, min, hint)
     end
   end
 
   # Max turns per issue defaults to `none` (uncapped); a number caps it.
   defp prompt_max_turns(io) do
-    case normalize_int_or_none(io.input.("Max turns per issue (none = unlimited)", "none")) do
+    case normalize_int_or_none(io.input.("Max turns per issue", "none", "none = unlimited")) do
       :none ->
         "none"
 
@@ -363,9 +365,9 @@ defmodule Aiur.Init do
   # Safety net that hard-kills a stuck agent after N minutes. `none` opts out
   # (written as 0, which the watchdog treats as disabled).
   defp prompt_max_duration(io) do
-    label = "Max agent duration in minutes — fallback for stuck agents (none = never auto-kill)"
-
-    case normalize_int_or_none(io.input.(label, "60")) do
+    case normalize_int_or_none(
+           io.input.("Max agent duration in minutes", "60", "Fallback for stuck agents — none = never auto-kill")
+         ) do
       :none ->
         0
 
@@ -389,11 +391,6 @@ defmodule Aiur.Init do
         _ -> :invalid
       end
     end
-  end
-
-  # Dimmed helper text shown above a prompt (faint, plain on non-TTY).
-  defp hint(io, text) do
-    io.puts.(IO.ANSI.format([:faint, "  " <> text]))
   end
 
   # --- Template fill ---
@@ -610,8 +607,8 @@ defmodule Aiur.Init do
   defp runtime_io do
     %{
       puts: fn message -> IO.puts(message) end,
-      input: fn label, default ->
-        case Prompt.input(label, default) do
+      input: fn label, default, hint ->
+        case Prompt.input(label, default, hint: hint) do
           "" -> default
           value -> value
         end

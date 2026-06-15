@@ -27,7 +27,7 @@ defmodule Aiur.InitTest do
         send(parent, {:puts, IO.chardata_to_string(message)})
         :ok
       end,
-      input: fn label, default ->
+      input: fn label, default, _hint ->
         send(parent, {:input_label, label})
         Map.get(Map.get(answers, :input, %{}), label, default)
       end,
@@ -116,7 +116,15 @@ defmodule Aiur.InitTest do
     end
   end
 
-  @duration_label "Max agent duration in minutes — fallback for stuck agents (none = never auto-kill)"
+  defp input_hints(acc \\ []) do
+    receive do
+      {:input_hint, label, hint} -> input_hints([{label, hint} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  @duration_label "Max agent duration in minutes"
 
   @location_label "Where will you store aiur settings?"
 
@@ -274,7 +282,34 @@ defmodule Aiur.InitTest do
 
     test "the polling question explains what polling does", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
-      assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker/i))
+      assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker for new work/i))
+    end
+
+    test "limit and pre-warm prompts carry their helper text as hints", %{dir: dir, target: target} do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | input: fn label, default, hint ->
+            send(parent, {:input_hint, label, hint})
+            Map.get(Map.get(answers, :input, %{}), label, default)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      hints = input_hints()
+
+      assert {"Max turns per issue", "none = unlimited"} in hints
+
+      assert {"How many opencode sessions would you like to pre-warm?",
+              "Set this to how many opencode panes you expect to open at once."} in hints
+
+      assert Enum.any?(hints, fn {label, hint} ->
+               label == "Max agent duration in minutes" and hint =~ "Fallback for stuck agents"
+             end)
     end
 
     test "a numeric max agent duration is written", %{dir: dir, target: target} do

@@ -99,6 +99,26 @@ defmodule Aiur.Init.PromptTest do
       reader = keys_reader([chars("hi"), enter()])
       assert Prompt.input("Label", nil, base(reader)) == "hi"
     end
+
+    test "a hint renders indented beneath the question, above the field" do
+      parent = self()
+      writer = fn data -> send(parent, {:drawn, IO.iodata_to_binary(data)}) end
+      reader = keys_reader([enter()])
+
+      assert Prompt.input("Pre-warm", "3",
+               raw?: false,
+               writer: writer,
+               reader: reader,
+               hint: "panes you expect open"
+             ) == "3"
+
+      drawn = drain_drawn()
+      assert drawn =~ "Pre-warm"
+      assert drawn =~ "  panes you expect open"
+      # the field uses the cursor marker rather than the inline `label:`
+      assert drawn =~ "❯"
+      refute drawn =~ "Pre-warm: "
+    end
   end
 
   describe "terminal lifecycle" do
