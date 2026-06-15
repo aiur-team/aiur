@@ -29,7 +29,12 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
 
   describe "events section (always on, bordered)" do
     test "renders events inside the AgentList box even when debug_mode? is false (always-on now)" do
-      state = build_state(debug_mode?: false, debug_events: [debug_entry(:publish, topic: "ticket.42.branch.push")])
+      state =
+        build_state(
+          debug_mode?: false,
+          debug_events: [debug_entry(:publish, topic: "ticket.42.branch.push")]
+        )
+
       output = state |> Renderer.render() |> IO.iodata_to_binary()
 
       # Single box: AgentList top + bottom curved corners.
@@ -45,7 +50,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "💬 42"
     end
 
-    test "events render inline with the agent table; legend lives in the footer" do
+    test "events render inline with the agent table" do
       events = [
         debug_entry(:read, topic: "ticket.42.branch.push", id: 4290, identifier: "42"),
         debug_entry(:receive, topic: "ticket.42.branch.push", id: 4287, identifier: "99"),
@@ -66,9 +71,6 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       assert output =~ "💬 42 pushed"
       assert output =~ "📬 99 ← 42: pushed"
       assert output =~ "📄 42 ingested: pushed"
-
-      # Legend now renders in the footer (outside the box), not above the events.
-      assert output =~ "💬 publish · 📬 receive · 📄 read"
     end
 
     test "newest event renders BELOW older events (anchored to bottom)" do
@@ -145,9 +147,17 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
 
     test "self-receive of agent.* echoes is suppressed (publish covers it)" do
       events = [
-        debug_entry(:publish, topic: "ticket.140.agent.phase.work.start", id: 1, body: %{"message" => "starting"}),
+        debug_entry(:publish,
+          topic: "ticket.140.agent.phase.work.start",
+          id: 1,
+          body: %{"message" => "starting"}
+        ),
         # Same agent's own subscription echoing back — should NOT render.
-        debug_entry(:receive, topic: "ticket.140.agent.phase.work.start", id: 1, identifier: "140")
+        debug_entry(:receive,
+          topic: "ticket.140.agent.phase.work.start",
+          id: 1,
+          identifier: "140"
+        )
       ]
 
       state = build_state(debug_events: events)
@@ -310,6 +320,54 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
 
       assert output =~ "📬 140 new PR comment: \"nit on line 42\""
     end
+  end
+
+  describe "over-width truncation with OSC 8 hyperlinks" do
+    test "an over-width event line truncates with an ellipsis instead of vanishing" do
+      # The subject id is wrapped in an OSC 8 hyperlink whose URL is ~50
+      # invisible bytes. On a narrow pane the visible line exceeds the box
+      # width and must truncate. The width budget counts VISIBLE columns —
+      # if the hyperlink's escape bytes are miscounted against it, the
+      # truncation cuts inside the escape sequence, the terminal swallows
+      # the broken OSC 8 run, and the whole line disappears. The line must
+      # survive as a deterministic ellipsis-truncation instead.
+      long_msg = String.duplicate("x", 80)
+
+      events = [
+        debug_entry(:publish,
+          topic: "ticket.101.branch.push",
+          id: 1,
+          body: %{"commits" => [%{"message" => "first " <> long_msg}]}
+        )
+      ]
+
+      state =
+        build_state(
+          columns: 50,
+          project_label: "its-everdred/aiur",
+          debug_events: events
+        )
+
+      visible =
+        state
+        |> Renderer.render()
+        |> IO.iodata_to_binary()
+        |> strip_ansi()
+
+      assert visible =~ "101 pushed", "over-width line was hidden instead of truncated"
+      assert visible =~ "…", "truncated line must end with an ellipsis"
+    end
+  end
+
+  # Mirror of Renderer.strip_ansi/1 — drops CSI colour runs and the
+  # terminator-bearing OSC 8 hyperlink wrappers, leaving only the visible
+  # text. A broken (un-terminated) OSC 8 run is intentionally NOT stripped,
+  # so a regression that emits one leaves the garbled escape (and no visible
+  # body) in the result.
+  defp strip_ansi(text) do
+    text
+    |> then(&Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]/, &1, ""))
+    |> then(&Regex.replace(~r/\e\]8;;[^\e\a]*(\e\\|\a)/, &1, ""))
   end
 
   describe "persistence across render cycles" do

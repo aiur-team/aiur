@@ -22,6 +22,8 @@ defmodule Aiur.Shutdown do
 
   require Logger
 
+  alias Aiur.Claude.{RemoteControl, ReplAgent}
+  alias Aiur.Config
   alias Aiur.Opencode.SessionWriterRegistry
 
   @default_cleanup_timeout_ms 5_000
@@ -32,8 +34,27 @@ defmodule Aiur.Shutdown do
   """
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
+    # Kind-ordered: agent trees/panes die first (so nothing writes during
+    # session deletion), serves die last (delete_all needs them alive for
+    # its HTTP deletes). drain: true — anything registered after this sweep
+    # is shutdown-orphaned and killed on arrival.
+    safely(fn -> Aiur.ProcessReaper.reap([:agent], drain: true) end, "reap_agents")
     safely(fn -> SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
+    safely(fn -> Aiur.ProcessReaper.reap([:serve], drain: true) end, "reap_serves")
+    safely(fn -> ReplAgent.sweep_own_panes() end, "sweep_repl_panes")
+    safely(fn -> reap_workspace_agents() end, "reap_workspace_agents")
     safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")
+    :ok
+  end
+
+  # Kill claude/node grandchildren the headless backend reparented to init.
+  # Gated on :interactive_cli so test-suite cleanup (which resolves the REAL
+  # workspace root) never touches live agents.
+  defp reap_workspace_agents do
+    if Application.get_env(:aiur, :interactive_cli, false) do
+      RemoteControl.reap_workspace_agents(Config.workspace_root())
+    end
+
     :ok
   end
 

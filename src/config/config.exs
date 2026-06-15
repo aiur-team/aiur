@@ -18,6 +18,11 @@ config :aiur, AiurWeb.Endpoint,
   server: false
 
 if config_env() == :test do
+  # Library code must never register real pids/panes into the reaper during
+  # unit tests — a draining sweep would kill live host processes. Reaper
+  # tests force-enable this against their own dedicated instances.
+  config :aiur, :process_reaper_registrations, false
+
   config :aiur, :server_host_override, "127.0.0.1"
   config :aiur, :server_port_override, 0
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"

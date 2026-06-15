@@ -22,6 +22,9 @@ polling:
   interval_seconds: 5
 max_vertical_panes: 3
 pre_warmed_sessions: 3
+# Cap (MB) on total ~/.aiur/logs size; oldest sessions are swept every
+# 5 min once exceeded. See Aiur.Logs.Retention.
+max_log_history_mb: 1000
 server:
   host: 100.81.109.51
   port: 4000
@@ -94,7 +97,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  kind: claude
+  kind: codex
   max_concurrent_agents: 6
   max_turns: 12
   # Per-issue backend routing by `complexity:N` label. Unlisted levels and

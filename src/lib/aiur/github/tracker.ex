@@ -58,6 +58,16 @@ defmodule Aiur.GitHub.Tracker do
     client_module().update_issue_state(issue_id, state_name)
   end
 
+  @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
+  def add_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
+    client_module().add_label(issue_id, label)
+  end
+
+  @spec remove_label(String.t(), String.t()) :: :ok | {:error, term()}
+  def remove_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
+    client_module().remove_label(issue_id, label)
+  end
+
   defp client_module do
     Application.get_env(:aiur, :github_client_module, Client)
   end

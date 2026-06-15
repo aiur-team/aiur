@@ -302,7 +302,7 @@ defmodule Aiur.AgentList.RendererTest do
       agents_with_content: MapSet.new(["MT-PH"])
     }
 
-    for {phase, emoji} <- [brainstorm: "🧠", plan: "📋", work: "🛠️", review: "🔍"] do
+    for {phase, emoji} <- [brainstorm: "🧠", plan: "📋", work: "🔨", review: "🔍"] do
       out =
         render(base_state(Map.put(warm, :phase_by_identifier, %{"MT-PH" => phase})))
         |> visible()
@@ -329,7 +329,7 @@ defmodule Aiur.AgentList.RendererTest do
       |> visible()
 
     assert out =~ "⏳"
-    refute out =~ "🛠️"
+    refute out =~ "🔨"
   end
 
   test "warm agent with no active phase falls back to its marker (#68)" do
@@ -356,7 +356,7 @@ defmodule Aiur.AgentList.RendererTest do
 
     assert out =~ "🧠"
     assert out =~ "📋"
-    assert out =~ "🛠️"
+    assert out =~ "🔨"
     assert out =~ "🔍"
   end
 
@@ -398,6 +398,40 @@ defmodule Aiur.AgentList.RendererTest do
 
     assert no_paint =~ "⏳"
     refute no_paint =~ "⚪"
+  end
+
+  describe "Starting-phase placeholder names the agent's own engine" do
+    defp starting_state(backend) do
+      summary = %{identifier: "MT-S", status: :running, alert_count: 0, work_state: :working}
+      summary = if backend, do: Map.put(summary, :backend, backend), else: summary
+
+      base_state(%{
+        columns: 200,
+        summaries: [summary],
+        attach_state: %{"MT-S" => %{attach_count: 1, visible_in: 1}},
+        agents_with_content: MapSet.new()
+      })
+    end
+
+    test "a claude-repl agent reads Starting claude, never codex" do
+      out = render(starting_state("claude-repl")) |> visible()
+
+      assert out =~ "Starting claude…"
+      refute out =~ "codex"
+    end
+
+    test "a codex agent reads Starting codex" do
+      out = render(starting_state("codex")) |> visible()
+
+      assert out =~ "Starting codex…"
+    end
+
+    test "an unknown backend falls back to a generic Starting…" do
+      out = render(starting_state(nil)) |> visible()
+
+      assert out =~ "Starting…"
+      refute out =~ "codex"
+    end
   end
 
   test "warm-status row removed entirely (no ⬜️/🔲 glyphs in any render)" do
@@ -468,6 +502,15 @@ defmodule Aiur.AgentList.RendererTest do
     # clear-from-cursor-to-end (no flicker). We use the latter.
     refute raw =~ "\e[2J"
     assert raw =~ "\e[H"
+  end
+
+  test "wraps the frame in a synchronized update so partial frames never paint" do
+    # DEC 2026 begin/end: a slow consumer otherwise renders a partial
+    # frame, splitting multi-byte glyphs into transient `?` replacement
+    # characters (the agent-list "??????" flicker during initial load).
+    raw = render(base_state())
+    assert String.starts_with?(raw, "\e[?2026h")
+    assert String.ends_with?(raw, "\e[?2026l")
   end
 
   test "clears every row below the last rendered content (no stale-footer bug)" do
@@ -784,6 +827,86 @@ defmodule Aiur.AgentList.RendererTest do
       assert row, "expected MT-IDLE row"
       assert visible(row) =~ "░░░░░░░░░░"
       refute String.contains?(row, @ansi_green)
+    end
+  end
+
+  describe "remote-control indicator (U5)" do
+    defp rc_row(out, id), do: Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ id))
+
+    test ":on shows 📱, :launching shows 📲, :failed shows ❌, :off shows none" do
+      summaries = [
+        %{identifier: "RC-ON", status: :running, alert_count: 0, remote_control: %{status: :on}},
+        %{identifier: "RC-LCH", status: :running, alert_count: 0, remote_control: %{status: :launching}},
+        %{identifier: "RC-FAIL", status: :running, alert_count: 0, remote_control: %{status: :failed}},
+        %{identifier: "RC-OFF", status: :running, alert_count: 0}
+      ]
+
+      out = render(base_state(%{summaries: summaries, columns: 200}))
+
+      assert visible(rc_row(out, "RC-ON")) =~ "📱"
+      assert visible(rc_row(out, "RC-LCH")) =~ "📲"
+      assert visible(rc_row(out, "RC-FAIL")) =~ "❌"
+
+      # RC-OFF carries no RC glyph (it still shows the ⏳ warming
+      # state marker, which is a separate column — hence we only
+      # refute the RC glyphs here).
+      off = visible(rc_row(out, "RC-OFF"))
+      refute off =~ "📱"
+      refute off =~ "📲"
+      refute off =~ "❌"
+    end
+
+    test "indicator column keeps alignment across statuses (no crash, right border intact)" do
+      summaries = [
+        %{identifier: "RC-ON", status: :running, alert_count: 0, remote_control: %{status: :on}},
+        %{identifier: "RC-OFF", status: :running, alert_count: 0}
+      ]
+
+      out = render(base_state(%{summaries: summaries, columns: 200}))
+
+      # Each agent row closes with the right `│` border regardless of
+      # whether the RC glyph is present (fixed indicator width).
+      on_row = visible(rc_row(out, "RC-ON"))
+      off_row = visible(rc_row(out, "RC-OFF"))
+      assert String.ends_with?(String.trim_trailing(on_row), "│")
+      assert String.ends_with?(String.trim_trailing(off_row), "│")
+    end
+
+    test "an RC-on agent's session URL is kept OFF the footer (it rides the pane border now)" do
+      # The capability-token URL moved to the chat-pane top border (set via
+      # tmux in Aiur.AgentList.App) so it travels with the pane it belongs
+      # to. The agent-list footer must no longer surface it.
+      url = "https://claude.ai/code/session_01ABC"
+
+      summaries = [
+        %{
+          identifier: "RC-URL",
+          status: :running,
+          alert_count: 0,
+          remote_control: %{status: :on, session_url: url}
+        }
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            selection_index: 0,
+            selection_focus: :agents
+          })
+        )
+        |> visible()
+
+      refute out =~ url
+    end
+
+    test "a transient hint is shown on the footer line" do
+      out =
+        render(base_state(%{remote_control_hint: "Remote Control requires a local Claude agent"}))
+        |> visible()
+
+      assert out =~ "Remote Control requires a local Claude agent"
     end
   end
 end

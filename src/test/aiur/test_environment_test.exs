@@ -21,6 +21,7 @@ defmodule Aiur.TestEnvironmentTest do
     home = System.fetch_env!("HOME")
     probe = Path.join(home, "write-check")
 
+    File.mkdir_p!(home)
     File.write!(probe, "ok")
 
     assert File.read!(probe) == "ok"

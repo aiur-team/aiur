@@ -20,10 +20,11 @@ defmodule Aiur.AgentRunner do
     Workspace
   }
 
+  alias Aiur.Claude.DisplayTailer
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore, Topic}
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.Opencode.{ActiveTurns, ApiClient, Protocol, SessionWriterRegistry}
+  alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
 
   @type worker_host :: String.t() | nil
 
@@ -44,10 +45,34 @@ defmodule Aiur.AgentRunner do
         :ok
 
       {:error, reason} ->
-        Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
-        raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
+        if transient_run_error?(reason) do
+          Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
+          :ok
+        else
+          Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
+          raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
+        end
     end
   end
+
+  # A mid-turn REPL pane death (`:repl_gone`) is a transient, recoverable
+  # condition — the cloud-mediated remote-control pane dropped (flaky link or
+  # operator-closed pane), not a broken agent. Raising on it would exit the
+  # Task abnormally, booking a *failure* retry that counts against
+  # max_retry_attempts; a few disconnects would then strand the issue. Exiting
+  # cleanly instead lets the orchestrator schedule a cheap continuation
+  # re-dispatch with a fresh pane (the thrash breaker still guards against a
+  # tight respawn loop).
+  #
+  # An undelivered prompt (`:prompt_not_delivered`) is recoverable the same
+  # way: a single paste that the pane could not confirm (RC input contention,
+  # a slow render) must not tear down an otherwise-healthy agent and crash the
+  # run. Re-dispatch with a fresh pane instead of hard-failing.
+  @doc false
+  @spec transient_run_error?(term()) :: boolean()
+  def transient_run_error?(:repl_gone), do: true
+  def transient_run_error?(:prompt_not_delivered), do: true
+  def transient_run_error?(_reason), do: false
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
@@ -340,6 +365,50 @@ defmodule Aiur.AgentRunner do
 
   defp send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
+  # The persistent-REPL pane + claude OS pid are owned by this runner task.
+  # An abort/shutdown brutally kills the task, skipping the `after
+  # stop_session` cleanup, so report them to the orchestrator's running
+  # entry — the only place an abort path can still reach them.
+  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude-repl"} = session)
+       when is_binary(issue_id) and is_pid(recipient) do
+    send(
+      recipient,
+      {:repl_session_runtime, issue_id,
+       %{
+         pane_id: Map.get(session, :pane_id),
+         os_pid: Map.get(session, :os_pid),
+         session_url: Map.get(session, :session_url)
+       }}
+    )
+
+    :ok
+  end
+
+  # The headless `claude` backend runs under a `bash -lc` wrapper that does
+  # not exec; its claude/node grandchildren reparent to init when the bash
+  # pid dies, so report the bash os_pid for the orchestrator to tree-reap on
+  # brutal-kill teardown (the runner task's `after stop_session` is skipped).
+  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude"} = session)
+       when is_binary(issue_id) and is_pid(recipient) do
+    case headless_os_pid(session) do
+      nil -> :ok
+      pid -> send(recipient, {:repl_session_runtime, issue_id, %{headless_os_pid: pid}})
+    end
+
+    :ok
+  end
+
+  defp report_repl_session(_recipient, _issue, _session), do: :ok
+
+  defp headless_os_pid(%{metadata: %{claude_app_server_pid: pid}}) when is_binary(pid) do
+    case Integer.parse(pid) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  defp headless_os_pid(_session), do: nil
+
   defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
@@ -348,11 +417,24 @@ defmodule Aiur.AgentRunner do
     backend = CodingAgent.backend_for(issue)
     model = CodingAgent.model_for(issue)
 
-    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)}")
+    rc? =
+      (CodingAgent.remote_control_forced?(issue) or Config.agent_remote_control?()) and
+        CodingAgent.remote_control?(backend)
 
-    with {:ok, session} <-
-           CodingAgent.start_session(workspace, backend: backend, model: model, worker_host: worker_host) do
-      session = Map.put(session, :backend, backend)
+    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}")
+
+    maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
+      Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
+    end)
+
+    session_opts =
+      [backend: backend, model: model, worker_host: worker_host, remote_control: rc?, identifier: issue.identifier]
+      |> maybe_put_rc_name(rc?, issue)
+
+    with {:ok, session} <- start_agent_session(workspace, session_opts) do
+      report_repl_session(codex_update_recipient, issue, session)
+
+      display_tailer = maybe_start_display_tailer(session, issue, rc?)
 
       try do
         do_run_codex_turns(
@@ -368,8 +450,152 @@ defmodule Aiur.AgentRunner do
           max_turns
         )
       after
+        stop_display_tailer(display_tailer)
         CodingAgent.stop_session(session)
       end
+    end
+  end
+
+  # Mirror the full claude transcript into the opencode pane for an RC
+  # claude-repl agent, so the pane and the Remote Control channel are two
+  # views of one conversation (the hook path alone paints only tool names +
+  # the final message). Only the hook-driven RC REPL session has the lazy
+  # transcript the tailer feeds on; headless/codex/RC-off sessions stream
+  # their own rich transcript and are left untouched. Started UNLINKED with
+  # `owner: self()` so a display failure never affects the run, and it
+  # self-stops if the run process dies (`after` handles the normal path).
+  defp maybe_start_display_tailer(session, issue, rc?) do
+    backend = session_backend(session)
+
+    if should_display_tail?(backend, rc?, issue.identifier) do
+      identifier = issue.identifier
+
+      # DISPLAY-ONLY: broadcast straight to the opencode pane's transcript
+      # topic. Do NOT route through codex_message_handler — that also does
+      # per-record AgentEventLog.write (disk) and send_codex_update (to the
+      # shared run recipient), so a `from: :start` backfill burst would hammer
+      # both. The pane render only needs the transcript broadcast.
+      on_message = fn
+        %{transcript_event: event} -> AgentPubSub.broadcast_transcript(identifier, event)
+        _ -> :ok
+      end
+
+      case DisplayTailer.start(
+             identifier: identifier,
+             on_message: on_message,
+             owner: self()
+           ) do
+        {:ok, pid} ->
+          pid
+
+        {:error, reason} ->
+          Logger.warning("display_tailer start_failed issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+          nil
+      end
+    else
+      nil
+    end
+  end
+
+  # Only the hook-driven RC claude-repl session feeds the display tailer.
+  # A headless-claude fallback (backend "claude"), codex, or RC-off REPL
+  # streams its own rich transcript and must not get a second display source.
+  @doc false
+  @spec should_display_tail?(String.t() | nil, boolean(), String.t() | nil) :: boolean()
+  def should_display_tail?(backend, rc?, identifier) do
+    rc? and backend == "claude-repl" and is_binary(identifier)
+  end
+
+  defp stop_display_tailer(nil), do: :ok
+
+  defp stop_display_tailer(pid) do
+    if Process.alive?(pid), do: GenServer.stop(pid, :normal, 1_000)
+    :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  # The `--remote-control <name>` string is what the operator sees as the
+  # chat title in the Claude app / mobile, so derive it from the issue
+  # ("Aiur 99 - Title") rather than the opaque `aiur-repl-<pid>-<n>` window
+  # name. Only set when RC is active; headless and RC-off REPL sessions keep
+  # the default name.
+  defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
+  defp maybe_put_rc_name(opts, false, _issue), do: opts
+
+  # Seed the workspace trust flag before an RC REPL spawns. RC refuses to
+  # start in an untrusted directory; without this the REPL sticks on the
+  # trust dialog and silently degrades to the headless backend. Only the
+  # local path is trusted — RC is local-only (a remote worker_host's
+  # workspace lives on another machine), matching `promote_to_remote`'s
+  # guard. A trust failure is logged but not fatal: the degrade path still
+  # lands a working headless agent rather than stranding the issue.
+  @doc false
+  @spec maybe_trust_remote_control_workspace(
+          Path.t(),
+          boolean(),
+          worker_host(),
+          (Path.t() -> :ok | {:error, term()})
+        ) :: :ok
+  def maybe_trust_remote_control_workspace(workspace, rc?, worker_host, trust_fun)
+
+  def maybe_trust_remote_control_workspace(workspace, true, nil, trust_fun)
+      when is_binary(workspace) and is_function(trust_fun, 1) do
+    case trust_fun.(workspace) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("remote-control workspace trust failed; RC may degrade to headless: workspace=#{workspace} reason=#{inspect(reason)}")
+        :ok
+    end
+  end
+
+  def maybe_trust_remote_control_workspace(_workspace, _rc?, _worker_host, _trust_fun), do: :ok
+
+  @doc false
+  @spec rc_session_name(Issue.t()) :: String.t()
+  def rc_session_name(issue) do
+    label = issue.identifier || issue.id
+    title = issue.title || ""
+
+    "Aiur #{label} - #{title}"
+    |> String.replace(~r/[[:cntrl:]'"`]/u, " ")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+    |> String.slice(0, 60)
+  end
+
+  @doc false
+  # Start the resolved backend's session, tagging it with its backend so
+  # later dispatch resolves the right adapter. The persistent-REPL backend
+  # can fail to start (no tmux, REPL never ready, RC activation failed); a
+  # tmux/RC problem must never strand an issue, so fall back once to the
+  # headless `claude` backend and record why. `start_fun` is injectable for
+  # tests; production uses `CodingAgent.start_session/2`.
+  @spec start_agent_session(Path.t(), keyword(), (Path.t(), keyword() -> {:ok, map()} | {:error, term()})) ::
+          {:ok, map()} | {:error, term()}
+  def start_agent_session(workspace, opts, start_fun \\ &CodingAgent.start_session/2) do
+    backend = Keyword.fetch!(opts, :backend)
+
+    case start_fun.(workspace, opts) do
+      {:ok, session} ->
+        {:ok, Map.put(session, :backend, backend)}
+
+      {:error, reason} when backend == "claude-repl" ->
+        Aiur.Perf.event(:repl_start_fallback, backend: backend, reason: inspect(reason))
+
+        Logger.warning("claude-repl start_session failed (#{inspect(reason)}); falling back to headless claude")
+
+        fallback_opts = opts |> Keyword.put(:backend, "claude") |> Keyword.delete(:remote_control)
+
+        case start_fun.(workspace, fallback_opts) do
+          {:ok, session} -> {:ok, Map.put(session, :backend, "claude")}
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -417,6 +643,7 @@ defmodule Aiur.AgentRunner do
         issue,
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
+        on_operator_message: operator_immediate_handler(issue, orchestrator),
         tool_executor: tool_executor(issue, workspace, worker_host)
       )
 
@@ -672,6 +899,7 @@ defmodule Aiur.AgentRunner do
         issue,
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
+        on_operator_message: operator_immediate_handler(issue, orchestrator),
         tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
       )
 
@@ -953,25 +1181,9 @@ defmodule Aiur.AgentRunner do
   defp open_aiur_turn_streams(_issue), do: nil
 
   @doc """
-  Fire `__aiur_turn__:<id>` marker posts to every attached opencode-serve
-  asynchronously. Returns `:ok` immediately so the calling codex turn
-  is not blocked on the round-trip.
-
-  opencode's `POST /session/X/message` is synchronous from its caller's
-  perspective — it holds the request open until the LLM (our bridge)
-  finishes responding, which for an active codex turn can be minutes.
-  A naive synchronous fan-out blocked the next codex turn from even
-  starting for ~30 s per attached server (Req's `receive_timeout`),
-  so chat panes sat empty for ~90 s after dispatch with 3 slots.
-
-  Fire-and-forget is safe here because the marker post is purely a
-  trigger: once opencode receives the synthetic user message, it
-  opens its chat-completion request to our bridge endpoint, and the
-  bridge's `stream_codex_turn/3` subscribes to `AgentPubSub` directly
-  — agent_runner never needs the post's return value.
-
-  The `post_fn` argument is injectable for testing; in production it
-  defaults to `Aiur.Opencode.ApiClient.post_message/3`.
+  Fire `__aiur_turn__:<id>` marker posts to every attached opencode-serve.
+  Delegates to `Aiur.Opencode.TurnMarkers.post_all/4`, which also serves the
+  bridge's continuation markers (segmented turn streams).
   """
   @spec post_aiur_turn_markers(
           String.t(),
@@ -979,28 +1191,8 @@ defmodule Aiur.AgentRunner do
           [%{session_id: String.t(), base_url: String.t()}],
           (String.t(), String.t(), map() -> {:ok, term()} | {:error, term()})
         ) :: :ok
-  def post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn \\ &ApiClient.post_message/3)
-      when is_binary(identifier) and is_binary(aiur_turn_id) and is_list(writers) and
-             is_function(post_fn, 3) do
-    payload = %{
-      parts: [Protocol.text_part_data("__aiur_turn__:" <> aiur_turn_id, synthetic: true)]
-    }
-
-    for %{session_id: session_id, base_url: base_url} <- writers do
-      Task.start(fn -> post_one_marker(post_fn, base_url, session_id, payload, identifier) end)
-    end
-
-    :ok
-  end
-
-  defp post_one_marker(post_fn, base_url, session_id, payload, identifier) do
-    case post_fn.(base_url, session_id, payload) do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.debug("aiur_turn_marker post_failed identifier=#{identifier} base_url=#{base_url} reason=#{inspect(reason)}")
-    end
+  def post_aiur_turn_markers(identifier, aiur_turn_id, writers, post_fn \\ &ApiClient.post_message/3) do
+    TurnMarkers.post_all(identifier, aiur_turn_id, writers, post_fn)
   end
 
   # Match the close to the marker post — the bridge SSE for this
@@ -1019,6 +1211,31 @@ defmodule Aiur.AgentRunner do
   end
 
   defp close_aiur_turn_streams(_issue, _aiur_turn_id, _reason), do: :ok
+
+  # Mid-turn delivery for the persistent-REPL backend: when an operator
+  # message lands while the agent is working, the driver invokes this to
+  # claim the next operator item and type it straight into the live pane.
+  # The claimed item moves to `delivered`, so the turn-end
+  # `consume_delivered_queue_items` sweep retires it — it is never also run
+  # as a separate follow-up turn. A send failure restores it to pending so
+  # the normal turn-boundary drain re-attempts.
+  defp operator_immediate_handler(issue, orchestrator) do
+    fn ->
+      case claim_next_operator_item(orchestrator, issue.identifier) do
+        {:ok, item} ->
+          immediate_operator_delivery(issue, orchestrator, item)
+
+        :empty ->
+          :noop
+      end
+    end
+  end
+
+  defp immediate_operator_delivery(issue, orchestrator, item) do
+    record_operator_delivery(item, issue)
+
+    {:deliver_text, queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
+  end
 
   defp safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->

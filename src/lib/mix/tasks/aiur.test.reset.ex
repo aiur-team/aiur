@@ -12,16 +12,15 @@ defmodule Mix.Tasks.Aiur.Test.Reset do
       the 3-ticket blocker-chain sandbox pinned in
       `.aiur-test-tickets.json#tickets`.
 
-    - **Golden** (`--golden`, invoked from `aiur --test`): reuses or
-      auto-creates one fixed complexity:2 ticket whose body exercises
-      every chat-render surface (file edit/diff, shell command, tool
-      call, skill) so codex and Claude runs compare 1:1.
+    - **Single** (`--single`, invoked from `aiur --test`): resets only
+      the first pinned ticket (issue 99) so a single-agent run can be
+      driven end-to-end.
 
   ## Examples
 
       mix aiur.test.reset                        # 3-ticket dry-run
       mix aiur.test.reset --confirm              # 3-ticket reset
-      mix aiur.test.reset --golden --confirm     # golden-ticket reset
+      mix aiur.test.reset --single --confirm     # single-ticket reset
       mix aiur.test.reset --confirm --force      # bypass clean-tree guard
       mix aiur.test.reset --confirm --allow-remote   # bypass remote guard
 
@@ -38,7 +37,7 @@ defmodule Mix.Tasks.Aiur.Test.Reset do
           confirm: :boolean,
           force: :boolean,
           allow_remote: :boolean,
-          golden: :boolean
+          single: :boolean
         ]
       )
 

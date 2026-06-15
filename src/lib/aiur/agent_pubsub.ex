@@ -23,6 +23,21 @@ defmodule Aiur.AgentPubSub do
     result
   end
 
+  @doc """
+  Drop this process's subscription to an agent's transcript topic. The
+  opencode bridge MUST call this on every stream-close path: with segmented
+  turn streams, opencode reopens a chat-completion per segment on one
+  keep-alive connection, and Bandit reuses the handler process. Without an
+  explicit unsubscribe, each segment's `subscribe_agent/1` stacks another
+  subscription on the same process, so one broadcast transcript event is
+  delivered once per stacked subscription and the bridge streams N copies
+  of every command/tool row into one assistant message.
+  """
+  @spec unsubscribe_agent(AgentEvents.agent_identifier()) :: :ok
+  def unsubscribe_agent(identifier) when is_binary(identifier) do
+    Phoenix.PubSub.unsubscribe(@pubsub, AgentEvents.agent_topic(identifier))
+  end
+
   @spec subscribe_running() :: :ok | {:error, term()}
   def subscribe_running, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.running_topic())
 

@@ -291,6 +291,39 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @spec add_label(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def add_label(issue_number, label, opts \\ [])
+      when is_binary(issue_number) and is_binary(label) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
+
+      case request_fun.(%{method: :post, url: url, token: token, body: %{"labels" => [label]}}) do
+        {:ok, %{status: status}} when status in 200..299 -> :ok
+        {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
+        {:error, reason} -> {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
+  @spec remove_label(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def remove_label(issue_number, label, opts \\ [])
+      when is_binary(issue_number) and is_binary(label) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+
+      case request_fun.(%{method: :delete, url: url, token: token}) do
+        # 404 = label already absent; treat as success so the toggle is idempotent.
+        {:ok, %{status: status}} when status in 200..299 or status == 404 -> :ok
+        {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
+        {:error, reason} -> {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
   # -- Private helpers --------------------------------------------------------
 
   # GitHub labels query is AND (all labels must match), so we fetch each label

@@ -10,6 +10,10 @@ defmodule Aiur.Tracker do
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
+  @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
+  @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
+
+  @optional_callbacks add_label: 2, remove_label: 2
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -34,6 +38,16 @@ defmodule Aiur.Tracker do
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     adapter().update_issue_state(issue_id, state_name)
+  end
+
+  @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
+  def add_label(issue_id, label) do
+    adapter().add_label(issue_id, label)
+  end
+
+  @spec remove_label(String.t(), String.t()) :: :ok | {:error, term()}
+  def remove_label(issue_id, label) do
+    adapter().remove_label(issue_id, label)
   end
 
   @spec project_identity() :: String.t() | nil

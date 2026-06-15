@@ -5,6 +5,7 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
+  alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
   alias AiurWeb.{Endpoint, Presenter}
   alias Plug.Conn
@@ -45,6 +46,60 @@ defmodule AiurWeb.ObservabilityApiController do
     issue_identifier
     |> send_operator_message(text)
     |> render_send_message_response(conn, issue_identifier)
+  end
+
+  # Opencode Ctrl+C bridge. The tmux key binding POSTs the pane id here;
+  # the orchestrator derives the 3-state action from the agent's live
+  # state. Any error degrades to `close_pane` so a failed bridge call
+  # never leaves the operator unable to close the pane (the binding's
+  # fallback behaviour).
+  @spec pane_interrupt(Conn.t(), map()) :: Conn.t()
+  def pane_interrupt(conn, %{"pane_id" => pane_id}) when is_binary(pane_id) and pane_id != "" do
+    action =
+      case Aiur.AgentChat.pane_interrupt(pane_id) do
+        {:ok, action} -> action
+        {:error, _reason} -> :close_pane
+      end
+
+    json(conn, %{action: action})
+  end
+
+  def pane_interrupt(conn, _params) do
+    error_response(conn, 422, "missing_pane_id", "pane_id is required")
+  end
+
+  @doc """
+  Hide a chat pane without touching agent or slot state: the pane moves to
+  the hidden warm window (opencode-attach process intact) and reopening
+  swaps the same pane back instantly. Callers (Ctrl+Q / the Ctrl+C bridge's
+  close branch) fall back to a plain kill-pane on any non-200.
+  """
+  @spec pane_hide(Conn.t(), map()) :: Conn.t()
+  def pane_hide(conn, %{"pane_id" => pane_id}) when is_binary(pane_id) and pane_id != "" do
+    case Aiur.PaneManager.hide_by_pane_id(pane_id) do
+      :ok -> json(conn, %{action: :hidden})
+      {:error, reason} -> error_response(conn, 409, "hide_failed", inspect(reason))
+    end
+  end
+
+  def pane_hide(conn, _params) do
+    error_response(conn, 422, "missing_pane_id", "pane_id is required")
+  end
+
+  # Claude Code lifecycle-hook sink for the RC-claude backend. The agent's
+  # `claude --remote-control` session is configured (via `--settings`) to POST
+  # each UserPromptSubmit/PostToolUse/Stop event here; `HookEvents` fans it out on
+  # the agent's PubSub topic so `ReplAgent` can drive turn detection without the
+  # (lazily-flushed, unreliable) transcript file. ALWAYS replies 200: a non-2xx or
+  # any stderr from claude's hook command could disrupt the live session.
+  @spec claude_hook(Conn.t(), map()) :: Conn.t()
+  def claude_hook(conn, %{"issue_identifier" => identifier} = params) when is_binary(identifier) do
+    _ = HookEvents.dispatch(identifier, Map.drop(params, ["issue_identifier"]))
+    json(conn, %{ok: true})
+  end
+
+  def claude_hook(conn, _params) do
+    json(conn, %{ok: true})
   end
 
   @spec method_not_allowed(Conn.t(), map()) :: Conn.t()

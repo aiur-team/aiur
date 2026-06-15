@@ -94,6 +94,28 @@ defmodule Aiur.Opencode.SlotRegistry do
   end
 
   @doc """
+  Inverse lookup by pane: find the (slot_index, visible_identifier) for
+  the slot currently painted into `pane_id`. Returns `:not_found` when no
+  slot owns that pane (or the slot has no visible identifier). Lock-free
+  ETS scan over the (small) slot set. Used by the opencode Ctrl+C bridge
+  to resolve a tmux pane back to the agent it is showing.
+  """
+  @spec find_by_pane_id(String.t()) ::
+          {:ok, slot_index(), String.t()} | :not_found
+  def find_by_pane_id(pane_id) when is_binary(pane_id) do
+    @registry
+    |> Registry.select([{{:"$1", :_, :"$3"}, [], [{{:"$1", :"$3"}}]}])
+    |> Enum.find_value(:not_found, fn
+      {slot_index, %{visible_identifier: identifier, pane_id: ^pane_id}}
+      when is_binary(identifier) ->
+        {:ok, slot_index, identifier}
+
+      _ ->
+        nil
+    end)
+  end
+
+  @doc """
   Look up the slot worker pid for `slot_index`. Returns `{:ok, pid}` if
   found and alive, `:not_found` otherwise.
   """

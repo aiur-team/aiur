@@ -939,6 +939,56 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert %{identifier: ^identifier, error: "stalled" <> _} =
                Map.get(next.retry_attempts, issue_id)
     end
+
+    test "claude-hook activity refreshes liveness so an active RC-claude entry is NOT stall-restarted" do
+      # An RC-claude agent works via lifecycle hooks, which never produce a
+      # codex update — so `last_codex_timestamp` stays at `started_at` while
+      # the agent is busy. A hook firing must refresh liveness so the stall
+      # watchdog does not kill a working agent.
+      issue_id = "issue-hook-active"
+      identifier = "STALL-HOOK"
+
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+      worker_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: worker_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: stale_at,
+            last_codex_timestamp: stale_at,
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      # A claude hook fires for this agent -> liveness refreshed to now.
+      refreshed = Orchestrator.note_agent_activity_state(state, identifier)
+
+      next = Orchestrator.apply_stall_check_for_test(refreshed, 60_000)
+
+      assert Map.has_key?(next.running, issue_id), "hook-active entry must NOT be stall-restarted"
+      assert next.retry_attempts == %{}
+    end
+
+    test "note_agent_activity_state is a no-op for an unknown identifier" do
+      state = %Orchestrator.State{
+        running: %{},
+        claimed: MapSet.new(),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      assert Orchestrator.note_agent_activity_state(state, "NOPE") == state
+    end
   end
 
   describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
@@ -1156,6 +1206,204 @@ defmodule Aiur.OrchestratorDeactivateTest do
       next = Orchestrator.apply_branch_push_for_test(state, blocker_identifier)
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
+  end
+
+  describe "REPL session teardown tracking (U7)" do
+    test "{:repl_session_runtime, ...} records the pane id + os pid on the running entry" do
+      issue_id = "issue-repl-track"
+      identifier = "RPL-1"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working},
+            repl_pane_id: nil,
+            repl_os_pid: nil
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      {:noreply, next} =
+        Orchestrator.handle_info(
+          {:repl_session_runtime, issue_id, %{pane_id: "%77", os_pid: 4242}},
+          state
+        )
+
+      entry = next.running[issue_id]
+      assert entry.repl_pane_id == "%77"
+      assert entry.repl_os_pid == 4242
+    end
+
+    test "{:repl_session_runtime, ...} for an unknown issue is a no-op" do
+      state = %Orchestrator.State{
+        running: %{},
+        claimed: MapSet.new(),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      assert {:noreply, ^state} =
+               Orchestrator.handle_info(
+                 {:repl_session_runtime, "nope", %{pane_id: "%1", os_pid: 1}},
+                 state
+               )
+    end
+
+    test "deactivate tears down a tracked REPL session and still deactivates the entry" do
+      test_root =
+        Path.join(System.tmp_dir!(), "aiur-orch-repl-teardown-#{System.unique_integer([:positive])}")
+
+      issue_id = "issue-repl-teardown"
+      issue_identifier = "RPT-1"
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        agent_pid =
+          spawn(fn ->
+            receive do
+              :stop -> :ok
+            end
+          end)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working},
+              # os pid nil keeps graceful_kill a no-op; the pane kill targets a
+              # bogus id the real tmux server rejects harmlessly — the point is
+              # the deactivate path's kill_repl_session runs cleanly.
+              repl_pane_id: "%repl-bogus",
+              repl_os_pid: nil
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR up for review",
+          description: "",
+          labels: []
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        entry = Map.fetch!(updated_state.running, issue_id)
+        assert get_in(entry, [:control, :status]) == :deactivated
+        refute Process.alive?(agent_pid)
+      after
+        File.rm_rf(test_root)
+      end
+    end
+  end
+
+  describe "whole-app shutdown reaping (terminate/2)" do
+    test "reaps every running entry's headless agent subtree on shutdown" do
+      # Mirror the headless backend: a `bash -lc` wrapper that forks a child
+      # it never execs. On whole-app shutdown the supervisor brutally kills
+      # the AgentRunner task (skipping `after stop_session`), so without a
+      # terminate/2 reap the child reparents to init and keeps committing.
+      command = "sleep 600 & printf 'up\\n'; wait"
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+          [:binary, :exit_status, :stderr_to_stdout, args: [~c"-lc", String.to_charlist(command)], line: 64_000]
+        )
+
+      {:os_pid, bash_pid} = :erlang.port_info(port, :os_pid)
+      assert_receive {^port, {:data, {:eol, "up"}}}, 2_000
+
+      child_pid = shutdown_wait_for_child(bash_pid, 2_000)
+
+      on_exit(fn ->
+        for p <- [bash_pid, child_pid], is_integer(p) do
+          System.cmd("kill", ["-KILL", Integer.to_string(p)], stderr_to_stdout: true)
+        end
+      end)
+
+      assert is_integer(child_pid)
+      assert shutdown_os_alive?(child_pid)
+
+      issue_id = "issue-shutdown-reap"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: "SHD-1",
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: "SHD-1"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working},
+            headless_os_pid: bash_pid
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      assert :ok = Orchestrator.terminate(:shutdown, state)
+
+      refute shutdown_os_alive?(bash_pid)
+      refute shutdown_os_alive?(child_pid)
+    end
+
+    defp shutdown_wait_for_child(parent, budget_ms) do
+      deadline = System.monotonic_time(:millisecond) + budget_ms
+      do_shutdown_wait_for_child(parent, deadline)
+    end
+
+    defp do_shutdown_wait_for_child(parent, deadline) do
+      first_child =
+        case System.cmd("pgrep", ["-P", Integer.to_string(parent)], stderr_to_stdout: true) do
+          {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1) |> List.first()
+          _ -> nil
+        end
+
+      cond do
+        is_integer(first_child) ->
+          first_child
+
+        System.monotonic_time(:millisecond) >= deadline ->
+          nil
+
+        true ->
+          Process.sleep(25)
+          do_shutdown_wait_for_child(parent, deadline)
+      end
+    end
+
+    defp shutdown_os_alive?(pid),
+      do: match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
   end
 
   describe "branch-push topic parser (subscriber wiring)" do

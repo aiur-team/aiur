@@ -169,6 +169,13 @@ defmodule Aiur.Claude.TranscriptTest do
       assert :skip = Transcript.extract(message, nil)
     end
 
+    test "passes a pre-extracted REPL transcript_event straight through" do
+      event = Aiur.AgentEvents.transcript_event(:assistant, "from the repl", turn_id: "turn-z")
+      message = %{event: :transcript, transcript_event: event}
+
+      assert {:ok, ^event} = Transcript.extract(message, "fallback")
+    end
+
     test "falls back to provided turn_id when params omit it" do
       message = %{
         payload: %{
@@ -221,6 +228,167 @@ defmodule Aiur.Claude.TranscriptTest do
 
       assert rendered =~ "```diff"
       assert rendered =~ "+ line one"
+    end
+  end
+
+  # On-disk transcript jsonl records (the interactive-REPL backend tails the
+  # file rather than the JSON-RPC stream). Shapes captured from a real
+  # `~/.claude/projects/<slug>/<uuid>.jsonl`.
+  defp assistant_record(content_blocks, opts \\ []) do
+    %{
+      "type" => "assistant",
+      "timestamp" => Keyword.get(opts, :timestamp, "2026-06-08T12:00:00.000Z"),
+      "sessionId" => Keyword.get(opts, :session_id, "sess-uuid"),
+      "message" => %{
+        "role" => "assistant",
+        "stop_reason" => Keyword.get(opts, :stop_reason, "tool_use"),
+        "content" => content_blocks
+      }
+    }
+  end
+
+  defp user_record(content) do
+    %{
+      "type" => "user",
+      "timestamp" => "2026-06-08T12:00:01.000Z",
+      "message" => %{"role" => "user", "content" => content}
+    }
+  end
+
+  describe "extract_disk_record/2 — on-disk transcript shape" do
+    test "assistant text block → one :assistant event with parsed timestamp" do
+      record =
+        assistant_record([%{"type" => "text", "text" => "All set."}],
+          timestamp: "2026-06-08T12:34:56.000Z"
+        )
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.role == :assistant
+      assert event.body == "All set."
+      assert event.turn_id == "turn-1"
+      assert event.timestamp == ~U[2026-06-08 12:34:56.000Z]
+    end
+
+    test "assistant thinking block → :reasoning" do
+      record = assistant_record([%{"type" => "thinking", "thinking" => "Considering.", "signature" => "x"}])
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.role == :reasoning
+      assert event.body == "Considering."
+    end
+
+    test "assistant Bash tool_use → :command" do
+      record =
+        assistant_record([
+          %{"type" => "tool_use", "name" => "Bash", "id" => "t1", "input" => %{"command" => "ls -la"}}
+        ])
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.role == :command
+      assert event.body == "ls -la"
+      assert event.payload.command == "ls -la"
+    end
+
+    test "assistant Edit tool_use → :tool with a diff payload" do
+      record =
+        assistant_record([
+          %{
+            "type" => "tool_use",
+            "name" => "Edit",
+            "id" => "t2",
+            "input" => %{"file_path" => "lib/a.ex", "old_string" => "foo", "new_string" => "bar"}
+          }
+        ])
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.role == :tool
+      assert event.payload.output =~ "- foo"
+      assert event.payload.output =~ "+ bar"
+    end
+
+    test "a multi-block assistant record yields one event per renderable block" do
+      record =
+        assistant_record([
+          %{"type" => "text", "text" => "Running it."},
+          %{"type" => "tool_use", "name" => "Bash", "id" => "t3", "input" => %{"command" => "mix test"}},
+          %{"type" => "image", "source" => %{}}
+        ])
+
+      events = Transcript.extract_disk_record(record, "turn-1")
+      assert length(events) == 2
+      assert Enum.map(events, & &1.role) == [:assistant, :command]
+    end
+
+    test "user tool_result (string content) → :tool output" do
+      record =
+        user_record([
+          %{"type" => "tool_result", "tool_use_id" => "t1", "content" => "exit 0\nok"}
+        ])
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.role == :tool
+      assert event.payload.output == "exit 0\nok"
+    end
+
+    test "user tool_result (list content) flattens text blocks into output" do
+      record =
+        user_record([
+          %{
+            "type" => "tool_result",
+            "tool_use_id" => "t1",
+            "content" => [%{"type" => "text", "text" => "line A"}, %{"type" => "text", "text" => "line B"}]
+          }
+        ])
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.payload.output == "line A\nline B"
+    end
+
+    test "a bare user prompt string → one :user event (operator's typed message)" do
+      assert [event] = Transcript.extract_disk_record(user_record("please fix the bug"), "turn-1")
+      assert event.role == :user
+      assert event.body == "please fix the bug"
+      assert event.turn_id == "turn-1"
+    end
+
+    test "an empty user prompt string yields no events" do
+      assert [] = Transcript.extract_disk_record(user_record(""), "turn-1")
+    end
+
+    test "a queued_command attachment → one :user event (Claude Remote Control message)" do
+      record = %{
+        "type" => "attachment",
+        "timestamp" => "2026-06-10T20:38:33.461Z",
+        "attachment" => %{
+          "type" => "queued_command",
+          "commandMode" => "prompt",
+          "prompt" => "hi from claude remote control app"
+        }
+      }
+
+      assert [event] = Transcript.extract_disk_record(record, "turn-1")
+      assert event.role == :user
+      assert event.body == "hi from claude remote control app"
+      assert event.turn_id == "turn-1"
+    end
+
+    test "a slash-command attachment is skipped (control input, not chat)" do
+      record = %{
+        "type" => "attachment",
+        "attachment" => %{
+          "type" => "queued_command",
+          "commandMode" => "command",
+          "prompt" => "/compact"
+        }
+      }
+
+      assert [] = Transcript.extract_disk_record(record, "turn-1")
+    end
+
+    test "non-conversational records are skipped" do
+      for type <- ~w(bridge-session system file-history-snapshot ai-title last-prompt permission-mode attachment queue-operation pr-link) do
+        assert [] = Transcript.extract_disk_record(%{"type" => type, "message" => %{}}, "turn-1")
+      end
     end
   end
 end

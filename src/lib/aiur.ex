@@ -24,6 +24,7 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.configure()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     log_process_identity()
@@ -39,7 +40,8 @@ defmodule Aiur.Application do
           Aiur.PaneManager,
           Aiur.Opencode.PrewarmSupervisor,
           Aiur.AgentList.App,
-          Aiur.AgentList.Input
+          Aiur.AgentList.Input,
+          Aiur.LauncherWatchdog
         ]
       else
         []
@@ -53,6 +55,10 @@ defmodule Aiur.Application do
         {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
         {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
         {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
+        # Before Task.Supervisor: children stop in reverse order, so the
+        # reaper outlives the runner tasks/ports whose OS processes it must
+        # sweep in its terminate/2 backstop.
+        Aiur.ProcessReaper,
         {Task.Supervisor, name: Aiur.TaskSupervisor},
         Aiur.WorkflowStore,
         Aiur.Events.IdGenerator,
@@ -64,6 +70,7 @@ defmodule Aiur.Application do
         Aiur.Orchestrator,
         Aiur.Events.LsRemoteTicker,
         Aiur.ProgressCheckin.Worker,
+        Aiur.Logs.Retention,
         Aiur.HttpServer,
         Aiur.Opencode.TokenRegistry,
         Aiur.Opencode.ActiveTurns,
@@ -80,10 +87,20 @@ defmodule Aiur.Application do
   end
 
   @impl true
+  def prep_stop(state) do
+    # SIGTERM / `:init.stop` path, BEFORE the supervision tree comes down —
+    # the only point on that path where the ProcessReaper and the opencode
+    # serves are still alive, so the kind-ordered cleanup (reap agents →
+    # delete sessions over HTTP → reap serves) can actually hold.
+    Aiur.Shutdown.cleanup()
+    state
+  end
+
+  @impl true
   def stop(_state) do
-    # SIGTERM / `:init.stop` path — OTP shuts down before `Aiur.Shutdown.shutdown/2`
-    # would normally run, so make sure opencode sessions are still reaped.
-    # `delete_all/1` is idempotent so re-entry from the `q`-key path is safe.
+    # Post-teardown best-effort re-entry. The reaper is gone by now (its own
+    # terminate/2 already swept leftovers); `cleanup/1` phases are idempotent
+    # and individually error-wrapped, so this is harmless after prep_stop.
     Aiur.Shutdown.cleanup()
     :ok
   end

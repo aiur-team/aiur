@@ -1126,6 +1126,41 @@ defmodule Aiur.WorkspaceAndConfigTest do
              {:routing, {msg, []}} -> msg =~ "unknown backend"
              _ -> false
            end)
+
+    repl =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "claude-repl"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert repl.errors == []
+  end
+
+  test "remote_control opt-in defaults OFF and parses an explicit true" do
+    # Setting #2 is orthogonal to :kind; the default is the single flip
+    # point for always-remote, so a fresh parse must land on false.
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.remote_control == false
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{remote_control: true}})
+
+    assert settings.agent.remote_control == true
+  end
+
+  test "max_log_history_mb defaults to 1000 and validates positivity" do
+    # The retention sweep reads this cap; an unset config must land on the
+    # built-in 1000 MB default, an explicit value must round-trip, and a
+    # non-positive cap must be rejected (it would wipe everything).
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.max_log_history_mb == 1000
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 250})
+
+    assert settings.max_log_history_mb == 250
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
   end
 
   test "complexity prompts normalize string levels and reject bad levels/values" do

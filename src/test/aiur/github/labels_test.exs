@@ -24,6 +24,22 @@ defmodule Aiur.GitHub.LabelsTest do
       refute Enum.any?(labels, &String.starts_with?(&1, "model:codex"))
     end
 
+    test "a shorter backend does not seed a hyphenated backend's labels" do
+      labels = Labels.label_set("aiur", ["claude"])
+
+      assert "model:claude" in labels
+      refute "model:claude-repl" in labels
+      refute Enum.any?(labels, &String.starts_with?(&1, "model:claude-repl"))
+    end
+
+    test "the claude-repl backend seeds its own labels when chosen" do
+      labels = Labels.label_set("aiur", ["claude-repl"])
+
+      assert "model:claude-repl" in labels
+      assert "model:claude-repl-opus-4-8" in labels
+      refute "model:claude" in labels
+    end
+
     test "state labels honor the configured prefix" do
       assert "team:todo" in Labels.state_labels("team")
       refute "aiur:todo" in Labels.state_labels("team")

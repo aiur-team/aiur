@@ -3,6 +3,16 @@ defmodule Aiur.Opencode.SlotTest do
 
   alias Aiur.Opencode.Slot
 
+  describe "terminate_pane_command/1" do
+    test "returns a kill-pane command when the slot owns a pane" do
+      assert Slot.terminate_pane_command(%{pane_id: "%9"}) == "kill-pane -t %9"
+    end
+
+    test "returns nil when there is no pane to reap" do
+      assert Slot.terminate_pane_command(%{pane_id: nil}) == nil
+    end
+  end
+
   describe "slots_topic/0" do
     test "returns a stable string suitable for PubSub" do
       assert is_binary(Slot.slots_topic())

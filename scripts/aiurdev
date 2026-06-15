@@ -71,6 +71,7 @@ clear_mode=0
 explicit_clear=0
 logs_mode=0
 fresh_mode=0
+record_mode=0
 testg_mode=0
 test3_mode=0
 test_force=0
@@ -108,13 +109,11 @@ for arg in "$@"; do
       logs_mode=1
       ;;
     --test)
-      # --test launches the GOLDEN single ticket: one fixed
-      # complexity:2 issue whose body exercises every chat-render
-      # surface (file edit/diff, shell command, tool call, skill) so
-      # codex and Claude runs are directly comparable on the same
-      # work every time.
+      # --test launches a single sandbox agent: issue 99 (the first
+      # pinned ticket). The reset narrows the blocker chain to that one
+      # ticket so you can drive a single agent end-to-end.
       #
-      # --test (golden ticket) and --test3 (3-ticket blocker chain)
+      # --test (single ticket) and --test3 (3-ticket blocker chain)
       # both imply --debug, --clear, AND --force: when you're testing
       # you want a fresh, debug-instrumented, rebuilt run by default.
       # Stale _build/ silently masking shipped work was a repeated
@@ -131,10 +130,14 @@ for arg in "$@"; do
       fresh_mode=1
       ;;
     --test3)
+      # Adds --allow-remote to the shared implied set above: the
+      # 3-ticket blocker chain drives the Remote Control agent (#101),
+      # so remote opt-in should come for free with --test3.
       test3_mode=1
       debug_mode=1
       clear_mode=1
       test_force=1
+      test_allow_remote=1
       fresh_mode=1
       ;;
     --force)
@@ -145,6 +148,12 @@ for arg in "$@"; do
       ;;
     --fresh | --new)
       fresh_mode=1
+      ;;
+    --record)
+      # Record the main AgentList TUI pane into the session log dir
+      # (record/screen.ansi) for debugging the divider flicker and
+      # other visual glitches. Independent of --debug; combines freely.
+      record_mode=1
       ;;
     --log)
       expect_log_value=1
@@ -169,9 +178,9 @@ if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   exit 64
 fi
 
-# --test (golden ticket) and --test3 (3-ticket blocker chain) both
+# --test (single ticket) and --test3 (3-ticket blocker chain) both
 # run the sandbox reset BEFORE launching. They compose with any
-# other flag — e.g. `aiurdev --test --debug --clear` resets the golden
+# other flag — e.g. `aiurdev --test --debug --clear` resets the single
 # sandbox ticket then launches normally with debug + clear-logs.
 # Auto-passes `--confirm` so it's a single-command workflow;
 # `--force` / `--allow-remote` are forwarded for the rare overrides.
@@ -191,13 +200,18 @@ if [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   # Recursive call into the same script's `stop all` subcommand —
   # stop_all() lives later in this file, so direct call would hit
   # bash's forward-reference limitation.
+  # Sweep orphaned tmux sockets (dead aiur sessions / agent drivers) on
+  # every test launch. Any test flag routes through this block, so this
+  # covers --test, --test3, and future test modes alike. Runs before the
+  # stop so the count the operator sees reflects the real backlog.
+  "$0" sweep || true
   echo "🛑 stopping any running aiur" >&2
   "$0" stop all >/dev/null 2>&1 || true
 
   test_args=("--confirm")
   [ "$test_force" -eq 1 ] && test_args+=("--force")
   [ "$test_allow_remote" -eq 1 ] && test_args+=("--allow-remote")
-  [ "$testg_mode" -eq 1 ] && test_args+=("--golden")
+  [ "$testg_mode" -eq 1 ] && test_args+=("--single")
 
   if ! (cd "$default_repo_root/src" && "$mise_bin" exec -- mix aiur.test.reset "${test_args[@]}"); then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
@@ -216,9 +230,8 @@ if [ "$testg_mode" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   tickets_file="$default_repo_root/.aiur-test-tickets.json"
   if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
     if [ "$testg_mode" -eq 1 ]; then
-      # Golden mode (--test): expect exactly one ticket to land under
-      # agent:todo. The reset workflow either reused the pinned golden
-      # ticket or created a fresh one.
+      # Single mode (--test): expect exactly one ticket (issue 99) to
+      # land under agent:todo.
       expected_count=1
     else
       expected_count="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
@@ -354,6 +367,10 @@ Options:
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
                        Useful in a separate terminal alongside `aiurdev --debug`.
+  --record             record the main AgentList TUI pane into
+                       `<session>/log/record/screen.ansi` (ANSI preserved)
+                       for debugging the divider flicker and other visual
+                       glitches. Independent of --debug; combines freely.
   --fresh, --new       start a fresh foreground session even if an
                        existing Aiur tmux session is available to attach.
   --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
@@ -370,15 +387,10 @@ Options:
                        compiled artifacts and recompile everything
                        from scratch (~2min). Use when auto-rebuild
                        (mtime check) misses a change.
-  --test               reset (or auto-create) the GOLDEN single ticket
-                       — one fixed complexity:2 issue whose body
-                       exercises every chat-render surface (file
-                       edit/diff, shell command, tool call, skill) so
-                       codex and Claude runs are directly comparable on
-                       the same work every time. Auto-confirms the reset;
-                       reuses `golden_ticket` from .aiur-test-tickets.json
-                       (or creates+persists a fresh one). Implies
-                       --debug --clear and rebuilds.
+  --test               reset a single sandbox ticket (issue 99, the
+                       first pinned ticket in .aiur-test-tickets.json)
+                       and launch one agent against it. Auto-confirms
+                       the reset. Implies --debug --clear and rebuilds.
   --test3              reset the 3-ticket events sandbox (per
                        .aiur-test-tickets.json) before launching.
                        Automatically implies --debug --clear (a test run
@@ -1039,6 +1051,8 @@ stop_profile() {
   local service
   local logs_root
   local port
+  local socket
+  local session
 
   require_profile "$profile"
 
@@ -1047,6 +1061,8 @@ stop_profile() {
   service="$(profile_value service "$profile")"
   logs_root="$(profile_value logs_root "$profile")"
   port="$(profile_value port "$profile")"
+  socket="$(aiur_tmux_socket_name)"
+  session="$(aiur_tmux_session_name "$profile")"
 
   case "$aiur_os" in
     Darwin*)
@@ -1099,6 +1115,30 @@ stop_profile() {
     esac
   done
 
+  # Wait out graceful BEAM shutdown (Aiur.Shutdown callbacks), then
+  # SIGKILL any straggler. A synchronous stop is what lets a fresh
+  # `--test`/`--test3` launch trust the slate is clean before it binds
+  # the port — the old fire-and-forget stop returned while the BEAM was
+  # still up, and the relaunch raced it.
+  local stop_wait=0
+  while [ $stop_wait -lt 30 ]; do
+    pgrep -f "$elixir_dir/_build/.*rel/aiur/erts.*beam.smp" >/dev/null 2>&1 || break
+    sleep 0.1
+    stop_wait=$((stop_wait + 1))
+  done
+  for pid in $(pgrep -f "$elixir_dir/_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null); do
+    [ "$pid" = "$$" ] && continue
+    [ "$(ps -p "$pid" -o comm= 2>/dev/null || true)" = "beam.smp" ] \
+      && "$kill_bin" -KILL "$pid" 2>/dev/null || true
+  done
+
+  # Tear down the inner aiur tmux session. This also disconnects any
+  # leaked wrapper bash parked in `tmux attach` on it — its attach
+  # returns and it unwinds cleanly (reaping only its own, now-dead,
+  # BEAM). Scoped to aiur's dedicated socket, so claude-driver-style
+  # harness servers are untouched.
+  "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
+
   # Reap orphan `opencode attach ...` client processes. The operator
   # spawns these per-pane and they outlive the BEAM when the parent
   # shell dies abruptly (Claude restart, `kill -9 beam.smp`, etc.). Once
@@ -1112,12 +1152,54 @@ stop_profile() {
   # leaving them around squats the loopback ports the next operator
   # would otherwise pick up cleanly.
   "$pkill_bin" -u "$(id -u)" -f "^opencode serve --port 0 --hostname 127\\.0\\.0\\.1$" 2>/dev/null || true
+
+  # Wait for the dashboard port to be released before returning, so the
+  # next launch doesn't lose the bind race to a socket still in TIME_WAIT
+  # or held by a BEAM mid-exit. Best-effort: skip if ss is unavailable.
+  if [ -n "$port" ] && command -v ss >/dev/null 2>&1; then
+    local port_wait=0
+    while [ $port_wait -lt 30 ]; do
+      ss -ltn 2>/dev/null | grep -q ":$port " || break
+      sleep 0.1
+      port_wait=$((port_wait + 1))
+    done
+  fi
 }
 
 stop_all() {
   for profile in "${profile_names[@]}"; do
     stop_profile "$profile"
   done
+}
+
+# Remove orphaned tmux socket files left by dead aiur sessions and agent
+# drivers. tmux leaves the socket behind when a server is SIGKILLed or
+# its host crashes; `aiur-pm-live-<pid>` orphans accumulate fast (901 on
+# one box). Only sweeps sockets whose server is unresponsive — a live
+# session (`aiurdev-orangekid`) or an active agent driver (`claude-driver`)
+# is never touched. Scoped to aiur-named and `*-driver` sockets so
+# unrelated tmux servers are left alone.
+sweep_dead_tmux_sockets() {
+  local sockdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+  [ -d "$sockdir" ] || return 0
+  local removed=0 name path
+  for path in "$sockdir"/*; do
+    [ -S "$path" ] || continue
+    name="${path##*/}"
+    case "$name" in
+      aiur*|*-driver|*-driver-*) ;;
+      *) continue ;;
+    esac
+    if ! "$tmux_bin" -L "$name" list-sessions >/dev/null 2>&1; then
+      if rm -f "$path" 2>/dev/null; then
+        removed=$((removed + 1))
+      fi
+    fi
+  done
+  if [ "$removed" -gt 0 ]; then
+    echo "🧹 swept $removed dead aiur tmux socket(s)" >&2
+  fi
+  return 0
 }
 
 start_bg_nohup() {
@@ -1305,10 +1387,16 @@ run_foreground() {
 
   aiur_args=(exec -- ./bin/aiur)
 
-  if [ -n "$logs_root" ]; then
-    aiur_args+=(--logs-root "$logs_root")
-    export AIUR_LOGS_ROOT="$logs_root"
+  # Default every run to its own timestamped session dir under
+  # ~/.aiur/logs so logs are unified, persistent, and never clobber a
+  # prior run of the same tickets. An explicit profile/--logs-root still
+  # wins. `$$` (wrapper pid) keeps same-second launches distinct.
+  if [ -z "$logs_root" ]; then
+    logs_root="${HOME}/.aiur/logs/${profile}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
   fi
+  mkdir -p "$logs_root/log" 2>/dev/null || true
+  aiur_args+=(--logs-root "$logs_root")
+  export AIUR_LOGS_ROOT="$logs_root"
 
   if [ -n "$port" ]; then
     aiur_args+=(--port "$port")
@@ -1496,6 +1584,70 @@ aiur_record_session() {
   done
 }
 
+# Background recorder for the main AgentList TUI pane (window 0, pane 0)
+# under `--record`. Stitches successive `capture-pane -e` snapshots into
+# `<out_dir>/screen.ansi` (ANSI preserved) so the divider flicker and
+# other visual glitches can be inspected offline after the run. Like the
+# chat recorder it is read-only (never sends keys) and runs until the
+# tmux session dies or it is killed on detach. A sub-second interval is
+# used so fast flicker between frames is more likely to be sampled.
+aiur_record_screen() {
+  local socket="$1" session="$2" out_dir="$3" interval="${4:-0.5}"
+  mkdir -p "$out_dir"
+
+  local tmproot
+  tmproot="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmproot'; exit 0" TERM EXIT
+
+  local out="$out_dir/screen.ansi"
+  local prev="$tmproot/screen.prev"
+  local cur="$tmproot/screen.cur"
+  local seen=0
+
+  while tmux -L "$socket" has-session -t "$session" 2>/dev/null; do
+    tmux -L "$socket" capture-pane -t "$session:0.0" -e -p 2>/dev/null \
+      | _aiur_record_clean >"$cur"
+
+    if [ "$seen" -eq 0 ]; then
+      cat "$cur" >"$out"
+      cp "$cur" "$prev"
+      seen=1
+    elif ! cmp -s "$prev" "$cur"; then
+      _aiur_record_stitch "$prev" "$cur" >>"$out"
+      cp "$cur" "$prev"
+    fi
+
+    sleep "$interval"
+  done
+}
+
+# Resolve the release BEAM pid running under a process subtree. Used to
+# scope a wrapper's teardown to the BEAM it actually launched: a leaked
+# wrapper must never reap a BEAM started by a different invocation (its
+# EXIT trap once pattern-matched every aiur BEAM and killed a freshly
+# launched one belonging to a concurrent `--test` run). Breadth-first
+# walk from the tmux pane process; matches beam.smp whose cmdline points
+# at this install's release dir.
+_aiur_beam_under_pid() {
+  local root="$1" dir="$2"
+  local queue="$root" next pid comm
+  while [ -n "${queue// /}" ]; do
+    next=""
+    for pid in $queue; do
+      comm="$(ps -p "$pid" -o comm= 2>/dev/null | tr -d ' ')"
+      if [ "$comm" = "beam.smp" ] \
+        && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qF "$dir/"; then
+        printf '%s\n' "$pid"
+        return 0
+      fi
+      next="$next $(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ')"
+    done
+    queue="$next"
+  done
+  return 1
+}
+
 run_in_tmux() {
   local profile="$1"
   local elixir_dir="$2"
@@ -1518,8 +1670,21 @@ run_in_tmux() {
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="$elixir_dir/bin/aiur"
   export AIUR_MISE_BIN="$mise_bin"
-  local startup_capture
-  startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
+  # Boot-diagnostic capture. Bounded to the first
+  # $boot_capture_max_lines (see the launcher's awk drain below) so it
+  # holds the startup window — enough for print_startup_failure's
+  # `tail -n 30` on an early crash — without accumulating the full
+  # ~60fps TUI frame stream for the life of the session. Lives in the
+  # session log dir so it persists with the rest of the run's logs
+  # (`--record` is the opt-in path for the full frame stream).
+  local startup_capture boot_capture_max_lines=2000
+  if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+    mkdir -p "${AIUR_LOGS_ROOT}/log" 2>/dev/null || true
+    startup_capture="${AIUR_LOGS_ROOT}/log/boot.capture"
+    : > "$startup_capture"
+  else
+    startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
+  fi
 
   # Session-id sidecar file. SessionWriter writes one opencode session id
   # per line into this file as it creates them; the trap below reaps every
@@ -1561,6 +1726,10 @@ run_in_tmux() {
   }
 
   __aiur_cleanup_ran=0
+  # tmux pane pid of the inner session this wrapper launches; set after
+  # new-session succeeds. The EXIT trap resolves the BEAM under it and
+  # reaps ONLY that BEAM (see _aiur_beam_under_pid).
+  __aiur_owned_pane_pid=""
   __aiur_cleanup() {
     [ "${__aiur_cleanup_ran:-0}" = 1 ] && return 0
     __aiur_cleanup_ran=1
@@ -1568,14 +1737,11 @@ run_in_tmux() {
     local exit_code=$?
     __aiur_trap_log "${__aiur_trap_trigger:-EXIT}" "$exit_code"
     local sessions_file="${AIUR_SESSION_TMPFILE:-}"
-    # `startup_capture` was declared `local` inside this function's caller,
-    # so by the time the EXIT trap fires it has gone out of scope. Use
-    # safe expansion so `set -u` doesn't blow up before the real reaping.
-    local capture="${startup_capture:-}"
-
-    if [ -n "$capture" ]; then
-      rm -f "$capture" 2>/dev/null || true
-    fi
+    # The boot capture is intentionally NOT deleted here. It lives in the
+    # session log dir (~/.aiur/logs/<session>/log/boot.capture), is bounded
+    # to the startup window, and persists with the rest of the run's logs
+    # so post-mortem debugging survives a clean exit. Old sessions are
+    # reaped by Aiur.Logs.Retention, not by this trap.
 
     # Shut the aiur BEAM down. The detached tmux session running aiur
     # outlives this trap; without an explicit stop the BEAM keeps
@@ -1603,37 +1769,27 @@ run_in_tmux() {
     # `set -u` (script line 2) would crash here if `run_foreground` had
     # already returned by the time the trap fires (e.g., on EXIT after
     # tmux attach finished naturally).
+    # Reap ONLY the BEAM this wrapper launched, resolved from our own
+    # inner tmux pane. Pattern-matching every release BEAM here let a
+    # leaked wrapper kill a BEAM belonging to a concurrent invocation.
     local trap_elixir_dir="${elixir_dir:-}"
-    if [ -n "$trap_elixir_dir" ]; then
-      local beam_pids
-      beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-      if [ -n "$beam_pids" ]; then
-        local pid
-        for pid in $beam_pids; do
-          # Don't kill ourselves; we're not a BEAM, but defensive.
-          [ "$pid" = "$$" ] && continue
-          kill -TERM "$pid" 2>/dev/null || true
-        done
+    local owned_beam=""
+    if [ -n "$trap_elixir_dir" ] && [ -n "${__aiur_owned_pane_pid:-}" ]; then
+      owned_beam="$(_aiur_beam_under_pid "$__aiur_owned_pane_pid" "$trap_elixir_dir" 2>/dev/null || true)"
+    fi
+    if [ -n "$owned_beam" ] && [ "$owned_beam" != "$$" ]; then
+      kill -TERM "$owned_beam" 2>/dev/null || true
 
-        # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
-        # SIGKILL any stragglers. SIGTERM lets Aiur.Shutdown's supervisor
-        # tree run termination callbacks (session GC, file cleanup).
-        local kill_wait=0
-        while [ $kill_wait -lt 30 ]; do
-          beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-          [ -z "$beam_pids" ] && break
-          sleep 0.1
-          kill_wait=$((kill_wait + 1))
-        done
-
-        beam_pids="$(pgrep -f "$trap_elixir_dir/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)"
-        if [ -n "$beam_pids" ]; then
-          for pid in $beam_pids; do
-            [ "$pid" = "$$" ] && continue
-            kill -KILL "$pid" 2>/dev/null || true
-          done
-        fi
-      fi
+      # Give the BEAM 3 s to shut down gracefully via SIGTERM, then
+      # SIGKILL if it lingers. SIGTERM lets Aiur.Shutdown's supervisor
+      # tree run termination callbacks (session GC, file cleanup).
+      local kill_wait=0
+      while [ $kill_wait -lt 30 ]; do
+        kill -0 "$owned_beam" 2>/dev/null || break
+        sleep 0.1
+        kill_wait=$((kill_wait + 1))
+      done
+      kill -0 "$owned_beam" 2>/dev/null && kill -KILL "$owned_beam" 2>/dev/null || true
     fi
 
     if [ -n "$sessions_file" ] && [ -s "$sessions_file" ]; then
@@ -1660,6 +1816,12 @@ run_in_tmux() {
         kill -TERM "$_trap_serve_pid" 2>/dev/null || true
       fi
     done
+
+    # Reap the agent-driver tmux sockets this run left orphaned now that the
+    # BEAM is down, rather than deferring them to the next invocation's
+    # pre-launch sweep. Only unresponsive servers are removed, so a
+    # side-by-side aiur instance's live sockets are never touched.
+    sweep_dead_tmux_sockets
 
     return $exit_code
   }
@@ -1709,7 +1871,7 @@ run_in_tmux() {
           if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
             ids=""
             if [ "$testg_mode" -eq 1 ]; then
-              ids="$(jq -r '.golden_ticket // empty' "$tickets_file" 2>/dev/null)"
+              ids="$(jq -r '.tickets[0]? // empty' "$tickets_file" 2>/dev/null)"
             else
               ids="$(jq -r '.tickets[]?' "$tickets_file" 2>/dev/null)"
             fi
@@ -1815,12 +1977,25 @@ run_in_tmux() {
     if [ "${AIUR_DEBUG:-}" != "" ]; then
       printf 'export AIUR_DEBUG=%q\n' "$AIUR_DEBUG"
     fi
+    # The wrapper pid is this foreground bash process — it runs `tmux
+    # attach` and exits the moment the operator detaches or closes the
+    # window. `Aiur.LauncherWatchdog` polls it and self-halts the BEAM
+    # when it disappears, so a detached release never keeps agents
+    # running after the UI is gone.
+    printf 'export AIUR_LAUNCHER_PID=%q\n' "$$"
     printf '%q' "$mise_bin"
     local arg
     for arg in "$@"; do
       printf ' %q' "$arg"
     done
-    printf ' 2>&1 | tee -a "$capture"\n'
+    # Bounded boot capture, tee-style: pass every line through to stdout
+    # (the live TUI / attached pane) while persisting only the first
+    # `max` lines to the capture file. Keeps draining stdin so the BEAM
+    # never takes a SIGPIPE (which `head` would cause), and bounds the
+    # file so it holds the startup window for print_startup_failure
+    # without growing into the full ~60fps frame stream.
+    printf ' 2>&1 | awk -v max=%q -v f="$capture" %q\n' \
+      "$boot_capture_max_lines" 'NR <= max { print >> f } { print; fflush() }'
     printf 'exit ${PIPESTATUS[0]}\n'
   } > "$launcher"
 
@@ -1837,6 +2012,18 @@ run_in_tmux() {
     rm -f "$launcher"
     exit 1
   fi
+
+  # Point the opencode Ctrl+C binding (aiur.tmux.conf) at the bridge
+  # helper that ships beside the conf. The BEAM publishes the matching
+  # @aiur_control_url once its dashboard binds; until then (or if this
+  # set fails) the binding degrades to a plain pane close.
+  "$tmux_bin" -L "$socket" -f "$conf" \
+    set-option -g @aiur_ctrlc "$(dirname "$conf")/aiur-pane-ctrlc" 2>/dev/null || true
+
+  # Record the inner pane process so the EXIT trap reaps only the BEAM
+  # spawned under THIS session, never a sibling invocation's.
+  __aiur_owned_pane_pid="$("$tmux_bin" -L "$socket" -f "$conf" \
+    display-message -p -t "$session" '#{pane_pid}' 2>/dev/null || true)"
 
   local grace_ticks="${AIUR_STARTUP_GRACE_TICKS:-30}"
   local grace_sleep="${AIUR_STARTUP_GRACE_SLEEP:-0.1}"
@@ -1855,13 +2042,17 @@ run_in_tmux() {
   # their own, so this is the only durable record of how each agent's
   # chat rendered. Non-intrusive (read-only captures, no key sends) and
   # killed the moment the operator detaches.
-  local record_pid=""
+  local record_pid="" screen_record_pid="" record_dir
+  record_dir="$(dirname "$log_path")/record"
   if [ "$debug_mode" -eq 1 ]; then
-    local record_dir
-    record_dir="$(dirname "$log_path")/record"
     aiur_record_session "$socket" "$session" "$record_dir" 3 &
     record_pid=$!
     echo "🎬 recording chat panes → $record_dir" >&2
+  fi
+  if [ "$record_mode" -eq 1 ]; then
+    aiur_record_screen "$socket" "$session" "$record_dir" 0.5 &
+    screen_record_pid=$!
+    echo "🎥 recording AgentList pane → $record_dir/screen.ansi" >&2
   fi
 
   # In the foreground, the user attaches to the session normally. We do
@@ -1875,11 +2066,14 @@ run_in_tmux() {
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
   local tmux_status=$?
 
-  # Stop the background recorder now that the operator has detached.
-  if [ -n "$record_pid" ]; then
-    kill "$record_pid" 2>/dev/null || true
-    wait "$record_pid" 2>/dev/null || true
-  fi
+  # Stop the background recorders now that the operator has detached.
+  local _rec_pid
+  for _rec_pid in "$record_pid" "$screen_record_pid"; do
+    if [ -n "$_rec_pid" ]; then
+      kill "$_rec_pid" 2>/dev/null || true
+      wait "$_rec_pid" 2>/dev/null || true
+    fi
+  done
 
   # Cleanup. Startup_capture only needs to survive long enough for
   # `print_startup_failure` above to replay it on early-grace crashes;
@@ -2041,6 +2235,11 @@ case "${1:-}" in
       stop_profile "$target"
     fi
 
+    sweep_dead_tmux_sockets
+    exit 0
+    ;;
+  sweep)
+    sweep_dead_tmux_sockets
     exit 0
     ;;
   "" | default)

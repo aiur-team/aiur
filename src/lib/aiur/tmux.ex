@@ -37,6 +37,24 @@ defmodule Aiur.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  Show `text` in this pane's top border, or clear it when `text` is `nil`.
+
+  Goes through a silent exec that never logs the value: the only caller
+  surfaces the Remote Control session URL, a capability token that must
+  never reach `log/`. The generic `command/3` path logs every exec at
+  debug (and logs args on error), so it can't carry this value.
+  """
+  @spec set_pane_border(GenServer.server(), String.t(), String.t() | nil) ::
+          :ok | {:error, term()}
+  def set_pane_border(server \\ __MODULE__, pane_id, text)
+      when is_binary(pane_id) and (is_binary(text) or is_nil(text)) do
+    GenServer.call(server, {:set_pane_border, pane_id, text})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @spec subscribe_events(GenServer.server()) :: :ok | {:error, term()}
   def subscribe_events(server \\ __MODULE__) do
     GenServer.call(server, {:subscribe, self()})
@@ -173,6 +191,127 @@ defmodule Aiur.Tmux do
     :exit, {:timeout, _} -> {:error, :timeout}
   end
 
+  @doc """
+  Inject `text` into `pane_id` as a single paste via a tmux paste buffer
+  (`load-buffer` from a temp file, then `paste-buffer`). Unlike
+  `send_keys_literal/3`, this is not bounded by tmux's ~16KB command-length
+  limit, so it can deliver large multi-line prompts in one shot. An
+  application with bracketed-paste enabled (the interactive `claude` REPL
+  does) receives it as a single paste rather than a keystroke-by-keystroke
+  burst.
+  """
+  @spec paste_text(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def paste_text(server \\ __MODULE__, pane_id, text)
+      when is_binary(pane_id) and is_binary(text) do
+    GenServer.call(server, {:paste_text, pane_id, text})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Send a single `Enter` keypress to `pane_id` (tmux's `send-keys Enter`,
+  the named key — not literal text). Submits a line previously staged
+  with `send_keys_literal/3`.
+  """
+  @spec send_enter(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def send_enter(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:send_enter, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Clear the pane's current input line (tmux's `send-keys C-u`). Used to
+  discard any partially-landed keystrokes before re-typing a prompt, so a
+  retry can't concatenate onto a stale buffer.
+  """
+  @spec clear_input(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def clear_input(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:clear_input, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Send a single `Ctrl+C` (tmux's `send-keys C-c`) to `pane_id`. Interrupts
+  the foreground program; for the interactive `claude` REPL this stops the
+  current turn at its next safe point so a queued message is consumed.
+  """
+  @spec send_interrupt(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def send_interrupt(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:send_interrupt, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Send a single `Escape` keypress (tmux's `send-keys Escape`) to `pane_id`.
+  Dismisses an in-REPL dialog (e.g. the `/rc` Remote Control panel) without
+  touching the input line.
+  """
+  @spec send_escape(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def send_escape(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:send_escape, pane_id})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Capture the visible contents of `pane_id` as a list of lines
+  (tmux's `capture-pane -p`). Used for coarse lifecycle signals
+  (REPL readiness / idle prompt) where the transcript has no marker.
+  """
+  @spec capture_pane(GenServer.server(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def capture_pane(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:capture_pane, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Kill `pane_id` (tmux's `kill-pane`). Returns `:ok` even when the pane
+  is already gone, so teardown is idempotent.
+  """
+  @spec kill_pane(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def kill_pane(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:kill_pane, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  Return the OS pid of the top process running in `pane_id`
+  (tmux's `\#{pane_pid}`). Used to graceful-kill the REPL's `claude`
+  process on teardown.
+  """
+  @spec pane_pid(GenServer.server(), String.t()) :: {:ok, integer()} | {:error, term()}
+  def pane_pid(server \\ __MODULE__, pane_id) when is_binary(pane_id) do
+    GenServer.call(server, {:pane_pid, pane_id}, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
+  List every window on the server as `{window_name, active_pane_id}` tuples
+  (tmux's `list-windows -a`). Used by the REPL pane reaper/sweep to find
+  `aiur-repl-*` windows across all sessions.
+  """
+  @spec list_windows(GenServer.server()) :: {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def list_windows(server \\ __MODULE__) do
+    GenServer.call(server, :list_windows, 5_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
   @spec session(GenServer.server()) :: String.t()
   def session(server \\ __MODULE__), do: GenServer.call(server, :session)
 
@@ -272,6 +411,18 @@ defmodule Aiur.Tmux do
   @impl true
   def handle_call({:command, cmd}, _from, state) do
     {:reply, run_command(state, cmd), state}
+  end
+
+  def handle_call({:set_pane_border, pane_id, nil}, _from, state) do
+    _ = run_args_silent(state, ["set-option", "-pu", "-t", pane_id, "pane-border-status"])
+    _ = run_args_silent(state, ["set-option", "-pu", "-t", pane_id, "pane-border-format"])
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_pane_border, pane_id, text}, _from, state) when is_binary(text) do
+    _ = run_args_silent(state, ["set-option", "-p", "-t", pane_id, "pane-border-status", "top"])
+    _ = run_args_silent(state, ["set-option", "-p", "-t", pane_id, "pane-border-format", text])
+    {:reply, :ok, state}
   end
 
   def handle_call({:split_pane, target_pane, direction, percent, command_to_run, silent?}, _from, state) do
@@ -377,6 +528,22 @@ defmodule Aiur.Tmux do
     end
   end
 
+  def handle_call(:list_windows, _from, state) do
+    case run_args(state, ["list-windows", "-a", "-F", "\#{window_name}\t\#{pane_id}"]) do
+      {:ok, lines} ->
+        windows =
+          lines
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.flat_map(&parse_window_line/1)
+
+        {:reply, {:ok, windows}, state}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
   def handle_call({:list_panes, window_target}, _from, state) do
     case run_args(state, ["list-panes", "-t", window_target, "-F", "\#{pane_id}"]) do
       {:ok, pane_ids} ->
@@ -405,15 +572,100 @@ defmodule Aiur.Tmux do
     end
   end
 
+  def handle_call({:paste_text, pane_id, text}, _from, state) do
+    {:reply, paste_via_buffer(state, pane_id, text), state}
+  end
+
+  def handle_call({:send_enter, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "Enter"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:clear_input, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "C-u"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:send_interrupt, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "C-c"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:send_escape, pane_id}, _from, state) do
+    case run_args(state, ["send-keys", "-t", pane_id, "Escape"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:capture_pane, pane_id}, _from, state) do
+    case run_args(state, ["capture-pane", "-p", "-t", pane_id]) do
+      {:ok, lines} -> {:reply, {:ok, lines}, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:pane_pid, pane_id}, _from, state) do
+    case run_args(state, ["display-message", "-p", "-t", pane_id, "\#{pane_pid}"]) do
+      {:ok, [pid_str | _]} ->
+        case Integer.parse(String.trim(pid_str)) do
+          {pid, _} -> {:reply, {:ok, pid}, state}
+          :error -> {:reply, {:error, :no_pane_pid}, state}
+        end
+
+      {:ok, []} ->
+        {:reply, {:error, :no_pane_pid}, state}
+
+      {:error, _} = err ->
+        {:reply, err, state}
+    end
+  end
+
+  def handle_call({:kill_pane, pane_id}, _from, state) do
+    case run_args(state, ["kill-pane", "-t", pane_id]) do
+      {:ok, _} ->
+        {:reply, :ok, state}
+
+      # A pane that's already gone ("can't find pane") is success for
+      # idempotent teardown; other failures surface.
+      {:error, reason} = err ->
+        if reason |> List.wrap() |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "can't find pane"))) do
+          {:reply, :ok, state}
+        else
+          {:reply, err, state}
+        end
+    end
+  end
+
   def handle_call({:new_hidden_window, window_name, command_to_run}, _from, state) do
     # `-d` keeps the new window in the background; `-P -F #{pane_id}` makes
     # tmux print the pane id so we can target it later for `join-pane`.
     args = ["new-window", "-d", "-n", window_name, "-P", "-F", "\#{pane_id}", command_to_run]
 
     case run_args(state, args) do
-      {:ok, [pane_id | _]} -> {:reply, {:ok, String.trim(pane_id)}, state}
-      {:ok, []} -> {:reply, {:error, :no_pane_id}, state}
-      {:error, _} = err -> {:reply, err, state}
+      {:ok, [pane_id | _]} ->
+        {:reply, {:ok, String.trim(pane_id)}, state}
+
+      {:ok, []} ->
+        {:reply, {:error, :no_pane_id}, state}
+
+      # `new-window` needs a running server. When aiur runs standalone (TUI
+      # in the terminal or a `--bg` nohup BEAM, not inside an aiurdev tmux
+      # session), the socket has no server yet — so the first REPL spawn must
+      # create the session, which starts the server, rather than failing into
+      # the headless fallback. Later spawns reuse the server via `new-window`.
+      {:error, reason} = err ->
+        if no_server?(reason) do
+          {:reply, bootstrap_window(state, window_name, command_to_run), state}
+        else
+          {:reply, err, state}
+        end
     end
   end
 
@@ -459,6 +711,43 @@ defmodule Aiur.Tmux do
 
   # Internals -----------------------------------------------------------------
 
+  defp no_server?(reason) do
+    reason
+    |> List.wrap()
+    |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "no server running")))
+  end
+
+  # Create the holder session detached, running the REPL command as its first
+  # window — `new-session` starts the server when none exists, so the pane is
+  # spawned in one shot and `-P -F #{pane_id}` prints its id.
+  defp bootstrap_window(state, window_name, command_to_run) do
+    args = [
+      "new-session",
+      "-d",
+      "-s",
+      state.session,
+      "-n",
+      window_name,
+      "-P",
+      "-F",
+      "\#{pane_id}",
+      command_to_run
+    ]
+
+    case run_args(state, args) do
+      {:ok, [pane_id | _]} -> {:ok, String.trim(pane_id)}
+      {:ok, []} -> {:error, :no_pane_id}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp parse_window_line(line) do
+    case String.split(line, "\t", parts: 2) do
+      [name, pane_id] -> [{name, pane_id}]
+      _ -> []
+    end
+  end
+
   defp run_command(%{transport: {:mock, pid}}, cmd) do
     send(pid, {:tmux_mock_out, cmd})
     receive_mock_response()
@@ -492,6 +781,60 @@ defmodule Aiur.Tmux do
           {output, status} ->
             handle_tmux_exit(String.trim(output), status, full_args)
         end
+    end
+  end
+
+  # Like `run_args/2` but never logs the args — they may carry the RC
+  # session URL (a capability token). The mock transport already routes to
+  # the test pid rather than Logger, so only the shell path needs a
+  # value-free variant; on error it logs the subcommand and status only.
+  defp run_args_silent(%{transport: {:mock, _}} = state, args), do: run_args(state, args)
+
+  defp run_args_silent(%{transport: :shell}, args) do
+    full_args = prepend_socket(args)
+
+    case System.find_executable("tmux") do
+      nil ->
+        Logger.warning("Tmux exec failed: tmux not in $PATH")
+        {:error, :no_tmux_executable}
+
+      tmux ->
+        case System.cmd(tmux, full_args, stderr_to_stdout: true) do
+          {output, 0} ->
+            {:ok, output |> String.trim_trailing("\n") |> String.split("\n", trim: true)}
+
+          {output, status} ->
+            Logger.warning("Tmux silent exec exit=#{status} subcommand=#{redact_subcommand(args)}")
+            {:error, String.trim(output)}
+        end
+    end
+  end
+
+  # First two tokens identify the operation (e.g. "set-option -p") without
+  # exposing any value argument that might contain a secret.
+  defp redact_subcommand(args) do
+    args |> Enum.take(2) |> Enum.join(" ")
+  end
+
+  # Inject text via a tmux paste buffer so delivery isn't capped by tmux's
+  # ~16KB `send-keys` command-length limit. `load-buffer` reads the text from
+  # a temp file (keeping it off the command line entirely); `paste-buffer -d`
+  # pastes it into the pane and drops the buffer. The buffer name is unique so
+  # concurrent panes never clobber each other's pending paste.
+  defp paste_via_buffer(state, pane_id, text) do
+    buffer = "aiur-paste-#{System.unique_integer([:positive])}"
+    tmp = Path.join(System.tmp_dir!(), buffer)
+
+    try do
+      with :ok <- File.write(tmp, text),
+           {:ok, _} <- run_args(state, ["load-buffer", "-b", buffer, tmp]),
+           {:ok, _} <- run_args(state, ["paste-buffer", "-d", "-b", buffer, "-t", pane_id]) do
+        :ok
+      else
+        {:error, _} = err -> err
+      end
+    after
+      File.rm(tmp)
     end
   end
 

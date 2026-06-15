@@ -31,6 +31,12 @@ defmodule Aiur.Claude.Transcript do
   @edit_tools ~w(Edit Write MultiEdit NotebookEdit)
 
   @spec extract(map(), String.t() | nil) :: {:ok, AgentEvents.transcript_event()} | :skip
+  # The interactive-REPL backend tails the transcript and emits already-extracted
+  # events (see `extract_disk_record/2`), wrapping each in `%{transcript_event: ...}`
+  # before handing it to the orchestrator's `on_message`. Pass those straight
+  # through so the REPL backend shares the codex/JSON-RPC dispatch path.
+  def extract(%{transcript_event: %{role: _} = event}, _fallback_turn_id), do: {:ok, event}
+
   def extract(message, fallback_turn_id) when is_map(message) do
     with "item/created" <- notification_method(message),
          item when is_map(item) <- notification_item(message) do
@@ -42,6 +48,153 @@ defmodule Aiur.Claude.Transcript do
   end
 
   def extract(_message, _fallback_turn_id), do: :skip
+
+  @doc """
+  Extract transcript events from a single on-disk transcript jsonl record.
+
+  The interactive-REPL backend tails the transcript jsonl rather than the
+  JSON-RPC notification stream, so records arrive in the on-disk shape
+  (`%{"type" => "assistant"|"user", "message" => %{"content" => [blocks]}}`)
+  instead of the flat `item/created` envelope `extract/2` handles. An
+  `assistant` record carries a content *array* (text / thinking / tool_use
+  blocks), so this returns a list of events, one per renderable block.
+
+  A bare user prompt string (the operator's own typed message, which the
+  harness writes with `message.content` as a plain string) maps to a
+  single `:user` event so replayed history shows messages from both
+  surfaces. A `queued_command` `attachment` is a Claude Remote Control
+  app message (the only on-disk trace of one) and also maps to a `:user`
+  event. Non-conversational records (`bridge-session`, `system`,
+  `file-history-snapshot`, `ai-title`, `last-prompt`, `permission-mode`,
+  `queue-operation`, `pr-link`) yield `[]`.
+  """
+  @spec extract_disk_record(map(), String.t() | nil) :: [AgentEvents.transcript_event()]
+  def extract_disk_record(record, fallback_turn_id) when is_map(record) do
+    case get(record, :type) do
+      "assistant" ->
+        timestamp = disk_timestamp(record)
+
+        record
+        |> disk_content_blocks()
+        |> Enum.flat_map(&events_for_block(&1, fallback_turn_id, timestamp))
+
+      "user" ->
+        extract_user_record(record, fallback_turn_id)
+
+      "attachment" ->
+        extract_attachment_record(record, fallback_turn_id)
+
+      _ ->
+        []
+    end
+  end
+
+  def extract_disk_record(_record, _fallback_turn_id), do: []
+
+  # A user record is either the operator's typed prompt (`content` is a
+  # bare string -> a `:user` event) or a batch of `tool_result` blocks
+  # (`content` is a list -> tool events), never both.
+  defp extract_user_record(record, fallback_turn_id) do
+    timestamp = disk_timestamp(record)
+
+    case get(get(record, :message) || %{}, :content) do
+      text when is_binary(text) and text != "" ->
+        [AgentEvents.transcript_event(:user, text, timestamp: timestamp, turn_id: fallback_turn_id)]
+
+      content when is_list(content) ->
+        Enum.flat_map(content, &events_for_block(&1, fallback_turn_id, timestamp))
+
+      _ ->
+        []
+    end
+  end
+
+  # A Claude Remote Control app message is persisted only as a
+  # `queued_command` attachment — the relay never writes a `type: "user"`
+  # record for it — so without this clause RC-origin messages never reach
+  # the opencode conversation pane. Slash-commands (`commandMode` other
+  # than `"prompt"`) are control input, not chat, so they stay dropped.
+  defp extract_attachment_record(record, fallback_turn_id) do
+    attachment = get(record, :attachment) || %{}
+
+    with "queued_command" <- get(attachment, :type),
+         "prompt" <- get(attachment, :commandMode),
+         prompt when is_binary(prompt) and prompt != "" <- get(attachment, :prompt) do
+      [
+        AgentEvents.transcript_event(:user, prompt,
+          timestamp: disk_timestamp(record),
+          turn_id: fallback_turn_id,
+          payload: %{origin: :remote}
+        )
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp events_for_block(block, turn_id, timestamp) do
+    case block_to_event(block, turn_id, timestamp) do
+      {:ok, event} -> [event]
+      :skip -> []
+    end
+  end
+
+  # On-disk content blocks share field names with the JSON-RPC items, so
+  # each block is normalized to the item shape and routed through the same
+  # `event_from_item/4` mapping. Only the `tool_use`/`tool_call` type name
+  # and the `tool_result` content (string-or-list) differ.
+  defp block_to_event(block, turn_id, timestamp) when is_map(block) do
+    {type, item} = normalize_block(block)
+    event_from_item(type, item, turn_id, timestamp)
+  end
+
+  defp block_to_event(_block, _turn_id, _timestamp), do: :skip
+
+  defp normalize_block(block) do
+    case get(block, :type) do
+      "tool_use" ->
+        {"tool_call", block}
+
+      "tool_result" ->
+        {"tool_result", Map.put(block, "content", normalize_tool_result_content(get(block, :content)))}
+
+      other ->
+        {other, block}
+    end
+  end
+
+  defp normalize_tool_result_content(content) when is_binary(content), do: content
+
+  defp normalize_tool_result_content(content) when is_list(content) do
+    Enum.map_join(content, "\n", fn
+      block when is_map(block) -> stringify(get(block, :text))
+      _ -> ""
+    end)
+  end
+
+  defp normalize_tool_result_content(_content), do: ""
+
+  defp disk_content_blocks(record) do
+    with message when is_map(message) <- get(record, :message),
+         content when is_list(content) <- get(message, :content) do
+      content
+    else
+      _ -> []
+    end
+  end
+
+  defp disk_timestamp(record) do
+    case get(record, :timestamp) do
+      ts when is_binary(ts) ->
+        case DateTime.from_iso8601(ts) do
+          {:ok, datetime, _offset} -> datetime
+          _ -> DateTime.utc_now()
+        end
+
+      _ ->
+        DateTime.utc_now()
+    end
+  end
 
   # ----------------------------------------------------------------- items
 

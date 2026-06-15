@@ -165,6 +165,147 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
     end
   end
 
+  describe "transcript_delta/2" do
+    test "a remote-origin :user event drops — never streams as an assistant delta" do
+      # Rendering the Remote Control message inline in the assistant SSE
+      # made it read as agent speech. It must drop here and instead be
+      # persisted as a genuine user-role message by SessionWriter.
+      event = %{role: :user, body: "hi from the Remote Control app", payload: %{origin: :remote}}
+
+      assert ChatCompletions.transcript_delta(event, nil) == :drop
+      assert ChatCompletions.transcript_delta(event, :assistant) == :drop
+    end
+
+    test "an opencode-origin :user event (no remote payload) also drops" do
+      assert ChatCompletions.transcript_delta(%{role: :user, body: "typed locally", payload: nil}, :assistant) ==
+               :drop
+    end
+
+    test "an :assistant event streams its body verbatim as a delta" do
+      assert ChatCompletions.transcript_delta(%{role: :assistant, body: "hello"}, nil) ==
+               {:delta, "hello", :assistant}
+    end
+
+    test "a :command event streams as a dim blockquote delta" do
+      assert ChatCompletions.transcript_delta(%{role: :command, body: "ls"}, nil) ==
+               {:delta, "\n> $ `ls`\n", :command}
+    end
+  end
+
+  describe "segment boundaries (segmented turn streams)" do
+    test "a tool/command event past the threshold is a boundary" do
+      assert ChatCompletions.segment_boundary?(:tool, 25_000, 20_000)
+      assert ChatCompletions.segment_boundary?(:command, 20_000, 20_000)
+    end
+
+    test "below the threshold nothing is a boundary" do
+      refute ChatCompletions.segment_boundary?(:tool, 19_999, 20_000)
+    end
+
+    test "assistant prose mid-thought is never a boundary" do
+      refute ChatCompletions.segment_boundary?(:assistant, 120_000, 20_000)
+      refute ChatCompletions.segment_boundary?(:reasoning, 120_000, 20_000)
+    end
+
+    test "idle boundary needs threshold age plus one heartbeat of silence" do
+      assert ChatCompletions.idle_segment_boundary?(true, 3, 25_000, 16_000, 20_000, 15_000)
+      refute ChatCompletions.idle_segment_boundary?(true, 3, 25_000, 5_000, 20_000, 15_000)
+      refute ChatCompletions.idle_segment_boundary?(true, 3, 15_000, 16_000, 20_000, 15_000)
+    end
+
+    test "an empty continuation segment idle-closes after a longer silence (flush, bounded churn)" do
+      # One heartbeat of silence is enough for a streamed segment, but an empty
+      # continuation waits @empty_continuation_idle_factor (2) heartbeats so a
+      # slow quiet tool run doesn't churn a marker every heartbeat.
+      refute ChatCompletions.idle_segment_boundary?(false, 2, 120_000, 16_000, 20_000, 15_000)
+      # After two heartbeats of silence it flushes queued operator input.
+      assert ChatCompletions.idle_segment_boundary?(false, 2, 120_000, 31_000, 20_000, 15_000)
+    end
+
+    test "the empty turn-opening segment may idle-close (quiet turn start)" do
+      assert ChatCompletions.idle_segment_boundary?(false, 0, 25_000, 16_000, 20_000, 15_000)
+    end
+  end
+
+  describe "trailing_user_texts/1 (coalescing defenses)" do
+    test "collects only the user run since the last assistant message" do
+      body = %{
+        "messages" => [
+          %{"role" => "user", "content" => "old question"},
+          %{"role" => "assistant", "content" => "old answer"},
+          %{"role" => "user", "content" => "fix the tests"},
+          %{"role" => "user", "content" => "__aiur_turn__:t1abc-s2"}
+        ]
+      }
+
+      assert ChatCompletions.trailing_user_texts(body) == [
+               "fix the tests",
+               "__aiur_turn__:t1abc-s2"
+             ]
+    end
+
+    test "parts-shaped content is flattened" do
+      body = %{
+        "messages" => [
+          %{"role" => "assistant", "content" => "x"},
+          %{"role" => "user", "content" => [%{"type" => "text", "text" => "hello"}]}
+        ]
+      }
+
+      assert ChatCompletions.trailing_user_texts(body) == ["hello"]
+    end
+
+    test "no trailing user run yields an empty list" do
+      assert ChatCompletions.trailing_user_texts(%{"messages" => [%{"role" => "assistant", "content" => "x"}]}) ==
+               []
+
+      assert ChatCompletions.trailing_user_texts(%{}) == []
+    end
+  end
+
+  describe "normalize_operator_text/1 (strip opencode <system-reminder> wrappers)" do
+    test "mid-stream interjection form: extracts the raw operator message" do
+      wrapped =
+        "<system-reminder>\nThe user sent the following message:\n" <>
+          "hi from opencode, pause and respond exactly \"123\"\n\n" <>
+          "Please address this message and continue with your tasks.\n</system-reminder>"
+
+      assert ChatCompletions.normalize_operator_text(wrapped) ==
+               "hi from opencode, pause and respond exactly \"123\""
+    end
+
+    test "idle form: strips the 'Message sent at' reminder, keeps the raw text" do
+      wrapped = "<system-reminder>Message sent at Sun 2026-06-14 17:19:23 UTC.</system-reminder>\nhi from ce, respond exactly \"456\""
+
+      assert ChatCompletions.normalize_operator_text(wrapped) == "hi from ce, respond exactly \"456\""
+    end
+
+    test "already-raw operator text passes through unchanged" do
+      assert ChatCompletions.normalize_operator_text("just say banana") == "just say banana"
+    end
+
+    test "a reminder with no operator content normalizes to empty (dropped upstream)" do
+      assert ChatCompletions.normalize_operator_text("<system-reminder>cwd changed to /tmp</system-reminder>") == ""
+    end
+  end
+
+  describe "finish_reason_for/1" do
+    test ":input_required finishes with stop, not tool_calls" do
+      # A "tool_calls" finish with no tool-call payload makes opencode
+      # re-open the chat-completion request for the same unanswered
+      # __aiur_turn__ marker, busy-looping until the ActiveTurns entry
+      # expires (~60s) and pegging the TUI. "stop" ends the turn so the
+      # agent resumes via a fresh marker after the dashboard approval.
+      assert ChatCompletions.finish_reason_for(:input_required) == "stop"
+      refute ChatCompletions.finish_reason_for(:input_required) == "tool_calls"
+    end
+
+    test "failed and done reasons also finish with stop" do
+      assert ChatCompletions.finish_reason_for({:failed, :boom}) == "stop"
+      assert ChatCompletions.finish_reason_for(:done) == "stop"
+    end
+  end
+
   describe "bar_connector/2" do
     # When two consecutive blockquote-rendered chunks are emitted to
     # opencode-attach, the blank line BETWEEN them needs a `> ` prefix

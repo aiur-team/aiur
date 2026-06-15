@@ -433,6 +433,8 @@ defmodule Aiur.Opencode.Slot do
            ) do
       Logger.info("opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}")
 
+      Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
+
       Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, state.slot_index})
       Aiur.Perf.event(:slot_ready, slot: state.slot_index)
 
@@ -706,6 +708,11 @@ defmodule Aiur.Opencode.Slot do
 
           dump_pipe_tail(state.slot_index)
 
+          # The dead pane respawns below, so drop its ProcessReaper entry —
+          # otherwise repeated death/respawn cycles accumulate stale pane
+          # refs that the shutdown sweep would try (and fail) to kill.
+          Aiur.ProcessReaper.unregister({:pane, pane_id})
+
           broadcast_session_changed(state.slot_index, nil)
           # Pane is dead — clear the registry's pane_id too.
           broadcast_visible_changed(state.slot_index, nil, nil)
@@ -765,9 +772,35 @@ defmodule Aiur.Opencode.Slot do
       |> Enum.each(&reap_session_writer(&1, state.base_url))
     end
 
-    if is_pid(state.server_pid), do: GenServer.stop(state.server_pid)
+    # A noproc here (server already down) must not skip the pane reap below.
+    if is_pid(state.server_pid) do
+      try do
+        GenServer.stop(state.server_pid)
+      catch
+        :exit, _ -> :ok
+      end
+    end
+
+    case terminate_pane_command(state) do
+      nil ->
+        :ok
+
+      cmd ->
+        Aiur.ProcessReaper.unregister({:pane, state.pane_id})
+        _ = Tmux.command(Tmux, cmd)
+    end
+
     :ok
   end
+
+  # The slot owns its opencode-attach pane. On teardown the pane must be
+  # killed, or the attach client and its inner tmux session outlive an Aiur
+  # quit and leak the whole UI subtree. Returns nil when there is no pane.
+  @spec terminate_pane_command(map()) :: String.t() | nil
+  def terminate_pane_command(%{pane_id: pane_id}) when is_binary(pane_id),
+    do: "kill-pane -t #{pane_id}"
+
+  def terminate_pane_command(_state), do: nil
 
   defp reap_session_writer(%{writer_pid: pid, session_id: session_id}, base_url) do
     _ = ApiClient.delete_session(base_url, session_id)
@@ -1018,6 +1051,7 @@ defmodule Aiur.Opencode.Slot do
     if is_binary(state.pane_id) do
       Logger.warning("opencode_slot phase=kill_for_respawn slot=#{state.slot_index} old_pane_id=#{state.pane_id} session_id=#{session_id}")
 
+      Aiur.ProcessReaper.unregister({:pane, state.pane_id})
       _ = Tmux.command(Tmux, "kill-pane -t #{state.pane_id}")
     end
 
@@ -1039,6 +1073,7 @@ defmodule Aiur.Opencode.Slot do
         pane_id: pane_id
       )
 
+      Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
       maybe_start_pipe_pane(state.slot_index, pane_id)
 
       {:ok, pane_id}

@@ -28,6 +28,12 @@ defmodule Aiur.AgentList.Renderer do
   # trailing space.
   @attention_cell_width 4
 
+  # Fixed-width remote-control indicator column, sat immediately right
+  # of the identifier. Always allocated (even when no agent has RC on)
+  # so columns never shift when an agent is handed off. 3 columns:
+  # emoji (2 terminal columns) + trailing space.
+  @rc_cell_width 3
+
   # Maximum width allotted to the Latest column. The column takes
   # remaining inner width up to this cap; if there's less room
   # available, the column shrinks (and the message truncates with `…`).
@@ -107,9 +113,10 @@ defmodule Aiur.AgentList.Renderer do
 
       markers = compute_markers(state, summaries)
 
-      # Footer split: keybinds on left, event emoji legend on right.
-      # When width doesn't fit both, legend wraps to its own row.
-      footer_render = footer_split(inner_width)
+      # Footer: keybinds below the box. When width is tight, `v layout`
+      # wraps to its own row. An optional RC line (session URL or
+      # transient hint) rides above the keybinds.
+      footer_render = footer_split(inner_width, rc_footer_text(state))
       footer_lines = footer_render.line_count
 
       base_lines = lines_emitted(state, inner_width, footer_lines)
@@ -123,6 +130,15 @@ defmodule Aiur.AgentList.Renderer do
       {events_iodata, events_line_count} = events_block(state, inner_width, events_budget)
 
       [
+        # Begin synchronized update (DEC 2026): the terminal buffers the
+        # whole frame and paints it atomically at the matching `?2026l`.
+        # Without it, a slow consumer can render a PARTIAL frame — and a
+        # multi-byte glyph (emoji, OSC 8 link, box drawing) split across
+        # the partial boundary momentarily paints as `?` replacement
+        # characters in the divider/events region during busy redraws
+        # (the "??????" flicker). Terminals without 2026 support ignore
+        # the sequence; tmux >= 3.4 passes it through.
+        "\e[?2026h",
         # Cursor controls at frame start:
         #   `\e[?25l`  hide cursor
         #   `\e[?12l`  disable cursor blinking (some terminals show
@@ -166,7 +182,9 @@ defmodule Aiur.AgentList.Renderer do
         # cost is six bytes per tick.
         "\e[?25l",
         "\e[?12l",
-        "\e[H"
+        "\e[H",
+        # End synchronized update — the frame paints atomically here.
+        "\e[?2026l"
       ]
     end
   end
@@ -217,7 +235,7 @@ defmodule Aiur.AgentList.Renderer do
          "⏳  warming up — pane not yet ready",
          "🧠  brainstorming",
          "📋  planning",
-         "🛠️  implementing",
+         "🔨  implementing",
          "🔍  reviewing",
          "🟢  working — pane open now (no active phase)",
          "⏸️  agent paused by operator",
@@ -335,9 +353,14 @@ defmodule Aiur.AgentList.Renderer do
   defp agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
     do: metadata_row_iolist("Agents:", "n/a", @ansi_gray, inner_width)
 
-  defp project_row(nil, inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
-  defp project_row("", inner_width), do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
-  defp project_row(label, inner_width), do: metadata_row_iolist("Project:", label, @ansi_cyan, inner_width)
+  defp project_row(nil, inner_width),
+    do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
+
+  defp project_row("", inner_width),
+    do: metadata_row_iolist("Project:", "n/a", @ansi_gray, inner_width)
+
+  defp project_row(label, inner_width),
+    do: metadata_row_iolist("Project:", label, @ansi_cyan, inner_width)
 
   defp dashboard_row(nil, inner_width),
     do: metadata_row_iolist("Dashboard:", "n/a", @ansi_gray, inner_width)
@@ -445,93 +468,65 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  # Footer keybinds. `v layout` rides on the primary row when there's
+  # Footer keybinds. `v layout` rides on the full row when there's
   # room, otherwise wraps to a second row so we don't truncate the more
-  # frequently used keybinds (select/open/pause/help/quit).
-  @keybinds_full "↑/↓ select   enter open   space pause/resume   v layout   ? help   q quit"
-  @keybinds_primary "↑/↓ select   enter open   space pause/resume   ? help   q quit"
+  # frequently used keybinds (select/open/pause/remote/help/quit).
+  @keybinds_full "↑/↓ select   enter open   space pause/resume   r remote   v layout   ? help   q quit"
+  @keybinds_primary "↑/↓ select   enter open   space pause/resume   r remote   ? help   q quit"
   @keybinds_secondary "v layout"
-  @events_legend "💬 publish · 📬 receive · 📄 read"
   @footer_left_padding 2
   @footer_left_padding_str "  "
-  @footer_gap 2
 
-  # Bottom rows: keybinds on the left, event legend on the right. Both
-  # render BELOW the bordered AgentList box (no right `│` wall). The
-  # cascade prefers fewer rows when width permits and always keeps both
-  # the keybinds and the legend visible.
+  # Bottom rows: keybinds rendered BELOW the bordered AgentList box (no
+  # right `│` wall). The cascade prefers fewer rows when width permits.
   #
-  # - 1 row: full keybinds + legend fit side-by-side
-  # - 2 rows: full keybinds alone on row 1, legend below
-  #          OR primary keybinds + legend, "v layout" below
-  # - 3 rows: primary keybinds, "v layout", legend (extremely narrow)
-  defp footer_split(inner_width) do
-    legend = @events_legend
+  # - 1 row: full keybinds fit
+  # - 2 rows: primary keybinds, "v layout" below (narrow)
+  defp footer_split(inner_width, rc_line) do
+    base = footer_keybinds_split(inner_width)
 
-    cond do
-      fits_on_one_row?(@keybinds_full, legend, inner_width) ->
-        %{iodata: [side_by_side_row(@keybinds_full, legend, inner_width), eol()], line_count: 1}
+    case rc_line do
+      text when is_binary(text) and text != "" ->
+        rc_row = [
+          left_only_row(
+            truncate(text, max(inner_width - @footer_left_padding - 1, 0)),
+            inner_width
+          ),
+          eol()
+        ]
 
-      visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width ->
-        %{
-          iodata: [
-            left_only_row(@keybinds_full, inner_width),
-            eol(),
-            left_only_row(legend, inner_width),
-            eol()
-          ],
-          line_count: 2
-        }
+        %{iodata: [rc_row | base.iodata], line_count: base.line_count + 1}
 
-      fits_on_one_row?(@keybinds_primary, legend, inner_width) ->
-        %{
-          iodata: [
-            side_by_side_row(@keybinds_primary, legend, inner_width),
-            eol(),
-            left_only_row(@keybinds_secondary, inner_width),
-            eol()
-          ],
-          line_count: 2
-        }
-
-      true ->
-        %{
-          iodata: [
-            left_only_row(@keybinds_primary, inner_width),
-            eol(),
-            left_only_row(@keybinds_secondary, inner_width),
-            eol(),
-            left_only_row(legend, inner_width),
-            eol()
-          ],
-          line_count: 3
-        }
+      _ ->
+        base
     end
   end
 
-  defp fits_on_one_row?(left, right, inner_width) do
-    needed = @footer_left_padding + visual_width(left) + @footer_gap + visual_width(right) + 1
-    needed <= inner_width
+  defp footer_keybinds_split(inner_width) do
+    if visual_width(@footer_left_padding_str <> @keybinds_full) + 1 <= inner_width do
+      %{iodata: [left_only_row(@keybinds_full, inner_width), eol()], line_count: 1}
+    else
+      %{
+        iodata: [
+          left_only_row(@keybinds_primary, inner_width),
+          eol(),
+          left_only_row(@keybinds_secondary, inner_width),
+          eol()
+        ],
+        line_count: 2
+      }
+    end
   end
 
-  # `  <left>   …gap…   <right> ` padded to inner_width.
-  defp side_by_side_row(left, right, inner_width) do
-    pad = String.duplicate(" ", @footer_left_padding)
-    body = pad <> left
-
-    body_width = visual_width(body)
-    right_width = visual_width(right)
-    # Reserve trailing column for autowrap safety; spacer fills the rest.
-    spacer = String.duplicate(" ", max(inner_width - body_width - right_width - 1, 1))
-
-    [
-      @ansi_dim,
-      body,
-      spacer,
-      right,
-      " ",
-      @ansi_reset
-    ]
+  # RC footer text: just the transient hint (immediate feedback after the
+  # `r`/Space toggle). The session URL itself now rides in the agent's
+  # chat-pane top border (set via tmux in `Aiur.AgentList.App`) so it
+  # travels with the pane it belongs to instead of floating in the footer.
+  defp rc_footer_text(state) do
+    case Map.get(state, :remote_control_hint) do
+      hint when is_binary(hint) and hint != "" -> hint
+      _ -> nil
+    end
   end
 
   defp left_only_row(text, inner_width) do
@@ -550,7 +545,7 @@ defmodule Aiur.AgentList.Renderer do
     body = [
       "│   ",
       cell("ID", layout.id_width),
-      "  ",
+      cell("", @rc_cell_width),
       cell("", @state_cell_width),
       cell("", @attention_cell_width),
       cell("TITLE", layout.title_width),
@@ -630,7 +625,7 @@ defmodule Aiur.AgentList.Renderer do
       @ansi_cyan,
       id_cell,
       @ansi_reset,
-      "  ",
+      rc_cell(summary),
       state_cell,
       attention_cell,
       title_cell,
@@ -646,13 +641,13 @@ defmodule Aiur.AgentList.Renderer do
     runtime_width = @runtime_cell_width + 1
 
     # Visual columns consumed by the body, in order:
-    #   `│ ` (2) + marker (2) + id_cell + `  ` (2) + state_cell (3)
-    #   + attention_cell (4) + title_cell + ` ` (1) + latest_cell
-    #   + progress_block + runtime_block.
+    #   `│ ` (2) + marker (2) + id_cell + rc_cell (3)
+    #   + state_cell (3) + attention_cell (4) + title_cell + ` ` (1)
+    #   + latest_cell + progress_block + runtime_block.
     # Sum the parts directly so the right `│` border lands at the
     # same column as the metadata/separator rows above.
     plain_visual =
-      2 + 2 + layout.id_width + 2 + @state_cell_width + @attention_cell_width +
+      2 + 2 + layout.id_width + @rc_cell_width + @state_cell_width + @attention_cell_width +
         layout.title_width + 1 + layout.latest_width + progress_width + runtime_width
 
     # Reserve the last column for the right `│` border so each row
@@ -721,6 +716,24 @@ defmodule Aiur.AgentList.Renderer do
       end
 
     emoji_cell(text, @attention_cell_width)
+  end
+
+  # Remote-control indicator cell. `:launching` shows 📲 (registration
+  # is a network round-trip, so the operator gets feedback the instant
+  # `r` is pressed, before the URL lands — a distinct glyph from the ⏳
+  # warming marker so the two never read as the same state); `:on`
+  # shows 📱; `:failed` shows ❌; `:off`/absent shows nothing. Width is
+  # fixed at @rc_cell_width regardless so column alignment never shifts.
+  defp rc_cell(summary) do
+    glyph =
+      case Map.get(summary, :remote_control) do
+        %{status: :launching} -> "📲"
+        %{status: :on} -> "📱"
+        %{status: :failed} -> "❌"
+        _ -> ""
+      end
+
+    emoji_cell(glyph, @rc_cell_width)
   end
 
   # Progress + ETA pair, rendered as one cell of fixed width 16:
@@ -834,11 +847,28 @@ defmodule Aiur.AgentList.Renderer do
         Map.get(summary, :status) == :queued -> "Queueing agent…"
         is_nil(attach) -> "Warming up…"
         match?(%{visible_in: nil}, attach) -> "Warming up…"
-        not has_content -> "Starting codex…"
+        not has_content -> starting_phrase(summary)
         true -> ""
       end
 
     if phrase == "", do: "", else: spinner <> " " <> phrase
+  end
+
+  # The "Starting" placeholder should name the agent's own engine, not a
+  # hardcoded backend. The summary carries the resolved backend string
+  # (e.g. "claude-repl", "codex"); the engine family is its first segment.
+  defp starting_phrase(summary) do
+    case engine_word(summary) do
+      nil -> "Starting…"
+      word -> "Starting #{word}…"
+    end
+  end
+
+  defp engine_word(summary) do
+    case Map.get(summary, :backend) do
+      backend when is_binary(backend) -> backend |> String.split("-") |> List.first()
+      _ -> nil
+    end
   end
 
   defp latest_event_message(nil), do: ""
@@ -895,7 +925,7 @@ defmodule Aiur.AgentList.Renderer do
   defp marker_from_attach(_attach, _has_content), do: "⏳"
 
   # `summary_emoji` shows, for a running working agent, the active
-  # workflow phase (🧠/📋/🛠️/🔍 — #68) when one is known, falling back
+  # workflow phase (🧠/📋/🔨/🔍 — #68) when one is known, falling back
   # to the precomputed instant-open marker otherwise. Pre-warm ⏳ still
   # wins while the pane isn't warm. Paused/error/done defer to
   # AgentEvents.
@@ -917,12 +947,19 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  defp summary_emoji(%{work_state: work_state}, _markers, _phase), do: AgentEvents.state_emoji(work_state)
+  defp summary_emoji(%{work_state: work_state}, _markers, _phase),
+    do: AgentEvents.state_emoji(work_state)
+
   defp summary_emoji(_, _markers, _phase), do: "⚫"
 
   defp phase_emoji(:brainstorm), do: "🧠"
   defp phase_emoji(:plan), do: "📋"
-  defp phase_emoji(:work), do: "🛠️"
+  # U+1F528 hammer, not the U+1F6E0+FE0F hammer-and-wrench: the latter
+  # needs a variation selector to get emoji presentation, and terminals
+  # that default it to text presentation (e.g. Termius on iOS) render it
+  # one column wide, breaking the fixed-width column math here. The plain
+  # hammer has default emoji presentation, so it stays two columns.
+  defp phase_emoji(:work), do: "🔨"
   defp phase_emoji(:review), do: "🔍"
   defp phase_emoji(_), do: nil
 
@@ -963,12 +1000,19 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_title_width)
 
-    # `│ ` (2) + marker (2) + id + `  ` (2) + state (3) + attention (4)
-    # + title + ` ` (1) + [progress block] + runtime_block (8) + ` │`
-    # (1 for the right border the row closes with).
+    # `│ ` (2) + marker (2) + id + rc (3) + state (3)
+    # + attention (4) + title + ` ` (1) + [progress block]
+    # + runtime_block (8) + ` │` (1 for the right border the row
+    # closes with).
     runtime_block_width = @runtime_cell_width + 1
-    base_overhead = 2 + 2 + 2 + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
-    show_progress? = inner_width - base_overhead - @min_id_width - @min_title_width - 1 >= @progress_cell_width + 1
+
+    base_overhead =
+      2 + 2 + @rc_cell_width + @state_cell_width + @attention_cell_width + 1 + runtime_block_width
+
+    show_progress? =
+      inner_width - base_overhead - @min_id_width - @min_title_width - 1 >=
+        @progress_cell_width + 1
+
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
     fixed_non_id_overhead = base_overhead + progress_block_width
 
@@ -994,7 +1038,9 @@ defmodule Aiur.AgentList.Renderer do
     constrained? = natural_title_width + @max_latest_width > remaining_after_id
 
     title_cap =
-      if constrained?, do: min(@title_constrained_cap, natural_title_width), else: natural_title_width
+      if constrained?,
+        do: min(@title_constrained_cap, natural_title_width),
+        else: natural_title_width
 
     title_target = min(title_cap, max(remaining_after_id - @min_latest_width, 0))
     title_width = max(min(title_target, remaining_after_id), 0)
@@ -1110,23 +1156,73 @@ defmodule Aiur.AgentList.Renderer do
   # Everything else (Latin-1 supplement, arrows, box drawing, …) is 1.
   defp codepoint_width(_cp), do: 1
 
+  @csi_re ~r/^\e\[[0-9;?]*[A-Za-z]/
+  # Matches both OSC 8 forms (open carries a URL, close has an empty URL),
+  # terminated by ST (`\e\\`) or BEL (`\a`).
+  @osc8_re ~r/^\e\]8;;[^\e\a]*(?:\e\\|\a)/
+  @osc8_close_re ~r/^\e\]8;;(?:\e\\|\a)/
+
   # Truncate `text` to at most `limit` visual columns, splitting on
-  # grapheme boundaries so a multi-codepoint emoji is never cut.
+  # grapheme boundaries so a multi-codepoint emoji is never cut. ANSI CSI
+  # runs and OSC 8 hyperlink wrappers pass through at zero width and are
+  # never split — counting their bytes against the budget would cut inside
+  # an escape sequence, and the terminal then swallows the broken run,
+  # hiding the whole line. If truncation lands inside an open hyperlink,
+  # the link is closed so the trailing ellipsis renders outside it.
   defp truncate_visual(_text, limit) when limit <= 0, do: ""
 
   defp truncate_visual(text, limit) do
-    text
-    |> String.graphemes()
-    |> Enum.reduce_while({"", 0}, fn g, {acc, used} ->
-      w = grapheme_width(g)
+    {acc, _used, open_link?} = take_visible(text, limit, [], 0, false)
+    result = IO.iodata_to_binary(acc)
+    if open_link?, do: result <> "\e]8;;\e\\", else: result
+  end
 
-      if used + w > limit do
-        {:halt, {acc, used}}
-      else
-        {:cont, {acc <> g, used + w}}
-      end
-    end)
-    |> elem(0)
+  defp take_visible("", _limit, acc, used, open?), do: {acc, used, open?}
+
+  defp take_visible(text, limit, acc, used, open?) do
+    case split_escape(text) do
+      {:osc_close, seq, rest} -> take_visible(rest, limit, [acc, seq], used, false)
+      {:osc_open, seq, rest} -> take_visible(rest, limit, [acc, seq], used, true)
+      {:csi, seq, rest} -> take_visible(rest, limit, [acc, seq], used, open?)
+      :none -> take_grapheme(text, limit, acc, used, open?)
+    end
+  end
+
+  defp take_grapheme(text, limit, acc, used, open?) do
+    {g, rest} = String.next_grapheme(text)
+    w = grapheme_width(g)
+
+    if used + w > limit do
+      {acc, used, open?}
+    else
+      take_visible(rest, limit, [acc, g], used + w, open?)
+    end
+  end
+
+  # Peel a leading ANSI/OSC escape sequence off `text`, returning its kind,
+  # the sequence, and the remainder — or `:none` when `text` starts with a
+  # visible grapheme.
+  defp split_escape(text) do
+    case Regex.run(@osc8_re, text, return: :binary) do
+      [seq | _] -> {osc_kind(seq), seq, drop_prefix(text, seq)}
+      nil -> split_csi(text)
+    end
+  end
+
+  defp split_csi(text) do
+    case Regex.run(@csi_re, text, return: :binary) do
+      [seq | _] -> {:csi, seq, drop_prefix(text, seq)}
+      nil -> :none
+    end
+  end
+
+  defp osc_kind(seq) do
+    if Regex.match?(@osc8_close_re, seq), do: :osc_close, else: :osc_open
+  end
+
+  defp drop_prefix(text, prefix) do
+    plen = byte_size(prefix)
+    binary_part(text, plen, byte_size(text) - plen)
   end
 
   # Pad a (raw, no-ansi) text to exactly `inner_width` visual columns,
@@ -1240,7 +1336,8 @@ defmodule Aiur.AgentList.Renderer do
     {iodata, 1 + capacity}
   end
 
-  defp selected_identifier(%{selection_index: idx, summaries: summaries}) when is_list(summaries) do
+  defp selected_identifier(%{selection_index: idx, summaries: summaries})
+       when is_list(summaries) do
     case Enum.at(summaries, idx) do
       %{identifier: id} when is_binary(id) -> id
       _ -> nil
@@ -1357,7 +1454,8 @@ defmodule Aiur.AgentList.Renderer do
   # carries the same content. Comments (issue.commented /
   # pr.review_comment) survive because a comment on the agent's OWN
   # ticket is a genuine signal worth surfacing.
-  defp ticker_self_echo?(:receive, topic, %{identifier: id}) when is_binary(topic) and is_binary(id) do
+  defp ticker_self_echo?(:receive, topic, %{identifier: id})
+       when is_binary(topic) and is_binary(id) do
     source = event_source_ticket_id(topic)
     suffix = topic_suffix(topic)
 
@@ -1372,20 +1470,25 @@ defmodule Aiur.AgentList.Renderer do
 
   # For publishes, the subject is the source ticket itself.
   # For receives / reads, the subject is the receiving ticket.
-  defp event_subject_id(:publish, _entry, source_id, _rendering_identifier) when is_binary(source_id),
-    do: source_id
+  defp event_subject_id(:publish, _entry, source_id, _rendering_identifier)
+       when is_binary(source_id),
+       do: source_id
 
-  defp event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
-    do: id
+  defp event_subject_id(:receive, %{identifier: id}, _source_id, _rendering_identifier)
+       when is_binary(id),
+       do: id
 
-  defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier) when is_binary(id),
-    do: id
+  defp event_subject_id(:read, %{identifier: id}, _source_id, _rendering_identifier)
+       when is_binary(id),
+       do: id
 
-  defp event_subject_id(:read, _entry, source_id, _rendering_identifier) when is_binary(source_id),
-    do: source_id
+  defp event_subject_id(:read, _entry, source_id, _rendering_identifier)
+       when is_binary(source_id),
+       do: source_id
 
-  defp event_subject_id(_kind, _entry, _source_id, rendering_identifier) when is_binary(rendering_identifier),
-    do: rendering_identifier
+  defp event_subject_id(_kind, _entry, _source_id, rendering_identifier)
+       when is_binary(rendering_identifier),
+       do: rendering_identifier
 
   defp event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
 
@@ -1562,8 +1665,11 @@ defmodule Aiur.AgentList.Renderer do
       last = commits |> List.last() |> commit_message()
 
       case last do
-        nil -> {"pushed #{count} #{commits_word(count)}", ""}
-        msg -> {"pushed #{count} #{commits_word(count)}, last:", " \"" <> clip_summary(msg) <> "\""}
+        nil ->
+          {"pushed #{count} #{commits_word(count)}", ""}
+
+        msg ->
+          {"pushed #{count} #{commits_word(count)}, last:", " \"" <> clip_summary(msg) <> "\""}
       end
     else
       {"pushed", ""}
@@ -1605,7 +1711,8 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
-  defp cross_receive_summary(suffix, body) when suffix in ["issue.commented", "pr.review_comment"] do
+  defp cross_receive_summary(suffix, body)
+       when suffix in ["issue.commented", "pr.review_comment"] do
     comment_body_summary(body)
   end
 
@@ -1720,7 +1827,8 @@ defmodule Aiur.AgentList.Renderer do
 
   # Linkify "PR" / "comment" tokens in the verb phrase. Falls back to
   # the subject's issue URL when the body has no PR-specific URL.
-  defp link_verb_phrase(verb_phrase, _kind, suffix, body, repo, fallback_url) when is_binary(verb_phrase) do
+  defp link_verb_phrase(verb_phrase, _kind, suffix, body, repo, fallback_url)
+       when is_binary(verb_phrase) do
     cond do
       repo == nil ->
         verb_phrase

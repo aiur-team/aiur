@@ -17,7 +17,7 @@ defmodule Aiur.OrchestratorAutoSubscribeTest do
 
   describe "SubscriptionStore.add_subscription/3 (first-write-wins reason)" do
     setup do
-      identifier = "test-fww-#{System.unique_integer([:positive])}"
+      identifier = unique_identifier("test-fww")
       :ok = SubscriptionStore.attach(identifier)
       on_exit(fn -> :ok = SubscriptionStore.stop(identifier) end)
       %{identifier: identifier}
@@ -45,7 +45,7 @@ defmodule Aiur.OrchestratorAutoSubscribeTest do
 
   describe "SubscriptionStore.remove_subscription/3 (reason filter)" do
     setup do
-      identifier = "test-rsa-#{System.unique_integer([:positive])}"
+      identifier = unique_identifier("test-rsa")
       :ok = SubscriptionStore.attach(identifier)
       on_exit(fn -> :ok = SubscriptionStore.stop(identifier) end)
       %{identifier: identifier}
@@ -80,5 +80,10 @@ defmodule Aiur.OrchestratorAutoSubscribeTest do
   defp assert_subscribed?(identifier, topic, expected) do
     topics = identifier |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to) |> Enum.map(& &1["topic"])
     assert topic in topics == expected
+  end
+
+  defp unique_identifier(prefix) do
+    unique = System.unique_integer([:positive, :monotonic])
+    "#{prefix}-#{System.system_time(:nanosecond)}-#{unique}"
   end
 end

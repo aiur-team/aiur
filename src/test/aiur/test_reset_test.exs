@@ -110,8 +110,8 @@ defmodule Aiur.TestResetTest do
       end
     end
 
-    test "golden dry-run returns :ok and reads golden_ticket, no side effects" do
-      tmp = Path.join(System.tmp_dir!(), "aiur_golden_#{System.unique_integer([:positive])}")
+    test "single dry-run returns :ok and resets only the first ticket, no side effects" do
+      tmp = Path.join(System.tmp_dir!(), "aiur_single_#{System.unique_integer([:positive])}")
       File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
@@ -127,7 +127,7 @@ defmodule Aiur.TestResetTest do
         File.write!(Path.join([tmp, "src/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
       end
 
-      File.write!(Path.join(tmp, ".aiur-test-tickets.json"), ~s({"tickets": [101]}))
+      File.write!(Path.join(tmp, ".aiur-test-tickets.json"), ~s({"tickets": [99, 100, 101]}))
 
       {_, 0} = System.cmd("git", ["add", "."], cd: tmp)
       {_, 0} = System.cmd("git", ["commit", "-m", "baseline"], cd: tmp)
@@ -139,13 +139,16 @@ defmodule Aiur.TestResetTest do
                      TestReset.run(%{
                        repo_root: tmp,
                        confirm: false,
-                       golden: true,
+                       single: true,
                        allow_remote: true
                      })
           end)
 
-        assert output =~ "golden_ticket"
         assert output =~ "--test DRY-RUN"
+        # Single mode narrows the blocker chain to the first ticket only.
+        assert output =~ "- 99"
+        refute output =~ "- 100"
+        refute output =~ "- 101"
       after
         File.rm_rf!(tmp)
       end
@@ -201,6 +204,46 @@ defmodule Aiur.TestResetTest do
       for required <- ~w(agent:todo agent:in-progress agent:human-review agent:rework agent:merging agent:done agent:error agent:cancelled agent:canceled) do
         assert required in labels, "remove set missing #{required}"
       end
+    end
+  end
+
+  # Regression: a single `gh issue edit` to set agent:todo is flaky — GitHub
+  # GraphQL intermittently 401s during a reset. When it failed, the ticket was
+  # left unlabeled and the orchestrator never dispatched it, stranding the whole
+  # 3-ticket chain (e.g. #101 pauses forever waiting on the never-dispatched
+  # #100 → ~90 min timeout). apply_label_reset/5 retries the pair, then reports
+  # failure so the caller can refuse to launch a doomed run.
+  describe "apply_label_reset/5" do
+    test "succeeds on the first attempt when both calls exit 0" do
+      counter = :counters.new(1, [])
+
+      runner = fn _argv ->
+        :counters.add(counter, 1, 1)
+        {"", 0}
+      end
+
+      assert :ok = TestReset.apply_label_reset(["remove"], ["add"], runner, 3, 0)
+      # one remove + one add, no retries
+      assert :counters.get(counter, 1) == 2
+    end
+
+    test "retries on a transient failure and then succeeds" do
+      agent = start_supervised!({Agent, fn -> 0 end})
+
+      # Fail the very first gh call (a 401 on the remove step), then succeed.
+      runner = fn _argv ->
+        n = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+        if n == 0, do: {"HTTP 401", 1}, else: {"", 0}
+      end
+
+      assert :ok = TestReset.apply_label_reset(["remove"], ["add"], runner, 3, 0)
+    end
+
+    test "returns {:error, output} after exhausting all attempts" do
+      runner = fn _argv -> {"HTTP 401: Requires authentication\n", 1} end
+
+      assert {:error, "HTTP 401: Requires authentication"} =
+               TestReset.apply_label_reset(["remove"], ["add"], runner, 3, 0)
     end
   end
 

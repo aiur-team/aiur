@@ -82,9 +82,10 @@ defmodule Aiur.Opencode.AttachPool do
   (1-based slot index → 0-based list index). Wraps for slots beyond
   the active list length.
   """
-  @spec seed(GenServer.server(), [String.t()]) :: :ok
-  def seed(server \\ __MODULE__, identifiers) when is_list(identifiers) do
-    GenServer.cast(server, {:seed, identifiers})
+  @spec seed(GenServer.server(), [String.t()], [String.t()]) :: :ok
+  def seed(server \\ __MODULE__, identifiers, retain_ids \\ [])
+      when is_list(identifiers) and is_list(retain_ids) do
+    GenServer.cast(server, {:seed, identifiers, retain_ids})
   end
 
   @doc """
@@ -185,8 +186,8 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   @impl true
-  def handle_cast({:seed, identifiers}, state) do
-    {:noreply, do_seed(state, identifiers)}
+  def handle_cast({:seed, identifiers, retain_ids}, state) do
+    {:noreply, do_seed(state, identifiers, retain_ids)}
   end
 
   def handle_cast({:mark_visible, identifier, slot_index}, state) do
@@ -309,8 +310,16 @@ defmodule Aiur.Opencode.AttachPool do
 
   ## Internals -----------------------------------------------------------
 
-  defp do_seed(state, identifiers) do
-    new_active = identifiers
+  defp do_seed(state, identifiers, retain_ids) do
+    # Retained identifiers are agents the user paused (Ctrl+C once) but
+    # whose opencode pane must stay open until an explicit close (second
+    # Ctrl+C). They drop out of `identifiers` (the spawn-eligible set) so
+    # they never claim a fresh leadoff, yet we fold the already-attached
+    # ones back into `new_active` so they are neither detached (removed)
+    # nor re-spawned (added). A retain id with no live attachment is a
+    # no-op: it isn't active, so it can't be retained into a pane.
+    retained = Enum.filter(retain_ids, &(&1 in state.active_identifiers))
+    new_active = Enum.uniq(identifiers ++ retained)
     added = new_active -- state.active_identifiers
     removed = state.active_identifiers -- new_active
 

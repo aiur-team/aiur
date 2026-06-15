@@ -19,6 +19,18 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.override_backend(issue(["model:claude-opus-4-8"])) == "claude"
     end
 
+    test "a hyphenated backend is resolved whole, not split into backend+variant" do
+      # `claude-repl` must win over the shorter `claude` so its trailing
+      # `repl` segment is not mistaken for a model variant.
+      assert CodingAgent.override_backend(issue(["model:claude-repl"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-repl"])) == nil
+    end
+
+    test "a hyphenated backend still pins a trailing variant" do
+      assert CodingAgent.override_backend(issue(["model:claude-repl-opus-4-8"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-repl-opus-4-8"])) == "opus-4-8"
+    end
+
     test "unknown backend in a model: tag is ignored" do
       assert CodingAgent.override_backend(issue(["model:bogus"])) == nil
       assert CodingAgent.override_backend(issue(["model:bogus-x"])) == nil
@@ -26,6 +38,40 @@ defmodule Aiur.CodingAgentTest do
 
     test "no model: tag yields nil" do
       assert CodingAgent.override_backend(issue(["complexity:5", "agent:todo"])) == nil
+    end
+  end
+
+  describe "model:claude-remote alias (forces RC, resolves to claude-repl)" do
+    test "the alias resolves whole to the claude-repl backend, no variant" do
+      assert CodingAgent.override_backend(issue(["model:claude-remote"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-remote"])) == nil
+    end
+
+    test "the alias is not mis-split into backend claude + variant remote" do
+      refute CodingAgent.override_backend(issue(["model:claude-remote"])) == "claude"
+      refute CodingAgent.model_for(issue(["model:claude-remote"])) == "remote"
+    end
+
+    test "remote_control_forced? is true only when the alias label is present" do
+      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote"]))
+      refute CodingAgent.remote_control_forced?(issue(["model:claude-repl"]))
+      refute CodingAgent.remote_control_forced?(issue(["model:claude"]))
+      refute CodingAgent.remote_control_forced?(issue(["complexity:5"]))
+    end
+
+    test "the alias label is auto-seeded" do
+      assert "model:claude-remote" in CodingAgent.override_labels()
+    end
+
+    test "an alias-variant label pins the model through the alias" do
+      assert CodingAgent.override_backend(issue(["model:claude-remote-sonnet"])) == "claude-repl"
+      assert CodingAgent.model_for(issue(["model:claude-remote-sonnet"])) == "sonnet"
+    end
+
+    test "an alias-variant label still forces remote control" do
+      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-sonnet"]))
+      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-opus-4-8"]))
+      refute CodingAgent.remote_control_forced?(issue(["model:claude-sonnet"]))
     end
   end
 
@@ -86,26 +132,49 @@ defmodule Aiur.CodingAgentTest do
 
   describe "registry dispatch" do
     test "known_backends comes from the registry" do
-      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "codex"]
+      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex"]
     end
 
     test "adapter and transcript_module resolve per backend" do
       assert CodingAgent.adapter("claude") == Aiur.Claude.CodingAgent
       assert CodingAgent.adapter("codex") == Aiur.Codex.CodingAgent
+      assert CodingAgent.adapter("claude-repl") == Aiur.Claude.ReplAgent
       assert CodingAgent.transcript_module("claude") == Aiur.Claude.Transcript
       assert CodingAgent.transcript_module("codex") == Aiur.Codex.Transcript
+      assert CodingAgent.transcript_module("claude-repl") == Aiur.Claude.Transcript
     end
 
     test "delivery-policy defaults come from the registry" do
       assert CodingAgent.can_interrupt?("codex")
       assert CodingAgent.safe_checkpoints("codex") == [:notification, :tool_result]
       assert CodingAgent.safe_checkpoints("claude") == [:notification]
+      # The REPL holds nothing at a checkpoint, but Ctrl+C to its pane is
+      # an out-of-band interrupt, so it advertises the capability.
+      assert CodingAgent.can_interrupt?("claude-repl")
+      assert CodingAgent.safe_checkpoints("claude-repl") == []
+    end
+
+    test "immediate_delivery? is true only for the REPL backend" do
+      assert CodingAgent.immediate_delivery?("claude-repl")
+      refute CodingAgent.immediate_delivery?("claude")
+      refute CodingAgent.immediate_delivery?("codex")
+      refute CodingAgent.immediate_delivery?("opencode")
     end
 
     test "unknown backend fails loud" do
       assert_raise ArgumentError, ~r/unknown coding-agent backend/, fn ->
         CodingAgent.adapter("opencode")
       end
+    end
+
+    test "remote_control? is true for claude, false for codex" do
+      assert CodingAgent.remote_control?("claude")
+      assert CodingAgent.remote_control?("claude-repl")
+      refute CodingAgent.remote_control?("codex")
+    end
+
+    test "remote_control? is false for an unknown backend" do
+      refute CodingAgent.remote_control?("opencode")
     end
 
     test "override_labels seeds all three tag layers per backend" do

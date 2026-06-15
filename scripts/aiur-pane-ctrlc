@@ -1,0 +1,135 @@
+#!/usr/bin/env sh
+# Opencode pane Ctrl+C bridge. Bound to `C-c` for non-agent-list panes in
+# aiur.tmux.conf. Asks Aiur what a Ctrl+C should do for the agent painted
+# into this pane (drain a queued message, pause an idle agent, or close
+# the pane when already paused) and acts on the answer.
+#
+# The whole point is safe degradation: if Aiur is unreachable, the URL is
+# unset, or anything else goes wrong, we fall back to plain `kill-pane`,
+# which is exactly the pre-bridge behaviour. The 3-state UX is a pure
+# enhancement layered on top — a failure here never strands the operator
+# with a pane they cannot close.
+#
+# Args:
+#   $1  tmux pane id (e.g. "%9")
+#   $2  control base URL (e.g. "http://127.0.0.1:4000"), may be empty
+#
+# Runs inside tmux `run-shell`, so `$TMUX` is set and a bare `tmux`
+# command targets the same server/socket.
+set -u
+
+pane_id="${1:-}"
+control_url="${2:-}"
+# Optional action: "hide" skips the 3-state interrupt query and goes
+# straight to hide-with-kill-fallback (the Ctrl+Q binding's path).
+mode="${3:-interrupt}"
+
+# Always-on breadcrumb so a Ctrl+C that closes a pane leaves evidence of which
+# branch ran — the tmux binding and this helper are otherwise invisible to
+# aiur.log. One line per press; pane id and outcome only, never the URL.
+log_ctrlc() {
+  printf '%s ctrlc pane_id=%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$pane_id" "$1" \
+    >> "${TMPDIR:-/tmp}/aiur-ctrlc.log" 2>/dev/null || true
+}
+
+close_pane() {
+  log_ctrlc "action=close_pane reason=${1:-degraded}"
+  [ -n "$pane_id" ] && tmux kill-pane -t "$pane_id" 2>/dev/null
+  exit 0
+}
+
+# Closing a chat pane must never kill the opencode-attach process — ask
+# Aiur to HIDE the pane (move it to the warm window, slot binding kept)
+# so reopening swaps the same pane back instantly. Only when the hide
+# call fails (Aiur down, unknown pane) does this degrade to kill-pane.
+hide_pane() {
+  if [ -n "$control_url" ]; then
+    # shellcheck disable=SC2086
+    if curl -fsS -m 2 \
+      -H 'X-Aiur-Request: 1' \
+      -H 'Origin: http://127.0.0.1' \
+      --data-urlencode "pane_id=${pane_id}" \
+      $auth_args \
+      "${control_url}/api/v1/pane/hide" >/dev/null 2>&1; then
+      log_ctrlc "action=hide_pane reason=${1:-requested}"
+      exit 0
+    fi
+  fi
+
+  close_pane "hide_failed_${1:-requested}"
+}
+
+# No pane to act on, or no idea where Aiur is listening: degrade to close.
+[ -z "$pane_id" ] && exit 0
+
+# Loopback dashboards bind without auth; only attach credentials when the
+# operator has explicitly configured them for a non-loopback bind.
+auth_args=""
+if [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
+  auth_args="--user ${AIUR_DASHBOARD_USERNAME}:${AIUR_DASHBOARD_PASSWORD}"
+fi
+
+# Ctrl+Q path: unconditional hide (kill only as fallback).
+[ "$mode" = "hide" ] && hide_pane "ctrl_q"
+
+[ -z "$control_url" ] && close_pane "no_control_url"
+
+# The interrupt timeout MUST exceed the orchestrator's own 5s
+# GenServer.call timeout: that call serializes behind the single
+# Orchestrator mailbox, so under load the reply can take seconds. A
+# shorter curl timeout abandons a call that would have succeeded and then
+# (below) degraded to a destructive kill — exactly the race that reset a
+# live conversation when Ctrl+C was pressed on a busy agent.
+# shellcheck disable=SC2086
+response="$(
+  curl -fsS -m 8 \
+    -H 'X-Aiur-Request: 1' \
+    -H 'Origin: http://127.0.0.1' \
+    --data-urlencode "pane_id=${pane_id}" \
+    $auth_args \
+    "${control_url}/api/v1/pane/interrupt" 2>/dev/null
+)"
+curl_status=$?
+
+# Curl failed: distinguish "aiur busy" from "aiur unreachable" so a slow
+# call never costs the operator their live pane. Exit 28 is a timeout —
+# the dashboard is alive and the interrupt is almost certainly still
+# being processed server-side, so KEEP THE PANE OPEN (killing it here is
+# what broke the opencode pipe, tripped :repl_gone, and re-dispatched a
+# fresh session). Any other non-zero (connection refused, DNS, HTTP
+# error) means aiur is unreachable or erroring: degrade to a
+# non-destructive hide (session + attach survive); hide_pane itself falls
+# back to kill only if the hide call also fails.
+if [ "$curl_status" -ne 0 ]; then
+  if [ "$curl_status" -eq 28 ]; then
+    log_ctrlc "action=keep_open reason=curl_timeout"
+    exit 0
+  fi
+  hide_pane "curl_failed_${curl_status}"
+fi
+
+# opencode owns the interrupt for codex/opencode agents: forward its native
+# interrupt key (Esc) to the pane so it drains its queued operator message and
+# keeps working. Aiur mutates no state on this reply; the keystroke is the
+# whole effect. Pane stays open.
+case "$response" in
+  *send_interrupt*)
+    tmux send-keys -t "$pane_id" Escape 2>/dev/null
+    log_ctrlc "action=send_interrupt response=${response}"
+    exit 0
+    ;;
+esac
+
+# The agent handled the keypress (interrupted its REPL turn or paused). Leave
+# the pane open so the operator stays in the conversation.
+case "$response" in
+  *interrupted* | *paused*)
+    log_ctrlc "action=keep_open response=${response}"
+    exit 0
+    ;;
+esac
+
+# close_pane, an error, or any unexpected body: hide the pane (the
+# paused agent's session and attach process stay alive; reopen swaps the
+# same pane back). Kill only when the hide call itself fails.
+hide_pane "response=${response}"

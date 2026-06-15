@@ -6,6 +6,7 @@ defmodule Aiur.AgentChat do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator}
+  alias Aiur.Opencode.SlotRegistry
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
   @spec send(String.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
@@ -42,6 +43,28 @@ defmodule Aiur.AgentChat do
 
   defp preview(text) when is_binary(text) do
     if byte_size(text) > 500, do: binary_part(text, 0, 500) <> "…", else: text
+  end
+
+  @spec interrupt(String.t()) :: :ok | {:error, term()}
+  def interrupt(issue_identifier) when is_binary(issue_identifier) do
+    Orchestrator.interrupt_agent(issue_identifier)
+  end
+
+  @spec pane_interrupt(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt(pane_id) when is_binary(pane_id) do
+    {via, result} =
+      case SlotRegistry.find_by_pane_id(pane_id) do
+        {:ok, _slot_index, issue_identifier} ->
+          {{:slot, issue_identifier}, Orchestrator.pane_interrupt(issue_identifier)}
+
+        :not_found ->
+          {:pane_id, Orchestrator.pane_interrupt_by_pane_id(pane_id)}
+      end
+
+    Logger.info("aiur_ctrlc bridge pane_id=#{pane_id} via=#{inspect(via)} result=#{inspect(result)}")
+
+    result
   end
 
   @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}

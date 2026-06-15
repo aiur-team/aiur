@@ -41,6 +41,10 @@ defmodule Aiur.Opencode.Server do
 
     Logger.info("opencode_server phase=starting issue_identifier=#{identifier} opencode_pid=#{inspect(os_pid)}")
 
+    # `bash -c` execs into opencode-serve, so this pid IS the serve. Kind
+    # :serve reaps AFTER session deletion (delete_all needs a live serve).
+    Aiur.ProcessReaper.register(:serve, {:os_pid, os_pid}, comm: "opencode")
+
     {:ok,
      %__MODULE__{
        identifier: identifier,
@@ -100,6 +104,11 @@ defmodule Aiur.Opencode.Server do
   @impl true
   def terminate(_reason, state) do
     if is_port(state.port_ref) do
+      case Port.info(state.port_ref, :os_pid) do
+        {:os_pid, pid} -> Aiur.ProcessReaper.unregister({:os_pid, pid})
+        _ -> :ok
+      end
+
       reap_opencode_children(state.port_ref)
       Port.close(state.port_ref)
     end

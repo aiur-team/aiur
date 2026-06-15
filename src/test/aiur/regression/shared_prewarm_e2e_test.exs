@@ -123,6 +123,36 @@ defmodule Aiur.Regression.SharedPrewarmE2ETest do
       assert_receive {:agent_inactive, "issue-2"}, 500
     end
 
+    test "a retained (paused) identifier keeps its attachment instead of detaching", %{pool: pool} do
+      AttachPool.seed(pool, ["issue-1", "issue-2"])
+      Process.sleep(20)
+
+      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-1"})
+      assert_receive {:attach_state_changed, "issue-1", 1, nil}, 500
+
+      # issue-1 pauses: it drops out of the spawn set but is passed as a
+      # RETAIN id. "Pause keeps pane open" — Ctrl+C on a working agent
+      # pauses it WITHOUT tearing down its opencode pane; only a second
+      # Ctrl+C (close_pane) detaches. So no :agent_inactive must fire.
+      AttachPool.seed(pool, ["issue-2"], ["issue-1"])
+
+      refute_receive {:agent_inactive, "issue-1"}, 300
+    end
+
+    test "a retain id that was never attached neither spawns nor crashes", %{pool: pool} do
+      AttachPool.seed(pool, ["issue-1"])
+      Process.sleep(20)
+
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+
+      # issue-9 is paused but has no pane — retaining it is a no-op: it
+      # must not be spawned a leadoff slot.
+      AttachPool.seed(pool, ["issue-1"], ["issue-9"])
+
+      refute_receive {:aiur_perf, %{phase: :seed_leadoff_reassignment}}, 200
+      refute_receive {:agent_inactive, "issue-9"}, 100
+    end
+
     test "no event when no free slot is available", %{pool: pool} do
       AttachPool.seed(pool, ["issue-1"])
       Process.sleep(20)

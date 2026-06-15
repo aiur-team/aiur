@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator do
     Workspace
   }
 
+  alias Aiur.Claude.{RemoteControl, ReplAgent}
   alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
   alias Aiur.Opencode.ActiveTurns
   alias AiurWeb.ObservabilityPubSub
@@ -100,6 +101,10 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def init(_opts) do
+    # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
+    # which reaps every running agent's process tree (see `terminate/2`).
+    Process.flag(:trap_exit, true)
+
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
@@ -116,6 +121,7 @@ defmodule Aiur.Orchestrator do
     }
 
     run_terminal_workspace_cleanup()
+    cleanup_stray_remote_control_servers()
     init_tracked_set_table()
     install_event_tracked_fn()
     subscribe_to_orchestrator_topics()
@@ -123,6 +129,28 @@ defmodule Aiur.Orchestrator do
 
     {:ok, state}
   end
+
+  # On whole-app shutdown the supervisor brutally kills the AgentRunner
+  # tasks, skipping their `after stop_session` cleanup, and the per-issue
+  # `kill_repl_session` path never runs. A headless `claude` backend runs
+  # under a `bash -lc` wrapper whose claude/node grandchildren reparent to
+  # init when the bash pid dies, so they survive the shutdown and can still
+  # land a commit/push. The orchestrator stops before `Aiur.TaskSupervisor`
+  # (later in the child list), so the bash pids are still alive here and
+  # their subtrees are collectible — reap every running entry before the
+  # tasks die.
+  @impl true
+  def terminate(_reason, %State{running: running}) when is_map(running) do
+    # Best-effort accelerator: sweep registered agent processes first.
+    # drain: false is load-bearing — terminate/2 also runs on a supervised
+    # crash-restart, and latching the app-lifetime reaper into draining
+    # there would kill every agent the restarted orchestrator spawns.
+    _ = Aiur.ProcessReaper.reap([:agent], drain: false)
+    Enum.each(running, fn {_issue_id, entry} -> kill_repl_session(entry) end)
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   # Subscribe to the topics the orchestrator routes itself:
   #
@@ -268,51 +296,8 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
-  def handle_info(
-        {:DOWN, ref, :process, _pid, reason},
-        %{running: running} = state
-      ) do
-    case find_issue_id_for_ref(running, ref) do
-      nil ->
-        {:noreply, state}
-
-      issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
-
-        state =
-          case reason do
-            :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
-
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-        notify_dashboard(state)
-        {:noreply, state}
-    end
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    handle_agent_down(state, ref, reason)
   end
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, %{running: running} = state)
@@ -328,6 +313,24 @@ defmodule Aiur.Orchestrator do
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
 
         notify_dashboard(state)
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+    end
+  end
+
+  def handle_info({:repl_session_runtime, issue_id, info}, %{running: running} = state)
+      when is_binary(issue_id) and is_map(info) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        updated_running_entry =
+          running_entry
+          |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
+          |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
+          |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
+          |> maybe_put_runtime_value(:repl_rc_session_url, info[:session_url])
+
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
   end
@@ -428,6 +431,50 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp handle_agent_down(%{running: running} = state, ref, reason) do
+    case find_issue_id_for_ref(running, ref) do
+      nil ->
+        {:noreply, state}
+
+      issue_id ->
+        {running_entry, state} = pop_running_entry(state, issue_id)
+        state = record_session_completion_totals(state, running_entry)
+        session_id = running_entry_session_id(running_entry)
+
+        state =
+          case reason do
+            :normal ->
+              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+              state
+              |> complete_issue(issue_id)
+              |> schedule_issue_retry(issue_id, 1, %{
+                identifier: running_entry.identifier,
+                delay_type: :continuation,
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+
+            _ ->
+              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+              next_attempt = next_retry_attempt_from_running(running_entry)
+
+              schedule_issue_retry(state, issue_id, next_attempt, %{
+                identifier: running_entry.identifier,
+                error: "agent exited: #{inspect(reason)}",
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path)
+              })
+          end
+
+        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+
+        notify_dashboard(state)
+        {:noreply, state}
+    end
   end
 
   defp parse_pr_review_comment_topic(topic) do
@@ -900,6 +947,30 @@ defmodule Aiur.Orchestrator do
     select_worker_host(state, preferred_worker_host)
   end
 
+  @doc false
+  @spec set_remote_control_for_test(State.t(), String.t(), boolean()) :: {term(), State.t()}
+  def set_remote_control_for_test(%State{} = state, identifier, on?)
+      when is_binary(identifier) and is_boolean(on?) do
+    set_remote_control_reply(state, identifier, on?)
+  end
+
+  @doc false
+  @spec reactivate_issue_for_test(State.t(), map()) :: {term(), State.t()}
+  def reactivate_issue_for_test(%State{} = state, running_entry) when is_map(running_entry) do
+    reactivate_issue(state, running_entry)
+  end
+
+  @doc false
+  @spec remote_control_summary_for_test(map()) :: map() | nil
+  def remote_control_summary_for_test(entry), do: remote_control_summary(entry)
+
+  @doc false
+  @spec terminate_running_issue_for_test(State.t(), String.t(), boolean()) :: State.t()
+  def terminate_running_issue_for_test(%State{} = state, issue_id, cleanup_workspace)
+      when is_binary(issue_id) and is_boolean(cleanup_workspace) do
+    terminate_running_issue(state, issue_id, cleanup_workspace)
+  end
+
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   defp reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
@@ -1045,6 +1116,11 @@ defmodule Aiur.Orchestrator do
         state = record_session_completion_totals(state, running_entry)
         worker_host = Map.get(running_entry, :worker_host)
 
+        # `terminate_task/1` brutally kills the runner task, skipping the
+        # `after stop_session` cleanup — kill the tracked REPL pane + pid
+        # here so neither orphans on abort/terminal-state teardown.
+        kill_repl_session(running_entry)
+
         if cleanup_workspace do
           cleanup_issue_workspace(identifier, worker_host)
         end
@@ -1108,6 +1184,10 @@ defmodule Aiur.Orchestrator do
         # duplicate "No turn activity in 10 minutes" system messages
         # into the chat pane (one per pre-warm slot).
         close_active_chat_streams(identifier, :deactivated)
+
+        # Same brutal-kill gap as terminate_running_issue: reach the
+        # tracked REPL pane + pid before the runner task dies.
+        kill_repl_session(running_entry)
 
         if is_pid(pid) do
           terminate_task(pid)
@@ -1805,6 +1885,9 @@ defmodule Aiur.Orchestrator do
             last_codex_timestamp: nil,
             last_codex_event: nil,
             codex_app_server_pid: nil,
+            repl_pane_id: nil,
+            repl_os_pid: nil,
+            headless_os_pid: nil,
             agent_input_tokens: 0,
             agent_output_tokens: 0,
             agent_total_tokens: 0,
@@ -2048,7 +2131,9 @@ defmodule Aiur.Orchestrator do
               title: title,
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working
+              work_state: get_in(entry, [:control, :status]) || :working,
+              backend: entry_backend(entry),
+              remote_control: remote_control_summary(entry)
             })
         end
       end)
@@ -2072,7 +2157,9 @@ defmodule Aiur.Orchestrator do
               title: get_in(entry, [:issue, Access.key(:title)]),
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working
+              work_state: get_in(entry, [:control, :status]) || :working,
+              backend: entry_backend(entry),
+              remote_control: remote_control_summary(entry)
             })
           ]
         end
@@ -2080,6 +2167,16 @@ defmodule Aiur.Orchestrator do
 
     (polled_summaries ++ extra_running)
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
+  end
+
+  # Resolved backend string for a running entry, so the agent list can name
+  # the agent's own engine in its placeholder rather than guessing. nil when
+  # the entry carries no issue; agent_summary drops the nil.
+  defp entry_backend(entry) do
+    case Map.get(entry, :issue) do
+      %Issue{} = issue -> CodingAgent.backend_for(issue)
+      _ -> nil
+    end
   end
 
   defp agent_statuses(%State{} = state) do
@@ -2428,6 +2525,62 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
+  def interrupt_agent(issue_identifier), do: interrupt_agent(__MODULE__, issue_identifier)
+
+  @spec interrupt_agent(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def interrupt_agent(server, issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:interrupt_agent, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec pane_interrupt(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt(issue_identifier), do: pane_interrupt(__MODULE__, issue_identifier)
+
+  @spec pane_interrupt(GenServer.server(), String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt(server, issue_identifier) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:pane_interrupt, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @doc """
+  Ctrl+C entry point keyed on a tmux pane id instead of the issue. A
+  claude-repl/RC pane is not an opencode slot, so the opencode SlotRegistry
+  can't resolve it — this maps the pane back to its running entry via
+  `repl_pane_id` and routes through the same 3-state decision as
+  `pane_interrupt/1`.
+  """
+  @spec pane_interrupt_by_pane_id(String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt_by_pane_id(pane_id), do: pane_interrupt_by_pane_id(__MODULE__, pane_id)
+
+  @spec pane_interrupt_by_pane_id(GenServer.server(), String.t()) ::
+          {:ok, :interrupted | :paused | :close_pane | :send_interrupt} | {:error, term()}
+  def pane_interrupt_by_pane_id(server, pane_id) when is_binary(pane_id) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:pane_interrupt_by_pane_id, pane_id}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
   @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(issue_identifier), do: resume_agent(__MODULE__, issue_identifier)
 
@@ -2479,6 +2632,48 @@ defmodule Aiur.Orchestrator do
   def control_capabilities(server, issue_identifier) when is_binary(issue_identifier) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:control_capabilities, issue_identifier}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
+  def set_remote_control(issue_identifier, on?), do: set_remote_control(__MODULE__, issue_identifier, on?)
+
+  @spec set_remote_control(GenServer.server(), String.t(), boolean()) ::
+          {:ok, :on | :off} | {:error, term()}
+  def set_remote_control(server, issue_identifier, on?)
+      when is_binary(issue_identifier) and is_boolean(on?) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:set_remote_control, issue_identifier, on?}, 10_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @doc """
+  Pre-seed the workspace trust flag for a remote-control dispatch.
+
+  RC refuses to start in an untrusted directory, so an RC-labeled issue
+  dispatched directly (not via the `r` key) must seed `hasTrustDialogAccepted`
+  before its REPL spawns — otherwise the REPL sticks on the trust dialog and
+  degrades to the headless backend. The runner computes RC-ness from a
+  concurrent task, so it routes through this serialized call (the trust
+  read-modify-write on `~/.claude.json` must not race a parallel dispatch).
+  """
+  @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
+  def ensure_remote_control_trust(workspace), do: ensure_remote_control_trust(__MODULE__, workspace)
+
+  @spec ensure_remote_control_trust(GenServer.server(), Path.t()) :: :ok | {:error, term()}
+  def ensure_remote_control_trust(server, workspace) when is_binary(workspace) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:ensure_remote_control_trust, workspace}, 10_000)
     else
       {:error, :unavailable}
     end
@@ -2882,6 +3077,34 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:interrupt_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    {:reply, interrupt_agent_reply(state, issue_identifier), state}
+  end
+
+  def handle_call({:interrupt_agent, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:pane_interrupt, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+    {reply, state} = pane_interrupt_reply(state, issue_identifier)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:pane_interrupt, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:pane_interrupt_by_pane_id, pane_id}, _from, state) when is_binary(pane_id) do
+    case find_running_by_repl_pane_id(state.running, pane_id) do
+      %{identifier: identifier} ->
+        {reply, state} = pane_interrupt_reply(state, to_string(identifier))
+        {:reply, reply, state}
+
+      nil ->
+        {:reply, {:error, :no_pane_agent}, state}
+    end
+  end
+
   def handle_call({:resume_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
     {reply, state} = resume_issue(state, issue_identifier)
     notify_dashboard(state)
@@ -2890,6 +3113,22 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:resume_agent, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:set_remote_control, issue_identifier, on?}, _from, state)
+      when is_binary(issue_identifier) and is_boolean(on?) do
+    {reply, state} = set_remote_control_reply(state, issue_identifier, on?)
+    notify_dashboard(state)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:set_remote_control, _issue_identifier, _on?}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:ensure_remote_control_trust, workspace}, _from, state)
+      when is_binary(workspace) do
+    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
   end
 
   def handle_call(:max_concurrent_agents, _from, state) do
@@ -3165,6 +3404,25 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # `:auto` lets the caller defer to the backend: the persistent REPL takes
+  # operator messages immediately mid-turn; everything else holds at a safe
+  # checkpoint (native codex/headless-claude turn UX).
+  defp normalize_delivery_request(:auto, _fallback, %{immediate_delivery: true}) do
+    {:ok, [delivery_policy: :immediate]}
+  end
+
+  defp normalize_delivery_request(:auto, _fallback, _capabilities) do
+    {:ok, [delivery_policy: :checkpoint]}
+  end
+
+  defp normalize_delivery_request(:immediate, _fallback, %{immediate_delivery: true}) do
+    {:ok, [delivery_policy: :immediate]}
+  end
+
+  defp normalize_delivery_request(:immediate, _fallback, _capabilities) do
+    {:error, :immediate_not_supported}
+  end
+
   defp normalize_delivery_request(:checkpoint, _fallback, _capabilities) do
     {:ok, [delivery_policy: :checkpoint]}
   end
@@ -3236,7 +3494,7 @@ defmodule Aiur.Orchestrator do
     if Process.alive?(pid) do
       send(
         pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true}
+        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true}
       )
     end
 
@@ -3309,6 +3567,137 @@ defmodule Aiur.Orchestrator do
     send_running_control_message(state, issue_identifier, fn request_id ->
       {:pause_agent, request_id}
     end)
+  end
+
+  # Out-of-band interrupt: send Ctrl+C straight to the REPL pane so Claude
+  # cuts its active turn and its native queue drains the waiting message.
+  # Only the persistent-REPL backend exposes a pane to interrupt; every
+  # other backend folds operator input at a turn boundary instead, so they
+  # report `:interrupt_not_supported`.
+  defp interrupt_agent_reply(state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      %{repl_pane_id: pane_id} when is_binary(pane_id) ->
+        ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id})
+
+      running_entry when is_map(running_entry) ->
+        {:error, :interrupt_not_supported}
+
+      _ ->
+        {:error, :not_running}
+    end
+  end
+
+  # Operator pressed Ctrl+C on the agent's opencode pane. The action is
+  # derived from the agent's live state, matching the Claude/Codex mental
+  # model: a queued message drains right away, an idle agent pauses, and a
+  # second press on an already-paused agent closes the pane (the caller
+  # performs the kill; the agent stays parked and paused). Only the
+  # persistent-REPL backend exposes a pane to drain, so other backends
+  # report `:interrupt_not_supported` and the caller falls back to a plain
+  # pane close.
+  defp pane_interrupt_reply(state, issue_identifier) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      %{repl_pane_id: pane_id} = entry when is_binary(pane_id) ->
+        action =
+          pane_interrupt_action(
+            paused_running_entry?(entry),
+            queue_depth_for_issue(state, issue_identifier)
+          )
+
+        perform_pane_interrupt(action, state, entry, issue_identifier, pane_id)
+
+      running_entry when is_map(running_entry) ->
+        # opencode/codex own their queue and turn; Aiur cannot see them via
+        # AgentQueueStore. The one turn-activity signal Aiur owns is
+        # ActiveTurns — a live aiur-mediated codex turn registers there. So a
+        # Ctrl+C on a working agent sends opencode's native interrupt (the
+        # caller forwards Esc to the pane), which drains its queued message and
+        # keeps it working. Only a genuinely idle agent pauses; a second press
+        # on the now-paused agent closes the pane.
+        working? = ActiveTurns.active_turn_ids(issue_identifier) != []
+
+        action =
+          pane_interrupt_action_no_pane(
+            paused_running_entry?(running_entry),
+            working?
+          )
+
+        perform_pane_interrupt(action, state, running_entry, issue_identifier, nil)
+
+      _ ->
+        {{:error, :not_running}, state}
+    end
+  end
+
+  defp perform_pane_interrupt(:close_pane, state, _entry, _issue_identifier, _pane_id),
+    do: {{:ok, :close_pane}, state}
+
+  # The agent is mid-turn. opencode owns the interrupt: the bridge forwards its
+  # native interrupt key (Esc) to the pane, which drains opencode's queued
+  # operator message and continues the turn. Aiur mutates no state — it does
+  # not flip control status or send a pause message — and the bridge keeps the
+  # pane open on this reply.
+  defp perform_pane_interrupt(:send_interrupt, state, _entry, _issue_identifier, _pane_id),
+    do: {{:ok, :send_interrupt}, state}
+
+  defp perform_pane_interrupt(:interrupt, state, _entry, _issue_identifier, pane_id) do
+    # `:interrupt` is only ever chosen when a message is queued. The hardware
+    # interrupt is best-effort: a failure (repl pane already gone, tmux hiccup)
+    # must not close the pane out from under the pending message — propagating
+    # the error makes the bridge controller map it to :close_pane and the
+    # helper kill the pane, dropping the queued input. Keep the pane open so
+    # the message folds at the next turn boundary.
+    _ = ReplAgent.interrupt(%{tmux: Aiur.Tmux, pane_id: pane_id})
+    {{:ok, :interrupted}, state}
+  end
+
+  # Optimistically flip the entry to `:paused` (mirrors `maybe_pause_on_request`)
+  # so a second Ctrl+C reads the agent as paused and closes the pane. An idle
+  # agent emits no `:worker_control_state :paused` confirmation, so depending on
+  # that async signal alone would strand the agent reporting `:pause` forever
+  # and the close branch would never be reachable. The queued control message
+  # still drives the worker loop when it is mid-turn; its reply is ignored
+  # because the optimistic transition is the source of truth for the UI.
+  defp perform_pane_interrupt(:pause, state, entry, issue_identifier, _pane_id) do
+    _ = send_pause_control_message(state, issue_identifier)
+    {{:ok, :paused}, transition_control_status(state, entry, :paused, "pane.ctrl_c.pause")}
+  end
+
+  @doc """
+  Pure 3-state Ctrl+C decision. A paused agent closes its pane; an agent
+  with a queued message drains it; an idle agent pauses. Public so the
+  mapping can be unit-tested without scaffolding the REPL pane or queue.
+  """
+  @spec pane_interrupt_action(boolean(), non_neg_integer()) ::
+          :close_pane | :interrupt | :pause
+  def pane_interrupt_action(paused?, queue_depth)
+      when is_boolean(paused?) and is_integer(queue_depth) do
+    cond do
+      paused? -> :close_pane
+      queue_depth > 0 -> :interrupt
+      true -> :pause
+    end
+  end
+
+  @doc """
+  Pure Ctrl+C decision for backends with no Aiur-interruptible pane
+  (codex/opencode), which own their own queue and turn. `working?` is the
+  ActiveTurns signal: true when a live aiur-mediated turn is in flight. A
+  working agent gets opencode's native interrupt forwarded (the caller sends
+  Esc to the pane) so its queued message drains and it keeps working — Aiur
+  takes no destructive action and mutates no state. A genuinely idle agent
+  pauses (pane stays open); a second press on the now-paused agent closes it.
+  Public so the mapping can be unit-tested without scaffolding a worker.
+  """
+  @spec pane_interrupt_action_no_pane(boolean(), boolean()) ::
+          :send_interrupt | :close_pane | :pause
+  def pane_interrupt_action_no_pane(paused?, working?)
+      when is_boolean(paused?) and is_boolean(working?) do
+    cond do
+      paused? -> :close_pane
+      working? -> :send_interrupt
+      true -> :pause
+    end
   end
 
   defp do_reactivate(%State{} = state, running_entry) do
@@ -3394,6 +3783,42 @@ defmodule Aiur.Orchestrator do
       _ ->
         running
     end
+  end
+
+  # --- Agent liveness from claude hooks -------------------------------------
+  #
+  # An RC-claude agent works via lifecycle hooks (`Aiur.Claude.HookEvents`),
+  # which never produce a codex update — so the stall watchdog's
+  # `last_codex_timestamp` would sit at `started_at` while the agent is busy
+  # and `reconcile_stalled_running_issues` would kill a working agent every
+  # `stall_timeout_ms`. Each hook is proof of life (the same signal
+  # `await_hook_turn` rides for turn detection), so refresh the entry's
+  # activity timestamp on every hook.
+  @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
+  @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
+  def note_agent_activity(server \\ __MODULE__, identifier) when is_binary(identifier) do
+    GenServer.cast(server, {:note_agent_activity, identifier})
+  end
+
+  @doc false
+  @spec note_agent_activity_state(State.t(), String.t()) :: State.t()
+  def note_agent_activity_state(%State{} = state, identifier) when is_binary(identifier) do
+    case find_running_key_by_identifier(state.running, identifier) do
+      nil -> state
+      issue_id -> update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, DateTime.utc_now()))
+    end
+  end
+
+  @impl true
+  def handle_cast({:note_agent_activity, identifier}, state) do
+    {:noreply, note_agent_activity_state(state, identifier)}
+  end
+
+  defp find_running_key_by_identifier(running, identifier) do
+    Enum.find_value(running, fn
+      {issue_id, %{identifier: id}} -> if to_string(id) == identifier, do: issue_id, else: nil
+      _ -> nil
+    end)
   end
 
   # Freeze the runtime clock while the agent is paused and shift
@@ -3496,30 +3921,43 @@ defmodule Aiur.Orchestrator do
     |> Enum.map(fn item ->
       %{
         id: item.id,
-        text: get_in(item, [:body, :text]) || "",
+        # item is an %AgentQueueItem{} struct (no Access), so reach into its body
+        # map directly rather than via get_in/2 — the latter crashed the whole
+        # Orchestrator whenever the dashboard rendered an issue with a visible
+        # operator message.
+        text: operator_item_text(item),
         status: item.status
       }
     end)
   end
 
+  defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
+  defp operator_item_text(_item), do: ""
+
   defp issue_control_capabilities(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
     running_entry = find_running_by_identifier(state.running, issue_identifier)
     can_interrupt = get_in(running_entry || %{}, [:control, :can_interrupt]) == true
     safe_checkpoints = get_in(running_entry || %{}, [:control, :safe_checkpoints]) || []
+    immediate_delivery = get_in(running_entry || %{}, [:control, :immediate_delivery]) == true
     accepts_operator_messages = not is_nil(running_entry)
 
     %{
       accepts_operator_messages: accepts_operator_messages,
       can_interrupt: can_interrupt,
-      accepted_delivery_policies: accepted_delivery_policies(can_interrupt),
+      immediate_delivery: immediate_delivery,
+      accepted_delivery_policies: accepted_delivery_policies(can_interrupt, immediate_delivery),
       safe_checkpoints: safe_checkpoints,
       status: get_in(running_entry || %{}, [:control, :status]) || :working,
       queue_depth: queue_depth_for_issue(state, issue_identifier)
     }
   end
 
-  defp accepted_delivery_policies(true), do: [:checkpoint, :interrupt]
-  defp accepted_delivery_policies(false), do: [:checkpoint]
+  # The REPL backend forwards operator messages straight into the live
+  # process, so it offers :immediate instead of the hold-then-deliver
+  # :checkpoint / :interrupt policies.
+  defp accepted_delivery_policies(_can_interrupt, true), do: [:immediate]
+  defp accepted_delivery_policies(true, false), do: [:checkpoint, :interrupt]
+  defp accepted_delivery_policies(false, false), do: [:checkpoint]
 
   defp default_running_control(%Issue{} = issue) do
     backend = CodingAgent.backend_for(issue)
@@ -3527,8 +3965,204 @@ defmodule Aiur.Orchestrator do
     %{
       can_interrupt: CodingAgent.can_interrupt?(backend),
       safe_checkpoints: CodingAgent.safe_checkpoints(backend),
+      immediate_delivery: CodingAgent.immediate_delivery?(backend),
       status: :working
     }
+  end
+
+  # ----------------------------------------------------------- remote control
+
+  defp set_remote_control_reply(state, issue_identifier, on?) do
+    case find_running_by_identifier(state.running, issue_identifier) do
+      running_entry when is_map(running_entry) ->
+        if on?, do: promote_to_remote(state, running_entry), else: demote_from_remote(state, running_entry)
+
+      _ ->
+        {{:error, :not_running}, state}
+    end
+  end
+
+  # Promote any running agent (headless `claude` or `codex`) to `claude-remote`:
+  # add the durable `model:claude-remote` label, stop the current agent, and
+  # re-dispatch the same issue. The re-dispatch resolves `claude-repl` + forced
+  # RC (the alias from `CodingAgent`) and resumes the transcript by cwd, so the
+  # operator gets a persistent REPL with RC attached on the same conversation.
+  defp promote_to_remote(state, running_entry) do
+    issue = Map.get(running_entry, :issue)
+    workspace = Map.get(running_entry, :workspace_path)
+
+    cond do
+      # Already remote (label present) — toggling on again is a no-op.
+      CodingAgent.remote_control_forced?(issue) ->
+        {{:ok, :on}, state}
+
+      # v1 is local-only: a remote worker_host means the RC session would
+      # attach on the wrong machine.
+      not is_nil(Map.get(running_entry, :worker_host)) ->
+        {{:error, :remote_unsupported}, state}
+
+      is_nil(workspace) ->
+        {{:error, :workspace_unavailable}, state}
+
+      true ->
+        # Trust the workspace before tearing down the current agent. If trust
+        # fails RC can't attach, so abort with the current agent intact rather
+        # than stranding the issue with no running agent.
+        case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
+          :ok ->
+            do_promote_to_remote(state, running_entry, issue)
+
+          {:error, reason} ->
+            Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
+
+            {{:error, {:rc_trust_failed, reason}}, state}
+        end
+    end
+  end
+
+  defp do_promote_to_remote(state, running_entry, issue) do
+    label = CodingAgent.remote_control_alias_label()
+
+    case Tracker.add_label(Map.get(running_entry, :identifier), label) do
+      :ok ->
+        relabeled = add_issue_label(issue, label)
+        state = teardown_for_redispatch(state, running_entry)
+        Logger.info("Remote Control promote; re-dispatching as claude-remote: #{rc_log_context(running_entry)}")
+        {{:ok, :on}, do_dispatch_issue(state, relabeled, nil, nil)}
+
+      {:error, reason} ->
+        Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+        {{:error, {:rc_label_failed, reason}}, state}
+    end
+  end
+
+  # Demote a `claude-remote` agent back to the default backend: remove the
+  # label, stop the current REPL agent, and re-dispatch. `r` is a true toggle.
+  defp demote_from_remote(state, running_entry) do
+    issue = Map.get(running_entry, :issue)
+
+    cond do
+      # Not remote (no label) — toggling off again is a no-op.
+      not CodingAgent.remote_control_forced?(issue) ->
+        {{:ok, :off}, state}
+
+      is_nil(Map.get(running_entry, :workspace_path)) ->
+        {{:error, :workspace_unavailable}, state}
+
+      true ->
+        label = CodingAgent.remote_control_alias_label()
+
+        case Tracker.remove_label(Map.get(running_entry, :identifier), label) do
+          :ok ->
+            relabeled = remove_issue_label(issue, label)
+            state = teardown_for_redispatch(state, running_entry)
+            Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
+            {{:ok, :off}, do_dispatch_issue(state, relabeled, nil, nil)}
+
+          {:error, reason} ->
+            Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+            {{:error, {:rc_label_failed, reason}}, state}
+        end
+    end
+  end
+
+  # Stop the current agent cleanly so the same issue can be re-dispatched under
+  # a different backend. Mirrors `terminate_running_issue/3`'s task-teardown
+  # half (stop RC, kill the REPL pane+pid, close chat streams, demonitor, kill
+  # the task) but KEEPS the entry in `state.running` and does NOT clean the
+  # workspace or release the claim — the workspace is reused so the re-dispatched
+  # agent resumes the transcript by cwd. Demonitor BEFORE killing so the agent
+  # :DOWN handler doesn't fire a retry that re-dispatches underneath us.
+  defp teardown_for_redispatch(state, running_entry) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    identifier = Map.get(running_entry, :identifier)
+    pid = Map.get(running_entry, :pid)
+    ref = Map.get(running_entry, :ref)
+
+    kill_repl_session(running_entry)
+    close_active_chat_streams(identifier, :remote_control)
+    if is_reference(ref), do: Process.demonitor(ref, [:flush])
+    if is_pid(pid), do: terminate_task(pid)
+
+    cleared =
+      running_entry
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+
+    %{
+      state
+      | running: Map.put(state.running, issue_id, cleared),
+        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+    }
+  end
+
+  defp add_issue_label(%Issue{labels: labels} = issue, label) do
+    down = String.downcase(label)
+    if down in labels, do: issue, else: %{issue | labels: labels ++ [down]}
+  end
+
+  defp remove_issue_label(%Issue{labels: labels} = issue, label) do
+    down = String.downcase(label)
+    %{issue | labels: Enum.reject(labels, &(&1 == down))}
+  end
+
+  defp rc_log_context(entry) do
+    issue_id = get_in(entry, [:issue, Access.key(:id)])
+    "issue_id=#{issue_id} issue_identifier=#{Map.get(entry, :identifier)}"
+  end
+
+  # Tests redirect the trust-config write off the real `~/.claude.json`.
+  defp remote_control_trust_opts do
+    case Application.get_env(:aiur, :remote_control_claude_json) do
+      path when is_binary(path) -> [path: path]
+      _ -> []
+    end
+  end
+
+  # Kill the persistent-REPL pane + claude OS pid tracked on the running
+  # entry. Idempotent and tolerant of a half-dead session (pane gone but
+  # pid alive, or vice versa) — each kill is independent and a missing
+  # pane/pid is a no-op.
+  defp kill_repl_session(running_entry) do
+    pane_id = Map.get(running_entry, :repl_pane_id)
+    os_pid = Map.get(running_entry, :repl_os_pid)
+
+    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
+
+    # The REPL pane's `exec claude` can spawn tool/MCP children that would
+    # orphan and keep working on a single-pid kill, so reap the subtree.
+    RemoteControl.graceful_kill_tree(os_pid)
+
+    # The headless fallback has no pane; its `bash -lc` wrapper leaves
+    # claude/node grandchildren that reparent to init, so reap the subtree.
+    RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
+
+    :ok
+  end
+
+  # The indicator reflects a *live* remote session, not the label. The REPL
+  # only earns RC mode when it actually attaches and prints its
+  # `https://claude.ai/code/session_…` banner, which the runner forwards to
+  # `:repl_rc_session_url` (a capability token, never logged). A labeled issue
+  # whose RC never attached — degraded to headless, or routed to a backend that
+  # has no RC path at all (codex) — has no URL, so it shows no phone icon.
+  defp remote_control_summary(entry) do
+    issue = Map.get(entry, :issue)
+
+    with true <- is_map(issue) and match?(%Issue{}, issue),
+         true <- CodingAgent.remote_control_forced?(issue),
+         url when is_binary(url) <- Map.get(entry, :repl_rc_session_url) do
+      %{status: :on, session_url: url}
+    else
+      _ -> nil
+    end
+  end
+
+  defp cleanup_stray_remote_control_servers do
+    RemoteControl.reap_orphaned_servers()
+    ReplAgent.reap_orphaned_panes()
+  rescue
+    _ -> :ok
   end
 
   defp issue_tag(%Issue{} = issue) do
@@ -3546,6 +4180,13 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         nil
+    end)
+  end
+
+  defp find_running_by_repl_pane_id(running, pane_id) do
+    Enum.find_value(running, fn
+      {_issue_id, %{repl_pane_id: ^pane_id} = entry} -> entry
+      _ -> nil
     end)
   end
 

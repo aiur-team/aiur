@@ -57,7 +57,8 @@ defmodule Aiur.AgentList.App do
           pane_manager: GenServer.name(),
           command_template: String.t(),
           orchestrator: GenServer.name(),
-          max_agents_alert?: boolean()
+          max_agents_alert?: boolean(),
+          remote_control_hint: String.t() | nil
         }
 
   # Public API ----------------------------------------------------------------
@@ -96,6 +97,10 @@ defmodule Aiur.AgentList.App do
   @spec toggle_pause(GenServer.server()) :: :ok
   def toggle_pause(server \\ __MODULE__), do: GenServer.cast(server, :toggle_pause)
 
+  @spec toggle_remote_control(GenServer.server()) :: :ok
+  def toggle_remote_control(server \\ __MODULE__),
+    do: GenServer.cast(server, :toggle_remote_control)
+
   @spec adjust_max_concurrent_agents(integer()) :: :ok
   @spec adjust_max_concurrent_agents(GenServer.server(), integer()) :: :ok
   def adjust_max_concurrent_agents(server \\ __MODULE__, delta) when is_integer(delta) do
@@ -132,6 +137,7 @@ defmodule Aiur.AgentList.App do
     write_fun = Keyword.get(opts, :write_fun, &IO.write/1)
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
     orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+    tmux = Keyword.get(opts, :tmux, Aiur.Tmux)
     command_template = Keyword.get(opts, :command_template, default_command_template())
     {cols, rows} = terminal_geometry()
 
@@ -163,10 +169,20 @@ defmodule Aiur.AgentList.App do
       rows: rows,
       help_visible?: false,
       max_agents_alert?: false,
+      # Transient status-line hint string driven by the `r`/Space
+      # remote-control keybinds. Set by `rc_hint/2`, auto-cleared after
+      # a few seconds via `:clear_remote_control_hint`. nil = no hint.
+      remote_control_hint: nil,
       write_fun: write_fun,
       pane_manager: pane_manager,
       orchestrator: orchestrator,
+      tmux: tmux,
       command_template: command_template,
+      # pane_id => RC border text currently applied to that pane's top
+      # border, so reconcile only re-issues tmux set-option when the text
+      # actually changes. The text holds the RC session URL (a capability
+      # token) and so lives only in memory — never logged or rendered.
+      rc_pane_borders: %{},
       # slot_index → currently-visible identifier (nil = slot idle).
       # Updated on `:slot_session_changed` PubSub events from Slot workers.
       # This is the single source of truth for the agent-list circle
@@ -318,6 +334,12 @@ defmodule Aiur.AgentList.App do
 
   def handle_cast(:toggle_pause, state) do
     state = toggle_selected_agent_pause(state)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_cast(:toggle_remote_control, state) do
+    state = toggle_selected_agent_remote_control(state)
     render(state)
     {:noreply, state}
   end
@@ -502,6 +524,82 @@ defmodule Aiur.AgentList.App do
     end
   end
 
+  # --- Remote Control pane-border surfacing (#13) ------------------------
+  #
+  # The RC session URL is remote control's actionable output: a capability
+  # token the operator opens on their phone to drive the agent. It rides in
+  # the agent's chat-pane top border (set via tmux) rather than the
+  # agent-list footer, so it travels with the pane it belongs to and stays
+  # unambiguous when several RC agents are open at once.
+  #
+  # Reconcile runs on `:running_changed` (URL arrives/changes, or RC
+  # toggles) and `:pane_opened` (a pane the URL can attach to appears). It
+  # diffs the desired border per open pane against what was last applied and
+  # only calls tmux for panes that changed, so the 1 Hz running_changed tick
+  # doesn't re-issue set-option every second.
+  defp reconcile_rc_pane_borders(state) do
+    open_panes = safe_list_open_panes(state.pane_manager)
+    {changes, applied} = rc_border_changes(open_panes, state.summaries, state.rc_pane_borders)
+
+    Enum.each(changes, fn {pane_id, text} ->
+      Aiur.Tmux.set_pane_border(state.tmux, pane_id, text)
+    end)
+
+    %{state | rc_pane_borders: applied}
+  end
+
+  defp safe_list_open_panes(pane_manager) do
+    PaneManager.list_open_panes(pane_manager)
+  catch
+    :exit, _ -> %{}
+  end
+
+  @doc false
+  # Pure reconciliation: given the open panes (identifier => pane_id), the
+  # agent summaries, and the borders already applied (pane_id => text),
+  # return `{changes, next_applied}`. `changes` is the `{pane_id, text | nil}`
+  # list to push to tmux (nil clears the border); `next_applied` tracks only
+  # currently-open panes, so closed panes self-prune (tmux drops a dead
+  # pane's options on its own).
+  @spec rc_border_changes(
+          %{optional(String.t()) => String.t()},
+          [map()],
+          %{optional(String.t()) => String.t()}
+        ) :: {[{String.t(), String.t() | nil}], %{optional(String.t()) => String.t()}}
+  def rc_border_changes(open_panes, summaries, applied) do
+    url_by_id =
+      summaries
+      |> Enum.map(fn s -> {to_string(Map.get(s, :identifier)), rc_border_text(s)} end)
+      |> Map.new()
+
+    desired =
+      Map.new(open_panes, fn {identifier, pane_id} ->
+        {pane_id, Map.get(url_by_id, to_string(identifier))}
+      end)
+
+    changes =
+      Enum.flat_map(desired, fn {pane_id, text} ->
+        if Map.get(applied, pane_id) == text, do: [], else: [{pane_id, text}]
+      end)
+
+    next_applied =
+      desired
+      |> Enum.reject(fn {_pane_id, text} -> is_nil(text) end)
+      |> Map.new()
+
+    {changes, next_applied}
+  end
+
+  # The border string for a summary, or nil when the agent has no live RC
+  # session. `#` is doubled because tmux's `pane-border-format` treats it as
+  # the start of a format expansion; claude session URLs carry none today,
+  # but doubling stops a stray `#` from corrupting the border.
+  defp rc_border_text(%{remote_control: %{status: :on, session_url: url}}) when is_binary(url) do
+    " 📱 " <> String.replace(url, "#", "##") <> " "
+  end
+
+  defp rc_border_text(_summary), do: nil
+
   @impl true
   def handle_info({:running_changed, summaries}, state) do
     summaries = visible_summaries(summaries)
@@ -514,10 +612,14 @@ defmodule Aiur.AgentList.App do
     #   compaction. `:deactivated` rows stay in the AgentList so their
     #   bar / latest / attention chips survive across the human-review
     #   transition.
-    # - `slot_ids` (visible minus :paused minus :deactivated): drives
-    #   AttachPool seeding so the warmed opencode pane is released for
-    #   `:paused` and `:deactivated` rows. AttachPool reclaims their
-    #   slot for newly-queued agents the user starts in their place.
+    # - `slot_ids` (visible minus :paused minus :deactivated): the
+    #   spawn-eligible set. Drives AttachPool seeding so a `:deactivated`
+    #   row releases its warmed opencode pane and AttachPool reclaims the
+    #   slot for newly-queued agents the user starts in its place.
+    # - `retain_ids` (visible :paused, not :deactivated): the keep-pane
+    #   set. A Ctrl+C pause holds the agent's opencode pane open until an
+    #   explicit close (second Ctrl+C → :deactivated). Passing these to
+    #   seed keeps their attachment instead of detaching on pause.
     visible_ids =
       summaries
       |> Enum.filter(fn s -> Map.get(s, :status) == :running end)
@@ -534,7 +636,17 @@ defmodule Aiur.AgentList.App do
       |> Enum.map(&Map.get(&1, :identifier))
       |> Enum.reject(&is_nil/1)
 
-    _ = safely_seed_attach_pool(slot_ids)
+    retain_ids =
+      summaries
+      |> Enum.filter(fn s ->
+        Map.get(s, :status) == :running and
+          paused_summary?(s) and
+          not deactivated_summary?(s)
+      end)
+      |> Enum.map(&Map.get(&1, :identifier))
+      |> Enum.reject(&is_nil/1)
+
+    _ = safely_seed_attach_pool(slot_ids, retain_ids)
 
     visible_set = MapSet.new(Enum.map(visible_ids, &to_string/1))
 
@@ -577,6 +689,7 @@ defmodule Aiur.AgentList.App do
         progress_by_id: progress_by_id
     }
 
+    new_state = reconcile_rc_pane_borders(new_state)
     render(new_state)
     {:noreply, new_state}
   end
@@ -603,7 +716,11 @@ defmodule Aiur.AgentList.App do
   # AttachPool's `visible_in` is set (which fires at leadoff-paint
   # time, before the user has opened anything).
   def handle_info({:status_changed, %{identifier: id, status: :pane_opened}}, state) do
-    new_state = update_in(state.opened_panes, &MapSet.put(&1, to_string(id)))
+    new_state =
+      state
+      |> update_in([:opened_panes], &MapSet.put(&1, to_string(id)))
+      |> reconcile_rc_pane_borders()
+
     render(new_state)
     {:noreply, new_state}
   end
@@ -653,6 +770,12 @@ defmodule Aiur.AgentList.App do
 
   def handle_info(:clear_max_agents_alert, state) do
     new_state = %{state | max_agents_alert?: false}
+    render(new_state)
+    {:noreply, new_state}
+  end
+
+  def handle_info(:clear_remote_control_hint, state) do
+    new_state = %{state | remote_control_hint: nil}
     render(new_state)
     {:noreply, new_state}
   end
@@ -990,10 +1113,10 @@ defmodule Aiur.AgentList.App do
     Application.get_env(:aiur, :warm_status_dark_mode?, true)
   end
 
-  defp safely_seed_attach_pool([]), do: :ok
+  defp safely_seed_attach_pool([], []), do: :ok
 
-  defp safely_seed_attach_pool(identifiers) do
-    AttachPool.seed(identifiers)
+  defp safely_seed_attach_pool(identifiers, retain_ids) do
+    AttachPool.seed(AttachPool, identifiers, retain_ids)
   rescue
     _ -> :ok
   catch
@@ -1098,13 +1221,20 @@ defmodule Aiur.AgentList.App do
   defp toggle_selected_agent_pause(state), do: state
 
   defp toggle_agent_pause(%{identifier: identifier, status: :running} = summary, state) do
-    if paused_summary?(summary) do
-      Logger.info("[user-action] resume_agent identifier=#{identifier} source=agent_list")
-      handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
-    else
-      Logger.info("[user-action] pause_agent identifier=#{identifier} source=agent_list")
-      _ = Orchestrator.pause_agent(state.orchestrator, identifier)
-      state
+    cond do
+      remote_control_on_summary?(summary) ->
+        # An RC-on agent is handed off to the Claude app — there is no
+        # local headless driver to pause. Surface the hint and no-op.
+        rc_hint(state, "Agent is in Remote Control — press `r` to return")
+
+      paused_summary?(summary) ->
+        Logger.info("[user-action] resume_agent identifier=#{identifier} source=agent_list")
+        handle_resume_result(state, Orchestrator.resume_agent(state.orchestrator, identifier))
+
+      true ->
+        Logger.info("[user-action] pause_agent identifier=#{identifier} source=agent_list")
+        _ = Orchestrator.pause_agent(state.orchestrator, identifier)
+        state
     end
   end
 
@@ -1114,6 +1244,69 @@ defmodule Aiur.AgentList.App do
   end
 
   defp toggle_agent_pause(_summary, state), do: state
+
+  defp toggle_selected_agent_remote_control(%{selection_focus: :agents} = state) do
+    state.summaries
+    |> Enum.at(state.selection_index)
+    |> toggle_agent_remote_control(state)
+  end
+
+  defp toggle_selected_agent_remote_control(state), do: state
+
+  # `r` only means something for a live agent row. Capability gating
+  # (codex / remote worker / no workspace) lives in the Orchestrator —
+  # we call `set_remote_control` and translate whatever it returns into
+  # a status-line hint, rather than duplicating the gate here.
+  defp toggle_agent_remote_control(%{identifier: identifier, status: :running} = summary, state) do
+    desired = not remote_control_on_summary?(summary)
+    action = if desired, do: "on", else: "off"
+    Logger.info("[user-action] remote_control identifier=#{identifier} desired=#{action} source=agent_list")
+    result = Orchestrator.set_remote_control(state.orchestrator, identifier, desired)
+    handle_remote_control_result(state, result)
+  end
+
+  defp toggle_agent_remote_control(_summary, state) do
+    rc_hint(state, "Remote Control requires a local Claude agent")
+  end
+
+  defp handle_remote_control_result(state, {:ok, :on}) do
+    rc_hint(state, "Switching to remote — REPL + Claude app, same transcript")
+  end
+
+  defp handle_remote_control_result(state, {:ok, :off}) do
+    rc_hint(state, "Remote off — re-dispatching on the default backend")
+  end
+
+  defp handle_remote_control_result(state, {:error, :unsupported}) do
+    rc_hint(state, "Remote Control requires a local Claude agent")
+  end
+
+  defp handle_remote_control_result(state, {:error, :remote_unsupported}) do
+    rc_hint(state, "Remote Control is local-only — this agent runs on a remote worker")
+  end
+
+  defp handle_remote_control_result(state, {:error, :workspace_unavailable}) do
+    rc_hint(state, "Remote Control unavailable — agent has no workspace yet")
+  end
+
+  defp handle_remote_control_result(state, {:error, _reason}) do
+    rc_hint(state, "Remote Control unavailable")
+  end
+
+  defp remote_control_on_summary?(%{remote_control: %{status: status}})
+       when status in [:launching, :on],
+       do: true
+
+  defp remote_control_on_summary?(_summary), do: false
+
+  defp rc_hint(state, message) do
+    schedule_remote_control_hint_clear()
+    %{state | remote_control_hint: message}
+  end
+
+  defp schedule_remote_control_hint_clear do
+    Process.send_after(self(), :clear_remote_control_hint, 4_000)
+  end
 
   # Navigation forms one continuous ring across the agent rows and the
   # max-agents chip:
@@ -1256,6 +1449,7 @@ defmodule Aiur.AgentList.App do
         :warm_status_dark_mode?,
         Map.get(state, :warm_status_dark_mode?, true)
       )
+      |> Map.put(:remote_control_hint, Map.get(state, :remote_control_hint))
 
     state.write_fun.(Renderer.render(render_state))
     :ok

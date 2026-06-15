@@ -9,6 +9,7 @@ defmodule Aiur.Codex.CodingAgent do
 
   require Logger
   alias Aiur.{AgentEnvironment, Config, PathSafety, SSH}
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
 
   @initialize_id 1
@@ -53,6 +54,11 @@ defmodule Aiur.Codex.CodingAgent do
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
          {:ok, port} <- start_port(expanded_workspace, worker_host, model) do
       metadata = port_metadata(port, worker_host)
+
+      # Local spawns run bash -lc "codex … app-server"; a remote spawn's
+      # local pid is the ssh client, so the cmdline guard expects that.
+      reaper_comm = if is_binary(worker_host), do: "ssh", else: "codex"
+      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]}, comm: reaper_comm)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
@@ -1369,6 +1375,20 @@ defmodule Aiur.Codex.CodingAgent do
         :ok
 
       _ ->
+        # Reap the descendant tree (node -> rust app-server) BEFORE closing the
+        # port. `Port.close` only kills the bash wrapper; its children would
+        # reparent to init and keep holding the global ~/.codex/state_5.sqlite
+        # lock, poisoning every subsequent codex agent. Collecting descendants
+        # must happen while the wrapper is still alive to anchor the pgrep walk.
+        case :erlang.port_info(port, :os_pid) do
+          {:os_pid, os_pid} ->
+            Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+            RemoteControl.graceful_kill_tree(os_pid)
+
+          _ ->
+            :ok
+        end
+
         try do
           Port.close(port)
           :ok
