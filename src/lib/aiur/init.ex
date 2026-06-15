@@ -214,15 +214,35 @@ defmodule Aiur.Init do
   defp saved_summary_lines(config) do
     agent = config["agent"] || %{}
     tracker = config["tracker"] || %{}
+    github = tracker["github"] || %{}
+    workspace = config["workspace"] || %{}
+    polling = config["polling"] || %{}
+    permission_mode = get_in(agent, ["claude", "permission_mode"])
 
     [
       "tracker: #{tracker["kind"]}",
+      github["repo"] && "repo: #{github["repo"]}",
       "agent: #{agent["kind"]}",
+      "routing: #{format_routing(agent["routing"])}",
+      permission_mode && "permission_mode: #{permission_mode}",
       "max_concurrent_agents: #{agent["max_concurrent_agents"]}",
       "max_turns: #{agent["max_turns"]}",
-      "max_agent_duration_minutes: #{agent["max_agent_duration_minutes"]}"
+      "max_agent_duration_minutes: #{agent["max_agent_duration_minutes"]}",
+      "workspace_root: #{workspace["root"]}",
+      "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
+      "polling_interval_seconds: #{polling["interval_seconds"]}",
+      config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
     ]
+    |> Enum.reject(&is_nil/1)
   end
+
+  defp format_routing(routing) when is_map(routing) do
+    routing
+    |> Enum.sort_by(fn {level, _} -> to_string(level) end)
+    |> Enum.map_join(", ", fn {level, value} -> "#{level}:#{value}" end)
+  end
+
+  defp format_routing(_routing), do: ""
 
   defp tracker_from_config(deps, config) do
     tracker = config["tracker"] || %{}

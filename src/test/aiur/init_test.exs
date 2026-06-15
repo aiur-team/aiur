@@ -178,7 +178,15 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self()), d)
 
       refute Enum.any?(input_labels(), &(&1 =~ ~r/Where should agents work/))
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/Saved selections/i))
+      # The summary lists every saved selection, not just the first few.
+      assert Enum.any?(log, &(&1 =~ ~r/repo: octo\/repo/))
+      assert Enum.any?(log, &(&1 =~ ~r/routing: 1:/))
+      assert Enum.any?(log, &(&1 =~ ~r/permission_mode: bypassPermissions/))
+      assert Enum.any?(log, &(&1 =~ ~r/workspace_root:/))
+      assert Enum.any?(log, &(&1 =~ ~r/polling_interval_seconds: 30/))
     end
 
     test "resume never runs a CLI auth check for the claude-repl transport", %{
