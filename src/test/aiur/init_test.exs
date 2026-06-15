@@ -47,6 +47,16 @@ defmodule Aiur.InitTest do
           send(parent, {:write, t})
           {:ok, t}
         end,
+        ensure_prompt_file: fn t, pf ->
+          path = Path.expand(pf, Path.dirname(t))
+
+          if File.regular?(path) do
+            {:exists, path}
+          else
+            File.write!(path, "# prompt\n")
+            {:created, path}
+          end
+        end,
         ensure_env: fn content ->
           File.write!(Path.join(dir, ".env.example"), content)
           env_path = Path.join(dir, ".env")
@@ -154,6 +164,20 @@ defmodule Aiur.InitTest do
       assert config["tracker"]["linear"]["project_slug"] == "team-alpha"
 
       assert Enum.any?(puts_log(), &(&1 =~ ~r/Linear support is LIMITED/i))
+    end
+
+    test "repo-local init creates the prompt file the config references", %{dir: dir, target: target} do
+      File.rm!(Path.join(dir, "AIUR.md"))
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert File.regular?(Path.join(dir, "AIUR.md"))
+    end
+
+    test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{"Config location" => "global"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      assert written_config(target)["prompt_file"] == nil
     end
 
     test "memory writes a minimal tracker", %{dir: dir, target: target} do

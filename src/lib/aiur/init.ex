@@ -55,6 +55,7 @@ defmodule Aiur.Init do
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
+          ensure_prompt_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
           check_tracker_auth: (map() -> :ok | {:error, String.t()}),
@@ -84,7 +85,8 @@ defmodule Aiur.Init do
       max_duration = prompt_int(io, "Max agent duration minutes (0 disables)", 60, 0)
       pre_warmed = prompt_int(io, "Pre-warmed sessions", 3, 0)
       polling = prompt_int(io, "Polling interval seconds", 30, 1)
-      prompt_file = io.input.("Per-repo agent prompt file", "AIUR.md")
+      # prompt_file is repo-specific, so the general global config omits it.
+      prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md")
 
       fills =
         build_fills(%{
@@ -106,6 +108,7 @@ defmodule Aiur.Init do
       case deps.write_config.(target, config_yaml) do
         {:ok, path} ->
           io.puts.("Wrote #{path}.")
+          ensure_prompt_file(io, deps, path, prompt_file)
           setup_env(io, deps, tracker)
           run_auth_checks(io, deps, tracker, agents)
           setup_labels(io, deps, tracker, agents)
@@ -276,6 +279,17 @@ defmodule Aiur.Init do
 
   # --- Closing steps ---
 
+  # Create the per-repo prompt file the config points at so the very next
+  # config load (auth checks, then boot) doesn't fail on a missing file.
+  defp ensure_prompt_file(_io, _deps, _target, prompt_file) when prompt_file in [nil, ""], do: :ok
+
+  defp ensure_prompt_file(io, deps, target, prompt_file) do
+    case deps.ensure_prompt_file.(target, prompt_file) do
+      {:created, path} -> io.puts.("Created a starter prompt file at #{path}.")
+      {:exists, _path} -> :ok
+    end
+  end
+
   # GitHub is the only tracker that reads a secret from the environment, so the
   # wizard scaffolds `.env` only on that path. Linear collects its key inline.
   defp setup_env(io, deps, %{kind: "github"}) do
@@ -392,6 +406,7 @@ defmodule Aiur.Init do
       read_example: fn -> @example_template end,
       detect_repo: &detect_repo/0,
       write_config: &write_config/2,
+      ensure_prompt_file: &write_prompt_file/2,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
       check_tracker_auth: &check_tracker_auth/1,
@@ -410,6 +425,17 @@ defmodule Aiur.Init do
     case File.write(target, yaml) do
       :ok -> {:ok, target}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp write_prompt_file(target, prompt_file) do
+    path = Path.expand(prompt_file, Path.dirname(target))
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      File.write!(path, "# Agent prompt\n\nGuidance appended to each agent turn for this repo.\n")
+      {:created, path}
     end
   end
 
