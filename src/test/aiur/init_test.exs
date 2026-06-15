@@ -326,5 +326,33 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/agent:todo/))
       assert Enum.any?(log, &(&1 =~ ~r/aiur --bg/))
     end
+
+    test "lists every label with a description, including model:claude-remote", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/model:claude-remote — Forces remote-control mode at launch/))
+      assert Enum.any?(log, &(&1 =~ ~r/agent:todo — ready to be worked/))
+    end
+
+    test "permission failure prints a gh fallback and withholds the ready screen", %{
+      dir: dir,
+      target: target
+    } do
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          create_labels: fn _tracker, _labels -> {:error, "the token needs repo write scope"} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/gh label create/))
+      assert Enum.any?(log, &(&1 =~ ~r/run `aiur init` again/i))
+      refute Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+    end
   end
 end

@@ -154,8 +154,11 @@ defmodule Aiur.Init do
     check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
-      setup_labels(io, deps, tracker, agents)
-      final_screen(io)
+      case setup_labels(io, deps, tracker, agents) do
+        :ok -> final_screen(io)
+        # The gh fallback was printed; don't claim setup is finished.
+        :error -> :ok
+      end
     else
       token_setup_instructions(io)
     end
@@ -455,15 +458,38 @@ defmodule Aiur.Init do
   defp setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
     labels = Labels.label_set(@label_prefix, agent_kinds(agents))
 
-    io.puts.("Creating #{length(labels)} labels aiur routes on (#{@label_prefix}:<state>, model:<agent>, complexity:1-5)…")
+    io.puts.("\naiur routes on these #{length(labels)} labels — creating them now:")
+    Enum.each(labels, fn label -> io.puts.("  #{label} — #{Labels.describe(label)}") end)
 
     case deps.create_labels.(tracker, labels) do
-      :ok -> io.puts.("Created labels (existing ones left as-is).")
-      {:error, message} -> io.puts.("⚠ label setup skipped: #{message}")
+      :ok ->
+        io.puts.("Created labels (existing ones left as-is).")
+        :ok
+
+      {:error, message} ->
+        emit_gh_label_fallback(io, tracker, labels, message)
+        :error
     end
   end
 
   defp setup_labels(_io, _deps, _tracker, _agents), do: :ok
+
+  # When the token can't create labels (e.g. missing scope), hand the operator
+  # a copy-paste command to create them, then ask them to re-run to confirm.
+  defp emit_gh_label_fallback(io, tracker, labels, message) do
+    repo = tracker[:repo] || "<owner/name>"
+
+    io.puts.("\n⚠ Couldn't create labels automatically (#{message}).")
+    io.puts.("Run these to create them yourself (existing ones are skipped):")
+
+    Enum.each(labels, fn label ->
+      io.puts.("  gh label create #{shell_arg(label)} --repo #{repo} --description #{shell_arg(Labels.describe(label))} --force")
+    end)
+
+    io.puts.("Then run `aiur init` again to confirm all labels exist.")
+  end
+
+  defp shell_arg(value), do: "'" <> String.replace(to_string(value), "'", "'\\''") <> "'"
 
   # Shown when GitHub is the tracker but no token is set yet. Calm, single
   # next step — never a warning — with the minimum scopes aiur needs.

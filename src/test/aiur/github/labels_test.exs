@@ -44,6 +44,20 @@ defmodule Aiur.GitHub.LabelsTest do
       assert "team:todo" in Labels.state_labels("team")
       refute "aiur:todo" in Labels.state_labels("team")
     end
+
+    test "claude backends seed the remote-control alias; codex-only does not" do
+      assert "model:claude-remote" in Labels.label_set("agent", ["claude"])
+      refute "model:claude-remote" in Labels.label_set("agent", ["codex"])
+    end
+  end
+
+  describe "describe/1" do
+    test "gives a short description for each label family" do
+      assert Labels.describe("agent:todo") == "ready to be worked"
+      assert Labels.describe("model:claude-remote") == "Forces remote-control mode at launch"
+      assert Labels.describe("model:claude") =~ "route this issue to claude"
+      assert Labels.describe("complexity:3") == "story-point complexity 3"
+    end
   end
 
   describe "ensure/5" do

@@ -37,7 +37,7 @@ defmodule Aiur.GitHub.Labels do
   @doc "Full label set to create for a repo, given the label prefix and chosen backends."
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
-    state_labels(prefix) ++ model_labels(backends) ++ complexity_labels()
+    state_labels(prefix) ++ model_labels(backends) ++ alias_labels(backends) ++ complexity_labels()
   end
 
   @spec state_labels(String.t()) :: [String.t()]
@@ -46,8 +46,42 @@ defmodule Aiur.GitHub.Labels do
   @spec model_labels([String.t()]) :: [String.t()]
   def model_labels(backends), do: CodingAgent.override_labels(backends)
 
+  # The `model:claude-remote` alias (force remote-control on at launch) only
+  # makes sense when a claude backend is in play.
+  @spec alias_labels([String.t()]) :: [String.t()]
+  def alias_labels(backends) do
+    if Enum.any?(backends, &(&1 in ["claude", "claude-repl"])) do
+      CodingAgent.alias_labels()
+    else
+      []
+    end
+  end
+
   @spec complexity_labels() :: [String.t()]
   def complexity_labels, do: Enum.map(1..5, &"complexity:#{&1}")
+
+  @doc "A short human description for any label in `label_set/2`."
+  @spec describe(String.t()) :: String.t()
+  def describe("complexity:" <> n), do: "story-point complexity #{n}"
+  def describe("model:claude-remote"), do: "Forces remote-control mode at launch"
+  def describe("model:" <> spec), do: "route this issue to #{spec}"
+
+  def describe(label) do
+    case String.split(label, ":", parts: 2) do
+      [_prefix, suffix] -> state_description(suffix)
+      _ -> ""
+    end
+  end
+
+  defp state_description("todo"), do: "ready to be worked"
+  defp state_description("in-progress"), do: "agent is working it"
+  defp state_description("human-review"), do: "awaiting human review"
+  defp state_description("rework"), do: "sent back for changes"
+  defp state_description("merging"), do: "merging the PR"
+  defp state_description("done"), do: "completed"
+  defp state_description("error"), do: "agent hit an error"
+  defp state_description(state) when state in ~w(cancelled canceled), do: "work cancelled"
+  defp state_description(other), do: other
 
   @doc """
   Create each label, stopping at the first hard failure. An existing label
