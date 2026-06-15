@@ -146,6 +146,10 @@ defmodule Aiur.CodingAgent do
   """
   @spec model_for(Issue.t()) :: String.t() | nil
   def model_for(%Issue{} = issue) do
+    override_model(issue) || routing_model(issue)
+  end
+
+  defp override_model(%Issue{} = issue) do
     case override(issue) do
       {_backend, variant} -> variant
       nil -> nil
@@ -220,6 +224,23 @@ defmodule Aiur.CodingAgent do
   @doc false
   @spec routing_backend(Issue.t()) :: backend() | nil
   def routing_backend(%Issue{} = issue) do
+    case routing_value(issue) do
+      nil -> nil
+      value -> value |> Aiur.Config.Schema.split_routing_value() |> elem(0)
+    end
+  end
+
+  # Model pinned by the complexity-routing value (`backend:model`), or nil.
+  @doc false
+  @spec routing_model(Issue.t()) :: String.t() | nil
+  def routing_model(%Issue{} = issue) do
+    case routing_value(issue) do
+      nil -> nil
+      value -> value |> Aiur.Config.Schema.split_routing_value() |> elem(1)
+    end
+  end
+
+  defp routing_value(%Issue{} = issue) do
     case complexity_level(issue) do
       nil -> nil
       level -> Map.get(Config.agent_routing(), level)

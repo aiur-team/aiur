@@ -524,13 +524,15 @@ defmodule Aiur.Config.Schema do
     known = Aiur.CodingAgent.known_backends()
 
     validate_change(changeset, field, fn ^field, routing ->
-      Enum.flat_map(routing, fn {level, backend} ->
+      Enum.flat_map(routing, fn {level, value} ->
         cond do
           not is_integer(level) or level <= 0 ->
             [{field, "complexity levels must be positive integers"}]
 
-          backend not in known ->
-            [{field, "unknown backend #{inspect(backend)}; known backends: #{inspect(known)}"}]
+          not is_binary(value) or routing_backend(value) not in known ->
+            [
+              {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
+            ]
 
           true ->
             []
@@ -538,6 +540,21 @@ defmodule Aiur.Config.Schema do
       end)
     end)
   end
+
+  @doc """
+  Splits a routing value into its backend and optional model. A routing
+  value is `"<backend>"` or `"<backend>:<model>"` (e.g. `"claude:sonnet"`).
+  """
+  @spec split_routing_value(String.t()) :: {String.t(), String.t() | nil}
+  def split_routing_value(value) when is_binary(value) do
+    case String.split(value, ":", parts: 2) do
+      [backend, model] when model != "" -> {backend, model}
+      [backend | _] -> {backend, nil}
+    end
+  end
+
+  defp routing_backend(value) when is_binary(value), do: value |> split_routing_value() |> elem(0)
+  defp routing_backend(_value), do: nil
 
   @doc false
   @spec normalize_complexity_prompts(nil | map()) :: map()

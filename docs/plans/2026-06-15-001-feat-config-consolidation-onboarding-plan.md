@@ -284,7 +284,32 @@ Config resolution (per command):
 - Modify: `src/lib/aiur/init.ex`
 - Test: `src/test/aiur/init_test.exs`
 
-**Approach:** read the example (via injected `deps`), substitute placeholder tokens from the existing prompts (tracker/repo, agents, concurrency), write the result to the target path. Keep `setup_labels`/`setup_env`/`run_auth_checks`/`guard_existing_config` unchanged. Add a `deps.read_example/0` so it stays unit-testable.
+**Approach:** read the example (via injected `deps`), substitute placeholder tokens, write to the target path. Drive all prompts through injected `io` functions (`select`/`multiselect`/`confirm`/`input`) — runtime uses **Owl** (`Owl.IO.select/multiselect/confirm/input`, already a dep), tests inject scripted answers. Keep `setup_labels`/`setup_env`/`run_auth_checks`/`guard_existing_config`.
+
+**LOCKED wizard spec (user, 2026-06-15):**
+Prompts in order — (component, default):
+1. Config location — select (repo-local / global) [repo-local]
+2. Issue tracker — select (github / linear / memory) [github]
+3. GitHub repo — input (git-remote prefill) *(linear → API key + project slug)*
+4. Label prefix — input [aiur]
+5. Which agents — multiselect (claude / codex) [claude]; **if claude chosen, print help: "aiur supports Claude remote-control mode"**
+6. Customize model per complexity tag? — confirm [no] → if yes, per-tag (1→5) select from `codex` / `claude` / `claude:sonnet` … (backend or `backend:model`), default = primary agent; if no, all tags = primary agent
+7. Permission mode — select; only `bypassPermissions` selectable, `default`/`acceptEdits` grayed "coming soon (needs approval UI)" [bypassPermissions]
+8. Workspace root — input [~/code/aiur-workspaces]
+9. Max concurrent agents — input num [10]
+10. Max turns per issue — input num [20]
+11. Pre-warmed sessions — input num [3]
+12. Polling interval seconds — input num [30] (+ help: how often aiur re-checks the tracker for issues to pick up)
+13. prompt_file — input [AIUR.md]
+
+`max_vertical_panes` is NOT asked — hardcode default 3. Other settings (max_log_history_mb, timeouts, opencode/observability/server/worker/events, active/terminal states, hooks) use defaults.
+
+Closing steps after the config is written:
+- A. "Creating the labels aiur routes on…" → `create_labels` (existing)
+- B. Walk through creating the GitHub **bot-account token** → set `GITHUB_TOKEN`
+- C. *(linear only)* concise Linear API-key walkthrough + **prominent warning: Linear support is limited, please file issues if broken**
+
+Routing values may be `backend` or `backend:model` (e.g. `claude:sonnet`) — requires extending `validate_agent_routing` to accept an optional `:model` suffix.
 
 **Execution note:** Start from the existing `init_test.exs` injected-`io`/`deps` harness; assert on the written content rather than YAML round-trip.
 

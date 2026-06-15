@@ -1127,6 +1127,29 @@ defmodule Aiur.WorkspaceAndConfigTest do
              _ -> false
            end)
 
+    # backend:model routing values: the backend part must be known, the
+    # model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
+    assert Schema.split_routing_value("claude") == {"claude", nil}
+    assert Schema.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
+    assert Schema.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+
+    with_model =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "claude:sonnet", 5 => "codex"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert with_model.errors == []
+
+    bad_model_backend =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "bogus:sonnet"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert Enum.any?(bad_model_backend.errors, fn
+             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             _ -> false
+           end)
+
     repl =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "claude-repl"}}, [:routing])
