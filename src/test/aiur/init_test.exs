@@ -401,48 +401,41 @@ defmodule Aiur.InitTest do
       assert opts == ["repo (./.aiurconfig)", "global (~/.aiurconfig)"]
     end
 
-    test "the routing walkthrough sets a model and optional remote per tag", %{dir: dir, target: target} do
+    test "accepting the gate sets a default model per complexity tag", %{dir: dir, target: target} do
       answers =
         github_answers(%{
           multiselect: %{"Which agents to support" => ["claude", "codex"]},
+          confirm: %{"Would you like to select models for 5 complexity tags?" => true},
           select: %{
             "complexity:1" => "claude:haiku",
             "complexity:2" => "codex",
-            "complexity:3" => "claude",
-            "complexity:4" => "claude",
             "complexity:5" => "claude:sonnet"
-          },
-          confirm: %{"Run complexity:1 in remote-control mode?" => true}
+          }
         })
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       routing = written_config(target)["agent"]["routing"]
-      # complexity:1 -> default haiku, run in remote mode.
-      assert routing[1] == "claude:haiku+remote"
+      assert routing[1] == "claude:haiku"
       assert routing[2] == "codex"
       assert routing[5] == "claude:sonnet"
+      # unscripted tags fall to the primary default; no remote prompt is asked.
+      assert routing[3] == "claude"
+      refute Enum.any?(routing, fn {_level, value} -> String.contains?(value, "+remote") end)
 
-      log = puts_log()
-      assert Enum.any?(log, &(&1 =~ ~r/optimize effort per ticket/i))
-      assert Enum.any?(log, &(&1 =~ ~r/override these by tagging/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/optimize agent effort per ticket/i))
     end
 
-    test "codex routing tags are never offered remote mode", %{dir: dir, target: target} do
-      parent = self()
-
+    test "declining the gate routes every tag to the primary default", %{dir: dir, target: target} do
       answers =
         github_answers(%{
-          multiselect: %{"Which agents to support" => ["codex"]},
-          # If a codex level were offered remote and we said yes, it would
-          # append +remote; scripting yes proves the prompt is never asked.
-          confirm: %{"Run complexity:3 in remote-control mode?" => true}
+          confirm: %{"Would you like to select models for 5 complexity tags?" => false}
         })
 
-      assert :ok = Init.run(%{force: false}, io(parent, answers), deps(parent, dir, target))
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       routing = written_config(target)["agent"]["routing"]
-      refute Enum.any?(routing, fn {_level, value} -> String.contains?(value, "+remote") end)
+      assert routing |> Map.values() |> Enum.uniq() == ["claude"]
     end
 
     test "interactive permission modes redirect to bypassPermissions", %{dir: dir, target: target} do
