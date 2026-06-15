@@ -1,6 +1,7 @@
 defmodule Aiur.InitTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.GitHub.Labels
   alias Aiur.Init
   alias Aiur.Workflow
 
@@ -76,6 +77,7 @@ defmodule Aiur.InitTest do
         end,
         check_agent_auth: fn _kind -> :ok end,
         github_token: fn -> nil end,
+        list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})
           :ok
@@ -353,6 +355,57 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/gh label create/))
       assert Enum.any?(log, &(&1 =~ ~r/run `aiur init` again/i))
       refute Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+    end
+
+    test "all labels already present: no creation, shows the ready screen", %{dir: dir, target: target} do
+      required = Labels.label_set("agent", ["claude"])
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          list_labels: fn _tracker -> {:ok, required} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      refute_received {:labels, _tracker, _labels}
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/already exist/i))
+      assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+    end
+
+    test "creates only the missing labels on a later run", %{dir: dir, target: target} do
+      required = Labels.label_set("agent", ["claude"])
+      present = required -- ["agent:rework", "complexity:5"]
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          list_labels: fn _tracker -> {:ok, present} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      assert_received {:labels, _tracker, missing}
+      assert Enum.sort(missing) == Enum.sort(["agent:rework", "complexity:5"])
+    end
+
+    test "the missing-label gh fallback lists only the missing labels", %{dir: dir, target: target} do
+      required = Labels.label_set("agent", ["claude"])
+      present = required -- ["complexity:5"]
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          list_labels: fn _tracker -> {:ok, present} end,
+          create_labels: fn _tracker, _labels -> {:error, "no permission"} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/gh label create 'complexity:5'/))
+      refute Enum.any?(log, &(&1 =~ ~r/gh label create 'agent:todo'/))
     end
   end
 end

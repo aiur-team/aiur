@@ -63,6 +63,7 @@ defmodule Aiur.Init do
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
           github_token: (-> String.t() | nil),
+          list_labels: (map() -> {:ok, [String.t()]} | {:error, term()}),
           create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
         }
 
@@ -456,9 +457,31 @@ defmodule Aiur.Init do
   defp setup_env(_io, _deps, _tracker), do: :ok
 
   defp setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
-    labels = Labels.label_set(@label_prefix, agent_kinds(agents))
+    required = Labels.label_set(@label_prefix, agent_kinds(agents))
 
-    io.puts.("\naiur routes on these #{length(labels)} labels — creating them now:")
+    case deps.list_labels.(tracker) do
+      {:ok, existing} -> reconcile_labels(io, deps, tracker, required, existing)
+      # Can't diff (couldn't read existing labels) — attempt the whole set;
+      # create_labels is idempotent, so already-present labels are skipped.
+      {:error, _reason} -> create_labels_step(io, deps, tracker, required, "creating them now")
+    end
+  end
+
+  defp setup_labels(_io, _deps, _tracker, _agents), do: :ok
+
+  defp reconcile_labels(io, deps, tracker, required, existing) do
+    missing = required -- existing
+
+    if missing == [] do
+      io.puts.("\nAll #{length(required)} labels aiur routes on already exist. ✅")
+      :ok
+    else
+      create_labels_step(io, deps, tracker, missing, "#{length(missing)} missing — creating them")
+    end
+  end
+
+  defp create_labels_step(io, deps, tracker, labels, heading) do
+    io.puts.("\naiur routes on these labels (#{heading}):")
     Enum.each(labels, fn label -> io.puts.("  #{label} — #{Labels.describe(label)}") end)
 
     case deps.create_labels.(tracker, labels) do
@@ -471,8 +494,6 @@ defmodule Aiur.Init do
         :error
     end
   end
-
-  defp setup_labels(_io, _deps, _tracker, _agents), do: :ok
 
   # When the token can't create labels (e.g. missing scope), hand the operator
   # a copy-paste command to create them, then ask them to re-run to confirm.
@@ -605,6 +626,7 @@ defmodule Aiur.Init do
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
       github_token: &Aiur.GitHub.Config.token/0,
+      list_labels: &list_repo_labels/1,
       create_labels: &create_labels/2
     }
   end
@@ -652,6 +674,40 @@ defmodule Aiur.Init do
   end
 
   defp create_labels(_tracker, _labels), do: :ok
+
+  # Existing label names on the repo, so a re-run only creates what's missing.
+  defp list_repo_labels(%{kind: "github", repo: repo}) do
+    with {:ok, {owner, name}} <- parse_owner_repo(repo),
+         {:ok, token} <- require_github_token() do
+      fetch_label_names(owner, name, token, 1, [])
+    end
+  end
+
+  defp list_repo_labels(_tracker), do: {:ok, []}
+
+  defp fetch_label_names(owner, name, token, page, acc) do
+    url = "https://api.github.com/repos/#{owner}/#{name}/labels?per_page=100&page=#{page}"
+
+    headers = [
+      {"authorization", "Bearer #{token}"},
+      {"accept", "application/vnd.github+json"},
+      {"user-agent", "aiur-init"}
+    ]
+
+    case Req.get(url, headers: headers, connect_options: [timeout: 30_000]) do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        names = acc ++ Enum.map(body, & &1["name"])
+        if length(body) == 100, do: fetch_label_names(owner, name, token, page + 1, names), else: {:ok, names}
+
+      {:ok, %{status: status}} ->
+        {:error, {:github_api_status, status}}
+
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
+    end
+  rescue
+    error -> {:error, {:github_api_request, Exception.message(error)}}
+  end
 
   defp parse_owner_repo(repo) do
     case repo && String.split(to_string(repo), "/", trim: true) do
