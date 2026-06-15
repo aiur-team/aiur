@@ -223,6 +223,8 @@ defmodule Aiur.InitTest do
       routing = written_config(target)["agent"]["routing"]
       assert routing[1] == "codex"
       assert routing[5] == "claude:sonnet"
+
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/default Claude version/i))
     end
 
     test "interactive permission modes redirect to bypassPermissions", %{dir: dir, target: target} do

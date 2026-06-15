@@ -188,6 +188,7 @@ defmodule Aiur.Init do
 
     if io.confirm.("Set specific models per complexity tag?", false) do
       options = routing_options(agents)
+      io.puts.("Pick a backend per complexity tag. A bare `claude` uses whatever the default Claude version is at run time; `claude:sonnet` pins one.")
       Map.new(1..5, fn level -> {level, io.select.("complexity:#{level}", options, primary)} end)
     else
       Map.new(1..5, fn level -> {level, primary} end)
