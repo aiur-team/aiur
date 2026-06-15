@@ -14,6 +14,7 @@ defmodule Aiur.CodingAgent do
   """
 
   alias Aiur.Config
+  alias Aiur.Config.Schema
   alias Aiur.Issue
 
   @type backend :: String.t()
@@ -226,7 +227,7 @@ defmodule Aiur.CodingAgent do
   def routing_backend(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> nil
-      value -> value |> Aiur.Config.Schema.split_routing_value() |> elem(0)
+      value -> value |> Schema.split_routing_value() |> elem(0)
     end
   end
 
@@ -236,7 +237,7 @@ defmodule Aiur.CodingAgent do
   def routing_model(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> nil
-      value -> value |> Aiur.Config.Schema.split_routing_value() |> elem(1)
+      value -> value |> Schema.split_routing_value() |> elem(1)
     end
   end
 

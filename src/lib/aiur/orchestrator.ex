@@ -1313,22 +1313,20 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_kill_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
-    cond do
-      overrunning_entry?(running_entry, now, max_seconds) ->
-        identifier = Map.get(running_entry, :identifier, issue_id)
-        seconds = running_seconds(Map.get(running_entry, :started_at), now)
+    if overrunning_entry?(running_entry, now, max_seconds) do
+      identifier = Map.get(running_entry, :identifier, issue_id)
+      seconds = running_seconds(Map.get(running_entry, :started_at), now)
 
-        Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; killing agent")
+      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; killing agent")
 
-        state
-        |> terminate_running_issue(issue_id, false)
-        |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), %{
-          identifier: identifier,
-          error: "exceeded max_agent_duration of #{div(max_seconds, 60)}m"
-        })
-
-      true ->
-        state
+      state
+      |> terminate_running_issue(issue_id, false)
+      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), %{
+        identifier: identifier,
+        error: "exceeded max_agent_duration of #{div(max_seconds, 60)}m"
+      })
+    else
+      state
     end
   end
 
