@@ -424,6 +424,24 @@ defmodule Aiur.InitTest do
       refute_received {:labels, _tracker, _labels}
     end
 
+    test "no-token instructions give explicit classic and fine-grained click-paths", %{
+      dir: dir,
+      target: target
+    } do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      log = puts_log()
+      joined = Enum.join(log, "\n")
+
+      assert joined =~ "Generate new token (classic)"
+      assert joined =~ "repo` scope"
+      assert joined =~ "Only select repositories"
+      assert joined =~ "Read and write"
+      assert joined =~ "Issues"
+      assert joined =~ "Contents"
+      assert joined =~ "Pull requests"
+    end
+
     test "with a token: creates labels and shows the ready screen", %{dir: dir, target: target} do
       deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 

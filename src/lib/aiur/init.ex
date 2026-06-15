@@ -532,8 +532,15 @@ defmodule Aiur.Init do
   defp token_setup_instructions(io) do
     io.puts.("\nNext — give aiur a GitHub token so it can create labels and act as its bot account:")
     io.puts.("  1. Create a token at #{@token_url}")
-    io.puts.("     • classic: the `repo` scope")
-    io.puts.("     • fine-grained: Issues, Contents, and Pull requests — read & write")
+    io.puts.("     Classic token:")
+    io.puts.("       • Click `Generate new token (classic)`")
+    io.puts.("       • Check the `repo` scope (Full control of private repositories)")
+    io.puts.("     Fine-grained token:")
+    io.puts.("       • Repository access → `Only select repositories` → choose this repo")
+    io.puts.("       • Permissions → Repository permissions, set each to `Read and write`:")
+    io.puts.("           – Issues")
+    io.puts.("           – Contents")
+    io.puts.("           – Pull requests")
     io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
   end
