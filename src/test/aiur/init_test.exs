@@ -108,6 +108,14 @@ defmodule Aiur.InitTest do
     end
   end
 
+  defp auth_kinds(acc \\ []) do
+    receive do
+      {:auth_kind, kind} -> auth_kinds([kind | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   @duration_label "Max agent duration in minutes — fallback for stuck agents (none = never auto-kill)"
 
   @location_label "Where will you store aiur settings?"
@@ -156,6 +164,35 @@ defmodule Aiur.InitTest do
 
       refute Enum.any?(input_labels(), &(&1 =~ ~r/Where should agents work/))
       assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
+    end
+
+    test "resume never runs a CLI auth check for the claude-repl transport", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      # existing_config_path only needs the file to exist; load_config is stubbed.
+      File.write!(target, "placeholder")
+
+      config = %{
+        "tracker" => %{"kind" => "memory"},
+        "agent" => %{"kind" => "claude", "routing" => %{"5" => "claude-repl"}}
+      }
+
+      d =
+        deps(parent, dir, target, %{
+          load_config: fn _t -> {:ok, config} end,
+          check_agent_auth: fn kind ->
+            send(parent, {:auth_kind, kind})
+            :ok
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent), d)
+
+      kinds = auth_kinds()
+      assert "claude" in kinds
+      refute "claude-repl" in kinds
     end
   end
 
@@ -263,6 +300,28 @@ defmodule Aiur.InitTest do
     } do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
       refute Enum.any?(puts_log(), &(&1 =~ ~r/remote-control mode/i))
+    end
+
+    test "the agent multiselect offers only claude and codex (never claude-repl)", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | multiselect: fn label, opts, defaults ->
+            send(parent, {:multiselect_opts, label, opts})
+            Map.get(Map.get(answers, :multiselect, %{}), label, defaults)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      assert_received {:multiselect_opts, "Which agents to support", opts}
+      assert opts == ["claude", "codex"]
     end
 
     test "the routing walkthrough sets backend:model per complexity tag", %{dir: dir, target: target} do

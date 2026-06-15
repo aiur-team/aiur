@@ -543,7 +543,11 @@ defmodule Aiur.Init do
   # never block setup. Success is silent; a missing CLI warns with a fix hint
   # and offers retry/skip, then proceeds either way.
   defp check_agent_clis(io, deps, agents) do
-    Enum.each(agents, fn kind ->
+    # Only CLI-backed agents have a command to verify; `claude-repl` (a routed
+    # or resumed remote transport) has none, so skip it rather than warn.
+    agents
+    |> Enum.filter(&(&1 in @routing_order))
+    |> Enum.each(fn kind ->
       run_auth_check(io, "#{kind} agent", fn -> deps.check_agent_auth.(kind) end)
     end)
 
@@ -568,9 +572,10 @@ defmodule Aiur.Init do
 
   # --- Agent-kind helpers ---
 
+  # Only CLI-backed agents are user-selectable. `claude-repl` is an internal
+  # remote transport (not its own CLI), so it never appears in the wizard.
   defp agent_kind_choices do
-    known = known_agent_kinds()
-    Enum.filter(@routing_order, &(&1 in known)) ++ Enum.reject(known, &(&1 in @routing_order))
+    Enum.filter(@routing_order, &(&1 in known_agent_kinds()))
   end
 
   defp primary_kind(agents), do: hd(agent_kinds(agents))
