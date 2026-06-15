@@ -22,9 +22,7 @@ defmodule Aiur.Logs.RetentionTest do
 
   defp start_sweeper(root, opts) do
     {:ok, pid} =
-      Retention.start_link(
-        Keyword.merge([root: root, name: nil, start_paused?: true], opts)
-      )
+      Retention.start_link(Keyword.merge([root: root, name: nil, start_paused?: true], opts))
 
     pid
   end
