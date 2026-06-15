@@ -107,11 +107,13 @@ defmodule Aiur.CodingAgentTest do
     test "family layer pins the family string" do
       assert CodingAgent.model_for(issue(["model:claude-opus"])) == "opus"
       assert CodingAgent.model_for(issue(["model:claude-sonnet"])) == "sonnet"
+      assert CodingAgent.model_for(issue(["model:claude-haiku"])) == "haiku"
     end
 
     test "specific layer pins the exact version string" do
       assert CodingAgent.model_for(issue(["model:claude-opus-4-8"])) == "opus-4-8"
       assert CodingAgent.model_for(issue(["model:codex-gpt-5.5"])) == "gpt-5.5"
+      assert CodingAgent.model_for(issue(["model:codex-gpt-5.4-mini"])) == "gpt-5.4-mini"
     end
 
     test "no model: tag pins nothing" do
@@ -183,6 +185,14 @@ defmodule Aiur.CodingAgentTest do
       assert "model:claude-opus" in labels
       assert "model:claude-opus-4-8" in labels
       assert "model:codex" in labels
+    end
+
+    test "override_labels seeds bare haiku and cheaper codex variants" do
+      labels = CodingAgent.override_labels()
+      assert "model:claude-haiku" in labels
+      assert "model:codex-gpt-5.4" in labels
+      assert "model:codex-gpt-5.5-mini" in labels
+      assert "model:codex-gpt-5.4-mini" in labels
     end
   end
 

@@ -68,7 +68,7 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         remote_control: false,
-        models: ["gpt-5.5"]
+        models: ["gpt-5.5", "gpt-5.4", "gpt-5.5-mini", "gpt-5.4-mini"]
       },
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
@@ -76,7 +76,7 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification],
         remote_control: true,
-        models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
       },
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
@@ -91,7 +91,7 @@ defmodule Aiur.CodingAgent do
         safe_checkpoints: [],
         immediate_delivery: true,
         remote_control: true,
-        models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
       }
     }
   end
