@@ -32,7 +32,7 @@ defmodule Aiur.Init do
   # The workflow-state label namespace is fixed (operators don't customize it):
   # aiur picks up issues tagged `agent:todo` and walks them through `agent:*`.
   @label_prefix "agent"
-  @tracker_kinds ["github", "linear", "memory"]
+  @tracker_kinds ["github", "linear"]
   @permission_modes ["bypassPermissions", "default (coming soon)", "acceptEdits (coming soon)"]
   # Low complexity routes to the first kind, high to the last.
   @routing_order ["claude", "codex"]
@@ -272,9 +272,6 @@ defmodule Aiur.Init do
           api_key: io.input.("Linear API key", nil, nil),
           project_slug: io.input.("Linear project slug", nil, nil)
         }
-
-      "memory" ->
-        %{kind: "memory"}
     end
   end
 

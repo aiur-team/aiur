@@ -236,6 +236,25 @@ defmodule Aiur.InitTest do
   end
 
   describe "tracker prompts fill the nested template" do
+    test "the issue tracker offers github and linear, never memory", %{dir: dir, target: target} do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | select: fn label, opts, default ->
+            send(parent, {:select_opts, label, opts})
+            Map.get(Map.get(answers, :select, %{}), label, default)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      assert_received {:select_opts, "Issue tracker", opts}
+      assert opts == ["github", "linear"]
+    end
+
     test "github writes tracker.github.* and a routing table", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
@@ -294,16 +313,6 @@ defmodule Aiur.InitTest do
       assert written_config(target)["prompt_file"] == nil
     end
 
-    test "memory writes a minimal tracker", %{dir: dir, target: target} do
-      answers = %{
-        select: %{@location_label => "repo", "Issue tracker" => "memory"},
-        multiselect: %{"Which agents to support" => ["codex"]},
-        confirm: %{"Set specific models per complexity tag?" => false}
-      }
-
-      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
-      assert written_config(target)["tracker"]["kind"] == "memory"
-    end
   end
 
   describe "limits and helper text" do
