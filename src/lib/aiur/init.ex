@@ -116,7 +116,7 @@ defmodule Aiur.Init do
     pre_warmed =
       prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0, "Set this to how many opencode panes you expect to open at once.")
 
-    polling = prompt_int(io, "How often should aiur check the tracker for new work? (seconds):", 30, 1)
+    polling = prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md", nil)
 
