@@ -92,10 +92,12 @@ defmodule Aiur.InitTest do
     end
   end
 
+  @location_label "Where will you store aiur settings?"
+
   defp github_answers(overrides \\ %{}) do
     base = %{
-      select: %{"Config location" => "repo-local", "Issue tracker" => "github"},
-      input: %{"GitHub repo (owner/name)" => "octo/repo", "Label prefix" => "team"},
+      select: %{@location_label => "repo", "Issue tracker" => "github"},
+      input: %{"GitHub repo (owner/name)" => "octo/repo"},
       multiselect: %{"Which agents to support" => ["claude"]},
       confirm: %{"Set specific models per complexity tag?" => false}
     }
@@ -129,7 +131,8 @@ defmodule Aiur.InitTest do
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
       assert config["tracker"]["github"]["repo"] == "octo/repo"
-      assert config["tracker"]["github"]["label_prefix"] == "team"
+      # label_prefix is fixed (`agent`) and omitted from the written config.
+      refute Map.has_key?(config["tracker"]["github"], "label_prefix")
       assert config["agent"]["kind"] == "claude"
       assert config["agent"]["max_agent_duration_minutes"] == 60
 
@@ -139,7 +142,7 @@ defmodule Aiur.InitTest do
     end
 
     test "the global config omits the repo (auto-detected at runtime)", %{dir: dir, target: target} do
-      answers = github_answers(%{select: %{"Config location" => "global"}})
+      answers = github_answers(%{select: %{@location_label => "global"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
@@ -150,7 +153,7 @@ defmodule Aiur.InitTest do
 
     test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do
       answers = %{
-        select: %{"Config location" => "repo-local", "Issue tracker" => "linear"},
+        select: %{@location_label => "repo", "Issue tracker" => "linear"},
         input: %{"Linear API key" => "lin_key_123", "Linear project slug" => "team-alpha"},
         multiselect: %{"Which agents to support" => ["codex"]},
         confirm: %{"Set specific models per complexity tag?" => false}
@@ -174,7 +177,7 @@ defmodule Aiur.InitTest do
     end
 
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
-      answers = github_answers(%{select: %{"Config location" => "global"}})
+      answers = github_answers(%{select: %{@location_label => "global"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
       assert written_config(target)["prompt_file"] == nil
@@ -182,7 +185,7 @@ defmodule Aiur.InitTest do
 
     test "memory writes a minimal tracker", %{dir: dir, target: target} do
       answers = %{
-        select: %{"Config location" => "repo-local", "Issue tracker" => "memory"},
+        select: %{@location_label => "repo", "Issue tracker" => "memory"},
         multiselect: %{"Which agents to support" => ["codex"]},
         confirm: %{"Set specific models per complexity tag?" => false}
       }
@@ -193,9 +196,12 @@ defmodule Aiur.InitTest do
   end
 
   describe "agents, routing, permission mode" do
-    test "selecting claude prints the remote-control hint", %{dir: dir, target: target} do
+    test "agent selection does not hint remote-control (deferred to tag creation)", %{
+      dir: dir,
+      target: target
+    } do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/remote-control/i))
+      refute Enum.any?(puts_log(), &(&1 =~ ~r/remote-control mode/i))
     end
 
     test "the routing walkthrough sets backend:model per complexity tag", %{dir: dir, target: target} do

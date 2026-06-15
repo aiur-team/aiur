@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Config do
 
   @behaviour Aiur.TrackerConfig
 
-  @default_label_prefix "aiur"
+  @default_label_prefix "agent"
 
   @spec repo() :: String.t() | nil
   def repo do

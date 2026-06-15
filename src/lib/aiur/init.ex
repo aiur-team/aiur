@@ -14,6 +14,7 @@ defmodule Aiur.Init do
 
   alias Aiur.CodingAgent
   alias Aiur.GitHub.Labels
+  alias Aiur.Init.Prompt
 
   @config_file_name ".aiurconfig"
   @env_file_name ".env"
@@ -28,7 +29,9 @@ defmodule Aiur.Init do
   GITHUB_TOKEN=
   """
 
-  @default_label_prefix "aiur"
+  # The workflow-state label namespace is fixed (operators don't customize it):
+  # aiur picks up issues tagged `agent:todo` and walks them through `agent:*`.
+  @label_prefix "agent"
   @tracker_kinds ["github", "linear", "memory"]
   @permission_modes ["bypassPermissions", "default (coming soon)", "acceptEdits (coming soon)"]
   # Low complexity routes to the first kind, high to the last.
@@ -79,7 +82,7 @@ defmodule Aiur.Init do
       agents = prompt_agents(io)
       routing = prompt_routing(io, agents)
       permission_mode = prompt_permission_mode(io)
-      workspace_root = io.input.("Workspace root", "~/code/aiur-workspaces")
+      workspace_root = io.input.("Where should agents work?", "~/code/aiur-workspaces")
       max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
       max_turns = prompt_int(io, "Max turns per issue", 20, 1)
       max_duration = prompt_int(io, "Max agent duration minutes (0 disables)", 60, 0)
@@ -137,7 +140,7 @@ defmodule Aiur.Init do
   # --- Prompts ---
 
   defp prompt_location(io) do
-    case io.select.("Config location", ["repo-local", "global"], "repo-local") do
+    case io.select.("Where will you store aiur settings?", ["repo", "global"], "repo") do
       "global" -> :global
       _ -> :repo_local
     end
@@ -149,8 +152,7 @@ defmodule Aiur.Init do
         # The global config is general, so it omits the repo (auto-detected
         # from the git remote of whatever repo aiur runs in).
         repo = if location == :global, do: nil, else: io.input.("GitHub repo (owner/name)", deps.detect_repo.())
-        prefix = io.input.("Label prefix", @default_label_prefix)
-        %{kind: "github", repo: repo, label_prefix: prefix}
+        %{kind: "github", repo: repo}
 
       "linear" ->
         %{
@@ -164,7 +166,8 @@ defmodule Aiur.Init do
     end
   end
 
-  # Multi-select agents (at least one). A claude pick surfaces the RC hint.
+  # Multi-select agents (at least one). The remote-control option is introduced
+  # later (at tag creation), not here.
   defp prompt_agents(io) do
     choices = agent_kind_choices()
 
@@ -173,10 +176,6 @@ defmodule Aiur.Init do
         [] -> [List.first(choices)]
         kinds -> kinds
       end
-
-    if "claude" in selected do
-      io.puts.("ℹ aiur supports Claude remote-control mode for claude agents.")
-    end
 
     agent_kinds(selected)
   end
@@ -251,11 +250,12 @@ defmodule Aiur.Init do
     end)
   end
 
-  defp tracker_provider_block(%{kind: "github", repo: repo, label_prefix: prefix}) do
+  defp tracker_provider_block(%{kind: "github", repo: repo}) do
+    # label_prefix is fixed (`agent`) and matches the schema default, so the
+    # written config omits it.
     [
       "  github:",
-      repo && "    repo: #{repo}",
-      "    label_prefix: #{prefix || @default_label_prefix}"
+      repo && "    repo: #{repo}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
@@ -303,10 +303,10 @@ defmodule Aiur.Init do
 
   defp setup_env(_io, _deps, _tracker), do: :ok
 
-  defp setup_labels(io, deps, %{kind: "github", label_prefix: prefix} = tracker, agents) do
-    labels = Labels.label_set(prefix, agent_kinds(agents))
+  defp setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
+    labels = Labels.label_set(@label_prefix, agent_kinds(agents))
 
-    io.puts.("Creating #{length(labels)} labels aiur routes on (#{prefix}:<state>, model:<agent>, complexity:1-5)…")
+    io.puts.("Creating #{length(labels)} labels aiur routes on (#{@label_prefix}:<state>, model:<agent>, complexity:1-5)…")
 
     case deps.create_labels.(tracker, labels) do
       :ok -> io.puts.("Created labels (existing ones left as-is).")
@@ -385,17 +385,29 @@ defmodule Aiur.Init do
     %{
       puts: fn message -> IO.puts(message) end,
       input: fn label, default ->
-        prompt = if default in [nil, ""], do: label, else: "#{label} [#{default}]"
-
-        case Owl.IO.input(label: prompt, optional: true) do
-          value when value in [nil, ""] -> default
+        case Prompt.input(label, default) do
+          "" -> default
           value -> value
         end
       end,
-      select: fn label, options, _default -> Owl.IO.select(options, label: label) end,
-      multiselect: fn label, options, _defaults -> Owl.IO.multiselect(options, label: label) end,
-      confirm: fn label, default -> Owl.IO.confirm(message: label, default: default) end
+      select: fn label, options, default ->
+        Prompt.select(label, options, default, render: &dim_coming_soon/1)
+      end,
+      multiselect: fn label, options, defaults -> Prompt.multiselect(label, options, defaults) end,
+      confirm: fn label, default ->
+        Prompt.select(label, ["Yes", "No"], if(default, do: "Yes", else: "No")) == "Yes"
+      end
     }
+  end
+
+  # Options carrying a "coming soon" marker are shown dimmed so operators see
+  # they exist but aren't selectable-for-real yet.
+  defp dim_coming_soon(option) do
+    if String.contains?(option, "coming soon") do
+      IO.ANSI.format([:faint, option])
+    else
+      option
+    end
   end
 
   @spec runtime_deps() :: deps()

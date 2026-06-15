@@ -45,7 +45,7 @@ defmodule Aiur.Config.Schema do
     @primary_key false
     embedded_schema do
       field(:repo, :string)
-      field(:label_prefix, :string, default: "aiur")
+      field(:label_prefix, :string, default: "agent")
       field(:bot_account, :string)
     end
 
