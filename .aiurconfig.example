@@ -25,6 +25,7 @@ tracker:
 agent:
   kind: {{AGENT_KIND}}                   # default backend: codex | claude
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
+  max_agent_duration_minutes: 60         # safety net: hard-kill an agent running this long (0 disables)
   routing:                               # a `complexity:<N>` issue label routes to this backend
     4: claude
     5: claude

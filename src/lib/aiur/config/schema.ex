@@ -284,6 +284,9 @@ defmodule Aiur.Config.Schema do
       # already reads these via Config.agent_turn_timeout_ms/0).
       field(:turn_timeout_ms, :integer, default: 3_600_000)
       field(:stall_timeout_ms, :integer, default: 300_000)
+      # Safety net: hard-kill an agent that has been actively running this
+      # many minutes (paused/blocked time excluded). 0 disables.
+      field(:max_agent_duration_minutes, :integer, default: 60)
 
       embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
       embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -305,7 +308,8 @@ defmodule Aiur.Config.Schema do
           :routing,
           :complexity_prompts,
           :turn_timeout_ms,
-          :stall_timeout_ms
+          :stall_timeout_ms,
+          :max_agent_duration_minutes
         ],
         empty_values: []
       )
@@ -315,6 +319,7 @@ defmodule Aiur.Config.Schema do
       |> validate_number(:max_retry_backoff_ms, greater_than: 0)
       |> validate_number(:turn_timeout_ms, greater_than: 0)
       |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
+      |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
       |> update_change(:routing, &Schema.normalize_agent_routing/1)

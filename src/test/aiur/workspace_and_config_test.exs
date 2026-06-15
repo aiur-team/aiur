@@ -1186,6 +1186,20 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
   end
 
+  test "agent.max_agent_duration_minutes defaults to 60 and rejects negatives" do
+    # Safety-net cap the orchestrator's overrun watchdog reads; 0 disables.
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.max_agent_duration_minutes == 60
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_agent_duration_minutes: 0}})
+
+    assert settings.agent.max_agent_duration_minutes == 0
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_agent_duration_minutes: -1}})
+  end
+
   test "complexity prompts normalize string levels and reject bad levels/values" do
     assert Schema.normalize_complexity_prompts(nil) == %{}
 

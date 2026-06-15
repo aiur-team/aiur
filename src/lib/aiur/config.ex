@@ -224,6 +224,11 @@ defmodule Aiur.Config do
     settings!().agent.stall_timeout_ms
   end
 
+  @spec max_agent_duration_minutes() :: non_neg_integer()
+  def max_agent_duration_minutes do
+    settings!().agent.max_agent_duration_minutes
+  end
+
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do
