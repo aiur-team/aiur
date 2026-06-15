@@ -1621,8 +1621,21 @@ run_in_tmux() {
   export AIUR_TMUX_CONF="$conf"
   export AIUR_BIN="$elixir_dir/bin/aiur"
   export AIUR_MISE_BIN="$mise_bin"
-  local startup_capture
-  startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
+  # Boot-diagnostic capture. Bounded to the first
+  # $boot_capture_max_lines (see the launcher's awk drain below) so it
+  # holds the startup window — enough for print_startup_failure's
+  # `tail -n 30` on an early crash — without accumulating the full
+  # ~60fps TUI frame stream for the life of the session. Lives in the
+  # session log dir so it persists with the rest of the run's logs
+  # (`--record` is the opt-in path for the full frame stream).
+  local startup_capture boot_capture_max_lines=2000
+  if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+    mkdir -p "${AIUR_LOGS_ROOT}/log" 2>/dev/null || true
+    startup_capture="${AIUR_LOGS_ROOT}/log/boot.capture"
+    : > "$startup_capture"
+  else
+    startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.${profile}.XXXXXX")"
+  fi
 
   # Session-id sidecar file. SessionWriter writes one opencode session id
   # per line into this file as it creates them; the trap below reaps every
@@ -1675,21 +1688,11 @@ run_in_tmux() {
     local exit_code=$?
     __aiur_trap_log "${__aiur_trap_trigger:-EXIT}" "$exit_code"
     local sessions_file="${AIUR_SESSION_TMPFILE:-}"
-    # `startup_capture` was declared `local` inside this function's caller,
-    # so by the time the EXIT trap fires it has gone out of scope. Use
-    # safe expansion so `set -u` doesn't blow up before the real reaping.
-    local capture="${startup_capture:-}"
-
-    if [ -n "$capture" ]; then
-      # Preserve the most recent run's full log at a stable path instead of
-      # deleting it. The per-run mktemp file is otherwise destroyed here on
-      # every clean exit, taking all post-mortem evidence with it. Derive the
-      # stable name from the capture path (strip the random mktemp suffix) so
-      # this works even if `profile` is out of scope by trap time. Bounded to
-      # one file per profile.
-      local preserved="${capture%.*}.last"
-      mv -f "$capture" "$preserved" 2>/dev/null || rm -f "$capture" 2>/dev/null || true
-    fi
+    # The boot capture is intentionally NOT deleted here. It lives in the
+    # session log dir (~/.aiur/logs/<session>/log/boot.capture), is bounded
+    # to the startup window, and persists with the rest of the run's logs
+    # so post-mortem debugging survives a clean exit. Old sessions are
+    # reaped by Aiur.Logs.Retention, not by this trap.
 
     # Shut the aiur BEAM down. The detached tmux session running aiur
     # outlives this trap; without an explicit stop the BEAM keeps
@@ -1936,7 +1939,12 @@ run_in_tmux() {
     for arg in "$@"; do
       printf ' %q' "$arg"
     done
-    printf ' 2>&1 | tee -a "$capture"\n'
+    # Bounded boot capture: write only the first `max` lines to the
+    # capture file, but keep draining stdin so the BEAM never takes a
+    # SIGPIPE (which `head` would cause). This holds the startup window
+    # for print_startup_failure without growing for the whole session.
+    printf ' 2>&1 | awk -v max=%q -v f="$capture" %q\n' \
+      "$boot_capture_max_lines" 'NR <= max { print >> f; fflush(f) }'
     printf 'exit ${PIPESTATUS[0]}\n'
   } > "$launcher"
 
