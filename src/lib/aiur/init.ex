@@ -254,7 +254,9 @@ defmodule Aiur.Init do
   # --- Prompts ---
 
   defp prompt_location(io) do
-    case io.select.("Where will you store aiur settings?", ["repo", "global"], "repo") do
+    options = ["repo (./.aiurconfig)", "global (~/.aiurconfig)"]
+
+    case value_of(io.select.("Where will you store aiur settings for this project?", options, hd(options))) do
       "global" -> :global
       _ -> :repo_local
     end
@@ -632,7 +634,7 @@ defmodule Aiur.Init do
         end
       end,
       select: fn label, options, default ->
-        Prompt.select(label, options, default, render: &dim_coming_soon/1)
+        Prompt.select(label, options, default, render: &dim_help/1)
       end,
       multiselect: fn label, options, defaults -> Prompt.multiselect(label, options, defaults) end,
       confirm: fn label, default ->
@@ -641,15 +643,17 @@ defmodule Aiur.Init do
     }
   end
 
-  # Options carrying a "coming soon" marker are shown dimmed so operators see
-  # they exist but aren't selectable-for-real yet.
-  defp dim_coming_soon(option) do
-    if String.contains?(option, "coming soon") do
-      IO.ANSI.format([:faint, option])
-    else
-      option
+  # Greys an inline help suffix — the ` (...)` tail of an option — so the hint
+  # (default model, file path, "coming soon") reads as secondary without
+  # competing with the choice. `value_of/1` recovers the bare option value.
+  defp dim_help(option) do
+    case String.split(option, " (", parts: 2) do
+      [head, rest] -> [head, IO.ANSI.format([:faint, " (" <> rest])]
+      [head] -> head
     end
   end
+
+  defp value_of(option), do: option |> to_string() |> String.split(" (", parts: 2) |> hd() |> String.trim()
 
   @spec runtime_deps() :: deps()
   defp runtime_deps do

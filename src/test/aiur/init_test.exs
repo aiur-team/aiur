@@ -134,7 +134,7 @@ defmodule Aiur.InitTest do
 
   @duration_label "Max agent duration in minutes"
 
-  @location_label "Where will you store aiur settings?"
+  @location_label "Where will you store aiur settings for this project?"
 
   defp github_answers(overrides \\ %{}) do
     base = %{
@@ -380,6 +380,25 @@ defmodule Aiur.InitTest do
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
       assert opts == ["claude", "codex"]
+    end
+
+    test "the location options carry greyed config-path help", %{dir: dir, target: target} do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | select: fn label, opts, default ->
+            send(parent, {:select_opts, label, opts})
+            Map.get(Map.get(answers, :select, %{}), label, default)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      assert_received {:select_opts, "Where will you store aiur settings for this project?", opts}
+      assert opts == ["repo (./.aiurconfig)", "global (~/.aiurconfig)"]
     end
 
     test "the routing walkthrough sets a model and optional remote per tag", %{dir: dir, target: target} do
