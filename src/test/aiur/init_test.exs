@@ -555,13 +555,13 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/aiur --bg/))
     end
 
-    test "lists every label with a description, including model:claude-remote", %{dir: dir, target: target} do
+    test "lists every label with a description, including model:remote", %{dir: dir, target: target} do
       deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
       log = puts_log()
-      assert Enum.any?(log, &(&1 =~ ~r/model:claude-remote — Forces remote-control mode at launch/))
+      assert Enum.any?(log, &(&1 =~ ~r/model:remote — Supports claude remote-control/))
       assert Enum.any?(log, &(&1 =~ ~r/agent:todo — ready to be worked/))
     end
 

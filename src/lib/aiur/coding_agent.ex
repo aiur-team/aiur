@@ -45,12 +45,12 @@ defmodule Aiur.CodingAgent do
   # is recognized rather than mis-split into `claude` + variant `repl`.
   @model_override_label ~r/^model:([A-Za-z0-9.\-]+)$/
 
-  # Remote-control flag aliases. `model:claude-remote` is a pure flag: it
-  # forces remote-control ON for the issue (see `remote_control_forced?/1`)
-  # but never selects a backend — the model comes from a companion
-  # `model:<backend>` tag and dispatch swaps the transport to the mapped
-  # value (`claude-repl`, the remote transport the flag implies).
-  @backend_aliases %{"claude-remote" => "claude-repl"}
+  # Remote-control flag aliases. `model:remote` is a pure flag: it forces
+  # remote-control ON for the issue (see `remote_control_forced?/1`) but never
+  # selects a backend — the model comes from a companion `model:<backend>` tag
+  # and dispatch swaps the transport to the mapped value (`claude-repl`, the
+  # remote transport the flag implies).
+  @backend_aliases %{"remote" => "claude-repl"}
 
   @doc """
   Registry of supported coding-agent backends. Each entry carries the
@@ -108,7 +108,7 @@ defmodule Aiur.CodingAgent do
   @spec override_labels() :: [String.t()]
   def override_labels, do: override_labels(known_backends()) ++ alias_labels()
 
-  @doc "Label-only alias override labels (e.g. `model:claude-remote`)."
+  @doc "Label-only alias override labels (e.g. `model:remote`)."
   @spec alias_labels() :: [String.t()]
   def alias_labels, do: Enum.map(Map.keys(@backend_aliases), &"model:#{&1}")
 
@@ -185,7 +185,7 @@ defmodule Aiur.CodingAgent do
   end
 
   # Resolve `model:<spec>` to `{backend, variant | nil}`. A `model:<alias>`
-  # spec (bare `claude-remote` or `claude-remote-<variant>`) is a remote FLAG,
+  # spec (bare `remote` or `remote-<variant>`) is a remote FLAG,
   # not a backend selector, so it never resolves to a backend here — the
   # backend/model come from a companion `model:<backend>` tag while
   # `remote_control_forced?/1` reads the flag and dispatch swaps the transport.
@@ -239,7 +239,7 @@ defmodule Aiur.CodingAgent do
   Whether the issue's complexity routes to a `+remote` value in the
   `agent.routing` table (e.g. `complexity:1 -> "claude:haiku+remote"`),
   forcing remote control for that routed default even without a
-  `model:claude-remote` label on the issue.
+  `model:remote` label on the issue.
   """
   @spec routing_remote?(Issue.t()) :: boolean()
   def routing_remote?(%Issue{} = issue) do
@@ -323,7 +323,7 @@ defmodule Aiur.CodingAgent do
   @doc """
   Whether an issue carries a `model:<alias>` label that forces remote
   control ON regardless of the global `agent.remote_control` opt-in
-  default. Only the label-only aliases (e.g. `model:claude-remote`) force
+  default. Only the label-only aliases (e.g. `model:remote`) force
   RC; a bare `model:claude-repl` selects the transport but leaves RC to the
   global default.
   """
@@ -347,12 +347,12 @@ defmodule Aiur.CodingAgent do
 
   @doc """
   The canonical operator-facing label that forces remote control on for an
-  issue (`model:claude-remote`). Added/removed by the AgentList `r` key to
+  issue (`model:remote`). Added/removed by the AgentList `r` key to
   promote/demote a running agent; it is the durable source of truth for
   remote-ness across re-dispatches.
   """
   @spec remote_control_alias_label() :: String.t()
-  def remote_control_alias_label, do: "model:claude-remote"
+  def remote_control_alias_label, do: "model:remote"
 
   @doc """
   Whether the backend takes operator messages immediately (pass-through to

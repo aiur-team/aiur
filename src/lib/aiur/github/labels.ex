@@ -46,7 +46,7 @@ defmodule Aiur.GitHub.Labels do
   @spec model_labels([String.t()]) :: [String.t()]
   def model_labels(backends), do: CodingAgent.override_labels(backends)
 
-  # The `model:claude-remote` flag (force remote-control on at launch) only
+  # The `model:remote` flag (force remote-control on at launch) only
   # makes sense when the claude backend is chosen; it pairs with a
   # `model:claude-<variant>` tag rather than selecting a backend itself.
   @spec alias_labels([String.t()]) :: [String.t()]
@@ -64,7 +64,7 @@ defmodule Aiur.GitHub.Labels do
   @doc "A short human description for any label in `label_set/2`."
   @spec describe(String.t()) :: String.t()
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
-  def describe("model:claude-remote"), do: "Forces remote-control mode at launch"
+  def describe("model:remote"), do: "Supports claude remote-control"
   def describe("model:" <> spec), do: "route this issue to #{spec}"
 
   def describe(label) do

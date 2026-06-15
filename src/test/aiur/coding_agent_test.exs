@@ -41,42 +41,42 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
-  describe "model:claude-remote is a remote flag, not a backend selector" do
+  describe "model:remote is a remote flag, not a backend selector" do
     test "the bare alias selects no backend and pins no model" do
-      assert CodingAgent.override_backend(issue(["model:claude-remote"])) == nil
-      assert CodingAgent.model_for(issue(["model:claude-remote"])) == nil
+      assert CodingAgent.override_backend(issue(["model:remote"])) == nil
+      assert CodingAgent.model_for(issue(["model:remote"])) == nil
     end
 
     test "a companion model tag picks backend+model; the alias only forces RC" do
-      issue = issue(["model:claude-haiku", "model:claude-remote"])
+      issue = issue(["model:claude-haiku", "model:remote"])
       assert CodingAgent.backend_for(issue) == "claude"
       assert CodingAgent.model_for(issue) == "haiku"
       assert CodingAgent.remote_control_forced?(issue)
     end
 
     test "the alias is skipped regardless of label order" do
-      reordered = issue(["model:claude-remote", "model:claude-haiku"])
+      reordered = issue(["model:remote", "model:claude-haiku"])
       assert CodingAgent.backend_for(reordered) == "claude"
       assert CodingAgent.model_for(reordered) == "haiku"
     end
 
     test "remote_control_forced? is true only when the alias label is present" do
-      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote"]))
+      assert CodingAgent.remote_control_forced?(issue(["model:remote"]))
       refute CodingAgent.remote_control_forced?(issue(["model:claude-repl"]))
       refute CodingAgent.remote_control_forced?(issue(["model:claude"]))
       refute CodingAgent.remote_control_forced?(issue(["complexity:5"]))
     end
 
     test "an alias-variant label is flag-only (no backend/model) but still forces RC" do
-      assert CodingAgent.override_backend(issue(["model:claude-remote-sonnet"])) == nil
-      assert CodingAgent.model_for(issue(["model:claude-remote-sonnet"])) == nil
-      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-sonnet"]))
-      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-opus-4-8"]))
+      assert CodingAgent.override_backend(issue(["model:remote-sonnet"])) == nil
+      assert CodingAgent.model_for(issue(["model:remote-sonnet"])) == nil
+      assert CodingAgent.remote_control_forced?(issue(["model:remote-sonnet"]))
+      assert CodingAgent.remote_control_forced?(issue(["model:remote-opus-4-8"]))
       refute CodingAgent.remote_control_forced?(issue(["model:claude-sonnet"]))
     end
 
     test "the alias label is auto-seeded" do
-      assert "model:claude-remote" in CodingAgent.override_labels()
+      assert "model:remote" in CodingAgent.override_labels()
     end
 
     test "routing_remote? is false with no complexity label (global config untouched)" do

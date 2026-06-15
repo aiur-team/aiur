@@ -322,7 +322,7 @@ defmodule Aiur.Init do
   # Optional per-complexity-tag routing. With the gate accepted, each story-point
   # tag (1-5) picks a default model; declining routes every tag to the primary
   # agent's default model. Remote mode is not chosen here — it is applied per
-  # ticket via the model:claude-remote tag (explained when tags are listed).
+  # ticket via the model:remote tag (explained when tags are listed).
   defp prompt_routing(io, agents) do
     primary = primary_kind(agents)
 

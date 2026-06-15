@@ -4035,8 +4035,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Promote any running agent (headless `claude` or `codex`) to `claude-remote`:
-  # add the durable `model:claude-remote` label, stop the current agent, and
+  # Promote any running agent (headless `claude` or `codex`) to remote control:
+  # add the durable `model:remote` label, stop the current agent, and
   # re-dispatch the same issue. The re-dispatch resolves `claude-repl` + forced
   # RC (the alias from `CodingAgent`) and resumes the transcript by cwd, so the
   # operator gets a persistent REPL with RC attached on the same conversation.
@@ -4080,7 +4080,7 @@ defmodule Aiur.Orchestrator do
       :ok ->
         relabeled = add_issue_label(issue, label)
         state = teardown_for_redispatch(state, running_entry)
-        Logger.info("Remote Control promote; re-dispatching as claude-remote: #{rc_log_context(running_entry)}")
+        Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
         {{:ok, :on}, do_dispatch_issue(state, relabeled, nil, nil)}
 
       {:error, reason} ->
@@ -4089,7 +4089,7 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Demote a `claude-remote` agent back to the default backend: remove the
+  # Demote a remote-control agent back to the default backend: remove the
   # label, stop the current REPL agent, and re-dispatch. `r` is a true toggle.
   defp demote_from_remote(state, running_entry) do
     issue = Map.get(running_entry, :issue)
