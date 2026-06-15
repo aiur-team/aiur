@@ -71,6 +71,7 @@ clear_mode=0
 explicit_clear=0
 logs_mode=0
 fresh_mode=0
+record_mode=0
 testg_mode=0
 test3_mode=0
 test_force=0
@@ -147,6 +148,12 @@ for arg in "$@"; do
       ;;
     --fresh | --new)
       fresh_mode=1
+      ;;
+    --record)
+      # Record the main AgentList TUI pane into the session log dir
+      # (record/screen.ansi) for debugging the divider flicker and
+      # other visual glitches. Independent of --debug; combines freely.
+      record_mode=1
       ;;
     --log)
       expect_log_value=1
@@ -360,6 +367,10 @@ Options:
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
                        Useful in a separate terminal alongside `aiurdev --debug`.
+  --record             record the main AgentList TUI pane into
+                       `<session>/log/record/screen.ansi` (ANSI preserved)
+                       for debugging the divider flicker and other visual
+                       glitches. Independent of --debug; combines freely.
   --fresh, --new       start a fresh foreground session even if an
                        existing Aiur tmux session is available to attach.
   --log <issue>        tail only `<repo>.<issue>.log` — the per-issue log
@@ -1573,6 +1584,44 @@ aiur_record_session() {
   done
 }
 
+# Background recorder for the main AgentList TUI pane (window 0, pane 0)
+# under `--record`. Stitches successive `capture-pane -e` snapshots into
+# `<out_dir>/screen.ansi` (ANSI preserved) so the divider flicker and
+# other visual glitches can be inspected offline after the run. Like the
+# chat recorder it is read-only (never sends keys) and runs until the
+# tmux session dies or it is killed on detach. A sub-second interval is
+# used so fast flicker between frames is more likely to be sampled.
+aiur_record_screen() {
+  local socket="$1" session="$2" out_dir="$3" interval="${4:-0.5}"
+  mkdir -p "$out_dir"
+
+  local tmproot
+  tmproot="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmproot'; exit 0" TERM EXIT
+
+  local out="$out_dir/screen.ansi"
+  local prev="$tmproot/screen.prev"
+  local cur="$tmproot/screen.cur"
+  local seen=0
+
+  while tmux -L "$socket" has-session -t "$session" 2>/dev/null; do
+    tmux -L "$socket" capture-pane -t "$session:0.0" -e -p 2>/dev/null \
+      | _aiur_record_clean >"$cur"
+
+    if [ "$seen" -eq 0 ]; then
+      cat "$cur" >"$out"
+      cp "$cur" "$prev"
+      seen=1
+    elif ! cmp -s "$prev" "$cur"; then
+      _aiur_record_stitch "$prev" "$cur" >>"$out"
+      cp "$cur" "$prev"
+    fi
+
+    sleep "$interval"
+  done
+}
+
 # Resolve the release BEAM pid running under a process subtree. Used to
 # scope a wrapper's teardown to the BEAM it actually launched: a leaked
 # wrapper must never reap a BEAM started by a different invocation (its
@@ -1991,13 +2040,17 @@ run_in_tmux() {
   # their own, so this is the only durable record of how each agent's
   # chat rendered. Non-intrusive (read-only captures, no key sends) and
   # killed the moment the operator detaches.
-  local record_pid=""
+  local record_pid="" screen_record_pid="" record_dir
+  record_dir="$(dirname "$log_path")/record"
   if [ "$debug_mode" -eq 1 ]; then
-    local record_dir
-    record_dir="$(dirname "$log_path")/record"
     aiur_record_session "$socket" "$session" "$record_dir" 3 &
     record_pid=$!
     echo "🎬 recording chat panes → $record_dir" >&2
+  fi
+  if [ "$record_mode" -eq 1 ]; then
+    aiur_record_screen "$socket" "$session" "$record_dir" 0.5 &
+    screen_record_pid=$!
+    echo "🎥 recording AgentList pane → $record_dir/screen.ansi" >&2
   fi
 
   # In the foreground, the user attaches to the session normally. We do
@@ -2011,11 +2064,14 @@ run_in_tmux() {
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
   local tmux_status=$?
 
-  # Stop the background recorder now that the operator has detached.
-  if [ -n "$record_pid" ]; then
-    kill "$record_pid" 2>/dev/null || true
-    wait "$record_pid" 2>/dev/null || true
-  fi
+  # Stop the background recorders now that the operator has detached.
+  local _rec_pid
+  for _rec_pid in "$record_pid" "$screen_record_pid"; do
+    if [ -n "$_rec_pid" ]; then
+      kill "$_rec_pid" 2>/dev/null || true
+      wait "$_rec_pid" 2>/dev/null || true
+    fi
+  done
 
   # Cleanup. Startup_capture only needs to survive long enough for
   # `print_startup_failure` above to replay it on early-grace crashes;
