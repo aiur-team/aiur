@@ -124,8 +124,7 @@ defmodule Aiur.InitTest do
     base = %{
       select: %{@location_label => "repo", "Issue tracker" => "github"},
       input: %{"GitHub repo (owner/name)" => "octo/repo"},
-      multiselect: %{"Which agents to support" => ["claude"]},
-      confirm: %{"Set specific models per complexity tag?" => false}
+      multiselect: %{"Which agents to support" => ["claude"]}
     }
 
     Map.merge(base, overrides, fn _k, v1, v2 -> Map.merge(v1, v2) end)
@@ -294,14 +293,6 @@ defmodule Aiur.InitTest do
   end
 
   describe "agents, routing, permission mode" do
-    test "agent selection does not hint remote-control (deferred to tag creation)", %{
-      dir: dir,
-      target: target
-    } do
-      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
-      refute Enum.any?(puts_log(), &(&1 =~ ~r/remote-control mode/i))
-    end
-
     test "the agent multiselect offers only claude and codex (never claude-repl)", %{
       dir: dir,
       target: target
@@ -324,27 +315,48 @@ defmodule Aiur.InitTest do
       assert opts == ["claude", "codex"]
     end
 
-    test "the routing walkthrough sets backend:model per complexity tag", %{dir: dir, target: target} do
+    test "the routing walkthrough sets a model and optional remote per tag", %{dir: dir, target: target} do
       answers =
         github_answers(%{
           multiselect: %{"Which agents to support" => ["claude", "codex"]},
-          confirm: %{"Set specific models per complexity tag?" => true},
           select: %{
-            "complexity:1" => "codex",
+            "complexity:1" => "claude:haiku",
             "complexity:2" => "codex",
             "complexity:3" => "claude",
             "complexity:4" => "claude",
             "complexity:5" => "claude:sonnet"
-          }
+          },
+          confirm: %{"Run complexity:1 in remote-control mode?" => true}
         })
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       routing = written_config(target)["agent"]["routing"]
-      assert routing[1] == "codex"
+      # complexity:1 -> default haiku, run in remote mode.
+      assert routing[1] == "claude:haiku+remote"
+      assert routing[2] == "codex"
       assert routing[5] == "claude:sonnet"
 
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/default Claude version/i))
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/optimize effort per ticket/i))
+      assert Enum.any?(log, &(&1 =~ ~r/override these by tagging/i))
+    end
+
+    test "codex routing tags are never offered remote mode", %{dir: dir, target: target} do
+      parent = self()
+
+      answers =
+        github_answers(%{
+          multiselect: %{"Which agents to support" => ["codex"]},
+          # If a codex level were offered remote and we said yes, it would
+          # append +remote; scripting yes proves the prompt is never asked.
+          confirm: %{"Run complexity:3 in remote-control mode?" => true}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, answers), deps(parent, dir, target))
+
+      routing = written_config(target)["agent"]["routing"]
+      refute Enum.any?(routing, fn {_level, value} -> String.contains?(value, "+remote") end)
     end
 
     test "interactive permission modes redirect to bypassPermissions", %{dir: dir, target: target} do

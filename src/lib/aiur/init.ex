@@ -281,18 +281,36 @@ defmodule Aiur.Init do
     agent_kinds(selected)
   end
 
-  # Optional per-complexity-tag routing. Each tag (1-5) can pick a backend or
-  # `backend:model` (e.g. claude:sonnet). Declining routes every tag to the
-  # primary agent.
+  # Per-complexity-tag routing. Each tag (1-5) picks one model; a claude pick
+  # can additionally run in remote-control mode, recorded as a `+remote` flag.
+  # Aiur falls back to these defaults when a ticket carries a complexity tag.
   defp prompt_routing(io, agents) do
     primary = primary_kind(agents)
+    options = routing_options(agents)
 
-    if io.confirm.("Set specific models per complexity tag?", false) do
-      options = routing_options(agents)
-      io.puts.("Pick a backend per complexity tag. A bare `claude` uses whatever the default Claude version is at run time; `claude:sonnet` pins one.")
-      Map.new(1..5, fn level -> {level, io.select.("complexity:#{level}", options, primary)} end)
+    io.puts.("Aiur supports story point complexity tags to optimize effort per ticket. Select default models for each:")
+
+    routing = Map.new(1..5, fn level -> {level, prompt_routing_level(io, options, primary, level)} end)
+
+    io.puts.("Aiur will default to use these models if you include complexity tags on your tickets. You can also override these by tagging specific models on the ticket.")
+
+    routing
+  end
+
+  defp prompt_routing_level(io, options, primary, level) do
+    io.select.("complexity:#{level}", options, primary)
+    |> maybe_route_remote(io, level)
+  end
+
+  # Only a claude-family choice can run remote; append `+remote` when opted in.
+  defp maybe_route_remote(choice, io, level) do
+    backend = choice |> to_string() |> String.split(":") |> hd()
+
+    if CodingAgent.remote_control?(backend) and
+         io.confirm.("Run complexity:#{level} in remote-control mode?", false) do
+      "#{choice}+remote"
     else
-      Map.new(1..5, fn level -> {level, primary} end)
+      choice
     end
   end
 
