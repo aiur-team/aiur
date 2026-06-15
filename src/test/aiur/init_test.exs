@@ -72,7 +72,7 @@ defmodule Aiur.InitTest do
           end
         end,
         check_agent_auth: fn _kind -> :ok end,
-        check_tracker_auth: fn _tracker -> :ok end,
+        github_token: fn -> nil end,
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})
           :ok
@@ -288,9 +288,23 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ "settings/tokens"))
     end
 
-    test "creates the labels aiur routes on", %{dir: dir, target: target} do
+    test "with no token: explains the next step and skips label creation", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/run `aiur init` again/i))
+      refute_received {:labels, _tracker, _labels}
+    end
+
+    test "with a token: creates labels and shows the ready screen", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
       assert_received {:labels, %{kind: "github"}, labels} when is_list(labels)
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/agent:todo/))
+      assert Enum.any?(log, &(&1 =~ ~r/aiur --bg/))
     end
   end
 end

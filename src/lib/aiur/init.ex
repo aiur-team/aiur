@@ -61,7 +61,7 @@ defmodule Aiur.Init do
           ensure_prompt_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
-          check_tracker_auth: (map() -> :ok | {:error, String.t()}),
+          github_token: (-> String.t() | nil),
           create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
         }
 
@@ -114,17 +114,45 @@ defmodule Aiur.Init do
           io.puts.("Wrote #{path}.")
           ensure_prompt_file(io, deps, path, prompt_file)
           setup_env(io, deps, tracker)
-          run_auth_checks(io, deps, tracker, agents)
-          setup_labels(io, deps, tracker, agents)
-          bot_token_walkthrough(io, tracker)
-          linear_walkthrough(io, tracker)
-          :ok
+          provision(io, deps, tracker, agents)
 
         {:error, reason} ->
           {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
       end
     end
   end
+
+  # After the config is written (or found on a re-run), wire up secrets and
+  # labels. GitHub gates label creation on a token being present: with no
+  # token yet, the wizard calmly explains the single next step instead of
+  # warning, so a first run never looks like a failure.
+  defp provision(io, deps, %{kind: "github"} = tracker, agents) do
+    check_agent_clis(io, deps, agents)
+
+    if github_token_present?(deps) do
+      setup_labels(io, deps, tracker, agents)
+      final_screen(io)
+    else
+      token_setup_instructions(io)
+    end
+
+    :ok
+  end
+
+  defp provision(io, deps, %{kind: "linear"} = tracker, agents) do
+    check_agent_clis(io, deps, agents)
+    linear_walkthrough(io, tracker)
+    final_screen(io)
+    :ok
+  end
+
+  defp provision(io, deps, _tracker, agents) do
+    check_agent_clis(io, deps, agents)
+    final_screen(io)
+    :ok
+  end
+
+  defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
 
   defp guard_existing_config(%{force: true}, _deps, _target), do: :ok
 
@@ -369,14 +397,22 @@ defmodule Aiur.Init do
 
   defp setup_labels(_io, _deps, _tracker, _agents), do: :ok
 
-  defp bot_token_walkthrough(io, %{kind: "github"}) do
-    io.puts.("\nNext — give aiur a GitHub token to act as its bot account:")
-    io.puts.("  1. Create a token (repo scope) at #{@token_url}")
-    io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token>")
-    io.puts.("  3. aiur posts PRs and comments as that token's account.")
+  # Shown when GitHub is the tracker but no token is set yet. Calm, single
+  # next step — never a warning — with the minimum scopes aiur needs.
+  defp token_setup_instructions(io) do
+    io.puts.("\nNext — give aiur a GitHub token so it can create labels and act as its bot account:")
+    io.puts.("  1. Create a token at #{@token_url}")
+    io.puts.("     • classic: the `repo` scope")
+    io.puts.("     • fine-grained: Issues, Contents, and Pull requests — read & write")
+    io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
+    io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
   end
 
-  defp bot_token_walkthrough(_io, _tracker), do: :ok
+  defp final_screen(io) do
+    io.puts.("\n✅ aiur is set up. You can now:")
+    io.puts.("  1. Add `agent:todo` labels to the issues you want worked.")
+    io.puts.("  2. Run `aiur` (foreground) or `aiur --bg` (background) to start agents.")
+  end
 
   defp linear_walkthrough(io, %{kind: "linear"}) do
     io.puts.("\nNext — give aiur a Linear API key:")
@@ -388,15 +424,14 @@ defmodule Aiur.Init do
 
   defp linear_walkthrough(_io, _tracker), do: :ok
 
-  # Auth checks run after the config is written so a failure can never block
-  # setup. Success is silent; failure warns with a fix hint and offers
-  # retry/skip, then proceeds either way.
-  defp run_auth_checks(io, deps, tracker, agents) do
+  # Agent-CLI presence checks run after the config is written so a failure can
+  # never block setup. Success is silent; a missing CLI warns with a fix hint
+  # and offers retry/skip, then proceeds either way.
+  defp check_agent_clis(io, deps, agents) do
     Enum.each(agents, fn kind ->
       run_auth_check(io, "#{kind} agent", fn -> deps.check_agent_auth.(kind) end)
     end)
 
-    run_auth_check(io, "#{tracker.kind} tracker", fn -> deps.check_tracker_auth.(tracker) end)
     :ok
   end
 
@@ -474,7 +509,7 @@ defmodule Aiur.Init do
       ensure_prompt_file: &write_prompt_file/2,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
-      check_tracker_auth: &check_tracker_auth/1,
+      github_token: &Aiur.GitHub.Config.token/0,
       create_labels: &create_labels/2
     }
   end
@@ -567,45 +602,6 @@ defmodule Aiur.Init do
       [exe | _] -> exe
       _ -> nil
     end
-  end
-
-  defp check_tracker_auth(%{kind: "github"}) do
-    case Aiur.GitHub.Config.token() do
-      token when is_binary(token) and token != "" ->
-        github_identity(token)
-
-      _ ->
-        {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
-    end
-  end
-
-  defp check_tracker_auth(%{kind: "linear"}) do
-    case Aiur.Linear.Config.api_key() do
-      key when is_binary(key) and key != "" ->
-        :ok
-
-      _ ->
-        {:error, "Linear API key not set — set linear.api_key or LINEAR_API_KEY"}
-    end
-  end
-
-  defp check_tracker_auth(_tracker), do: :ok
-
-  defp github_identity(token) do
-    headers = [
-      {"authorization", "Bearer #{token}"},
-      {"accept", "application/vnd.github+json"},
-      {"user-agent", "aiur-init"}
-    ]
-
-    case Req.get("https://api.github.com/user", headers: headers, connect_options: [timeout: 10_000]) do
-      {:ok, %{status: 200}} -> :ok
-      {:ok, %{status: 401}} -> {:error, "GITHUB_TOKEN rejected (401) — create a repo-scoped token at #{@token_url}"}
-      {:ok, %{status: status}} -> {:error, "GitHub identity check failed (HTTP #{status})"}
-      {:error, reason} -> {:error, "GitHub identity check failed: #{inspect(reason)}"}
-    end
-  rescue
-    error -> {:error, "GitHub identity check failed: #{Exception.message(error)}"}
   end
 
   defp detect_repo do
