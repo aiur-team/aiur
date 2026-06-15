@@ -235,6 +235,30 @@ defmodule Aiur.InitTest do
     end
   end
 
+  describe "parse_dotenv/1" do
+    test "parses KEY=VALUE pairs, skipping comments, blanks, and empty values" do
+      content = """
+      # a comment
+      GITHUB_TOKEN=ghp_abc123
+
+      QUOTED="with-quotes"
+      SINGLE='single'
+      EMPTY=
+      NO_EQUALS_LINE
+      SPACED = padded
+      """
+
+      pairs = Init.parse_dotenv(content)
+
+      assert {"GITHUB_TOKEN", "ghp_abc123"} in pairs
+      assert {"QUOTED", "with-quotes"} in pairs
+      assert {"SINGLE", "single"} in pairs
+      assert {"SPACED", "padded"} in pairs
+      refute Enum.any?(pairs, fn {k, _} -> k == "EMPTY" end)
+      refute Enum.any?(pairs, fn {k, _} -> k == "NO_EQUALS_LINE" end)
+    end
+  end
+
   describe "tracker prompts fill the nested template" do
     test "the issue tracker offers github and linear, never memory", %{dir: dir, target: target} do
       parent = self()

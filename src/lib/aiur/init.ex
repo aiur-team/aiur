@@ -69,6 +69,7 @@ defmodule Aiur.Init do
 
   @spec run(%{force: boolean()}) :: :ok | {:error, String.t()}
   def run(opts) do
+    load_dotenv()
     run(opts, runtime_io(), runtime_deps())
   end
 
@@ -819,6 +820,58 @@ defmodule Aiur.Init do
       {:created, env_path}
     end
   end
+
+  # `aiur init` runs as a bare foreground process (the launcher only sources
+  # .env for the running app, not init), so a GITHUB_TOKEN the operator placed
+  # in the repo's .env is not yet in the environment. Load any KEY=VALUE pairs
+  # from the cwd .env — an existing env var always wins — so the token check and
+  # label creation see it. Values are populated, never inspected or logged.
+  defp load_dotenv do
+    path = Path.join(File.cwd!(), @env_file_name)
+
+    case File.read(path) do
+      {:ok, content} -> Enum.each(parse_dotenv(content), &put_env_if_unset/1)
+      {:error, _} -> :ok
+    end
+  end
+
+  defp put_env_if_unset({key, value}) do
+    if System.get_env(key) in [nil, ""], do: System.put_env(key, value)
+    :ok
+  end
+
+  @doc false
+  @spec parse_dotenv(String.t()) :: [{String.t(), String.t()}]
+  def parse_dotenv(content) do
+    content
+    |> String.split("\n")
+    |> Enum.flat_map(&parse_dotenv_line/1)
+  end
+
+  defp parse_dotenv_line(line) do
+    trimmed = String.trim(line)
+
+    if trimmed == "" or String.starts_with?(trimmed, "#") do
+      []
+    else
+      parse_dotenv_pair(trimmed)
+    end
+  end
+
+  defp parse_dotenv_pair(trimmed) do
+    case String.split(trimmed, "=", parts: 2) do
+      [key, raw] ->
+        case dotenv_value(raw) do
+          "" -> []
+          value -> [{String.trim(key), value}]
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp dotenv_value(raw), do: raw |> String.trim() |> String.trim("\"") |> String.trim("'")
 
   @doc false
   @spec known_agent_kinds() :: [String.t()]
