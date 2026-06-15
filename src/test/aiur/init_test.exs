@@ -124,6 +124,14 @@ defmodule Aiur.InitTest do
     end
   end
 
+  defp select_labels(acc \\ []) do
+    receive do
+      {:select_label, label} -> select_labels([label | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   @duration_label "Max agent duration in minutes"
 
   @location_label "Where will you store aiur settings?"
@@ -200,6 +208,30 @@ defmodule Aiur.InitTest do
       kinds = auth_kinds()
       assert "claude" in kinds
       refute "claude-repl" in kinds
+    end
+
+    test "resume skips the location question when a config already exists", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      d = deps(parent, dir, target)
+      # First run writes a config.
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+      _ = puts_log()
+
+      recording = %{
+        io(parent)
+        | select: fn label, _opts, default ->
+            send(parent, {:select_label, label})
+            default
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, recording, d)
+
+      refute Enum.any?(select_labels(), &(&1 =~ ~r/where will you store/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
     end
   end
 

@@ -74,14 +74,25 @@ defmodule Aiur.Init do
 
   @spec run(%{force: boolean()}, io(), deps()) :: :ok | {:error, String.t()}
   def run(opts, io, deps) do
-    location = prompt_location(io)
-    target = deps.config_target.(location)
+    case existing_config_target(opts, deps) do
+      nil ->
+        location = prompt_location(io)
+        fresh_setup(io, deps, location, deps.config_target.(location))
 
-    if deps.existing_config_path.(target) && not opts.force do
-      resume(io, deps, target)
-    else
-      fresh_setup(io, deps, location, target)
+      target ->
+        resume(io, deps, target)
     end
+  end
+
+  # On a re-run, an existing repo-local (preferred) or global config is detected
+  # before asking anything, so setup resumes from the saved answers instead of
+  # re-prompting for location. `--force` always starts fresh.
+  defp existing_config_target(%{force: true}, _deps), do: nil
+
+  defp existing_config_target(_opts, deps) do
+    Enum.find_value([:repo_local, :global], fn location ->
+      deps.existing_config_path.(deps.config_target.(location))
+    end)
   end
 
   # A re-run over an existing config skips the intro questions, shows what was
