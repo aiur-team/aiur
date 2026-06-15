@@ -24,6 +24,7 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.configure()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     log_process_identity()

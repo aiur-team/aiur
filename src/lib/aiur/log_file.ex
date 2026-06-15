@@ -32,6 +32,49 @@ defmodule Aiur.LogFile do
     Path.join(logs_root, @default_log_relative_path)
   end
 
+  @doc """
+  Pins `:log_file` to this run's session log root when it hasn't already
+  been set by `--logs-root`. Resolution order:
+
+    1. `:log_file` already set (`--logs-root`) — leave it.
+    2. `AIUR_LOGS_ROOT` env (exported by `scripts/aiurdev`) — use it.
+    3. Otherwise mint a fresh `~/.aiur/logs/<session-id>` root so every
+       direct `aiur` run persists under one unified, timestamped folder.
+
+  Skipped in the test environment so unit tests keep the `<cwd>/log`
+  fallback and never write into `~/.aiur/logs`.
+  """
+  @spec ensure_session_log_file() :: :ok
+  def ensure_session_log_file do
+    unless is_binary(Application.get_env(:aiur, :log_file)) do
+      case resolve_default_root() do
+        nil -> :ok
+        root -> Application.put_env(:aiur, :log_file, default_log_file(root))
+      end
+    end
+
+    :ok
+  end
+
+  defp resolve_default_root do
+    case System.get_env("AIUR_LOGS_ROOT") do
+      root when is_binary(root) and root != "" ->
+        root
+
+      _ ->
+        if Application.get_env(:aiur, :env) == :test do
+          nil
+        else
+          Path.join(Path.expand("~/.aiur/logs"), session_id())
+        end
+    end
+  end
+
+  defp session_id do
+    ts = Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%SZ")
+    "#{ts}-#{List.to_string(:os.getpid())}"
+  end
+
   @spec configure() :: :ok
   def configure do
     if debug_enabled?() do

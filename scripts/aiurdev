@@ -1376,10 +1376,16 @@ run_foreground() {
 
   aiur_args=(exec -- ./bin/aiur)
 
-  if [ -n "$logs_root" ]; then
-    aiur_args+=(--logs-root "$logs_root")
-    export AIUR_LOGS_ROOT="$logs_root"
+  # Default every run to its own timestamped session dir under
+  # ~/.aiur/logs so logs are unified, persistent, and never clobber a
+  # prior run of the same tickets. An explicit profile/--logs-root still
+  # wins. `$$` (wrapper pid) keeps same-second launches distinct.
+  if [ -z "$logs_root" ]; then
+    logs_root="${HOME}/.aiur/logs/${profile}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
   fi
+  mkdir -p "$logs_root/log" 2>/dev/null || true
+  aiur_args+=(--logs-root "$logs_root")
+  export AIUR_LOGS_ROOT="$logs_root"
 
   if [ -n "$port" ]; then
     aiur_args+=(--port "$port")
@@ -1675,7 +1681,14 @@ run_in_tmux() {
     local capture="${startup_capture:-}"
 
     if [ -n "$capture" ]; then
-      rm -f "$capture" 2>/dev/null || true
+      # Preserve the most recent run's full log at a stable path instead of
+      # deleting it. The per-run mktemp file is otherwise destroyed here on
+      # every clean exit, taking all post-mortem evidence with it. Derive the
+      # stable name from the capture path (strip the random mktemp suffix) so
+      # this works even if `profile` is out of scope by trap time. Bounded to
+      # one file per profile.
+      local preserved="${capture%.*}.last"
+      mv -f "$capture" "$preserved" 2>/dev/null || rm -f "$capture" 2>/dev/null || true
     fi
 
     # Shut the aiur BEAM down. The detached tmux session running aiur

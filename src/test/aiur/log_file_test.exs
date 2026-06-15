@@ -84,6 +84,56 @@ defmodule Aiur.LogFileTest do
     end
   end
 
+  describe "ensure_session_log_file/0" do
+    setup do
+      original_env = Application.get_env(:aiur, :log_file)
+      original_root = System.get_env("AIUR_LOGS_ROOT")
+
+      on_exit(fn ->
+        case original_env do
+          nil -> Application.delete_env(:aiur, :log_file)
+          value -> Application.put_env(:aiur, :log_file, value)
+        end
+
+        case original_root do
+          nil -> System.delete_env("AIUR_LOGS_ROOT")
+          value -> System.put_env("AIUR_LOGS_ROOT", value)
+        end
+      end)
+
+      :ok
+    end
+
+    test "pins :log_file under AIUR_LOGS_ROOT when not already set" do
+      Application.delete_env(:aiur, :log_file)
+      System.put_env("AIUR_LOGS_ROOT", "/tmp/aiur-session-xyz")
+
+      assert :ok = LogFile.ensure_session_log_file()
+      assert Application.get_env(:aiur, :log_file) == "/tmp/aiur-session-xyz/log/aiur.log"
+    end
+
+    test "leaves an explicit :log_file (from --logs-root) untouched" do
+      # --logs-root resolves before boot; the session default must not
+      # clobber an operator-chosen path.
+      Application.put_env(:aiur, :log_file, "/custom/path/log/aiur.log")
+      System.put_env("AIUR_LOGS_ROOT", "/tmp/should-be-ignored")
+
+      assert :ok = LogFile.ensure_session_log_file()
+      assert Application.get_env(:aiur, :log_file) == "/custom/path/log/aiur.log"
+    end
+
+    test "never mints a ~/.aiur/logs root in the test environment" do
+      # Safety: unit tests must not write into the operator's real
+      # ~/.aiur/logs. With no override the test env keeps :log_file unset
+      # (Paths then falls back to <cwd>/log).
+      Application.delete_env(:aiur, :log_file)
+      System.delete_env("AIUR_LOGS_ROOT")
+
+      assert :ok = LogFile.ensure_session_log_file()
+      assert Application.get_env(:aiur, :log_file) == nil
+    end
+  end
+
   describe "configure_level/0" do
     setup do
       original = Logger.level()
