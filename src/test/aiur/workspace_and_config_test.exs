@@ -1156,6 +1156,30 @@ defmodule Aiur.WorkspaceAndConfigTest do
       |> Schema.validate_agent_routing(:routing)
 
     assert repl.errors == []
+
+    # `+remote` flag: stripped from backend/model, surfaced by
+    # routing_remote_flag?, and only valid on a remote-capable backend.
+    assert Schema.split_routing_value("claude:haiku+remote") == {"claude", "haiku"}
+    assert Schema.split_routing_value("claude+remote") == {"claude", nil}
+    assert Schema.routing_remote_flag?("claude:haiku+remote")
+    refute Schema.routing_remote_flag?("claude:haiku")
+
+    remote_ok =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{1 => "claude:haiku+remote"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert remote_ok.errors == []
+
+    remote_bad =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{1 => "codex:gpt-5.4+remote"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert Enum.any?(remote_bad.errors, fn
+             {:routing, {msg, []}} -> msg =~ "remote-capable backend"
+             _ -> false
+           end)
   end
 
   test "remote_control opt-in defaults OFF and parses an explicit true" do

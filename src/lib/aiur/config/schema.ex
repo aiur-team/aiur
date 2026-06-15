@@ -562,6 +562,9 @@ defmodule Aiur.Config.Schema do
               {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
             ]
 
+          routing_remote_flag?(value) and not Aiur.CodingAgent.remote_control?(routing_backend(value)) ->
+            [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
+
           true ->
             []
         end
@@ -571,15 +574,23 @@ defmodule Aiur.Config.Schema do
 
   @doc """
   Splits a routing value into its backend and optional model. A routing
-  value is `"<backend>"` or `"<backend>:<model>"` (e.g. `"claude:sonnet"`).
+  value is `"<backend>"` or `"<backend>:<model>"` (e.g. `"claude:sonnet"`),
+  optionally with a trailing `+remote` flag (`"claude:haiku+remote"`) that
+  is stripped here and surfaced separately by `routing_remote_flag?/1`.
   """
   @spec split_routing_value(String.t()) :: {String.t(), String.t() | nil}
   def split_routing_value(value) when is_binary(value) do
-    case String.split(value, ":", parts: 2) do
+    case value |> strip_remote_flag() |> String.split(":", parts: 2) do
       [backend, model] when model != "" -> {backend, model}
       [backend | _] -> {backend, nil}
     end
   end
+
+  @doc "Whether a routing value carries the optional trailing `+remote` flag."
+  @spec routing_remote_flag?(String.t()) :: boolean()
+  def routing_remote_flag?(value) when is_binary(value), do: String.ends_with?(value, "+remote")
+
+  defp strip_remote_flag(value), do: String.replace_suffix(value, "+remote", "")
 
   defp routing_backend(value) when is_binary(value), do: value |> split_routing_value() |> elem(0)
   defp routing_backend(_value), do: nil
