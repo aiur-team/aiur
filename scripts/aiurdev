@@ -1988,12 +1988,14 @@ run_in_tmux() {
     for arg in "$@"; do
       printf ' %q' "$arg"
     done
-    # Bounded boot capture: write only the first `max` lines to the
-    # capture file, but keep draining stdin so the BEAM never takes a
-    # SIGPIPE (which `head` would cause). This holds the startup window
-    # for print_startup_failure without growing for the whole session.
+    # Bounded boot capture, tee-style: pass every line through to stdout
+    # (the live TUI / attached pane) while persisting only the first
+    # `max` lines to the capture file. Keeps draining stdin so the BEAM
+    # never takes a SIGPIPE (which `head` would cause), and bounds the
+    # file so it holds the startup window for print_startup_failure
+    # without growing into the full ~60fps frame stream.
     printf ' 2>&1 | awk -v max=%q -v f="$capture" %q\n' \
-      "$boot_capture_max_lines" 'NR <= max { print >> f; fflush(f) }'
+      "$boot_capture_max_lines" 'NR <= max { print >> f } { print; fflush() }'
     printf 'exit ${PIPESTATUS[0]}\n'
   } > "$launcher"
 

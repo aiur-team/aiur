@@ -267,7 +267,9 @@ defmodule ScriptsAiurdevTest do
     ctx = test_context()
 
     assert {output, 0} = run_aiur(ctx, ["run", "aiur"])
-    assert output =~ "MISE:exec -- ./bin/aiur --host 127.0.0.1"
+
+    assert output =~
+             ~r{MISE:exec -- \./bin/aiur --logs-root #{Regex.escape(ctx.home_dir)}/\.aiur/logs/\S+ --host 127\.0\.0\.1}
   end
 
   test "--host opts out of the local-only injection" do
@@ -275,7 +277,9 @@ defmodule ScriptsAiurdevTest do
 
     assert {output, 0} = run_aiur(ctx, ["--host", "run", "aiur"])
     refute output =~ "--host 127.0.0.1"
-    assert output =~ "MISE:exec -- ./bin/aiur --interactive"
+
+    assert output =~
+             ~r{MISE:exec -- \./bin/aiur --logs-root #{Regex.escape(ctx.home_dir)}/\.aiur/logs/\S+ --interactive}
   end
 
   test "--port overrides the profile port for foreground runs" do
@@ -403,7 +407,8 @@ defmodule ScriptsAiurdevTest do
     assert output =~
              "⚠️  port 4000 in use; bound to 4001 instead (run with `--port` to override)"
 
-    assert output =~ "MISE:exec -- ./bin/aiur --port 4001"
+    assert output =~
+             ~r{MISE:exec -- \./bin/aiur --logs-root #{Regex.escape(ctx.home_dir)}/\.aiur/logs/\S+ --port 4001}
   end
 
   test "surfaces startup output when all auto-increment ports are busy" do
