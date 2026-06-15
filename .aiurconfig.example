@@ -2,37 +2,30 @@
 #
 # `aiurdev init` copies this file and fills the {{PLACEHOLDERS}} from your
 # answers. Settings shown uncommented are the essentials; the commented
-# blocks below each section are advanced knobs with their defaults — uncomment
-# and edit only what you need. Anything omitted falls back to its built-in
-# default, so a minimal config is fine.
+# blocks are advanced knobs with their defaults — uncomment and edit only
+# what you need. Anything omitted falls back to its built-in default.
 
 # === Issue tracker ===
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, cancelled, canceled]
-  github:                                # used when kind: github
-    repo: {{REPO}}                       # owner/name (auto-detected from the git remote)
-    label_prefix: {{LABEL_PREFIX}}       # label namespace, e.g. "aiur"
-    # bot_account: my-bot                # GitHub login aiur posts under (optional)
-  # linear:                              # used when kind: linear
-  #   api_key: $LINEAR_API_KEY           # or set the LINEAR_API_KEY env var
-  #   project_slug: my-project
-  #   endpoint: https://api.linear.app/graphql
-  #   assignee: dev@example.com
+{{TRACKER_PROVIDER}}
+  # provider blocks (one is filled above from your answers):
+  #   github: { repo: owner/name, label_prefix: aiur, bot_account: my-bot }
+  #   linear: { api_key: $LINEAR_API_KEY, project_slug: my-project, assignee: dev@example.com }
 
 # === Coding agents ===
 agent:
   kind: {{AGENT_KIND}}                   # default backend: codex | claude
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
-  max_agent_duration_minutes: 60         # safety net: hard-kill an agent running this long (0 disables)
-  routing:                               # a `complexity:<N>` issue label routes to this backend
-    4: claude
-    5: claude
+  max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard)
+  max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill an agent running this long (0 disables)
+  routing: {{ROUTING}}                   # complexity:<N> label -> backend (or backend:model, e.g. claude:sonnet)
   claude:
     command: aiur-claude
+    permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
     # model: claude-sonnet-4-6           # omit to use the claude CLI's own default
-    # permission_mode: bypassPermissions # default | acceptEdits | bypassPermissions
   codex:
     command: codex app-server
     # approval_policy: never
@@ -41,42 +34,27 @@ agent:
     # thrash_max_per_window: 6
     # thrash_window_seconds: 60
   # --- advanced agent tuning (defaults shown) ---
-  # max_turns: 20                        # per-issue turn cap
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 300000             # watchdog for a silent agent
-  # remote_control: false                # opt all RC-capable agents into Claude remote control
+  # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
 workspace:
-  root: ~/code/aiur-workspaces           # where agents clone and work
-# prompt_file: AIUR.md                   # per-repo agent prompt appended to each turn
+  root: {{WORKSPACE_ROOT}}               # where agents clone and work
+prompt_file: {{PROMPT_FILE}}             # per-repo agent prompt appended to each turn
 
-# === Concurrency / display ===
-max_vertical_panes: {{MAX_PANES}}        # max agent chat panes shown at once
+# === Polling / concurrency ===
+polling:
+  interval_seconds: {{POLLING}}          # how often aiur re-checks the tracker for issues to pick up
+max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
-# polling:
-#   interval_seconds: 30                 # issue-tracker poll cadence
-# opencode:
-#   command: opencode
-#   bridge_port: 4097
-#   bridge_host: 127.0.0.1
-#   model_prefix: aiur
-# observability:
-#   dashboard_enabled: true
-#   refresh_ms: 1000                     # dashboard data refresh
-#   render_interval_ms: 16              # TUI paint cadence (~60fps)
-# server:
-#   host: 127.0.0.1
-#   port: 4000
-# worker:                                # remote execution (advanced)
-#   ssh_hosts: []
-#   max_concurrent_agents_per_host: 4
-# events:
-#   block_state_debounce_seconds: 10
-#   custom_events_per_turn_max: 5
-#   codeowners_refresh_seconds: 3600
+# opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
+# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16 }
+# server: { host: 127.0.0.1, port: 4000 }
+# worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
+# events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
