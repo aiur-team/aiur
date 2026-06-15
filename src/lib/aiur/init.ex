@@ -113,8 +113,6 @@ defmodule Aiur.Init do
   end
 
   defp fresh_setup(io, deps, location, target) do
-    io.puts.("Setting up aiur (#{location} config at #{target}).")
-
     tracker = prompt_tracker(io, deps, location)
     agents = prompt_agents(io)
     routing = prompt_routing(io, agents)
@@ -124,9 +122,7 @@ defmodule Aiur.Init do
     max_turns = prompt_max_turns(io)
     max_duration = prompt_max_duration(io)
 
-    pre_warmed =
-      prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0, "Set this to how many opencode panes you expect to open at once.")
-
+    pre_warmed = prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
     polling = prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md", nil)
@@ -150,7 +146,7 @@ defmodule Aiur.Init do
 
     case deps.write_config.(target, config_yaml) do
       {:ok, path} ->
-        io.puts.("Wrote #{path}.")
+        io.puts.(["Created: ", dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file)
         setup_env(io, deps, tracker)
         provision(io, deps, tracker, agents)
@@ -367,7 +363,7 @@ defmodule Aiur.Init do
   # (written as 0, which the watchdog treats as disabled).
   defp prompt_max_duration(io) do
     case normalize_int_or_none(
-           io.input.("Max agent duration in minutes", "60", "Fallback for stuck agents — none = never auto-kill")
+           io.input.("Max agent duration in minutes", "60", "Fallback for stuck agents: none = never auto-kill")
          ) do
       :none ->
         0
@@ -454,7 +450,7 @@ defmodule Aiur.Init do
 
   defp ensure_prompt_file(io, deps, target, prompt_file) do
     case deps.ensure_prompt_file.(target, prompt_file) do
-      {:created, path} -> io.puts.("Created a starter prompt file at #{path}.")
+      {:created, path} -> io.puts.(["Created: ", dim(path)])
       {:exists, _path} -> :ok
     end
   end
@@ -465,8 +461,8 @@ defmodule Aiur.Init do
     {status, path} = deps.ensure_env.(@env_example_content)
 
     case status do
-      :created -> io.puts.("Created #{path} from #{@env_example_file_name}.")
-      :exists -> io.puts.("Found existing #{path}; leaving it in place.")
+      :created -> io.puts.(["Created: ", dim(path)])
+      :exists -> io.puts.(["Found: ", dim(path)])
     end
   end
 
@@ -642,6 +638,8 @@ defmodule Aiur.Init do
   end
 
   defp value_of(option), do: option |> to_string() |> String.split(" (", parts: 2) |> hd() |> String.trim()
+
+  defp dim(text), do: IO.ANSI.format([:faint, to_string(text)])
 
   @spec runtime_deps() :: deps()
   defp runtime_deps do

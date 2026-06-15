@@ -317,7 +317,7 @@ defmodule Aiur.InitTest do
       assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker for new work/i))
     end
 
-    test "limit and pre-warm prompts carry their helper text as hints", %{dir: dir, target: target} do
+    test "limit prompts carry their helper text as hints; pre-warm has none", %{dir: dir, target: target} do
       parent = self()
       answers = github_answers()
       base = io(parent, answers)
@@ -336,12 +336,12 @@ defmodule Aiur.InitTest do
 
       assert {"Max turns per issue", "none = unlimited"} in hints
 
-      assert {"How many opencode sessions would you like to pre-warm?",
-              "Set this to how many opencode panes you expect to open at once."} in hints
-
       assert Enum.any?(hints, fn {label, hint} ->
-               label == "Max agent duration in minutes" and hint =~ "Fallback for stuck agents"
+               label == "Max agent duration in minutes" and hint == "Fallback for stuck agents: none = never auto-kill"
              end)
+
+      # pre-warm no longer carries a hint
+      assert {"How many opencode sessions would you like to pre-warm?", nil} in hints
     end
 
     test "a numeric max agent duration is written", %{dir: dir, target: target} do
@@ -458,6 +458,23 @@ defmodule Aiur.InitTest do
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/bot account/i))
       assert Enum.any?(log, &(&1 =~ "settings/tokens"))
+    end
+
+    test "closing file lines use Created:/Found: and drop the setup preamble", %{
+      dir: dir,
+      target: target
+    } do
+      # Pre-create .env so it is reported as Found, not Created.
+      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=\n")
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/^Created: /))
+      assert Enum.any?(log, &(&1 =~ ~r/^Found: /))
+      refute Enum.any?(log, &(&1 =~ ~r/leaving it in place/))
+      refute Enum.any?(log, &(&1 =~ ~r/^Wrote /))
+      refute Enum.any?(log, &(&1 =~ ~r/Setting up aiur/))
     end
 
     test "with no token: explains the next step and skips label creation", %{dir: dir, target: target} do
