@@ -70,6 +70,7 @@ defmodule Aiur.Application do
         Aiur.Orchestrator,
         Aiur.Events.LsRemoteTicker,
         Aiur.ProgressCheckin.Worker,
+        Aiur.Logs.Retention,
         Aiur.HttpServer,
         Aiur.Opencode.TokenRegistry,
         Aiur.Opencode.ActiveTurns,
