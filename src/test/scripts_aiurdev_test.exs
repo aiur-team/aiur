@@ -13,6 +13,15 @@ defmodule ScriptsAiurdevTest do
     refute output =~ "PKILL:"
   end
 
+  test "init routes to the release init wizard (no 'unknown profile')" do
+    ctx = test_context()
+    write_fake_release_rpc!(ctx, "")
+
+    assert {output, 0} = run_aiur(ctx, ["init"])
+    refute output =~ "Unknown profile"
+    assert command_log(ctx) =~ "AIUR_RELEASE:eval Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+  end
+
   test "rejects unknown profiles" do
     ctx = test_context()
 

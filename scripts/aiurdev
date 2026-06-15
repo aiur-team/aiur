@@ -338,8 +338,10 @@ declare -a profile_services=()
 
 usage() {
   cat <<'USAGE'
-Usage: aiurdev [list|status|pause <id...|--all>|resume <id...|--all>|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
+Usage: aiurdev [init [--force]|list|status|pause <id...|--all>|resume <id...|--all>|stop [profile|all]|--bg [profile|all]|run [profile]|--fresh [profile]|profile|<workflow-path>]
 
+With init, run the interactive setup wizard in the current repo: it writes a
+.aiurconfig (repo-local or global) and creates the labels aiur routes on.
 Without args, attach to an existing default session or run the default profile in the foreground.
 With run, stop a profile's background service and run that profile in the foreground.
 With a profile name, attach to its existing session or run that profile's workflow in the foreground.
@@ -2241,6 +2243,23 @@ case "${1:-}" in
   sweep)
     sweep_dead_tmux_sockets
     exit 0
+    ;;
+  init)
+    # Run the interactive `aiur init` wizard from the CURRENT directory
+    # (so it writes the target repo's .aiurconfig) using the built release
+    # for the code. The release reads argv from AIUR_ARGV_FILE; Owl prompts
+    # are line-based so a plain foreground tty is enough.
+    shift
+    require_mise
+    ensure_built "$repo_root/src" || die "build failed; cannot run init"
+    release_bin="$repo_root/src/_build/dev/rel/aiur/bin/aiur"
+    argv_file="$(mktemp "${TMPDIR:-/tmp}/aiur-init-argv.XXXXXX")"
+    printf 'init\n' >"$argv_file"
+    [ "${1:-}" = "--force" ] && printf -- '--force\n' >>"$argv_file"
+    AIUR_ARGV_FILE="$argv_file" "$release_bin" eval "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    rc=$?
+    rm -f "$argv_file"
+    exit $rc
     ;;
   "" | default)
     run_or_attach_foreground "default"
