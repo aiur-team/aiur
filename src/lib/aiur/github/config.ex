@@ -12,12 +12,14 @@ defmodule Aiur.GitHub.Config do
     case section_value("repo") do
       value when is_binary(value) ->
         case String.trim(value) do
-          "" -> nil
+          "" -> Aiur.Git.origin_repo()
           trimmed -> trimmed
         end
 
       _ ->
-        nil
+        # No repo in config (e.g. the general global config) — auto-detect
+        # it from the current repo's git remote.
+        Aiur.Git.origin_repo()
     end
   end
 

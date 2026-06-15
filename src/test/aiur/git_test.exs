@@ -54,4 +54,18 @@ defmodule Aiur.GitTest do
       assert refs == %{"refs/heads/ok" => "abc123"}
     end
   end
+
+  describe "parse_origin_url/1 (repo auto-detect)" do
+    test "extracts owner/name from common remote URL shapes" do
+      assert Git.parse_origin_url("https://github.com/octo/repo.git") == "octo/repo"
+      assert Git.parse_origin_url("https://github.com/octo/repo") == "octo/repo"
+      assert Git.parse_origin_url("git@github.com:octo/repo.git") == "octo/repo"
+      assert Git.parse_origin_url("ssh://git@github.com/octo/repo.git") == "octo/repo"
+    end
+
+    test "returns nil for an unparseable url" do
+      assert Git.parse_origin_url("not-a-remote") == nil
+      assert Git.parse_origin_url("") == nil
+    end
+  end
 end
