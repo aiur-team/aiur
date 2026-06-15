@@ -19,8 +19,8 @@ tracker:
 agent:
   kind: {{AGENT_KIND}}                   # default backend: codex | claude
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
-  max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard)
-  max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill an agent running this long (0 disables)
+  max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
+  max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
   routing: {{ROUTING}}                   # complexity:<N> label -> backend (or backend:model, e.g. claude:sonnet)
   claude:
     command: aiur-claude

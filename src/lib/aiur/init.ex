@@ -84,10 +84,11 @@ defmodule Aiur.Init do
       permission_mode = prompt_permission_mode(io)
       workspace_root = io.input.("Where should agents work?", "~/code/aiur-workspaces")
       max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
-      max_turns = prompt_int(io, "Max turns per issue", 20, 1)
-      max_duration = prompt_int(io, "Max agent duration minutes (0 disables)", 60, 0)
-      pre_warmed = prompt_int(io, "Pre-warmed sessions", 3, 0)
-      polling = prompt_int(io, "Polling interval seconds", 30, 1)
+      max_turns = prompt_max_turns(io)
+      max_duration = prompt_max_duration(io)
+      hint(io, "Each pre-warmed session keeps an opencode process resident; set this to how many you expect open at once.")
+      pre_warmed = prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
+      polling = prompt_int(io, "How often should aiur check the tracker for new agent:todo work? (seconds)", 30, 1)
       # prompt_file is repo-specific, so the general global config omits it.
       prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md")
 
@@ -226,6 +227,57 @@ defmodule Aiur.Init do
     end
   end
 
+  # Max turns per issue defaults to `none` (uncapped); a number caps it.
+  defp prompt_max_turns(io) do
+    case normalize_int_or_none(io.input.("Max turns per issue (none = unlimited)", "none")) do
+      :none ->
+        "none"
+
+      n when is_integer(n) ->
+        n
+
+      :invalid ->
+        io.puts.("Enter a whole number ≥ 1, or `none`.")
+        prompt_max_turns(io)
+    end
+  end
+
+  # Safety net that hard-kills a stuck agent after N minutes. `none` opts out
+  # (written as 0, which the watchdog treats as disabled).
+  defp prompt_max_duration(io) do
+    label = "Max agent duration in minutes — fallback for stuck agents (none = never auto-kill)"
+
+    case normalize_int_or_none(io.input.(label, "60")) do
+      :none ->
+        0
+
+      n when is_integer(n) ->
+        n
+
+      :invalid ->
+        io.puts.("Enter a whole number ≥ 1, or `none`.")
+        prompt_max_duration(io)
+    end
+  end
+
+  defp normalize_int_or_none(value) do
+    trimmed = value |> to_string() |> String.trim()
+
+    if String.downcase(trimmed) in ["none", "unlimited", ""] do
+      :none
+    else
+      case Integer.parse(trimmed) do
+        {n, ""} when n >= 1 -> n
+        _ -> :invalid
+      end
+    end
+  end
+
+  # Dimmed helper text shown above a prompt (faint, plain on non-TTY).
+  defp hint(io, text) do
+    io.puts.(IO.ANSI.format([:faint, "  " <> text]))
+  end
+
   # --- Template fill ---
 
   defp build_fills(d) do
@@ -234,7 +286,7 @@ defmodule Aiur.Init do
       "{{TRACKER_PROVIDER}}" => tracker_provider_block(d.tracker),
       "{{AGENT_KIND}}" => primary_kind(d.agents),
       "{{MAX_AGENTS}}" => Integer.to_string(d.max_agents),
-      "{{MAX_TURNS}}" => Integer.to_string(d.max_turns),
+      "{{MAX_TURNS}}" => to_string(d.max_turns),
       "{{MAX_AGENT_DURATION}}" => Integer.to_string(d.max_duration),
       "{{ROUTING}}" => routing_inline(d.routing),
       "{{PERMISSION_MODE}}" => d.permission_mode,

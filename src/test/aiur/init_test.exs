@@ -26,7 +26,10 @@ defmodule Aiur.InitTest do
         send(parent, {:puts, IO.chardata_to_string(message)})
         :ok
       end,
-      input: fn label, default -> Map.get(Map.get(answers, :input, %{}), label, default) end,
+      input: fn label, default ->
+        send(parent, {:input_label, label})
+        Map.get(Map.get(answers, :input, %{}), label, default)
+      end,
       select: fn label, _opts, default -> Map.get(Map.get(answers, :select, %{}), label, default) end,
       multiselect: fn label, _opts, defaults ->
         Map.get(Map.get(answers, :multiselect, %{}), label, defaults)
@@ -91,6 +94,16 @@ defmodule Aiur.InitTest do
       0 -> Enum.reverse(acc)
     end
   end
+
+  defp input_labels(acc \\ []) do
+    receive do
+      {:input_label, label} -> input_labels([label | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  @duration_label "Max agent duration in minutes — fallback for stuck agents (none = never auto-kill)"
 
   @location_label "Where will you store aiur settings?"
 
@@ -192,6 +205,32 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
       assert written_config(target)["tracker"]["kind"] == "memory"
+    end
+  end
+
+  describe "limits and helper text" do
+    test "max turns defaults to none (uncapped)", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert written_config(target)["agent"]["max_turns"] == "none"
+    end
+
+    test "the polling question explains what polling does", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker/i))
+    end
+
+    test "a numeric max agent duration is written", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@duration_label => "30"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      assert written_config(target)["agent"]["max_agent_duration_minutes"] == 30
+    end
+
+    test "max agent duration of none disables the watchdog (writes 0)", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@duration_label => "none"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      assert written_config(target)["agent"]["max_agent_duration_minutes"] == 0
     end
   end
 
