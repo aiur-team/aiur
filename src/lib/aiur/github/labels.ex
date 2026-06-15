@@ -46,11 +46,12 @@ defmodule Aiur.GitHub.Labels do
   @spec model_labels([String.t()]) :: [String.t()]
   def model_labels(backends), do: CodingAgent.override_labels(backends)
 
-  # The `model:claude-remote` alias (force remote-control on at launch) only
-  # makes sense when a claude backend is in play.
+  # The `model:claude-remote` flag (force remote-control on at launch) only
+  # makes sense when the claude backend is chosen; it pairs with a
+  # `model:claude-<variant>` tag rather than selecting a backend itself.
   @spec alias_labels([String.t()]) :: [String.t()]
   def alias_labels(backends) do
-    if Enum.any?(backends, &(&1 in ["claude", "claude-repl"])) do
+    if "claude" in backends do
       CodingAgent.alias_labels()
     else
       []
