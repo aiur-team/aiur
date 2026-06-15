@@ -204,7 +204,7 @@ defmodule Aiur.Config do
     settings!().agent.codex.thrash_window_seconds
   end
 
-  @spec agent_max_turns() :: pos_integer()
+  @spec agent_max_turns() :: pos_integer() | nil
   def agent_max_turns do
     settings!().agent.max_turns
   end

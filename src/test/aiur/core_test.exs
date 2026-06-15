@@ -49,6 +49,10 @@ defmodule Aiur.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 5)
     assert Config.settings!().agent.max_turns == 5
 
+    # `none` means uncapped — the autonomous loop is never bounded by turns.
+    write_workflow_file!(Workflow.workflow_file_path(), max_turns: "none")
+    assert Config.settings!().agent.max_turns == nil
+
     write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "tracker.active_states"

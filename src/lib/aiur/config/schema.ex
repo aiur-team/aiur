@@ -274,7 +274,10 @@ defmodule Aiur.Config.Schema do
       # for always-remote: change `false` here and every dispatch attaches RC.
       field(:remote_control, :boolean, default: false)
       field(:max_concurrent_agents, :integer, default: 10)
-      field(:max_turns, :integer, default: 20)
+      # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
+      # `unlimited` (or an absent key) resolves to nil; any present number must
+      # be > 0.
+      field(:max_turns, :integer)
       field(:max_retry_attempts, :integer, default: 3)
       field(:max_retry_backoff_ms, :integer, default: 300_000)
       field(:max_concurrent_agents_by_state, :map, default: %{})
@@ -296,7 +299,7 @@ defmodule Aiur.Config.Schema do
     def changeset(schema, attrs) do
       schema
       |> cast(
-        attrs,
+        drop_uncapped_max_turns(attrs),
         [
           :kind,
           :remote_control,
@@ -328,6 +331,26 @@ defmodule Aiur.Config.Schema do
       |> Schema.validate_complexity_prompts(:complexity_prompts)
       |> cast_embed(:claude, with: &Claude.changeset/2)
       |> cast_embed(:codex, with: &Codex.changeset/2)
+    end
+
+    # A `max_turns` of `none`/`unlimited`/`""` means uncapped — drop the key so
+    # the field stays nil instead of failing integer casting.
+    defp drop_uncapped_max_turns(attrs) do
+      Enum.reduce([:max_turns, "max_turns"], attrs, &drop_key_if_uncapped/2)
+    end
+
+    defp drop_key_if_uncapped(key, attrs) do
+      case Map.fetch(attrs, key) do
+        {:ok, value} when is_binary(value) ->
+          if uncapped_max_turns?(value), do: Map.delete(attrs, key), else: attrs
+
+        _ ->
+          attrs
+      end
+    end
+
+    defp uncapped_max_turns?(value) do
+      String.downcase(String.trim(value)) in ["none", "unlimited", ""]
     end
   end
 
