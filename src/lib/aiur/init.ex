@@ -70,7 +70,16 @@ defmodule Aiur.Init do
   @spec run(%{force: boolean()}) :: :ok | {:error, String.t()}
   def run(opts) do
     load_dotenv()
+    ensure_http_client()
     run(opts, runtime_io(), runtime_deps())
+  end
+
+  # `aiur init` boots interactively without the OTP app started, so the Req /
+  # Finch HTTP client the GitHub label calls rely on isn't running yet. Start
+  # it up front so a token-present run reaches tag creation instead of crashing.
+  defp ensure_http_client do
+    Application.ensure_all_started(:req)
+    :ok
   end
 
   @spec run(%{force: boolean()}, io(), deps()) :: :ok | {:error, String.t()}
