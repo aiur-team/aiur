@@ -542,6 +542,7 @@ defmodule Aiur.InitTest do
       assert joined =~ "Issues"
       assert joined =~ "Contents"
       assert joined =~ "Pull requests"
+      assert joined =~ "write access to this repo"
     end
 
     test "with a token: creates labels and shows the ready screen", %{dir: dir, target: target} do

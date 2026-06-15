@@ -562,9 +562,10 @@ defmodule Aiur.Init do
     io.puts.("     Fine-grained token:")
     io.puts.("       • Repository access → `Only select repositories` → choose this repo")
     io.puts.("       • Permissions → Repository permissions, set each to `Read and write`:")
-    io.puts.("           – Issues")
+    io.puts.("           – Issues  (creating labels needs this)")
     io.puts.("           – Contents")
     io.puts.("           – Pull requests")
+    io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
     io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
   end
@@ -780,6 +781,11 @@ defmodule Aiur.Init do
 
   defp label_error_message({:github_api_status, 403, label}),
     do: "GitHub rejected #{label} (403) — the token needs repo write scope"
+
+  defp label_error_message({:github_api_status, 404, label}),
+    do:
+      "GitHub returned 404 for #{label} — the repo wasn't found or the token can't access it. " <>
+        "Check github.repo in #{@config_file_name} and that the token's account has access to this repo (Issues: Read & write)."
 
   defp label_error_message({:github_api_status, status, label}),
     do: "GitHub rejected #{label} (HTTP #{status})"
