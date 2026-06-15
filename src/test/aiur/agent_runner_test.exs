@@ -228,4 +228,16 @@ defmodule Aiur.AgentRunnerTest do
       refute AgentRunner.should_display_tail?("claude-repl", true, nil)
     end
   end
+
+  describe "remote_session_backend/2" do
+    test "a remote-on claude issue dispatches the claude-repl transport" do
+      assert AgentRunner.remote_session_backend("claude", true) == "claude-repl"
+    end
+
+    test "non-remote claude and other backends run as resolved" do
+      assert AgentRunner.remote_session_backend("claude", false) == "claude"
+      assert AgentRunner.remote_session_backend("codex", true) == "codex"
+      assert AgentRunner.remote_session_backend("claude-repl", true) == "claude-repl"
+    end
+  end
 end

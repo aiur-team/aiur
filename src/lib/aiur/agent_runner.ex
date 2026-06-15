@@ -418,17 +418,19 @@ defmodule Aiur.AgentRunner do
     model = CodingAgent.model_for(issue)
 
     rc? =
-      (CodingAgent.remote_control_forced?(issue) or Config.agent_remote_control?()) and
-        CodingAgent.remote_control?(backend)
+      (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
+         Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
 
-    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}")
+    session_backend = remote_session_backend(backend, rc?)
+
+    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} remote_control=#{rc?}")
 
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
     end)
 
     session_opts =
-      [backend: backend, model: model, worker_host: worker_host, remote_control: rc?, identifier: issue.identifier]
+      [backend: session_backend, model: model, worker_host: worker_host, remote_control: rc?, identifier: issue.identifier]
       |> maybe_put_rc_name(rc?, issue)
 
     with {:ok, session} <- start_agent_session(workspace, session_opts) do
@@ -522,6 +524,14 @@ defmodule Aiur.AgentRunner do
   # the default name.
   defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
   defp maybe_put_rc_name(opts, false, _issue), do: opts
+
+  # Remote control physically runs on the persistent-REPL transport, so a
+  # remote-on claude issue dispatches `claude-repl` (carrying the resolved
+  # model). Other backends — and non-remote claude — run as resolved.
+  @doc false
+  @spec remote_session_backend(String.t(), boolean()) :: String.t()
+  def remote_session_backend("claude", true), do: "claude-repl"
+  def remote_session_backend(backend, _rc?), do: backend
 
   # Seed the workspace trust flag before an RC REPL spawns. RC refuses to
   # start in an untrusted directory; without this the REPL sticks on the
