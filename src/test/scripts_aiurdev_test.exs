@@ -13,13 +13,18 @@ defmodule ScriptsAiurdevTest do
     refute output =~ "PKILL:"
   end
 
-  test "init routes to the release init wizard (no 'unknown profile')" do
+  test "init routes to the release wizard via interactive elixir --eval" do
     ctx = test_context()
-    write_fake_release_rpc!(ctx, "")
+    write_fake_release_init!(ctx)
 
     assert {output, 0} = run_aiur(ctx, ["init"])
     refute output =~ "Unknown profile"
-    assert command_log(ctx) =~ "AIUR_RELEASE:eval Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    log = command_log(ctx)
+    # Booted through the release's own elixir launcher (stdin connected),
+    # not `bin/aiur eval` (-noinput).
+    assert log =~ "ELIXIR:"
+    assert log =~ "--eval Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute log =~ "AIUR_RELEASE:eval"
   end
 
   test "rejects unknown profiles" do
@@ -823,6 +828,21 @@ defmodule ScriptsAiurdevTest do
 
     printf '%b' #{inspect(body)}
     exit #{exit_status}
+    """)
+  end
+
+  # Stubs the release's bundled `elixir` launcher (used by `init`), logging its
+  # argv so the test can assert the interactive `--eval` boot.
+  defp write_fake_release_init!(ctx) do
+    vsn = "0.1.0"
+    releases = Path.join([ctx.repo_root, "src", "_build", "dev", "rel", "aiur", "releases"])
+    File.mkdir_p!(Path.join(releases, vsn))
+    File.write!(Path.join(releases, "start_erl.data"), "13.0 #{vsn}\n")
+
+    write_executable!(Path.join([releases, vsn, "elixir"]), """
+    #!/usr/bin/env bash
+    printf 'ELIXIR:%s\\n' "$*" >>"$AIUR_TEST_COMMAND_LOG"
+    exit 0
     """)
   end
 
