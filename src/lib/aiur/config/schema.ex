@@ -355,6 +355,7 @@ defmodule Aiur.Config.Schema do
   embedded_schema do
     field(:max_vertical_panes, :integer, default: 3)
     field(:pre_warmed_sessions, :integer, default: 3)
+    field(:max_log_history_mb, :integer, default: 1000)
 
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
@@ -520,9 +521,10 @@ defmodule Aiur.Config.Schema do
 
   defp changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [:max_vertical_panes, :pre_warmed_sessions], empty_values: [])
+    |> cast(attrs, [:max_vertical_panes, :pre_warmed_sessions, :max_log_history_mb], empty_values: [])
     |> validate_number(:max_vertical_panes, greater_than: 0)
     |> validate_number(:pre_warmed_sessions, greater_than_or_equal_to: 0)
+    |> validate_number(:max_log_history_mb, greater_than: 0)
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)

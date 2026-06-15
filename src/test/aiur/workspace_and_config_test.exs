@@ -1147,6 +1147,22 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert settings.agent.remote_control == true
   end
 
+  test "max_log_history_mb defaults to 1000 and validates positivity" do
+    # The retention sweep reads this cap; an unset config must land on the
+    # built-in 1000 MB default, an explicit value must round-trip, and a
+    # non-positive cap must be rejected (it would wipe everything).
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.max_log_history_mb == 1000
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 250})
+
+    assert settings.max_log_history_mb == 250
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
+  end
+
   test "complexity prompts normalize string levels and reject bad levels/values" do
     assert Schema.normalize_complexity_prompts(nil) == %{}
 

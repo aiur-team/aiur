@@ -154,6 +154,11 @@ defmodule Aiur.Config do
     settings!().max_vertical_panes
   end
 
+  @spec max_log_history_mb() :: pos_integer()
+  def max_log_history_mb do
+    settings!().max_log_history_mb
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks
