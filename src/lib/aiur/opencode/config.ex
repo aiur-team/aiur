@@ -141,5 +141,9 @@ defmodule Aiur.Opencode.Config do
     end
   end
 
-  defp section_value(key), do: Map.get(Aiur.Config.section("opencode"), key)
+  defp section_value(key) do
+    Aiur.Config.settings!().opencode
+    |> Map.from_struct()
+    |> Map.get(String.to_existing_atom(key))
+  end
 end

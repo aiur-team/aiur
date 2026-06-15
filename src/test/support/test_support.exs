@@ -212,29 +212,44 @@ defmodule Aiur.TestSupport do
       |> maybe_copy_override(overrides, :codex_read_timeout_ms, :agent_read_timeout_ms)
       |> maybe_copy_override(overrides, :codex_stall_timeout_ms, :agent_stall_timeout_ms)
 
-    sections =
+    _ = {agent_turn_timeout_ms, agent_read_timeout_ms, agent_stall_timeout_ms}
+
+    tracker_section =
       [
-        tracker_backend_yaml(tracker_kind, config),
-        "max_vertical_panes: #{yaml_value(max_vertical_panes)}",
         "tracker:",
         "  kind: #{yaml_value(tracker_kind)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
-        "polling:",
-        "  interval_seconds: #{yaml_value(poll_interval_seconds)}",
-        "workspace:",
-        "  root: #{yaml_value(workspace_root)}",
-        worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
+        tracker_backend_yaml(tracker_kind, config)
+      ]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join("\n")
+
+    agent_section =
+      [
         "agent:",
         "  kind: #{yaml_value(agent_kind)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
-        "  turn_timeout_ms: #{yaml_value(agent_turn_timeout_ms)}",
-        "  read_timeout_ms: #{yaml_value(agent_read_timeout_ms)}",
-        "  stall_timeout_ms: #{yaml_value(agent_stall_timeout_ms)}",
-        agent_backend_yaml(agent_kind, config),
+        "  turn_timeout_ms: #{yaml_value(Keyword.get(config, :agent_turn_timeout_ms))}",
+        "  stall_timeout_ms: #{yaml_value(Keyword.get(config, :agent_stall_timeout_ms))}",
+        agent_backend_yaml(agent_kind, config)
+      ]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join("\n")
+
+    sections =
+      [
+        "max_vertical_panes: #{yaml_value(max_vertical_panes)}",
+        tracker_section,
+        "polling:",
+        "  interval_seconds: #{yaml_value(poll_interval_seconds)}",
+        "workspace:",
+        "  root: #{yaml_value(workspace_root)}",
+        worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
+        agent_section,
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
@@ -258,11 +273,11 @@ defmodule Aiur.TestSupport do
     assignee = Keyword.get(config, :tracker_assignee)
 
     [
-      "linear:",
-      "  endpoint: #{yaml_value(endpoint)}",
-      "  api_key: #{yaml_value(api_token)}",
-      "  project_slug: #{yaml_value(project_slug)}",
-      "  assignee: #{yaml_value(assignee)}"
+      "  linear:",
+      "    endpoint: #{yaml_value(endpoint)}",
+      "    api_key: #{yaml_value(api_token)}",
+      "    project_slug: #{yaml_value(project_slug)}",
+      "    assignee: #{yaml_value(assignee)}"
     ]
     |> Enum.join("\n")
   end
@@ -273,16 +288,16 @@ defmodule Aiur.TestSupport do
     bot_account = Keyword.get(config, :tracker_bot_account)
 
     [
-      "github:",
-      repo && "  repo: #{yaml_value(repo)}",
-      label_prefix && "  label_prefix: #{yaml_value(label_prefix)}",
-      bot_account && "  bot_account: #{yaml_value(bot_account)}"
+      "  github:",
+      repo && "    repo: #{yaml_value(repo)}",
+      label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
+      bot_account && "    bot_account: #{yaml_value(bot_account)}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
 
-  defp tracker_backend_yaml("memory", _config), do: "memory: {}"
+  defp tracker_backend_yaml("memory", _config), do: nil
   defp tracker_backend_yaml(nil, _config), do: nil
   defp tracker_backend_yaml(_kind, _config), do: nil
 
@@ -303,19 +318,15 @@ defmodule Aiur.TestSupport do
     approval_policy = Keyword.get(config, :codex_approval_policy)
     thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
     turn_sandbox_policy = Keyword.get(config, :codex_turn_sandbox_policy)
-    turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
     read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
-    stall_timeout_ms = Keyword.get(config, :agent_stall_timeout_ms)
 
     [
-      "codex:",
-      "  command: #{yaml_value(command)}",
-      "  approval_policy: #{yaml_value(approval_policy)}",
-      "  thread_sandbox: #{yaml_value(thread_sandbox)}",
-      "  turn_sandbox_policy: #{yaml_value(turn_sandbox_policy)}",
-      "  turn_timeout_ms: #{yaml_value(turn_timeout_ms)}",
-      "  read_timeout_ms: #{yaml_value(read_timeout_ms)}",
-      "  stall_timeout_ms: #{yaml_value(stall_timeout_ms)}"
+      "  codex:",
+      "    command: #{yaml_value(command)}",
+      "    approval_policy: #{yaml_value(approval_policy)}",
+      "    thread_sandbox: #{yaml_value(thread_sandbox)}",
+      "    turn_sandbox_policy: #{yaml_value(turn_sandbox_policy)}",
+      "    read_timeout_ms: #{yaml_value(read_timeout_ms)}"
     ]
     |> Enum.join("\n")
   end
@@ -323,15 +334,13 @@ defmodule Aiur.TestSupport do
   defp agent_backend_yaml("claude", config) do
     command = Keyword.get(config, :command)
     model = Keyword.get(config, :claude_model)
-    version = Keyword.get(config, :claude_version)
     permission_mode = Keyword.get(config, :claude_permission_mode)
 
     [
-      "claude:",
-      "  command: #{yaml_value(command)}",
-      model && "  model: #{yaml_value(model)}",
-      version && "  version: #{yaml_value(version)}",
-      permission_mode && "  permission_mode: #{yaml_value(permission_mode)}"
+      "  claude:",
+      "    command: #{yaml_value(command)}",
+      model && "    model: #{yaml_value(model)}",
+      permission_mode && "    permission_mode: #{yaml_value(permission_mode)}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")

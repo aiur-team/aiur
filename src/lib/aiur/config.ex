@@ -63,17 +63,6 @@ defmodule Aiur.Config do
 
   def max_concurrent_agents_for_state(_state_name), do: settings!().agent.max_concurrent_agents
 
-  @spec section(String.t()) :: map()
-  def section(name) when is_binary(name) do
-    case Workflow.current() do
-      {:ok, %{config: config}} when is_map(config) ->
-        Map.get(config, name) || Map.get(config, String.to_atom(name)) || %{}
-
-      _ ->
-        %{}
-    end
-  end
-
   @spec tracker_kind() :: String.t() | nil
   def tracker_kind do
     settings!().tracker.kind
@@ -207,12 +196,12 @@ defmodule Aiur.Config do
 
   @spec codex_thrash_max_per_window() :: pos_integer()
   def codex_thrash_max_per_window do
-    settings!().agent.codex_thrash_max_per_window
+    settings!().agent.codex.thrash_max_per_window
   end
 
   @spec codex_thrash_window_seconds() :: pos_integer()
   def codex_thrash_window_seconds do
-    settings!().agent.codex_thrash_window_seconds
+    settings!().agent.codex.thrash_window_seconds
   end
 
   @spec agent_max_turns() :: pos_integer()
@@ -222,17 +211,17 @@ defmodule Aiur.Config do
 
   @spec agent_turn_timeout_ms() :: pos_integer()
   def agent_turn_timeout_ms do
-    settings!().codex.turn_timeout_ms
+    settings!().agent.turn_timeout_ms
   end
 
   @spec agent_read_timeout_ms() :: pos_integer()
   def agent_read_timeout_ms do
-    settings!().codex.read_timeout_ms
+    settings!().agent.codex.read_timeout_ms
   end
 
   @spec agent_stall_timeout_ms() :: non_neg_integer()
   def agent_stall_timeout_ms do
-    settings!().codex.stall_timeout_ms
+    settings!().agent.stall_timeout_ms
   end
 
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
@@ -303,8 +292,8 @@ defmodule Aiur.Config do
              Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
         {:ok,
          %{
-           approval_policy: settings.codex.approval_policy,
-           thread_sandbox: settings.codex.thread_sandbox,
+           approval_policy: settings.agent.codex.approval_policy,
+           thread_sandbox: settings.agent.codex.thread_sandbox,
            turn_sandbox_policy: turn_sandbox_policy
          }}
       end
@@ -329,10 +318,10 @@ defmodule Aiur.Config do
       settings.agent.kind not in Aiur.CodingAgent.known_backends() ->
         {:error, {:unsupported_agent_kind, settings.agent.kind}}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
+      settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.api_key) ->
         {:error, :missing_linear_api_token}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
+      settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.project_slug) ->
         {:error, :missing_linear_project_slug}
 
       settings.tracker.kind == "github" ->

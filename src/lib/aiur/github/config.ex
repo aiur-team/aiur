@@ -76,7 +76,9 @@ defmodule Aiur.GitHub.Config do
   end
 
   defp section_value(key) do
-    Map.get(Aiur.Config.section("github"), key)
+    Aiur.Config.settings!().tracker.github
+    |> Map.from_struct()
+    |> Map.get(String.to_existing_atom(key))
   end
 
   defp normalize_secret(value) when is_binary(value) do

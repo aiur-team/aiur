@@ -17,7 +17,7 @@ defmodule Aiur.CoreTest do
     assert config.polling.interval_seconds == 30
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
-    assert config.tracker.assignee == nil
+    assert config.tracker.linear.assignee == nil
     assert config.max_vertical_panes == 3
     assert Config.max_vertical_panes() == 3
     assert config.agent.max_turns == 20
@@ -71,7 +71,7 @@ defmodule Aiur.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "   ")
     assert :ok = Config.validate!()
-    assert Config.settings!().codex.command == "   "
+    assert Config.settings!().agent.codex.command == "   "
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "/bin/sh app-server")
     assert :ok = Config.validate!()
@@ -186,8 +186,8 @@ defmodule Aiur.CoreTest do
       codex_command: "/bin/sh app-server"
     )
 
-    assert Config.settings!().tracker.api_key == env_api_key
-    assert Config.settings!().tracker.project_slug == "project"
+    assert Config.settings!().tracker.linear.api_key == env_api_key
+    assert Config.settings!().tracker.linear.project_slug == "project"
     assert :ok = Config.validate!()
   end
 
@@ -204,7 +204,7 @@ defmodule Aiur.CoreTest do
       codex_command: "/bin/sh app-server"
     )
 
-    assert Config.settings!().tracker.assignee == env_assignee
+    assert Config.settings!().tracker.linear.assignee == env_assignee
   end
 
   test "workflow file path defaults to .aiurconfig in the current working directory when app env is unset" do
