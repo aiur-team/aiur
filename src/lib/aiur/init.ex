@@ -55,6 +55,7 @@ defmodule Aiur.Init do
   @type deps :: %{
           config_target: (atom() -> Path.t()),
           existing_config_path: (Path.t() -> String.t() | nil),
+          load_config: (Path.t() -> {:ok, map()} | {:error, term()}),
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
@@ -75,50 +76,73 @@ defmodule Aiur.Init do
     location = prompt_location(io)
     target = deps.config_target.(location)
 
-    with :ok <- guard_existing_config(opts, deps, target) do
-      io.puts.("Setting up aiur (#{location} config at #{target}).")
+    if deps.existing_config_path.(target) && not opts.force do
+      resume(io, deps, target)
+    else
+      fresh_setup(io, deps, location, target)
+    end
+  end
 
-      tracker = prompt_tracker(io, deps, location)
-      agents = prompt_agents(io)
-      routing = prompt_routing(io, agents)
-      permission_mode = prompt_permission_mode(io)
-      workspace_root = io.input.("Where should agents work?", "~/code/aiur-workspaces")
-      max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
-      max_turns = prompt_max_turns(io)
-      max_duration = prompt_max_duration(io)
-      hint(io, "Each pre-warmed session keeps an opencode process resident; set this to how many you expect open at once.")
-      pre_warmed = prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-      polling = prompt_int(io, "How often should aiur check the tracker for new agent:todo work? (seconds)", 30, 1)
-      # prompt_file is repo-specific, so the general global config omits it.
-      prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md")
+  # A re-run over an existing config skips the intro questions, shows what was
+  # saved, and picks the token/label flow back up — so adding a token and
+  # re-running just continues setup instead of starting over.
+  defp resume(io, deps, target) do
+    case deps.load_config.(target) do
+      {:ok, config} ->
+        io.puts.("Found an existing config at #{target}; resuming setup.")
+        print_saved_summary(io, config)
+        provision(io, deps, tracker_from_config(deps, config), agents_from_config(config))
 
-      fills =
-        build_fills(%{
-          tracker: tracker,
-          agents: agents,
-          routing: routing,
-          permission_mode: permission_mode,
-          workspace_root: workspace_root,
-          max_agents: max_agents,
-          max_turns: max_turns,
-          max_duration: max_duration,
-          pre_warmed: pre_warmed,
-          polling: polling,
-          prompt_file: prompt_file
-        })
+      {:error, reason} ->
+        {:error,
+         "Couldn't read the existing config at #{target} (#{inspect(reason)}). " <>
+           "Pass --force to recreate it: aiur init --force"}
+    end
+  end
 
-      config_yaml = fill_template(deps.read_example.(), fills)
+  defp fresh_setup(io, deps, location, target) do
+    io.puts.("Setting up aiur (#{location} config at #{target}).")
 
-      case deps.write_config.(target, config_yaml) do
-        {:ok, path} ->
-          io.puts.("Wrote #{path}.")
-          ensure_prompt_file(io, deps, path, prompt_file)
-          setup_env(io, deps, tracker)
-          provision(io, deps, tracker, agents)
+    tracker = prompt_tracker(io, deps, location)
+    agents = prompt_agents(io)
+    routing = prompt_routing(io, agents)
+    permission_mode = prompt_permission_mode(io)
+    workspace_root = io.input.("Where should agents work?", "~/code/aiur-workspaces")
+    max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
+    max_turns = prompt_max_turns(io)
+    max_duration = prompt_max_duration(io)
+    hint(io, "Each pre-warmed session keeps an opencode process resident; set this to how many you expect open at once.")
+    pre_warmed = prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
+    polling = prompt_int(io, "How often should aiur check the tracker for new agent:todo work? (seconds)", 30, 1)
+    # prompt_file is repo-specific, so the general global config omits it.
+    prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md")
 
-        {:error, reason} ->
-          {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
-      end
+    fills =
+      build_fills(%{
+        tracker: tracker,
+        agents: agents,
+        routing: routing,
+        permission_mode: permission_mode,
+        workspace_root: workspace_root,
+        max_agents: max_agents,
+        max_turns: max_turns,
+        max_duration: max_duration,
+        pre_warmed: pre_warmed,
+        polling: polling,
+        prompt_file: prompt_file
+      })
+
+    config_yaml = fill_template(deps.read_example.(), fills)
+
+    case deps.write_config.(target, config_yaml) do
+      {:ok, path} ->
+        io.puts.("Wrote #{path}.")
+        ensure_prompt_file(io, deps, path, prompt_file)
+        setup_env(io, deps, tracker)
+        provision(io, deps, tracker, agents)
+
+      {:error, reason} ->
+        {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
     end
   end
 
@@ -154,17 +178,61 @@ defmodule Aiur.Init do
 
   defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
 
-  defp guard_existing_config(%{force: true}, _deps, _target), do: :ok
+  # --- Resume (existing config) ---
 
-  defp guard_existing_config(_opts, deps, target) do
-    case deps.existing_config_path.(target) do
-      nil ->
-        :ok
+  defp print_saved_summary(io, config) do
+    io.puts.("Saved selections:")
 
-      path ->
-        {:error, "#{path} already exists. Pass --force to overwrite it: aiur init --force"}
+    Enum.each(saved_summary_lines(config), fn line ->
+      io.puts.(IO.ANSI.format([:faint, "  " <> line]))
+    end)
+  end
+
+  defp saved_summary_lines(config) do
+    agent = config["agent"] || %{}
+    tracker = config["tracker"] || %{}
+
+    [
+      "tracker: #{tracker["kind"]}",
+      "agent: #{agent["kind"]}",
+      "max_concurrent_agents: #{agent["max_concurrent_agents"]}",
+      "max_turns: #{agent["max_turns"]}",
+      "max_agent_duration_minutes: #{agent["max_agent_duration_minutes"]}"
+    ]
+  end
+
+  defp tracker_from_config(deps, config) do
+    tracker = config["tracker"] || %{}
+
+    case tracker["kind"] do
+      "github" ->
+        repo = get_in(config, ["tracker", "github", "repo"]) || deps.detect_repo.()
+        %{kind: "github", repo: repo}
+
+      "linear" ->
+        %{
+          kind: "linear",
+          api_key: get_in(config, ["tracker", "linear", "api_key"]),
+          project_slug: get_in(config, ["tracker", "linear", "project_slug"])
+        }
+
+      kind ->
+        %{kind: kind}
     end
   end
+
+  # Backends to provision labels for: the default agent kind plus any backend
+  # named in the routing table (e.g. `claude:sonnet` -> `claude`).
+  defp agents_from_config(config) do
+    agent = config["agent"] || %{}
+    routing_backends = (agent["routing"] || %{}) |> Map.values() |> Enum.map(&routing_backend/1)
+
+    [agent["kind"] | routing_backends]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> agent_kinds()
+  end
+
+  defp routing_backend(value), do: value |> to_string() |> String.split(":") |> hd()
 
   # --- Prompts ---
 
@@ -503,6 +571,7 @@ defmodule Aiur.Init do
     %{
       config_target: &config_target/1,
       existing_config_path: &existing_config_path/1,
+      load_config: &load_config/1,
       read_example: fn -> @example_template end,
       detect_repo: &detect_repo/0,
       write_config: &write_config/2,
@@ -519,6 +588,13 @@ defmodule Aiur.Init do
 
   defp existing_config_path(target) do
     if File.regular?(target), do: target
+  end
+
+  defp load_config(target) do
+    case Aiur.Workflow.load(target) do
+      {:ok, loaded} -> {:ok, loaded.config}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp write_config(target, yaml) do

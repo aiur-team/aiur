@@ -43,6 +43,9 @@ defmodule Aiur.InitTest do
       %{
         config_target: fn _location -> target end,
         existing_config_path: fn t -> if File.regular?(t), do: t end,
+        load_config: fn t ->
+          with {:ok, loaded} <- Workflow.load(t), do: {:ok, loaded.config}
+        end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
         write_config: fn t, yaml ->
@@ -118,14 +121,14 @@ defmodule Aiur.InitTest do
     Map.merge(base, overrides, fn _k, v1, v2 -> Map.merge(v1, v2) end)
   end
 
-  describe "existing-config guard" do
-    test "aborts when the target config exists and --force is not passed", %{dir: dir, target: target} do
-      File.write!(target, "existing")
+  describe "existing-config handling" do
+    test "an unreadable existing config errors with a --force hint", %{dir: dir, target: target} do
+      File.write!(target, "- not\n- a\n- map\n")
 
       assert {:error, message} =
                Init.run(%{force: false}, io(self()), deps(self(), dir, target))
 
-      assert message =~ "already exists"
+      assert message =~ "Couldn't read"
       assert message =~ "--force"
     end
 
@@ -134,6 +137,23 @@ defmodule Aiur.InitTest do
 
       assert :ok =
                Init.run(%{force: true}, io(self(), github_answers()), deps(self(), dir, target))
+    end
+
+    test "a valid existing config resumes: skips intro, shows summary, provisions", %{
+      dir: dir,
+      target: target
+    } do
+      d = deps(self(), dir, target)
+      # First run writes a valid config.
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+      _ = puts_log()
+      _ = input_labels()
+
+      # Re-run with no scripted intro answers: it must resume, not re-ask.
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      refute Enum.any?(input_labels(), &(&1 =~ ~r/Where should agents work/))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
     end
   end
 
