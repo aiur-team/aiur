@@ -15,61 +15,61 @@ separate launcher implementations. Installed `aiur` therefore can't run `--bg`, 
 `status`, `pause`, `resume`, `sweep`, or profiles — and the init wizard's final screen already
 promises `aiur --bg`.
 
-This refactor extracts a **single launcher engine** that owns every subcommand, parameterized by a
-**distribution identity** (release dir + node/cookie/state/tmux naming). `aiurdev` and the installed
-`aiur` become thin wrappers that set their identity and exec the shared engine. No second
-command-surface copy is ever maintained again.
+**End state (decided 2026-06-16):** there is **one** launcher — `aiur`, the engine, shipped in the npm
+package. It owns every subcommand and uses a **single distribution identity** (`aiur-$USER@127.0.0.1`
+node, `~/.config/aiur` cookie/state, `aiur` tmux session). `aiurdev` is **not** a second surface — it
+is a ~15-line dev shim that runs the *same* engine against the local `src/_build` release (with a
+build-if-stale step) instead of the npm-installed one. Its only parameter is which release directory to
+run (`AIUR_RELEASE_DIR`).
+
+```
+aiur     = bin/aiur.js → engine, AIUR_RELEASE_DIR = installed platform package
+aiurdev  = scripts/aiurdev → engine, AIUR_RELEASE_DIR = src/_build/dev/rel/aiur (+ build-if-stale)
+```
+
+The `aiurdev`/`aiur` distribution-identity split is **removed** (user decision: aiurdev is solo dev
+testing, never run alongside a prod `aiur`, so coexistence isn't needed). This is simpler than a
+parameterized identity and means one engine with one identity to maintain.
 
 ---
 
 ## Problem Frame
 
-The two launchers diverge on the **distribution contract** that RPC subcommands depend on:
-
-| | node name | cookie file | tmux session | profiles/state |
-|---|---|---|---|---|
-| `scripts/aiurdev` | `aiurdev-$USER@127.0.0.1` (`:822`) | `~/.local/state/aiurdev/cookie` (`:780`) | `aiurdev-$USER-$profile` (`:1458`) | `~/.config/aiurdev/` |
-| `aiur-launch.sh` | `aiur-$USER@127.0.0.1` (`:110`) | `~/.config/aiur/cookie` (`:85`) | `aiur-$USER` (`:202`) | `~/.config/aiur/` |
-
-RPC commands (`status`/`pause`/`resume`) only reach a node with the matching name **and** cookie, and
-attach/sweep key on the tmux session name. So a naive "share one engine with one hardcoded contract"
-would rename aiurdev's nodes/sessions — breaking running dev sessions and tests asserting
-`RELEASE_NODE=aiurdev-`.
-
-**Both launchers already honor `AIUR_RELEASE_NODE`** (`aiurdev:822`, `aiur-launch.sh:110`), which is
-the seam this plan builds on: the engine reads its identity from env vars; the wrappers supply
-different values. aiurdev keeps `aiurdev-` naming, installed `aiur` keeps `aiur-` naming, and the
-**command logic is shared**.
+The command logic exists twice. aiurdev has the complete surface; `aiur-launch.sh` has a thin subset.
+The two also diverge on the BEAM distribution identity (node name + cookie + tmux session) that RPC
+subcommands (`status`/`pause`/`resume`) and tmux attach/sweep depend on — aiurdev uses `aiurdev-…`
+under `~/.local/state/aiurdev` + `~/.config/aiurdev`, the installed launcher uses `aiur-…` under
+`~/.config/aiur`. Collapsing to one engine with the single `aiur` identity removes both the duplication
+and the divergence; aiurdev simply adopts the `aiur` identity.
 
 ---
 
 ## Requirements Trace
 
 - R1. One engine owns every subcommand (`init`, `run`/default/`<profile>`, `--bg`, `stop`, `list`,
-  `status`, `pause`, `resume`, `build`, `sweep`, `--help`); no logic is duplicated between launchers.
-- R2. The engine is parameterized by a distribution identity (release dir, node prefix, cookie path,
-  state dir, tmux/session prefix, profiles/config path) read from env — no hardcoded `aiur-`/`aiurdev-`.
-- R3. `scripts/aiurdev` is reduced to a thin resolver: pick the local `_build` release, build-if-stale,
-  set the aiurdev identity, exec the engine. Its node/cookie/session naming is unchanged (`aiurdev-…`).
-- R4. Installed `aiur` execs the **same** engine with the `aiur-` identity and the installed release
-  dir, gaining the full command surface (incl. `aiur --bg`).
-- R5. Dev mode (`aiurdev …`) is verified end-to-end against the local build; installed-mode
-  verification (which needs a cut release) is documented, not skipped silently.
+  `status`, `pause`, `resume`, `build`, `sweep`, `--help`); no logic duplicated between launchers.
+- R2. The engine uses the single `aiur` distribution identity (no per-caller identity). Its only
+  runtime parameter is `AIUR_RELEASE_DIR` (which release to exec).
+- R3. `scripts/aiurdev` is reduced to a thin shim: resolve the local `_build` release, build-if-stale,
+  set `AIUR_RELEASE_DIR`, exec the engine. No command logic remains in it.
+- R4. Installed `aiur` (`bin/aiur.js`) execs the same engine with the installed release dir, gaining the
+  full command surface (incl. `aiur --bg`).
+- R5. Dev mode (`aiurdev …`) is verified end-to-end against the local build; installed-mode verification
+  (which needs a cut release) is documented, not skipped silently.
 
 ---
 
 ## Scope Boundaries
 
-- Not changing any Elixir/BEAM behavior or the `Aiur.CLI` argument contract — this is launcher-shell
-  refactoring only. The engine still execs the same release `bin/aiur` with the same args.
-- Not aligning the two distribution identities (NOT renaming aiurdev nodes to `aiur-`). Divergent
-  naming is preserved on purpose via parameterization.
-- Not changing the npm package's install layout or publish flow beyond shipping the engine file.
-- Not adding new subcommands — only making the existing aiurdev surface reachable from installed `aiur`.
+- Not changing any Elixir/BEAM behavior or the `Aiur.CLI` arg contract — launcher-shell refactor only.
+- Not preserving aiurdev's old `aiurdev-`/`~/.config/aiurdev` identity — it adopts the `aiur` identity
+  (one-time change on the dev's machine; tests asserting `aiurdev-` move to `aiur-`).
+- Not keeping a coexistence guarantee between a prod `aiur` and a local `aiurdev` (explicitly dropped).
+- Not changing the npm install layout beyond shipping the engine file.
 
 ### Deferred to Follow-Up Work
 
-- Cutting and publishing a release to live-verify installed `aiur <subcommand>` end-to-end: a separate
+- Cutting/publishing a release to live-verify installed `aiur <subcommand>` end-to-end: a separate
   release/QA pass (this branch is dev-verified + structurally wired).
 
 ---
@@ -78,51 +78,51 @@ different values. aiurdev keeps `aiurdev-` naming, installed `aiur` keeps `aiur-
 
 ### Relevant Code and Patterns
 
-- `scripts/aiurdev` — the canonical command surface. Key regions: distribution setup
-  (`ensure_erlang_cookie` ~`:780`, `prepare_distribution` ~`:815-851`), `source_env_files` (`:762`),
-  `run_foreground`/`run_in_tmux` (`:1365`, `:1653`), RPC subcommands (`status` `:976`/`:2179`,
-  `pause`/`resume` `:2183`/`:2187`, `list` `:2175`), `--bg`/`stop`/`sweep` (`:2217`/`:2231`/`:2244`),
-  `init` (`:2247`), build-if-stale (`ensure_built`, `build`), the top dispatch case (~`:2160-2300`),
-  tmux session naming (`aiur_tmux_session_name` `:1458`), profiles (`~/.config/aiurdev/aiurdev.profiles`).
-- `packaging/npm/aiur-cli/libexec/aiur-launch.sh` — the installed thin launcher; already a "port of
-  scripts/aiurdev ensure_erlang_cookie + prepare_distribution" (comment `:79`). Reads `AIUR_RELEASE_DIR`
-  (`:7`), builds the interactive run command (`:47-65`), passes the distribution env to tmux (`:270`).
-- `packaging/npm/aiur-cli/bin/` (npm bin entrypoint) — resolves the platform release and execs
-  `aiur-launch.sh`; today only routes init + run.
-- `src/test/scripts_aiurdev_test.exs` — characterizes aiurdev launch behavior (init `--eval` boot,
-  release resolution). Asserts launch-command shape; will need updates as logic moves to the engine.
+- `scripts/aiurdev` — the canonical, complete command surface. Key regions: distribution setup
+  (`ensure_erlang_cookie` ~`:777`, `prepare_distribution` ~`:813`), `source_env_files` (`:762`),
+  `run_foreground`/`run_in_tmux` (`:1365`, `:1653`), RPC subcommands (`status` `:933`/`:976`,
+  `pause`/`resume`, `list`), `--bg`/`stop`/`sweep` (`~:2217`+), `init` (`~:2247`), build-if-stale
+  (`ensure_built`/`build`), top dispatch case (`~:2150-2300`), tmux session naming
+  (`aiur_tmux_session_name`), profiles.
+- `packaging/npm/aiur-cli/libexec/aiur-launch.sh` — the thin installed launcher (init + interactive run
+  only); already a "port of scripts/aiurdev ensure_erlang_cookie + prepare_distribution". Its logic is
+  superseded by the engine.
+- `packaging/npm/aiur-cli/bin/aiur.js` — the npm entrypoint; currently execs `aiur-launch.sh`. Repoints
+  to the engine.
+- `packaging/npm/aiur-cli/libexec/aiur-engine.sh` — the engine (started: distribution functions + the
+  `aiur` identity). Grows to the full surface here.
+- `src/test/scripts_aiurdev_test.exs` — characterizes aiurdev launch behavior (asserts `MISE:exec`,
+  `SYSTEMCTL:` for `--bg`, `RELEASE_NODE=…`, init `--eval` boot). This **is** the characterization net;
+  keep it green through the move (its `aiurdev-` node assertions become `aiur-`).
+- `src/test/aiur_engine_test.exs` — engine-level tests (created in LU1).
 
 ### Institutional Learnings
 
-- Memory `project-aiur-aiurdev-parity`: one launcher engine, parameterized by release dir; aiurdev is
-  a thin resolver; never two command-surface copies. The "hard blocker" (divergent cookie/node) is the
-  reason for the identity-parameterization approach here.
-- `bin/aiur eval` is `-noinput`; the interactive `init`/TUI boots via `elixir --eval` (the
-  `build_init_cmd` form). Preserve this — the engine must keep the non-eval interactive boot path.
+- Memory `project-aiur-aiurdev-parity`: one launcher engine; aiurdev is a thin resolver; never two
+  command-surface copies. (The identity-parameterization framing there is now superseded by the
+  simpler single-identity decision.)
+- `bin/aiur eval` is `-noinput`; interactive `init`/TUI boots via `elixir --eval`. Preserve this.
 
 ---
 
 ## Key Technical Decisions
 
-- **Parameterize, don't align.** The engine reads a distribution identity from env vars; wrappers set
-  them. aiurdev keeps `aiurdev-$USER` + `~/.local/state/aiurdev` + `aiurdev-` sessions; installed `aiur`
-  keeps `aiur-$USER` + `~/.config/aiur`. This sidesteps the rename blocker entirely (no running-session
-  or test breakage) while sharing all command logic. Rationale: the only thing that *must* differ
-  between dev and installed is identity + which release dir; everything else is identical.
+- **Single identity, one engine.** The engine hardcodes the `aiur` identity (`aiur-$USER@127.0.0.1`,
+  `~/.config/aiur/cookie`, `aiur` tmux session, `~/.config/aiur/aiur.profiles`). No `AIUR_NODE_PREFIX`
+  /etc. parameterization — that was for a coexistence guarantee we dropped. Rationale: least machinery;
+  one identity to reason about.
 
-- **Engine lives in the npm package dir** (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) so it ships
-  to installed users AND is `exec`-able from the repo by `scripts/aiurdev`. One source file, two
-  callers. `aiur-launch.sh` collapses into (or is replaced by) a thin wrapper that sets the `aiur-`
-  identity and execs the engine.
+- **One real parameter: `AIUR_RELEASE_DIR`.** Installed `aiur` sets it to the platform package release;
+  `aiurdev` sets it to `src/_build/dev/rel/aiur`. Everything else is identical.
 
-- **Identity contract (env vars the engine reads), e.g.:** `AIUR_RELEASE_DIR`, `AIUR_NODE_PREFIX`
-  (`aiur`/`aiurdev`), `AIUR_COOKIE_FILE`, `AIUR_BG_STATE_DIR`, `AIUR_SESSION_PREFIX`, `AIUR_PROFILES_FILE`,
-  plus an optional `AIUR_BUILD_HOOK` (dev-only build-if-stale). Exact names finalized in U1. The engine
-  defaults to the installed (`aiur`) identity when unset, so the installed wrapper stays minimal.
+- **aiurdev is a shim, not a surface.** It owns only: resolve local release dir, build-if-stale
+  (`mise`/`mix release` dev step), exec the engine. All command logic lives in the engine.
 
-- **Phased + dev-verified.** Phase 1 extracts the engine and keeps aiurdev fully working against the
-  local build (live-verifiable now). Phase 2 wires installed `aiur` to the engine (structurally
-  complete; final live-verify deferred to a cut release).
+- **Engine file = `aiur-engine.sh`** (shipped in the npm `files` list); `bin/aiur.js` and `scripts/aiurdev`
+  both exec it. `aiur-launch.sh` is deleted once the engine absorbs its init/run logic.
+
+- **Characterization-first.** `scripts_aiurdev_test.exs` pins per-subcommand launch behavior; keep it
+  green through the extraction (updating `aiurdev-` → `aiur-` where the identity now differs).
 
 ---
 
@@ -130,51 +130,47 @@ different values. aiurdev keeps `aiurdev-` naming, installed `aiur` keeps `aiur-
 
 ### Resolved During Planning
 
-- Does unification force renaming aiurdev's nodes? No — identity parameterization preserves
-  `aiurdev-` naming (both launchers already read `AIUR_RELEASE_NODE`).
-- Where does the shared engine live so both repo and npm use it? In the npm package's `libexec/`,
-  exec'd by `scripts/aiurdev` from the repo and shipped to installed users.
+- Does aiurdev need its own identity? No — it shares `aiur`'s (user decision). No parameterization.
+- Where does the engine live so both callers use it? npm package `libexec/aiur-engine.sh`, exec'd from
+  the repo by `scripts/aiurdev` and shipped to installed users via `bin/aiur.js`.
+- Keep `aiur-launch.sh`? No — fold its init/run into the engine and delete it.
 
 ### Deferred to Implementation
 
-- The exact identity env-var names and which aiurdev globals map to them (resolved while extracting U2).
-- Whether `aiur-launch.sh` is deleted (engine subsumes it) or kept as the 5-line `aiur` wrapper —
-  decided once the engine's entrypoint shape is concrete (U4).
-- Final shape of `scripts/aiurdev`'s build-if-stale hook handed to the engine (U3).
+- Exact dev build-if-stale hook shape handed to aiurdev (LU3).
+- Whether `bin/aiur.js` needs any change beyond the exec target (LU4).
 
 ---
 
 ## Implementation Units
 
-- [ ] U1. **Define the distribution-identity contract**
+- [ ] U1. **Engine skeleton + single identity** *(done; simplify from parameterized to fixed)*
 
-**Goal:** A documented set of env vars that fully parameterize the engine's identity + release dir,
-with installed-`aiur` defaults baked in.
+**Goal:** `aiur-engine.sh` exists with the fixed `aiur` identity + the distribution functions
+(`ensure_erlang_cookie`/`prepare_distribution`), shipped in the package files list.
 
 **Requirements:** R2
 
 **Files:**
-- Create: `packaging/npm/aiur-cli/libexec/aiur-engine.sh` (header + identity resolution only)
-- Test: `src/test/scripts_aiurdev_test.exs` (assert identity resolution from env)
+- Modify: `packaging/npm/aiur-cli/libexec/aiur-engine.sh`
+- Modify: `packaging/npm/aiur-cli/package.json`
+- Test: `src/test/aiur_engine_test.exs`
 
-**Approach:** Enumerate every place aiurdev/aiur-launch.sh hardcode identity (node, cookie, state,
-session, profiles) and replace with reads of a single `resolve_identity` block. Defaults = installed
-`aiur` identity so an unset env yields the installed contract.
+**Approach:** Drop the LU1 identity-override env vars; resolve the fixed `aiur` identity directly. Keep
+`AIUR_RELEASE_DIR`. Distribution functions use the fixed cookie path + node name.
 
 **Test scenarios:**
-- Happy path: with the aiurdev identity env set, resolution yields `aiurdev-$USER@127.0.0.1`, the
-  aiurdev cookie path, and `aiurdev-` session prefix.
-- Edge case: with no identity env, resolution yields the installed `aiur-$USER` defaults.
+- Happy path: engine resolves `aiur-$USER@127.0.0.1` + `~/.config/aiur/cookie`.
+- Edge case: `prepare_distribution` exports `RELEASE_DISTRIBUTION/NODE/COOKIE/ERL_AFLAGS` as today.
 
-**Verification:** A single function/block produces the full identity; no `aiur-`/`aiurdev-` literals
-remain outside it.
+**Verification:** `aiur_engine_test.exs` green; no identity-override env remains.
 
 ---
 
-- [ ] U2. **Extract the command engine**
+- [ ] U2. **Extract the command surface into the engine**
 
-**Goal:** Move aiurdev's full command surface (dispatch + all helpers) into `aiur-engine.sh`, reading
-identity from U1 — no behavior change for dev.
+**Goal:** Move aiurdev's full command logic (dispatch + helpers) into `aiur-engine.sh`, using the fixed
+identity and `AIUR_RELEASE_DIR`. Fold in `aiur-launch.sh`'s init/run.
 
 **Requirements:** R1, R2
 
@@ -182,33 +178,33 @@ identity from U1 — no behavior change for dev.
 
 **Files:**
 - Modify: `packaging/npm/aiur-cli/libexec/aiur-engine.sh`
-- Modify: `scripts/aiurdev` (temporary: source/exec the engine)
-- Test: `src/test/scripts_aiurdev_test.exs`
+- Modify: `scripts/aiurdev` (temporary: source/exec the engine as logic moves)
+- Delete: `packaging/npm/aiur-cli/libexec/aiur-launch.sh` (once superseded)
+- Test: `src/test/scripts_aiurdev_test.exs`, `src/test/aiur_engine_test.exs`
 
-**Approach:** Lift `source_env_files`, distribution setup, `run_foreground`/`run_in_tmux`, RPC
-subcommands, `--bg`/`stop`/`sweep`/`list`/`status`/`pause`/`resume`, `init`, and the top dispatch case
-into the engine. Replace identity literals with U1 reads. Keep the interactive `elixir --eval` init
-boot path intact. The build-if-stale step becomes an optional `AIUR_BUILD_HOOK` the engine calls before
-exec (dev sets it; installed doesn't).
+**Approach:** Lift `source_env_files`, profile helpers, `run_foreground`/`run_in_tmux`, RPC subcommands,
+`--bg`/`stop`/`sweep`/`list`/`status`/`pause`/`resume`, `init`, and the top dispatch into the engine,
+reading `AIUR_RELEASE_DIR` for the release. Preserve the interactive `elixir --eval` init boot. Move in
+sourced layers so the characterization suite stays green at each step.
 
-**Execution note:** Characterization-first — capture aiurdev's current launch-command output for each
-subcommand (via the existing test harness) before moving code, then assert byte-equivalence after.
+**Execution note:** Characterization-first — `scripts_aiurdev_test.exs` is the safety net; assert
+per-subcommand behavior unchanged (node name now `aiur-`).
 
 **Test scenarios:**
-- Happy path: each subcommand (`init`, `run`/default, `--bg`, `stop`, `list`, `status`, `pause`,
-  `resume`, `sweep`) produces the same launch command / node target as before under the aiurdev identity.
-- Edge case: `init` still boots via interactive `elixir --eval` (not `bin/aiur eval`).
-- Error path: unknown subcommand prints usage and exits non-zero, as today.
+- Happy path: each subcommand (`init`, run/default/`<profile>`, `--bg`, `stop`, `list`, `status`,
+  `pause`, `resume`, `sweep`) produces the same launch command / RPC target as today, under the `aiur`
+  identity.
+- Edge case: `init` still boots via interactive `elixir --eval`.
+- Error path: unknown profile prints usage + exits non-zero.
 
-**Verification:** `scripts_aiurdev_test.exs` green with assertions now exercising the engine; manual
-aiurdev subcommands behave identically.
+**Verification:** Both test files green; manual aiurdev subcommands behave identically (now `aiur-` node).
 
 ---
 
-- [ ] U3. **Reduce `scripts/aiurdev` to a thin resolver**
+- [ ] U3. **Reduce `scripts/aiurdev` to a thin shim**
 
-**Goal:** `aiurdev` only resolves the local `_build` release, runs build-if-stale, sets the aiurdev
-identity, and execs the engine.
+**Goal:** aiurdev only resolves the local release, builds-if-stale, sets `AIUR_RELEASE_DIR`, execs the
+engine.
 
 **Requirements:** R3
 
@@ -218,73 +214,64 @@ identity, and execs the engine.
 - Modify: `scripts/aiurdev`
 - Test: `src/test/scripts_aiurdev_test.exs`
 
-**Approach:** Strip the lifted command logic; keep only release-dir resolution
-(`src/_build/dev/rel/aiur`), the `build`/build-if-stale hook, the aiurdev identity exports, the
-in-tmux guard, and `exec aiur-engine.sh "$@"`.
+**Approach:** Strip all lifted logic; keep release-dir resolution (`src/_build/dev/rel/aiur`), the
+build-if-stale step, the in-tmux guard, and `exec aiur-engine.sh "$@"` with `AIUR_RELEASE_DIR` set.
 
 **Test scenarios:**
-- Happy path: `aiurdev <cmd>` execs the engine with `AIUR_RELEASE_DIR=…/_build/dev/rel/aiur` and the
-  aiurdev identity; `RELEASE_NODE` still resolves `aiurdev-$USER@127.0.0.1`.
-- Edge case: a stale build triggers the build hook before exec; `aiurdev build` still force-rebuilds.
+- Happy path: `aiurdev <cmd>` execs the engine with `AIUR_RELEASE_DIR=…/_build/dev/rel/aiur`.
+- Edge case: a stale build triggers a rebuild; `aiurdev build` still force-rebuilds.
 
-**Verification:** aiurdev is a small resolver (no command logic); all subcommands still work in dev.
+**Verification:** aiurdev is ~15-20 lines; all subcommands still work in dev.
 
 ---
 
-- [ ] U4. **Wire installed `aiur` to the engine**
+- [ ] U4. **Point installed `aiur` at the engine**
 
-**Goal:** Installed `aiur` execs the engine with the `aiur-` identity + installed release dir, gaining
-the full command surface.
+**Goal:** `bin/aiur.js` execs the engine with the installed release dir; full surface available.
 
 **Requirements:** R1, R4
 
 **Dependencies:** U2
 
 **Files:**
-- Modify: `packaging/npm/aiur-cli/libexec/aiur-launch.sh` (collapse to the thin `aiur` wrapper, or
-  delete in favor of the engine entrypoint)
-- Modify: `packaging/npm/aiur-cli/bin/` entrypoint (route all subcommands to the engine, not just init/run)
-- Modify: `packaging/npm/aiur-cli/` packaging manifest if needed (ship `aiur-engine.sh`)
+- Modify: `packaging/npm/aiur-cli/bin/aiur.js`
+- Test: `src/test/scripts_aiurdev_test.exs` (or a small node/bun test if the harness fits)
 
-**Approach:** The installed bin resolves the platform release dir, sets the `aiur-` identity (engine
-defaults), and execs `aiur-engine.sh "$@"`. Remove the init/run-only routing.
+**Approach:** Repoint the exec from `aiur-launch.sh` to `aiur-engine.sh`, passing the resolved platform
+release dir as `AIUR_RELEASE_DIR` and forwarding all args.
 
 **Test scenarios:**
-- Happy path (mocked release dir): `aiur --bg`/`stop`/`status` route to the engine with the `aiur-`
-  identity and the installed `AIUR_RELEASE_DIR`.
-- Edge case: `aiur init` still boots interactively (engine init path), matching dev.
+- Happy path (mocked release dir): `aiur --bg`/`stop`/`status` route to the engine with the installed
+  `AIUR_RELEASE_DIR`.
+- Edge case: `aiur init` still boots interactively.
 
-**Verification:** Installed entrypoint delegates every subcommand to the engine; the engine file is in
-the package manifest.
+**Verification:** The node entrypoint delegates every subcommand to the engine; the engine is in the
+package manifest.
 
 ---
 
-- [ ] U5. **Update tests + docs for the unified structure**
+- [ ] U5. **Tests + docs for the unified structure**
 
-**Goal:** Tests reflect the engine/wrapper split; aiurdev identity assertions still pass.
+**Goal:** Tests reflect the single-identity engine/shim split; docs updated.
 
 **Requirements:** R1, R3
 
 **Dependencies:** U2, U3, U4
 
 **Files:**
-- Modify: `src/test/scripts_aiurdev_test.exs`
-- Modify: any docs referencing the two launchers (e.g. AGENTS.md launcher notes)
+- Modify: `src/test/scripts_aiurdev_test.exs`, `src/test/aiur_engine_test.exs`
+- Modify: docs referencing the two launchers (AGENTS.md launcher notes, memory parity entry)
 
-**Approach:** Re-point characterization assertions at the engine; keep `aiurdev-` node/cookie assertions
-(identity preserved). Add an assertion that installed-identity defaults yield `aiur-`.
+**Approach:** Re-point characterization assertions at the engine; change `aiurdev-` node assertions to
+`aiur-`. Update the parity memory to the single-identity design.
 
-**Test scenarios:**
-- Happy path: aiurdev launch assertions green against the engine; `aiurdev-` node name preserved.
-- Edge case: engine with no identity env asserts the `aiur-` installed defaults.
-
-**Verification:** Full suite green; no test still assumes a monolithic `scripts/aiurdev`.
+**Verification:** Full suite green; no test assumes a monolithic `scripts/aiurdev` or `aiurdev-` identity.
 
 ---
 
 - [ ] U6. **Dev end-to-end verification + release-verify runbook**
 
-**Goal:** Prove dev mode end-to-end; document the installed-mode verification that needs a cut release.
+**Goal:** Prove dev mode end-to-end; document installed-mode verification (needs a cut release).
 
 **Requirements:** R5
 
@@ -293,25 +280,23 @@ the package manifest.
 **Files:** none (manual + a short doc note)
 
 **Approach:** Drive `aiurdev init`, `aiurdev` (TUI), `aiurdev --bg` + `aiurdev status`/`stop` against the
-local build (real PTY). Write a runbook entry for verifying installed `aiur <subcommand>` after the
-next release cut.
+local build (real PTY). Write a runbook for verifying installed `aiur <subcommand>` after a release cut.
 
-**Test expectation:** none — manual verification gate.
+**Test expectation:** none — manual gate.
 
-**Verification:** All dev subcommands work via the engine; the installed-mode runbook is captured for
-the release pass.
+**Verification:** All dev subcommands work via the engine; installed-mode runbook captured.
 
 ---
 
 ## Phased Delivery
 
 ### Phase 1 — Engine + dev (live-verifiable now)
-U1 → U2 → U3 → U5 (dev assertions) → U6 (dev half). aiurdev runs entirely through the engine; fully
-testable against the local build.
+U1 → U2 → U3 → U5 (dev) → U6 (dev half). aiurdev runs entirely through the engine; fully testable against
+the local build.
 
 ### Phase 2 — Installed wiring (release-verified later)
-U4 → U5 (installed-default assertions) → U6 (runbook). Structurally complete; final live-verify deferred
-to a cut release.
+U4 → U5 (installed assertions) → U6 (runbook). Structurally complete; final live-verify deferred to a
+release cut.
 
 ---
 
@@ -319,21 +304,21 @@ to a cut release.
 
 | Risk | Mitigation |
 |------|------------|
-| Renaming aiurdev nodes/sessions breaks running sessions + tests | Identity is parameterized; aiurdev keeps `aiurdev-` naming. No rename. |
-| A 2270-line bash refactor silently changes a subcommand | Characterization-first (U2): assert per-subcommand launch-command byte-equivalence before/after. |
+| A 2270-line bash move silently changes a subcommand | Characterization-first (U2): `scripts_aiurdev_test.exs` asserts per-subcommand launch behavior before/after. |
+| aiurdev's identity change (`aiurdev-` → `aiur-`) surprises a running dev session | One-time; documented. Solo-dev usage means no coexistence to break. |
 | Installed mode can't be live-verified here | Phase 2 is structurally wired + dev-proven through the shared engine; installed verify is an explicit runbook deferred to a release cut. |
-| Engine file not shipped in the npm package | U4 updates the package manifest; a test asserts the engine is present in the package file list. |
-| In-tmux guard / interactive `--eval` init path regresses | U2 preserves both explicitly with edge-case tests. |
+| Engine not shipped in the npm package | Manifest updated (done in LU1); a test asserts the engine is present in the package file list. |
+| Interactive `--eval` init path / in-tmux guard regresses | U2 preserves both with edge-case tests. |
 
 ---
 
 ## System-Wide Impact
 
-- **Interaction graph:** RPC subcommands depend on node-name+cookie matching; the identity contract is
-  the single source of those values. tmux attach/sweep depend on the session prefix (also identity).
-- **API surface parity:** the whole point — installed `aiur` gains parity with aiurdev's surface.
-- **Unchanged invariants:** the release `bin/aiur` arg contract, `Aiur.CLI` behavior, aiurdev's
-  `aiurdev-` distribution identity, and the interactive `elixir --eval` init boot all stay as-is.
+- **Interaction graph:** RPC subcommands depend on node-name+cookie; now a single fixed `aiur` identity.
+  tmux attach/sweep key on the `aiur` session prefix.
+- **API surface parity:** installed `aiur` gains parity with aiurdev's surface — the goal.
+- **Unchanged invariants:** the release `bin/aiur` arg contract, `Aiur.CLI` behavior, and the
+  interactive `elixir --eval` init boot all stay as-is.
 
 ---
 
@@ -341,4 +326,5 @@ to a cut release.
 
 - Memory: `project-aiur-aiurdev-parity`
 - Prior plan deferral: `docs/plans/2026-06-15-002-feat-init-wizard-rework-plan.md` (Deferred-to-Follow-Up)
-- Related code: `scripts/aiurdev`, `packaging/npm/aiur-cli/libexec/aiur-launch.sh`
+- Related code: `scripts/aiurdev`, `packaging/npm/aiur-cli/libexec/aiur-launch.sh`,
+  `packaging/npm/aiur-cli/bin/aiur.js`

@@ -8,7 +8,6 @@ defmodule AiurEngineTest do
   defp identity(overrides) do
     base = [
       {"USER", "tester"},
-      {"AIUR_NODE_PREFIX", nil},
       {"AIUR_BG_STATE_DIR", nil},
       {"AIUR_SESSION_PREFIX", nil},
       {"AIUR_PROFILES_FILE", nil},
@@ -29,33 +28,21 @@ defmodule AiurEngineTest do
     end)
   end
 
-  test "defaults to the installed aiur identity when nothing is set" do
+  test "resolves the single aiur identity" do
     id = identity([])
 
-    assert id["AIUR_NODE_PREFIX"] == "aiur"
     assert id["AIUR_SESSION_PREFIX"] == "aiur"
     assert id["AIUR_RELEASE_NODE"] == "aiur-tester@127.0.0.1"
     assert id["AIUR_BG_STATE_DIR"] =~ ~r{/\.config/aiur$}
     assert id["AIUR_COOKIE_FILE"] =~ ~r{/\.config/aiur/cookie$}
   end
 
-  test "honors the aiurdev identity overrides without a rename in the engine" do
-    id =
-      identity([
-        {"AIUR_NODE_PREFIX", "aiurdev"},
-        {"AIUR_BG_STATE_DIR", "/tmp/state/aiurdev"},
-        {"AIUR_PROFILES_FILE", "/tmp/cfg/aiurdev.profiles"}
-      ])
+  test "the state dir is redirectable so tests need not touch ~/.config/aiur" do
+    id = identity([{"AIUR_BG_STATE_DIR", "/tmp/aiur-test-state"}])
 
-    assert id["AIUR_RELEASE_NODE"] == "aiurdev-tester@127.0.0.1"
-    assert id["AIUR_SESSION_PREFIX"] == "aiurdev"
-    assert id["AIUR_COOKIE_FILE"] == "/tmp/state/aiurdev/cookie"
-    assert id["AIUR_PROFILES_FILE"] == "/tmp/cfg/aiurdev.profiles"
-  end
-
-  test "an explicit AIUR_RELEASE_NODE wins over the prefix default" do
-    id = identity([{"AIUR_NODE_PREFIX", "aiurdev"}, {"AIUR_RELEASE_NODE", "custom-node@127.0.0.1"}])
-
-    assert id["AIUR_RELEASE_NODE"] == "custom-node@127.0.0.1"
+    assert id["AIUR_BG_STATE_DIR"] == "/tmp/aiur-test-state"
+    assert id["AIUR_COOKIE_FILE"] == "/tmp/aiur-test-state/cookie"
+    # naming stays the fixed aiur identity regardless of state dir
+    assert id["AIUR_RELEASE_NODE"] == "aiur-tester@127.0.0.1"
   end
 end
