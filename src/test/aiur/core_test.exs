@@ -2423,13 +2423,7 @@ defmodule Aiur.CoreTest do
                  |> String.trim_leading("JSON:")
                  |> Jason.decode!()
                  |> then(fn payload ->
-                   expected_approval_policy = %{
-                     "reject" => %{
-                       "sandbox_approval" => true,
-                       "rules" => true,
-                       "mcp_elicitations" => true
-                     }
-                   }
+                   expected_approval_policy = "untrusted"
 
                    payload["method"] == "thread/start" &&
                      get_in(payload, ["params", "approvalPolicy"]) == expected_approval_policy &&
@@ -2456,13 +2450,7 @@ defmodule Aiur.CoreTest do
                  |> String.trim_leading("JSON:")
                  |> Jason.decode!()
                  |> then(fn payload ->
-                   expected_approval_policy = %{
-                     "reject" => %{
-                       "sandbox_approval" => true,
-                       "rules" => true,
-                       "mcp_elicitations" => true
-                     }
-                   }
+                   expected_approval_policy = "untrusted"
 
                    payload["method"] == "turn/start" &&
                      get_in(payload, ["params", "cwd"]) == canonical_workspace &&

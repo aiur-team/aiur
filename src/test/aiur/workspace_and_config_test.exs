@@ -844,13 +844,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.agent.max_concurrent_agents == 10
     assert config.agent.codex.command == "codex app-server"
 
-    assert config.agent.codex.approval_policy == %{
-             "reject" => %{
-               "sandbox_approval" => true,
-               "rules" => true,
-               "mcp_elicitations" => true
-             }
-           }
+    assert config.agent.codex.approval_policy == "untrusted"
 
     assert config.agent.codex.thread_sandbox == "workspace-write"
 

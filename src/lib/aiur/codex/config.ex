@@ -6,13 +6,13 @@ defmodule Aiur.Codex.Config do
   @behaviour Aiur.AgentConfig
 
   @default_command "codex app-server"
-  @default_approval_policy %{
-    "reject" => %{
-      "sandbox_approval" => true,
-      "rules" => true,
-      "mcp_elicitations" => true
-    }
-  }
+  # codex app-server's `approvalPolicy` is an enum string, not a map. Sending
+  # the old map default crashed the turn with `unknown variant`. `untrusted`
+  # preserves the prior fail-closed default — only `never` auto-approves
+  # (see `auto_approve_requests` in coding_agent.ex), so any other variant
+  # surfaces approval requests instead of silently running them headlessly.
+  @valid_approval_policies ~w(untrusted on-failure on-request granular never)
+  @default_approval_policy "untrusted"
   @default_thread_sandbox "workspace-write"
 
   @spec command() :: String.t()
@@ -74,21 +74,25 @@ defmodule Aiur.Codex.Config do
 
   defp resolve_approval_policy do
     case section_value("approval_policy") do
-      nil ->
-        {:ok, @default_approval_policy}
-
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, "Invalid codex.approval_policy in .aiurconfig: #{inspect(value)}"}
-          _trimmed -> {:ok, value}
-        end
-
-      value when is_map(value) ->
-        {:ok, value}
-
-      value ->
-        {:error, "Invalid codex.approval_policy in .aiurconfig: #{inspect(value)}"}
+      nil -> {:ok, @default_approval_policy}
+      value -> validate_approval_policy(value)
     end
+  end
+
+  @doc false
+  @spec validate_approval_policy(term()) :: {:ok, String.t()} | {:error, String.t()}
+  def validate_approval_policy(value) when is_binary(value) do
+    case String.trim(value) do
+      trimmed when trimmed in @valid_approval_policies -> {:ok, trimmed}
+      _ -> {:error, invalid_approval_policy(value)}
+    end
+  end
+
+  def validate_approval_policy(value), do: {:error, invalid_approval_policy(value)}
+
+  defp invalid_approval_policy(value) do
+    "Invalid codex.approval_policy #{inspect(value)} — must be one of: " <>
+      Enum.join(@valid_approval_policies, ", ")
   end
 
   defp resolve_thread_sandbox do

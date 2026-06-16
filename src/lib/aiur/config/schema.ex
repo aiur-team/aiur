@@ -196,15 +196,10 @@ defmodule Aiur.Config.Schema do
     embedded_schema do
       field(:command, :string, default: "codex app-server")
 
-      field(:approval_policy, StringOrMap,
-        default: %{
-          "reject" => %{
-            "sandbox_approval" => true,
-            "rules" => true,
-            "mcp_elicitations" => true
-          }
-        }
-      )
+      # codex app-server expects an enum string (untrusted | on-failure |
+      # on-request | granular | never); a map crashes the turn. `untrusted`
+      # preserves the prior fail-closed default (only `never` auto-approves).
+      field(:approval_policy, StringOrMap, default: "untrusted")
 
       field(:thread_sandbox, :string, default: "workspace-write")
       field(:turn_sandbox_policy, :map)
