@@ -28,7 +28,7 @@ agent:
     # model: claude-sonnet-4-6           # omit to use the claude CLI's own default
   codex:
     command: codex app-server
-    # approval_policy: never
+    approval_policy: never            # never prompt for approval (headless autonomy); see codex variants to gate
     # thread_sandbox: workspace-write
     # read_timeout_ms: 5000
     # thrash_max_per_window: 6
