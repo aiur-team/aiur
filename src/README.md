@@ -61,6 +61,28 @@ Install [opencode](https://opencode.ai) separately for CLI chat panes. Aiur star
 `opencode serve` lazily per pane and routes its OpenAI-compatible provider calls
 back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`.
 
+## Setup wizard (`aiur init`)
+
+`aiur init` is an interactive wizard that scaffolds your config and provisions the
+repo. On a re-run it detects an existing `.aiurconfig`, prints your saved
+selections, and resumes — it never re-asks what you already answered. It walks:
+
+1. **Where to store config** — repo-local `./.aiurconfig` or global `~/.aiurconfig`.
+2. **Tracker** — GitHub or Linear, plus the repo.
+3. **Agents & routing** — Claude and/or Codex, optional per-complexity model
+   routing, and the permission mode.
+4. **Limits** — max concurrent agents, max turns, max duration, pre-warmed
+   sessions, and the tracker polling interval.
+5. **GitHub token** — used to create labels and act as the bot account. With no
+   `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
+   failing.
+6. **Labels** — creates the lifecycle (`agent:*`), complexity, model, and
+   remote-control labels the orchestrator routes on. Each stage creates only the
+   labels that are missing; when a group already exists it reports
+   `<group> tags: created.` and skips the prompt.
+
+When it finishes, add `agent:todo` to the issues you want worked and run `aiur`.
+
 ## Config
 
 An `.aiurconfig` file is pure YAML for adapters, credentials, and run policy. An
