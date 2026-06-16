@@ -186,8 +186,10 @@ EOF
 
 run_version() {
   resolve_release
-  prepare_distribution
-  build_release_cmd
+  # Distribution-free (like init): printing the version is a compile-time
+  # constant, so never claim the node name — otherwise `aiur --version` fails
+  # whenever an aiur session is already running.
+  build_init_cmd
   init_argv_file
   write_argv "$@"
   export AIUR_ARGV_FILE="$argv_file"

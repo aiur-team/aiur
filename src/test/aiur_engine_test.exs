@@ -81,6 +81,20 @@ defmodule AiurEngineTest do
     refute out =~ "sweep"
   end
 
+  test "--version is distribution-free so it never collides with a running node" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} = run_engine(["--version"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+
+    # Runs through the start_clean `elixir --eval` path (like init), never the
+    # distributed release start script — so it claims no node name.
+    assert out =~ "ELIXIR_ARGS:"
+    assert out =~ "--eval"
+    refute out =~ "--name"
+    refute out =~ "BIN:"
+  end
+
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
     dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
