@@ -399,7 +399,11 @@ defmodule Aiur.Config.Schema do
 
     @primary_key false
     embedded_schema do
-      field(:port, :integer)
+      # 0 = bind a free OS-assigned loopback port. The dashboard must bind so
+      # claude remote-control's transcript hook can reach it; without a bound
+      # port the hook is skipped and RC runs fail `:no_transcript`. Set an
+      # explicit port to expose the dashboard at a fixed address.
+      field(:port, :integer, default: 0)
       field(:host, :string, default: "127.0.0.1")
     end
 
