@@ -867,6 +867,12 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.workspace.root == Path.join(System.tmp_dir!(), "aiur_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
+
+    # Dashboard binds a free loopback port by default so claude remote-control's
+    # transcript hook works without explicit server config. Port 0 = OS-assigned;
+    # HttpServer.bound_port/0 reports the real port.
+    assert config.server.port == 0
+
     assert config.agent.codex.command == "codex app-server"
 
     assert config.agent.codex.approval_policy == "untrusted"
