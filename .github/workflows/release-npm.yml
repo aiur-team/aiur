@@ -23,8 +23,11 @@ jobs:
             target: linux-arm64
           - runner: macos-14
             target: darwin-arm64
-          - runner: macos-13
-            target: darwin-x64
+          # darwin-x64 (Intel Mac) temporarily disabled: macos-13 hosted runners
+          # are unavailable and queue indefinitely. Re-enable when an Intel runner
+          # (hosted or self-hosted) is available.
+          # - runner: macos-13
+          #   target: darwin-x64
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -100,8 +103,11 @@ jobs:
             target: linux-arm64
           - runner: macos-14
             target: darwin-arm64
-          - runner: macos-13
-            target: darwin-x64
+          # darwin-x64 (Intel Mac) temporarily disabled: macos-13 hosted runners
+          # are unavailable and queue indefinitely. Re-enable when an Intel runner
+          # (hosted or self-hosted) is available.
+          # - runner: macos-13
+          #   target: darwin-x64
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -263,13 +269,14 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      # Never start a partial publish: require all four platform tarballs.
+      # Never start a partial publish: require every published platform tarball.
+      # darwin-x64 temporarily excluded (macos-13 runners unavailable).
       - name: Verify all platform artifacts present
         run: |
           shopt -s globstar nullglob
           tarballs=(artifacts/**/*.tgz)
           echo "found ${#tarballs[@]} platform tarballs"
-          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+          for t in linux-x64 linux-arm64 darwin-arm64; do
             if ! ls artifacts/aiur-cli-$t/*.tgz >/dev/null 2>&1; then
               echo "missing platform artifact for $t — aborting before any publish" >&2
               exit 1
@@ -291,7 +298,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+          for t in linux-x64 linux-arm64 darwin-arm64; do
             npm publish artifacts/aiur-cli-$t/*.tgz --tag next --access public
           done
 
@@ -306,6 +313,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           v="${{ steps.version.outputs.version }}"
-          for pkg in aiur-cli aiur-cli-linux-x64 aiur-cli-linux-arm64 aiur-cli-darwin-x64 aiur-cli-darwin-arm64; do
+          for pkg in aiur-cli aiur-cli-linux-x64 aiur-cli-linux-arm64 aiur-cli-darwin-arm64; do
             npm dist-tag add "$pkg@$v" latest
           done
