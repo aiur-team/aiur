@@ -187,6 +187,11 @@ defmodule Aiur.OrchestratorStatusTest do
     assert {:ok, request_id} = Orchestrator.pause_agent(orchestrator_name, "repo#47")
     assert_receive {:pause_agent, ^request_id}, 500
 
+    # Optimistic flip: the row reads :paused immediately from the operator
+    # action, before the worker's async :worker_control_state confirmation —
+    # so pressing space pauses the agent at any moment, even mid-spin-up.
+    assert [%{identifier: "repo#47", state: :paused}] = Orchestrator.status(orchestrator_name, 1_000)
+
     send(pid, {:worker_control_state, "issue-round-trip", :paused})
 
     assert [%{identifier: "repo#47", state: :paused}] = Orchestrator.status(orchestrator_name, 1_000)

@@ -122,46 +122,41 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
     end
   end
 
-  describe "scripts/aiurdev cleanup trap is idempotent + signal-isolated" do
-    @script_path Path.expand("../../../../scripts/aiurdev", __DIR__)
+  describe "engine cleanup trap is idempotent + signal-isolated" do
+    @engine_path Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
 
-    test "__aiur_cleanup guards against re-entry" do
-      source = File.read!(@script_path)
+    test "session_cleanup guards against re-entry" do
+      source = File.read!(@engine_path)
 
-      assert source =~ ~r/__aiur_cleanup_ran/,
+      assert source =~ ~r/_cleanup_ran/,
              """
-             scripts/aiurdev must guard __aiur_cleanup against re-entry
-             with a `__aiur_cleanup_ran` flag. Without the guard, an
-             INT + EXIT interleave (Ctrl+C during a foreground run)
-             calls the function twice while bash's function-call
-             stack is mid-unwind, producing the
-             `pop_var_context: head of shell_variables not a function
-             context` error.
+             the engine must guard session_cleanup against re-entry with a
+             `_cleanup_ran` flag. Without it, an INT + EXIT interleave (Ctrl+C
+             during a foreground run) calls the function twice mid-unwind,
+             producing `pop_var_context: head of shell_variables not a function
+             context`.
              """
 
-      assert source =~ ~r/\[\s*"\$\{__aiur_cleanup_ran:-0\}"\s*=\s*1\s*\]\s*&&\s*return/,
+      assert source =~ ~r/\[\s*"\$_cleanup_ran"\s*=\s*1\s*\]\s*&&\s*return/,
              "The guard must early-return so the cleanup body never runs twice."
     end
 
     test "signal traps are separate from the EXIT trap" do
-      source = File.read!(@script_path)
+      source = File.read!(@engine_path)
 
-      refute source =~ ~r/trap '__aiur_cleanup' EXIT INT TERM HUP/,
+      refute source =~ ~r/trap 'session_cleanup' EXIT INT TERM HUP/,
              """
-             scripts/aiurdev must NOT register the same handler for EXIT
-             and the signal traps in one statement. Bash will fire the
-             signal trap and then the EXIT trap while still inside the
-             function's call-stack frame — re-entering the handler.
+             the engine must NOT register the same handler for EXIT and the
+             signal traps in one statement — bash would re-enter the handler.
              """
 
-      assert source =~ ~r/trap '[^']*__aiur_cleanup[^']*' EXIT\b/,
-             "EXIT trap must register __aiur_cleanup on its own line."
+      assert source =~ ~r/trap 'session_cleanup' EXIT\b/,
+             "EXIT trap must register session_cleanup on its own line."
 
-      assert source =~ ~r/trap '[^']*__aiur_cleanup; exit \d+' INT/,
+      assert source =~ ~r/trap 'trap - EXIT[^']*session_cleanup; exit \d+' INT/,
              """
-             INT trap must clear the EXIT trap before running cleanup,
-             so the EXIT path doesn't fire a second time after the
-             signal-triggered exit.
+             INT trap must clear the EXIT trap before running cleanup, so the
+             EXIT path doesn't fire a second time after the signal-triggered exit.
              """
     end
   end

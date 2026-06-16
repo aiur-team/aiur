@@ -16,7 +16,7 @@
   },
   "files": [
     "bin/aiur.js",
-    "libexec/aiur-launch.sh",
+    "libexec/aiur-engine.sh",
     "share/aiur.tmux.conf"
   ],
   "engines": {

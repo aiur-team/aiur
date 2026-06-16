@@ -1427,7 +1427,6 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:rows, rows)
       |> Map.put(:project_label, project_label())
       |> Map.put(:dashboard_url, dashboard_url())
-      |> Map.put(:refresh_label, refresh_label_from_state(state))
       |> Map.put(:agent_kind, agent_kind())
       |> Map.put(:agent_count, active_agent_count(state.summaries))
       |> Map.put(:max_agents, max_agents_from_state(state))
@@ -1473,28 +1472,6 @@ defmodule Aiur.AgentList.App do
       true -> "http://127.0.0.1:#{port}/"
     end
   end
-
-  # Compute the countdown label from cached state — no GenServer.call.
-  # The orchestrator broadcasts `:poll_state_changed` whenever its
-  # mailbox-blocking poll cycle starts or finishes; in between, this
-  # function just subtracts wall time from the cached due-at stamp.
-  defp refresh_label_from_state(%{poll_state: %{checking?: true}}) do
-    # In-progress collapses to "0s" — same calm reading the legacy
-    # path produced via the orchestrator's `checking?` flag.
-    "0s"
-  end
-
-  defp refresh_label_from_state(%{poll_state: %{next_poll_due_at_ms: due_at}})
-       when is_integer(due_at) do
-    # The orchestrator stamps `next_poll_due_at_ms` with
-    # `System.monotonic_time(:millisecond)`, so we must read against the
-    # same base. Using `System.system_time/1` would give garbage.
-    ms = due_at - System.monotonic_time(:millisecond)
-    seconds = div(max(ms, 0) + 999, 1000)
-    "#{seconds}s"
-  end
-
-  defp refresh_label_from_state(_state), do: nil
 
   defp agent_kind do
     case safe_call(fn -> Config.agent_kind() end) do

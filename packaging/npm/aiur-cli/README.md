@@ -4,7 +4,49 @@
 
 Oversee a fleet of coding agents that **coordinate via events**.
 
-> ⚠️ `aiur-cli` is not released yet — this package reserves the name. Track progress at [github.com/its-everdred/aiur](https://github.com/its-everdred/aiur).
+## Install
+
+```bash
+npm install -g aiur-cli
+```
+
+Requires [tmux](https://github.com/tmux/tmux) at runtime. Install
+[opencode](https://opencode.ai) too for in-pane agent chat.
+
+## Get started
+
+```bash
+cd your-repo
+aiur init     # interactive setup wizard
+aiur          # start agents (foreground); use `aiur --bg` to detach
+```
+
+`aiur init` scaffolds `.aiurconfig` and provisions the repo. It walks you through:
+
+1. **Where to store config** — repo-local `./.aiurconfig` or global `~/.aiurconfig`.
+2. **Tracker** — GitHub or Linear, plus the repo.
+3. **Agents & routing** — Claude and/or Codex, optional per-complexity model
+   routing, and the permission mode.
+4. **Limits** — max concurrent agents, turns, duration, pre-warmed sessions, and
+   polling interval.
+5. **GitHub token** — to create labels and act as the bot account.
+6. **Labels** — the lifecycle (`agent:*`), complexity, model, and remote-control
+   labels aiur routes on. Only missing labels are created; a group that already
+   exists is reported as created and skipped.
+
+Re-running resumes from your saved answers. When setup finishes, add `agent:todo`
+to the issues you want worked and run `aiur`.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `aiur init` | Interactive setup wizard (scaffold `.aiurconfig`) |
+| `aiur` | Start the workflow in the foreground (local-only bind) |
+| `aiur --bg` | Start in a detached tmux session |
+| `aiur status` | Show active agents and their state |
+| `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
+| `aiur stop` | Stop the running session |
 
 ## Features
 

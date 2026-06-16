@@ -83,8 +83,7 @@ defmodule Aiur.AgentList.Renderer do
           required(:columns) => pos_integer(),
           required(:rows) => pos_integer(),
           required(:project_label) => String.t() | nil,
-          required(:dashboard_url) => String.t() | nil,
-          required(:refresh_label) => String.t() | nil
+          required(:dashboard_url) => String.t() | nil
         }
 
   @spec render(state()) :: iodata()
@@ -94,7 +93,7 @@ defmodule Aiur.AgentList.Renderer do
     inner_width = max(cols - 1, 1)
 
     if Map.get(state, :help_visible?, false) do
-      render_help(inner_width, rows, state)
+      render_help(inner_width, rows)
     else
       # Summaries arrive pre-filtered and pre-sorted from Aiur.AgentList.App
       # so that the visual row order matches the index used by :activate.
@@ -153,7 +152,7 @@ defmodule Aiur.AgentList.Renderer do
         "\e[?25l",
         "\e[?12l",
         "\e[H",
-        title_row(inner_width, Map.get(state, :refresh_label)),
+        title_row(inner_width),
         eol(),
         metadata_rows(state, inner_width),
         separator_row(inner_width),
@@ -192,14 +191,14 @@ defmodule Aiur.AgentList.Renderer do
   # Help overlay reusing the same bordered chrome as the main view.
   # Lists the keybinds and the state-circle legend so an operator new
   # to the agent-list pane can self-orient.
-  defp render_help(inner_width, rows, state) do
+  defp render_help(inner_width, rows) do
     body_rows = help_body_rows(inner_width)
     body_count = length(body_rows)
 
     drawn =
       [
         "\e[H",
-        title_row(inner_width, Map.get(state, :refresh_label)),
+        title_row(inner_width),
         eol(),
         separator_row(inner_width),
         eol()
@@ -288,38 +287,17 @@ defmodule Aiur.AgentList.Renderer do
 
   # ---------- header / metadata ---------------------------------------------
 
-  defp title_row(inner_width, refresh_label) do
+  defp title_row(inner_width) do
     title = "╭─ AIUR"
-    refresh = refresh_chip(refresh_label)
-    refresh_visual = visual_width(refresh)
     title_visual = visual_width(title)
 
-    # `╮` rounded corner reserved at the far right; padding fills the
-    # gap between the AIUR title and the refresh chip + corner.
-    pad_count = max(inner_width - title_visual - refresh_visual - 1, 1)
+    # `╮` rounded corner reserved at the far right; padding fills the gap
+    # between the AIUR title and the corner.
+    pad_count = max(inner_width - title_visual - 1, 1)
     pad = String.duplicate(" ", pad_count)
 
-    # Title bolds the AIUR text; the refresh chip stays
-    # cyan with a leading 🔄 emoji so the eye lands on the live state
-    # indicator on the right. The plain ASCII "in" word keeps the
-    # phrase readable in any terminal palette.
-    [
-      @ansi_bold,
-      title,
-      @ansi_reset,
-      pad,
-      @ansi_cyan,
-      refresh,
-      @ansi_reset,
-      @ansi_gray,
-      "╮",
-      @ansi_reset
-    ]
+    [@ansi_bold, title, @ansi_reset, pad, @ansi_gray, "╮", @ansi_reset]
   end
-
-  defp refresh_chip(nil), do: "🔄 in 0s"
-  defp refresh_chip(""), do: "🔄 in 0s"
-  defp refresh_chip(label) when is_binary(label), do: "🔄 in " <> label
 
   defp metadata_rows(state, inner_width) do
     [

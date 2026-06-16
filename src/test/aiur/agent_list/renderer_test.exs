@@ -16,7 +16,6 @@ defmodule Aiur.AgentList.RendererTest do
         rows: 20,
         project_label: nil,
         dashboard_url: nil,
-        refresh_label: nil,
         agent_kind: nil,
         agent_count: nil,
         max_agents: nil
@@ -25,20 +24,20 @@ defmodule Aiur.AgentList.RendererTest do
     )
   end
 
-  test "renders the bordered AIUR title" do
+  test "renders the bordered AIUR title without a refresh chip" do
     out = render(base_state()) |> visible()
 
     assert out =~ "╭─ AIUR"
     assert out =~ "╰"
+    refute out =~ "🔄"
   end
 
-  test "renders the metadata block with project, dashboard, and refresh chip" do
+  test "renders the metadata block with project and dashboard" do
     out =
       render(
         base_state(%{
           project_label: "applekid/aiur",
-          dashboard_url: "http://127.0.0.1:4000/",
-          refresh_label: "15s"
+          dashboard_url: "http://127.0.0.1:4000/"
         })
       )
       |> visible()
@@ -47,8 +46,6 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "applekid/aiur"
     assert out =~ "Dashboard:"
     assert out =~ "http://127.0.0.1:4000/"
-    # Refresh now lives in the title row as a 🔄 chip on the right.
-    assert out =~ "🔄 in 15s"
   end
 
   test "falls back to n/a placeholders when metadata is missing" do
@@ -57,15 +54,6 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "Agents: n/a"
     assert out =~ "Project: n/a"
     assert out =~ "Dashboard: n/a"
-    assert out =~ "🔄 in 0s"
-    refute out =~ "🔄 n/a"
-  end
-
-  test "renders empty refresh labels as in 0s" do
-    out = render(base_state(%{refresh_label: ""})) |> visible()
-
-    assert out =~ "🔄 in 0s"
-    refute out =~ "🔄 n/a"
   end
 
   test "shows agent count and max in the Agents row" do

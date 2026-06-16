@@ -14,7 +14,6 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       help_visible?: false,
       project_label: nil,
       dashboard_url: nil,
-      refresh_label: nil,
       debug_mode?: true,
       perf_summary: %{
         agent_list_ready_ms: 100,

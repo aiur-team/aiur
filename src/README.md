@@ -44,20 +44,44 @@ cd src && aiurdev init           # scaffolds .aiurconfig in the current repo
 aiurdev ./.aiurconfig
 ```
 
-`aiurdev` is the local dev build of the wrapper, run from a repo clone; `aiur` is
-the npm-installed product command. They share the same command surface but use
-isolated runtime namespaces, so both can run side by side.
+`aiurdev` is the local dev build, run from a repo clone; `aiur` is the
+npm-installed product command. Both exec the same launcher engine and share one
+runtime identity — `aiurdev` only differs by pointing `AIUR_RELEASE_DIR` at the
+repo's `_build` release (and rebuilding it when stale). Because they share that
+identity, run one at a time, not side by side.
 
 `npm run setup` (or `mise run setup`, or `./scripts/setup` directly) bootstraps the
 contributor environment: it installs [mise](https://mise.jdx.dev/) if missing, runs
 `mise install` for the pinned toolchain (`mise.toml`), and symlinks `aiurdev` onto
-your `PATH`. On first run, the `aiurdev` wrapper then fetches Hex dependencies,
-compiles the Elixir app, and builds `bin/aiur`; later runs only rebuild when
+your `PATH`. On first run, the `aiurdev` shim then fetches Hex dependencies,
+compiles the Elixir app, and builds the local release; later runs only rebuild when
 sources change.
 
 Install [opencode](https://opencode.ai) separately for CLI chat panes. Aiur starts
 `opencode serve` lazily per pane and routes its OpenAI-compatible provider calls
 back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`.
+
+## Setup wizard (`aiur init`)
+
+`aiur init` is an interactive wizard that scaffolds your config and provisions the
+repo. On a re-run it detects an existing `.aiurconfig`, prints your saved
+selections, and resumes — it never re-asks what you already answered. It walks:
+
+1. **Where to store config** — repo-local `./.aiurconfig` or global `~/.aiurconfig`.
+2. **Tracker** — GitHub or Linear, plus the repo.
+3. **Agents & routing** — Claude and/or Codex, optional per-complexity model
+   routing, and the permission mode.
+4. **Limits** — max concurrent agents, max turns, max duration, pre-warmed
+   sessions, and the tracker polling interval.
+5. **GitHub token** — used to create labels and act as the bot account. With no
+   `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
+   failing.
+6. **Labels** — creates the lifecycle (`agent:*`), complexity, model, and
+   remote-control labels the orchestrator routes on. Each stage creates only the
+   labels that are missing; when a group already exists it reports
+   `<group> tags: created.` and skips the prompt.
+
+When it finishes, add `agent:todo` to the issues you want worked and run `aiur`.
 
 ## Config
 
@@ -80,32 +104,25 @@ until the file is fixed.
 
 ## Operating with `aiurdev`
 
-`scripts/aiurdev` wraps `./bin/aiur` with named profiles, foreground/background modes,
-operator controls, and a `stop` verb. It autodetects Linux (systemd `--user`) vs
-macOS (`nohup` + PID file). On a fresh clone it also runs `mix deps.get`,
-`mix compile`, and `mix release --overwrite` before launching Aiur.
-After `mise run setup`, `aiurdev` is on your `PATH`:
-
-```bash
-aiurdev list
-```
+`scripts/aiurdev` is a thin dev shim: it rebuilds the local release when sources
+change (running `mix deps.get`, `mix compile`, and `mix release --overwrite` on a
+fresh clone), then execs the shared launcher engine
+(`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) against `src/_build/dev/rel/aiur`.
+The npm-installed `aiur` runs the same engine against the platform release, so every
+command below works identically under `aiur`. After `mise run setup`, `aiurdev` is
+on your `PATH`:
 
 | Command | What it does |
 |---|---|
-| `aiurdev` | Attach to the default profile's existing tmux session, or start it in the foreground with a local-only bind |
-| `aiurdev <profile>` | Attach to the profile's existing tmux session, or start it in the foreground |
-| `aiurdev --fresh [profile]` | Start a fresh foreground session even when a tmux session already exists |
-| `aiurdev run <profile>` | Named profile, fresh foreground session |
-| `aiurdev --bg [profile\|all]` | Background mode |
-| `aiurdev stop [profile\|all]` | Stop foreground processes and background services |
-| `aiurdev list` | Show configured profiles |
-| `aiurdev build` | Rebuild `bin/aiur` |
+| `aiurdev` | Start the workflow in the foreground with a local-only bind |
+| `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
+| `aiurdev --bg` | Start in a detached tmux session (background) |
+| `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state |
-| `aiurdev pause <id...>` | Cooperatively pause one or more running agents by issue ID |
-| `aiurdev pause --all` | Cooperatively pause the currently running/paused agent snapshot |
-| `aiurdev resume <id...>` | Resume one or more paused agents by issue ID |
-| `aiurdev resume --all` | Resume the currently paused agent snapshot |
-| `aiurdev <path-to-.aiurconfig>` | Ad-hoc config |
+| `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
+| `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
+| `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
+| `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
@@ -122,26 +139,17 @@ Pause is cooperative: the running agent receives the same pause request used by 
 dashboard and agent-list pane, then stops at its next safe turn boundary. Pausing an
 already-paused agent is a no-op and exits successfully.
 
-Profiles live at `~/.config/aiurdev/aiurdev.profiles` (six pipe-separated fields per line:
-`name|root|workflow|port|logs_root|service`). Environment overrides come from
-`~/.config/aiurdev-dashboard.env`, `.env`, and `.env.local` in that order. `.env*` are
-gitignored at the repo root.
+By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
+stays local. Pass `--host` explicitly to opt out.
 
-By default `aiurdev` injects `--host 127.0.0.1` so the dashboard stays local. Pass `--host`
-explicitly to opt out.
-
-Use `--port <N>` before the command/profile name to override the configured profile or
-workflow port for one invocation:
+Use `--port <N>` before the config path to override the dashboard/workflow port
+for one invocation:
 
 ```bash
 aiurdev --port 4099
 aiurdev --port 4099 --bg
-aiurdev --port 4102 actions
+aiurdev --port 4102 ./.aiurconfig
 ```
-
-When no `--port` override is present and the configured port is busy, the wrapper tries
-the next 9 ports and prints the selected port. If none are free, a fast startup crash is
-replayed in the host shell with the last pane output and a port-collision hint.
 
 ## Dashboard
 
@@ -175,7 +183,7 @@ down disposable resources and requires `LINEAR_API_KEY`.
 
 - `lib/` — application code
 - `test/` — ExUnit suite
-- `scripts/aiurdev` — operator wrapper (local dev build)
+- `scripts/aiurdev` — dev shim over the launcher engine (local dev build)
 - `examples/workflows/` — starter config + prompt-template pairs
 - `.aiurconfig` — the config contract for in-repo runs
 

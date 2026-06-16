@@ -3,6 +3,7 @@
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
+const fs = require("node:fs");
 
 // Map this host to the platform package that carries its OTP release.
 const PLATFORMS = {
@@ -20,6 +21,18 @@ function fail(message) {
 }
 
 function resolveReleaseDir() {
+  // A pre-set AIUR_RELEASE_DIR (the dev shim, or local `npm pack` install
+  // verification) wins over platform-package resolution.
+  const preset = process.env.AIUR_RELEASE_DIR;
+  if (preset) {
+    try {
+      if (fs.statSync(preset).isDirectory()) return preset;
+    } catch (_) {
+      // fall through to the explicit error below
+    }
+    fail(`AIUR_RELEASE_DIR is set but not a directory: ${preset}`);
+  }
+
   const triple = PLATFORMS[`${process.platform} ${process.arch}`];
   if (!triple) {
     fail(
@@ -111,7 +124,7 @@ function main() {
   }
 
   const pkgRoot = path.resolve(__dirname, "..");
-  const launcher = path.join(pkgRoot, "libexec", "aiur-launch.sh");
+  const launcher = path.join(pkgRoot, "libexec", "aiur-engine.sh");
 
   const result = spawnSync(launcher, process.argv.slice(2), {
     stdio: "inherit",

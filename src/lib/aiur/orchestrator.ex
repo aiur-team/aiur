@@ -3122,7 +3122,7 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_call({:pause_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
-    reply = pause_agent_reply(state, issue_identifier)
+    {reply, state} = pause_agent_reply(state, issue_identifier)
     {:reply, reply, state}
   end
 
@@ -3604,15 +3604,20 @@ defmodule Aiur.Orchestrator do
         pause_running_or_inactive(state, running_entry, issue_identifier)
 
       _ ->
-        send_pause_control_message(state, issue_identifier)
+        {send_pause_control_message(state, issue_identifier), state}
     end
   end
 
+  # Operator pause from the list/CLI. Optimistically flip the entry to `:paused`
+  # (mirrors `maybe_pause_on_request` and the Ctrl+C path) so the row reflects
+  # the pause immediately — even mid-spin-up, before the worker reaches a
+  # checkpoint — then queue the cooperative `{:pause_agent}` control message.
   defp pause_running_or_inactive(state, running_entry, issue_identifier) do
     if deactivated_running_entry?(running_entry) do
-      {:error, :already_inactive}
+      {{:error, :already_inactive}, state}
     else
-      send_pause_control_message(state, issue_identifier)
+      reply = send_pause_control_message(state, issue_identifier)
+      {reply, transition_control_status(state, running_entry, :paused, "operator.pause")}
     end
   end
 
