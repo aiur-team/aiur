@@ -163,7 +163,7 @@ jobs:
       - name: Interactive TUI renders
         run: |
           mkdir -p fixture
-          cat > fixture/WORKFLOW.md <<'EOF'
+          cat > fixture/.aiurconfig <<'EOF'
           ---
           tracker:
             kind: memory
