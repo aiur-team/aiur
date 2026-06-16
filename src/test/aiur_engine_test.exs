@@ -90,4 +90,35 @@ defmodule AiurEngineTest do
     refute out =~ "--name"
     refute out =~ "--cookie"
   end
+
+  # Lifecycle commands generate + validate a cookie, whose owner must equal
+  # $USER, so these run as the real user (only the state dir is redirected).
+  defp run_engine_real(args, env) do
+    System.cmd(@engine, args, env: env, stderr_to_stdout: true)
+  end
+
+  defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+  test "pause without targets exits 64 with guidance" do
+    {out, code} = run_engine_real(["pause"], [{"AIUR_RELEASE_DIR", fake_release()}])
+    assert code == 64
+    assert out =~ "expects issue IDs or --all"
+  end
+
+  test "pause/resume RPC the AgentControlCLI expression into the node" do
+    rel = fake_release()
+    state = tmp_state()
+
+    {paused, _} = run_engine_real(["pause", "44,45"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    assert paused =~ ~s|Aiur.AgentControlCLI.pause(["44", "45"])|
+
+    {resumed, _} = run_engine_real(["resume", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    assert resumed =~ "Aiur.AgentControlCLI.resume(:all)"
+  end
+
+  test "status RPCs the status expression" do
+    rel = fake_release()
+    {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert out =~ "Aiur.AgentControlCLI.status()"
+  end
 end

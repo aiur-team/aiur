@@ -395,6 +395,166 @@ install_foreground_traps() {
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 129' HUP
 }
 
+# --- lifecycle (RPC into the running node + tmux ops) ------------------------
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+# RPC an expression into the running node. The control CLI prints a trailing
+# `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
+run_control_rpc() {
+  local expression="$1"
+  resolve_release
+  prepare_distribution || die "distribution setup failed; cannot contact aiur"
+
+  local marker="__AIUR_CONTROL_EXIT__:"
+  local output status exit_code=0 saw_marker=0 line
+
+  set +e
+  output="$("$release_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -ne 0 ]; then
+    echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+    return 1
+  fi
+
+  while IFS= read -r line; do
+    case "$line" in
+      "$marker"*)
+        saw_marker=1
+        exit_code="${line#"$marker"}"
+        ;;
+      :ok | "") ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <<<"$output"
+
+  [ "$saw_marker" -eq 1 ] || return 1
+  return "$exit_code"
+}
+
+elixir_list_literal() {
+  local first=1 item
+  printf '['
+  for item in "$@"; do
+    [ "$first" -eq 0 ] && printf ', '
+    printf '"%s"' "$item"
+    first=0
+  done
+  printf ']'
+}
+
+# Parse issue-id targets (e.g. `44 45,46` or `--all`) into parsed_targets/parsed_all.
+parsed_targets=()
+parsed_all=0
+parse_issue_targets() {
+  parsed_targets=()
+  parsed_all=0
+  [ "$#" -gt 0 ] || return 1
+
+  if [ "$#" -eq 1 ] && [ "$1" = "--all" ]; then
+    parsed_all=1
+    return 0
+  fi
+
+  local raw part parts
+  for raw in "$@"; do
+    [ "$raw" = "--all" ] && return 1
+    IFS=',' read -ra parts <<<"$raw"
+    for part in "${parts[@]}"; do
+      part="$(trim "$part")"
+      if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
+      parsed_targets+=("$part")
+    done
+  done
+
+  [ "${#parsed_targets[@]}" -gt 0 ]
+}
+
+cmd_status() {
+  [ "$#" -eq 0 ] || die "status does not accept arguments"
+  run_control_rpc "Aiur.AgentControlCLI.status()"
+}
+
+cmd_pause_resume() {
+  local command="$1"
+  shift
+  if ! parse_issue_targets "$@"; then
+    echo "aiur: $command expects issue IDs or --all (e.g. aiur $command 44 45,46; aiur $command --all)" >&2
+    exit 64
+  fi
+
+  local expression
+  if [ "$parsed_all" -eq 1 ]; then
+    expression="Aiur.AgentControlCLI.${command}(:all)"
+  else
+    expression="Aiur.AgentControlCLI.${command}($(elixir_list_literal "${parsed_targets[@]}"))"
+  fi
+
+  run_control_rpc "$expression"
+}
+
+sweep_dead_tmux_sockets() {
+  local tmux_bin
+  tmux_bin="$(command -v tmux || true)"
+  [ -n "$tmux_bin" ] || return 0
+
+  local sockdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+  [ -d "$sockdir" ] || return 0
+
+  local removed=0 name path
+  for path in "$sockdir"/*; do
+    [ -S "$path" ] || continue
+    name="${path##*/}"
+    case "$name" in
+      aiur* | *-driver | *-driver-*) ;;
+      *) continue ;;
+    esac
+    if ! "$tmux_bin" -L "$name" list-sessions >/dev/null 2>&1; then
+      rm -f "$path" 2>/dev/null && removed=$((removed + 1))
+    fi
+  done
+
+  [ "$removed" -gt 0 ] && echo "🧹 swept $removed dead aiur tmux socket(s)" >&2
+  return 0
+}
+
+# Stop the running session: kill the tmux session + the release BEAM, then sweep.
+cmd_stop() {
+  resolve_release
+  aiur_resolve_identity
+
+  local tmux_bin
+  tmux_bin="$(command -v tmux || true)"
+  local session="${AIUR_SESSION_PREFIX}-${USER:-user}-default"
+  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}"
+  if [ -n "$tmux_bin" ]; then
+    "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
+  fi
+
+  local beam_pids pid waited=0
+  beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
+  if [ -n "$beam_pids" ]; then
+    for pid in $beam_pids; do kill -TERM "$pid" 2>/dev/null || true; done
+    while [ $waited -lt 30 ]; do
+      beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
+      [ -z "$beam_pids" ] && break
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+    beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
+    for pid in $beam_pids; do kill -KILL "$pid" 2>/dev/null || true; done
+  fi
+
+  sweep_dead_tmux_sockets
+}
+
 # --- dispatch ----------------------------------------------------------------
 
 aiur_engine_main() {
@@ -419,6 +579,20 @@ aiur_engine_main() {
     run)
       shift
       run_session foreground "$@"
+      ;;
+    status)
+      shift
+      cmd_status "$@"
+      ;;
+    pause | resume)
+      shift
+      cmd_pause_resume "$cmd" "$@"
+      ;;
+    stop)
+      cmd_stop
+      ;;
+    sweep)
+      sweep_dead_tmux_sockets
       ;;
     "")
       run_session foreground
