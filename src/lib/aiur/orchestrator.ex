@@ -811,6 +811,7 @@ defmodule Aiur.Orchestrator do
 
   defp reconcile_running_issues(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
+    state = reconcile_overrunning_agents(state)
     state = reconcile_pending_auto_resumes(state)
     running_ids = Map.keys(state.running)
 
@@ -1277,8 +1278,60 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # Hard safety net: kill any agent that has been actively running longer
+  # than `agent.max_agent_duration_minutes` (paused/blocked time excluded
+  # via `running_seconds/2`). Reuses the stall path's terminate+retry so a
+  # runaway that keeps getting re-dispatched eventually exhausts retries and
+  # gives up, rather than looping forever.
+  defp reconcile_overrunning_agents(%State{} = state) do
+    max_seconds = Config.max_agent_duration_minutes() * 60
+
+    cond do
+      max_seconds <= 0 ->
+        state
+
+      map_size(state.running) == 0 ->
+        state
+
+      true ->
+        now = DateTime.utc_now()
+
+        Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+          maybe_kill_overrunning_entry(state_acc, issue_id, running_entry, now, max_seconds)
+        end)
+    end
+  end
+
+  # True when an entry should be killed for exceeding the duration cap:
+  # actively running (not paused/deactivated) past `max_seconds`.
+  @doc false
+  @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
+  def overrunning_entry?(running_entry, now, max_seconds) when is_map(running_entry) do
+    not paused_running_entry?(running_entry) and
+      not deactivated_running_entry?(running_entry) and
+      running_seconds(Map.get(running_entry, :started_at), now) > max_seconds
+  end
+
+  defp maybe_kill_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
+    if overrunning_entry?(running_entry, now, max_seconds) do
+      identifier = Map.get(running_entry, :identifier, issue_id)
+      seconds = running_seconds(Map.get(running_entry, :started_at), now)
+
+      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; killing agent")
+
+      state
+      |> terminate_running_issue(issue_id, false)
+      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), %{
+        identifier: identifier,
+        error: "exceeded max_agent_duration of #{div(max_seconds, 60)}m"
+      })
+    else
+      state
+    end
+  end
+
   defp reconcile_stalled_running_issues(%State{} = state) do
-    timeout_ms = Config.settings!().codex.stall_timeout_ms
+    timeout_ms = Config.agent_stall_timeout_ms()
 
     cond do
       timeout_ms <= 0 ->
@@ -3982,8 +4035,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Promote any running agent (headless `claude` or `codex`) to `claude-remote`:
-  # add the durable `model:claude-remote` label, stop the current agent, and
+  # Promote any running agent (headless `claude` or `codex`) to remote control:
+  # add the durable `model:remote` label, stop the current agent, and
   # re-dispatch the same issue. The re-dispatch resolves `claude-repl` + forced
   # RC (the alias from `CodingAgent`) and resumes the transcript by cwd, so the
   # operator gets a persistent REPL with RC attached on the same conversation.
@@ -4027,7 +4080,7 @@ defmodule Aiur.Orchestrator do
       :ok ->
         relabeled = add_issue_label(issue, label)
         state = teardown_for_redispatch(state, running_entry)
-        Logger.info("Remote Control promote; re-dispatching as claude-remote: #{rc_log_context(running_entry)}")
+        Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
         {{:ok, :on}, do_dispatch_issue(state, relabeled, nil, nil)}
 
       {:error, reason} ->
@@ -4036,7 +4089,7 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Demote a `claude-remote` agent back to the default backend: remove the
+  # Demote a remote-control agent back to the default backend: remove the
   # label, stop the current REPL agent, and re-dispatch. `r` is a true toggle.
   defp demote_from_remote(state, running_entry) do
     issue = Map.get(running_entry, :issue)

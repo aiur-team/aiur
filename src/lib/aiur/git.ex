@@ -72,4 +72,32 @@ defmodule Aiur.Git do
       end
     end)
   end
+
+  @doc """
+  The `owner/name` of the `origin` remote in the current working directory,
+  or `nil` when there is no git repo / origin. Used to auto-detect the repo
+  for a global `.aiurconfig` that carries no repo of its own.
+  """
+  @spec origin_repo() :: String.t() | nil
+  def origin_repo do
+    case System.cmd("git", ["remote", "get-url", "origin"], stderr_to_stdout: true) do
+      {output, 0} -> parse_origin_url(String.trim(output))
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  @doc false
+  @spec parse_origin_url(String.t()) :: String.t() | nil
+  def parse_origin_url(url) do
+    url
+    |> String.replace_suffix(".git", "")
+    |> String.split(~r{[/:]}, trim: true)
+    |> Enum.take(-2)
+    |> case do
+      [owner, name] when owner != "" and name != "" -> "#{owner}/#{name}"
+      _ -> nil
+    end
+  end
 end

@@ -37,31 +37,67 @@ defmodule Aiur.Config.Schema do
     def dump(_value), do: :error
   end
 
-  defmodule Tracker do
+  defmodule Github do
     @moduledoc false
     use Ecto.Schema
     import Ecto.Changeset
 
     @primary_key false
+    embedded_schema do
+      field(:repo, :string)
+      field(:label_prefix, :string, default: "agent")
+      field(:bot_account, :string)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      cast(schema, attrs, [:repo, :label_prefix, :bot_account], empty_values: [])
+    end
+  end
+
+  defmodule Linear do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:api_key, :string)
+      field(:project_slug, :string)
+      field(:endpoint, :string, default: "https://api.linear.app/graphql")
+      field(:assignee, :string)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      cast(schema, attrs, [:api_key, :project_slug, :endpoint, :assignee], empty_values: [])
+    end
+  end
+
+  defmodule Tracker do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias Aiur.Config.Schema.{Github, Linear}
+
+    @primary_key false
 
     embedded_schema do
       field(:kind, :string)
-      field(:endpoint, :string, default: "https://api.linear.app/graphql")
-      field(:api_key, :string)
-      field(:project_slug, :string)
-      field(:assignee, :string)
       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
+
+      embeds_one(:github, Github, on_replace: :update, defaults_to_struct: true)
+      embeds_one(:linear, Linear, on_replace: :update, defaults_to_struct: true)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(
-        attrs,
-        [:kind, :endpoint, :api_key, :project_slug, :assignee, :active_states, :terminal_states],
-        empty_values: []
-      )
+      |> cast(attrs, [:kind, :active_states, :terminal_states], empty_values: [])
+      |> cast_embed(:github, with: &Github.changeset/2)
+      |> cast_embed(:linear, with: &Linear.changeset/2)
     end
   end
 
@@ -151,66 +187,6 @@ defmodule Aiur.Config.Schema do
     end
   end
 
-  defmodule Agent do
-    @moduledoc false
-    use Ecto.Schema
-    import Ecto.Changeset
-
-    alias Aiur.Config.Schema
-
-    @primary_key false
-    embedded_schema do
-      field(:kind, :string, default: "codex")
-      # Setting #2 (RC opt-in), orthogonal to :kind. Only consulted when the
-      # resolved backend is RC-capable. This default is the single flip point
-      # for always-remote: change `false` here and every dispatch attaches RC.
-      field(:remote_control, :boolean, default: false)
-      field(:max_concurrent_agents, :integer, default: 10)
-      field(:max_turns, :integer, default: 20)
-      field(:max_retry_attempts, :integer, default: 3)
-      field(:max_retry_backoff_ms, :integer, default: 300_000)
-      field(:max_concurrent_agents_by_state, :map, default: %{})
-      field(:routing, :map, default: %{})
-      field(:complexity_prompts, :map, default: %{})
-      field(:codex_thrash_max_per_window, :integer, default: 6)
-      field(:codex_thrash_window_seconds, :integer, default: 60)
-    end
-
-    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
-    def changeset(schema, attrs) do
-      schema
-      |> cast(
-        attrs,
-        [
-          :kind,
-          :remote_control,
-          :max_concurrent_agents,
-          :max_turns,
-          :max_retry_attempts,
-          :max_retry_backoff_ms,
-          :max_concurrent_agents_by_state,
-          :routing,
-          :complexity_prompts,
-          :codex_thrash_max_per_window,
-          :codex_thrash_window_seconds
-        ],
-        empty_values: []
-      )
-      |> validate_number(:max_concurrent_agents, greater_than: 0)
-      |> validate_number(:max_turns, greater_than: 0)
-      |> validate_number(:max_retry_attempts, greater_than: 0)
-      |> validate_number(:max_retry_backoff_ms, greater_than: 0)
-      |> validate_number(:codex_thrash_max_per_window, greater_than: 0)
-      |> validate_number(:codex_thrash_window_seconds, greater_than: 0)
-      |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
-      |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
-      |> update_change(:routing, &Schema.normalize_agent_routing/1)
-      |> Schema.validate_agent_routing(:routing)
-      |> update_change(:complexity_prompts, &Schema.normalize_complexity_prompts/1)
-      |> Schema.validate_complexity_prompts(:complexity_prompts)
-    end
-  end
-
   defmodule Codex do
     @moduledoc false
     use Ecto.Schema
@@ -232,14 +208,10 @@ defmodule Aiur.Config.Schema do
 
       field(:thread_sandbox, :string, default: "workspace-write")
       field(:turn_sandbox_policy, :map)
-      field(:turn_timeout_ms, :integer, default: 3_600_000)
       field(:read_timeout_ms, :integer, default: 5_000)
-      # Stall watchdog timeout for codex turns. 2-minute default was
-      # too aggressive: codex agents legitimately go silent for 2+ min
-      # during gh API rate limits, long ripgreps, CI waits, and large
-      # mix compiles — the watchdog was killing healthy agents. 5 min
-      # is the safe default; workflow can override per repo.
-      field(:stall_timeout_ms, :integer, default: 300_000)
+      # Codex-specific thrash guard (moved out of the shared agent section).
+      field(:thrash_max_per_window, :integer, default: 6)
+      field(:thrash_window_seconds, :integer, default: 60)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -252,17 +224,133 @@ defmodule Aiur.Config.Schema do
           :approval_policy,
           :thread_sandbox,
           :turn_sandbox_policy,
-          :turn_timeout_ms,
           :read_timeout_ms,
-          :stall_timeout_ms
+          :thrash_max_per_window,
+          :thrash_window_seconds
         ],
         empty_values: []
       )
       |> validate_required([:command])
       |> validate_length(:command, min: 1)
-      |> validate_number(:turn_timeout_ms, greater_than: 0)
       |> validate_number(:read_timeout_ms, greater_than: 0)
+      |> validate_number(:thrash_max_per_window, greater_than: 0)
+      |> validate_number(:thrash_window_seconds, greater_than: 0)
+    end
+  end
+
+  defmodule Claude do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:command, :string, default: "aiur-claude")
+      field(:model, :string)
+      field(:permission_mode, :string, default: "bypassPermissions")
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:command, :model, :permission_mode], empty_values: [])
+      |> validate_length(:command, min: 1)
+    end
+  end
+
+  defmodule Agent do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias Aiur.Config.Schema
+    alias Aiur.Config.Schema.{Claude, Codex}
+
+    @primary_key false
+    embedded_schema do
+      field(:kind, :string, default: "codex")
+      # Setting #2 (RC opt-in), orthogonal to :kind. Only consulted when the
+      # resolved backend is RC-capable. This default is the single flip point
+      # for always-remote: change `false` here and every dispatch attaches RC.
+      field(:remote_control, :boolean, default: false)
+      field(:max_concurrent_agents, :integer, default: 10)
+      # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
+      # `unlimited` (or an absent key) resolves to nil; any present number must
+      # be > 0.
+      field(:max_turns, :integer)
+      field(:max_retry_attempts, :integer, default: 3)
+      field(:max_retry_backoff_ms, :integer, default: 300_000)
+      field(:max_concurrent_agents_by_state, :map, default: %{})
+      field(:routing, :map, default: %{})
+      field(:complexity_prompts, :map, default: %{})
+      # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
+      # already reads these via Config.agent_turn_timeout_ms/0).
+      field(:turn_timeout_ms, :integer, default: 3_600_000)
+      field(:stall_timeout_ms, :integer, default: 300_000)
+      # Safety net: hard-kill an agent that has been actively running this
+      # many minutes (paused/blocked time excluded). 0 disables.
+      field(:max_agent_duration_minutes, :integer, default: 60)
+
+      embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
+      embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(
+        drop_uncapped_max_turns(attrs),
+        [
+          :kind,
+          :remote_control,
+          :max_concurrent_agents,
+          :max_turns,
+          :max_retry_attempts,
+          :max_retry_backoff_ms,
+          :max_concurrent_agents_by_state,
+          :routing,
+          :complexity_prompts,
+          :turn_timeout_ms,
+          :stall_timeout_ms,
+          :max_agent_duration_minutes
+        ],
+        empty_values: []
+      )
+      |> validate_number(:max_concurrent_agents, greater_than: 0)
+      |> validate_number(:max_turns, greater_than: 0)
+      |> validate_number(:max_retry_attempts, greater_than: 0)
+      |> validate_number(:max_retry_backoff_ms, greater_than: 0)
+      |> validate_number(:turn_timeout_ms, greater_than: 0)
       |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
+      |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
+      |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
+      |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
+      |> update_change(:routing, &Schema.normalize_agent_routing/1)
+      |> Schema.validate_agent_routing(:routing)
+      |> update_change(:complexity_prompts, &Schema.normalize_complexity_prompts/1)
+      |> Schema.validate_complexity_prompts(:complexity_prompts)
+      |> cast_embed(:claude, with: &Claude.changeset/2)
+      |> cast_embed(:codex, with: &Codex.changeset/2)
+    end
+
+    # A `max_turns` of `none`/`unlimited`/`""` means uncapped — drop the key so
+    # the field stays nil instead of failing integer casting.
+    defp drop_uncapped_max_turns(attrs) do
+      Enum.reduce([:max_turns, "max_turns"], attrs, &drop_key_if_uncapped/2)
+    end
+
+    defp drop_key_if_uncapped(key, attrs) do
+      case Map.fetch(attrs, key) do
+        {:ok, value} when is_binary(value) ->
+          if uncapped_max_turns?(value), do: Map.delete(attrs, key), else: attrs
+
+        _ ->
+          attrs
+      end
+    end
+
+    defp uncapped_max_turns?(value) do
+      String.downcase(String.trim(value)) in ["none", "unlimited", ""]
     end
   end
 
@@ -340,12 +428,15 @@ defmodule Aiur.Config.Schema do
       field(:bridge_host, :string, default: "127.0.0.1")
       field(:serve_args, {:array, :string}, default: [])
       field(:model_prefix, :string, default: "aiur")
+      field(:prewarm_disabled, :boolean, default: false)
     end
+
+    @fields [:command, :bridge_port, :bridge_host, :serve_args, :model_prefix, :prewarm_disabled]
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:command, :bridge_port, :bridge_host, :serve_args, :model_prefix], empty_values: [])
+      |> cast(attrs, @fields, empty_values: [])
       |> validate_number(:bridge_port, greater_than_or_equal_to: 0, less_than: 65_536)
       |> validate_length(:bridge_host, min: 1)
       |> validate_length(:model_prefix, min: 1)
@@ -356,13 +447,13 @@ defmodule Aiur.Config.Schema do
     field(:max_vertical_panes, :integer, default: 3)
     field(:pre_warmed_sessions, :integer, default: 3)
     field(:max_log_history_mb, :integer, default: 1000)
+    field(:prompt_file, :string)
 
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
-    embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
@@ -388,7 +479,7 @@ defmodule Aiur.Config.Schema do
 
   @spec resolve_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil) :: map()
   def resolve_turn_sandbox_policy(settings, workspace \\ nil) do
-    case settings.codex.turn_sandbox_policy do
+    case settings.agent.codex.turn_sandbox_policy do
       %{} = policy ->
         policy
 
@@ -403,7 +494,7 @@ defmodule Aiur.Config.Schema do
   @spec resolve_runtime_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
   def resolve_runtime_turn_sandbox_policy(settings, workspace \\ nil, opts \\ []) do
-    case settings.codex.turn_sandbox_policy do
+    case settings.agent.codex.turn_sandbox_policy do
       %{} = policy ->
         {:ok, policy}
 
@@ -464,13 +555,18 @@ defmodule Aiur.Config.Schema do
     known = Aiur.CodingAgent.known_backends()
 
     validate_change(changeset, field, fn ^field, routing ->
-      Enum.flat_map(routing, fn {level, backend} ->
+      Enum.flat_map(routing, fn {level, value} ->
         cond do
           not is_integer(level) or level <= 0 ->
             [{field, "complexity levels must be positive integers"}]
 
-          backend not in known ->
-            [{field, "unknown backend #{inspect(backend)}; known backends: #{inspect(known)}"}]
+          not is_binary(value) or routing_backend(value) not in known ->
+            [
+              {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
+            ]
+
+          routing_remote_flag?(value) and not Aiur.CodingAgent.remote_control?(routing_backend(value)) ->
+            [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
 
           true ->
             []
@@ -478,6 +574,29 @@ defmodule Aiur.Config.Schema do
       end)
     end)
   end
+
+  @doc """
+  Splits a routing value into its backend and optional model. A routing
+  value is `"<backend>"` or `"<backend>:<model>"` (e.g. `"claude:sonnet"`),
+  optionally with a trailing `+remote` flag (`"claude:haiku+remote"`) that
+  is stripped here and surfaced separately by `routing_remote_flag?/1`.
+  """
+  @spec split_routing_value(String.t()) :: {String.t(), String.t() | nil}
+  def split_routing_value(value) when is_binary(value) do
+    case value |> strip_remote_flag() |> String.split(":", parts: 2) do
+      [backend, model] when model != "" -> {backend, model}
+      [backend | _] -> {backend, nil}
+    end
+  end
+
+  @doc "Whether a routing value carries the optional trailing `+remote` flag."
+  @spec routing_remote_flag?(String.t()) :: boolean()
+  def routing_remote_flag?(value) when is_binary(value), do: String.ends_with?(value, "+remote")
+
+  defp strip_remote_flag(value), do: String.replace_suffix(value, "+remote", "")
+
+  defp routing_backend(value) when is_binary(value), do: value |> split_routing_value() |> elem(0)
+  defp routing_backend(_value), do: nil
 
   @doc false
   @spec normalize_complexity_prompts(nil | map()) :: map()
@@ -521,7 +640,7 @@ defmodule Aiur.Config.Schema do
 
   defp changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [:max_vertical_panes, :pre_warmed_sessions, :max_log_history_mb], empty_values: [])
+    |> cast(attrs, [:max_vertical_panes, :pre_warmed_sessions, :max_log_history_mb, :prompt_file], empty_values: [])
     |> validate_number(:max_vertical_panes, greater_than: 0)
     |> validate_number(:pre_warmed_sessions, greater_than_or_equal_to: 0)
     |> validate_number(:max_log_history_mb, greater_than: 0)
@@ -530,7 +649,6 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
-    |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
@@ -539,11 +657,13 @@ defmodule Aiur.Config.Schema do
   end
 
   defp finalize_settings(settings) do
-    tracker = %{
-      settings.tracker
-      | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
-        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+    linear = %{
+      settings.tracker.linear
+      | api_key: resolve_secret_setting(settings.tracker.linear.api_key, System.get_env("LINEAR_API_KEY")),
+        assignee: resolve_secret_setting(settings.tracker.linear.assignee, System.get_env("LINEAR_ASSIGNEE"))
     }
+
+    tracker = %{settings.tracker | linear: linear}
 
     workspace = %{
       settings.workspace
@@ -551,12 +671,14 @@ defmodule Aiur.Config.Schema do
     }
 
     codex = %{
-      settings.codex
-      | approval_policy: normalize_keys(settings.codex.approval_policy),
-        turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
+      settings.agent.codex
+      | approval_policy: normalize_keys(settings.agent.codex.approval_policy),
+        turn_sandbox_policy: normalize_optional_map(settings.agent.codex.turn_sandbox_policy)
     }
 
-    %{settings | tracker: tracker, workspace: workspace, codex: codex}
+    agent = %{settings.agent | codex: codex}
+
+    %{settings | tracker: tracker, workspace: workspace, agent: agent}
   end
 
   defp normalize_keys(value) when is_map(value) do

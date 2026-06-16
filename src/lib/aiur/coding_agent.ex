@@ -14,6 +14,7 @@ defmodule Aiur.CodingAgent do
   """
 
   alias Aiur.Config
+  alias Aiur.Config.Schema
   alias Aiur.Issue
 
   @type backend :: String.t()
@@ -44,13 +45,12 @@ defmodule Aiur.CodingAgent do
   # is recognized rather than mis-split into `claude` + variant `repl`.
   @model_override_label ~r/^model:([A-Za-z0-9.\-]+)$/
 
-  # Label-only aliases that resolve to a real backend. `model:claude-remote`
-  # is the operator-facing name for the persistent REPL backend (`claude-repl`)
-  # and additionally forces remote-control ON for the issue (see
-  # `remote_control_forced?/1`), overriding the global opt-in default. The
-  # alias is resolved before the known-backend match so `claude-remote` is
-  # never mis-split into backend `claude` + variant `remote`.
-  @backend_aliases %{"claude-remote" => "claude-repl"}
+  # Remote-control flag aliases. `model:remote` is a pure flag: it forces
+  # remote-control ON for the issue (see `remote_control_forced?/1`) but never
+  # selects a backend — the model comes from a companion `model:<backend>` tag
+  # and dispatch swaps the transport to the mapped value (`claude-repl`, the
+  # remote transport the flag implies).
+  @backend_aliases %{"remote" => "claude-repl"}
 
   @doc """
   Registry of supported coding-agent backends. Each entry carries the
@@ -67,7 +67,7 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         remote_control: false,
-        models: ["gpt-5.5"]
+        models: ["gpt-5.5", "gpt-5.4", "gpt-5.5-mini", "gpt-5.4-mini"]
       },
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
@@ -75,7 +75,7 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification],
         remote_control: true,
-        models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
       },
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
@@ -90,7 +90,7 @@ defmodule Aiur.CodingAgent do
         safe_checkpoints: [],
         immediate_delivery: true,
         remote_control: true,
-        models: ["opus", "sonnet", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
       }
     }
   end
@@ -108,7 +108,7 @@ defmodule Aiur.CodingAgent do
   @spec override_labels() :: [String.t()]
   def override_labels, do: override_labels(known_backends()) ++ alias_labels()
 
-  @doc "Label-only alias override labels (e.g. `model:claude-remote`)."
+  @doc "Label-only alias override labels (e.g. `model:remote`)."
   @spec alias_labels() :: [String.t()]
   def alias_labels, do: Enum.map(Map.keys(@backend_aliases), &"model:#{&1}")
 
@@ -146,6 +146,10 @@ defmodule Aiur.CodingAgent do
   """
   @spec model_for(Issue.t()) :: String.t() | nil
   def model_for(%Issue{} = issue) do
+    override_model(issue) || routing_model(issue)
+  end
+
+  defp override_model(%Issue{} = issue) do
     case override(issue) do
       {_backend, variant} -> variant
       nil -> nil
@@ -180,27 +184,22 @@ defmodule Aiur.CodingAgent do
     end
   end
 
-  # Resolve `model:<spec>` to `{backend, variant | nil}`. Prefer the longest
-  # known backend the spec names exactly or prefixes with `-`, so a
-  # hyphenated backend (`claude-repl`) wins over a shorter one (`claude`)
-  # before its trailing segment is mistaken for a variant.
+  # Resolve `model:<spec>` to `{backend, variant | nil}`. A `model:<alias>`
+  # spec (bare `remote` or `remote-<variant>`) is a remote FLAG,
+  # not a backend selector, so it never resolves to a backend here — the
+  # backend/model come from a companion `model:<backend>` tag while
+  # `remote_control_forced?/1` reads the flag and dispatch swaps the transport.
+  # Otherwise prefer the longest known backend the spec names exactly or
+  # prefixes with `-`, so `claude-repl` wins over `claude`.
   @spec resolve_backend_spec(String.t(), [backend()]) :: {backend(), String.t() | nil} | nil
   defp resolve_backend_spec(spec, known) do
-    case Map.fetch(@backend_aliases, spec) do
-      {:ok, backend} -> {backend, nil}
-      :error -> resolve_alias_variant_spec(spec) || resolve_known_backend_spec(spec, known)
-    end
+    if alias_spec?(spec), do: nil, else: resolve_known_backend_spec(spec, known)
   end
 
-  # `model:claude-remote-sonnet` pins a model variant through the alias.
-  # Without this clause the known-backend match would mis-split it into
-  # backend `claude` + variant `remote-sonnet`.
-  @spec resolve_alias_variant_spec(String.t()) :: {backend(), String.t()} | nil
-  defp resolve_alias_variant_spec(spec) do
-    Enum.find_value(@backend_aliases, fn {alias_name, backend} ->
-      if String.starts_with?(spec, alias_name <> "-") do
-        {backend, String.replace_prefix(spec, alias_name <> "-", "")}
-      end
+  @spec alias_spec?(String.t()) :: boolean()
+  defp alias_spec?(spec) do
+    Enum.any?(Map.keys(@backend_aliases), fn name ->
+      spec == name or String.starts_with?(spec, name <> "-")
     end)
   end
 
@@ -220,6 +219,37 @@ defmodule Aiur.CodingAgent do
   @doc false
   @spec routing_backend(Issue.t()) :: backend() | nil
   def routing_backend(%Issue{} = issue) do
+    case routing_value(issue) do
+      nil -> nil
+      value -> value |> Schema.split_routing_value() |> elem(0)
+    end
+  end
+
+  # Model pinned by the complexity-routing value (`backend:model`), or nil.
+  @doc false
+  @spec routing_model(Issue.t()) :: String.t() | nil
+  def routing_model(%Issue{} = issue) do
+    case routing_value(issue) do
+      nil -> nil
+      value -> value |> Schema.split_routing_value() |> elem(1)
+    end
+  end
+
+  @doc """
+  Whether the issue's complexity routes to a `+remote` value in the
+  `agent.routing` table (e.g. `complexity:1 -> "claude:haiku+remote"`),
+  forcing remote control for that routed default even without a
+  `model:remote` label on the issue.
+  """
+  @spec routing_remote?(Issue.t()) :: boolean()
+  def routing_remote?(%Issue{} = issue) do
+    case routing_value(issue) do
+      nil -> false
+      value -> Schema.routing_remote_flag?(value)
+    end
+  end
+
+  defp routing_value(%Issue{} = issue) do
     case complexity_level(issue) do
       nil -> nil
       level -> Map.get(Config.agent_routing(), level)
@@ -293,7 +323,7 @@ defmodule Aiur.CodingAgent do
   @doc """
   Whether an issue carries a `model:<alias>` label that forces remote
   control ON regardless of the global `agent.remote_control` opt-in
-  default. Only the label-only aliases (e.g. `model:claude-remote`) force
+  default. Only the label-only aliases (e.g. `model:remote`) force
   RC; a bare `model:claude-repl` selects the transport but leaves RC to the
   global default.
   """
@@ -317,12 +347,12 @@ defmodule Aiur.CodingAgent do
 
   @doc """
   The canonical operator-facing label that forces remote control on for an
-  issue (`model:claude-remote`). Added/removed by the AgentList `r` key to
+  issue (`model:remote`). Added/removed by the AgentList `r` key to
   promote/demote a running agent; it is the durable source of truth for
   remote-ness across re-dispatches.
   """
   @spec remote_control_alias_label() :: String.t()
-  def remote_control_alias_label, do: "model:claude-remote"
+  def remote_control_alias_label, do: "model:remote"
 
   @doc """
   Whether the backend takes operator messages immediately (pass-through to

@@ -25,13 +25,6 @@ defmodule Aiur.Claude.Config do
   def model, do: trimmed_section_value("model")
 
   @doc """
-  Human-facing model version label (e.g. `opus-4-8`). Recorded in config
-  for operator visibility; not sent on the wire unless also set as `model`.
-  """
-  @spec version() :: String.t() | nil
-  def version, do: trimmed_section_value("version")
-
-  @doc """
   Permission mode sent on `thread/start`. One of `default`, `acceptEdits`,
   or `bypassPermissions`. Defaults to `bypassPermissions` so the agent loop
   runs without interactive approvals; set a stricter mode to gate edits.
@@ -67,6 +60,8 @@ defmodule Aiur.Claude.Config do
   end
 
   defp section_value(key) do
-    Map.get(Aiur.Config.section("claude"), key)
+    Aiur.Config.settings!().agent.claude
+    |> Map.from_struct()
+    |> Map.get(String.to_existing_atom(key))
   end
 end

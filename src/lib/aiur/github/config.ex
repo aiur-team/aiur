@@ -5,19 +5,21 @@ defmodule Aiur.GitHub.Config do
 
   @behaviour Aiur.TrackerConfig
 
-  @default_label_prefix "aiur"
+  @default_label_prefix "agent"
 
   @spec repo() :: String.t() | nil
   def repo do
     case section_value("repo") do
       value when is_binary(value) ->
         case String.trim(value) do
-          "" -> nil
+          "" -> Aiur.Git.origin_repo()
           trimmed -> trimmed
         end
 
       _ ->
-        nil
+        # No repo in config (e.g. the general global config) — auto-detect
+        # it from the current repo's git remote.
+        Aiur.Git.origin_repo()
     end
   end
 
@@ -76,7 +78,9 @@ defmodule Aiur.GitHub.Config do
   end
 
   defp section_value(key) do
-    Map.get(Aiur.Config.section("github"), key)
+    Aiur.Config.settings!().tracker.github
+    |> Map.from_struct()
+    |> Map.get(String.to_existing_atom(key))
   end
 
   defp normalize_secret(value) when is_binary(value) do

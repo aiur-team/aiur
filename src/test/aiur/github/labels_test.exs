@@ -44,6 +44,37 @@ defmodule Aiur.GitHub.LabelsTest do
       assert "team:todo" in Labels.state_labels("team")
       refute "aiur:todo" in Labels.state_labels("team")
     end
+
+    test "claude backends seed the remote-control alias; codex-only does not" do
+      assert "model:remote" in Labels.label_set("agent", ["claude"])
+      refute "model:remote" in Labels.label_set("agent", ["codex"])
+    end
+
+    test "claude seeds bare haiku and the remote flag, never claude-repl tags" do
+      labels = Labels.label_set("agent", ["claude"])
+
+      assert "model:claude-haiku" in labels
+      assert "model:remote" in labels
+      refute Enum.any?(labels, &String.starts_with?(&1, "model:claude-repl"))
+    end
+
+    test "codex seeds the cheaper model variants" do
+      labels = Labels.label_set("agent", ["codex"])
+
+      assert "model:codex-gpt-5.4" in labels
+      assert "model:codex-gpt-5.5-mini" in labels
+      assert "model:codex-gpt-5.4-mini" in labels
+    end
+  end
+
+  describe "describe/1" do
+    test "gives a short description for each label family" do
+      assert Labels.describe("agent:todo") == "ready to be worked"
+      assert Labels.describe("model:remote") == "Supports claude remote-control"
+      assert Labels.describe("model:claude") =~ "route this issue to claude"
+      assert Labels.describe("model:claude-haiku") =~ "route this issue to claude-haiku"
+      assert Labels.describe("complexity:3") == "story-point complexity 3"
+    end
   end
 
   describe "ensure/5" do

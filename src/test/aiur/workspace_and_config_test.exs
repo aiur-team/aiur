@@ -836,15 +836,15 @@ defmodule Aiur.WorkspaceAndConfigTest do
     )
 
     config = Config.settings!()
-    assert config.tracker.endpoint == "https://api.linear.app/graphql"
-    assert config.tracker.api_key == nil
-    assert config.tracker.project_slug == nil
+    assert config.tracker.linear.endpoint == "https://api.linear.app/graphql"
+    assert config.tracker.linear.api_key == nil
+    assert config.tracker.linear.project_slug == nil
     assert config.workspace.root == Path.join(System.tmp_dir!(), "aiur_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
-    assert config.codex.command == "codex app-server"
+    assert config.agent.codex.command == "codex app-server"
 
-    assert config.codex.approval_policy == %{
+    assert config.agent.codex.approval_policy == %{
              "reject" => %{
                "sandbox_approval" => true,
                "rules" => true,
@@ -852,7 +852,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              }
            }
 
-    assert config.codex.thread_sandbox == "workspace-write"
+    assert config.agent.codex.thread_sandbox == "workspace-write"
 
     assert {:ok, canonical_default_workspace_root} =
              Aiur.PathSafety.canonicalize(Path.join(System.tmp_dir!(), "aiur_workspaces"))
@@ -866,15 +866,15 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "excludeSlashTmp" => false
            }
 
-    assert config.codex.turn_timeout_ms == 3_600_000
-    assert config.codex.read_timeout_ms == 5_000
-    assert config.codex.stall_timeout_ms == 300_000
+    assert config.agent.turn_timeout_ms == 3_600_000
+    assert config.agent.codex.read_timeout_ms == 5_000
+    assert config.agent.stall_timeout_ms == 300_000
 
     write_workflow_file!(Workflow.workflow_file_path(),
       codex_command: "codex --config 'model=\"gpt-5.5\"' app-server"
     )
 
-    assert Config.settings!().codex.command ==
+    assert Config.settings!().agent.codex.command ==
              "codex --config 'model=\"gpt-5.5\"' app-server"
 
     explicit_root =
@@ -900,8 +900,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
     )
 
     config = Config.settings!()
-    assert config.codex.approval_policy == "on-request"
-    assert config.codex.thread_sandbox == "workspace-write"
+    assert config.agent.codex.approval_policy == "on-request"
+    assert config.agent.codex.thread_sandbox == "workspace-write"
 
     assert Config.codex_turn_sandbox_policy(explicit_workspace) == %{
              "type" => "workspaceWrite",
@@ -922,15 +922,15 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_turn_timeout_ms: "bad")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
-    assert message =~ "codex.turn_timeout_ms"
+    assert message =~ "agent.turn_timeout_ms"
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_read_timeout_ms: "bad")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
-    assert message =~ "codex.read_timeout_ms"
+    assert message =~ "read_timeout_ms"
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_stall_timeout_ms: "bad")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
-    assert message =~ "codex.stall_timeout_ms"
+    assert message =~ "agent.stall_timeout_ms"
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_active_states: %{todo: true},
@@ -951,11 +951,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: "")
     assert :ok = Config.validate!()
-    assert Config.settings!().codex.approval_policy == ""
+    assert Config.settings!().agent.codex.approval_policy == ""
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: "")
     assert :ok = Config.validate!()
-    assert Config.settings!().codex.thread_sandbox == ""
+    assert Config.settings!().agent.codex.thread_sandbox == ""
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_turn_sandbox_policy: "bad")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
@@ -971,8 +971,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
     )
 
     config = Config.settings!()
-    assert config.codex.approval_policy == "future-policy"
-    assert config.codex.thread_sandbox == "future-sandbox"
+    assert config.agent.codex.approval_policy == "future-policy"
+    assert config.agent.codex.thread_sandbox == "future-sandbox"
 
     assert :ok = Config.validate!()
 
@@ -982,7 +982,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
            }
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "codex app-server")
-    assert Config.settings!().codex.command == "codex app-server"
+    assert Config.settings!().agent.codex.command == "codex app-server"
   end
 
   test "config resolves $VAR references for env-backed secret and path values" do
@@ -1010,9 +1010,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     )
 
     config = Config.settings!()
-    assert config.tracker.api_key == api_key
+    assert config.tracker.linear.api_key == api_key
     assert config.workspace.root == Path.expand(workspace_root)
-    assert config.codex.command == "#{codex_bin} app-server"
+    assert config.agent.codex.command == "#{codex_bin} app-server"
   end
 
   test "config no longer resolves legacy env: references" do
@@ -1038,7 +1038,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     )
 
     config = Config.settings!()
-    assert config.tracker.api_key == "env:#{api_key_env_var}"
+    assert config.tracker.linear.api_key == "env:#{api_key_env_var}"
     assert config.workspace.root == "env:#{workspace_env_var}"
   end
 
@@ -1127,12 +1127,59 @@ defmodule Aiur.WorkspaceAndConfigTest do
              _ -> false
            end)
 
+    # backend:model routing values: the backend part must be known, the
+    # model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
+    assert Schema.split_routing_value("claude") == {"claude", nil}
+    assert Schema.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
+    assert Schema.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+
+    with_model =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "claude:sonnet", 5 => "codex"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert with_model.errors == []
+
+    bad_model_backend =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "bogus:sonnet"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert Enum.any?(bad_model_backend.errors, fn
+             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             _ -> false
+           end)
+
     repl =
       {%{}, %{routing: :map}}
       |> Changeset.cast(%{routing: %{4 => "claude-repl"}}, [:routing])
       |> Schema.validate_agent_routing(:routing)
 
     assert repl.errors == []
+
+    # `+remote` flag: stripped from backend/model, surfaced by
+    # routing_remote_flag?, and only valid on a remote-capable backend.
+    assert Schema.split_routing_value("claude:haiku+remote") == {"claude", "haiku"}
+    assert Schema.split_routing_value("claude+remote") == {"claude", nil}
+    assert Schema.routing_remote_flag?("claude:haiku+remote")
+    refute Schema.routing_remote_flag?("claude:haiku")
+
+    remote_ok =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{1 => "claude:haiku+remote"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert remote_ok.errors == []
+
+    remote_bad =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{1 => "codex:gpt-5.4+remote"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert Enum.any?(remote_bad.errors, fn
+             {:routing, {msg, []}} -> msg =~ "remote-capable backend"
+             _ -> false
+           end)
   end
 
   test "remote_control opt-in defaults OFF and parses an explicit true" do
@@ -1161,6 +1208,20 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
+  end
+
+  test "agent.max_agent_duration_minutes defaults to 60 and rejects negatives" do
+    # Safety-net cap the orchestrator's overrun watchdog reads; 0 disables.
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.max_agent_duration_minutes == 60
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_agent_duration_minutes: 0}})
+
+    assert settings.agent.max_agent_duration_minutes == 0
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_agent_duration_minutes: -1}})
   end
 
   test "complexity prompts normalize string levels and reject bad levels/values" do
@@ -1211,25 +1272,25 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert {:ok, settings} =
              Schema.parse(%{
-               tracker: %{api_key: "$#{empty_secret_env}"},
+               tracker: %{linear: %{api_key: "$#{empty_secret_env}"}},
                workspace: %{root: "$#{missing_workspace_env}"},
-               codex: %{approval_policy: %{reject: %{sandbox_approval: true}}}
+               agent: %{codex: %{approval_policy: %{reject: %{sandbox_approval: true}}}}
              })
 
-    assert settings.tracker.api_key == nil
+    assert settings.tracker.linear.api_key == nil
     assert settings.workspace.root == Path.join(System.tmp_dir!(), "aiur_workspaces")
 
-    assert settings.codex.approval_policy == %{
+    assert settings.agent.codex.approval_policy == %{
              "reject" => %{"sandbox_approval" => true}
            }
 
     assert {:ok, settings} =
              Schema.parse(%{
-               tracker: %{api_key: "$#{missing_secret_env}"},
+               tracker: %{linear: %{api_key: "$#{missing_secret_env}"}},
                workspace: %{root: ""}
              })
 
-    assert settings.tracker.api_key == "fallback-linear-token"
+    assert settings.tracker.linear.api_key == "fallback-linear-token"
     assert settings.workspace.root == Path.join(System.tmp_dir!(), "aiur_workspaces")
   end
 
@@ -1237,12 +1298,12 @@ defmodule Aiur.WorkspaceAndConfigTest do
     explicit_policy = %{"type" => "workspaceWrite", "writableRoots" => ["/tmp/explicit"]}
 
     assert Schema.resolve_turn_sandbox_policy(%Schema{
-             codex: %Codex{turn_sandbox_policy: explicit_policy},
+             agent: %Schema.Agent{codex: %Codex{turn_sandbox_policy: explicit_policy}},
              workspace: %Schema.Workspace{root: "/tmp/ignored"}
            }) == explicit_policy
 
     assert Schema.resolve_turn_sandbox_policy(%Schema{
-             codex: %Codex{turn_sandbox_policy: nil},
+             agent: %Schema.Agent{codex: %Codex{turn_sandbox_policy: nil}},
              workspace: %Schema.Workspace{root: ""}
            }) == %{
              "type" => "workspaceWrite",
@@ -1255,7 +1316,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert Schema.resolve_turn_sandbox_policy(
              %Schema{
-               codex: %Codex{turn_sandbox_policy: nil},
+               agent: %Schema.Agent{codex: %Codex{turn_sandbox_policy: nil}},
                workspace: %Schema.Workspace{root: "/tmp/ignored"}
              },
              "/tmp/workspace"
@@ -1273,7 +1334,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:ok, settings} =
              Schema.parse(%{
                workspace: %{root: "~/.aiur-workspaces"},
-               codex: %{}
+               agent: %{codex: %{}}
              })
 
     assert settings.workspace.root == "~/.aiur-workspaces"
@@ -1388,7 +1449,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       read_only_settings = %{
         settings
-        | codex: %{settings.codex | turn_sandbox_policy: %{"type" => "readOnly", "networkAccess" => true}}
+        | agent: %{
+            settings.agent
+            | codex: %{settings.agent.codex | turn_sandbox_policy: %{"type" => "readOnly", "networkAccess" => true}}
+          }
       }
 
       assert {:ok, %{"type" => "readOnly", "networkAccess" => true}} =
@@ -1396,7 +1460,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       future_settings = %{
         settings
-        | codex: %{settings.codex | turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}}
+        | agent: %{
+            settings.agent
+            | codex: %{settings.agent.codex | turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}}
+          }
       }
 
       assert {:ok, %{"type" => "futureSandbox", "nested" => %{"flag" => true}}} =

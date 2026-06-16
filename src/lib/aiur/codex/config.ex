@@ -139,6 +139,8 @@ defmodule Aiur.Codex.Config do
   end
 
   defp section_value(key) do
-    Map.get(Aiur.Config.section("codex"), key)
+    Aiur.Config.settings!().agent.codex
+    |> Map.from_struct()
+    |> Map.get(String.to_existing_atom(key))
   end
 end

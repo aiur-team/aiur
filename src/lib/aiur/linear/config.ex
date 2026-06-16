@@ -58,7 +58,9 @@ defmodule Aiur.Linear.Config do
   end
 
   defp section_value(key) do
-    Map.get(Aiur.Config.section("linear"), key)
+    Aiur.Config.settings!().tracker.linear
+    |> Map.from_struct()
+    |> Map.get(String.to_existing_atom(key))
   end
 
   defp resolve_env_value(nil, fallback), do: fallback

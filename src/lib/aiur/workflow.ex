@@ -17,9 +17,26 @@ defmodule Aiur.Workflow do
     Application.get_env(:aiur, :workflow_file_path) || detect_run_folder_config()
   end
 
+  @doc """
+  Resolve the config path: the repo-local `./.aiurconfig` if present, else
+  the global `~/.aiurconfig` if present, else the local path (so the caller
+  surfaces the "run aiur init" not-found error). When the global config is
+  used it carries no repo — `Aiur.GitHub.Config.repo/0` auto-detects it
+  from the cwd's git remote.
+  """
   @spec detect_run_folder_config() :: Path.t()
   def detect_run_folder_config do
-    Path.join(File.cwd!(), @config_file_name)
+    resolve_config_path(Path.join(File.cwd!(), @config_file_name), Path.expand("~/" <> @config_file_name))
+  end
+
+  @doc false
+  @spec resolve_config_path(Path.t(), Path.t()) :: Path.t()
+  def resolve_config_path(local, global) do
+    cond do
+      File.regular?(local) -> local
+      File.regular?(global) -> global
+      true -> local
+    end
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok

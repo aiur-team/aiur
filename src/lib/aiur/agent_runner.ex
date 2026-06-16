@@ -418,17 +418,25 @@ defmodule Aiur.AgentRunner do
     model = CodingAgent.model_for(issue)
 
     rc? =
-      (CodingAgent.remote_control_forced?(issue) or Config.agent_remote_control?()) and
-        CodingAgent.remote_control?(backend)
+      (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
+         Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
 
-    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{backend} model=#{inspect(model)} remote_control=#{rc?}")
+    session_backend = remote_session_backend(backend, rc?)
+
+    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} remote_control=#{rc?}")
 
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
     end)
 
     session_opts =
-      [backend: backend, model: model, worker_host: worker_host, remote_control: rc?, identifier: issue.identifier]
+      [
+        backend: session_backend,
+        model: model,
+        worker_host: worker_host,
+        remote_control: rc?,
+        identifier: issue.identifier
+      ]
       |> maybe_put_rc_name(rc?, issue)
 
     with {:ok, session} <- start_agent_session(workspace, session_opts) do
@@ -522,6 +530,14 @@ defmodule Aiur.AgentRunner do
   # the default name.
   defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
   defp maybe_put_rc_name(opts, false, _issue), do: opts
+
+  # Remote control physically runs on the persistent-REPL transport, so a
+  # remote-on claude issue dispatches `claude-repl` (carrying the resolved
+  # model). Other backends — and non-remote claude — run as resolved.
+  @doc false
+  @spec remote_session_backend(String.t(), boolean()) :: String.t()
+  def remote_session_backend("claude", true), do: "claude-repl"
+  def remote_session_backend(backend, _rc?), do: backend
 
   # Seed the workspace trust flag before an RC REPL spawns. RC refuses to
   # start in an untrusted directory; without this the REPL sticks on the
@@ -665,7 +681,7 @@ defmodule Aiur.AgentRunner do
         end
 
       {:paused, pause_payload} ->
-        Logger.info("Paused agent run for #{issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
+        Logger.info("Paused agent run for #{issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
         write_pause_log(workspace, worker_host)
@@ -693,13 +709,15 @@ defmodule Aiur.AgentRunner do
       max_turns: max_turns
     } = turn_context
 
-    Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
+    Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
     case continue_with_issue?(issue, issue_state_fetcher) do
-      {:continue, refreshed_issue} when turn_number < max_turns ->
-        Logger.info("aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns} reason=turn_completed")
+      {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
+        Logger.info(
+          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns_display(max_turns)} reason=turn_completed"
+        )
 
-        Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
+        Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
         continue_issue_turn(%{turn_context | issue: refreshed_issue, turn_number: turn_number + 1}, app_session)
 
@@ -736,9 +754,10 @@ defmodule Aiur.AgentRunner do
              codex_update_recipient
            ) do
       case continue_with_issue?(issue, turn_context.issue_state_fetcher) do
-        {:continue, refreshed_issue} when turn_context.turn_number < turn_context.max_turns ->
+        {:continue, refreshed_issue}
+        when is_nil(turn_context.max_turns) or turn_context.turn_number < turn_context.max_turns ->
           Logger.info(
-            "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{turn_context.max_turns} reason=resume"
+            "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{max_turns_display(turn_context.max_turns)} reason=resume"
           )
 
           continue_issue_turn(
@@ -1316,6 +1335,14 @@ defmodule Aiur.AgentRunner do
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
   end
 
+  # nil max_turns = uncapped: logs show the turn count over "∞", and the
+  # continuation prompt omits the "of M" entirely.
+  defp max_turns_display(nil), do: "∞"
+  defp max_turns_display(max_turns), do: Integer.to_string(max_turns)
+
+  defp turn_of(nil), do: ""
+  defp turn_of(max_turns), do: " of #{max_turns}"
+
   defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)
 
   defp build_turn_prompt(_issue, _opts, turn_number, max_turns) do
@@ -1323,7 +1350,7 @@ defmodule Aiur.AgentRunner do
     Continuation guidance:
 
     - The previous turn completed normally, but the issue is still in an active state.
-    - This is continuation turn ##{turn_number} of #{max_turns} for the current agent run.
+    - This is continuation turn ##{turn_number}#{turn_of(max_turns)} for the current agent run.
     - Resume from the current workspace and workpad state instead of restarting from scratch.
     - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.

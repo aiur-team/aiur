@@ -94,7 +94,7 @@ defmodule Aiur.Linear.Tracker do
     end
   end
 
-  # The `model:claude-remote` promote/demote toggle is a GitHub-label concept;
+  # The `model:remote` promote/demote toggle is a GitHub-label concept;
   # Linear has no equivalent label op wired here.
   @spec add_label(String.t(), String.t()) :: {:error, term()}
   def add_label(_issue_id, _label), do: {:error, :unsupported}

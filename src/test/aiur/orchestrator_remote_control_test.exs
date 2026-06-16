@@ -8,7 +8,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.State
 
-  @remote_label "model:claude-remote"
+  @remote_label "model:remote"
 
   defp running_entry(identifier, labels, overrides) do
     issue = %Issue{id: "issue-#{identifier}", identifier: identifier, labels: labels}

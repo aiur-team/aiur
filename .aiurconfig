@@ -15,9 +15,9 @@ tracker:
     - done
     - cancelled
     - canceled
-github:
-  repo: its-everdred/aiur
-  label_prefix: agent
+  github:
+    repo: its-everdred/aiur
+    label_prefix: agent
 polling:
   interval_seconds: 5
 max_vertical_panes: 3
@@ -106,23 +106,22 @@ agent:
   routing:
     4: claude
     5: claude
-claude:
-  command: aiur-claude
-  version: opus-4-8
-  # `model` is omitted so the app-server / claude CLI uses its own default
-  # model. Set it (e.g. model: claude-sonnet-4-6) to pin turns to a
-  # specific model; the value is sent verbatim as `claude --model <value>`.
-codex:
-  command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
-  approval_policy: never
-  thread_sandbox: workspace-write
-  turn_sandbox_policy:
-    type: workspaceWrite
-    writableRoots:
-      - /home/applekid/code/aiur-workspaces
-      - /home/orangekid/code/aiur-workspaces
-      - /tmp
-    networkAccess: true
+  claude:
+    command: aiur-claude
+    # `model` is omitted so the app-server / claude CLI uses its own default
+    # model. Set it (e.g. model: claude-sonnet-4-6) to pin turns to a
+    # specific model; the value is sent verbatim as `claude --model <value>`.
+  codex:
+    command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
+    approval_policy: never
+    thread_sandbox: workspace-write
+    turn_sandbox_policy:
+      type: workspaceWrite
+      writableRoots:
+        - /home/applekid/code/aiur-workspaces
+        - /home/orangekid/code/aiur-workspaces
+        - /tmp
+      networkAccess: true
 opencode:
   command: opencode
   bridge_host: 127.0.0.1

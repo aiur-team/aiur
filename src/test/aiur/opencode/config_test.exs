@@ -25,6 +25,9 @@ defmodule Aiur.Opencode.ConfigTest do
       assert Config.bridge_port() == 4097
       assert Config.model_prefix() == "aiur"
       assert Config.serve_args() == []
+      # Regression: an omitted opencode section must not crash prewarm_disabled?
+      # (it once raised badarg in String.to_existing_atom, killing interactive boot).
+      refute Config.prewarm_disabled?()
     end
 
     test "reads overrides from .aiurconfig" do

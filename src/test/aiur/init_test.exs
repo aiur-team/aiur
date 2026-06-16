@@ -1,46 +1,68 @@
 defmodule Aiur.InitTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Config
+  alias Aiur.GitHub.Labels
   alias Aiur.Init
   alias Aiur.Workflow
+
+  @example_file Path.expand("../../../.aiurconfig.example", __DIR__)
 
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
+    target = Path.join(dir, ".aiurconfig")
+    # The wizard writes `prompt_file: AIUR.md`; Workflow.load resolves it, so
+    # the file must exist alongside the config for the written config to load.
+    File.write!(Path.join(dir, "AIUR.md"), "# agent prompt\n")
     on_exit(fn -> File.rm_rf!(dir) end)
-    {:ok, dir: dir}
+    {:ok, dir: dir, target: target}
   end
 
-  defp io(parent, inputs \\ []) do
-    {:ok, queue} = Agent.start_link(fn -> inputs end)
-
+  # Label-keyed scripted io: each prompt looks up its answer by label and
+  # falls back to the supplied default, so a test scripts only the answers it
+  # cares about regardless of prompt order.
+  defp io(parent, answers \\ %{}) do
     %{
       puts: fn message ->
         send(parent, {:puts, IO.chardata_to_string(message)})
         :ok
       end,
-      gets: fn _prompt ->
-        Agent.get_and_update(queue, fn
-          [head | tail] -> {head, tail}
-          [] -> {:eof, []}
-        end)
-      end
+      input: fn label, default, _hint ->
+        send(parent, {:input_label, label})
+        Map.get(Map.get(answers, :input, %{}), label, default)
+      end,
+      select: fn label, _opts, default -> Map.get(Map.get(answers, :select, %{}), label, default) end,
+      multiselect: fn label, _opts, defaults ->
+        Map.get(Map.get(answers, :multiselect, %{}), label, defaults)
+      end,
+      confirm: fn label, default -> Map.get(Map.get(answers, :confirm, %{}), label, default) end
     }
   end
 
-  defp deps(dir, overrides \\ %{}) do
-    parent = self()
-
+  defp deps(parent, dir, target, overrides \\ %{}) do
     Map.merge(
       %{
-        existing_config_path: fn -> nil end,
+        config_target: fn _location -> target end,
+        existing_config_path: fn t -> if File.regular?(t), do: t end,
+        load_config: fn t ->
+          with {:ok, loaded} <- Workflow.load(t), do: {:ok, loaded.config}
+        end,
+        read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
-        write_config: fn yaml ->
-          path = Path.join(dir, ".aiurconfig")
-          File.write!(path, yaml)
-          send(parent, {:write, path})
-          {:ok, path}
+        write_config: fn t, yaml ->
+          File.write!(t, yaml)
+          send(parent, {:write, t})
+          {:ok, t}
+        end,
+        ensure_prompt_file: fn t, pf ->
+          path = Path.expand(pf, Path.dirname(t))
+
+          if File.regular?(path) do
+            {:exists, path}
+          else
+            File.write!(path, "# prompt\n")
+            {:created, path}
+          end
         end,
         ensure_env: fn content ->
           File.write!(Path.join(dir, ".env.example"), content)
@@ -54,7 +76,8 @@ defmodule Aiur.InitTest do
           end
         end,
         check_agent_auth: fn _kind -> :ok end,
-        check_tracker_auth: fn _tracker -> :ok end,
+        github_token: fn -> nil end,
+        list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})
           :ok
@@ -69,311 +92,621 @@ defmodule Aiur.InitTest do
     loaded.config
   end
 
-  describe "existing-config guard (R7)" do
-    test "aborts when a config already exists and --force is not passed", %{dir: dir} do
-      deps = deps(dir, %{existing_config_path: fn -> "/repo/.aiurconfig" end})
+  defp puts_log(acc \\ []) do
+    receive do
+      {:puts, msg} -> puts_log([msg | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 
-      assert {:error, message} = Init.run(%{force: false}, io(self()), deps)
-      assert message =~ ".aiurconfig already exists"
+  defp input_labels(acc \\ []) do
+    receive do
+      {:input_label, label} -> input_labels([label | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp auth_kinds(acc \\ []) do
+    receive do
+      {:auth_kind, kind} -> auth_kinds([kind | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp input_hints(acc \\ []) do
+    receive do
+      {:input_hint, label, hint} -> input_hints([{label, hint} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp select_labels(acc \\ []) do
+    receive do
+      {:select_label, label} -> select_labels([label | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  # Flattened labels across every staged create_labels call.
+  defp labels_created(acc \\ []) do
+    receive do
+      {:labels, _tracker, labels} -> labels_created(acc ++ labels)
+    after
+      0 -> acc
+    end
+  end
+
+  @duration_label "Max agent duration in minutes"
+
+  @location_label "Where will you store aiur settings for this project?"
+
+  defp github_answers(overrides \\ %{}) do
+    base = %{
+      select: %{@location_label => "repo", "Issue tracker" => "github"},
+      input: %{"GitHub repo (owner/name)" => "octo/repo"},
+      multiselect: %{"Which agents to support" => ["claude"]}
+    }
+
+    Map.merge(base, overrides, fn _k, v1, v2 -> Map.merge(v1, v2) end)
+  end
+
+  describe "existing-config handling" do
+    test "an unreadable existing config errors with a --force hint", %{dir: dir, target: target} do
+      File.write!(target, "- not\n- a\n- map\n")
+
+      assert {:error, message} =
+               Init.run(%{force: false}, io(self()), deps(self(), dir, target))
+
+      assert message =~ "Couldn't read"
       assert message =~ "--force"
-      refute_received {:puts, _}
-      refute_received {:write, _}
     end
 
-    test "proceeds when a config exists but --force is passed", %{dir: dir} do
-      deps = deps(dir, %{existing_config_path: fn -> "/repo/.aiurconfig" end})
+    test "proceeds when the target exists but --force is passed", %{dir: dir, target: target} do
+      File.write!(target, "existing")
 
-      assert :ok = Init.run(%{force: true}, io(self(), ["memory"]), deps)
-      assert_received {:write, _}
+      assert :ok =
+               Init.run(%{force: true}, io(self(), github_answers()), deps(self(), dir, target))
+    end
+
+    test "a valid existing config resumes: skips intro, shows summary, provisions", %{
+      dir: dir,
+      target: target
+    } do
+      d = deps(self(), dir, target)
+      # First run writes a valid config.
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+      _ = puts_log()
+      _ = input_labels()
+
+      # Re-run with no scripted intro answers: it must resume, not re-ask.
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      refute Enum.any?(input_labels(), &(&1 =~ ~r/Where should agents work/))
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/Saved selections/i))
+      # The summary lists every saved selection, not just the first few.
+      assert Enum.any?(log, &(&1 =~ ~r/repo: octo\/repo/))
+      assert Enum.any?(log, &(&1 =~ ~r/routing: 1:/))
+      assert Enum.any?(log, &(&1 =~ ~r/permission_mode: bypassPermissions/))
+      assert Enum.any?(log, &(&1 =~ ~r/workspace_root:/))
+      assert Enum.any?(log, &(&1 =~ ~r/polling_interval_seconds: 30/))
+    end
+
+    test "resume never runs a CLI auth check for the claude-repl transport", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      # existing_config_path only needs the file to exist; load_config is stubbed.
+      File.write!(target, "placeholder")
+
+      config = %{
+        "tracker" => %{"kind" => "memory"},
+        "agent" => %{"kind" => "claude", "routing" => %{"5" => "claude-repl"}}
+      }
+
+      d =
+        deps(parent, dir, target, %{
+          load_config: fn _t -> {:ok, config} end,
+          check_agent_auth: fn kind ->
+            send(parent, {:auth_kind, kind})
+            :ok
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent), d)
+
+      kinds = auth_kinds()
+      assert "claude" in kinds
+      refute "claude-repl" in kinds
+    end
+
+    test "resume skips the location question when a config already exists", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      d = deps(parent, dir, target)
+      # First run writes a config.
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+      _ = puts_log()
+
+      recording = %{
+        io(parent)
+        | select: fn label, _opts, default ->
+            send(parent, {:select_label, label})
+            default
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, recording, d)
+
+      refute Enum.any?(select_labels(), &(&1 =~ ~r/where will you store/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
     end
   end
 
-  describe "tracker prompts and config assembly (R2, R4, R5, R9)" do
-    test "github tracker writes repo, label_prefix, and a starter routing table", %{dir: dir} do
-      inputs = ["github", "octo/repo", "team"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+  describe "parse_dotenv/1" do
+    test "parses KEY=VALUE pairs, skipping comments, blanks, and empty values" do
+      content = """
+      # a comment
+      GITHUB_TOKEN=ghp_abc123
 
-      assert_received {:write, path}
-      config = written_config(path)
+      QUOTED="with-quotes"
+      SINGLE='single'
+      EMPTY=
+      NO_EQUALS_LINE
+      SPACED = padded
+      """
 
+      pairs = Init.parse_dotenv(content)
+
+      assert {"GITHUB_TOKEN", "ghp_abc123"} in pairs
+      assert {"QUOTED", "with-quotes"} in pairs
+      assert {"SINGLE", "single"} in pairs
+      assert {"SPACED", "padded"} in pairs
+      refute Enum.any?(pairs, fn {k, _} -> k == "EMPTY" end)
+      refute Enum.any?(pairs, fn {k, _} -> k == "NO_EQUALS_LINE" end)
+    end
+  end
+
+  describe "tracker prompts fill the nested template" do
+    test "the issue tracker offers github and linear, never memory", %{dir: dir, target: target} do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | select: fn label, opts, default ->
+            send(parent, {:select_opts, label, opts})
+            Map.get(Map.get(answers, :select, %{}), label, default)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      assert_received {:select_opts, "Issue tracker", opts}
+      assert opts == ["github", "linear"]
+    end
+
+    test "github writes tracker.github.* and a routing table", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      config = written_config(target)
       assert config["tracker"]["kind"] == "github"
-      assert config["github"]["repo"] == "octo/repo"
-      assert config["github"]["label_prefix"] == "team"
+      assert config["tracker"]["github"]["repo"] == "octo/repo"
+      # label_prefix is fixed (`agent`) and omitted from the written config.
+      refute Map.has_key?(config["tracker"]["github"], "label_prefix")
       assert config["agent"]["kind"] == "claude"
-      assert config["agent"]["routing"] == %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"}
-      assert config["agent"]["complexity_prompts"] == %{1 => "", 2 => "", 3 => "", 4 => "", 5 => ""}
+      assert config["agent"]["max_agent_duration_minutes"] == 60
+
+      routing = config["agent"]["routing"]
+      assert map_size(routing) == 5
+      assert routing |> Map.values() |> Enum.uniq() == ["claude"]
     end
 
-    test "github repo prompt pre-fills from the detected remote", %{dir: dir} do
-      deps = deps(dir, %{detect_repo: fn -> "me/app" end})
-      # Empty repo + prefix inputs accept the detected/default values.
-      assert :ok = Init.run(%{force: false}, io(self(), ["github", "", ""]), deps)
+    test "the global config omits the repo (auto-detected at runtime)", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{@location_label => "global"}})
 
-      assert_received {:write, path}
-      config = written_config(path)
-      assert config["github"]["repo"] == "me/app"
-      assert config["github"]["label_prefix"] == "aiur"
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      config = written_config(target)
+      assert config["tracker"]["kind"] == "github"
+      refute Map.has_key?(config["tracker"]["github"] || %{}, "repo")
     end
 
-    test "no git remote leaves repo unset (nil pre-fill)", %{dir: dir} do
-      deps = deps(dir, %{detect_repo: fn -> nil end})
-      assert :ok = Init.run(%{force: false}, io(self(), ["github", "", ""]), deps)
+    test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do
+      answers = %{
+        select: %{@location_label => "repo", "Issue tracker" => "linear"},
+        input: %{"Linear API key" => "lin_key_123", "Linear project slug" => "team-alpha"},
+        multiselect: %{"Which agents to support" => ["codex"]},
+        confirm: %{"Set specific models per complexity tag?" => false}
+      }
 
-      assert_received {:write, path}
-      config = written_config(path)
-      refute Map.has_key?(config["github"], "repo")
-    end
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
-    test "linear tracker writes api_key and project_slug", %{dir: dir} do
-      inputs = ["linear", "lin_key_123", "team-alpha"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
-
-      assert_received {:write, path}
-      config = written_config(path)
+      config = written_config(target)
       assert config["tracker"]["kind"] == "linear"
-      assert config["linear"]["api_key"] == "lin_key_123"
-      assert config["linear"]["project_slug"] == "team-alpha"
+      assert config["tracker"]["linear"]["api_key"] == "lin_key_123"
+      assert config["tracker"]["linear"]["project_slug"] == "team-alpha"
+
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Linear support is LIMITED/i))
     end
 
-    test "memory tracker writes a minimal config", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["memory"]), deps(dir))
+    test "repo-local init creates the prompt file the config references", %{dir: dir, target: target} do
+      File.rm!(Path.join(dir, "AIUR.md"))
 
-      assert_received {:write, path}
-      config = written_config(path)
-      assert config["tracker"]["kind"] == "memory"
-      refute Map.has_key?(config, "github")
-      refute Map.has_key?(config, "linear")
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert File.regular?(Path.join(dir, "AIUR.md"))
     end
 
-    test "re-prompts on an unrecognized tracker kind", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["bogus", "memory"]), deps(dir))
-      assert_received {:puts, "Setting up aiur in this repo."}
-      assert_received {:puts, message}
-      assert message =~ "Please choose one of"
+    test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{@location_label => "global"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      assert written_config(target)["prompt_file"] == nil
     end
   end
 
-  describe ".env scaffold for the github tracker" do
-    test "creates .env from .env.example and prints token steps", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["github", "octo/repo", "team"]), deps(dir))
+  describe "limits and helper text" do
+    test "max turns defaults to none (uncapped)", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert written_config(target)["agent"]["max_turns"] == "none"
+    end
+
+    test "the polling question explains what polling does", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker for new work/i))
+    end
+
+    test "limit prompts carry their helper text as hints; pre-warm has none", %{dir: dir, target: target} do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | input: fn label, default, hint ->
+            send(parent, {:input_hint, label, hint})
+            Map.get(Map.get(answers, :input, %{}), label, default)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      hints = input_hints()
+
+      assert {"Max turns per issue", "none = unlimited"} in hints
+
+      assert Enum.any?(hints, fn {label, hint} ->
+               label == "Max agent duration in minutes" and hint == "Fallback for stuck agents: none = never auto-kill"
+             end)
+
+      # pre-warm no longer carries a hint
+      assert {"How many opencode sessions would you like to pre-warm?", nil} in hints
+    end
+
+    test "a numeric max agent duration is written", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@duration_label => "30"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      assert written_config(target)["agent"]["max_agent_duration_minutes"] == 30
+    end
+
+    test "max agent duration of none disables the watchdog (writes 0)", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@duration_label => "none"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      assert written_config(target)["agent"]["max_agent_duration_minutes"] == 0
+    end
+  end
+
+  describe "agents, routing, permission mode" do
+    test "the agent multiselect offers only claude and codex (never claude-repl)", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | multiselect: fn label, opts, defaults ->
+            send(parent, {:multiselect_opts, label, opts})
+            Map.get(Map.get(answers, :multiselect, %{}), label, defaults)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      assert_received {:multiselect_opts, "Which agents to support", opts}
+      assert opts == ["claude", "codex"]
+    end
+
+    test "the location options carry greyed config-path help", %{dir: dir, target: target} do
+      parent = self()
+      answers = github_answers()
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | select: fn label, opts, default ->
+            send(parent, {:select_opts, label, opts})
+            Map.get(Map.get(answers, :select, %{}), label, default)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      assert_received {:select_opts, "Where will you store aiur settings for this project?", opts}
+      assert opts == ["repo (./.aiurconfig)", "global (~/.aiurconfig)"]
+    end
+
+    test "accepting the gate sets a default model per complexity tag", %{dir: dir, target: target} do
+      answers =
+        github_answers(%{
+          multiselect: %{"Which agents to support" => ["claude", "codex"]},
+          confirm: %{"Would you like to select models for 5 complexity tags?" => true},
+          select: %{
+            "complexity:1" => "claude:haiku",
+            "complexity:2" => "codex",
+            "complexity:5" => "claude:sonnet"
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      routing = written_config(target)["agent"]["routing"]
+      assert routing[1] == "claude:haiku"
+      assert routing[2] == "codex"
+      assert routing[5] == "claude:sonnet"
+      # unscripted tags fall to the primary default; no remote prompt is asked.
+      assert routing[3] == "claude"
+      refute Enum.any?(routing, fn {_level, value} -> String.contains?(value, "+remote") end)
+
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/optimize agent effort per ticket/i))
+    end
+
+    test "declining the gate routes every tag to the primary default", %{dir: dir, target: target} do
+      answers =
+        github_answers(%{
+          confirm: %{"Would you like to select models for 5 complexity tags?" => false}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      routing = written_config(target)["agent"]["routing"]
+      assert routing |> Map.values() |> Enum.uniq() == ["claude"]
+    end
+
+    test "interactive permission modes redirect to bypassPermissions", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{"Claude permission mode" => "acceptEdits (coming soon)"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      assert written_config(target)["agent"]["claude"]["permission_mode"] == "bypassPermissions"
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/coming soon/i))
+    end
+  end
+
+  describe "closing steps (github)" do
+    test "scaffolds .env and walks through the bot-account token", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
       assert File.read!(Path.join(dir, ".env.example")) =~ "GITHUB_TOKEN="
       assert File.read!(Path.join(dir, ".env")) =~ "GITHUB_TOKEN="
 
-      assert_received {:puts, "Setting up aiur in this repo."}
-      assert_received {:puts, "Wrote " <> _}
-      assert_received {:puts, created}
-      assert created =~ "Created"
-      assert created =~ ".env"
-      assert_received {:puts, set_token}
-      assert set_token =~ "Set GITHUB_TOKEN"
-      assert_received {:puts, url}
-      assert url =~ "https://github.com/settings/tokens"
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/bot account/i))
+      assert Enum.any?(log, &(&1 =~ "settings/tokens"))
     end
 
-    test "leaves an existing .env untouched", %{dir: dir} do
-      env_path = Path.join(dir, ".env")
-      File.write!(env_path, "GITHUB_TOKEN=keepme\n")
+    test "closing file lines use Created:/Found: and drop the setup preamble", %{
+      dir: dir,
+      target: target
+    } do
+      # Pre-create .env so it is reported as Found, not Created.
+      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=\n")
 
-      assert :ok = Init.run(%{force: false}, io(self(), ["github", "octo/repo", "team"]), deps(dir))
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert File.read!(env_path) == "GITHUB_TOKEN=keepme\n"
-      assert_received {:puts, "Setting up aiur in this repo."}
-      assert_received {:puts, "Wrote " <> _}
-      assert_received {:puts, found}
-      assert found =~ "Found existing"
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/^Created: /))
+      assert Enum.any?(log, &(&1 =~ ~r/^Found: /))
+      refute Enum.any?(log, &(&1 =~ ~r/leaving it in place/))
+      refute Enum.any?(log, &(&1 =~ ~r/^Wrote /))
+      refute Enum.any?(log, &(&1 =~ ~r/Setting up aiur/))
     end
 
-    test "skips .env scaffold for the memory tracker", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["memory"]), deps(dir))
+    test "with no token: explains the next step and skips label creation", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      refute File.exists?(Path.join(dir, ".env.example"))
-      refute File.exists?(Path.join(dir, ".env"))
-    end
-  end
-
-  describe "agent selection (U4)" do
-    test "re-prompts until at least one known agent is chosen", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["memory", "bogus", "claude"]), deps(dir))
-
-      assert_received {:puts, "Setting up aiur in this repo."}
-      assert_received {:puts, choose}
-      assert choose =~ "Please choose at least one"
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/run `aiur init` again/i))
+      refute_received {:labels, _tracker, _labels}
     end
 
-    test "writes a chosen claude model to the claude section", %{dir: dir} do
-      inputs = ["memory", "claude", "sonnet"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+    test "no-token instructions give explicit classic and fine-grained click-paths", %{
+      dir: dir,
+      target: target
+    } do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert_received {:write, path}
-      assert written_config(path)["claude"]["model"] == "sonnet"
-    end
-  end
+      log = puts_log()
+      joined = Enum.join(log, "\n")
 
-  describe "background auth checks (U4, R5/R6)" do
-    test "stays silent and proceeds when every check passes", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["memory", "claude", "opus"]), deps(dir))
-
-      assert_received {:write, _}
-      refute_received {:puts, "⚠" <> _}
-    end
-
-    test "only checks the agents that were chosen", %{dir: dir} do
-      parent = self()
-
-      overrides = %{
-        check_agent_auth: fn kind ->
-          send(parent, {:agent_checked, kind})
-          :ok
-        end
-      }
-
-      assert :ok =
-               Init.run(%{force: false}, io(self(), ["memory", "claude", "opus"]), deps(dir, overrides))
-
-      assert_received {:agent_checked, "claude"}
-      refute_received {:agent_checked, "codex"}
+      assert joined =~ "Generate new token (classic)"
+      assert joined =~ "repo` scope"
+      assert joined =~ "Only select repositories"
+      assert joined =~ "Read and write"
+      assert joined =~ "Issues"
+      assert joined =~ "Contents"
+      assert joined =~ "Pull requests"
+      assert joined =~ "write access to this repo"
     end
 
-    test "warns on a failed tracker check but still writes the config (R6)", %{dir: dir} do
-      overrides = %{
-        check_tracker_auth: fn _tracker -> {:error, "GITHUB_TOKEN not set"} end
-      }
+    test "with a token: creates labels and shows the ready screen", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
-      inputs = ["github", "octo/repo", "team"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir, overrides))
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
-      assert_received {:write, _}
-      assert_received {:puts, "⚠ github tracker: GITHUB_TOKEN not set"}
+      assert_received {:labels, %{kind: "github"}, labels} when is_list(labels)
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/agent:todo/))
+      assert Enum.any?(log, &(&1 =~ ~r/aiur --bg/))
     end
 
-    test "retrying a failed check clears the warning once it passes", %{dir: dir} do
-      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    test "each label stage prints its header and greyed helper", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
-      overrides = %{
-        check_tracker_auth: fn _tracker ->
-          n = Agent.get_and_update(attempts, fn n -> {n, n + 1} end)
-          if n == 0, do: {:error, "transient failure"}, else: :ok
-        end
-      }
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
-      inputs = ["github", "octo/repo", "team", "claude", "opus", "10", "3", "3", "r"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir, overrides))
-
-      assert_received {:puts, "⚠ github tracker: transient failure"}
-      refute_received {:puts, "⚠" <> _}
-    end
-  end
-
-  describe "concurrency prompts (U5)" do
-    test "accepting defaults writes the schema concurrency values", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["memory"]), deps(dir))
-
-      assert_received {:write, path}
-      config = written_config(path)
-      assert config["agent"]["max_concurrent_agents"] == 10
-      assert config["max_vertical_panes"] == 3
-      assert config["pre_warmed_sessions"] == 3
+      log = puts_log()
+      # stage 2 — complexity
+      assert Enum.any?(log, &(&1 =~ ~r/story point complexity labels/))
+      assert Enum.any?(log, &(&1 =~ ~r/Used to optimize effort/))
+      # stage 3 — model overrides
+      assert Enum.any?(log, &(&1 =~ ~r/route specific issues to different models/))
+      assert Enum.any?(log, &(&1 =~ ~r/override complexity label model choices/))
+      # stage 4 — remote (claude is selected)
+      assert Enum.any?(log, &(&1 =~ ~r/open a ticket in remote-control mode/))
+      assert Enum.any?(log, &(&1 =~ ~r/Supports claude remote-control/))
     end
 
-    test "custom concurrency values are reflected in the config", %{dir: dir} do
-      inputs = ["memory", "claude", "opus", "4", "2", "1"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+    test "lists every label with a description, including model:remote", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
-      assert_received {:write, path}
-      config = written_config(path)
-      assert config["agent"]["max_concurrent_agents"] == 4
-      assert config["max_vertical_panes"] == 2
-      assert config["pre_warmed_sessions"] == 1
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/model:remote\s+— Supports claude remote-control/))
+      assert Enum.any?(log, &(&1 =~ ~r/agent:todo\s+— ready to be worked/))
     end
 
-    test "re-prompts on non-numeric or out-of-range input", %{dir: dir} do
-      inputs = ["memory", "claude", "opus", "nope", "0", "5", "3", "3"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+    test "shorter labels are padded so the description column aligns", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
-      assert_received {:puts, "Setting up aiur in this repo."}
-      assert_received {:puts, message}
-      assert message =~ "Enter a whole number"
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
-      assert_received {:write, path}
-      config = written_config(path)
-      assert config["agent"]["max_concurrent_agents"] == 5
+      # agent:todo (short) is padded toward agent:human-review (longest) before the —.
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/agent:todo\s{2,}—/))
     end
 
-    test "pre_warmed_sessions accepts 0 to disable warm-up", %{dir: dir} do
-      inputs = ["memory", "claude", "opus", "10", "3", "0"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+    test "permission failure prints a gh fallback and withholds the ready screen", %{
+      dir: dir,
+      target: target
+    } do
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          create_labels: fn _tracker, _labels -> {:error, "the token needs repo write scope"} end
+        })
 
-      assert_received {:write, path}
-      assert written_config(path)["pre_warmed_sessions"] == 0
-    end
-  end
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
-  describe "github label setup (U6, R8/R9)" do
-    test "derives the full label set for the chosen backends and prefix", %{dir: dir} do
-      inputs = ["github", "octo/repo", "team", "claude", "opus"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
-
-      assert_received {:labels, %{kind: "github"}, labels}
-      assert "team:todo" in labels
-      assert "team:human-review" in labels
-      assert "model:claude" in labels
-      assert "complexity:1" in labels
-      assert "complexity:5" in labels
-      refute Enum.any?(labels, &String.starts_with?(&1, "model:codex"))
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/gh label create/))
+      assert Enum.any?(log, &(&1 =~ ~r/run `aiur init` again/i))
+      refute Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
     end
 
-    test "prints a routing summary that names agents only, not skills or prompts", %{dir: dir} do
-      inputs = ["github", "octo/repo", "team", "claude", "opus"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
+    test "all labels already present: no creation, shows the ready screen", %{dir: dir, target: target} do
+      required = Labels.label_set("agent", ["claude"])
 
-      assert_received {:puts, "  complexity:1 → claude"}
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          list_labels: fn _tracker -> {:ok, required} end
+        })
 
-      assert_received {:puts, "A complexity label only selects the agent — it does not change skills or prompts."}
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      refute_received {:labels, _tracker, _labels}
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/already exist/i))
+      assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
     end
 
-    test "warns and proceeds when label creation fails (R6)", %{dir: dir} do
-      overrides = %{create_labels: fn _tracker, _labels -> {:error, "needs repo write scope"} end}
-      inputs = ["github", "octo/repo", "team", "claude", "opus"]
+    test "creates only the missing labels across stages on a later run", %{dir: dir, target: target} do
+      required = Labels.label_set("agent", ["claude"])
+      present = required -- ["agent:rework", "complexity:5"]
 
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir, overrides))
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          list_labels: fn _tracker -> {:ok, present} end
+        })
 
-      assert_received {:write, _}
-      assert_received {:puts, "⚠ label setup skipped: needs repo write scope"}
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      assert Enum.sort(labels_created()) == Enum.sort(["agent:rework", "complexity:5"])
     end
 
-    test "skips the label step entirely for non-github trackers", %{dir: dir} do
-      assert :ok = Init.run(%{force: false}, io(self(), ["memory"]), deps(dir))
+    test "lifecycle labels are gated behind an explicit Enter", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
-      refute_received {:labels, _, _}
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/lifecycle ticket labels are required/i))
     end
-  end
 
-  describe "round-trip through the runtime config loader (U2 integration)" do
-    test "emitted YAML parses into a valid Schema with defaults filled", %{dir: dir} do
-      previous = Application.get_env(:aiur, :workflow_file_path)
+    test "optional stages can be skipped without creating their labels", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
-      on_exit(fn ->
-        if is_nil(previous) do
-          Application.delete_env(:aiur, :workflow_file_path)
-        else
-          Application.put_env(:aiur, :workflow_file_path, previous)
-        end
-      end)
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Create the complexity labels?" => false,
+            "Create the model labels?" => false,
+            "Create the model:remote label?" => false
+          }
+        })
 
-      inputs = ["github", "octo/repo", "team"]
-      assert :ok = Init.run(%{force: false}, io(self(), inputs), deps(dir))
-      assert_received {:write, path}
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
 
-      Application.put_env(:aiur, :workflow_file_path, path)
+      created = labels_created()
+      assert created != []
+      assert Enum.all?(created, &String.starts_with?(&1, "agent:"))
+      refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
+      refute Enum.any?(created, &String.starts_with?(&1, "model:"))
+    end
 
-      assert {:ok, settings} = Config.settings()
-      assert settings.tracker.kind == "github"
-      assert settings.agent.kind == "claude"
-      assert settings.agent.routing == %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"}
-      # Unprompted sections fall back to schema defaults.
-      assert settings.polling.interval_seconds == 30
-      assert settings.max_vertical_panes == 3
+    test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+      answers = github_answers(%{multiselect: %{"Which agents to support" => ["codex"]}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
+
+      log = puts_log()
+      refute Enum.any?(log, &(&1 =~ ~r/remote-control mode/i))
+      refute Enum.any?(log, &(&1 =~ ~r/model:remote/))
+    end
+
+    test "the missing-label gh fallback lists only the missing labels", %{dir: dir, target: target} do
+      required = Labels.label_set("agent", ["claude"])
+      present = required -- ["complexity:5"]
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          list_labels: fn _tracker -> {:ok, present} end,
+          create_labels: fn _tracker, _labels -> {:error, "no permission"} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/gh label create 'complexity:5'/))
+      refute Enum.any?(log, &(&1 =~ ~r/gh label create 'agent:todo'/))
     end
   end
 end

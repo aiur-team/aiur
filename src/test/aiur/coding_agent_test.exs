@@ -41,37 +41,46 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
-  describe "model:claude-remote alias (forces RC, resolves to claude-repl)" do
-    test "the alias resolves whole to the claude-repl backend, no variant" do
-      assert CodingAgent.override_backend(issue(["model:claude-remote"])) == "claude-repl"
-      assert CodingAgent.model_for(issue(["model:claude-remote"])) == nil
+  describe "model:remote is a remote flag, not a backend selector" do
+    test "the bare alias selects no backend and pins no model" do
+      assert CodingAgent.override_backend(issue(["model:remote"])) == nil
+      assert CodingAgent.model_for(issue(["model:remote"])) == nil
     end
 
-    test "the alias is not mis-split into backend claude + variant remote" do
-      refute CodingAgent.override_backend(issue(["model:claude-remote"])) == "claude"
-      refute CodingAgent.model_for(issue(["model:claude-remote"])) == "remote"
+    test "a companion model tag picks backend+model; the alias only forces RC" do
+      issue = issue(["model:claude-haiku", "model:remote"])
+      assert CodingAgent.backend_for(issue) == "claude"
+      assert CodingAgent.model_for(issue) == "haiku"
+      assert CodingAgent.remote_control_forced?(issue)
+    end
+
+    test "the alias is skipped regardless of label order" do
+      reordered = issue(["model:remote", "model:claude-haiku"])
+      assert CodingAgent.backend_for(reordered) == "claude"
+      assert CodingAgent.model_for(reordered) == "haiku"
     end
 
     test "remote_control_forced? is true only when the alias label is present" do
-      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote"]))
+      assert CodingAgent.remote_control_forced?(issue(["model:remote"]))
       refute CodingAgent.remote_control_forced?(issue(["model:claude-repl"]))
       refute CodingAgent.remote_control_forced?(issue(["model:claude"]))
       refute CodingAgent.remote_control_forced?(issue(["complexity:5"]))
     end
 
-    test "the alias label is auto-seeded" do
-      assert "model:claude-remote" in CodingAgent.override_labels()
-    end
-
-    test "an alias-variant label pins the model through the alias" do
-      assert CodingAgent.override_backend(issue(["model:claude-remote-sonnet"])) == "claude-repl"
-      assert CodingAgent.model_for(issue(["model:claude-remote-sonnet"])) == "sonnet"
-    end
-
-    test "an alias-variant label still forces remote control" do
-      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-sonnet"]))
-      assert CodingAgent.remote_control_forced?(issue(["model:claude-remote-opus-4-8"]))
+    test "an alias-variant label is flag-only (no backend/model) but still forces RC" do
+      assert CodingAgent.override_backend(issue(["model:remote-sonnet"])) == nil
+      assert CodingAgent.model_for(issue(["model:remote-sonnet"])) == nil
+      assert CodingAgent.remote_control_forced?(issue(["model:remote-sonnet"]))
+      assert CodingAgent.remote_control_forced?(issue(["model:remote-opus-4-8"]))
       refute CodingAgent.remote_control_forced?(issue(["model:claude-sonnet"]))
+    end
+
+    test "the alias label is auto-seeded" do
+      assert "model:remote" in CodingAgent.override_labels()
+    end
+
+    test "routing_remote? is false with no complexity label (global config untouched)" do
+      refute CodingAgent.routing_remote?(issue(["agent:todo"]))
     end
   end
 
@@ -107,11 +116,13 @@ defmodule Aiur.CodingAgentTest do
     test "family layer pins the family string" do
       assert CodingAgent.model_for(issue(["model:claude-opus"])) == "opus"
       assert CodingAgent.model_for(issue(["model:claude-sonnet"])) == "sonnet"
+      assert CodingAgent.model_for(issue(["model:claude-haiku"])) == "haiku"
     end
 
     test "specific layer pins the exact version string" do
       assert CodingAgent.model_for(issue(["model:claude-opus-4-8"])) == "opus-4-8"
       assert CodingAgent.model_for(issue(["model:codex-gpt-5.5"])) == "gpt-5.5"
+      assert CodingAgent.model_for(issue(["model:codex-gpt-5.4-mini"])) == "gpt-5.4-mini"
     end
 
     test "no model: tag pins nothing" do
@@ -183,6 +194,14 @@ defmodule Aiur.CodingAgentTest do
       assert "model:claude-opus" in labels
       assert "model:claude-opus-4-8" in labels
       assert "model:codex" in labels
+    end
+
+    test "override_labels seeds bare haiku and cheaper codex variants" do
+      labels = CodingAgent.override_labels()
+      assert "model:claude-haiku" in labels
+      assert "model:codex-gpt-5.4" in labels
+      assert "model:codex-gpt-5.5-mini" in labels
+      assert "model:codex-gpt-5.4-mini" in labels
     end
   end
 

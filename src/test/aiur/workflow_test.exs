@@ -122,5 +122,21 @@ defmodule Aiur.WorkflowTest do
         assert loaded.config["github"]["repo"] == "owner/name"
       end)
     end
+
+    test "resolve_config_path prefers local, else global, else local for the error", %{dir: dir} do
+      local = Path.join(dir, "local.aiurconfig")
+      global = Path.join(dir, "global.aiurconfig")
+
+      # neither present -> local path (so the caller surfaces "run aiur init")
+      assert Workflow.resolve_config_path(local, global) == local
+
+      File.write!(global, "tracker:\n  kind: memory\n")
+      # only global -> global
+      assert Workflow.resolve_config_path(local, global) == global
+
+      File.write!(local, "tracker:\n  kind: memory\n")
+      # both -> local wins
+      assert Workflow.resolve_config_path(local, global) == local
+    end
   end
 end
