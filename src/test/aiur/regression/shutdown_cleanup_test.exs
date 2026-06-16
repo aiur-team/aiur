@@ -2,107 +2,73 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
   @moduledoc """
   Regression for "Ctrl+C leaves a stale BEAM node" (reported 2026-05-21).
 
-  After pressing Ctrl+C in the foreground `aiurdev` terminal, the next
-  `aiurdev` invocation used to fail with one of:
+  After pressing Ctrl+C in the foreground terminal, the next launch used to fail
+  with a node-name-in-use or port-in-use error because the cleanup trap only
+  deleted opencode session entries — it never signalled the detached aiur tmux
+  session's BEAM to shut down.
 
-      Protocol 'inet_tcp': the name aiurdev-orangekid@127.0.0.1 seems to be
-      in use by another Erlang node
-
-      aiurdev: port 4000 in use; bound to 4001 instead
-
-  Root cause: `scripts/aiurdev`'s `__aiur_cleanup` trap only deleted opencode
-  session DB entries — it didn't signal the detached aiur tmux session's
-  BEAM to shut down.
-
-  This test checks the cleanup function's source for the BEAM-killing
-  wiring. A full end-to-end test (drive aiur in a PTY, send SIGINT,
-  wait for BEAM exit) lives at `test/regression/aiur-shutdown.sh` —
-  manual to run because real BEAM startup takes ~8 s and ExUnit live
-  tests are flaky in CI.
+  The foreground run + teardown now live in the shared engine
+  (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`, `session_cleanup` +
+  `install_foreground_traps`). This test checks that cleanup's source for the
+  BEAM-killing + session-killing + sweep wiring; a full PTY end-to-end is manual.
   """
 
   use ExUnit.Case, async: true
 
-  @scripts_aiur Path.expand("../../../../scripts/aiurdev", __DIR__)
+  @engine Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
 
-  describe "scripts/aiurdev __aiur_cleanup" do
+  describe "engine session_cleanup" do
     test "kills the aiur tmux session on EXIT/INT/TERM/HUP" do
-      source = File.read!(@scripts_aiur)
+      cleanup = cleanup_block()
 
-      cleanup_block = extract_cleanup_block(source)
-
-      assert cleanup_block =~ ~r/kill-session\s+-t\s+"\$session"/,
+      assert cleanup =~ ~r/kill-session\s+-t\s+"\$_session_name"/,
              """
-             __aiur_cleanup MUST run `tmux kill-session -t "$session"` so
-             SIGHUP propagates to the BEAM running inside the detached
-             aiur tmux session. Without this, the BEAM survives Ctrl+C
-             and holds port 4000 + the registered Erlang node name,
-             breaking the next `aiur` invocation.
+             session_cleanup MUST run `tmux kill-session -t "$_session_name"` so
+             SIGHUP propagates to the BEAM in the detached aiur tmux session.
+             Otherwise the BEAM survives Ctrl+C, holding port 4000 + the node
+             name and breaking the next launch.
              """
     end
 
-    test "SIGTERMs the release BEAM owned by this wrapper" do
-      source = File.read!(@scripts_aiur)
-      cleanup_block = extract_cleanup_block(source)
+    test "SIGTERMs then SIGKILLs the release BEAM this run owns" do
+      cleanup = cleanup_block()
 
-      assert cleanup_block =~ ~r/_aiur_beam_under_pid "\$__aiur_owned_pane_pid" "\$trap_elixir_dir"/,
-             "__aiur_cleanup MUST resolve the BEAM owned by this wrapper's tmux pane"
+      assert cleanup =~ ~r/pgrep -f "\$_session_release\/\.\*erts\.\*beam\.smp"/,
+             "session_cleanup MUST resolve the BEAM by this run's release dir"
 
-      assert cleanup_block =~ ~r/kill -TERM/,
-             "__aiur_cleanup MUST send SIGTERM to the owned BEAM so OTP supervisors run shutdown callbacks"
+      assert cleanup =~ ~r/kill -TERM/,
+             "session_cleanup MUST SIGTERM the BEAM so OTP supervisors run shutdown callbacks"
 
-      assert cleanup_block =~ ~r/kill -KILL/,
-             "__aiur_cleanup MUST SIGKILL stragglers after the SIGTERM grace period — otherwise a wedged BEAM leaks port 4000 forever"
+      assert cleanup =~ ~r/kill -KILL/,
+             "session_cleanup MUST SIGKILL stragglers after the grace period — a wedged BEAM leaks port 4000 forever"
     end
 
     test "sweeps orphaned agent-driver tmux sockets on close" do
-      source = File.read!(@scripts_aiur)
-      cleanup_block = extract_cleanup_block(source)
-
-      assert cleanup_block =~ ~r/sweep_dead_tmux_sockets/,
-             """
-             __aiur_cleanup MUST call sweep_dead_tmux_sockets so the agent-driver
-             sockets this run orphaned are reaped at close, not deferred to the
-             next invocation's pre-launch sweep.
-             """
+      assert cleanup_block() =~ ~r/sweep_dead_tmux_sockets/,
+             "session_cleanup MUST sweep so agent-driver sockets this run orphaned are reaped at close"
     end
 
     test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
-      source = File.read!(@scripts_aiur)
+      source = File.read!(@engine)
 
-      # EXIT keeps its own bare-handler trap; signal traps clear the
-      # other traps first and call cleanup directly, so the EXIT
-      # handler doesn't fire a second time after the signal-triggered
-      # exit. Without that split, Ctrl+C reproduces the bash error
-      # `pop_var_context: head of shell_variables not a function context`.
-      assert source =~ ~r/trap '[^']*__aiur_cleanup[^']*' EXIT\b/,
-             "EXIT trap must register __aiur_cleanup on its own."
+      assert source =~ ~r/trap 'session_cleanup' EXIT\b/,
+             "EXIT trap must register session_cleanup on its own."
 
       for signal <- ["INT", "TERM", "HUP"] do
-        assert source =~ ~r/trap '[^']*__aiur_cleanup[^']*' #{signal}\b/,
+        assert source =~ ~r/trap '[^']*session_cleanup[^']*' #{signal}\b/,
                """
-               The #{signal} trap MUST call __aiur_cleanup (with the EXIT
-               trap cleared first so cleanup runs exactly once). All four
-               signals — EXIT/INT/TERM/HUP — must invoke cleanup so we
-               cover terminal close, kill -9, SIGHUP-on-parent-exit, etc.
+               The #{signal} trap MUST call session_cleanup (with the EXIT trap
+               cleared first so cleanup runs exactly once). All four signals —
+               EXIT/INT/TERM/HUP — must invoke cleanup.
                """
       end
     end
   end
 
-  # Pull the __aiur_cleanup function body out of scripts/aiurdev for source
-  # asserts. Stops at the next top-level function or trap line.
-  defp extract_cleanup_block(source) do
-    # Match the function body, then any trailing comment block (the
-    # signal-isolation explanatory comments live between `}` and the
-    # `trap` line). `[^\n]*` instead of `.*` so non-ASCII characters
-    # in comments (em-dashes, smart quotes) don't confuse the matcher.
+  # Pull the session_cleanup body out of the engine for source asserts.
+  defp cleanup_block do
     [_, block] =
-      Regex.run(
-        ~r/__aiur_cleanup\(\) \{(.+?)\n  \}\n(?:\n  #[^\n]*)*\n  trap /us,
-        source,
-        capture: :all
-      )
+      Regex.run(~r/session_cleanup\(\) \{(.+?)\n\}\ninstall_foreground_traps/us, File.read!(@engine), capture: :all)
 
     block
   end

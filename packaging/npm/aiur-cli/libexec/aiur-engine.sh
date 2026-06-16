@@ -385,6 +385,9 @@ session_cleanup() {
     wait 2>/dev/null || true
   fi
 
+  # Reap agent-driver sockets this run orphaned at close, not next launch.
+  sweep_dead_tmux_sockets || true
+
   rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" 2>/dev/null || true
   return $code
 }
