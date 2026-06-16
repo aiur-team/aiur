@@ -43,6 +43,16 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              "session_cleanup MUST SIGKILL stragglers after the grace period — a wedged BEAM leaks port 4000 forever"
     end
 
+    test "also reaps the BEAM by node name, covering a different-release-dir orphan" do
+      assert cleanup_block() =~ ~r/kill_beams_matching "-name/,
+             """
+             session_cleanup MUST also reap by node name. Under the unified identity a
+             BEAM launched from a different release dir (dev _build vs installed) holds
+             the same node name, so a release-path pgrep alone leaves it stranded and the
+             next launch fails with "name seems to be in use".
+             """
+    end
+
     test "sweeps orphaned agent-driver tmux sockets on close" do
       assert cleanup_block() =~ ~r/sweep_dead_tmux_sockets/,
              "session_cleanup MUST sweep so agent-driver sockets this run orphaned are reaped at close"

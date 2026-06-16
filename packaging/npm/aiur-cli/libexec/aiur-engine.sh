@@ -240,6 +240,17 @@ run_session() {
   local mode="$1"
   shift
 
+  # --debug is an engine-level convenience on the run path: turn on verbose
+  # logging (AIUR_DEBUG) and strip the flag before the release parses argv.
+  local run_args=() run_arg
+  for run_arg in "$@"; do
+    case "$run_arg" in
+      --debug) export AIUR_DEBUG=1 ;;
+      *) run_args+=("$run_arg") ;;
+    esac
+  done
+  if [ "${#run_args[@]}" -gt 0 ]; then set -- "${run_args[@]}"; else set --; fi
+
   resolve_release
 
   local tmux_bin
@@ -313,7 +324,7 @@ run_session() {
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
-      AIUR_SESSION_TMPFILE ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT; do
+      AIUR_SESSION_TMPFILE ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_DEBUG; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -329,8 +340,17 @@ run_session() {
   if [ "$mode" = "foreground" ]; then
     _session_socket="$socket" _session_name="$session" _session_conf="$conf" \
       _session_tmpfile="$AIUR_SESSION_TMPFILE" _session_capture="$startup_capture" \
-      _session_argv="$argv_file" _session_release="$release_dir" _session_tmux="$tmux_bin"
+      _session_argv="$argv_file" _session_release="$release_dir" _session_tmux="$tmux_bin" \
+      _session_node="$AIUR_RELEASE_NODE"
     install_foreground_traps
+  fi
+
+  # An orphaned BEAM (its tmux session gone) can still hold the node name —
+  # under the unified identity, even one from a different release dir. With no
+  # live session on our socket, reap any name-holder so the launch isn't blocked
+  # by "name seems to be in use".
+  if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
   fi
 
   if ! "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
@@ -378,9 +398,28 @@ resolve_tmux_conf() {
   printf '%s\n' "$engine_dir/../share/aiur.tmux.conf"
 }
 
+# TERM-then-KILL every BEAM whose command line matches $1. Reaps a stale node by
+# name (covers orphans from any release dir): under the unified identity a dev
+# `_build` BEAM and an installed BEAM both claim the same node name, so a
+# release-path pgrep misses whichever one this run didn't launch.
+kill_beams_matching() {
+  local pattern="$1" pids pid waited=0
+  pids="$(pgrep -f -- "$pattern" 2>/dev/null || true)"
+  [ -n "$pids" ] || return 0
+  for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
+  while [ "$waited" -lt 30 ]; do
+    pids="$(pgrep -f -- "$pattern" 2>/dev/null || true)"
+    [ -z "$pids" ] && break
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  pids="$(pgrep -f -- "$pattern" 2>/dev/null || true)"
+  for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
+}
+
 # Foreground teardown: kill the session + BEAM and reap opencode sessions on exit.
 _session_socket="" _session_name="" _session_conf="" _session_tmpfile=""
-_session_capture="" _session_argv="" _session_release="" _session_tmux=""
+_session_capture="" _session_argv="" _session_release="" _session_tmux="" _session_node=""
 _cleanup_ran=0
 session_cleanup() {
   [ "$_cleanup_ran" = 1 ] && return 0
@@ -404,6 +443,10 @@ session_cleanup() {
     beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"
     for pid in $beam_pids; do kill -KILL "$pid" 2>/dev/null || true; done
   fi
+
+  # Belt-and-suspenders: reap any BEAM still holding our node name, even one
+  # launched from a different release dir than this run.
+  [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}"
 
   if command -v opencode >/dev/null 2>&1 && [ -s "$_session_tmpfile" ]; then
     local id
@@ -583,6 +626,10 @@ cmd_stop() {
     beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
     for pid in $beam_pids; do kill -KILL "$pid" 2>/dev/null || true; done
   fi
+
+  # Reap any BEAM holding our node name regardless of which release dir launched
+  # it — orphans from a dev build or a prior install share the unified name.
+  kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
 
   sweep_dead_tmux_sockets
 }

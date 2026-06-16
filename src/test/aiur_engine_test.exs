@@ -95,6 +95,31 @@ defmodule AiurEngineTest do
     refute out =~ "BIN:"
   end
 
+  test "kill_beams_matching reaps a node-name holder from any release dir" do
+    # A unified node name means an orphaned BEAM from a different release dir
+    # still blocks a launch; the reaper must match by `-name`, not release path.
+    marker = "-name aiur-killtest-#{System.unique_integer([:positive])}@127.0.0.1"
+    on_exit(fn -> System.cmd("pkill", ["-f", marker], stderr_to_stdout: true) end)
+
+    # Run from a file so the marker isn't in the launching shell's own argv
+    # (which `pgrep -f` would otherwise match and reap).
+    script = """
+    source #{@engine}
+    set +e
+    bash -c 'exec -a "beam.smp #{marker} extra" sleep 10' >/dev/null 2>&1 &
+    for _ in $(seq 1 20); do pgrep -f -- '#{marker}' >/dev/null && break; sleep 0.1; done
+    kill_beams_matching '#{marker}'
+    pgrep -f -- '#{marker}' >/dev/null && echo STILL_ALIVE || echo REAPED
+    """
+
+    path = Path.join(System.tmp_dir!(), "aiur-reap-#{System.unique_integer([:positive])}.sh")
+    File.write!(path, script)
+    on_exit(fn -> File.rm(path) end)
+
+    {out, _} = System.cmd("bash", [path], stderr_to_stdout: true)
+    assert out =~ "REAPED"
+  end
+
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
     dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
