@@ -15,6 +15,12 @@ defmodule Aiur.Opencode.SessionWriterRegistryTest do
       result = SessionWriterRegistry.all()
       assert is_list(result)
     end
+
+    test "returns [] when the registry isn't started (one-shot/init shutdown path)" do
+      # A foreground one-shot like `aiur init` never boots the registry, so the
+      # shutdown walk must not raise `unknown registry`.
+      assert SessionWriterRegistry.all(:"unstarted_#{System.unique_integer([:positive])}") == []
+    end
   end
 
   describe "delete_all/1" do
