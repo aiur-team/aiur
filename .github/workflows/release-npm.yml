@@ -155,7 +155,7 @@ jobs:
         run: |
           npm config set prefix "$HOME/.npm-global"
           echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
-          npm install -g --offline launcher/*.tgz artifacts/*.tgz
+          npm install -g --offline "$GITHUB_WORKSPACE"/launcher/*.tgz "$GITHUB_WORKSPACE"/artifacts/*.tgz
 
       - name: Version pre-check
         run: aiur --version
@@ -240,7 +240,7 @@ jobs:
         run: |
           export BUN_INSTALL="$HOME/.bun"
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-          bun add -g ./launcher/*.tgz ./artifacts/*.tgz
+          bun add -g "$GITHUB_WORKSPACE"/launcher/*.tgz "$GITHUB_WORKSPACE"/artifacts/*.tgz
           "$HOME/.bun/bin/aiur" --version
 
   # Publish all five packages in lockstep, advancing `latest` only after every
@@ -299,13 +299,13 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for t in linux-x64 linux-arm64 darwin-arm64; do
-            npm publish artifacts/aiur-cli-$t/*.tgz --tag next --access public
+            npm publish "$GITHUB_WORKSPACE"/artifacts/aiur-cli-$t/*.tgz --tag next --access public
           done
 
       - name: Publish launcher (holding tag)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish artifacts/launcher/*.tgz --tag next --access public
+        run: npm publish "$GITHUB_WORKSPACE"/artifacts/launcher/*.tgz --tag next --access public
 
       # Only reached if every publish above succeeded.
       - name: Advance latest dist-tag
