@@ -12,11 +12,13 @@
     "aiur": "bin/aiur.js"
   },
   "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
     "test": "bun test"
   },
   "files": [
     "bin/aiur.js",
     "libexec/aiur-engine.sh",
+    "scripts/postinstall.mjs",
     "share/aiur.tmux.conf"
   ],
   "engines": {
