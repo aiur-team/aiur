@@ -141,9 +141,13 @@ defmodule Aiur.Opencode.Config do
     end
   end
 
+  # An unknown key (no matching schema field) reads as "unset" rather than
+  # crashing the interactive boot via String.to_existing_atom/1.
   defp section_value(key) do
     Aiur.Config.settings!().opencode
     |> Map.from_struct()
     |> Map.get(String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 end
