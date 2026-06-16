@@ -4,7 +4,7 @@ defmodule Aiur.Opencode.HiddenWindow do
   slot panes live when they are not currently visible.
 
   Created once at boot (no external dependency) with a no-op keep-alive
-  pane (`sleep infinity`) so the window survives even when no slot
+  pane (a long `sleep`) so the window survives even when no slot
   panes are attached yet. Slot workers call `Tmux.split_pane/6` against
   the keep-alive pane (with `silent: true`) to spawn their hidden attach.
 
@@ -19,7 +19,10 @@ defmodule Aiur.Opencode.HiddenWindow do
   alias Aiur.Tmux
 
   @window_name "aiur-hidden"
-  @keep_alive_cmd "sleep infinity"
+  # `sleep infinity` is GNU-only — BSD/macOS sleep rejects it and the pane
+  # exits immediately, so tmux closes the hidden window's only pane mid-boot.
+  # A large integer sleep is portable across BSD and GNU (~68 years).
+  @keep_alive_cmd "sleep 2147483647"
 
   defstruct status: :waiting, window_name: nil, keep_alive_pane_id: nil
 
@@ -29,6 +32,10 @@ defmodule Aiur.Opencode.HiddenWindow do
   @doc "Compile-time name of the hidden tmux window."
   @spec window_name() :: String.t()
   def window_name, do: @window_name
+
+  @doc "Keep-alive command run in the hidden window's sentinel pane."
+  @spec keep_alive_command() :: String.t()
+  def keep_alive_command, do: @keep_alive_cmd
 
   @doc """
   Synchronously ensure the hidden window exists. Returns `:ok` if the
