@@ -119,7 +119,7 @@ for arg in "$@"; do
     --debug) debug_mode=1 ;;
     --clear) clear_mode=1 ;;
     --allow-remote) allow_remote=1 ;;
-    --force) : ;; # test modes already force a reset; harmless elsewhere
+    --force) passthrough+=("$arg") ;; # forward to the engine (e.g. `init --force`)
     --test) test_single=1 debug_mode=1 clear_mode=1 ;;
     --test3) test3_mode=1 debug_mode=1 clear_mode=1 allow_remote=1 ;;
     *) passthrough+=("$arg") ;;

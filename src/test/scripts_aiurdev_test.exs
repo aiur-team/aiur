@@ -100,6 +100,19 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "AIUR_DEBUG: 1"
   end
 
+  test "init --force forwards --force to the engine" do
+    root = fake_repo()
+
+    {out, 0} =
+      run_shim(["init", "--force"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: init --force"
+  end
+
   test "--clear without --debug is rejected" do
     root = fake_repo()
 
