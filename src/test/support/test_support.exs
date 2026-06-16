@@ -140,7 +140,7 @@ defmodule Aiur.TestSupport do
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
           command: "codex app-server",
-          codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
+          codex_approval_policy: "untrusted",
           codex_thread_sandbox: "workspace-write",
           codex_turn_sandbox_policy: nil,
           agent_turn_timeout_ms: 3_600_000,
