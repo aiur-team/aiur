@@ -236,7 +236,6 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
       rows: 20,
       project_label: nil,
       dashboard_url: nil,
-      refresh_label: nil,
       agent_kind: nil,
       agent_count: nil,
       max_agents: nil
