@@ -35,7 +35,10 @@ defmodule Aiur.InitTest do
       multiselect: fn label, _opts, defaults ->
         Map.get(Map.get(answers, :multiselect, %{}), label, defaults)
       end,
-      confirm: fn label, default -> Map.get(Map.get(answers, :confirm, %{}), label, default) end
+      confirm: fn label, default ->
+        send(parent, {:confirm, label})
+        Map.get(Map.get(answers, :confirm, %{}), label, default)
+      end
     }
   end
 
@@ -138,6 +141,16 @@ defmodule Aiur.InitTest do
       {:labels, _tracker, labels} -> labels_created(acc ++ labels)
     after
       0 -> acc
+    end
+  end
+
+  # Prompts the wizard asked the operator to confirm (one per stage that has
+  # labels to create).
+  defp confirm_prompts(acc \\ []) do
+    receive do
+      {:confirm, label} -> confirm_prompts([label | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 
@@ -618,7 +631,10 @@ defmodule Aiur.InitTest do
       refute Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
     end
 
-    test "all labels already present: no creation, shows the ready screen", %{dir: dir, target: target} do
+    test "all labels already present: status lines, no prompts, ready screen", %{
+      dir: dir,
+      target: target
+    } do
       required = Labels.label_set("agent", ["claude"])
 
       deps =
@@ -629,13 +645,22 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
+      # Nothing created, and no label stage prompted — every group was present.
       refute_received {:labels, _tracker, _labels}
+      prompts = confirm_prompts()
+      refute "Create the complexity labels?" in prompts
+      refute "Create the model labels?" in prompts
+      refute "Create the model:remote label?" in prompts
+      refute Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
+
       log = puts_log()
-      assert Enum.any?(log, &(&1 =~ ~r/already exist/i))
+      assert Enum.any?(log, &(&1 =~ ~r/Lifecycle agent tags: created\./))
+      assert Enum.any?(log, &(&1 =~ ~r/Complexity tags: created\./))
+      assert Enum.any?(log, &(&1 =~ ~r/Model tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
     end
 
-    test "creates only the missing labels across stages on a later run", %{dir: dir, target: target} do
+    test "later run reprompts only the stages with missing labels", %{dir: dir, target: target} do
       required = Labels.label_set("agent", ["claude"])
       present = required -- ["agent:rework", "complexity:5"]
 
@@ -648,6 +673,16 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
       assert Enum.sort(labels_created()) == Enum.sort(["agent:rework", "complexity:5"])
+
+      # Lifecycle (agent:rework missing) re-prompts its Enter gate; complexity
+      # (complexity:5 missing) re-asks its confirm. Fully-present stages do not.
+      assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
+      prompts = confirm_prompts()
+      assert "Create the complexity labels?" in prompts
+      refute "Create the model labels?" in prompts
+      refute "Create the model:remote label?" in prompts
+
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Model tags: created\./))
     end
 
     test "lifecycle labels are gated behind an explicit Enter", %{dir: dir, target: target} do
