@@ -67,6 +67,18 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              """
     end
 
+    test "sweeps stale aiur temp artifacts on close" do
+      source = File.read!(@scripts_aiur)
+      cleanup_block = extract_cleanup_block(source)
+
+      assert cleanup_block =~ ~r/sweep_stale_aiur_tmp_artifacts/,
+             """
+             __aiur_cleanup MUST call sweep_stale_aiur_tmp_artifacts so stale
+             /tmp/aiur-* files and dirs from previous runs are reaped during
+             normal foreground-session cleanup.
+             """
+    end
+
     test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
       source = File.read!(@scripts_aiur)
 

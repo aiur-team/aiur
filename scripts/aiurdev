@@ -362,9 +362,10 @@ Options:
                        grep rendered diffs for `@@`, not "```diff").
   --clear              delete previous aiur*.log files before starting.
                        Also reaps accumulated BEAM hot-load /tmp/.*.so
-                       and /tmp/aiur-debug pipe-pane captures (only when
-                       no other aiur BEAM is running) so /tmp doesn't
-                       fill up across many debug runs.
+                       files, stale /tmp/aiur-* artifacts, and
+                       /tmp/aiur-debug pipe-pane captures (only when no
+                       other aiur BEAM is running) so /tmp doesn't fill
+                       up across many debug runs.
                        Must be combined with --debug.
   --logs [profile]     tail the (default or named) profile's aiur.log
                        and exit on Ctrl+C. Does not start any agents.
@@ -1204,6 +1205,38 @@ sweep_dead_tmux_sockets() {
   return 0
 }
 
+# Remove stale Aiur-owned temp-root artifacts from previous runs. This is a
+# bounded root-depth sweep: current-session files are protected by age, and the
+# current wrapper's sidecars are additionally excluded by exact path.
+sweep_stale_aiur_tmp_artifacts() {
+  local tmp_root="${TMPDIR:-/tmp}"
+  local max_age_minutes="${AIUR_TMP_ARTIFACT_MAX_AGE_MINUTES:-360}"
+  local user_name="${USER:-$(id -un)}"
+
+  [ -d "$tmp_root" ] || return 0
+  case "$max_age_minutes" in
+    ''|*[!0-9]*) max_age_minutes=360 ;;
+  esac
+
+  local removed=0 path
+  while IFS= read -r -d '' path; do
+    [ -n "${AIUR_SESSION_TMPFILE:-}" ] && [ "$path" = "$AIUR_SESSION_TMPFILE" ] && continue
+    [ -n "${AIUR_LOGS_ROOT:-}" ] && [ "$path" = "$AIUR_LOGS_ROOT" ] && continue
+    if rm -rf -- "$path" 2>/dev/null; then
+      removed=$((removed + 1))
+    fi
+  done < <(
+    find "$tmp_root" -mindepth 1 -maxdepth 1 -user "$user_name" -mmin "+$max_age_minutes" \
+      \( -name 'aiur-*' -o -name 'aiur-debug' -o -name 'aiur-rc' -o -name 'aiur-claude-hooks' \) \
+      -print0 2>/dev/null
+  )
+
+  if [ "$removed" -gt 0 ]; then
+    echo "🧹 reaped $removed stale aiur /tmp artifact(s)" >&2
+  fi
+  return 0
+}
+
 start_bg_nohup() {
   local profile="$1"
   local elixir_dir
@@ -1824,6 +1857,7 @@ run_in_tmux() {
     # pre-launch sweep. Only unresponsive servers are removed, so a
     # side-by-side aiur instance's live sockets are never touched.
     sweep_dead_tmux_sockets
+    sweep_stale_aiur_tmp_artifacts
 
     return $exit_code
   }
@@ -2238,10 +2272,12 @@ case "${1:-}" in
     fi
 
     sweep_dead_tmux_sockets
+    sweep_stale_aiur_tmp_artifacts
     exit 0
     ;;
   sweep)
     sweep_dead_tmux_sockets
+    sweep_stale_aiur_tmp_artifacts
     exit 0
     ;;
   init)

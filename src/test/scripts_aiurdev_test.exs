@@ -51,6 +51,31 @@ defmodule ScriptsAiurdevTest do
     assert output =~ "aiur-actions"
   end
 
+  test "sweep removes stale aiur temp artifacts but keeps recent and unrelated entries" do
+    ctx = test_context()
+    tmp_root = Path.join(ctx.runtime_dir, "tmp")
+    File.mkdir_p!(tmp_root)
+
+    stale = touch_tmp!(tmp_root, "aiur-trap.123.log", -8 * 60 * 60)
+    stale_dir = touch_tmp_dir!(tmp_root, "aiur-debug", -8 * 60 * 60)
+    recent = touch_tmp!(tmp_root, "aiur-launcher.default.abc", 0)
+    unrelated = touch_tmp!(tmp_root, "not-aiur-trap.123.log", -8 * 60 * 60)
+
+    assert {output, 0} =
+             run_aiur(ctx, ["sweep"],
+               env: [
+                 {"TMPDIR", tmp_root},
+                 {"AIUR_TMP_ARTIFACT_MAX_AGE_MINUTES", "360"}
+               ]
+             )
+
+    assert output =~ "reaped 2 stale aiur /tmp artifact"
+    refute File.exists?(stale)
+    refute File.exists?(stale_dir)
+    assert File.exists?(recent)
+    assert File.exists?(unrelated)
+  end
+
   test "runs a configured profile in the foreground" do
     ctx = test_context()
 
@@ -260,12 +285,23 @@ defmodule ScriptsAiurdevTest do
 
   test "stops a selected profile" do
     ctx = test_context()
+    tmp_root = Path.join(ctx.runtime_dir, "tmp")
+    File.mkdir_p!(tmp_root)
+    stale = touch_tmp!(tmp_root, "aiur-wrapper.pid", -8 * 60 * 60)
+    recent = touch_tmp!(tmp_root, "aiur-launcher.default.abc", 0)
 
     write_profiles!(ctx, """
     actions|#{ctx.actions_repo}|actions.aiurconfig|4101|#{ctx.logs_root}/actions|aiur-actions
     """)
 
-    assert {output, 0} = run_aiur(ctx, ["stop", "actions"])
+    assert {output, 0} =
+             run_aiur(ctx, ["stop", "actions"],
+               env: [
+                 {"TMPDIR", tmp_root},
+                 {"AIUR_TMP_ARTIFACT_MAX_AGE_MINUTES", "360"}
+               ]
+             )
+
     command_log = command_log(ctx)
 
     assert command_log =~ "SYSTEMCTL:--user stop aiur-actions\n"
@@ -273,6 +309,9 @@ defmodule ScriptsAiurdevTest do
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*actions.aiurconfig"
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*--logs-root #{ctx.logs_root}/actions"
     assert output =~ "PKILL:-f #{Path.join(ctx.actions_repo, "src")}.*bin/aiur .*--interactive.*--port 4101"
+    assert output =~ "reaped 1 stale aiur /tmp artifact"
+    refute File.exists?(stale)
+    assert File.exists?(recent)
     refute command_log =~ "SYSTEMCTL:--user stop aiur\n"
     refute output =~ "MISE:"
   end
@@ -552,10 +591,13 @@ defmodule ScriptsAiurdevTest do
           {"AIUR_OS_OVERRIDE", "Linux"},
           {"AIUR_SKIP_BUILD", "1"},
           {"AIUR_TEST_COMMAND_LOG", ctx.command_log},
+          {"AIUR_AGENT_WORKSPACE", ""},
+          {"AIUR_RELEASE_NODE", ""},
           {"XDG_RUNTIME_DIR", ctx.runtime_dir},
           {"HOME", ctx.home_dir},
           {"TMUX", ""}
         ],
+        cd: ctx.repo_root,
         stderr_to_stdout: true
       )
 
@@ -877,10 +919,13 @@ defmodule ScriptsAiurdevTest do
           {"AIUR_STARTUP_GRACE_TICKS", "1"},
           {"AIUR_STARTUP_GRACE_SLEEP", "0"},
           {"AIUR_PORT_CHECK_BIN", ctx.fake_port_check},
+          {"AIUR_AGENT_WORKSPACE", ""},
+          {"AIUR_RELEASE_NODE", ""},
           {"XDG_RUNTIME_DIR", ctx.runtime_dir},
           {"HOME", ctx.home_dir},
           {"TMUX", ""}
         ] ++ extra_env,
+      cd: ctx.repo_root,
       stderr_to_stdout: true
     )
   end
@@ -888,6 +933,26 @@ defmodule ScriptsAiurdevTest do
   defp write_executable!(path, body) do
     File.write!(path, body)
     File.chmod!(path, 0o755)
+  end
+
+  defp touch_tmp!(tmp_root, name, age_seconds) do
+    path = Path.join(tmp_root, name)
+    File.write!(path, "tmp")
+    stamp_tmp!(path, age_seconds)
+    path
+  end
+
+  defp touch_tmp_dir!(tmp_root, name, age_seconds) do
+    path = Path.join(tmp_root, name)
+    File.mkdir_p!(path)
+    File.write!(Path.join(path, "log"), "tmp")
+    stamp_tmp!(path, age_seconds)
+    path
+  end
+
+  defp stamp_tmp!(path, age_seconds) do
+    unix = System.os_time(:second) + age_seconds
+    File.touch!(path, unix)
   end
 
   defp count_occurrences(text, pattern) do
