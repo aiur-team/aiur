@@ -92,11 +92,10 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment. Set them empty (or unset) to disable basic auth
-locally. The launcher no longer auto-sources env files — export these in your
-shell before launching (e.g. `set -a; . ./.env; set +a`) so the release
-inherits them. `aiur init` still reads a repo-local `.env` for the GitHub
-token during setup.
+from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run
+the engine loads `./.env` from the current directory so the release picks
+these up (a value already exported in your shell always wins). `aiur init`
+also reads `.env` for the token during setup.
 
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that

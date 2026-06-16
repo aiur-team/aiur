@@ -81,6 +81,21 @@ defmodule AiurEngineTest do
     refute out =~ "sweep"
   end
 
+  test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
+    dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, ".env"), "# token\nGITHUB_TOKEN=fromfile\nFOO=\"bar baz\"\n")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    src = "cd #{dir}; source #{@engine}; load_dotenv; echo \"TOK=$GITHUB_TOKEN|FOO=$FOO\""
+    {out, 0} = System.cmd("bash", ["-c", src], stderr_to_stdout: true)
+    assert out =~ "TOK=fromfile|FOO=bar baz"
+
+    # A value already in the environment is never clobbered by the file.
+    {out2, 0} = System.cmd("bash", ["-c", "export GITHUB_TOKEN=shell; #{src}"], stderr_to_stdout: true)
+    assert out2 =~ "TOK=shell|"
+  end
+
   test "an unknown command exits 64 with usage" do
     {out, code} = run_engine(["bogus-not-a-path"], [])
     assert code == 64

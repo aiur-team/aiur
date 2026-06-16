@@ -210,6 +210,30 @@ run_init() {
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
+# Load KEY=VALUE pairs from ./.env into the environment so the running release
+# (e.g. GITHUB_TOKEN, dashboard creds) sees what `aiur init` scaffolded there.
+# An already-exported variable always wins, so a shell export overrides the file.
+load_dotenv() {
+  local file=".env" line key val
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    case "$line" in '' | '#'*) continue ;; esac
+    [ "${line#*=}" = "$line" ] && continue
+    key="${line%%=*}"
+    key="${key%"${key##*[![:space:]]}"}"
+    case "$key" in '' | *[!A-Za-z0-9_]*) continue ;; esac
+    val="${line#*=}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    case "$val" in
+      \"*\") val="${val#\"}" && val="${val%\"}" ;;
+      \'*\') val="${val#\'}" && val="${val%\'}" ;;
+    esac
+    [ -n "${!key+x}" ] && continue
+    export "$key=$val"
+  done <"$file"
+}
+
 run_session() {
   local mode="$1"
   shift
@@ -221,6 +245,10 @@ run_session() {
   [ -n "$tmux_bin" ] || die "tmux is required to run aiur; install tmux and retry"
 
   aiur_resolve_identity
+
+  # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
+  # running tracker can authenticate. Shell exports still take precedence.
+  load_dotenv
 
   init_argv_file
 
