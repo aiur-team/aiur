@@ -255,7 +255,10 @@ defmodule Aiur.TmuxTest do
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
 
     assert_receive {:tmux_mock_out, cmd}, 1_000
-    assert cmd == "paste-buffer -d -b #{buffer} -t %42"
+    # `-p` wraps the paste in bracketed-paste markers so a TUI (claude REPL)
+    # collapses a multi-line paste into a submittable `[Pasted text]` chip
+    # instead of expanded newlines (where Enter inserts a newline, not submit).
+    assert cmd == "paste-buffer -p -d -b #{buffer} -t %42"
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
 
     assert :ok = Task.await(task, 1_000)

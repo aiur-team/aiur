@@ -818,9 +818,17 @@ defmodule Aiur.Tmux do
 
   # Inject text via a tmux paste buffer so delivery isn't capped by tmux's
   # ~16KB `send-keys` command-length limit. `load-buffer` reads the text from
-  # a temp file (keeping it off the command line entirely); `paste-buffer -d`
-  # pastes it into the pane and drops the buffer. The buffer name is unique so
-  # concurrent panes never clobber each other's pending paste.
+  # a temp file (keeping it off the command line entirely); `paste-buffer -p -d`
+  # pastes it into the pane (with bracketed-paste markers) and drops the buffer.
+  # The buffer name is unique so concurrent panes never clobber each other's
+  # pending paste.
+  #
+  # `-p` is load-bearing: it wraps the paste in bracketed-paste control codes so
+  # a TUI that requested bracketed paste (the interactive `claude` REPL,
+  # opencode) collapses a multi-line paste into a single `[Pasted text]` chip.
+  # Without it the buffer arrives as raw newlines; claude renders the prompt
+  # expanded and a single `Enter` inserts a newline instead of submitting, so an
+  # RC turn's prompt is pasted but never sent (the turn never starts).
   defp paste_via_buffer(state, pane_id, text) do
     buffer = "aiur-paste-#{System.unique_integer([:positive])}"
     tmp = Path.join(System.tmp_dir!(), buffer)
@@ -828,7 +836,7 @@ defmodule Aiur.Tmux do
     try do
       with :ok <- File.write(tmp, text),
            {:ok, _} <- run_args(state, ["load-buffer", "-b", buffer, tmp]),
-           {:ok, _} <- run_args(state, ["paste-buffer", "-d", "-b", buffer, "-t", pane_id]) do
+           {:ok, _} <- run_args(state, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", pane_id]) do
         :ok
       else
         {:error, _} = err -> err
