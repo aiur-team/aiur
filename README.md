@@ -1,5 +1,14 @@
 # AIUR - AI Unit Runtime
 
+> [!WARNING]
+> **Use at your own risk.** Aiur is an unstable, vibecoded engineering preview for trusted
+> environments only. It **bypasses all agent permission prompts** and has very few efficiency
+> optimizations, so **agents may burn more tokens than intended**. Suggested for simple tasks
+> under supervision.
+>
+> Provided "as is", without warranty of any kind. You assume all risk for any cost, token
+> spend, data loss, or damage from running it. See [LICENSE](LICENSE).
+
 Aiur turns project work into isolated, autonomous implementation runs so teams can manage work
 instead of supervising individual coding sessions.
 
@@ -10,9 +19,6 @@ and starts isolated implementation runs for selected tasks. Each run produces pr
 CI status, PR review feedback, complexity analysis, and walkthrough videos. When accepted, Aiur
 lands the PR safely. Engineers do not need to supervise individual coding sessions; they can manage
 the work at a higher level._
-
-> [!WARNING]
-> Aiur is a low-key engineering preview for testing in trusted environments.
 
 ## Additional Capabilities
 
