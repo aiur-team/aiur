@@ -389,9 +389,7 @@ defmodule Aiur.Init do
   # Safety net that hard-kills a stuck agent after N minutes. `none` opts out
   # (written as 0, which the watchdog treats as disabled).
   defp prompt_max_duration(io) do
-    case normalize_int_or_none(
-           io.input.("Max agent duration in minutes", "60", "Fallback for stuck agents: none = never auto-kill")
-         ) do
+    case normalize_int_or_none(io.input.("Max agent duration in minutes", "60", "Fallback for stuck agents: none = never auto-kill")) do
       :none ->
         0
 

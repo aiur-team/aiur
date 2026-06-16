@@ -353,7 +353,6 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
       assert written_config(target)["prompt_file"] == nil
     end
-
   end
 
   describe "limits and helper text" do

@@ -431,10 +431,12 @@ defmodule Aiur.Config.Schema do
       field(:prewarm_disabled, :boolean, default: false)
     end
 
+    @fields [:command, :bridge_port, :bridge_host, :serve_args, :model_prefix, :prewarm_disabled]
+
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:command, :bridge_port, :bridge_host, :serve_args, :model_prefix, :prewarm_disabled], empty_values: [])
+      |> cast(attrs, @fields, empty_values: [])
       |> validate_number(:bridge_port, greater_than_or_equal_to: 0, less_than: 65_536)
       |> validate_length(:bridge_host, min: 1)
       |> validate_length(:model_prefix, min: 1)
