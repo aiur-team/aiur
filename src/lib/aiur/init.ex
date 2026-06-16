@@ -495,44 +495,121 @@ defmodule Aiur.Init do
 
   defp setup_env(_io, _deps, _tracker), do: :ok
 
+  # Label creation runs as gated stages: required lifecycle labels first (the
+  # operator presses Enter), then optional complexity, model, and remote labels
+  # (each create-or-skip). Existing repo labels are fetched once so each stage
+  # only creates what is missing.
   defp setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
-    required = Labels.label_set(@label_prefix, agent_kinds(agents))
+    kinds = agent_kinds(agents)
+    existing = fetch_existing_labels(deps, tracker)
 
-    case deps.list_labels.(tracker) do
-      {:ok, existing} -> reconcile_labels(io, deps, tracker, required, existing)
-      # Can't diff (couldn't read existing labels) — attempt the whole set;
-      # create_labels is idempotent, so already-present labels are skipped.
-      {:error, _reason} -> create_labels_step(io, deps, tracker, required, "creating them now")
+    with :ok <- create_lifecycle_labels(io, deps, tracker, existing),
+         :ok <- maybe_create_complexity_labels(io, deps, tracker, existing),
+         :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds) do
+      maybe_create_remote_label(io, deps, tracker, existing, kinds)
     end
   end
 
   defp setup_labels(_io, _deps, _tracker, _agents), do: :ok
 
-  defp reconcile_labels(io, deps, tracker, required, existing) do
-    missing = required -- existing
-
-    if missing == [] do
-      io.puts.("\nAll #{length(required)} labels aiur routes on already exist. ✅")
-      :ok
-    else
-      create_labels_step(io, deps, tracker, missing, "#{length(missing)} missing — creating them")
+  # Existing repo labels, fetched once. If we can't read them, treat all as
+  # missing — create_labels is idempotent, so already-present labels are skipped.
+  defp fetch_existing_labels(deps, tracker) do
+    case deps.list_labels.(tracker) do
+      {:ok, existing} -> existing
+      {:error, _reason} -> []
     end
   end
 
-  defp create_labels_step(io, deps, tracker, labels, heading) do
-    io.puts.("\naiur routes on these labels (#{heading}):")
-    Enum.each(labels, fn label -> io.puts.("  #{label} — #{Labels.describe(label)}") end)
+  # Stage 1 — the required lifecycle (`agent:*`) labels the orchestrator reads.
+  defp create_lifecycle_labels(io, deps, tracker, existing) do
+    labels = Labels.state_labels(@label_prefix)
 
-    case deps.create_labels.(tracker, labels) do
+    io.puts.("\nAiur uses ticket labels to route agents. Next we'll use your GITHUB_TOKEN to create the following labels in the repo:")
+    print_label_list(io, labels)
+    print_hint(io, "These lifecycle ticket labels are required.")
+    io.input.("Press Enter to create them", "", nil)
+
+    create_missing_labels(io, deps, tracker, labels, existing)
+  end
+
+  # Stage 2 — optional complexity labels.
+  defp maybe_create_complexity_labels(io, deps, tracker, existing) do
+    labels = Labels.complexity_labels()
+
+    io.puts.("\nNext you can create story point complexity labels:")
+    print_label_list(io, labels)
+    print_hint(io, "Optional: Used to optimize effort. You can add point-specific prompts in #{@config_file_name} to have the agent use different skills and models based on complexity.")
+
+    create_or_skip(io, deps, tracker, labels, existing, "Create the complexity labels?", true)
+  end
+
+  # Stage 3 — optional model-override labels for the chosen backends (the remote
+  # flag is its own stage). These override complexity-routed model choices.
+  defp maybe_create_model_labels(io, deps, tracker, existing, kinds) do
+    labels = Labels.model_labels(kinds)
+
+    io.puts.("\nNext you can create model labels to route specific issues to different models:")
+    print_label_list(io, labels)
+    print_hint(io, "Optional: These will override complexity label model choices.")
+
+    create_or_skip(io, deps, tracker, labels, existing, "Create the model labels?", true)
+  end
+
+  # Stage 4 — optional remote-control flag label, only when claude is supported.
+  defp maybe_create_remote_label(io, deps, tracker, existing, kinds) do
+    case Labels.alias_labels(kinds) do
+      [] ->
+        :ok
+
+      labels ->
+        io.puts.("\nFinally, if you'd like the agent to open a ticket in remote-control mode, add this label:")
+        print_label_list(io, labels)
+        print_hint(io, "Optional: Supports claude remote-control")
+
+        create_or_skip(io, deps, tracker, labels, existing, "Create the model:remote label?", false)
+    end
+  end
+
+  defp create_or_skip(io, deps, tracker, labels, existing, prompt, default) do
+    if io.confirm.(prompt, default) do
+      create_missing_labels(io, deps, tracker, labels, existing)
+    else
+      io.puts.("Skipped.")
+      :ok
+    end
+  end
+
+  # Create only the labels missing from the repo; an API failure prints the gh
+  # fallback for that stage's labels and stops the flow (no ready screen).
+  defp create_missing_labels(io, deps, tracker, labels, existing) do
+    case labels -- existing do
+      [] ->
+        io.puts.("All already exist. ✅")
+        :ok
+
+      missing ->
+        create_labels_request(io, deps, tracker, labels, missing)
+    end
+  end
+
+  defp create_labels_request(io, deps, tracker, labels, missing) do
+    case deps.create_labels.(tracker, missing) do
       :ok ->
-        io.puts.("Created labels (existing ones left as-is).")
+        io.puts.("Created #{length(missing)} (#{length(labels) - length(missing)} already existed).")
         :ok
 
       {:error, message} ->
-        emit_gh_label_fallback(io, tracker, labels, message)
+        emit_gh_label_fallback(io, tracker, missing, message)
         :error
     end
   end
+
+  defp print_label_list(io, labels) do
+    Enum.each(labels, fn label -> io.puts.("  #{label} — #{Labels.describe(label)}") end)
+  end
+
+  defp print_hint(io, text), do: io.puts.(dim("  " <> text))
 
   # When the token can't create labels (e.g. missing scope), hand the operator
   # a copy-paste command to create them, then ask them to re-run to confirm.

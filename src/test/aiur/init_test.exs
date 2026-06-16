@@ -132,6 +132,15 @@ defmodule Aiur.InitTest do
     end
   end
 
+  # Flattened labels across every staged create_labels call.
+  defp labels_created(acc \\ []) do
+    receive do
+      {:labels, _tracker, labels} -> labels_created(acc ++ labels)
+    after
+      0 -> acc
+    end
+  end
+
   @duration_label "Max agent duration in minutes"
 
   @location_label "Where will you store aiur settings for this project?"
@@ -601,7 +610,7 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
     end
 
-    test "creates only the missing labels on a later run", %{dir: dir, target: target} do
+    test "creates only the missing labels across stages on a later run", %{dir: dir, target: target} do
       required = Labels.label_set("agent", ["claude"])
       present = required -- ["agent:rework", "complexity:5"]
 
@@ -613,8 +622,48 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
-      assert_received {:labels, _tracker, missing}
-      assert Enum.sort(missing) == Enum.sort(["agent:rework", "complexity:5"])
+      assert Enum.sort(labels_created()) == Enum.sort(["agent:rework", "complexity:5"])
+    end
+
+    test "lifecycle labels are gated behind an explicit Enter", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/lifecycle ticket labels are required/i))
+    end
+
+    test "optional stages can be skipped without creating their labels", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Create the complexity labels?" => false,
+            "Create the model labels?" => false,
+            "Create the model:remote label?" => false
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
+
+      created = labels_created()
+      assert created != []
+      assert Enum.all?(created, &String.starts_with?(&1, "agent:"))
+      refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
+      refute Enum.any?(created, &String.starts_with?(&1, "model:"))
+    end
+
+    test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+      answers = github_answers(%{multiselect: %{"Which agents to support" => ["codex"]}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
+
+      log = puts_log()
+      refute Enum.any?(log, &(&1 =~ ~r/remote-control mode/i))
+      refute Enum.any?(log, &(&1 =~ ~r/model:remote/))
     end
 
     test "the missing-label gh fallback lists only the missing labels", %{dir: dir, target: target} do
