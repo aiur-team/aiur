@@ -45,4 +45,49 @@ defmodule AiurEngineTest do
     # naming stays the fixed aiur identity regardless of state dir
     assert id["AIUR_RELEASE_NODE"] == "aiur-tester@127.0.0.1"
   end
+
+  # A minimal stub release: start_erl.data + a fake `elixir` that echoes its args
+  # so dispatch/boot-shape can be asserted without a real BEAM.
+  defp fake_release do
+    dir = Path.join(System.tmp_dir!(), "aiur-engine-rel-#{System.unique_integer([:positive])}")
+    vsn = Path.join([dir, "releases", "0.1.1"])
+    File.mkdir_p!(vsn)
+    File.mkdir_p!(Path.join(dir, "bin"))
+    File.write!(Path.join([dir, "releases", "start_erl.data"]), "16.4 0.1.1\n")
+    elixir = Path.join(vsn, "elixir")
+    File.write!(elixir, "#!/usr/bin/env bash\necho \"ELIXIR_ARGS: $*\"\n")
+    File.chmod!(elixir, 0o755)
+    for f <- ["sys", "start_clean", "vm.args"], do: File.write!(Path.join(vsn, f), "")
+    File.write!(Path.join([dir, "bin", "aiur"]), "#!/usr/bin/env bash\necho \"BIN: $*\"\n")
+    File.chmod!(Path.join([dir, "bin", "aiur"]), 0o755)
+    dir
+  end
+
+  defp run_engine(args, env) do
+    System.cmd(@engine, args, env: [{"USER", "tester"} | env], stderr_to_stdout: true)
+  end
+
+  test "--help prints usage and exits 0" do
+    {out, code} = run_engine(["--help"], [])
+    assert code == 0
+    assert out =~ "Usage: aiur"
+  end
+
+  test "an unknown command exits 64 with usage" do
+    {out, code} = run_engine(["bogus-not-a-path"], [])
+    assert code == 64
+    assert out =~ "unknown command"
+  end
+
+  test "init boots interactively and distribution-free (no --name/--cookie)" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} = run_engine(["init"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+
+    assert out =~ "--eval"
+    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute out =~ "--name"
+    refute out =~ "--cookie"
+  end
 end
