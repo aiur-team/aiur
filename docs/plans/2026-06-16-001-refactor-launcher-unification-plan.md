@@ -1,7 +1,7 @@
 ---
 title: "refactor: unify aiurdev + aiur launchers into one engine"
 type: refactor
-status: active
+status: complete
 date: 2026-06-16
 ---
 
@@ -170,7 +170,7 @@ If both layers pass, the only difference at publish time is the registry downloa
 
 ## Implementation Units
 
-- [ ] U1. **Engine skeleton + single identity** *(done; simplify from parameterized to fixed)*
+- [x] U1. **Engine skeleton + single identity** *(done; simplify from parameterized to fixed)*
 
 **Goal:** `aiur-engine.sh` exists with the fixed `aiur` identity + the distribution functions
 (`ensure_erlang_cookie`/`prepare_distribution`), shipped in the package files list.
@@ -193,7 +193,7 @@ If both layers pass, the only difference at publish time is the registry downloa
 
 ---
 
-- [ ] U2. **Extract the command surface into the engine**
+- [x] U2. **Extract the command surface into the engine**
 
 **Goal:** Move aiurdev's full command logic (dispatch + helpers) into `aiur-engine.sh`, using the fixed
 identity and `AIUR_RELEASE_DIR`. Fold in `aiur-launch.sh`'s init/run.
@@ -227,7 +227,7 @@ per-subcommand behavior unchanged (node name now `aiur-`).
 
 ---
 
-- [ ] U3. **Reduce `scripts/aiurdev` to a thin shim**
+- [x] U3. **Reduce `scripts/aiurdev` to a thin shim**
 
 **Goal:** aiurdev only resolves the local release, builds-if-stale, sets `AIUR_RELEASE_DIR`, execs the
 engine.
@@ -251,7 +251,7 @@ build-if-stale step, the in-tmux guard, and `exec aiur-engine.sh "$@"` with `AIU
 
 ---
 
-- [ ] U4. **Point installed `aiur` at the engine**
+- [x] U4. **Point installed `aiur` at the engine**
 
 **Goal:** `bin/aiur.js` execs the engine with the installed release dir; full surface available.
 
@@ -276,7 +276,7 @@ package manifest.
 
 ---
 
-- [ ] U5. **Tests + docs for the unified structure**
+- [x] U5. **Tests + docs for the unified structure**
 
 **Goal:** Tests reflect the single-identity engine/shim split; docs updated.
 
@@ -295,7 +295,7 @@ package manifest.
 
 ---
 
-- [ ] U6. **Dev end-to-end verification + release-verify runbook**
+- [x] U6. **Dev end-to-end verification + release-verify runbook**
 
 **Goal:** Prove dev mode end-to-end; document installed-mode verification (needs a cut release).
 
@@ -314,7 +314,7 @@ local build (real PTY). Write a runbook for verifying installed `aiur <subcomman
 
 ---
 
-- [ ] U7. **`bin/aiur.js` honors a pre-set `AIUR_RELEASE_DIR`**
+- [x] U7. **`bin/aiur.js` honors a pre-set `AIUR_RELEASE_DIR`**
 
 **Goal:** When `AIUR_RELEASE_DIR` is already set, `bin/aiur.js` uses it and skips platform-package
 resolution — enabling Layer 1 local install verification (and a dev escape hatch).
@@ -339,7 +339,7 @@ directory; otherwise the existing platform-package resolution. Preflight/tmux lo
 
 ---
 
-- [ ] U8. **Pre-release install verification harness**
+- [x] U8. **Pre-release install verification harness**
 
 **Goal:** A repeatable local verification (Layer 1 + Layer 2) that proves the packed artifact installs
 and runs, so `0.0.1` ships with confidence.
