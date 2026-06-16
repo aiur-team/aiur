@@ -93,6 +93,8 @@ defmodule Aiur.Init do
 
   @spec run(%{force: boolean()}, io(), deps()) :: :ok | {:error, String.t()}
   def run(opts, io, deps) do
+    io.puts.(init_warning())
+
     case existing_config_target(opts, deps) do
       nil ->
         location = prompt_location(io)
@@ -101,6 +103,14 @@ defmodule Aiur.Init do
       target ->
         resume(io, deps, target)
     end
+  end
+
+  # Shown once at the top of every `aiur init`: aiur runs agents with all
+  # permission prompts bypassed, so the operator should know the risk up front.
+  defp init_warning do
+    "⚠️  Use at your own risk: aiur bypasses all agent permissions, is an unstable preview, and " <>
+      "has minimal token-efficiency optimization — agents may burn more tokens than intended. " <>
+      "Best for simple tasks under supervision.\n"
   end
 
   # On a re-run, an existing repo-local (preferred) or global config is detected
