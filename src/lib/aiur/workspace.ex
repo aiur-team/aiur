@@ -313,7 +313,11 @@ defmodule Aiur.Workspace do
 
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", scrubbed_command], cd: workspace, stderr_to_stdout: true)
+        System.cmd("sh", ["-lc", scrubbed_command],
+          cd: workspace,
+          stderr_to_stdout: true,
+          env: hook_env()
+        )
       end)
 
     case Task.yield(task, timeout_ms) do
@@ -330,6 +334,20 @@ defmodule Aiur.Workspace do
         Logger.warning("Workspace hook timed out hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
 
         {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
+    end
+  end
+
+  # Env exported to workspace hooks. `THIS_REPOSITORY_URL` is the repo aiur is
+  # operating on (the user's repo, not aiur), so an `after_create` hook can
+  # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL. Resolved
+  # from the same source aiur polls issues with, so it tracks repo-local and
+  # global/auto-detected configs alike.
+  defp hook_env do
+    with "github" <- Config.settings!().tracker.kind,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}]
+    else
+      _ -> []
     end
   end
 

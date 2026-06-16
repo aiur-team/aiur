@@ -40,6 +40,31 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "after_create hook receives THIS_REPOSITORY_URL for the configured repo" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-hook-repo-url-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      out_file = Path.join(test_root, "repo-url.txt")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        tracker_kind: "github",
+        tracker_repo: "test-org/test-repo",
+        hook_after_create: "printf '%s' \"$THIS_REPOSITORY_URL\" > #{out_file}"
+      )
+
+      assert {:ok, _workspace} = Workspace.create_for_issue("S-URL")
+      assert File.read!(out_file) == "https://github.com/test-org/test-repo.git"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(

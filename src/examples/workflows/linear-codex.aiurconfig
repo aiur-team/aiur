@@ -16,7 +16,7 @@ workspace:
   root: ~/code/aiur-workspaces
 hooks:
   after_create: |
-    git clone "$AIUR_REPOSITORY_URL" .
+    git clone "$THIS_REPOSITORY_URL" .
   before_remove: |
     git status --short
 agent:
