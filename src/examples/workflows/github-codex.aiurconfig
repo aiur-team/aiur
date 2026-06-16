@@ -22,7 +22,7 @@ workspace:
   root: ~/code/aiur-workspaces
 hooks:
   after_create: |
-    git clone "$AIUR_REPOSITORY_URL" .
+    git clone "$THIS_REPOSITORY_URL" .
     issue_id="$(basename "$PWD")"
     git checkout -b "aiur/${issue_id}" origin/main
   before_remove: |
