@@ -565,6 +565,23 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/aiur --bg/))
     end
 
+    test "each label stage prints its header and greyed helper", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      log = puts_log()
+      # stage 2 — complexity
+      assert Enum.any?(log, &(&1 =~ ~r/story point complexity labels/))
+      assert Enum.any?(log, &(&1 =~ ~r/Used to optimize effort/))
+      # stage 3 — model overrides
+      assert Enum.any?(log, &(&1 =~ ~r/route specific issues to different models/))
+      assert Enum.any?(log, &(&1 =~ ~r/override complexity label model choices/))
+      # stage 4 — remote (claude is selected)
+      assert Enum.any?(log, &(&1 =~ ~r/open a ticket in remote-control mode/))
+      assert Enum.any?(log, &(&1 =~ ~r/Supports claude remote-control/))
+    end
+
     test "lists every label with a description, including model:remote", %{dir: dir, target: target} do
       deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
