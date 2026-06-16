@@ -22,24 +22,14 @@ defmodule Aiur.Init do
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
-  # Scaffolded prompt_file. PromptBuilder renders this as the whole turn
-  # template (Liquid), so it must reference the issue or the agent gets no
-  # task. Repo-specific guidance goes below the task block.
-  @prompt_file_template """
-  You are working on issue `{{ issue.identifier }}`.
-
-  Title: {{ issue.title }}
-
-  {% if issue.description %}
-  {{ issue.description }}
-  {% else %}
-  No description provided.
-  {% endif %}
-
-  ## Repo guidance
-
-  <!-- Guidance appended to each agent turn for this repo. Add yours here. -->
-  """
+  # Scaffolded prompt_file template. PromptBuilder renders this as the whole
+  # turn template (Liquid), so it must reference the issue or the agent gets
+  # no task. The `{{REPO}}` placeholder is init-filled (not Liquid); turn-time
+  # `{{ issue.* }}` Liquid is preserved for PromptBuilder.
+  @prompt_example_path Path.expand("../../../AIUR.md.example", __DIR__)
+  @external_resource @prompt_example_path
+  @prompt_example_template File.read!(@prompt_example_path)
+  @repo_placeholder "{{REPO}}"
 
   @env_example_content """
   # aiur reads secrets from this file. Keep it out of version control.
@@ -78,7 +68,7 @@ defmodule Aiur.Init do
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
-          ensure_prompt_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
+          ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
           github_token: (-> String.t() | nil),
@@ -176,7 +166,7 @@ defmodule Aiur.Init do
     case deps.write_config.(target, config_yaml) do
       {:ok, path} ->
         io.puts.(["Created: ", dim(path)])
-        ensure_prompt_file(io, deps, path, prompt_file)
+        ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         setup_env(io, deps, tracker)
         provision(io, deps, tracker, agents)
 
@@ -490,14 +480,17 @@ defmodule Aiur.Init do
 
   # Create the per-repo prompt file the config points at so the very next
   # config load (auth checks, then boot) doesn't fail on a missing file.
-  defp ensure_prompt_file(_io, _deps, _target, prompt_file) when prompt_file in [nil, ""], do: :ok
+  defp ensure_prompt_file(_io, _deps, _target, prompt_file, _repo) when prompt_file in [nil, ""], do: :ok
 
-  defp ensure_prompt_file(io, deps, target, prompt_file) do
-    case deps.ensure_prompt_file.(target, prompt_file) do
+  defp ensure_prompt_file(io, deps, target, prompt_file, repo) do
+    case deps.ensure_prompt_file.(target, prompt_file, repo) do
       {:created, path} -> io.puts.(["Created: ", dim(path)])
       {:exists, _path} -> :ok
     end
   end
+
+  defp tracker_repo(%{repo: repo}), do: repo
+  defp tracker_repo(_tracker), do: nil
 
   # GitHub is the only tracker that reads a secret from the environment, so the
   # wizard scaffolds `.env` only on that path. Linear collects its key inline.
@@ -792,7 +785,7 @@ defmodule Aiur.Init do
       read_example: fn -> @example_template end,
       detect_repo: &detect_repo/0,
       write_config: &write_config/2,
-      ensure_prompt_file: &write_prompt_file/2,
+      ensure_prompt_file: &write_prompt_file/3,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
       github_token: &Aiur.GitHub.Config.token/0,
@@ -822,20 +815,35 @@ defmodule Aiur.Init do
     end
   end
 
-  defp write_prompt_file(target, prompt_file) do
+  defp write_prompt_file(target, prompt_file, repo) do
     path = Path.expand(prompt_file, Path.dirname(target))
 
     if File.regular?(path) do
       {:exists, path}
     else
-      File.write!(path, @prompt_file_template)
+      File.write!(path, prompt_file_scaffold(repo))
       {:created, path}
     end
   end
 
-  @doc "Default prompt_file template `aiur init` scaffolds for a new repo."
+  @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
   @spec prompt_file_template() :: String.t()
-  def prompt_file_template, do: @prompt_file_template
+  def prompt_file_template, do: @prompt_example_template
+
+  @doc "Prompt_file scaffold with the repo placeholder filled for `repo` (or a neutral fallback)."
+  @spec prompt_file_scaffold(String.t() | nil) :: String.t()
+  def prompt_file_scaffold(repo) do
+    String.replace(@prompt_example_template, @repo_placeholder, repo_display(repo))
+  end
+
+  defp repo_display(repo) when is_binary(repo) do
+    case String.trim(repo) do
+      "" -> "current"
+      trimmed -> trimmed
+    end
+  end
+
+  defp repo_display(_repo), do: "current"
 
   defp create_labels(%{kind: "github", repo: repo}, labels) do
     with {:ok, {owner, name}} <- parse_owner_repo(repo),

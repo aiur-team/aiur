@@ -57,7 +57,7 @@ defmodule Aiur.InitTest do
           send(parent, {:write, t})
           {:ok, t}
         end,
-        ensure_prompt_file: fn t, pf ->
+        ensure_prompt_file: fn t, pf, _repo ->
           path = Path.expand(pf, Path.dirname(t))
 
           if File.regular?(path) do
@@ -368,6 +368,24 @@ defmodule Aiur.InitTest do
       assert template =~ "{{ issue.identifier }}"
       assert template =~ "{{ issue.title }}"
       assert template =~ "issue.description"
+    end
+
+    test "the prompt scaffold fills the repo name and preserves issue Liquid" do
+      scaffold = Init.prompt_file_scaffold("octo/repo")
+
+      assert scaffold =~ "octo/repo"
+      # The {{REPO}} placeholder is init-filled; turn-time issue Liquid must
+      # survive untouched so PromptBuilder can still render it.
+      assert scaffold =~ "{{ issue.title }}"
+      refute scaffold =~ "{{REPO}}"
+    end
+
+    test "the prompt scaffold falls back when no repo is known" do
+      scaffold = Init.prompt_file_scaffold(nil)
+
+      # No stray placeholder ever reaches Solid (strict_variables would raise).
+      refute scaffold =~ "{{REPO}}"
+      assert scaffold =~ "{{ issue.title }}"
     end
 
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
