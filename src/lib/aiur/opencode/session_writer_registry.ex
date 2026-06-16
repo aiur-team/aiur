@@ -92,15 +92,27 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
             writer_pid: pid()
           }
         ]
-  def all do
-    Registry.select(@registry, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
-    |> Enum.flat_map(fn
-      {identifier, pid, %{session_id: sid, base_url: url}} ->
-        [%{identifier: identifier, session_id: sid, base_url: url, writer_pid: pid}]
+  def all, do: all(@registry)
 
-      _ ->
-        []
-    end)
+  @doc false
+  @spec all(atom()) :: [map()]
+  def all(registry) do
+    # A foreground one-shot (e.g. `aiur init`) never starts the registry, so
+    # the shutdown walk would otherwise raise `unknown registry`. No process
+    # means no sessions to enumerate.
+    if Process.whereis(registry) do
+      registry
+      |> Registry.select([{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
+      |> Enum.flat_map(fn
+        {identifier, pid, %{session_id: sid, base_url: url}} ->
+          [%{identifier: identifier, session_id: sid, base_url: url, writer_pid: pid}]
+
+        _ ->
+          []
+      end)
+    else
+      []
+    end
   end
 
   @doc """
