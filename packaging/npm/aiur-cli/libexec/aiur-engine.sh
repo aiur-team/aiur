@@ -173,12 +173,11 @@ build_init_cmd() {
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
-       aiur init [--force]
-       aiur --bg            start in a detached tmux session
-       aiur stop            stop the running session
-       aiur status          show agent status
+       aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
+       aiur --bg             start in a detached tmux session
+       aiur stop             stop the running session
+       aiur status           show agent status
        aiur pause <ids|--all> | resume <ids|--all>
-       aiur sweep           remove dead tmux sockets
        aiur --version
 EOF
 }
@@ -566,7 +565,7 @@ aiur_engine_main() {
     __identity)
       aiur_print_identity
       ;;
-    -h | --help)
+    help | -h | -help | --h | --help)
       usage
       ;;
     --version)
@@ -593,9 +592,6 @@ aiur_engine_main() {
       ;;
     stop)
       cmd_stop
-      ;;
-    sweep)
-      sweep_dead_tmux_sockets
       ;;
     "")
       run_session foreground

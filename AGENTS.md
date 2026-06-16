@@ -38,7 +38,6 @@ aiurdev stop                  # stop the session (BEAM + tmux)
 aiurdev status                # report the running session
 aiurdev pause | resume        # pause / resume the workflow
 aiurdev init                  # scaffold .aiurconfig
-aiurdev sweep                 # reap orphaned agent-driver tmux sockets
 aiurdev build                 # force-rebuild the local release (shim-only)
 aiurdev --host …              # opt out of the local-only --host injection
 ```

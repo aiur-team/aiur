@@ -136,7 +136,6 @@ fi
 
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   require_mise
-  "$engine" sweep || true
   echo "🛑 stopping any running aiur" >&2
   "$engine" stop >/dev/null 2>&1 || true
 

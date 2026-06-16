@@ -122,7 +122,6 @@ on your `PATH`:
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
 | `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
-| `aiurdev sweep` | Remove dead agent-driver tmux sockets |
 | `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
 Pause and resume target issue IDs, not process IDs. Space-separated and

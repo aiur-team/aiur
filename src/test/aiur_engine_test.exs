@@ -67,10 +67,18 @@ defmodule AiurEngineTest do
     System.cmd(@engine, args, env: [{"USER", "tester"} | env], stderr_to_stdout: true)
   end
 
-  test "--help prints usage and exits 0" do
-    {out, code} = run_engine(["--help"], [])
-    assert code == 0
-    assert out =~ "Usage: aiur"
+  test "every help alias prints usage and exits 0" do
+    for flag <- ["help", "-h", "-help", "--h", "--help"] do
+      {out, code} = run_engine([flag], [])
+      assert code == 0, "#{flag} should exit 0"
+      assert out =~ "Usage: aiur", "#{flag} should print usage"
+    end
+  end
+
+  test "usage describes init and no longer lists sweep" do
+    {out, 0} = run_engine(["--help"], [])
+    assert out =~ ~r/aiur init \[--force\]\s+scaffold/
+    refute out =~ "sweep"
   end
 
   test "an unknown command exits 64 with usage" do
