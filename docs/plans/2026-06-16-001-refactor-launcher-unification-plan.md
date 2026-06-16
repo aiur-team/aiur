@@ -69,8 +69,34 @@ and the divergence; aiurdev simply adopts the `aiur` identity.
 
 ### Deferred to Follow-Up Work
 
-- Cutting/publishing a release to live-verify installed `aiur <subcommand>` end-to-end: a separate
-  release/QA pass (this branch is dev-verified + structurally wired).
+- **Publishing** to the npm registry. The installed flow is verified *before* publishing via
+  `npm pack` + local install (see "Pre-Release Install Verification"); only the registry upload itself
+  is deferred.
+
+---
+
+## Pre-Release Install Verification
+
+The downstream goal is to publish `0.0.1` and **know it works without iterating releases**. The install
+flow has exactly two release-specific moving parts beyond the engine `aiurdev` already proves:
+
+1. `bin/aiur.js` `resolveReleaseDir()` — `require.resolve("aiur-cli-<triple>")` → that package's
+   `release/` dir, passed to the engine as `AIUR_RELEASE_DIR`.
+2. The `files` allowlist shipping everything the engine needs (engine script, tmux conf).
+
+Both are provable locally with `npm pack` (the exact published tarball, respecting `files`):
+
+- **Layer 1 — CLI + engine from the packed artifact:** `npm pack` `aiur-cli`, install the tarball into a
+  temp prefix, and run `aiur` with `AIUR_RELEASE_DIR` pointed at a locally-built release. Proves
+  `bin/aiur.js` → engine → BEAM works from the *packed* files (engine ships, paths resolve), decoupled
+  from platform-package download. Requires `bin/aiur.js` to honor a pre-set `AIUR_RELEASE_DIR` (U7).
+- **Layer 2 — platform-package resolution:** `npm pack` a platform package whose `release/` is a real
+  local build, install both tarballs together, run `aiur` with **no** `AIUR_RELEASE_DIR` → proves
+  `resolveReleaseDir()` finds the package and runs its release.
+
+If both layers pass, the only difference at publish time is the registry download (mechanical), so
+`0.0.1` ships with confidence. This is a separate effort after the engine lands, but the engine design
+(one engine, `AIUR_RELEASE_DIR`-parameterized) is what makes it cheap.
 
 ---
 
@@ -288,6 +314,54 @@ local build (real PTY). Write a runbook for verifying installed `aiur <subcomman
 
 ---
 
+- [ ] U7. **`bin/aiur.js` honors a pre-set `AIUR_RELEASE_DIR`**
+
+**Goal:** When `AIUR_RELEASE_DIR` is already set, `bin/aiur.js` uses it and skips platform-package
+resolution — enabling Layer 1 local install verification (and a dev escape hatch).
+
+**Requirements:** R4 (enables pre-release verification)
+
+**Dependencies:** U4
+
+**Files:**
+- Modify: `packaging/npm/aiur-cli/bin/aiur.js`
+- Test: a small node/bun test, or assert via the install-verification script
+
+**Approach:** Early-return the env's `AIUR_RELEASE_DIR` from `resolveReleaseDir()` when set and a
+directory; otherwise the existing platform-package resolution. Preflight/tmux logic unchanged.
+
+**Test scenarios:**
+- Happy path: with `AIUR_RELEASE_DIR` set, the entrypoint execs the engine with that dir, no
+  `require.resolve` of the platform package.
+- Edge case: unset → existing platform-package resolution (and its missing-package error).
+
+**Verification:** `AIUR_RELEASE_DIR=<local build> aiur …` works against a packed+installed CLI.
+
+---
+
+- [ ] U8. **Pre-release install verification harness**
+
+**Goal:** A repeatable local verification (Layer 1 + Layer 2) that proves the packed artifact installs
+and runs, so `0.0.1` ships with confidence.
+
+**Requirements:** R5
+
+**Dependencies:** U4, U7
+
+**Files:**
+- Create: a verification script (e.g. `packaging/npm/aiur-cli/scripts/verify-install.sh`)
+
+**Approach:** `npm pack` the cli (Layer 1: install into a temp prefix, run with a local
+`AIUR_RELEASE_DIR`); `npm pack` a platform package with a real built `release/` (Layer 2: install both,
+run with no `AIUR_RELEASE_DIR`). Assert `aiur init` + a non-interactive command succeed from the
+installed binary.
+
+**Test expectation:** none — it *is* the verification harness; it runs manually / in CI pre-publish.
+
+**Verification:** Both layers pass locally against the packed tarballs; publishing is then mechanical.
+
+---
+
 ## Phased Delivery
 
 ### Phase 1 — Engine + dev (live-verifiable now)
@@ -295,8 +369,11 @@ U1 → U2 → U3 → U5 (dev) → U6 (dev half). aiurdev runs entirely through t
 the local build.
 
 ### Phase 2 — Installed wiring (release-verified later)
-U4 → U5 (installed assertions) → U6 (runbook). Structurally complete; final live-verify deferred to a
-release cut.
+U4 → U5 (installed assertions) → U6 (runbook). Structurally complete.
+
+### Phase 3 — Pre-release install verification
+U7 → U8. Prove the packed artifact installs + runs locally (`npm pack`, both layers) so `0.0.1` ships
+without iterating releases. (Likely a separate follow-up effort, pre-defined here.)
 
 ---
 
