@@ -99,5 +99,98 @@ fi
 
 ensure_built
 
+# --- dev test/debug harness (dev-only; never lives in the shared engine) -------
+# These flags don't exist in the product CLI. The shim consumes them, turns them
+# into a GitHub sandbox reset + AIUR_DEBUG, then hands the rest to the engine for
+# a normal foreground run.
+#
+#   --test    reset the single sandbox ticket (issue 99) then launch
+#   --test3   reset the 3-ticket blocker chain (drives the remote agent) then launch
+#   --debug   verbose logging (AIUR_DEBUG=1)
+#   --clear   delete prior ~/.aiur/logs sessions first (requires --debug)
+debug_mode=0
+clear_mode=0
+test_single=0
+test3_mode=0
+allow_remote=0
+passthrough=()
+for arg in "$@"; do
+  case "$arg" in
+    --debug) debug_mode=1 ;;
+    --clear) clear_mode=1 ;;
+    --allow-remote) allow_remote=1 ;;
+    --force) : ;; # test modes already force a reset; harmless elsewhere
+    --test) test_single=1 debug_mode=1 clear_mode=1 ;;
+    --test3) test3_mode=1 debug_mode=1 clear_mode=1 allow_remote=1 ;;
+    *) passthrough+=("$arg") ;;
+  esac
+done
+
+if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
+  echo "❌ --clear requires --debug (e.g. aiurdev --debug --clear)" >&2
+  exit 64
+fi
+
+[ "$debug_mode" -eq 1 ] && export AIUR_DEBUG=1
+[ "$clear_mode" -eq 1 ] && rm -rf "$HOME/.aiur/logs/"* 2>/dev/null || true
+
+if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+  require_mise
+  "$engine" sweep || true
+  echo "🛑 stopping any running aiur" >&2
+  "$engine" stop >/dev/null 2>&1 || true
+
+  reset_args=("--confirm" "--force")
+  [ "$test_single" -eq 1 ] && reset_args+=("--single")
+  [ "$allow_remote" -eq 1 ] && reset_args+=("--allow-remote")
+  if ! (cd "$elixir_dir" && "$mise_bin" exec -- mix aiur.test.reset "${reset_args[@]}"); then
+    echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
+    exit 1
+  fi
+
+  # GitHub's label index is eventually consistent — wait until the pinned
+  # tickets show under agent:todo (or fall through after 30s) so the
+  # orchestrator's first poll doesn't miss a freshly-labelled ticket.
+  tickets_file="$repo_root/.aiur-test-tickets.json"
+  expected=0
+  if command -v jq >/dev/null 2>&1 && [ -r "$tickets_file" ]; then
+    if [ "$test_single" -eq 1 ]; then
+      expected=1
+    else
+      expected="$(jq -r '.tickets | length' "$tickets_file" 2>/dev/null || echo 0)"
+    fi
+  fi
+  if [ "$expected" -gt 0 ]; then
+    echo "⏳ settling GitHub label index" >&2
+    deadline=$((SECONDS + 30))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      actual="$(gh issue list --label agent:todo --json number 2>/dev/null | jq -r 'length' 2>/dev/null || echo 0)"
+      [ "$actual" -ge "$expected" ] && break
+      sleep 1
+    done
+  fi
+fi
+
+# --test3 wall-clock timer: a detached poller that appends a JSON line to
+# .aiur-test3-runs.jsonl when all 3 tickets reach agent:human-review (or 90m).
+if [ "$test3_mode" -eq 1 ]; then
+  pid_file="$repo_root/.aiur-test3-timer.pid"
+  if [ -r "$pid_file" ]; then
+    prior_pid="$(cat "$pid_file" 2>/dev/null || true)"
+    { [ -n "$prior_pid" ] && kill -0 "$prior_pid" 2>/dev/null && kill "$prior_pid" 2>/dev/null; } || true
+    rm -f "$pid_file"
+  fi
+  timer="$repo_root/scripts/aiur-test3-timer"
+  if [ -x "$timer" ]; then
+    echo "⏱  test3 timer started (results append to .aiur-test3-runs.jsonl)" >&2
+    setsid "$timer" "$repo_root" "$(date +%s)" </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  fi
+fi
+
 export AIUR_RELEASE_DIR="$release_dir"
-exec "$engine" "$@"
+if [ "${#passthrough[@]}" -gt 0 ]; then
+  exec "$engine" "${passthrough[@]}"
+else
+  exec "$engine"
+fi
