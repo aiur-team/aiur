@@ -355,7 +355,7 @@ defmodule Aiur.Init do
         "bypassPermissions"
 
       other ->
-        io.puts.("⚠ #{other} needs an approval UI (coming soon) — using bypassPermissions.")
+        io.puts.("⚠️ #{other} needs an approval UI (coming soon) — using bypassPermissions.")
         "bypassPermissions"
     end
   end
@@ -605,8 +605,13 @@ defmodule Aiur.Init do
     end
   end
 
+  # Pad each label to the widest in the list so the `—` descriptions align.
   defp print_label_list(io, labels) do
-    Enum.each(labels, fn label -> io.puts.("  #{label} — #{Labels.describe(label)}") end)
+    width = Enum.reduce(labels, 0, fn label, acc -> max(acc, String.length(label)) end)
+
+    Enum.each(labels, fn label ->
+      io.puts.(["  ", String.pad_trailing(label, width), " — ", Labels.describe(label)])
+    end)
   end
 
   defp print_hint(io, text), do: io.puts.(dim("  " <> text))
@@ -616,7 +621,7 @@ defmodule Aiur.Init do
   defp emit_gh_label_fallback(io, tracker, labels, message) do
     repo = tracker[:repo] || "<owner/name>"
 
-    io.puts.("\n⚠ Couldn't create labels automatically (#{message}).")
+    io.puts.("\n⚠️ Couldn't create labels automatically (#{message}).")
     io.puts.("Run these to create them yourself (existing ones are skipped):")
 
     Enum.each(labels, fn label ->
@@ -684,7 +689,7 @@ defmodule Aiur.Init do
         :ok
 
       {:error, message} ->
-        io.puts.("⚠ #{label}: #{message}")
+        io.puts.("⚠️ #{label}: #{message}")
 
         if io.confirm.("Retry #{label}?", false) do
           run_auth_check(io, label, check)

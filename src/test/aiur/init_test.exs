@@ -588,8 +588,17 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
       log = puts_log()
-      assert Enum.any?(log, &(&1 =~ ~r/model:remote — Supports claude remote-control/))
-      assert Enum.any?(log, &(&1 =~ ~r/agent:todo — ready to be worked/))
+      assert Enum.any?(log, &(&1 =~ ~r/model:remote\s+— Supports claude remote-control/))
+      assert Enum.any?(log, &(&1 =~ ~r/agent:todo\s+— ready to be worked/))
+    end
+
+    test "shorter labels are padded so the description column aligns", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      # agent:todo (short) is padded toward agent:human-review (longest) before the —.
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/agent:todo\s{2,}—/))
     end
 
     test "permission failure prints a gh fallback and withholds the ready screen", %{
