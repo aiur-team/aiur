@@ -22,6 +22,25 @@ defmodule Aiur.Init do
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
+  # Scaffolded prompt_file. PromptBuilder renders this as the whole turn
+  # template (Liquid), so it must reference the issue or the agent gets no
+  # task. Repo-specific guidance goes below the task block.
+  @prompt_file_template """
+  You are working on issue `{{ issue.identifier }}`.
+
+  Title: {{ issue.title }}
+
+  {% if issue.description %}
+  {{ issue.description }}
+  {% else %}
+  No description provided.
+  {% endif %}
+
+  ## Repo guidance
+
+  <!-- Guidance appended to each agent turn for this repo. Add yours here. -->
+  """
+
   @env_example_content """
   # aiur reads secrets from this file. Keep it out of version control.
   # GitHub personal access token (repo scope). Create one at:
@@ -809,10 +828,14 @@ defmodule Aiur.Init do
     if File.regular?(path) do
       {:exists, path}
     else
-      File.write!(path, "# Agent prompt\n\nGuidance appended to each agent turn for this repo.\n")
+      File.write!(path, @prompt_file_template)
       {:created, path}
     end
   end
+
+  @doc "Default prompt_file template `aiur init` scaffolds for a new repo."
+  @spec prompt_file_template() :: String.t()
+  def prompt_file_template, do: @prompt_file_template
 
   defp create_labels(%{kind: "github", repo: repo}, labels) do
     with {:ok, {owner, name}} <- parse_owner_repo(repo),

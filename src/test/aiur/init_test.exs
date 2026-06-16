@@ -360,6 +360,16 @@ defmodule Aiur.InitTest do
       assert File.regular?(Path.join(dir, "AIUR.md"))
     end
 
+    test "the scaffolded prompt file delivers the issue task to the agent" do
+      template = Init.prompt_file_template()
+
+      # PromptBuilder renders prompt_file as the whole turn template, so it
+      # must reference the issue or the agent receives no task.
+      assert template =~ "{{ issue.identifier }}"
+      assert template =~ "{{ issue.title }}"
+      assert template =~ "issue.description"
+    end
+
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
       answers = github_answers(%{select: %{@location_label => "global"}})
 
