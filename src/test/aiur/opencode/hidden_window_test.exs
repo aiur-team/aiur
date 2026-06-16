@@ -10,6 +10,18 @@ defmodule Aiur.Opencode.HiddenWindowTest do
     end
   end
 
+  describe "keep_alive_command/0" do
+    test "is portable across BSD (macOS) and GNU sleep" do
+      cmd = HiddenWindow.keep_alive_command()
+
+      # `sleep infinity` is GNU-only; BSD/macOS sleep rejects it, so the
+      # keep-alive pane would exit immediately and tmux would close it,
+      # dropping the hidden window's pane mid-boot.
+      refute cmd =~ "infinity"
+      assert cmd =~ ~r/^sleep \d+$/
+    end
+  end
+
   describe "status/0 + ensure/1 without a running process" do
     test "status/0 returns :disabled when no GenServer is started" do
       # No PrewarmSupervisor in this test, so the module is not registered.
