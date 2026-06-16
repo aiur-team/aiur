@@ -337,20 +337,6 @@ defmodule Aiur.Workspace do
     end
   end
 
-  # Env exported to workspace hooks. `THIS_REPOSITORY_URL` is the repo aiur is
-  # operating on (the user's repo, not aiur), so an `after_create` hook can
-  # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL. Resolved
-  # from the same source aiur polls issues with, so it tracks repo-local and
-  # global/auto-detected configs alike.
-  defp hook_env do
-    with "github" <- Config.settings!().tracker.kind,
-         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}]
-    else
-      _ -> []
-    end
-  end
-
   defp run_hook(command, workspace, issue_context, hook_name, worker_host) when is_binary(worker_host) do
     timeout_ms = Config.settings!().hooks.timeout_ms
 
@@ -365,6 +351,20 @@ defmodule Aiur.Workspace do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Env exported to workspace hooks. `THIS_REPOSITORY_URL` is the repo aiur is
+  # operating on (the user's repo, not aiur), so an `after_create` hook can
+  # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL. Resolved
+  # from the same source aiur polls issues with, so it tracks repo-local and
+  # global/auto-detected configs alike.
+  defp hook_env do
+    with "github" <- Config.settings!().tracker.kind,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}]
+    else
+      _ -> []
     end
   end
 
