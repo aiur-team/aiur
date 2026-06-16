@@ -109,8 +109,7 @@ defmodule Aiur.Init do
   # permission prompts bypassed, so the operator should know the risk up front.
   defp init_warning do
     "⚠️  Use at your own risk: aiur bypasses all agent permissions, is an unstable preview, and " <>
-      "has minimal token-efficiency optimization — agents may burn more tokens than intended. " <>
-      "Best for simple tasks under supervision.\n"
+      "has minimal token-efficiency optimization. Best for simple tasks under supervision.\n"
   end
 
   # On a re-run, an existing repo-local (preferred) or global config is detected

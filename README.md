@@ -3,8 +3,7 @@
 > [!WARNING]
 > **Use at your own risk.** Aiur is an unstable, vibecoded engineering preview for trusted
 > environments only. It **bypasses all agent permission prompts** and has very few efficiency
-> optimizations, so **agents may burn more tokens than intended**. Suggested for simple tasks
-> under supervision.
+> optimizations. Suggested for simple tasks under supervision.
 >
 > Provided "as is", without warranty of any kind. You assume all risk for any cost, token
 > spend, data loss, or damage from running it. See [LICENSE](LICENSE).

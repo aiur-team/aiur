@@ -1,5 +1,11 @@
 import { test, expect } from "bun:test";
-import { provisionOpencode } from "../scripts/postinstall.mjs";
+import { provisionOpencode, OPENCODE_PACKAGE } from "../scripts/postinstall.mjs";
+
+test("opencode is pinned to a specific version, not floating to latest", () => {
+  // 1.17.x broke aiur's chat panes; the package spec must carry an explicit
+  // version so a fresh install gets the validated one.
+  expect(OPENCODE_PACKAGE).toMatch(/^opencode-ai@\d+\.\d+\.\d+$/);
+});
 
 test("skips the install when AIUR_SKIP_OPENCODE_INSTALL=1", () => {
   let installed = false;
