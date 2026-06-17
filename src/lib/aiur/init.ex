@@ -691,6 +691,42 @@ defmodule Aiur.Init do
     io.puts.("\n✅ aiur is set up. You can now:")
     io.puts.("  1. Add `agent:todo` labels to the issues you want worked.")
     io.puts.("  2. Run `aiur` (foreground) or `aiur --bg` (background) to start agents.")
+    print_warm_base_prompt(io)
+  end
+
+  # Optional speed-up: aiur can keep a warm checkout of the repo's main branch
+  # (deps installed, build compiled) and spin per-issue workspaces off it
+  # instead of cold-cloning + recompiling every dispatch. aiur can't know this
+  # repo's build commands, so it hands the dev a prompt to have their own coding
+  # agent author the repo-specific hooks.
+  defp print_warm_base_prompt(io) do
+    io.puts.("\n🚀 Optional — skip the cold clone + build on every dispatch:")
+    io.puts.("   Paste the prompt below to your coding agent (claude, codex, …) to set up a warm base.")
+    io.puts.(IO.ANSI.format([:faint, warm_base_prompt()]))
+  end
+
+  defp warm_base_prompt do
+    """
+    ─────────────────────────────────────────────────────────────────────
+    Set up aiur warm-base hooks for this repository.
+
+    aiur maintains a warm checkout of this repo's main branch — dependencies
+    installed and build compiled — at the path in $AIUR_REPO_BASE, refreshed
+    before each dispatch. Wire per-issue workspaces to spin off from it:
+
+    1. Create a .aiurhooks file (YAML) next to .aiurconfig and set
+       `hooks_file: .aiurhooks` in .aiurconfig.
+    2. In .aiurhooks define two hooks tailored to THIS repo's toolchain:
+       - base_setup: runs IN the warm base to install deps + compile
+         (e.g. mix: "mix deps.get && mix compile"; pnpm: "pnpm install").
+       - after_create: spin a per-issue workspace off the warm base — if
+         $AIUR_REPO_BASE is set AND that directory exists, copy or
+         `git worktree` from it and run an incremental build; OTHERWISE fall
+         back to `git clone "$THIS_REPOSITORY_URL" .`.
+    3. Keep after_create defensive: it must work whether or not the warm base
+       is present (e.g. remote workers or the very first run have none).
+    ─────────────────────────────────────────────────────────────────────
+    """
   end
 
   defp linear_walkthrough(io, %{kind: "linear"}) do

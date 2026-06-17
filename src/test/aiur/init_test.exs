@@ -687,6 +687,10 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/Complexity tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/Model tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+
+      # The final screen hands the dev a warm-base setup prompt for their agent.
+      assert Enum.any?(log, &(&1 =~ ~r/AIUR_REPO_BASE/))
+      assert Enum.any?(log, &(&1 =~ ~r/\.aiurhooks/))
     end
 
     test "later run reprompts only the stages with missing labels", %{dir: dir, target: target} do
