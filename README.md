@@ -33,6 +33,11 @@ the work at a higher level._
   input while Aiur keeps the Codex/Claude runtime and transcript as the source of truth.
 - **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
   configured host/port for private operational access.
+- **Warm base (faster dispatch):** with a `base_setup` hook configured, Aiur keeps a warm
+  checkout of the repo's `main` (deps installed, build compiled) under `~/.aiur/repo/<owner>/<name>`
+  and exposes it to hooks as `$AIUR_REPO_BASE`, so per-issue workspaces spin off from it instead of
+  cold-cloning and recompiling every dispatch. Hooks live in `.aiurhooks` (referenced from
+  `.aiurconfig` via `hooks_file:`); see `.aiurhooks.example`.
 - **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing
   behavior consistent across runs without making those workflows part of Aiur's core model.
 - **Optional alert sounds:** users can edit the checked-in `alerts.yaml` file, where each alert
