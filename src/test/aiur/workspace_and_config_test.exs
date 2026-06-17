@@ -65,7 +65,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "after_create hook receives AIUR_REPO_BASE when a warm base is configured" do
+  test "after_create hook receives THIS_REPO_BASE when a warm base is configured" do
     test_root =
       Path.join(System.tmp_dir!(), "aiur-warm-base-#{System.unique_integer([:positive])}")
 
@@ -90,7 +90,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
         tracker_kind: "github",
         tracker_repo: "test-org/test-repo",
         hook_base_setup: "true",
-        hook_after_create: "printf '%s' \"$AIUR_REPO_BASE\" > #{out_file}"
+        hook_after_create: "printf '%s' \"$THIS_REPO_BASE\" > #{out_file}"
       )
 
       assert {:ok, _workspace} = Workspace.create_for_issue("S-BASE")
@@ -106,7 +106,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "after_create hook sees no AIUR_REPO_BASE when no base_setup is configured" do
+  test "after_create hook sees no THIS_REPO_BASE when no base_setup is configured" do
     test_root =
       Path.join(System.tmp_dir!(), "aiur-no-warm-base-#{System.unique_integer([:positive])}")
 
@@ -118,7 +118,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
         workspace_root: workspace_root,
         tracker_kind: "github",
         tracker_repo: "test-org/test-repo",
-        hook_after_create: "printf '%s' \"$AIUR_REPO_BASE\" > #{out_file}"
+        hook_after_create: "printf '%s' \"$THIS_REPO_BASE\" > #{out_file}"
       )
 
       assert {:ok, _workspace} = Workspace.create_for_issue("S-NOBASE")

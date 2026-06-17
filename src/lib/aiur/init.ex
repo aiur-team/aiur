@@ -711,7 +711,7 @@ defmodule Aiur.Init do
     Set up aiur warm-base hooks for this repository.
 
     aiur maintains a warm checkout of this repo's main branch — dependencies
-    installed and build compiled — at the path in $AIUR_REPO_BASE, refreshed
+    installed and build compiled — at the path in $THIS_REPO_BASE, refreshed
     before each dispatch. Wire per-issue workspaces to spin off from it:
 
     1. Create a .aiurhooks file (YAML) next to .aiurconfig and set
@@ -720,7 +720,7 @@ defmodule Aiur.Init do
        - base_setup: runs IN the warm base to install deps + compile
          (e.g. mix: "mix deps.get && mix compile"; pnpm: "pnpm install").
        - after_create: spin a per-issue workspace off the warm base — if
-         $AIUR_REPO_BASE is set AND that directory exists, copy or
+         $THIS_REPO_BASE is set AND that directory exists, copy or
          `git worktree` from it and run an incremental build; OTHERWISE fall
          back to `git clone "$THIS_REPOSITORY_URL" .`.
     3. Keep after_create defensive: it must work whether or not the warm base

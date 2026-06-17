@@ -29,11 +29,11 @@ Cold per-dispatch boot wastes wall-clock, tokens, and CPU, and degrades with con
 - R2. The base has deps installed + build warm (produced by a dev-authored base hook), so spin-offs skip cold install/compile.
 - R3. aiur refreshes the base when main advances: lazy staleness check at dispatch (fetch→reset→re-run base hook when HEAD/lockfile changed) + optional background poll. *(decided)*
 - R4. The shared base is guarded against corruption from concurrent spin-offs + refresh (serialized refresh).
-- R5. aiur exposes the base path to hooks via `AIUR_REPO_BASE`.
+- R5. aiur exposes the base path to hooks via `THIS_REPO_BASE`.
 - R6. Hook definitions move out of `.aiurconfig` into `.aiurhooks`, referenced by path (default `.aiurhooks`); inline hooks still load for back-compat. *(decided: YAML, same keys)*
 - R7. `.aiurhooks` supports the existing hook points + a new base-build hook; it is the file the dev's agent edits.
 - R8. The final `aiur init` step outputs a ready-to-paste prompt telling the dev's coding agent to author repo-specific hooks (base build + spin-off-from-base + incremental build).
-- R9. The prompt documents the base contract (path, "latest main, deps+build warm"), hook points, and `AIUR_REPO_BASE`.
+- R9. The prompt documents the base contract (path, "latest main, deps+build warm"), hook points, and `THIS_REPO_BASE`.
 - R10. With no custom hooks yet, aiur falls back to the current cold-clone path (non-blocking, opt-in).
 - R11. With hooks in place, a fresh workspace starts with deps present + warm build, eliminating per-dispatch cold clone+compile.
 - R12. No language/toolchain or container runtime is imposed on the target repo.
@@ -63,7 +63,7 @@ Cold per-dispatch boot wastes wall-clock, tokens, and CPU, and degrades with con
 - `src/lib/aiur/config/schema.ex:352` — `Config.Schema.Hooks` embedded schema (`after_create`/`before_run`/`after_run`/`before_remove`/`timeout_ms`). Top-level Settings `embedded_schema` at `:445` (where a `hooks_file` field is added).
 - `src/lib/aiur/config.ex:151` — `Config.workspace_hooks/0` builds the hook map from `settings!().hooks`; `:30`/`:43` `settings`/`settings!`. Config is parsed from `.aiurconfig` YAML via `YamlElixir` (`workflow.ex`). `.aiurhooks` loads the same way and merges into the `hooks` subtree.
 - `src/lib/aiur/workspace.ex` — workspace lifecycle: `create_for_issue/2` (`:15`) → `ensure_workspace` → `maybe_run_after_create_hook` (`:24`); `run_before_run_hook`/`run_after_run_hook`/`run_hook`. This is where base-ensure is invoked before the after_create hook.
-- `src/lib/aiur/agent_environment.ex:42` — `workspace_env/1` injects `HEX_HOME`/`MIX_HOME`/`AIUR_AGENT_WORKSPACE` into hook/agent execution; `workspace_env_export_prefix/1` (`:69`) is the SSH-launch shell-export twin. `AIUR_REPO_BASE` is added to both.
+- `src/lib/aiur/agent_environment.ex:42` — `workspace_env/1` injects `HEX_HOME`/`MIX_HOME`/`AIUR_AGENT_WORKSPACE` into hook/agent execution; `workspace_env_export_prefix/1` (`:69`) is the SSH-launch shell-export twin. `THIS_REPO_BASE` is added to both.
 - `src/lib/aiur/init.ex` — wizard: `run/2` (`:96`), `final_screen` (`:197`/`:211`/`:217`), `ensure_prompt_file` (the pattern to mirror as `ensure_hooks_file`). `@config_file_name ".aiurconfig"` (`:19`); scaffolds from `.aiurconfig.example` / `AIUR.md.example` (`@external_resource` pattern).
 - `THIS_REPOSITORY_URL` is already provided to hooks (#361) — reuse as the base's clone source.
 
@@ -85,7 +85,7 @@ Cold per-dispatch boot wastes wall-clock, tokens, and CPU, and degrades with con
 - **Lazy-on-dispatch refresh + optional background poll.** Lazy guarantees freshness exactly when a spin-off needs it; the poll hides refresh latency from the first dispatch. Git-hook-driven refresh rejected (per-clone, doesn't fire on *remote* main advancing).
 - **Base build is itself a dev-authored hook (`base_setup`), not aiur logic.** Keeps aiur toolchain-neutral (R12) and symmetrical with the spin-off hook — both written by the dev's agent.
 - **`.aiurhooks` is YAML with the same hook keys, referenced by `hooks_file` (default `.aiurhooks`); inline `.aiurconfig` hooks remain a fallback.** Reuses the existing `Hooks` changeset and migration is a file move, not a parser rewrite (R6).
-- **Spin-off mechanism (worktree vs copy) is the hook's choice, not aiur's.** aiur only guarantees the base contract + `AIUR_REPO_BASE`; the hook decides how to derive a workspace from it.
+- **Spin-off mechanism (worktree vs copy) is the hook's choice, not aiur's.** aiur only guarantees the base contract + `THIS_REPO_BASE`; the hook decides how to derive a workspace from it.
 
 ---
 
@@ -117,9 +117,9 @@ DISPATCH (per issue)
            git -C ~/.aiur/repo/<repo> fetch + reset --hard origin/main                 │  R1,R2,R3,R4
            run `.aiurhooks: base_setup` IN the base dir  (dev-authored: deps + build)  │
          returns base_path ───────────────────────────────────────────────────────────┘
-    └─ env adds AIUR_REPO_BASE=base_path   (AgentEnvironment.workspace_env/1)            R5
+    └─ env adds THIS_REPO_BASE=base_path   (AgentEnvironment.workspace_env/1)            R5
     └─ maybe_run_after_create_hook  →  `.aiurhooks: after_create` (dev-authored):
-         spin off workspace FROM $AIUR_REPO_BASE (worktree or copy) + incremental build  R11,R12
+         spin off workspace FROM $THIS_REPO_BASE (worktree or copy) + incremental build  R11,R12
     └─ (no hooks configured) → existing cold-clone after_create path unchanged           R10
 
 CONFIG LOAD
@@ -207,9 +207,9 @@ INIT (one-time)
 
 ---
 
-- [ ] U3. **Dispatch integration + `AIUR_REPO_BASE` + cold-clone fallback**
+- [ ] U3. **Dispatch integration + `THIS_REPO_BASE` + cold-clone fallback**
 
-**Goal:** Call `RepoBase.ensure_fresh/1` before the `after_create` hook, expose `AIUR_REPO_BASE` to hooks, and keep the existing cold-clone path when no warm-base/hooks are configured.
+**Goal:** Call `RepoBase.ensure_fresh/1` before the `after_create` hook, expose `THIS_REPO_BASE` to hooks, and keep the existing cold-clone path when no warm-base/hooks are configured.
 
 **Requirements:** R5, R10, R11, R12
 
@@ -217,26 +217,26 @@ INIT (one-time)
 
 **Files:**
 - Modify: `src/lib/aiur/workspace.ex` (`create_for_issue`/`maybe_run_after_create_hook`: ensure base fresh, pass base path)
-- Modify: `src/lib/aiur/agent_environment.ex` (`workspace_env/1` + `workspace_env_export_prefix/1`: add `AIUR_REPO_BASE`)
+- Modify: `src/lib/aiur/agent_environment.ex` (`workspace_env/1` + `workspace_env_export_prefix/1`: add `THIS_REPO_BASE`)
 - Test: `src/test/aiur/agent_environment_test.exs`, `src/test/aiur/workspace_and_config_test.exs`
 
 **Approach:**
-- Gate base-ensure on configuration: only ensure/refresh + set `AIUR_REPO_BASE` when a warm-base-capable hook setup exists (e.g. `base_setup` present). Otherwise skip straight to the existing after_create path (R10) — zero behavior change for unconfigured repos.
-- **Local dispatch only in v1:** `AIUR_REPO_BASE` points at a path on the operator machine. For SSH/remote workers that path does not exist, so do **not** export it remotely — remote dispatch falls back to cold clone (multi-host base is deferred follow-up). The local Port.open env gets `AIUR_REPO_BASE`; the SSH export prefix omits it.
+- Gate base-ensure on configuration: only ensure/refresh + set `THIS_REPO_BASE` when a warm-base-capable hook setup exists (e.g. `base_setup` present). Otherwise skip straight to the existing after_create path (R10) — zero behavior change for unconfigured repos.
+- **Local dispatch only in v1:** `THIS_REPO_BASE` points at a path on the operator machine. For SSH/remote workers that path does not exist, so do **not** export it remotely — remote dispatch falls back to cold clone (multi-host base is deferred follow-up). The local Port.open env gets `THIS_REPO_BASE`; the SSH export prefix omits it.
 
-**Execution note:** Add a failing integration-style test asserting `AIUR_REPO_BASE` reaches the hook env before wiring.
+**Execution note:** Add a failing integration-style test asserting `THIS_REPO_BASE` reaches the hook env before wiring.
 
 **Patterns to follow:**
 - `agent_environment.ex:42` env-list shape; the `AIUR_AGENT_WORKSPACE` precedent for a per-run path var.
 
 **Test scenarios:**
-- Happy path (R5): `workspace_env/1` includes `AIUR_REPO_BASE` = the base path when a base is configured.
-- Edge case (R10/AE3): no `base_setup`/warm base configured → `ensure_fresh` not invoked; `AIUR_REPO_BASE` absent; existing cold-clone after_create runs unchanged.
-- Edge case: SSH-launch export prefix **omits** `AIUR_REPO_BASE` (local-only path; remote falls back to cold clone).
+- Happy path (R5): `workspace_env/1` includes `THIS_REPO_BASE` = the base path when a base is configured.
+- Edge case (R10/AE3): no `base_setup`/warm base configured → `ensure_fresh` not invoked; `THIS_REPO_BASE` absent; existing cold-clone after_create runs unchanged.
+- Edge case: SSH-launch export prefix **omits** `THIS_REPO_BASE` (local-only path; remote falls back to cold clone).
 - Error path: `ensure_fresh` errors (U2) → dispatch falls back to cold clone, not a hard failure.
-- Integration (R11): with a base + spin-off hook, the created workspace references `$AIUR_REPO_BASE` (assert env presence + hook invocation; full spin-off is a dev-hook concern).
+- Integration (R11): with a base + spin-off hook, the created workspace references `$THIS_REPO_BASE` (assert env presence + hook invocation; full spin-off is a dev-hook concern).
 
-**Verification:** Configured repos get `AIUR_REPO_BASE` and a base-ensure before after_create; unconfigured repos behave exactly as today.
+**Verification:** Configured repos get `THIS_REPO_BASE` and a base-ensure before after_create; unconfigured repos behave exactly as today.
 
 ---
 
@@ -280,12 +280,12 @@ INIT (one-time)
 
 **Files:**
 - Modify: `src/lib/aiur/init.ex` (`ensure_hooks_file` mirroring `ensure_prompt_file`; write `hooks_file: .aiurhooks` into the config; extend `final_screen` to print the paste-prompt)
-- Create: `.aiurhooks.example` (commented template with the four hook points + `base_setup`, documenting `AIUR_REPO_BASE`)
+- Create: `.aiurhooks.example` (commented template with the four hook points + `base_setup`, documenting `THIS_REPO_BASE`)
 - Test: `src/test/aiur/init_test.exs`
 
 **Approach:**
-- The paste-prompt is a static string (with the repo's tracker URL interpolated) describing the base contract, hook points, `AIUR_REPO_BASE`, and the two hooks to write (`base_setup`: deps+build in the base; `after_create`: spin off from `$AIUR_REPO_BASE` + incremental build). aiur never writes the hook bodies — only the template + prompt.
-- **The prompt must require a defensive `after_create`:** when `$AIUR_REPO_BASE` is empty/missing (unconfigured, remote worker, or a failed base refresh), the hook must fall back to a normal `git clone` instead of erroring. This is what keeps R10 true *after* hooks are authored — without it, a base-dependent hook would break the no-base path.
+- The paste-prompt is a static string (with the repo's tracker URL interpolated) describing the base contract, hook points, `THIS_REPO_BASE`, and the two hooks to write (`base_setup`: deps+build in the base; `after_create`: spin off from `$THIS_REPO_BASE` + incremental build). aiur never writes the hook bodies — only the template + prompt.
+- **The prompt must require a defensive `after_create`:** when `$THIS_REPO_BASE` is empty/missing (unconfigured, remote worker, or a failed base refresh), the hook must fall back to a normal `git clone` instead of erroring. This is what keeps R10 true *after* hooks are authored — without it, a base-dependent hook would break the no-base path.
 - Scaffolding is non-blocking: init succeeds whether or not the dev runs the prompt (R10 holds — empty hooks → fallback).
 
 **Execution note:** Use the injected `io`/`deps` test harness already in `init.ex` — assert on captured output, no real FS/network.
@@ -295,7 +295,7 @@ INIT (one-time)
 
 **Test scenarios:**
 - Happy path (R8): running init creates `.aiurhooks` and writes `hooks_file: .aiurhooks` into the config.
-- Happy path (R9): `final_screen` output contains the paste-prompt with the base contract, `AIUR_REPO_BASE`, and both hook names.
+- Happy path (R9): `final_screen` output contains the paste-prompt with the base contract, `THIS_REPO_BASE`, and both hook names.
 - Edge case: `.aiurhooks` already exists → not clobbered (`:exists` like `ensure_prompt_file`).
 - Edge case: global config location → repo-specific hooks omitted/handled like `prompt_file` is for global.
 - Covers AE1 (setup half): post-init state is exactly what a dev pastes to their agent to reach the warm-spin-off path.
@@ -315,11 +315,11 @@ INIT (one-time)
 **Files:**
 - Create: `.aiurhooks` (this repo's hooks, incl. a `base_setup` for mix and a base-spin-off `after_create`)
 - Modify: `.aiurconfig` (replace inline `hooks:` with `hooks_file: .aiurhooks`)
-- Modify: `.aiurconfig.example`, and `AIUR.md.example`/`README` as needed (document `.aiurhooks` + `AIUR_REPO_BASE`)
+- Modify: `.aiurconfig.example`, and `AIUR.md.example`/`README` as needed (document `.aiurhooks` + `THIS_REPO_BASE`)
 - Test: none (config/docs) — covered by U1's load tests
 
 **Approach:**
-- Dogfood the feature on aiur itself: author the mix `base_setup` (`mix deps.get && mix compile` in the base) and an `after_create` that spins a workspace off `$AIUR_REPO_BASE` with an incremental `mix compile`.
+- Dogfood the feature on aiur itself: author the mix `base_setup` (`mix deps.get && mix compile` in the base) and an `after_create` that spins a workspace off `$THIS_REPO_BASE` with an incremental `mix compile`.
 - Keep the change reversible — inline fallback (U1) means a bad `.aiurhooks` can be deleted to restore prior behavior.
 
 **Patterns to follow:**
@@ -337,7 +337,7 @@ INIT (one-time)
 - **Interaction graph:** Dispatch path (`Workspace.create_for_issue` → `RepoBase.ensure_fresh` → `maybe_run_after_create_hook`); config load (`.aiurconfig` → `.aiurhooks` merge); init wizard final step; supervision tree gains `Aiur.RepoBase`.
 - **Error propagation:** `ensure_fresh` / `base_setup` failures must degrade to the cold-clone fallback (R10), never hard-fail a dispatch. Surface as logged warnings.
 - **State lifecycle risks:** The shared base is the main hazard — concurrent refresh/spin-off, a half-applied `reset --hard`, or a failed `base_setup` leaving a dirty base. Serialize refresh (U2) and treat a failed base as "fall back to cold clone," not "use a broken base."
-- **API surface parity:** `AIUR_REPO_BASE` is local-dispatch only — present in the Port.open env (`workspace_env/1`), deliberately **absent** from the SSH export prefix (`workspace_env_export_prefix/1`) since the base path is not valid on a remote host.
+- **API surface parity:** `THIS_REPO_BASE` is local-dispatch only — present in the Port.open env (`workspace_env/1`), deliberately **absent** from the SSH export prefix (`workspace_env_export_prefix/1`) since the base path is not valid on a remote host.
 - **Integration coverage:** U3's "env var reaches the hook" and U2's "concurrent ensure_fresh" are the cross-layer scenarios unit mocks won't prove.
 - **Unchanged invariants:** Unconfigured repos (no `base_setup`/`hooks_file`) must behave byte-for-byte as today. The existing `Hooks` keys, `workspace_hooks/0` shape, and inline-`hooks:` parsing remain valid.
 
@@ -353,14 +353,14 @@ INIT (one-time)
 | ext4 (no reflink) makes `cp` of base a full copy | Spin-off mechanism is the hook's choice; `git worktree` avoids copying tracked files. Plan supports both |
 | Back-compat break for existing inline-hooks configs | Inline `hooks:` remains a fallback when `hooks_file` is unset (U1); migration is opt-in |
 | Staleness check too weak (serves stale deps after lockfile change) | Start with HEAD-moved trigger; allow lockfile-hash as a follow-up refinement (deferred-to-impl) |
-| Base-dependent `after_create` breaks the no-base / remote / failed-refresh path | The init paste-prompt mandates a **defensive** hook that falls back to `git clone` when `$AIUR_REPO_BASE` is absent (U5) — preserves R10 even after hooks exist |
+| Base-dependent `after_create` breaks the no-base / remote / failed-refresh path | The init paste-prompt mandates a **defensive** hook that falls back to `git clone` when `$THIS_REPO_BASE` is absent (U5) — preserves R10 even after hooks exist |
 | `git worktree` spin-off interacting with a concurrent base refresh | Refresh is serialized and only touches the base's `main`; worktrees live on their own `aiur/<id>` branch. Worktree pruning/cleanup mechanics deferred-to-impl |
 
 ---
 
 ## Documentation / Operational Notes
 
-- Document `.aiurhooks` + `hooks_file` + `AIUR_REPO_BASE` in `.aiurconfig.example` and the README/AIUR docs (U6).
+- Document `.aiurhooks` + `hooks_file` + `THIS_REPO_BASE` in `.aiurconfig.example` and the README/AIUR docs (U6).
 - The paste-prompt (U5) is itself the primary "operator doc" — it must be self-contained enough that a coding agent writes correct hooks from it alone.
 
 ---

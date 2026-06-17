@@ -7,7 +7,7 @@
 #
 # Env available to these hooks:
 #   $THIS_REPOSITORY_URL  the repo aiur is working on (for a cold git clone)
-#   $AIUR_REPO_BASE       a warm checkout of main (deps installed, build
+#   $THIS_REPO_BASE       a warm checkout of main (deps installed, build
 #                         compiled) to spin a workspace off. Set only when a
 #                         `base_setup` hook is configured and dispatch is local;
 #                         empty/missing on remote workers or the first run, so
@@ -25,8 +25,8 @@ base_setup: |
 # Spin a per-issue workspace off the warm base when present; otherwise fall back
 # to a cold clone so dispatch always works. Keep this branch defensive.
 after_create: |
-  if [ -n "$AIUR_REPO_BASE" ] && [ -d "$AIUR_REPO_BASE/.git" ]; then
-    cp -a "$AIUR_REPO_BASE/." .
+  if [ -n "$THIS_REPO_BASE" ] && [ -d "$THIS_REPO_BASE/.git" ]; then
+    cp -a "$THIS_REPO_BASE/." .
     git checkout -b "aiur/$(basename "$PWD")" origin/main
     mix compile          # incremental: _build was copied warm from the base
   else

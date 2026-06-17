@@ -35,7 +35,7 @@ the work at a higher level._
   configured host/port for private operational access.
 - **Warm base (faster dispatch):** with a `base_setup` hook configured, Aiur keeps a warm
   checkout of the repo's `main` (deps installed, build compiled) under `~/.aiur/repo/<owner>/<name>`
-  and exposes it to hooks as `$AIUR_REPO_BASE`, so per-issue workspaces spin off from it instead of
+  and exposes it to hooks as `$THIS_REPO_BASE`, so per-issue workspaces spin off from it instead of
   cold-cloning and recompiling every dispatch. Hooks live in `.aiurhooks` (referenced from
   `.aiurconfig` via `hooks_file:`); see `.aiurhooks.example`.
 - **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing

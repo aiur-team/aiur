@@ -12,7 +12,7 @@ defmodule Aiur.RepoBase do
   `reset --hard origin/main` updates tracked source but leaves build artifacts
   in place — the refresh is itself incremental.
 
-  The base path is exposed to workspace hooks as `AIUR_REPO_BASE`; the
+  The base path is exposed to workspace hooks as `THIS_REPO_BASE`; the
   dev-authored `after_create` hook copies or `git worktree`s from it.
   """
   use GenServer

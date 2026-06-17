@@ -68,7 +68,7 @@ dispatch ─► after_create / before_run hooks (from .aiurhooks):
 - R2. The warm base has the repo's dependencies installed and build warm (the dev's hooks define *how* the build is produced/refreshed; see R8), so a workspace spun off from it skips cold install/compile.
 - R3. aiur refreshes the warm base when main advances. Trigger is a decision (lazy on dispatch, background poll, dev git hook, or a combination — see Outstanding Questions).
 - R4. The warm base is a shared resource; aiur guards it against corruption from concurrent spin-offs and concurrent refresh (locking or a read-consistent snapshot).
-- R5. aiur exposes the warm-base location and contract to hooks via an env var (e.g. `AIUR_REPO_BASE`) so hooks reference it portably instead of hardcoding paths.
+- R5. aiur exposes the warm-base location and contract to hooks via an env var (e.g. `THIS_REPO_BASE`) so hooks reference it portably instead of hardcoding paths.
 
 **Hooks relocation (`.aiurhooks`)**
 - R6. Hook definitions move out of `.aiurconfig` into a new `.aiurhooks` file; `.aiurconfig` references it.

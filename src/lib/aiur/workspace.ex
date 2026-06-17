@@ -394,15 +394,15 @@ defmodule Aiur.Workspace do
     end
   end
 
-  # `AIUR_REPO_BASE` points local hooks at the warm base checkout to spin a
+  # `THIS_REPO_BASE` points local hooks at the warm base checkout to spin a
   # workspace off (copy or `git worktree`). Set only when a `base_setup` hook is
   # configured — warm-base is opt-in, so unconfigured repos keep the cold-clone
-  # path and see no AIUR_REPO_BASE. Local-only: hook_env/0 is never called on
+  # path and see no THIS_REPO_BASE. Local-only: hook_env/0 is never called on
   # the remote worker path, so remote dispatch falls back to cold clone.
   defp repo_base_env do
     with command when is_binary(command) and command != "" <- Config.settings!().hooks.base_setup,
          repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      [{"AIUR_REPO_BASE", Aiur.RepoBase.base_path("https://github.com/#{repo}.git")}]
+      [{"THIS_REPO_BASE", Aiur.RepoBase.base_path("https://github.com/#{repo}.git")}]
     else
       _ -> []
     end
