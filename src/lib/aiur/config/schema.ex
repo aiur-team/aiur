@@ -367,12 +367,12 @@ defmodule Aiur.Config.Schema do
       field(:timeout_ms, :integer, default: 600_000)
     end
 
+    @fields [:after_create, :before_run, :after_run, :before_remove, :base_setup, :timeout_ms]
+
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:after_create, :before_run, :after_run, :before_remove, :base_setup, :timeout_ms],
-        empty_values: []
-      )
+      |> cast(attrs, @fields, empty_values: [])
       |> validate_number(:timeout_ms, greater_than: 0)
     end
   end

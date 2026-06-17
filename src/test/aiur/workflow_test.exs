@@ -1,6 +1,7 @@
 defmodule Aiur.WorkflowTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Config.Schema
   alias Aiur.Workflow
 
   setup do
@@ -169,7 +170,7 @@ defmodule Aiur.WorkflowTest do
       File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
 
       assert {:ok, loaded} = Workflow.load(path)
-      assert {:ok, settings} = Aiur.Config.Schema.parse(loaded.config)
+      assert {:ok, settings} = Schema.parse(loaded.config)
       assert settings.hooks.base_setup == "mix compile"
     end
   end
@@ -180,7 +181,7 @@ defmodule Aiur.WorkflowTest do
       File.write!(path, "tracker:\n  kind: memory\nrepo_base_poll_seconds: 45\n")
 
       assert {:ok, loaded} = Workflow.load(path)
-      assert {:ok, settings} = Aiur.Config.Schema.parse(loaded.config)
+      assert {:ok, settings} = Schema.parse(loaded.config)
       assert settings.repo_base_poll_seconds == 45
     end
 
@@ -189,7 +190,7 @@ defmodule Aiur.WorkflowTest do
       File.write!(path, "tracker:\n  kind: memory\n")
 
       assert {:ok, loaded} = Workflow.load(path)
-      assert {:ok, settings} = Aiur.Config.Schema.parse(loaded.config)
+      assert {:ok, settings} = Schema.parse(loaded.config)
       assert settings.repo_base_poll_seconds == 0
     end
   end

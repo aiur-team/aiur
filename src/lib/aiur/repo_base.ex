@@ -63,18 +63,20 @@ defmodule Aiur.RepoBase do
   def refresh(base_path, repo_url, base_setup) do
     with :ok <- ensure_clone(base_path, repo_url),
          {:ok, changed?} <- fetch_and_reset(base_path) do
-      if changed? or not built?(base_path) do
-        case run_base_setup(base_path, base_setup) do
-          :ok ->
-            mark_built(base_path)
-            {:ok, base_path}
+      maybe_build(base_path, base_setup, changed? or not built?(base_path))
+    end
+  end
 
-          {:error, reason} ->
-            {:error, reason}
-        end
-      else
+  defp maybe_build(base_path, _base_setup, false), do: {:ok, base_path}
+
+  defp maybe_build(base_path, base_setup, true) do
+    case run_base_setup(base_path, base_setup) do
+      :ok ->
+        mark_built(base_path)
         {:ok, base_path}
-      end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -150,16 +152,18 @@ defmodule Aiur.RepoBase do
     with {_fetch, 0} <- git(["fetch", "origin", @default_branch, "--quiet"], base_path),
          {local, 0} <- git(["rev-parse", "HEAD"], base_path),
          {remote, 0} <- git(["rev-parse", "origin/#{@default_branch}"], base_path) do
-      if String.trim(local) == String.trim(remote) do
-        {:ok, false}
-      else
-        case git(["reset", "--hard", "origin/#{@default_branch}"], base_path) do
-          {_out, 0} -> {:ok, true}
-          {out, status} -> {:error, {:repo_base_reset_failed, status, out}}
-        end
-      end
+      reset_if_changed(base_path, String.trim(local) == String.trim(remote))
     else
       {out, status} -> {:error, {:repo_base_fetch_failed, status, out}}
+    end
+  end
+
+  defp reset_if_changed(_base_path, true), do: {:ok, false}
+
+  defp reset_if_changed(base_path, false) do
+    case git(["reset", "--hard", "origin/#{@default_branch}"], base_path) do
+      {_out, 0} -> {:ok, true}
+      {out, status} -> {:error, {:repo_base_reset_failed, status, out}}
     end
   end
 
