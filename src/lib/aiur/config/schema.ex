@@ -360,13 +360,19 @@ defmodule Aiur.Config.Schema do
       field(:before_run, :string)
       field(:after_run, :string)
       field(:before_remove, :string)
+      # Run by Aiur.RepoBase in the warm-base checkout (not a per-issue
+      # workspace) to install deps + warm the build. Dev-authored, since the
+      # build command is repo/toolchain-specific.
+      field(:base_setup, :string)
       field(:timeout_ms, :integer, default: 600_000)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:after_create, :before_run, :after_run, :before_remove, :timeout_ms], empty_values: [])
+      |> cast(attrs, [:after_create, :before_run, :after_run, :before_remove, :base_setup, :timeout_ms],
+        empty_values: []
+      )
       |> validate_number(:timeout_ms, greater_than: 0)
     end
   end

@@ -101,6 +101,79 @@ defmodule Aiur.WorkflowTest do
     end
   end
 
+  describe "hooks_file resolution" do
+    test "hooks_file loads the sibling file as the hooks map", %{dir: dir} do
+      File.write!(Path.join(dir, ".aiurhooks"), "after_create: echo created\nbase_setup: mix deps.get\n")
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["hooks"]["after_create"] == "echo created"
+      assert loaded.config["hooks"]["base_setup"] == "mix deps.get"
+    end
+
+    test "hooks_file takes precedence over an inline hooks block", %{dir: dir} do
+      File.write!(Path.join(dir, ".aiurhooks"), "after_create: from file\n")
+      path = Path.join(dir, ".aiurconfig")
+
+      File.write!(path, """
+      tracker:
+        kind: memory
+      hooks:
+        after_create: inline ignored
+      hooks_file: .aiurhooks
+      """)
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["hooks"]["after_create"] == "from file"
+    end
+
+    test "an inline hooks block still loads when no hooks_file is set", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+
+      File.write!(path, """
+      tracker:
+        kind: memory
+      hooks:
+        after_create: inline create
+      """)
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["hooks"]["after_create"] == "inline create"
+    end
+
+    test "hooks_file resolves relative to the config dir, not cwd", %{dir: dir} do
+      subdir = Path.join(dir, "nested")
+      File.mkdir_p!(subdir)
+      File.write!(Path.join(subdir, ".aiurhooks"), "after_create: nested hook\n")
+      path = Path.join(subdir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
+
+      File.cd!(dir, fn ->
+        assert {:ok, loaded} = Workflow.load(path)
+        assert loaded.config["hooks"]["after_create"] == "nested hook"
+      end)
+    end
+
+    test "a hooks_file pointing at a missing file is a clear error", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nhooks_file: missing.aiurhooks\n")
+
+      resolved = Path.expand("missing.aiurhooks", dir)
+      assert {:error, {:missing_hooks_file, ^resolved, :enoent}} = Workflow.load(path)
+    end
+
+    test "base_setup parses through the config schema", %{dir: dir} do
+      File.write!(Path.join(dir, ".aiurhooks"), "base_setup: mix compile\n")
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert {:ok, settings} = Aiur.Config.Schema.parse(loaded.config)
+      assert settings.hooks.base_setup == "mix compile"
+    end
+  end
+
   describe "config path resolution" do
     test "workflow_file_path defaults to .aiurconfig in cwd when app env unset", %{dir: dir} do
       File.cd!(dir, fn ->

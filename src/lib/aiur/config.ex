@@ -157,6 +157,7 @@ defmodule Aiur.Config do
       before_run: hooks.before_run,
       after_run: hooks.after_run,
       before_remove: hooks.before_remove,
+      base_setup: hooks.base_setup,
       timeout_ms: hooks.timeout_ms
     }
   end
