@@ -186,6 +186,7 @@ defmodule Aiur.TestSupport do
     hook_before_run = Keyword.get(config, :hook_before_run)
     hook_after_run = Keyword.get(config, :hook_after_run)
     hook_before_remove = Keyword.get(config, :hook_before_remove)
+    hook_base_setup = Keyword.get(config, :hook_base_setup)
     hook_timeout_ms = Keyword.get(config, :hook_timeout_ms)
     observability_enabled = Keyword.get(config, :observability_enabled)
     observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
@@ -250,7 +251,14 @@ defmodule Aiur.TestSupport do
         "  root: #{yaml_value(workspace_root)}",
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         agent_section,
-        hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
+        hooks_yaml(
+          hook_after_create,
+          hook_before_run,
+          hook_after_run,
+          hook_before_remove,
+          hook_base_setup,
+          hook_timeout_ms
+        ),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
         opencode_yaml(
@@ -379,16 +387,18 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp hooks_yaml(nil, nil, nil, nil, timeout_ms), do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
+  defp hooks_yaml(nil, nil, nil, nil, nil, timeout_ms),
+    do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
 
-  defp hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, timeout_ms) do
+  defp hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_base_setup, timeout_ms) do
     [
       "hooks:",
       "  timeout_ms: #{yaml_value(timeout_ms)}",
       hook_entry("after_create", hook_after_create),
       hook_entry("before_run", hook_before_run),
       hook_entry("after_run", hook_after_run),
-      hook_entry("before_remove", hook_before_remove)
+      hook_entry("before_remove", hook_before_remove),
+      hook_entry("base_setup", hook_base_setup)
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")

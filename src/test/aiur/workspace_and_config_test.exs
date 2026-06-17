@@ -65,6 +65,80 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "after_create hook receives AIUR_REPO_BASE when a warm base is configured" do
+    test_root =
+      Path.join(System.tmp_dir!(), "aiur-warm-base-#{System.unique_integer([:positive])}")
+
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      bases_root = Path.join(test_root, "bases")
+      out_file = Path.join(test_root, "base.txt")
+
+      # Pre-seed the warm base from a local origin so ensure_fresh never hits
+      # the network: ensure_clone sees an existing .git and only fetches locally.
+      origin = git_origin!(Path.join(test_root, "origin"))
+      base_path = Path.join(bases_root, "test-org/test-repo")
+      File.mkdir_p!(Path.dirname(base_path))
+      {_, 0} = System.cmd("git", ["clone", origin, base_path], stderr_to_stdout: true)
+
+      Application.put_env(:aiur, :repo_base_root, bases_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        tracker_kind: "github",
+        tracker_repo: "test-org/test-repo",
+        hook_base_setup: "true",
+        hook_after_create: "printf '%s' \"$AIUR_REPO_BASE\" > #{out_file}"
+      )
+
+      assert {:ok, _workspace} = Workspace.create_for_issue("S-BASE")
+      assert File.read!(out_file) == base_path
+    after
+      if is_nil(previous_root) do
+        Application.delete_env(:aiur, :repo_base_root)
+      else
+        Application.put_env(:aiur, :repo_base_root, previous_root)
+      end
+
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "after_create hook sees no AIUR_REPO_BASE when no base_setup is configured" do
+    test_root =
+      Path.join(System.tmp_dir!(), "aiur-no-warm-base-#{System.unique_integer([:positive])}")
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      out_file = Path.join(test_root, "base.txt")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        tracker_kind: "github",
+        tracker_repo: "test-org/test-repo",
+        hook_after_create: "printf '%s' \"$AIUR_REPO_BASE\" > #{out_file}"
+      )
+
+      assert {:ok, _workspace} = Workspace.create_for_issue("S-NOBASE")
+      assert File.read!(out_file) == ""
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  defp git_origin!(dir) do
+    File.mkdir_p!(dir)
+    {_, 0} = System.cmd("git", ["init", "-b", "main"], cd: dir, stderr_to_stdout: true)
+    {_, 0} = System.cmd("git", ["config", "user.email", "t@example.com"], cd: dir, stderr_to_stdout: true)
+    {_, 0} = System.cmd("git", ["config", "user.name", "Test"], cd: dir, stderr_to_stdout: true)
+    File.write!(Path.join(dir, "README.md"), "v1\n")
+    {_, 0} = System.cmd("git", ["add", "."], cd: dir, stderr_to_stdout: true)
+    {_, 0} = System.cmd("git", ["commit", "-m", "init"], cd: dir, stderr_to_stdout: true)
+    dir
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(

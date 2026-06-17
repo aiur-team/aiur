@@ -217,6 +217,7 @@ defmodule Aiur.Workspace do
             :ok
 
           command ->
+            maybe_ensure_warm_base(hooks.base_setup, worker_host)
             run_hook(command, workspace, issue_context, "after_create", worker_host)
         end
 
@@ -224,6 +225,29 @@ defmodule Aiur.Workspace do
         :ok
     end
   end
+
+  # Refresh the warm base before the after_create hook spins a workspace off it.
+  # Best-effort and local-only: on failure (or remote dispatch) the base may be
+  # absent/stale and the dev's defensive after_create hook falls back to a cold
+  # clone, so warm-base never blocks a dispatch.
+  defp maybe_ensure_warm_base(base_setup, nil) when is_binary(base_setup) and base_setup != "" do
+    case Aiur.GitHub.Config.repo() do
+      repo when is_binary(repo) and repo != "" ->
+        case Aiur.RepoBase.ensure_fresh("https://github.com/#{repo}.git") do
+          {:ok, _path} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Warm base refresh failed; falling back to cold clone reason=#{inspect(reason)}")
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_ensure_warm_base(_base_setup, _worker_host), do: :ok
 
   defp maybe_run_before_remove_hook(workspace, nil) do
     hooks = Config.settings!().hooks
@@ -360,9 +384,25 @@ defmodule Aiur.Workspace do
   # from the same source aiur polls issues with, so it tracks repo-local and
   # global/auto-detected configs alike.
   defp hook_env do
+    base = repo_base_env()
+
     with "github" <- Config.settings!().tracker.kind,
          repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-      [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}]
+      [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"} | base]
+    else
+      _ -> base
+    end
+  end
+
+  # `AIUR_REPO_BASE` points local hooks at the warm base checkout to spin a
+  # workspace off (copy or `git worktree`). Set only when a `base_setup` hook is
+  # configured — warm-base is opt-in, so unconfigured repos keep the cold-clone
+  # path and see no AIUR_REPO_BASE. Local-only: hook_env/0 is never called on
+  # the remote worker path, so remote dispatch falls back to cold clone.
+  defp repo_base_env do
+    with command when is_binary(command) and command != "" <- Config.settings!().hooks.base_setup,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      [{"AIUR_REPO_BASE", Aiur.RepoBase.base_path("https://github.com/#{repo}.git")}]
     else
       _ -> []
     end
