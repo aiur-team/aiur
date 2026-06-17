@@ -71,6 +71,7 @@ defmodule Aiur.Init do
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
+          install_claude_app_server: (-> :ok | {:error, String.t()}),
           github_token: (-> String.t() | nil),
           list_labels: (map() -> {:ok, [String.t()]} | {:error, term()}),
           create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
@@ -710,11 +711,42 @@ defmodule Aiur.Init do
     # or resumed remote transport) has none, so skip it rather than warn.
     agents
     |> Enum.filter(&(&1 in @routing_order))
-    |> Enum.each(fn kind ->
-      run_auth_check(io, "#{kind} agent", fn -> deps.check_agent_auth.(kind) end)
-    end)
+    |> Enum.each(&ensure_agent_cli(io, deps, &1))
 
     :ok
+  end
+
+  # Claude's CLI is the `aiur-claude` app-server, published to npm. When it's
+  # missing, install it before warning so selecting claude during init yields a
+  # working backend with no manual PATH steps. An already-present command skips
+  # the install (idempotent); a failed install degrades to a manual-install hint
+  # rather than wedging setup.
+  defp ensure_agent_cli(io, deps, "claude") do
+    case deps.check_agent_auth.("claude") do
+      :ok -> :ok
+      {:error, _missing} -> install_claude_then_check(io, deps)
+    end
+  end
+
+  defp ensure_agent_cli(io, deps, kind) do
+    run_auth_check(io, "#{kind} agent", fn -> deps.check_agent_auth.(kind) end)
+  end
+
+  defp install_claude_then_check(io, deps) do
+    io.puts.("Installing claude app-server (aiur-claude)…")
+
+    case deps.install_claude_app_server.() do
+      :ok ->
+        run_auth_check(io, "claude agent", fn -> deps.check_agent_auth.("claude") end)
+
+      {:error, message} ->
+        io.puts.(
+          "⚠️ claude agent: couldn't install aiur-claude (#{message}). " <>
+            "Install it manually: npm install -g aiur-claude"
+        )
+
+        :ok
+    end
   end
 
   defp run_auth_check(io, label, check) do
@@ -797,6 +829,7 @@ defmodule Aiur.Init do
       ensure_prompt_file: &write_prompt_file/3,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
+      install_claude_app_server: &install_claude_app_server/0,
       github_token: &Aiur.GitHub.Config.token/0,
       list_labels: &list_repo_labels/1,
       create_labels: &create_labels/2
@@ -939,9 +972,33 @@ defmodule Aiur.Init do
         if System.find_executable(exe) do
           :ok
         else
-          {:error, "#{exe} not found on PATH — install the #{kind} CLI or add it to PATH"}
+          {:error, "#{exe} not found on PATH — #{install_hint(kind, exe)}"}
         end
     end
+  end
+
+  # Names the exact command that provisions a missing backend so the warning is
+  # actionable instead of pointing at a generic "CLI".
+  defp install_hint("claude", _exe), do: "install it with: npm install -g aiur-claude"
+  defp install_hint(_kind, exe), do: "install #{exe} and add it to PATH"
+
+  # Installs the claude app-server (`aiur-claude`) globally via npm. Isolated
+  # behind its own function so `aiur init` can provision the claude backend and
+  # tests can mock it. Returns a message on failure so the wizard degrades
+  # gracefully instead of crashing when npm is absent or the install errors.
+  defp install_claude_app_server do
+    case System.find_executable("npm") do
+      nil ->
+        {:error, "npm not found on PATH"}
+
+      npm ->
+        case System.cmd(npm, ["install", "-g", "aiur-claude"], stderr_to_stdout: true) do
+          {_output, 0} -> :ok
+          {output, status} -> {:error, "npm exited #{status}: #{String.trim(output)}"}
+        end
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
   end
 
   defp agent_executable(kind) do

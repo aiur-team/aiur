@@ -79,6 +79,7 @@ defmodule Aiur.InitTest do
           end
         end,
         check_agent_auth: fn _kind -> :ok end,
+        install_claude_app_server: fn -> :ok end,
         github_token: fn -> nil end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
@@ -770,6 +771,91 @@ defmodule Aiur.InitTest do
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/gh label create 'complexity:5'/))
       refute Enum.any?(log, &(&1 =~ ~r/gh label create 'agent:todo'/))
+    end
+  end
+
+  describe "claude app-server install" do
+    @missing_claude {:error, "aiur-claude not found on PATH — install it with: npm install -g aiur-claude"}
+
+    test "installs aiur-claude when the command is missing, then clears the warning", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      {:ok, present} = Agent.start_link(fn -> false end)
+
+      d =
+        deps(parent, dir, target, %{
+          check_agent_auth: fn
+            "claude" -> if Agent.get(present, & &1), do: :ok, else: @missing_claude
+            _ -> :ok
+          end,
+          install_claude_app_server: fn ->
+            send(parent, {:install, :claude})
+            Agent.update(present, fn _ -> true end)
+            :ok
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      assert_received {:install, :claude}
+      refute Enum.any?(puts_log(), &(&1 =~ ~r/not found on PATH/))
+    end
+
+    test "skips the install when aiur-claude already resolves", %{dir: dir, target: target} do
+      parent = self()
+
+      d =
+        deps(parent, dir, target, %{
+          check_agent_auth: fn _kind -> :ok end,
+          install_claude_app_server: fn ->
+            send(parent, {:install, :claude})
+            :ok
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      refute_received {:install, :claude}
+    end
+
+    test "never installs when claude is not selected", %{dir: dir, target: target} do
+      parent = self()
+      answers = github_answers(%{multiselect: %{"Which agents to support" => ["codex"]}})
+
+      d =
+        deps(parent, dir, target, %{
+          check_agent_auth: fn _kind -> :ok end,
+          install_claude_app_server: fn ->
+            send(parent, {:install, :claude})
+            :ok
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, answers), d)
+
+      refute_received {:install, :claude}
+    end
+
+    test "a failed install prints a manual-install hint and init still completes", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+
+      d =
+        deps(parent, dir, target, %{
+          check_agent_auth: fn
+            "claude" -> @missing_claude
+            _ -> :ok
+          end,
+          install_claude_app_server: fn -> {:error, "npm not found on PATH"} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/npm install -g aiur-claude/))
     end
   end
 end
