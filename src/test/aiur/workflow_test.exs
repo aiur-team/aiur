@@ -174,6 +174,26 @@ defmodule Aiur.WorkflowTest do
     end
   end
 
+  describe "warm-base settings" do
+    test "repo_base_poll_seconds parses through the config schema", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nrepo_base_poll_seconds: 45\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert {:ok, settings} = Aiur.Config.Schema.parse(loaded.config)
+      assert settings.repo_base_poll_seconds == 45
+    end
+
+    test "repo_base_poll_seconds defaults to 0 (disabled)", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert {:ok, settings} = Aiur.Config.Schema.parse(loaded.config)
+      assert settings.repo_base_poll_seconds == 0
+    end
+  end
+
   describe "config path resolution" do
     test "workflow_file_path defaults to .aiurconfig in cwd when app env unset", %{dir: dir} do
       File.cd!(dir, fn ->

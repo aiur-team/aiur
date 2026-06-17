@@ -81,11 +81,53 @@ defmodule Aiur.RepoBase do
   # ---- GenServer ----
 
   @impl true
-  def init(_opts), do: {:ok, %{}}
+  def init(_opts) do
+    schedule_poll()
+    {:ok, %{}}
+  end
 
   @impl true
   def handle_call({:ensure_fresh, repo_url}, _from, state) do
     {:reply, refresh(base_path(repo_url), repo_url, base_setup_command()), state}
+  end
+
+  @impl true
+  def handle_info(:poll, state) do
+    poll_warm_base()
+    schedule_poll()
+    {:noreply, state}
+  end
+
+  # Proactively refresh the warm base on a cadence so the first dispatch doesn't
+  # pay the refresh latency. Runs inside the GenServer (serialized with
+  # handle_call), so it calls refresh/3 directly rather than ensure_fresh/1
+  # (which would deadlock on a self-call). Best-effort; a failure is dropped and
+  # retried on the next tick. No-op unless a github repo + base_setup are
+  # configured.
+  defp poll_warm_base do
+    with {:ok, settings} <- Config.settings(),
+         command when is_binary(command) and command != "" <- settings.hooks.base_setup,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      url = "https://github.com/#{repo}.git"
+      _ = refresh(base_path(url), url, command)
+      :ok
+    else
+      _ -> :ok
+    end
+  end
+
+  defp schedule_poll do
+    case poll_interval_ms() do
+      ms when is_integer(ms) and ms > 0 -> Process.send_after(self(), :poll, ms)
+      _ -> :ok
+    end
+  end
+
+  defp poll_interval_ms do
+    case Config.settings() do
+      {:ok, settings} -> max(settings.repo_base_poll_seconds || 0, 0) * 1000
+      _ -> 0
+    end
   end
 
   # ---- internals ----
