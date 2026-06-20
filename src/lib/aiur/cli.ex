@@ -6,6 +6,7 @@ defmodule Aiur.CLI do
   alias Aiur.LogFile
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
+  @repo "its-everdred/aiur"
   @version Mix.Project.config()[:version]
   @git_rev String.trim(
              case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do
@@ -40,7 +41,7 @@ defmodule Aiur.CLI do
         wait_for_shutdown()
 
       {:version, version} ->
-        IO.puts("aiur #{version} (sapsaldog/aiur #{@git_rev})")
+        IO.puts("aiur #{version} (#{@repo} #{@git_rev})")
 
       {:init, opts} ->
         case Aiur.Init.run(opts) do
