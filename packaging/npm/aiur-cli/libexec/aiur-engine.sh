@@ -448,6 +448,16 @@ session_cleanup() {
   # launched from a different release dir than this run.
   [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}"
 
+  # Reap the epmd our BEAM spawned for distribution so it doesn't linger after
+  # exit. The node is dead by now, so `epmd -kill` succeeds; it safely refuses
+  # while any *other* Erlang node is alive, so a daemon shared with an unrelated
+  # Erlang program is never disrupted. Use the release's bundled epmd and pin it
+  # to the loopback address aiur starts it on.
+  for _epmd in "$_session_release"/erts-*/bin/epmd; do
+    [ -x "$_epmd" ] || continue
+    ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}" "$_epmd" -kill >/dev/null 2>&1 || true
+  done
+
   if command -v opencode >/dev/null 2>&1 && [ -s "$_session_tmpfile" ]; then
     local id
     while IFS= read -r id; do
