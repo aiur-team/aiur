@@ -1,9 +1,14 @@
 name: Bump Homebrew Formula
 
 on:
-  push:
-    tags:
-      - "v*"
+  # Disabled until the Homebrew tap is set up: the tap repo
+  # (its-everdred/homebrew-aiur) does not exist yet and the
+  # HOMEBREW_TAP_TOKEN secret is unset, so a tag-triggered run only fails.
+  # Re-enable the tag trigger below once both are in place.
+  #   push:
+  #     tags:
+  #       - "v*"
+  workflow_dispatch:
 
 jobs:
   bump:
