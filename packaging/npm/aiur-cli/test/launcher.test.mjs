@@ -28,9 +28,14 @@ function setupPackage({ withPlatformPkg = true, tmuxVersion = "3.4", withOpencod
   mkdirSync(fakeBin, { recursive: true });
 
   copyFileSync(realShim, path.join(root, "bin", "aiur.js"));
+  // The shim reads its pinned opencode version from this package.json.
+  writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ name: "aiur-cli", version: "0.0.0", opencodeVersion: "1.15.6" }),
+  );
   writeFileSync(path.join(root, "share", "aiur.tmux.conf"), "# test conf\n");
 
-  const launcher = path.join(root, "libexec", "aiur-launch.sh");
+  const launcher = path.join(root, "libexec", "aiur-engine.sh");
   writeFileSync(
     launcher,
     [
@@ -60,7 +65,8 @@ function setupPackage({ withPlatformPkg = true, tmuxVersion = "3.4", withOpencod
   }
   if (withOpencode) {
     const oc = path.join(fakeBin, "opencode");
-    writeFileSync(oc, "#!/usr/bin/env bash\nexit 0\n");
+    // Report the pinned version so the shim's pin check is satisfied.
+    writeFileSync(oc, '#!/usr/bin/env bash\necho "1.15.6"\n');
     chmodSync(oc, 0o755);
   }
 
@@ -72,6 +78,10 @@ function runShim({ args = [], fakeBin, platform, arch, env = {} } = {}) {
     ...process.env,
     AIUR_TEST_OUT: captureFile,
     PATH: `${fakeBin}:${process.env.PATH}`,
+    // Hermetic by default: don't fire real brew/npm during preflight tests.
+    // Provisioning tests opt back in by overriding these to "".
+    AIUR_SKIP_TMUX_INSTALL: "1",
+    AIUR_SKIP_OPENCODE_INSTALL: "1",
     ...env,
   };
   // Override platform/arch in a child wrapper when a test needs a foreign host.
@@ -160,6 +170,38 @@ test("opencode absent warns but still runs the launcher", () => {
   expect(result.stderr).toContain("opencode was not found");
 });
 
+// bun/pnpm/yarn skip the npm postinstall, so the launcher must provision
+// opencode itself on first run. A fake npm stands in for the real install:
+// `npm install -g opencode-ai@…` drops an opencode that reports the pin.
+test("provisions opencode on first run when missing", () => {
+  const { fakeBin } = setupPackage({ withOpencode: false });
+  const fakeNpm = path.join(fakeBin, "npm");
+  const oc = path.join(fakeBin, "opencode");
+  writeFileSync(
+    fakeNpm,
+    [
+      "#!/usr/bin/env bash",
+      'if [ "$1" = "install" ]; then',
+      `  printf '#!/usr/bin/env bash\\necho 1.15.6\\n' > "${oc}"`,
+      `  chmod +x "${oc}"`,
+      "fi",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(fakeNpm, 0o755);
+
+  const result = runShim({
+    fakeBin,
+    env: { AIUR_SKIP_OPENCODE_INSTALL: "", PATH: `${fakeBin}:/usr/bin:/bin` },
+  });
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("provisioning opencode");
+  // The post-install pin check passed, so the "not found" fallback never fires.
+  expect(result.stderr).not.toContain("opencode was not found");
+});
+
 // A too-old fake tmux shadows any real tmux (fakeBin is first on PATH), so the
 // same setup that is fatal for a bare run proves init/--version skip preflight.
 test("init skips tmux preflight and still execs the launcher", () => {
@@ -183,9 +225,9 @@ test("--version skips tmux preflight and still execs the launcher", () => {
 // Builds a minimal fake OTP release whose `elixir` records its argv, so the
 // REAL launcher's init routing can be exercised end to end.
 function setupRealLauncher() {
-  const launcherSrc = fileURLToPath(new URL("../libexec/aiur-launch.sh", import.meta.url));
+  const launcherSrc = fileURLToPath(new URL("../libexec/aiur-engine.sh", import.meta.url));
   mkdirSync(path.join(root, "libexec"), { recursive: true });
-  const launcher = path.join(root, "libexec", "aiur-launch.sh");
+  const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
 
   const releaseDir = path.join(root, "release");
