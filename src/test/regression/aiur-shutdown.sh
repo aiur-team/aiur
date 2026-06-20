@@ -21,6 +21,7 @@ cleanup() {
   tmux -L "$SOCKET_DRIVER" kill-server >/dev/null 2>&1 || true
   tmux -L "$SOCKET_AIUR" kill-server >/dev/null 2>&1 || true
   pkill -f "_build/.*rel/aiur/erts.*beam.smp" >/dev/null 2>&1 || true
+  pkill -f "_build/.*rel/aiur/erts.*/epmd" >/dev/null 2>&1 || true
   pkill -f "opencode" >/dev/null 2>&1 || true
   rm -f "$WRAPPER"
 }
@@ -64,12 +65,14 @@ echo ""
 echo "=== Send Ctrl+C via tmux ==="
 tmux -L "$SOCKET_DRIVER" send-keys -t "$SESSION_DRIVER" "C-c"
 
-# Wait up to 15 s for BEAM to exit AND port 4000 to free up.
+# Wait up to 15 s for BEAM to exit, port 4000 to free up, AND the epmd the
+# BEAM spawned to be reaped (session_cleanup runs `epmd -kill` once the node dies).
 echo "Waiting for graceful shutdown..."
 for i in $(seq 1 30); do
   beams=$(pgrep -f "_build/.*rel/aiur/erts.*beam.smp" 2>/dev/null || true)
   port=$(lsof -i :4000 2>/dev/null | grep LISTEN || true)
-  if [ -z "$beams" ] && [ -z "$port" ]; then
+  epmd=$(pgrep -f "_build/.*rel/aiur/erts.*/epmd" 2>/dev/null || true)
+  if [ -z "$beams" ] && [ -z "$port" ] && [ -z "$epmd" ]; then
     echo "  clean exit at t=${i}s after Ctrl+C"
     echo ""
     echo "PASS"
@@ -79,8 +82,9 @@ for i in $(seq 1 30); do
 done
 
 echo ""
-echo "FAIL: BEAM survived Ctrl+C"
+echo "FAIL: BEAM, port, or epmd survived Ctrl+C"
 echo "Stragglers:"
 pgrep -af "_build/.*rel/aiur/erts.*beam.smp"
+pgrep -af "_build/.*rel/aiur/erts.*/epmd"
 lsof -i :4000 2>&1 | head -3
 exit 1

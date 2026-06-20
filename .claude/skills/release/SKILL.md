@@ -5,7 +5,9 @@ description: "Release a new version of Aiur: bump version in mix.exs, create git
 
 # Release Workflow
 
-Tag, release, and publish a new version of Aiur. Pushing a tag triggers the `bump-homebrew` GitHub Action which auto-updates the `sapsaldog/homebrew-aiur` tap formula.
+Tag, release, and publish a new version of Aiur via npm (the `release-npm` workflow publishes the launcher + platform packages on a `v*` tag).
+
+> **Homebrew auto-update is currently disabled.** The `bump-homebrew` workflow's tap repo (`its-everdred/homebrew-aiur`) and `HOMEBREW_TAP_TOKEN` secret aren't set up, so releases are **npm-only**. Re-enable the tag trigger in `.github/workflows/bump-homebrew.yml` once the tap + token exist.
 
 ## Procedure
 
@@ -57,24 +59,24 @@ git push origin VERSION
 ### 5. Create GitHub Release
 
 ```bash
-gh release create VERSION --generate-notes --title "VERSION" --repo sapsaldog/aiur
+gh release create VERSION --generate-notes --title "VERSION" --repo its-everdred/aiur
 ```
 
-Note: `--repo` flag is needed because upstream remote points to openai/aiur.
+Note: pass `--repo its-everdred/aiur` explicitly so the release lands on the canonical repo even when the local remote is a fork or workspace clone.
 
 ### 6. Summary
 
 After completion, show:
 - Tag pushed: `VERSION`
 - GitHub Release URL
-- GitHub Actions link: `https://github.com/sapsaldog/aiur/actions/workflows/bump-homebrew.yml`
-- Homebrew tap: `sapsaldog/homebrew-aiur` auto-updated
+- npm: `aiur-cli` + platform packages published by the `release-npm` workflow
+- Homebrew: **not** auto-updated (the `bump-homebrew` tag trigger is disabled until the tap + token are set up)
 
 ### Re-release (same version)
 
 If a tag already exists and needs to be recreated:
 ```bash
-gh release delete VERSION --repo sapsaldog/aiur --yes
+gh release delete VERSION --repo its-everdred/aiur --yes
 git tag -d VERSION
 git push origin :refs/tags/VERSION
 # Then proceed from step 4

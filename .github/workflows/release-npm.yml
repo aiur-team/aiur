@@ -148,9 +148,12 @@ jobs:
           cd packaging/npm/aiur-cli
           npm pack --pack-destination "$GITHUB_WORKSPACE/launcher"
 
-      # Local tarballs + --offline asserts R4: nothing is fetched at install time
-      # (no postinstall, no registry round-trip). Optional deps for the other
-      # three targets are simply skipped, leaving a single-platform footprint.
+      # --offline proves aiur's OWN packages install with no registry round-trip
+      # (the platform tarballs are local; optional deps for the other targets are
+      # skipped, leaving a single-platform footprint). The postinstall still
+      # provisions the pinned opencode ONLINE — installOpencode forces
+      # --no-offline so it never inherits this --offline context — which the
+      # "Peer deps provisioned" step below asserts.
       - name: Global install from local tarballs (offline)
         run: |
           npm config set prefix "$HOME/.npm-global"
@@ -159,6 +162,18 @@ jobs:
 
       - name: Version pre-check
         run: aiur --version
+
+      # Regression guard for the offline-inheritance bug: a plain install must
+      # leave the interactive peer deps ready so `aiur init` works with nothing
+      # else to install. tmux is installed above; opencode is provisioned by the
+      # postinstall even though the outer install ran --offline.
+      - name: Peer deps provisioned (pinned opencode + tmux)
+        run: |
+          pin=$(node -p "require('$GITHUB_WORKSPACE/packaging/npm/aiur-cli/package.json').opencodeVersion")
+          got=$(opencode --version)
+          echo "opencode: want $pin, got $got"
+          test "$got" = "$pin"
+          tmux -V
 
       - name: Interactive TUI renders
         run: |
