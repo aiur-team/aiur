@@ -91,13 +91,39 @@ defmodule Aiur.Workflow do
   defp parse(content, path) do
     case yaml_to_map(content) do
       {:ok, config} ->
-        resolve_prompt(config, path)
+        case resolve_hooks(config, path) do
+          {:ok, config} -> resolve_prompt(config, path)
+          {:error, reason} -> {:error, reason}
+        end
 
       {:error, :workflow_front_matter_not_a_map} ->
         {:error, :workflow_front_matter_not_a_map}
 
       {:error, reason} ->
         {:error, {:workflow_parse_error, reason}}
+    end
+  end
+
+  # An optional `hooks_file:` key points at a sibling YAML file (default
+  # `.aiurhooks`) whose keys become the `hooks:` map, keeping multi-line hook
+  # scripts out of the main config. When set it replaces any inline `hooks:`
+  # block; when absent the inline block (if any) is used unchanged.
+  defp resolve_hooks(config, path) do
+    case Map.get(config, "hooks_file") do
+      rel when is_binary(rel) and rel != "" ->
+        resolved = Path.expand(rel, Path.dirname(path))
+
+        with {:ok, content} <- File.read(resolved),
+             {:ok, hooks} when is_map(hooks) <- yaml_to_map(content) do
+          {:ok, Map.put(config, "hooks", hooks)}
+        else
+          {:ok, _non_map} -> {:error, {:invalid_hooks_file, resolved}}
+          {:error, reason} when is_atom(reason) -> {:error, {:missing_hooks_file, resolved, reason}}
+          {:error, reason} -> {:error, {:invalid_hooks_file, resolved, reason}}
+        end
+
+      _ ->
+        {:ok, config}
     end
   end
 

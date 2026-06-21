@@ -60,6 +60,11 @@ hooks:
       git checkout -b "aiur/$(basename "$PWD")" origin/main
     fi
 
+# Tip: instead of the inline `hooks:` block above, you can keep these scripts in
+# a separate `.aiurhooks` file and reference it here with `hooks_file: .aiurhooks`
+# — handy for multi-line hooks and for letting a coding agent regenerate them
+# on their own. See `.aiurhooks.example`. (`hooks_file` replaces the inline block.)
+
 # === Polling / concurrency ===
 polling:
   interval_seconds: {{POLLING}}          # how often aiur re-checks the tracker for issues to pick up
