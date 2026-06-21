@@ -92,7 +92,7 @@ defmodule Aiur.Workflow do
     case yaml_to_map(content) do
       {:ok, config} ->
         case resolve_hooks(config, path) do
-          {:ok, config} -> resolve_prompt(config, path)
+          {:ok, resolved} -> resolve_prompt(resolved, path)
           {:error, reason} -> {:error, reason}
         end
 
@@ -113,13 +113,19 @@ defmodule Aiur.Workflow do
       rel when is_binary(rel) and rel != "" ->
         resolved = Path.expand(rel, Path.dirname(path))
 
-        with {:ok, content} <- File.read(resolved),
-             {:ok, hooks} when is_map(hooks) <- yaml_to_map(content) do
-          {:ok, Map.put(config, "hooks", hooks)}
-        else
-          {:ok, _non_map} -> {:error, {:invalid_hooks_file, resolved}}
-          {:error, reason} when is_atom(reason) -> {:error, {:missing_hooks_file, resolved, reason}}
-          {:error, reason} -> {:error, {:invalid_hooks_file, resolved, reason}}
+        # Split the read from the parse so a missing/unreadable file and a
+        # malformed (or non-map) one get distinct errors. yaml_to_map returns
+        # {:error, :workflow_front_matter_not_a_map} for non-map YAML, so a
+        # successful decode is always a map — no non-map success case to handle.
+        case File.read(resolved) do
+          {:ok, content} ->
+            case yaml_to_map(content) do
+              {:ok, hooks} -> {:ok, Map.put(config, "hooks", hooks)}
+              {:error, reason} -> {:error, {:invalid_hooks_file, resolved, reason}}
+            end
+
+          {:error, reason} ->
+            {:error, {:missing_hooks_file, resolved, reason}}
         end
 
       _ ->
@@ -156,6 +162,23 @@ defmodule Aiur.Workflow do
     with {:ok, content} <- File.read(config_path),
          {:ok, config} <- yaml_to_map(content),
          rel when is_binary(rel) and rel != "" <- Map.get(config, "prompt_file") do
+      Path.expand(rel, Path.dirname(config_path))
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Resolves the absolute `.aiurhooks` path referenced by `hooks_file:` in the
+  config, or nil when none is set.
+
+  Used by `WorkflowStore` to detect hook-file edits during change polling.
+  """
+  @spec resolved_hooks_file_path(Path.t()) :: Path.t() | nil
+  def resolved_hooks_file_path(config_path) when is_binary(config_path) do
+    with {:ok, content} <- File.read(config_path),
+         {:ok, config} <- yaml_to_map(content),
+         rel when is_binary(rel) and rel != "" <- Map.get(config, "hooks_file") do
       Path.expand(rel, Path.dirname(config_path))
     else
       _ -> nil

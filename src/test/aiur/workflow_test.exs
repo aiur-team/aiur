@@ -162,6 +162,30 @@ defmodule Aiur.WorkflowTest do
       resolved = Path.expand("missing.aiurhooks", dir)
       assert {:error, {:missing_hooks_file, ^resolved, :enoent}} = Workflow.load(path)
     end
+
+    test "a hooks_file that isn't a YAML map is an invalid_hooks_file error", %{dir: dir} do
+      File.write!(Path.join(dir, ".aiurhooks"), "- just\n- a\n- list\n")
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
+
+      resolved = Path.expand(".aiurhooks", dir)
+      assert {:error, {:invalid_hooks_file, ^resolved, _reason}} = Workflow.load(path)
+    end
+
+    test "an empty hooks_file value falls back to the inline hooks block", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+
+      File.write!(path, """
+      tracker:
+        kind: memory
+      hooks:
+        after_create: inline create
+      hooks_file: ""
+      """)
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["hooks"]["after_create"] == "inline create"
+    end
   end
 
   describe "config path resolution" do

@@ -337,6 +337,7 @@ Top-level keys:
 - `polling`
 - `workspace`
 - `hooks`
+- `hooks_file`
 - `agent`
 - `codex`
 
@@ -355,6 +356,14 @@ Note:
 - Relative paths are resolved relative to the directory containing `.aiurconfig`.
 - When absent or empty, a built-in default prompt is used.
 - A named file that cannot be read is a `missing_prompt_file` error.
+
+#### 5.3.0.1 `hooks_file` (string)
+
+- OPTIONAL path to a YAML file whose keys become the `hooks:` map (same fields as the inline `hooks:` object in 5.3.4).
+- Relative paths are resolved relative to the directory containing `.aiurconfig`.
+- When set, it REPLACES any inline `hooks:` block; when absent or empty, the inline `hooks:` block (if any) is used unchanged.
+- A named file that cannot be read is a `missing_hooks_file` error; a file whose top-level YAML is not a map is an `invalid_hooks_file` error.
+- `aiur init` scaffolds a `.aiurhooks` (from `.aiurhooks.example`) and the generated `.aiurconfig` references it via `hooks_file: .aiurhooks`.
 
 #### 5.3.1 `tracker` (object)
 

@@ -371,6 +371,21 @@ defmodule Aiur.InitTest do
       assert File.regular?(Path.join(dir, "AIUR.md"))
     end
 
+    test "repo-local init creates the .aiurhooks the config references", %{dir: dir, target: target} do
+      File.rm_rf!(Path.join(dir, ".aiurhooks"))
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert File.regular?(Path.join(dir, ".aiurhooks"))
+    end
+
+    test "init does not clobber an existing .aiurhooks", %{dir: dir, target: target} do
+      hooks_path = Path.join(dir, ".aiurhooks")
+      File.write!(hooks_path, "after_create: my custom hook\n")
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert File.read!(hooks_path) == "after_create: my custom hook\n"
+    end
+
     test "the scaffolded prompt file delivers the issue task to the agent" do
       template = Init.prompt_file_template()
 
