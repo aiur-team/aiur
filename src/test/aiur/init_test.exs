@@ -67,6 +67,16 @@ defmodule Aiur.InitTest do
             {:created, path}
           end
         end,
+        ensure_aiurhooks: fn t ->
+          path = Path.join(Path.dirname(t), ".aiurhooks")
+
+          if File.regular?(path) do
+            {:exists, path}
+          else
+            File.write!(path, "after_create: echo created\n")
+            {:created, path}
+          end
+        end,
         ensure_env: fn content ->
           File.write!(Path.join(dir, ".env.example"), content)
           env_path = Path.join(dir, ".env")
@@ -387,6 +397,16 @@ defmodule Aiur.InitTest do
       # No stray placeholder ever reaches Solid (strict_variables would raise).
       refute scaffold =~ "{{REPO}}"
       assert scaffold =~ "{{ issue.title }}"
+    end
+
+    test "the .aiurhooks scaffold defines workspace hooks against the repo URL" do
+      template = Init.aiurhooks_template()
+
+      # init writes this next to a config that references it via `hooks_file:`,
+      # so it must carry the workspace bootstrap hooks (clone + branch).
+      assert template =~ "after_create:"
+      assert template =~ "before_run:"
+      assert template =~ "$THIS_REPOSITORY_URL"
     end
 
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do

@@ -53,6 +53,15 @@ defmodule Aiur.Init do
   @external_resource @example_path
   @example_template File.read!(@example_path)
 
+  # The scaffolded config references hooks via `hooks_file: .aiurhooks`, so init
+  # also writes a `.aiurhooks` (from this example) next to the config — otherwise
+  # the first run would fail resolving a missing hooks file. Embedded at compile
+  # time so the wizard works from a release with no runtime file dependency.
+  @aiurhooks_file_name ".aiurhooks"
+  @aiurhooks_example_path Path.expand("../../../.aiurhooks.example", __DIR__)
+  @external_resource @aiurhooks_example_path
+  @aiurhooks_example_template File.read!(@aiurhooks_example_path)
+
   @type io :: %{
           puts: (IO.chardata() -> :ok),
           input: (String.t(), String.t() | nil, String.t() | nil -> String.t() | nil),
@@ -69,6 +78,7 @@ defmodule Aiur.Init do
           detect_repo: (-> String.t() | nil),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
+          ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
           install_claude_app_server: (-> :ok | {:error, String.t()}),
@@ -177,6 +187,7 @@ defmodule Aiur.Init do
       {:ok, path} ->
         io.puts.(["Created: ", dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
+        ensure_aiurhooks(io, deps, path)
         setup_env(io, deps, tracker)
         provision(io, deps, tracker, agents)
 
@@ -494,6 +505,16 @@ defmodule Aiur.Init do
 
   defp ensure_prompt_file(io, deps, target, prompt_file, repo) do
     case deps.ensure_prompt_file.(target, prompt_file, repo) do
+      {:created, path} -> io.puts.(["Created: ", dim(path)])
+      {:exists, _path} -> :ok
+    end
+  end
+
+  # The scaffolded config references `.aiurhooks` via `hooks_file:`, so make sure
+  # the file exists (created from .aiurhooks.example). Never clobber an existing
+  # one — the dev may have tuned it for their toolchain.
+  defp ensure_aiurhooks(io, deps, target) do
+    case deps.ensure_aiurhooks.(target) do
       {:created, path} -> io.puts.(["Created: ", dim(path)])
       {:exists, _path} -> :ok
     end
@@ -827,6 +848,7 @@ defmodule Aiur.Init do
       detect_repo: &detect_repo/0,
       write_config: &write_config/2,
       ensure_prompt_file: &write_prompt_file/3,
+      ensure_aiurhooks: &write_aiurhooks/1,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
       install_claude_app_server: &install_claude_app_server/0,
@@ -867,6 +889,21 @@ defmodule Aiur.Init do
       {:created, path}
     end
   end
+
+  defp write_aiurhooks(target) do
+    path = Path.join(Path.dirname(target), @aiurhooks_file_name)
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      File.write!(path, @aiurhooks_example_template)
+      {:created, path}
+    end
+  end
+
+  @doc "Raw .aiurhooks template that `aiur init` scaffolds."
+  @spec aiurhooks_template() :: String.t()
+  def aiurhooks_template, do: @aiurhooks_example_template
 
   @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
   @spec prompt_file_template() :: String.t()
