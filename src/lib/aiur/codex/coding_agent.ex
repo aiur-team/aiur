@@ -331,6 +331,12 @@ defmodule Aiur.Codex.CodingAgent do
       send_message(port, %{"method" => "initialized", "params" => %{}})
       :ok
     end
+  rescue
+    # The agent process can exit at any point (e.g. it crashed on boot);
+    # Port.command/2 then raises ArgumentError on the closed port. Surface it as
+    # a handled {:error, :port_closed} — `do_start_session/1` already routes that
+    # — instead of crashing the run. Mirrors send_operator_message/interrupt_turn.
+    ArgumentError -> {:error, :port_closed}
   end
 
   defp session_policies(workspace, nil) do
