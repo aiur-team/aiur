@@ -838,6 +838,39 @@ defmodule Aiur.ExtensionsTest do
     refute closed_html =~ "hello from workspace log"
   end
 
+  test "read-only dashboard liveview hides chat controls and no-ops write events" do
+    orchestrator_name = Module.concat(__MODULE__, :ReadOnlyDashboardOrchestrator)
+    snapshot = static_snapshot()
+
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 50,
+      dashboard_writable: false
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    modal_html =
+      view
+      |> element("tr[phx-value-issue=\"MT-HTTP\"]")
+      |> render_click()
+
+    # The agent log modal still opens (reads work), but the composer and its
+    # Send/Pause controls are gone — replaced by the read-only notice.
+    assert modal_html =~ "Read-only dashboard"
+    refute modal_html =~ "agent-chat-send"
+    refute modal_html =~ "phx-submit=\"send-operator-message\""
+    refute modal_html =~ "phx-click=\"pause-agent\""
+
+    # Defense-in-depth: even a crafted client pushing the write events is a
+    # no-op — the guarded clauses fall through and the view stays alive.
+    assert render_hook(view, "send-operator-message", %{"message" => "hello"}) =~ "Read-only dashboard"
+    assert render_hook(view, "pause-agent", %{}) =~ "Read-only dashboard"
+    assert Process.alive?(view.pid)
+  end
+
   test "dashboard liveview renders an unavailable state without crashing" do
     start_test_endpoint(
       orchestrator: Module.concat(__MODULE__, :MissingDashboardOrchestrator),
