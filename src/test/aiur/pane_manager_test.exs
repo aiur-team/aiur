@@ -83,6 +83,22 @@ defmodule Aiur.PaneManagerTest do
     end
   end
 
+  # Every bind (open / respawn / placeholder) sets the pane's tmux title to
+  # "<id> <title>" via `select-pane -t <pane> -T ...`. Tests with no `:title`
+  # option just see the bare identifier. Drain it so the mock Tmux GenServer
+  # isn't left blocked mid-sequence.
+  defp drain_set_title(tmux, pane_id) do
+    receive do
+      {:tmux_mock_out, "select-pane -t " <> rest = cmd} ->
+        assert rest =~ "-T ", "expected pane-title set, got #{inspect(cmd)}"
+        assert rest =~ pane_id, "expected title set on #{pane_id}, got #{inspect(cmd)}"
+
+        send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 7 0\n%end 1 7 0\n"})
+    after
+      1_000 -> flunk("expected select-pane -T title set for #{pane_id}")
+    end
+  end
+
   defp respond_respawn(tmux, pane_id) do
     receive do
       {:tmux_mock_out, "respawn-pane " <> rest} ->
@@ -122,6 +138,7 @@ defmodule Aiur.PaneManagerTest do
     drain_reconcile_if_requested(tmux, live_panes)
     respond_split(tmux, new_pane_id)
     drain_focus(tmux, new_pane_id)
+    drain_set_title(tmux, new_pane_id)
     drain_layout_apply(tmux)
     assert {:ok, ^new_pane_id} = Task.await(task, 1_000)
   end
@@ -131,6 +148,7 @@ defmodule Aiur.PaneManagerTest do
     task = Task.async(fn -> PaneManager.open_conversation(pm, identifier, "echo " <> identifier) end)
     drain_reconcile_if_requested(tmux, live_panes)
     respond_respawn(tmux, pane_id)
+    drain_set_title(tmux, pane_id)
     drain_layout_apply(tmux)
     assert {:ok, ^pane_id} = Task.await(task, 1_000)
   end
@@ -140,6 +158,7 @@ defmodule Aiur.PaneManagerTest do
     drain_reconcile_if_requested(tmux, live_panes)
     respond_split(tmux, new_pane_id)
     drain_focus(tmux, new_pane_id)
+    drain_set_title(tmux, new_pane_id)
     layout_cmd = drain_layout_apply(tmux)
     assert {:ok, ^new_pane_id} = Task.await(task, 1_000)
     layout_cmd
@@ -152,6 +171,32 @@ defmodule Aiur.PaneManagerTest do
 
     assert_receive {:status_changed, %{identifier: "MT-1", status: :pane_opened}}, 1_000
     assert PaneManager.list_open_panes(pm) == %{"MT-1" => "%10"}
+  end
+
+  test ~s(open sets the pane title to "<id> <issue title>"), %{tmux: tmux, pm: pm} do
+    task =
+      Task.async(fn ->
+        PaneManager.open_conversation(pm, "7", "echo 7", title: "CLI: ENS namespace (resolve, reverse, info)")
+      end)
+
+    drain_reconcile_if_requested(tmux, ["%1"])
+    respond_split(tmux, "%10")
+    drain_focus(tmux, "%10")
+
+    title_cmd =
+      receive do
+        {:tmux_mock_out, "select-pane -t " <> _ = cmd} ->
+          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 7 0\n%end 1 7 0\n"})
+          cmd
+      after
+        1_000 -> flunk("expected select-pane -T title set")
+      end
+
+    assert title_cmd ==
+             "select-pane -t %10 -T 7 CLI: ENS namespace (resolve, reverse, info)"
+
+    drain_layout_apply(tmux)
+    assert {:ok, "%10"} = Task.await(task, 1_000)
   end
 
   test "five opens populate five distinct slots", %{tmux: tmux, pm: pm} do
@@ -362,6 +407,7 @@ defmodule Aiur.PaneManagerTest do
     drain_focus(tmux, "%1")
     respond_split(tmux, "%11")
     drain_focus(tmux, "%11")
+    drain_set_title(tmux, "%11")
     drain_layout_apply(tmux)
     assert {:ok, "%11"} = Task.await(open_task, 1_000)
   end

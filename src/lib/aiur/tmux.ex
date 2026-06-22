@@ -164,6 +164,25 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Set `pane_id`'s tmux pane title (tmux's `select-pane -T`), which the
+  configured `pane-border-format` renders in the pane's top border.
+
+  Goes through the args-based exec so a title containing spaces or shell
+  metacharacters is passed verbatim as a single argv element — `command/3`'s
+  space-splitting would mangle it. `select-pane -T` sets the title without
+  shifting the active pane, so a background pane's title can be updated
+  without yanking focus.
+  """
+  @spec set_pane_title(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
+  def set_pane_title(server \\ __MODULE__, pane_id, title)
+      when is_binary(pane_id) and is_binary(title) do
+    GenServer.call(server, {:set_pane_title, pane_id, title})
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Move `source_pane` into the visible `target_window`, splitting
   horizontally next to existing panes. Caller is responsible for any
   follow-up layout reflow.
@@ -689,6 +708,13 @@ defmodule Aiur.Tmux do
 
   def handle_call({:move_pane_visible, source_pane, target_window}, _from, state) do
     case run_args(state, ["move-pane", "-s", source_pane, "-t", target_window, "-h"]) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, _} = err -> {:reply, err, state}
+    end
+  end
+
+  def handle_call({:set_pane_title, pane_id, title}, _from, state) do
+    case run_args(state, ["select-pane", "-t", pane_id, "-T", title]) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, _} = err -> {:reply, err, state}
     end
