@@ -58,11 +58,15 @@ args. Pass `--host` when you want to expose the dashboard over the network
 Each issue gets an isolated workspace at:
 
 ```text
-<workspace.root>/<issue-id>/
+<workspace.root>/<repo>/<issue-id>/
 ```
 
-where `workspace.root` is the value from the active workflow. Two log files
-are written inside each workspace:
+where `workspace.root` is the value from the active workflow and `<repo>` is the
+sanitized repo segment (GitHub repo name, or Linear `project_slug`) so multiple
+repos sharing a root don't collide on issue number. Trackers without a repo
+segment (e.g. memory) fall back to `<workspace.root>/<issue-id>/`. The leaf is
+still the bare issue id, so `basename "$PWD"` resolves the issue number. Two log
+files are written inside each workspace:
 
 - `logs/agent.md` — human-readable chat-style log
 - `logs/agent.ndjson` — newline-delimited JSON event stream

@@ -208,7 +208,7 @@ defmodule Aiur.Opencode.SessionWriterRegistry do
   defp workspace_for(identifier) do
     Aiur.Config.workspace_root()
     |> Path.expand()
-    |> Path.join(Aiur.Opencode.Config.safe_identifier(identifier))
+    |> Aiur.Workspace.workspace_path_under(identifier)
   end
 
   defp maybe_delete_session(nil, _session_id), do: :ok

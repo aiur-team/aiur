@@ -115,6 +115,54 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert {:ok, gadgets_ws} = Workspace.create_for_issue("10")
       assert gadgets_ws != widgets_ws
       assert Path.basename(Path.dirname(gadgets_ws)) == "gadgets"
+
+      # A bare repo name (no owner/ prefix) is used verbatim as the segment.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "barerepo",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, bare_ws} = Workspace.create_for_issue("10")
+      assert Path.basename(Path.dirname(bare_ws)) == "barerepo"
+
+      # Unsafe characters in the repo segment are sanitized so they can't
+      # escape the workspace root.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "octo/we..ird/name",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, sanitized_ws} = Workspace.create_for_issue("10")
+      segment = Path.basename(Path.dirname(sanitized_ws))
+      refute segment =~ "/"
+      assert segment == "we..ird_name"
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace falls back to a flat <root>/<issue> layout for the memory tracker" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-memory-flat-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      # The memory tracker has no repo segment, so the issue dir sits directly
+      # under the root (no namespacing).
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, canonical_flat} =
+               Aiur.PathSafety.canonicalize(Path.join(workspace_root, "MEM-1"))
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MEM-1")
+      assert workspace == canonical_flat
     after
       File.rm_rf(workspace_root)
     end

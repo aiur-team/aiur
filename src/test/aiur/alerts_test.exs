@@ -7,7 +7,9 @@ defmodule Aiur.AlertsTest do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alerts-#{System.unique_integer([:positive])}")
 
-    workspace = Path.join(workspace_root, "MT-ALERT-1")
+    # Linear default config namespaces the workspace under <root>/<project_slug>/,
+    # which is where resolve_workspace (via the issue:) now looks for the log dir.
+    workspace = Path.join([workspace_root, "project", "MT-ALERT-1"])
     File.mkdir_p!(workspace)
 
     on_exit(fn -> File.rm_rf!(workspace_root) end)
@@ -49,7 +51,9 @@ defmodule Aiur.AlertsTest do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-state-#{System.unique_integer([:positive])}")
 
-    workspace = Path.join(workspace_root, "MT-ALERT-2")
+    # Resolved via the issue identifier, so it must match the repo-namespaced
+    # layout (Linear default config → <root>/project/<issue>).
+    workspace = Path.join([workspace_root, "project", "MT-ALERT-2"])
     File.mkdir_p!(workspace)
 
     on_exit(fn -> File.rm_rf!(workspace_root) end)
@@ -71,7 +75,9 @@ defmodule Aiur.AlertsTest do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.unique_integer([:positive])}")
 
-    workspace = Path.join(workspace_root, "MT-ALERT-3")
+    # Resolved via the issue identifier, so it must match the repo-namespaced
+    # layout (Linear default config → <root>/project/<issue>).
+    workspace = Path.join([workspace_root, "project", "MT-ALERT-3"])
     File.mkdir_p!(workspace)
 
     on_exit(fn -> File.rm_rf!(workspace_root) end)
@@ -481,11 +487,12 @@ defmodule Aiur.AlertsTest do
 
     test "resolve_workspace_for returns the workspace path when it exists" do
       workspace_root = Path.join(System.tmp_dir!(), "aiur-rwfor-#{System.unique_integer([:positive])}")
-      File.mkdir_p!(Path.join(workspace_root, "MT-WSEXIST"))
+      # Linear default config namespaces the workspace under <root>/<project_slug>/.
+      workspace = Path.join([workspace_root, "project", "MT-WSEXIST"])
+      File.mkdir_p!(workspace)
       on_exit(fn -> File.rm_rf!(workspace_root) end)
 
-      assert Path.join(workspace_root, "MT-WSEXIST") ==
-               Aiur.Alerts.resolve_workspace_for("MT-WSEXIST", fn -> workspace_root end)
+      assert workspace == Aiur.Alerts.resolve_workspace_for("MT-WSEXIST", fn -> workspace_root end)
     end
 
     @tag :tmp_dir

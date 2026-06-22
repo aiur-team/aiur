@@ -514,14 +514,10 @@ defmodule Aiur.Alerts do
   @spec resolve_workspace_for(String.t(), (-> String.t())) :: String.t() | nil
   def resolve_workspace_for(identifier, workspace_root_fn)
       when is_binary(identifier) and is_function(workspace_root_fn, 0) do
-    workspace = Path.join(workspace_root_fn.(), safe_identifier(identifier))
+    workspace = Aiur.Workspace.workspace_path_under(workspace_root_fn.(), identifier)
 
     if File.dir?(workspace), do: workspace, else: nil
   rescue
     _error -> nil
-  end
-
-  defp safe_identifier(identifier) do
-    String.replace(identifier, ~r/[^a-zA-Z0-9._-]/, "_")
   end
 end

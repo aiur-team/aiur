@@ -850,7 +850,12 @@ Workspace root:
 
 Per-issue workspace path:
 
-- `<workspace.root>/<sanitized_issue_identifier>`
+- `<workspace.root>/<repo>/<sanitized_issue_identifier>`, where `<repo>` is the
+  sanitized repo segment (GitHub repo name, or Linear `project_slug`). Trackers
+  without a repo segment (e.g. memory) fall back to
+  `<workspace.root>/<sanitized_issue_identifier>`. Namespacing by repo prevents
+  issue-number collisions when one root serves multiple repos. The leaf segment
+  is still the bare sanitized issue identifier.
 
 Workspace persistence:
 

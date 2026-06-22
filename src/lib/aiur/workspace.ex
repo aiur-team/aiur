@@ -241,6 +241,19 @@ defmodule Aiur.Workspace do
     end
   end
 
+  @doc """
+  Per-issue workspace path under `root`, applying the same repo-namespace
+  segment `create_for_issue/1` uses. `root` should already be expanded.
+
+  Lets other modules (per-workspace alert logging, the opencode session
+  writer) locate an existing workspace without re-deriving the layout — keeping
+  them in sync with whatever `create_for_issue/1` produced.
+  """
+  @spec workspace_path_under(Path.t(), String.t()) :: Path.t()
+  def workspace_path_under(root, identifier) when is_binary(root) and is_binary(identifier) do
+    issue_workspace_path(root, safe_identifier(identifier))
+  end
+
   defp workspace_path_for_issue(safe_id, nil) when is_binary(safe_id) do
     Config.settings!().workspace.root
     |> issue_workspace_path(safe_id)
