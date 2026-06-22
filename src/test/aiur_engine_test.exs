@@ -183,4 +183,29 @@ defmodule AiurEngineTest do
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
     assert out =~ "Aiur.AgentControlCLI.status()"
   end
+
+  test "message RPCs the message expression with base64-encoded text" do
+    rel = fake_release()
+
+    {out, _} =
+      run_engine_real(
+        ["message", "44", "ship it"],
+        [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}]
+      )
+
+    encoded = Base.encode64("ship it")
+    assert out =~ ~s|Aiur.AgentControlCLI.message("44", Base.decode64!("#{encoded}"))|
+  end
+
+  test "message without text exits 64 with guidance" do
+    {out, code} = run_engine_real(["message", "44"], [{"AIUR_RELEASE_DIR", fake_release()}])
+    assert code == 64
+    assert out =~ "message expects an issue ID and text"
+  end
+
+  test "message without an issue exits 64 with guidance" do
+    {out, code} = run_engine_real(["message"], [{"AIUR_RELEASE_DIR", fake_release()}])
+    assert code == 64
+    assert out =~ "message expects an issue ID and text"
+  end
 end
