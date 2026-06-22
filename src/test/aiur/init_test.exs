@@ -477,6 +477,25 @@ defmodule Aiur.InitTest do
       refute_received {:append, ^target}
     end
 
+    test "does not run the section's first build when the append fails", %{dir: dir, target: target} do
+      File.write!(target, @legacy_yaml)
+
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ok, %{language: :elixir, build_root: ".", command: "mise exec -- mix compile"}}
+          end,
+          append_config: fn _t, _block -> {:error, :eacces} end
+        })
+
+      answers = %{select: %{"Use this base build command?" => "use"}}
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      # The append failed, so the warm base must not be built (no orphaned base).
+      refute_received {:prewarm_build, _url, _cmd}
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Couldn't update/))
+    end
+
     test "declining the offer leaves the existing config untouched", %{dir: dir, target: target} do
       File.write!(target, @legacy_yaml)
       before = File.read!(target)

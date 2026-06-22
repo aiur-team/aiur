@@ -451,8 +451,9 @@ defmodule Aiur.Init do
   defp offer_section(io, deps, location, tracker, target, section) do
     answer = section.prompt.(io, deps, location)
 
-    if section.opted_in?.(answer) do
-      append_section(io, deps, target, section, answer)
+    # Only run the one-time side effect once the section actually persisted —
+    # mirrors fresh setup, which builds the warm base only on a successful write.
+    if section.opted_in?.(answer) and append_section(io, deps, target, section, answer) == :ok do
       section.first_run.(io, deps, target, tracker, answer)
     end
   end
@@ -461,9 +462,11 @@ defmodule Aiur.Init do
     case deps.append_config.(target, section.to_yaml.(answer)) do
       {:ok, path} ->
         io.puts.(["Added ", section.label, " to ", dim(path)])
+        :ok
 
       {:error, reason} ->
         io.puts.(["⚠️  Couldn't update #{Path.basename(target)} (", inspect(reason), ")."])
+        :error
     end
   end
 
