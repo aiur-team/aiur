@@ -1,5 +1,5 @@
 ---
-name: aiur
+name: aiur-agent
 description: "Cross-ticket event publishing + subscription system for Aiur agents. Use when working in Aiur on a ticket and you need to emit, subscribe to, or react to events from other tickets — coordination signals, blocker declarations, attentions, progress milestones."
 ---
 
