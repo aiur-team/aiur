@@ -109,6 +109,8 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
         |> Map.put(:phase_by_identifier, Map.get(state, :phase_by_identifier, %{}))
         |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
+        |> Map.put(:prewarm_active?, Map.get(state, :prewarm_active?, false))
+        |> Map.put(:prewarm_phase, Map.get(state, :prewarm_phase))
 
       markers = compute_markers(state, summaries)
 
@@ -552,9 +554,9 @@ defmodule Aiur.AgentList.Renderer do
     ]
   end
 
-  defp render_rows([], _idx, _selection_focus, inner_width, _layout, _markers) do
+  defp render_rows([], _idx, _selection_focus, inner_width, layout, _markers) do
     [
-      pad_with_ansi(@ansi_dim, "│   (no agents running)", inner_width),
+      pad_with_ansi(@ansi_dim, "│   " <> empty_body_text(layout), inner_width),
       eol()
     ]
   end
@@ -575,6 +577,23 @@ defmodule Aiur.AgentList.Renderer do
       ]
     end)
   end
+
+  # Before any agent populates the list, show a pre-warm loading line (spinner +
+  # the live phase) while the shared base builds; otherwise the usual empty hint.
+  # Once summaries are non-empty this branch isn't reached, so a populated list
+  # always wins over a stale active flag.
+  defp empty_body_text(layout) do
+    if Map.get(layout, :prewarm_active?, false) do
+      spinner_frame(layout) <> " Pre-warming base (" <> prewarm_label(Map.get(layout, :prewarm_phase)) <> ")…"
+    else
+      "(no agents running)"
+    end
+  end
+
+  defp prewarm_label(:cloning), do: "cloning"
+  defp prewarm_label(:fetching), do: "fetching main"
+  defp prewarm_label(:building), do: "compiling"
+  defp prewarm_label(_phase), do: "warming up"
 
   defp render_row(summary, selected?, inner_width, layout, markers) do
     marker = if selected?, do: "▶ ", else: "  "
