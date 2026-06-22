@@ -1,159 +1,114 @@
-# HANDOFF — prewarm design (measurement done; now brainstorm → plan → build)
+# HANDOFF — repo-agnostic eager prewarm: BUILT, awaiting Mac verification
 
-_Last updated: 2026-06-22. Main is green._
+_Last updated: 2026-06-22. Branch `feat/prewarm-base`. Full local gate green (fmt + credo --strict +
+tests + 85.44% coverage + dialyzer)._
 
-> Note: tracked as `handoff.md` (lowercase) — on case-insensitive macOS `HANDOFF.md`
-> resolves to the same file. Edit this one.
+## TL;DR for the verification agent
 
-## TL;DR for the next session
+The repo-agnostic eager **prewarm** feature is fully implemented on **`feat/prewarm-base`** (12 commits,
+9 implementation units, all tested, `make -C src all` green on Linux). It builds **one shared,
+pre-compiled base of latest `main` once** and materializes each agent workspace from it via
+copy-on-write, instead of every agent cold-cloning + recompiling. Your job is to **pull this branch on
+the MacBook (APFS = true copy-on-write) and verify it works at real scale** against aiur itself, then
+**collect the findings** the implementing session needs to make a final optimization pass before merge.
 
-The `.aiur/` migration is fully shipped. **Prewarm measurement is DONE** — a real 16-agent
-run was instrumented and crashed; findings are in
-**`docs/measurements/2026-06-22-prewarm-run-findings.md`** (read this first). Three
-bottlenecks were quantified. The work now is to **design and build the prewarm**, via a full
-compound-engineering loop (brainstorm → plan → deepen → work → code review). A brainstorm is
-**in-flight** — the operator's product direction is captured below under "Prewarm direction."
+Design of record: `docs/brainstorms/2026-06-22-prewarm-design-research-and-questions.md`.
+Plan: `docs/plans/2026-06-22-001-feat-repo-agnostic-prewarm-plan.md`.
 
-## The measurement run (what we learned)
+## What was built (the 9 units)
 
-One run with `max_concurrent_agents: 20`, `pre_warmed_sessions: 5`, `kind: claude`,
-`max_turns: none`, 16 `agent:todo` tickets. It **crashed at ~4.5 min with zero productive
-agent turns**. Three compounding findings (full evidence + timeline in the measurements doc):
+- **U1** `prewarm` config block (`enabled`, `base_build`, `poll_seconds`) + accessors.
+- **U2** `Aiur.RepoBase` GenServer — one warm base at `~/.aiur/repo/<owner>/<name>`, clone-once,
+  fetch+reset-when-main-moved, **async builds**, **PubSub phase events** (cloning→fetching→building→
+  ready), and **preemption**: a newer `main` (detected via `git ls-remote`) kills an in-flight stale
+  build and restarts.
+- **U3** `Aiur.Prewarm.Detect` — lockfile/manifest detection (Elixir/Node/Go/Rust/Python) with a
+  **build-root walk** (aiur's `mix.exs` is in `src/` behind a decoy root `package.json` — verified it
+  resolves to `src/`), everything routed through `mise exec --`. nx/turbo monorepos + ambiguity → fall
+  back to an agent prompt.
+- **U4** `aiur init` final-step opt-in: detect → **show the command for confirm/edit/skip** → write the
+  `prewarm` block **and run the first base build right then** (so the first `aiur` run dispatches
+  immediately); agent-prompt fallback on a miss.
+- **U5** Eager **async** dispatch gate in `orchestrator.ex` (`dispatch_or_hold`/`prewarm_gate`): holds
+  `choose_issues` until the base is `:ready`, **never blocks the orchestrator process**, falls back to
+  cold dispatch on a base-build error.
+- **U6** aiur-owned materialization in `workspace.ex` (`materialize_from_base`): `cp --reflink=auto -a`
+  (Linux) / `cp -c` (macOS) from the base + branch `aiur/<id>`, **skipping** the cold after_create hook;
+  cold-clone path preserved byte-for-byte for unconfigured/remote/undetected/copy-fail.
+- **U7** Agent-list loading bar: spinner + live phase label before agents populate, resumes at the live
+  phase on launch-mid-build, clears once the list populates.
+- **U8** `--debug` FD safety: **decoupled `aiur_screen_grab` from `--debug`** (now its own
+  `AIUR_SCREEN_GRAB` flag, default off), cached the tmux exe path, and **raised `ulimit -n`** in
+  `aiur-engine.sh` (covers `aiur` and `aiurdev`).
+- **U9** Dogfood: aiur's own `.aiur/config` has `prewarm.enabled: true` with an Elixir base_build that
+  scopes `HEX_HOME`/`MIX_HOME` so the warm caches copy into workspaces.
 
-1. **Redundant build.** Each of 16 agents independently `git clone` + `mix deps.get` +
-   `mix compile` the same repo (1348 `.beam` files × 16). Same work, 16 times.
-2. **CPU saturation.** Those 16 simultaneous compiles peg CPU at 99%; the `after_create` hook
-   took **mean 249 s** (min 243, max 257) — vs ~30–60 s for a solo build. Tight clustering =
-   contention signature. **This is the dominant cost and the same root cause as #1.**
-3. **`:emfile` crash (separate defect).** All 16 agent sessions were attached to each of the 5
-   opencode slots; each slot's `:poll_session` loop spawns a `tmux display-message` subprocess
-   (FDs) on every poll. ~5×16 poll-spawns + 16 compile subprocess trees exhausted the open-FD
-   `ulimit` → `Aiur.Tmux` crashed → cascaded through all 5 `Opencode.Slot` GenServers → node
-   down. **Prewarm does NOT fix this** — it needs its own fix (slot poll fan-out + `ulimit -n`).
+## Your job (run on the MacBook, APFS)
 
-Bonus: `pre_warmed_sessions: 5` only gates *display* (5 agents reach "Starting claude…", 11 sit
-at "Warming up…"). It does **not** throttle the compile storm — all 16 compile regardless. The
-slot count and `max_concurrent_agents` are mismatched.
+1. `git fetch && git checkout feat/prewarm-base` on the Mac. Build the release (`aiurdev` rebuilds).
+2. Run aiur against **aiur itself** with the full set of current `agent:todo` tickets (the dogfood
+   config already has `prewarm.enabled: true`). Use **`--debug`** — it must now be safe at this scale.
+3. Drive **`/aiur-status`** (the operator monitor) to watch agents and surface findings/crashes.
+4. On the **first run** the base builds once (clone aiur → `~/.aiur/repo/its-everdred/aiur` → compile,
+   a few minutes) while the agent list shows the **loading bar**; agents dispatch once it's `:ready`.
+   Subsequent runs should find the base warm (fast) and agents should materialize in **seconds**.
 
-## Prewarm direction (operator's product constraints — IMPORTANT for the brainstorm)
+## What we're looking for (success criteria + risk watch-list)
 
-The shipped/branch approach (#377) and the current `.aiur/hooks` model both require the **user
-to author repo-specific shell** (`git clone …`, `mix deps.get && mix compile`). **The operator
-does not want users writing repo-specific build code** (and especially not "have an agent
-generate custom hooks"). Ranked preference:
+- **Warm vs cold timing**: boot → first agent message should drop from minutes to seconds once the base
+  is warm. Capture the numbers.
+- **No `:emfile` / no crash** at ~6+ concurrent agents **with `--debug` on** (the whole point of U8).
+- **Detection correctness**: the init flow / dogfood base_build builds `src/` (Elixir), not Node off the
+  root `package.json`.
+- **Materialization actually fired**: workspaces should have a populated `.git` + warm `_build`/deps and
+  be on branch `aiur/<id>`, and the cold after_create clone should be SKIPPED (look for the absence of a
+  fresh `git clone` in `after_create`). **macOS `cp -c` is untested on Linux — this run is its first
+  real exercise.** If `cp -c` errors (non-APFS path), it should fall back to cold clone, not hang.
+- **Loading bar**: shows phases; a launch *during* a build resumes at the live phase (not from scratch).
+- **Preemption**: if `main` advances mid-build (e.g. an agent merges), the stale base build should be
+  killed and restarted — agents must never spin off a stale base. (Hard to force; note if you see it.)
+- **Mix `_build` relocation**: the copied `_build` must work in the workspace (the `before_run` hook's
+  incremental `mix compile` is the safety net). Watch the first agent's `mix` calls — fast, not a full
+  recompile.
 
-1. **Best:** a **repo-agnostic** prewarm that **`aiur init` sets up on its own** — no
-   user-written build code.
-2. **Acceptable fallback:** an **opt-in, optional** optimization at the end of `aiur init`,
-   where the user is handed a prompt to feed an agent to write custom hooks.
+## Context to collect back (for the pre-merge optimization pass)
 
-### What #377 ALREADY built (read before designing — do NOT rebuild it)
+Write a throttled re-measurement into **`docs/measurements/`** with: per-phase timings (clone→fetch→
+build→ready, then per-agent boot→first-message), cold-vs-warm comparison, the steady-state **tmux fork
+rate** and **open-FD census** (`ls /proc/<beam-pid>/fd | wc -l` on Linux; `lsof -p <pid> | wc -l` on
+Mac), any crashes/`:emfile`, and any new aiur issues you file. Flag anything that wants a final
+optimization before merge.
 
-Branch `feat/warm-main-base` (unmerged, ~10 commits) already implements the warm-base
-**mechanism**:
-- `src/lib/aiur/repo_base.ex` — a `RepoBase` GenServer maintains **one** warm checkout per repo
-  at `~/.aiur/repo/<owner>/<name>`, deps installed + compiled. `ensure_fresh/1` fetches
-  `origin/main` and rebuilds only when main moved, serialized so parallel dispatches don't race.
-- Per dispatch, `Workspace.create_for_issue` calls `ensure_fresh`; the workspace spins off the
-  base (copy / `git worktree`); the base path is exported to hooks as `$THIS_REPO_BASE`.
-- `aiur init` prints a prompt the dev pastes to their coding agent, which writes repo-specific
-  `base_setup` (build the base) + `after_create` (spin off + incremental build) hooks.
-- Config added: `base_setup` hook, `repo_base_poll_seconds` (background poll, default 0).
-- Measured on aiur-self: ~5–6 min of "warming up" → seconds.
+## How to run
 
-**Two gaps #377 leaves — this IS the design work:**
-1. **Lazy, not eager.** The base build starts during the *first dispatch* (serialized through
-   `RepoBase`), so the base is NOT ready before agents start — the opposite of the goal. The
-   unmerged follow-up wants eager startup pre-warm + a loading bar in the agent list (3 open UX
-   decisions in the braindump).
-2. **Still requires dev-authored `base_setup`/`after_create` hooks** — so #377's design is the
-   operator's *fallback* (option 2 above), not the preferred agnostic path. Removing the
-   hook-authoring requirement is the NEW contribution.
+- **Runtime path** (warm base + materialization + loading bar): `aiurdev --debug` — the committed
+  `.aiur/config` already has `prewarm.enabled: true`, so the eager gate builds the base on the first run
+  (or reuses it if `init` already built it) and agents materialize from it.
+- **Init path** (opt-in → detect → consent → first build): aiur's repo already has a `.aiur/config`, so a
+  plain `aiurdev init` *resumes* and skips the prewarm prompt. To exercise the init→first-build path on
+  aiur: `aiurdev init --force` from the repo root → answer **yes** to "Keep a pre-warmed copy…" → accept
+  the detected Elixir/`src` command → it clones + compiles the base now ("Building the warm base now…" →
+  "✅ Warm base ready"). Then `git checkout .aiur/config` to restore the committed dogfood config (the
+  `--force` regenerated it). Or run `aiurdev init` in a scratch repo to avoid touching aiur's config.
+- Tests: `cd src && mise exec -- mix test [path]`. Full gate: `make -C src MIX='mise exec -- mix' all`.
+- Run (operator): `aiurdev --debug` (now FD-safe). `/aiur-status` to monitor.
+- Disable prewarm if needed: set `prewarm.enabled: false` in `.aiur/config`.
+- Pane snapshots in logs (old `--debug` behavior): now opt-in via `AIUR_SCREEN_GRAB=1`.
 
-### The agnostic seam to explore (brainstorm's job)
+## Gotchas / known limitations
 
-The expensive step is the **compile**, and it's repo-specific — which is why #377 pushed it to
-dev hooks. Two ways to remove the user-written-hook requirement:
-- **Toolchain detection at init** — sniff `mix.exs` / `package.json` / `Cargo.toml` / `go.mod`
-  and fill the base build command automatically (aiur does **no** detection today — confirmed).
-  Exotic repos fall back to the opt-in agent-written hook.
-- **Copy-on-write spin-off** — materialize each workspace from the built base via APFS
-  `clonefile`/`cp -c` (macOS), `cp --reflink` (Linux btrfs/xfs), or `git clone --local`:
-  near-instant, carries `_build`/`deps`, compile happens **1×**. Still needs the base built once
-  (so still needs a build command — detection or a one-line prompt), but removes per-workspace
-  build shell entirely.
+- **Eager-gate poll latency**: when the base becomes ready, the next dispatch waits up to one poll
+  interval (`polling.interval_seconds`, dogfood = 5s). No subscribe-to-`:ready` nudge in v1 — fine for a
+  multi-minute build; lower `interval_seconds` if it feels laggy.
+- **Local dispatch only**: remote/SSH workers always use the cold-clone path (no base on the remote host).
+- **The base_build in aiur's `.aiur/config` is aiur-specific** (mix, `src/` root, scoped HEX/MIX homes).
+  For a generic repo, `aiur init` detects a generic command.
+- **`:emfile` structural fixes are deferred to [#409](https://github.com/its-everdred/aiur/issues/409)**
+  (after merge): opencode-serve pooling, attach N×M fan-out cap, event-driven pane-death,
+  capture-pane→pipe-pane, per-identifier SessionWriter subscription. This PR ships only the cheap
+  fork-reducers + the `ulimit` net + the compile-storm collapse (which removes the dominant FD holder).
 
-**Code seam (from scouting):** `src/lib/aiur/workspace.ex:21-24` `create_for_issue/2` — insert a
-`materialize_from_base` step between `ensure_workspace` and `maybe_run_after_create_hook`.
-`RepoBase` (on #377) is the base maintainer to build on. Other anchors:
-`workspace.ex` `hook_env/0` already exports `$THIS_REPOSITORY_URL` from `tracker.github.repo`;
-`init.ex:220` is the workspace-root prompt; init scaffolds `.aiur/hooks` **verbatim** from
-`.aiur/examples/hooks.example` (no templating); `workflow.ex` resolves `hooks_file:`.
+## Do not
 
-### Prior art to read
-- `git show feat/warm-main-base:docs/brainstorms/2026-06-17-warm-base-prewarm-braindump.md`
-  (eager prewarm + loading bar; 3 open UX decisions: startup-only vs mid-run re-warm; first-run
-  wait UX; build-label granularity).
-- `git show feat/warm-main-base:docs/brainstorms/2026-06-17-warm-main-base-requirements.md` and
-  the plan `docs/plans/2026-06-17-001-feat-warm-main-base-plan.md`.
-- `git diff main...feat/warm-main-base` for the implementation.
-
-### Next steps for the prewarm work
-1. Finish the **brainstorm** → write a requirements doc in `docs/brainstorms/`.
-2. **`/ce-plan`** → **deepen plan** → **work** → **code review** (operator asked for the full
-   loop; "use plenty of effort, don't skimp").
-3. **Re-run the measurement throttled** to capture the full clone→boot→first-turn→first-message
-   pipeline the crash hid: `max_concurrent_agents` 4–6, raise `ulimit -n` before launch, align
-   `pre_warmed_sessions` with the agent cap. Then compare against the prewarm build.
-
-## What shipped today (all on main, green)
-
-- **#395** (`c68116d`) — split inline `hooks:` out of `.aiur/config` into `.aiur/hooks`
-  (`hooks_file: hooks`); collapsed config/example comments to 1 line; **fixed `aiurdev build`**
-  to fetch deps before `mix compile --force` (was aborting on a fresh clone with no deps).
-- **#397** (`51bab01`) — fixed `/aiur-status`'s `tail-agents.sh` to resolve `.aiur/config`
-  (it hard-coded the legacy `.aiurconfig` and reported zero agents).
-
-## ⚠️ Gotchas
-
-- **`aiurdev` builds from the clone its symlink points at**, not your cwd. On this machine the
-  symlink was pointing at a stale second clone (`~/github/optimism/aiur`); it's now repointed to
-  the working clone (`~/github/everdred/aiur`). If `aiurdev` shows stale behavior, check
-  `readlink ~/.local/bin/aiurdev`. The old optimism clone is orphaned (safe to `rm -rf`).
-- **`aiur` (published, 0.0.2) predates `.aiur/`** — use **`aiurdev`** to exercise current code.
-- **Flaky TUI/tmux tests.** `test/aiur/agent_list/debug_events_ticker_test.exs` and
-  `test/aiur/pane_manager_live_test.exs` (`setup_live_tmux`) flake red in CI ~half the time
-  (timing/runner-load sensitive). **A PR-branch green can still flake red on the post-merge main
-  run** — always check the main run too, and `gh run rerun <id> --failed` to clear. Candidate
-  for its own ticket. Don't treat these reds as real without re-running.
-- **`aiur init` regenerates `.aiur/config` from `config.example`** (full annotated comments come
-  back). Hand-collapsing comments in the committed `.aiur/config` is ephemeral — init overwrites
-  on the next run. If we want lean config output, change the **template**, not the dogfood file.
-- **The 20-agent / no-compile-sharing config CRASHES the machine** (`:emfile` + CPU). Throttle
-  any re-run (4–6 agents, raise `ulimit -n`).
-- **Never `git add -A`** at repo root (`elixir/` is gitignored; stage paths explicitly).
-- **Don't merge without operator go-ahead.** Run checks from `src/` (`mise exec -- mix …` or
-  `make build|lint|coverage|dialyzer`); watch CI to completion (`gh run watch <id>
-  --exit-status`) AND the post-merge main run.
-
-## Open tickets (GitHub, label `agent:todo`)
-
-- **#396** (new) — `init: default workspaces to ~/.aiur/workspaces/<repo>/<issue>; drop
-  human-review comment` (bundles workspace-root default change + repo namespacing + a comment
-  deletion; has 2 unsettled design decisions: repo-segment format and migration).
-- **TO FILE** — the `:emfile` crash (Finding 3): slot poll fan-out + `ulimit -n`. Not yet filed.
-- **Candidate** — flaky TUI/tmux tests.
-- Existing backlog: #387 `aiur message <issue>` CLI · #385 outdated-CLI notice · #384 reap stale
-  artifacts · #383 `.aiurconfig` debug setting · #382 agents use /aiur-agent skill · #379
-  reactivate on PR comments · #375 arrow-key slot adjust · #371 read-only dashboard · #370 slim
-  agent pre-prompt · #369 tmux pane titles · #366 agent-list theme · #365 RC chat title · #344
-  upstream issue sync · #341 max-duration pauses.
-
-## Skills / tooling
-
-`/aiur-status` = operator monitor (tails each workspace's `logs/agent.md`; now reads
-`.aiur/config`). `/aiur-agent` = cross-ticket event pub/sub (what dispatched agents use).
-`release` skill cuts an npm release. Debug runs: `aiurdev --debug` writes per-agent logs to
-`~/.aiur/logs/<session>/log/aiur.<id>.log` plus the orchestrator `aiur.log` — these are the
-source for phase timing (events are ISO-timestamped; orchestrator uses local tz, `agent.md`
-uses UTC).
+- Merge without operator go-ahead. Open PRs / push are fine; merge is operator-only.
+- Treat a single flaky `pane_manager_live_test`/`debug_events_ticker` red as real — re-run.

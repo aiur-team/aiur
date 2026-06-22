@@ -16,6 +16,8 @@ defmodule Aiur.Init do
   alias Aiur.CodingAgent
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Prompt
+  alias Aiur.Prewarm.Detect
+  alias Aiur.RepoBase
 
   # New layout: aiur files live in a `.aiur/` folder (`.aiur/config`, `.aiur/hooks`,
   # `.aiur/prompt.md`, `.aiur/examples/`). `@config_file_name` is the repo-relative
@@ -94,6 +96,8 @@ defmodule Aiur.Init do
           migrate_layout: (map() -> {:ok, map()} | {:error, term()}),
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
+          detect_toolchain: (-> Detect.result()),
+          prewarm_build: (String.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
@@ -130,6 +134,12 @@ defmodule Aiur.Init do
         location = prompt_location(io)
         fresh_setup(io, deps, location, deps.config_target.(location))
 
+      # NOTE: resume only re-provisions labels/auth — it does NOT prompt for
+      # config sections added by newer features (e.g. the `prewarm` block, #410),
+      # so a new feature is invisible to existing users unless they re-run with
+      # --force. Making resume detect schema-known sections the config lacks and
+      # offer to add them is tracked in #411; when you add a new init prompt,
+      # register it there so a standard `aiur init` backfills it without --force.
       target ->
         resume(io, deps, target)
     end
@@ -226,6 +236,7 @@ defmodule Aiur.Init do
     polling = prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
+    prewarm = prompt_prewarm(io, deps, location)
 
     fills =
       build_fills(%{
@@ -239,7 +250,8 @@ defmodule Aiur.Init do
         max_duration: max_duration,
         pre_warmed: pre_warmed,
         polling: polling,
-        prompt_file: prompt_file
+        prompt_file: prompt_file,
+        prewarm: prewarm
       })
 
     config_yaml = fill_template(deps.read_example.(), fills)
@@ -251,6 +263,7 @@ defmodule Aiur.Init do
         ensure_aiurhooks(io, deps, path)
         setup_env(io, deps, tracker)
         maybe_offer_gitignore(io, deps, location)
+        maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
 
       {:error, reason} ->
@@ -507,6 +520,88 @@ defmodule Aiur.Init do
     end
   end
 
+  # --- Pre-warm opt-in (detect toolchain, confirm, write config) ---
+
+  # Skip pre-warm for a global config: the warm base lives at a per-repo path,
+  # so it is configured when init runs inside the repo, not globally.
+  defp prompt_prewarm(_io, _deps, :global), do: %{enabled: false, base_build: nil}
+
+  defp prompt_prewarm(io, deps, _location) do
+    if io.confirm.("Keep a pre-warmed copy of latest main so agents skip cloning + building?", true) do
+      resolve_prewarm(io, deps)
+    else
+      %{enabled: false, base_build: nil}
+    end
+  end
+
+  defp resolve_prewarm(io, deps) do
+    case deps.detect_toolchain.() do
+      {:ok, %{language: lang, build_root: root, command: command}} ->
+        io.puts.([
+          "\nDetected ",
+          to_string(lang),
+          " (build root ",
+          dim(root),
+          "). Base build:\n  ",
+          dim(command),
+          "\n"
+        ])
+
+        case io.select.("Use this base build command?", ["use", "edit", "skip"], "use") do
+          "use" -> %{enabled: true, base_build: command}
+          "edit" -> %{enabled: true, base_build: io.input.("Base build command", command, nil)}
+          _ -> %{enabled: false, base_build: nil}
+        end
+
+      :none ->
+        print_prewarm_fallback(io)
+        %{enabled: false, base_build: nil}
+    end
+  end
+
+  defp print_prewarm_fallback(io) do
+    io.puts.([
+      "\nCouldn't auto-detect this repo's build — pre-warm left off. To enable it, paste this to your coding agent:\n\n",
+      dim(prewarm_fallback_prompt())
+    ])
+  end
+
+  defp prewarm_fallback_prompt do
+    """
+    Enable aiur's warm-base pre-warm for this repo by setting, in .aiur/config:
+      prewarm:
+        enabled: true
+        base_build: "<one-time install + compile command>"
+    base_build runs once in a checkout of this repo's main. Conventions: route
+    every runtime call through `mise exec --`; cd into the directory holding the
+    build manifest; use frozen installs; don't mutate source; no brew/apt/sudo;
+    make it work on both Linux and macOS.
+    """
+  end
+
+  # On opt-in, build the warm base once during init (one-time clone + compile) so
+  # the first `aiur` run dispatches immediately. Mockable via deps for tests.
+  defp maybe_first_prewarm(io, deps, tracker, %{enabled: true, base_build: cmd})
+       when is_binary(cmd) and cmd != "" do
+    case tracker_repo(tracker) do
+      repo when is_binary(repo) and repo != "" ->
+        io.puts.("\nBuilding the warm base now — one-time clone + compile; later runs reuse it.")
+
+        case deps.prewarm_build.("https://github.com/#{repo}.git", cmd) do
+          {:ok, _path} ->
+            io.puts.("✅ Warm base ready.")
+
+          {:error, reason} ->
+            io.puts.(["⚠️  Warm base build failed (", inspect(reason), "); it retries on the next `aiur` run."])
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_first_prewarm(_io, _deps, _tracker, _prewarm), do: :ok
+
   # --- Template fill ---
 
   defp build_fills(d) do
@@ -522,9 +617,16 @@ defmodule Aiur.Init do
       "{{WORKSPACE_ROOT}}" => d.workspace_root,
       "{{PROMPT_FILE}}" => d.prompt_file,
       "{{POLLING}}" => Integer.to_string(d.polling),
-      "{{PRE_WARMED}}" => Integer.to_string(d.pre_warmed)
+      "{{PRE_WARMED}}" => Integer.to_string(d.pre_warmed),
+      "{{PREWARM_ENABLED}}" => to_string(d.prewarm.enabled),
+      "{{PREWARM_BASE_BUILD}}" => prewarm_base_build_line(d.prewarm)
     }
   end
+
+  defp prewarm_base_build_line(%{enabled: true, base_build: cmd}) when is_binary(cmd) and cmd != "",
+    do: "  base_build: #{inspect(cmd)}\n"
+
+  defp prewarm_base_build_line(_), do: ""
 
   defp fill_template(template, fills) do
     Enum.reduce(fills, template, fn {token, value}, acc ->
@@ -926,6 +1028,8 @@ defmodule Aiur.Init do
       migrate_layout: &migrate_layout/1,
       read_example: fn -> @example_template end,
       detect_repo: &detect_repo/0,
+      detect_toolchain: &detect_toolchain/0,
+      prewarm_build: &run_first_prewarm/2,
       write_config: &write_config/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
@@ -963,6 +1067,12 @@ defmodule Aiur.Init do
       :ok -> {:ok, target}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp detect_toolchain, do: Detect.detect(File.cwd!())
+
+  defp run_first_prewarm(url, command) do
+    RepoBase.refresh(RepoBase.base_path(url), url, command)
   end
 
   defp write_prompt_file(target, prompt_file, repo) do

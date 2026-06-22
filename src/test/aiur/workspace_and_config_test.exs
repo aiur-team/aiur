@@ -1235,6 +1235,29 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
   end
 
+  test "prewarm defaults to disabled and validates poll_seconds" do
+    # Pre-warm is opt-in: an absent block must yield disabled + no base_build +
+    # no polling (byte-for-byte back-compat), an explicit block must round-trip,
+    # and a negative poll interval must be rejected.
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.prewarm.enabled == false
+    assert settings.prewarm.base_build == nil
+    assert settings.prewarm.poll_seconds == 0
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               prewarm: %{enabled: true, base_build: "mise exec -- mix compile", poll_seconds: 30}
+             })
+
+    assert settings.prewarm.enabled == true
+    assert settings.prewarm.base_build == "mise exec -- mix compile"
+    assert settings.prewarm.poll_seconds == 30
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, prewarm: %{poll_seconds: -1}})
+  end
+
   test "agent.max_agent_duration_minutes defaults to 60 and rejects negatives" do
     # Safety-net cap the orchestrator's overrun watchdog reads; 0 disables.
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})

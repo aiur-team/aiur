@@ -757,6 +757,22 @@ defmodule Aiur.Tmux do
     run_args(state, split_command(cmd))
   end
 
+  # Resolve the tmux binary once: a $PATH walk per command is pure overhead on
+  # the hottest fork path (the per-slot liveness poll). `:persistent_term` is
+  # built for read-mostly global constants — the one-time `put` cost is paid on
+  # the first exec, every later read is free.
+  defp tmux_executable do
+    case :persistent_term.get({__MODULE__, :tmux_bin}, nil) do
+      nil ->
+        bin = System.find_executable("tmux")
+        if bin, do: :persistent_term.put({__MODULE__, :tmux_bin}, bin)
+        bin
+
+      bin ->
+        bin
+    end
+  end
+
   defp run_args(%{transport: {:mock, pid}}, args) do
     send(pid, {:tmux_mock_out, Enum.join(args, " ")})
     receive_mock_response()
@@ -766,7 +782,7 @@ defmodule Aiur.Tmux do
     full_args = prepend_socket(args)
     Logger.debug("Tmux exec: tmux #{Enum.join(full_args, " ")}")
 
-    case System.find_executable("tmux") do
+    case tmux_executable() do
       nil ->
         Logger.warning("Tmux exec failed: tmux not in $PATH")
         {:error, :no_tmux_executable}
@@ -793,7 +809,7 @@ defmodule Aiur.Tmux do
   defp run_args_silent(%{transport: :shell}, args) do
     full_args = prepend_socket(args)
 
-    case System.find_executable("tmux") do
+    case tmux_executable() do
       nil ->
         Logger.warning("Tmux exec failed: tmux not in $PATH")
         {:error, :no_tmux_executable}

@@ -48,6 +48,13 @@ polling:
 max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 
+# === Warm base pre-warm (opt-in; `aiur init` sets this up) ===
+# aiur builds ONE warm, pre-compiled checkout of latest main and spins each agent
+# workspace off it (copy-on-write) instead of every agent cloning + building from scratch.
+prewarm:
+  enabled: {{PREWARM_ENABLED}}           # turn on to pre-warm a shared base before agents dispatch
+{{PREWARM_BASE_BUILD}}  poll_seconds: 0                        # background base refresh interval (s); 0 = refresh eagerly/lazily only
+
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }

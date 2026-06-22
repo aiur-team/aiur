@@ -148,6 +148,7 @@ defmodule Aiur.AgentList.App do
       AgentPubSub.subscribe_status()
       AgentPubSub.subscribe_poll_state()
       AgentPubSub.subscribe_agent_chat_active()
+      AgentPubSub.subscribe_prewarm()
       Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
       # DebugLog feeds the per-row Latest column (R5/U21) by populating
@@ -161,6 +162,8 @@ defmodule Aiur.AgentList.App do
       end
     end
 
+    {prewarm_active?, prewarm_phase} = initial_prewarm_state()
+
     state = %{
       summaries: [],
       selection_index: 0,
@@ -169,6 +172,8 @@ defmodule Aiur.AgentList.App do
       rows: rows,
       help_visible?: false,
       max_agents_alert?: false,
+      prewarm_active?: prewarm_active?,
+      prewarm_phase: prewarm_phase,
       # Transient status-line hint string driven by the `r`/Space
       # remote-control keybinds. Set by `rc_hint/2`, auto-cleared after
       # a few seconds via `:clear_remote_control_hint`. nil = no hint.
@@ -601,6 +606,24 @@ defmodule Aiur.AgentList.App do
   defp rc_border_text(_summary), do: nil
 
   @impl true
+  # Pre-warm phase events drive the loading bar shown before agents populate.
+  # :ready and errors clear it; a populated agent list also overrides it (the
+  # renderer hides the bar once summaries are non-empty), so a missed clear can
+  # never strand the bar.
+  def handle_info({:prewarm_phase, phase}, state) do
+    new_state =
+      case phase do
+        p when p in [:cloning, :fetching, :building] ->
+          %{state | prewarm_active?: true, prewarm_phase: p}
+
+        _ ->
+          %{state | prewarm_active?: false, prewarm_phase: nil}
+      end
+
+    render(new_state)
+    {:noreply, new_state}
+  end
+
   def handle_info({:running_changed, summaries}, state) do
     summaries = visible_summaries(summaries)
     selection_focus = if state.summaries == [] and summaries != [], do: :agents, else: state.selection_focus
@@ -1414,6 +1437,21 @@ defmodule Aiur.AgentList.App do
 
   defp identifier_sort_key(other), do: {1, to_string(other)}
 
+  # On boot, reflect an in-flight pre-warm so a launch mid-build resumes the bar
+  # at the live phase instead of starting blank. Safe when RepoBase is not up.
+  defp initial_prewarm_state do
+    case prewarm_status() do
+      {phase, _base} when phase in [:cloning, :fetching, :building] -> {true, phase}
+      _ -> {false, nil}
+    end
+  end
+
+  defp prewarm_status do
+    if Process.whereis(Aiur.RepoBase), do: Aiur.RepoBase.status(), else: {:idle, nil}
+  rescue
+    _ -> {:idle, nil}
+  end
+
   defp render(state) do
     # Re-query geometry on every render: tmux resizes panes after splits and
     # doesn't update COLUMNS/LINES in our env, so the values captured at
@@ -1449,6 +1487,8 @@ defmodule Aiur.AgentList.App do
         Map.get(state, :warm_status_dark_mode?, true)
       )
       |> Map.put(:remote_control_hint, Map.get(state, :remote_control_hint))
+      |> Map.put(:prewarm_active?, Map.get(state, :prewarm_active?, false))
+      |> Map.put(:prewarm_phase, Map.get(state, :prewarm_phase))
 
     state.write_fun.(Renderer.render(render_state))
     :ok

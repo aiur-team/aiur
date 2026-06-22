@@ -185,6 +185,27 @@ defmodule Aiur.Config do
     settings!().pre_warmed_sessions
   end
 
+  @doc "Whether the repo-agnostic warm-base pre-warm is enabled (opt-in)."
+  @spec prewarm_enabled?() :: boolean()
+  def prewarm_enabled? do
+    settings!().prewarm.enabled
+  end
+
+  @doc """
+  The one-time base build command for the warm base, or nil when unset.
+  Populated by `aiur init`'s toolchain detection; runs in the base checkout.
+  """
+  @spec prewarm_base_build() :: String.t() | nil
+  def prewarm_base_build do
+    settings!().prewarm.base_build
+  end
+
+  @doc "Background warm-base refresh interval in seconds; 0 disables polling."
+  @spec prewarm_poll_seconds() :: non_neg_integer()
+  def prewarm_poll_seconds do
+    settings!().prewarm.poll_seconds
+  end
+
   @spec max_retry_attempts() :: pos_integer()
   def max_retry_attempts do
     settings!().agent.max_retry_attempts

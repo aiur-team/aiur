@@ -15,6 +15,14 @@ PRs, and lets you watch and chat with each agent in real time.
 4. **Drives the run** through repeated turns until the item reaches a terminal state
    (`Done`, `Closed`, `Cancelled`, `Duplicate`), then cleans up the workspace.
 
+**Warm base pre-warm (opt-in).** Instead of every agent cold-cloning and recompiling the
+repo, aiur can build one shared, pre-compiled base of latest `main` once and materialize each
+workspace from it via copy-on-write. `aiur init` offers to set it up and auto-detects the
+build command (Elixir/Node/Go/Rust/Python) so you write no build shell; the base is built
+eagerly before the first dispatch (the agent list shows a loading bar) and rebuilt whenever
+`main` advances. Unconfigured or undetected repos fall back to the normal cold-clone path.
+Enable via the `prewarm:` block in `.aiur/config`.
+
 Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets you open
 any agent in an opencode-backed chat pane, and send messages directly into a running
 session. A LiveView dashboard at `/` covers the same surface for browser-based operators.

@@ -61,6 +61,7 @@ defmodule Aiur.Application do
         Aiur.ProcessReaper,
         {Task.Supervisor, name: Aiur.TaskSupervisor},
         Aiur.WorkflowStore,
+        Aiur.RepoBase,
         Aiur.Events.IdGenerator,
         Aiur.Events.Exchange,
         Aiur.Events.Publisher,
