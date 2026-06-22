@@ -1,7 +1,17 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, copyFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  chmodSync,
+  copyFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
+import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +30,12 @@ let captureFile;
 // Builds an isolated package layout: a copy of the shim, a fake bash launcher
 // that records its argv + env, the bundled conf, and (optionally) a fake
 // platform package. PATH is scoped to a temp bin dir holding fake tmux/opencode.
-function setupPackage({ withPlatformPkg = true, tmuxVersion = "3.4", withOpencode = true } = {}) {
+function setupPackage({
+  withPlatformPkg = true,
+  tmuxVersion = "3.4",
+  withOpencode = true,
+  version = "0.0.0",
+} = {}) {
   mkdirSync(path.join(root, "bin"), { recursive: true });
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   mkdirSync(path.join(root, "share"), { recursive: true });
@@ -31,7 +46,7 @@ function setupPackage({ withPlatformPkg = true, tmuxVersion = "3.4", withOpencod
   // The shim reads its pinned opencode version from this package.json.
   writeFileSync(
     path.join(root, "package.json"),
-    JSON.stringify({ name: "aiur-cli", version: "0.0.0", opencodeVersion: "1.15.6" }),
+    JSON.stringify({ name: "aiur-cli", version, opencodeVersion: "1.15.6" }),
   );
   writeFileSync(path.join(root, "share", "aiur.tmux.conf"), "# test conf\n");
 
@@ -73,7 +88,7 @@ function setupPackage({ withPlatformPkg = true, tmuxVersion = "3.4", withOpencod
   return { shim: path.join(root, "bin", "aiur.js"), fakeBin };
 }
 
-function runShim({ args = [], fakeBin, platform, arch, env = {} } = {}) {
+function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = false } = {}) {
   const fullEnv = {
     ...process.env,
     AIUR_TEST_OUT: captureFile,
@@ -84,12 +99,15 @@ function runShim({ args = [], fakeBin, platform, arch, env = {} } = {}) {
     AIUR_SKIP_OPENCODE_INSTALL: "1",
     ...env,
   };
-  // Override platform/arch in a child wrapper when a test needs a foreign host.
+  // Use a child wrapper to override platform/arch for a foreign host, or to fake
+  // a TTY on stderr (spawnSync pipes stderr, so the update notice is otherwise
+  // suppressed by the launcher's interactive gate).
   const nodeArgs =
-    platform || arch
+    platform || arch || forceTTY
       ? [
           "-e",
-          `if(${JSON.stringify(!!platform)})process.platform=${JSON.stringify(platform)};` +
+          `if(${JSON.stringify(forceTTY)})Object.defineProperty(process.stderr,"isTTY",{value:true,configurable:true});` +
+            `if(${JSON.stringify(!!platform)})process.platform=${JSON.stringify(platform)};` +
             `if(${JSON.stringify(!!arch)})process.arch=${JSON.stringify(arch)};` +
             `process.argv=[process.argv[0],${JSON.stringify(path.join(root, "bin", "aiur.js"))},${args
               .map((a) => JSON.stringify(a))
@@ -273,4 +291,125 @@ test("launcher routes init to a distribution-free foreground exec", () => {
   expect(capture).not.toContain("--cookie");
   // Argv crossed into the BEAM via the argv file.
   expect(capture).toContain("ARGV_FILE:init");
+});
+
+// --- Update notifier -------------------------------------------------------
+
+// Seeds the cache the launcher reads. A fresh lastCheck keeps it non-stale so
+// the notice tests never spawn a real background fetch.
+function seedCache({ latest, lastCheck = Date.now() } = {}) {
+  const dir = path.join(root, "aiur");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "update-check.json"), JSON.stringify({ lastCheck, latest }));
+}
+
+// XDG_CACHE_HOME points cache resolution at the temp root; the worker is the
+// only thing that ever touches the network, and only via AIUR_REGISTRY_URL.
+const notifierEnv = () => ({ XDG_CACHE_HOME: root, PATH: `${root}/fakebin:/usr/bin:/bin` });
+
+test("prints an update notice from cache when a newer version is published", () => {
+  const { fakeBin } = setupPackage({ version: "1.0.0" });
+  seedCache({ latest: "2.0.0" });
+  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("a new version is available — 1.0.0 → 2.0.0");
+  expect(result.stderr).toContain("npm install -g aiur-cli@latest");
+});
+
+test("uses semver, not string, comparison (1.2.10 > 1.2.3)", () => {
+  const { fakeBin } = setupPackage({ version: "1.2.3" });
+  seedCache({ latest: "1.2.10" });
+  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
+  expect(result.stderr).toContain("1.2.3 → 1.2.10");
+});
+
+test("no notice when the cached latest is not strictly newer", () => {
+  const { fakeBin } = setupPackage({ version: "2.0.0" });
+  seedCache({ latest: "2.0.0" });
+  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
+  expect(result.status).toBe(0);
+  expect(result.stderr).not.toContain("new version is available");
+});
+
+test("AIUR_NO_UPDATE_NOTIFIER=1 suppresses the notice", () => {
+  const { fakeBin } = setupPackage({ version: "1.0.0" });
+  seedCache({ latest: "2.0.0" });
+  const result = runShim({
+    fakeBin,
+    forceTTY: true,
+    env: { ...notifierEnv(), AIUR_NO_UPDATE_NOTIFIER: "1" },
+  });
+  expect(result.stderr).not.toContain("new version is available");
+});
+
+test("CI=true suppresses the notice", () => {
+  const { fakeBin } = setupPackage({ version: "1.0.0" });
+  seedCache({ latest: "2.0.0" });
+  const result = runShim({
+    fakeBin,
+    forceTTY: true,
+    env: { ...notifierEnv(), CI: "true" },
+  });
+  expect(result.stderr).not.toContain("new version is available");
+});
+
+test("dev sentinel version (0.0.0) never notifies", () => {
+  const { fakeBin } = setupPackage({ version: "0.0.0" });
+  seedCache({ latest: "9.9.9" });
+  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
+  expect(result.stderr).not.toContain("new version is available");
+});
+
+test("non-interactive (no TTY on stderr) stays quiet", () => {
+  const { fakeBin } = setupPackage({ version: "1.0.0" });
+  seedCache({ latest: "2.0.0" });
+  // No forceTTY: spawnSync pipes stderr, so the interactive gate suppresses it.
+  const result = runShim({ fakeBin, env: notifierEnv() });
+  expect(result.stderr).not.toContain("new version is available");
+});
+
+test("background worker fetches latest and writes the cache", async () => {
+  const { fakeBin } = setupPackage({ version: "1.0.0" });
+
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ name: "aiur-cli", version: "9.9.9" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  const result = runShim({
+    fakeBin,
+    env: {
+      ...notifierEnv(),
+      AIUR_UPDATE_NOTIFIER_WORKER: "1",
+      AIUR_REGISTRY_URL: `http://127.0.0.1:${port}/aiur-cli/latest`,
+    },
+  });
+  await new Promise((resolve) => server.close(resolve));
+
+  expect(result.status).toBe(0);
+  const cachePath = path.join(root, "aiur", "update-check.json");
+  expect(existsSync(cachePath)).toBe(true);
+  const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+  expect(cache.latest).toBe("9.9.9");
+  expect(typeof cache.lastCheck).toBe("number");
+});
+
+test("background worker writes the cache even when the registry is unreachable", () => {
+  const { fakeBin } = setupPackage({ version: "1.0.0" });
+  const result = runShim({
+    fakeBin,
+    env: {
+      ...notifierEnv(),
+      AIUR_UPDATE_NOTIFIER_WORKER: "1",
+      // Nothing is listening here, so the fetch errors out quickly.
+      AIUR_REGISTRY_URL: "http://127.0.0.1:1/aiur-cli/latest",
+    },
+  });
+  expect(result.status).toBe(0);
+  const cache = JSON.parse(readFileSync(path.join(root, "aiur", "update-check.json"), "utf8"));
+  expect(cache.latest).toBe(null);
+  expect(typeof cache.lastCheck).toBe("number");
 });
