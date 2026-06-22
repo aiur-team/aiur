@@ -113,23 +113,30 @@ defmodule Aiur.Workflow do
       rel when is_binary(rel) and rel != "" ->
         resolved = Path.expand(rel, Path.dirname(path))
 
-        # Split the read from the parse so a missing/unreadable file and a
-        # malformed (or non-map) one get distinct errors. yaml_to_map returns
-        # {:error, :workflow_front_matter_not_a_map} for non-map YAML, so a
-        # successful decode is always a map — no non-map success case to handle.
-        case File.read(resolved) do
-          {:ok, content} ->
-            case yaml_to_map(content) do
-              {:ok, hooks} -> {:ok, Map.put(config, "hooks", hooks)}
-              {:error, reason} -> {:error, {:invalid_hooks_file, resolved, reason}}
-            end
-
-          {:error, reason} ->
-            {:error, {:missing_hooks_file, resolved, reason}}
+        case read_hooks_file(resolved) do
+          {:ok, hooks} -> {:ok, Map.put(config, "hooks", hooks)}
+          {:error, reason} -> {:error, reason}
         end
 
       _ ->
         {:ok, config}
+    end
+  end
+
+  # Split the read from the parse so a missing/unreadable file and a malformed
+  # (or non-map) one get distinct errors. yaml_to_map returns
+  # {:error, :workflow_front_matter_not_a_map} for non-map YAML, so a successful
+  # decode is always a map — no non-map success case to handle.
+  defp read_hooks_file(resolved) do
+    case File.read(resolved) do
+      {:ok, content} ->
+        case yaml_to_map(content) do
+          {:ok, hooks} -> {:ok, hooks}
+          {:error, reason} -> {:error, {:invalid_hooks_file, resolved, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:missing_hooks_file, resolved, reason}}
     end
   end
 

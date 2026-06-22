@@ -26,7 +26,9 @@ defmodule Aiur.Claude.ReplAgentTest do
   end
 
   test "start_session spawns the REPL, awaits readiness, and returns a session", %{tmux: tmux} do
-    ws = System.tmp_dir!()
+    # Normalize up front: start_session stores the expanded path, and on macOS
+    # System.tmp_dir!/0 carries a trailing slash that Path.expand strips.
+    ws = Path.expand(System.tmp_dir!())
 
     task =
       Task.async(fn ->
