@@ -4,7 +4,7 @@ defmodule Aiur.Workspace do
   """
 
   require Logger
-  alias Aiur.{Config, PathSafety, SSH}
+  alias Aiur.{Config, PathSafety, RepoBase, SSH}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
 
@@ -38,10 +38,10 @@ defmodule Aiur.Workspace do
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
-        create_workspace(workspace)
+        create_or_materialize(workspace)
 
       true ->
-        create_workspace(workspace)
+        create_or_materialize(workspace)
     end
   end
 
@@ -83,6 +83,54 @@ defmodule Aiur.Workspace do
     File.mkdir_p!(workspace)
     {:ok, workspace, true}
   end
+
+  # When pre-warm is enabled and the shared base is ready, materialize the
+  # workspace from it (copy-on-write where the filesystem supports it, carrying
+  # the warm `_build`/deps) instead of cold-cloning + recompiling. Anything that
+  # rules pre-warm out — disabled, base not ready, missing, or a copy failure —
+  # falls through to the unchanged cold `create_workspace/1` path.
+  defp create_or_materialize(workspace) do
+    with true <- Config.prewarm_enabled?(),
+         {:ready, base} when is_binary(base) <- RepoBase.status(),
+         true <- File.dir?(base),
+         :ok <- materialize_from_base(base, workspace) do
+      {:ok, workspace, :materialized}
+    else
+      _ -> create_workspace(workspace)
+    end
+  end
+
+  @doc false
+  # Copy the warm base into `workspace` (CoW when the FS supports it) and branch
+  # off the base's HEAD as `aiur/<id>`. Public for tests; callers go through
+  # `create_or_materialize/1`.
+  @spec materialize_from_base(Path.t(), Path.t()) :: :ok | {:error, term()}
+  def materialize_from_base(base, workspace) do
+    File.rm_rf!(workspace)
+
+    with {_out, 0} <- copy_tree(base, workspace),
+         {_out2, 0} <-
+           System.cmd("git", ["-C", workspace, "checkout", "-B", branch_for(workspace)], stderr_to_stdout: true) do
+      :ok
+    else
+      other ->
+        Logger.warning("prewarm materialize failed (#{inspect(other)}); falling back to cold clone")
+        File.rm_rf!(workspace)
+        {:error, other}
+    end
+  end
+
+  # macOS APFS clones via `cp -c`; Linux btrfs/xfs reflink via `cp --reflink=auto`
+  # (degrading to a full copy on ext4). Either way the warm `_build`/deps come
+  # along, so the agent skips the recompile.
+  defp copy_tree(base, workspace) do
+    case :os.type() do
+      {:unix, :darwin} -> System.cmd("cp", ["-Rc", base, workspace], stderr_to_stdout: true)
+      _ -> System.cmd("cp", ["-a", "--reflink=auto", base, workspace], stderr_to_stdout: true)
+    end
+  end
+
+  defp branch_for(workspace), do: "aiur/" <> Path.basename(workspace)
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
   def remove(workspace), do: remove(workspace, nil)
@@ -219,6 +267,11 @@ defmodule Aiur.Workspace do
           command ->
             run_hook(command, workspace, issue_context, "after_create", worker_host)
         end
+
+      # Materialized from the warm base — aiur already populated + branched the
+      # workspace, so the cold-clone after_create hook must NOT run.
+      :materialized ->
+        :ok
 
       false ->
         :ok
