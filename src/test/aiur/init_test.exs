@@ -5,7 +5,7 @@ defmodule Aiur.InitTest do
   alias Aiur.Init
   alias Aiur.Workflow
 
-  @example_file Path.expand("../../../.aiurconfig.example", __DIR__)
+  @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
 
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
@@ -82,12 +82,6 @@ defmodule Aiur.InitTest do
             File.write!(path, "after_create: echo created\n")
             {:created, path}
           end
-        end,
-        ensure_examples: fn t ->
-          dir = Path.join(Path.dirname(t), "examples")
-          File.mkdir_p!(dir)
-          File.write!(Path.join(dir, "config.example"), "# config example\n")
-          {:created, dir}
         end,
         add_gitignore_entry: fn entry ->
           path = Path.join(dir, ".gitignore")
@@ -617,9 +611,9 @@ defmodule Aiur.InitTest do
       assert File.regular?(Path.join([dir, ".aiur", "hooks"]))
     end
 
-    test "repo-local init scaffolds .aiur/examples", %{dir: dir, target: target} do
+    test "repo-local init does not copy example templates into the repo", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
-      assert File.regular?(Path.join([dir, ".aiur", "examples", "config.example"]))
+      refute File.dir?(Path.join([dir, ".aiur", "examples"]))
     end
 
     test "repo-local init appends .aiur/ to .gitignore when accepted", %{dir: dir, target: target} do
