@@ -25,7 +25,9 @@ Enable via the `prewarm:` block in `.aiur/config`.
 
 Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets you open
 any agent in an opencode-backed chat pane, and send messages directly into a running
-session. A LiveView dashboard at `/` covers the same surface for browser-based operators.
+session. A LiveView dashboard at `/` mirrors this surface read-only for browser-based operators;
+messaging and pausing agents stays in the CLI until a dashboard parity pass (set
+`observability.dashboard_writable: true` to re-enable the browser write controls early).
 
 In the CLI agent list, `Enter` opens the selected agent opencode pane and `Space`
 pauses or resumes execution for the selected agent. Press `r` to open or close Remote
@@ -171,8 +173,9 @@ aiurdev --port 4102 ./.aiurconfig
 
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
-- LiveView dashboard at `/` — active agents, logs, per-agent chat modal
-- JSON API under `/api/v1/*` for operational debugging
+- LiveView dashboard at `/` — active agents, logs, read-only per-agent log modal
+- JSON API under `/api/v1/*` for operational debugging (read endpoints; agent-write
+  endpoints are disabled unless `observability.dashboard_writable` is set)
 
 ## Configuration notes
 

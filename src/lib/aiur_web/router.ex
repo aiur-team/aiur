@@ -32,6 +32,15 @@ defmodule AiurWeb.Router do
     plug(:require_custom_header)
   end
 
+  # Read-only gate for the dashboard's agent-write endpoints (operator chat,
+  # refresh). Disabled by default until a deliberate dashboard parity pass —
+  # see issue #371. Re-enable via `observability.dashboard_writable` config.
+  # The TUI's pane endpoints and the RC claude-hook are intentionally NOT
+  # behind this gate (see the route scopes below).
+  pipeline :require_writable do
+    plug(:require_dashboard_writable)
+  end
+
   scope "/", AiurWeb do
     pipe_through(:dashboard_auth)
 
@@ -47,13 +56,23 @@ defmodule AiurWeb.Router do
     live("/", DashboardLive, :index)
   end
 
+  # Agent-write endpoints driven from the browser/API. Gated read-only by
+  # default (`:require_writable`) until the dashboard parity pass.
   scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :api_write])
+    pipe_through([:dashboard_auth, :api_write, :require_writable])
 
     post("/api/v1/refresh", ObservabilityApiController, :refresh)
     match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
     post("/api/v1/:issue_identifier/messages", ObservabilityApiController, :send_message)
     match(:*, "/api/v1/:issue_identifier/messages", ObservabilityApiController, :method_not_allowed)
+  end
+
+  # Machine-to-machine write surfaces that are NOT browser-facing and must keep
+  # working in read-only mode: the TUI's tmux pane key bindings (interrupt/hide,
+  # see aiur.tmux.conf) and the RC claude lifecycle-hook sink (#367).
+  scope "/", AiurWeb do
+    pipe_through([:dashboard_auth, :api_write])
+
     post("/api/v1/pane/interrupt", ObservabilityApiController, :pane_interrupt)
     match(:*, "/api/v1/pane/interrupt", ObservabilityApiController, :method_not_allowed)
     post("/api/v1/pane/hide", ObservabilityApiController, :pane_hide)
@@ -98,6 +117,27 @@ defmodule AiurWeb.Router do
       |> Plug.Conn.send_resp(403, ~s({"error":"origin not allowed"}))
       |> Plug.Conn.halt()
     end
+  end
+
+  # Rejects agent-write requests while the dashboard is read-only. Sources the
+  # flag from the endpoint config (set by `Aiur.HttpServer`, overridable in
+  # tests) and fails closed: a missing/false value keeps the dashboard
+  # observe-only.
+  defp require_dashboard_writable(conn, _opts) do
+    if dashboard_writable?() do
+      conn
+    else
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(403, ~s({"error":"dashboard is read-only"}))
+      |> Plug.Conn.halt()
+    end
+  end
+
+  defp dashboard_writable? do
+    AiurWeb.Endpoint.config(:dashboard_writable) == true
+  rescue
+    _ -> false
   end
 
   defp require_custom_header(conn, _opts) do

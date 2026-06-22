@@ -500,6 +500,66 @@ defmodule Aiur.ExtensionsTest do
     assert json_response(conn, 202) == %{"issue_identifier" => "MT-HTTP", "request_id" => 1}
   end
 
+  test "read-only dashboard blocks agent-write endpoints but keeps reads working" do
+    snapshot = static_snapshot()
+    orchestrator_name = Module.concat(__MODULE__, :ReadOnlyOrchestrator)
+
+    {:ok, _pid} =
+      StaticOrchestrator.start_link(
+        name: orchestrator_name,
+        snapshot: snapshot,
+        refresh: %{
+          queued: true,
+          coalesced: false,
+          requested_at: DateTime.utc_now(),
+          operations: ["poll", "reconcile"]
+        }
+      )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 50,
+      dashboard_writable: false
+    )
+
+    # Reads still work.
+    assert %{"counts" => _} = json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    # Agent-write endpoints are gated read-only (after the CSRF bypass headers,
+    # so we're proving the read-only gate, not the same-origin gate).
+    refresh_conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/refresh", %{})
+
+    assert json_response(refresh_conn, 403) == %{"error" => "dashboard is read-only"}
+
+    messages_conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/MT-HTTP/messages", %{"text" => "hello"})
+
+    assert json_response(messages_conn, 403) == %{"error" => "dashboard is read-only"}
+  end
+
+  test "read-only dashboard keeps the machine-to-machine claude-hook working" do
+    start_test_endpoint(
+      orchestrator: Module.concat(__MODULE__, :ClaudeHookOrchestrator),
+      snapshot_timeout_ms: 5,
+      dashboard_writable: false
+    )
+
+    hook_conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/MT-RO/claude-hook", %{"hook_event_name" => "Stop"})
+
+    assert json_response(hook_conn, 200) == %{"ok" => true}
+  end
+
   test "phoenix observability api preserves 405, 404, and unavailable behavior" do
     unavailable_orchestrator = Module.concat(__MODULE__, :UnavailableOrchestrator)
     start_test_endpoint(orchestrator: unavailable_orchestrator, snapshot_timeout_ms: 5)
@@ -778,6 +838,39 @@ defmodule Aiur.ExtensionsTest do
     refute closed_html =~ "hello from workspace log"
   end
 
+  test "read-only dashboard liveview hides chat controls and no-ops write events" do
+    orchestrator_name = Module.concat(__MODULE__, :ReadOnlyDashboardOrchestrator)
+    snapshot = static_snapshot()
+
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 50,
+      dashboard_writable: false
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    modal_html =
+      view
+      |> element("tr[phx-value-issue=\"MT-HTTP\"]")
+      |> render_click()
+
+    # The agent log modal still opens (reads work), but the composer and its
+    # Send/Pause controls are gone — replaced by the read-only notice.
+    assert modal_html =~ "Read-only dashboard"
+    refute modal_html =~ "agent-chat-send"
+    refute modal_html =~ "phx-submit=\"send-operator-message\""
+    refute modal_html =~ "phx-click=\"pause-agent\""
+
+    # Defense-in-depth: even a crafted client pushing the write events is a
+    # no-op — the guarded clauses fall through and the view stays alive.
+    assert render_hook(view, "send-operator-message", %{"message" => "hello"}) =~ "Read-only dashboard"
+    assert render_hook(view, "pause-agent", %{}) =~ "Read-only dashboard"
+    assert Process.alive?(view.pid)
+  end
+
   test "dashboard liveview renders an unavailable state without crashing" do
     start_test_endpoint(
       orchestrator: Module.concat(__MODULE__, :MissingDashboardOrchestrator),
@@ -811,7 +904,8 @@ defmodule Aiur.ExtensionsTest do
       host: "127.0.0.1",
       port: 0,
       orchestrator: orchestrator_name,
-      snapshot_timeout_ms: 50
+      snapshot_timeout_ms: 50,
+      dashboard_writable: true
     ]
 
     start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot, refresh: refresh})
@@ -883,7 +977,11 @@ defmodule Aiur.ExtensionsTest do
     endpoint_config =
       :aiur
       |> Application.get_env(AiurWeb.Endpoint, [])
-      |> Keyword.merge(server: false, secret_key_base: String.duplicate("s", 64))
+      |> Keyword.merge(
+        server: false,
+        secret_key_base: String.duplicate("s", 64),
+        dashboard_writable: true
+      )
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
