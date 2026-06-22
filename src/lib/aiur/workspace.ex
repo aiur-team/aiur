@@ -243,13 +243,51 @@ defmodule Aiur.Workspace do
 
   defp workspace_path_for_issue(safe_id, nil) when is_binary(safe_id) do
     Config.settings!().workspace.root
-    |> Path.join(safe_id)
+    |> issue_workspace_path(safe_id)
     |> PathSafety.canonicalize()
   end
 
   defp workspace_path_for_issue(safe_id, worker_host) when is_binary(safe_id) and is_binary(worker_host) do
-    {:ok, Path.join(Config.settings!().workspace.root, safe_id)}
+    {:ok, issue_workspace_path(Config.settings!().workspace.root, safe_id)}
   end
+
+  # Namespace per-issue workspaces by repo so two repos sharing a root never
+  # collide on issue number: <root>/<repo>/<issue>. Trackers without a repo
+  # segment (memory, or a misconfigured provider) fall back to <root>/<issue>.
+  defp issue_workspace_path(root, safe_id) do
+    case repo_segment() do
+      nil -> Path.join(root, safe_id)
+      segment -> Path.join([root, segment, safe_id])
+    end
+  end
+
+  # Repo-name-only segment (e.g. "aiur", not "its-everdred/aiur"): shorter and
+  # matches the operator's layout. GitHub uses the name half of owner/name;
+  # Linear uses project_slug. Sanitized with safe_identifier/1 for path safety.
+  defp repo_segment do
+    settings = Config.settings!()
+
+    raw =
+      case settings.tracker.kind do
+        "github" -> github_repo_name(settings.tracker.github.repo)
+        "linear" -> settings.tracker.linear.project_slug
+        _ -> nil
+      end
+
+    case raw do
+      value when is_binary(value) and value != "" -> safe_identifier(value)
+      _ -> nil
+    end
+  end
+
+  defp github_repo_name(repo) when is_binary(repo) do
+    case String.split(repo, "/", parts: 2) do
+      [_owner, name] when name != "" -> name
+      _ -> repo
+    end
+  end
+
+  defp github_repo_name(_repo), do: nil
 
   defp safe_identifier(identifier) do
     String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")

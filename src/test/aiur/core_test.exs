@@ -351,7 +351,8 @@ defmodule Aiur.CoreTest do
 
     issue_id = "issue-2"
     issue_identifier = "MT-556"
-    workspace = Path.join(test_root, issue_identifier)
+    # Linear default config namespaces workspaces under <root>/<project_slug>/.
+    workspace = Path.join([test_root, "project", issue_identifier])
 
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -1205,20 +1206,19 @@ defmodule Aiur.CoreTest do
         labels: ["backend"]
       }
 
-      before = MapSet.new(File.ls!(workspace_root))
+      # Linear default config namespaces workspaces under <root>/<project_slug>/,
+      # so the issue dir lands in workspace_root/project/, not directly under root.
+      repo_dir = Path.join(workspace_root, "project")
+      before = if File.dir?(repo_dir), do: MapSet.new(File.ls!(repo_dir)), else: MapSet.new()
       assert :ok = AgentRunner.run(issue)
-      entries_after = MapSet.new(File.ls!(workspace_root))
 
-      created =
-        MapSet.difference(entries_after, before) |> Enum.filter(&(&1 == "S-99"))
-
-      created = MapSet.new(created)
+      created = MapSet.difference(MapSet.new(File.ls!(repo_dir)), before)
 
       assert MapSet.size(created) == 1
       workspace_name = created |> Enum.to_list() |> List.first()
       assert workspace_name == "S-99"
 
-      workspace = Path.join(workspace_root, workspace_name)
+      workspace = Path.join(repo_dir, workspace_name)
       assert File.exists?(workspace)
       assert File.exists?(Path.join(workspace, "README.md"))
     after
@@ -1310,7 +1310,7 @@ defmodule Aiur.CoreTest do
 
       assert session_id == "thread-live-turn-live"
 
-      workspace = Path.join(workspace_root, "MT-99")
+      workspace = Path.join([workspace_root, "project", "MT-99"])
       ndjson_log = Path.join(workspace, "logs/agent.ndjson")
       markdown_log = Path.join(workspace, "logs/agent.md")
 
@@ -2058,7 +2058,7 @@ defmodule Aiur.CoreTest do
       assert Enum.at(turn_texts, 1) == "resume with the auth fix"
 
       workspace_log =
-        Path.join([workspace_root, "MT-251", "logs", "agent.md"])
+        Path.join([workspace_root, "project", "MT-251", "logs", "agent.md"])
         |> File.read!()
 
       assert workspace_log =~ "worker_paused"

@@ -373,7 +373,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       issue_id = "issue-deactivate-3"
       issue_identifier = "DA-3"
-      workspace = Path.join(test_root, issue_identifier)
+      # Linear default config namespaces workspaces under <root>/<project_slug>/.
+      workspace = Path.join([test_root, "project", issue_identifier])
 
       try do
         write_workflow_file!(Workflow.workflow_file_path(),
