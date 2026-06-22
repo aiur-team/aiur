@@ -408,6 +408,12 @@ defmodule Aiur.Config do
       {:missing_prompt_file, path, raw_reason} ->
         "Missing prompt_file at #{path}: #{inspect(raw_reason)}"
 
+      {:missing_hooks_file, path, raw_reason} ->
+        "Missing hooks_file at #{path}: #{inspect(raw_reason)}"
+
+      {:invalid_hooks_file, path, raw_reason} ->
+        "Invalid hooks_file at #{path}: #{inspect(raw_reason)}"
+
       {:workflow_parse_error, raw_reason} ->
         "Failed to parse #{label}: #{inspect(raw_reason)}"
 

@@ -67,6 +67,16 @@ defmodule Aiur.InitTest do
             {:created, path}
           end
         end,
+        ensure_aiurhooks: fn t ->
+          path = Path.join(Path.dirname(t), ".aiurhooks")
+
+          if File.regular?(path) do
+            {:exists, path}
+          else
+            File.write!(path, "after_create: echo created\n")
+            {:created, path}
+          end
+        end,
         ensure_env: fn content ->
           File.write!(Path.join(dir, ".env.example"), content)
           env_path = Path.join(dir, ".env")
@@ -361,6 +371,21 @@ defmodule Aiur.InitTest do
       assert File.regular?(Path.join(dir, "AIUR.md"))
     end
 
+    test "repo-local init creates the .aiurhooks the config references", %{dir: dir, target: target} do
+      File.rm_rf!(Path.join(dir, ".aiurhooks"))
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert File.regular?(Path.join(dir, ".aiurhooks"))
+    end
+
+    test "init does not clobber an existing .aiurhooks", %{dir: dir, target: target} do
+      hooks_path = Path.join(dir, ".aiurhooks")
+      File.write!(hooks_path, "after_create: my custom hook\n")
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert File.read!(hooks_path) == "after_create: my custom hook\n"
+    end
+
     test "the scaffolded prompt file delivers the issue task to the agent" do
       template = Init.prompt_file_template()
 
@@ -387,6 +412,16 @@ defmodule Aiur.InitTest do
       # No stray placeholder ever reaches Solid (strict_variables would raise).
       refute scaffold =~ "{{REPO}}"
       assert scaffold =~ "{{ issue.title }}"
+    end
+
+    test "the .aiurhooks scaffold defines workspace hooks against the repo URL" do
+      template = Init.aiurhooks_template()
+
+      # init writes this next to a config that references it via `hooks_file:`,
+      # so it must carry the workspace bootstrap hooks (clone + branch).
+      assert template =~ "after_create:"
+      assert template =~ "before_run:"
+      assert template =~ "$THIS_REPOSITORY_URL"
     end
 
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do

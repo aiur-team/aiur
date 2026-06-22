@@ -803,6 +803,14 @@ defmodule Aiur.Orchestrator do
         Logger.error("Failed to parse .aiurconfig: #{inspect(reason)}")
         state
 
+      {:error, {:missing_hooks_file, path, reason}} ->
+        Logger.error("Missing hooks_file at #{path}: #{inspect(reason)}")
+        state
+
+      {:error, {:invalid_hooks_file, path, reason}} ->
+        Logger.error("Invalid hooks_file at #{path}: #{inspect(reason)}")
+        state
+
       {:error, reason} ->
         Logger.error("Failed to fetch from Linear: #{inspect(reason)}")
         state

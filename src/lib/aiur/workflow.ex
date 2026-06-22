@@ -91,13 +91,45 @@ defmodule Aiur.Workflow do
   defp parse(content, path) do
     case yaml_to_map(content) do
       {:ok, config} ->
-        resolve_prompt(config, path)
+        case resolve_hooks(config, path) do
+          {:ok, resolved} -> resolve_prompt(resolved, path)
+          {:error, reason} -> {:error, reason}
+        end
 
       {:error, :workflow_front_matter_not_a_map} ->
         {:error, :workflow_front_matter_not_a_map}
 
       {:error, reason} ->
         {:error, {:workflow_parse_error, reason}}
+    end
+  end
+
+  # An optional `hooks_file:` key points at a sibling YAML file (default
+  # `.aiurhooks`) whose keys become the `hooks:` map, keeping multi-line hook
+  # scripts out of the main config. When set it replaces any inline `hooks:`
+  # block; when absent the inline block (if any) is used unchanged.
+  defp resolve_hooks(config, path) do
+    case Map.get(config, "hooks_file") do
+      rel when is_binary(rel) and rel != "" ->
+        resolved = Path.expand(rel, Path.dirname(path))
+
+        # Split the read from the parse so a missing/unreadable file and a
+        # malformed (or non-map) one get distinct errors. yaml_to_map returns
+        # {:error, :workflow_front_matter_not_a_map} for non-map YAML, so a
+        # successful decode is always a map — no non-map success case to handle.
+        case File.read(resolved) do
+          {:ok, content} ->
+            case yaml_to_map(content) do
+              {:ok, hooks} -> {:ok, Map.put(config, "hooks", hooks)}
+              {:error, reason} -> {:error, {:invalid_hooks_file, resolved, reason}}
+            end
+
+          {:error, reason} ->
+            {:error, {:missing_hooks_file, resolved, reason}}
+        end
+
+      _ ->
+        {:ok, config}
     end
   end
 
@@ -130,6 +162,23 @@ defmodule Aiur.Workflow do
     with {:ok, content} <- File.read(config_path),
          {:ok, config} <- yaml_to_map(content),
          rel when is_binary(rel) and rel != "" <- Map.get(config, "prompt_file") do
+      Path.expand(rel, Path.dirname(config_path))
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Resolves the absolute `.aiurhooks` path referenced by `hooks_file:` in the
+  config, or nil when none is set.
+
+  Used by `WorkflowStore` to detect hook-file edits during change polling.
+  """
+  @spec resolved_hooks_file_path(Path.t()) :: Path.t() | nil
+  def resolved_hooks_file_path(config_path) when is_binary(config_path) do
+    with {:ok, content} <- File.read(config_path),
+         {:ok, config} <- yaml_to_map(content),
+         rel when is_binary(rel) and rel != "" <- Map.get(config, "hooks_file") do
       Path.expand(rel, Path.dirname(config_path))
     else
       _ -> nil
