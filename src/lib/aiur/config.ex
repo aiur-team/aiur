@@ -427,11 +427,9 @@ defmodule Aiur.Config do
       {:missing_workflow_file, path, raw_reason} ->
         "Missing #{Path.basename(path)} at #{path}: #{inspect(raw_reason)}. Run `aiur init` to scaffold a .aiur/config."
 
-      {:missing_prompt_file, path, raw_reason} ->
-        "Missing prompt_file at #{path}: #{inspect(raw_reason)}"
-
-      {:missing_hooks_file, path, raw_reason} ->
-        "Missing hooks_file at #{path}: #{inspect(raw_reason)}"
+      {tag, path, raw_reason}
+      when tag in [:missing_prompt_file, :missing_hooks_file, :missing_prewarm_file] ->
+        "Missing #{missing_file_label(tag)} at #{path}: #{inspect(raw_reason)}"
 
       {:invalid_hooks_file, path, raw_reason} ->
         "Invalid hooks_file at #{path}: #{inspect(raw_reason)}"
@@ -446,6 +444,10 @@ defmodule Aiur.Config do
         "Invalid #{label} config: #{inspect(other)}"
     end
   end
+
+  defp missing_file_label(:missing_prompt_file), do: "prompt_file"
+  defp missing_file_label(:missing_hooks_file), do: "hooks_file"
+  defp missing_file_label(:missing_prewarm_file), do: "prewarm base_build_file"
 
   defp config_file_label do
     Path.basename(Workflow.workflow_file_path())
