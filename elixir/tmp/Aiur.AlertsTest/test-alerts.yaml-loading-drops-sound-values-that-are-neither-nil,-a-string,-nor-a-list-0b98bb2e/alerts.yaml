@@ -1,4 +1,0 @@
-alerts:
-  bad_sound_shape:
-    message: "Hi"
-    sound: 42

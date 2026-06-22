@@ -17,5 +17,8 @@ test-sandbox/
 .claude/scheduled_tasks.lock
 .context/
 
+# Stale pre-`src/`-layout build cruft (see #282/#384). The real build is under src/.
+/elixir/
+
 # Local Netlify folder
 .netlify
