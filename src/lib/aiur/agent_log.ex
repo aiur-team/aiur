@@ -241,7 +241,7 @@ defmodule Aiur.AgentLog do
 
     description =
       Regex.run(
-        ~r/Description:\n\n(.*?)(?:\n\n(?:Continuation context:|## Required Setup|## Workflow|## Workpad Template)|\z)/s,
+        ~r/Description:\n\n(.*?)(?:\n\n(?:Continuation context:|## )|\z)/s,
         text,
         capture: :all_but_first
       )

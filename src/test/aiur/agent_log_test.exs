@@ -138,15 +138,13 @@ defmodule Aiur.AgentLogTest do
 
       Login fails on invalid email
 
-      ## Required Setup
+      ## Workspace setup (this repo)
 
       Follow repository setup.
 
-      ## Workpad Template
+      ## How to operate
 
-      ### Validation
-
-      - [ ] ...
+      Operate per the `using-aiur` skill.
       """
 
       content =
@@ -160,9 +158,9 @@ defmodule Aiur.AgentLogTest do
       assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
       assert body =~ "Fix login bug"
       assert body =~ "Login fails on invalid email"
-      refute body =~ "Required Setup"
-      refute body =~ "Validation"
-      refute body =~ "- [ ]"
+      refute body =~ "Workspace setup"
+      refute body =~ "How to operate"
+      refute body =~ "using-aiur"
     end
 
     test "falls back to raw summary for continuation prompts without issue sections" do

@@ -270,7 +270,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   # unrelated dev branches like `aiur/99-test-fixture`,
   # `aiur/99_v2`, or `aiur/99/sub` to ticket 99's auto-resume hook —
   # pushes to those would falsely wake blockees waiting on the real
-  # ticket. The branch-name lock in `shared-agent-instructions.md`
+  # ticket. The branch-name lock in the `using-aiur` skill's dev loop
   # keeps agents on the canonical name; if they invent a workaround
   # the push is missed (the firehose still gets it) but the auto-
   # resume path stays correct.

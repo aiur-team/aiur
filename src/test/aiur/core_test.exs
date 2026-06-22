@@ -160,21 +160,31 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
-    workflow_paths = [
-      "examples/workflows/github-codex.aiurconfig",
-      "../.aiur/config"
-    ]
+  test "the checked-in Codex GitHub Actions workflow keeps turn budget and inline handoff context" do
+    # The GitHub Actions example prompt is self-contained: the `using-aiur`
+    # skill is not provisioned in that runtime, so handoff guidance stays inline.
+    assert {:ok, %{config: config, prompt: prompt}} =
+             Workflow.load("examples/workflows/github-codex.aiurconfig")
 
-    for path <- workflow_paths do
-      assert {:ok, %{config: config, prompt: prompt}} = Workflow.load(path)
+    assert get_in(config, ["agent", "max_turns"]) >= 12
+    assert prompt =~ "handoff"
+    assert prompt =~ "current phase"
+    assert prompt =~ "validation"
+    assert prompt =~ "next steps"
+  end
 
-      assert get_in(config, ["agent", "max_turns"]) >= 12
-      assert prompt =~ "handoff"
-      assert prompt =~ "current phase"
-      assert prompt =~ "validation"
-      assert prompt =~ "next steps"
-    end
+  test "aiur's own dogfood prompt keeps the turn budget and points at the operating skill" do
+    assert {:ok, %{config: config, prompt: prompt}} = Workflow.load("../.aiur/config")
+
+    assert get_in(config, ["agent", "max_turns"]) >= 12
+
+    # The operating manual — workpad/handoff template, label loop, dev loop —
+    # now lives in the `using-aiur` skill rather than inline on every turn. The
+    # per-turn prompt only carries ticket context and steers the agent to the
+    # workpad handoff and the skill.
+    assert prompt =~ "using-aiur"
+    assert prompt =~ "Agent Workpad"
+    assert prompt =~ "handoff"
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
@@ -928,7 +938,7 @@ defmodule Aiur.CoreTest do
     refute prompt == <<"Ticket ", 255>>
   end
 
-  test "prompt builder prepends shared agent instructions" do
+  test "prompt builder prepends a slim pointer to the using-aiur skill" do
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
 
     issue = %Issue{
@@ -942,20 +952,15 @@ defmodule Aiur.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
-    assert prompt =~ "## Shared Agent Instructions"
-    assert prompt =~ "emit_alert"
-    assert prompt =~ "brainstorm.start"
-    assert prompt =~ "### Complexity routing"
-    assert prompt =~ "label-based complexity is the default"
-    assert prompt =~ "Complexity routing note in PR descriptions"
-    assert prompt =~ "untagged"
-    assert prompt =~ "### Whose comments to act on"
-    assert prompt =~ "use CODEOWNERS as the authority signal"
-    assert prompt =~ "Agent comments on their own issue or PR are never authoritative"
+    # The shared prefix points at the skills that carry the operating manual
+    # rather than inlining them on every turn.
+    assert prompt =~ "You are an Aiur agent"
+    assert prompt =~ "using-aiur"
+    assert prompt =~ "aiur-agent"
 
-    Enum.each(1..5, fn level ->
-      assert prompt =~ "#### `complexity:#{level}`"
-    end)
+    # The heavy operating content now lives in the skill, not the per-turn prompt.
+    refute prompt =~ "#### `complexity:1`"
+    refute prompt =~ "### Whose comments to act on"
 
     assert prompt =~ "Ticket MT-699"
   end

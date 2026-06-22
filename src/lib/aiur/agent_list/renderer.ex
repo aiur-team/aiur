@@ -736,9 +736,9 @@ defmodule Aiur.AgentList.Renderer do
   # never jitters. No `—` placeholder; the absence is conveyed by
   # the empty bar alone.
   #
-  # At percent: 100 (the agent's stop-work signal — see
-  # `src/prompts/shared-agent-instructions.md`'s "Progress emits"
-  # section), the bar is tinted green so the operator sees at a
+  # At percent: 100 (the agent's stop-work signal — see the
+  # `using-aiur` skill's `reference/progress-and-checkins.md`),
+  # the bar is tinted green so the operator sees at a
   # glance that the agent is done for this iteration. The cell is
   # otherwise wrapped in `@ansi_dim` at the call site; we reset and
   # re-apply dim around the green wrap so terminals render the
