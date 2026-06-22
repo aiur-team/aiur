@@ -273,6 +273,13 @@ defmodule Aiur.Config do
     settings!().observability.dashboard_enabled
   end
 
+  # Whether the dashboard may drive agents (operator chat, pause). Read-only by
+  # default until a deliberate dashboard parity pass — see issue #371.
+  @spec dashboard_writable?() :: boolean()
+  def dashboard_writable? do
+    settings!().observability.dashboard_writable
+  end
+
   @spec observability_refresh_ms() :: pos_integer()
   def observability_refresh_ms do
     settings!().observability.refresh_ms

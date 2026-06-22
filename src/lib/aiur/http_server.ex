@@ -27,6 +27,7 @@ defmodule Aiur.HttpServer do
         host = Keyword.get(opts, :host, Config.server_host())
         orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
+        dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
 
         with {:ok, ip} <- parse_host(host),
              :ok <- guard_credentials_for_non_loopback(ip, host) do
@@ -36,6 +37,7 @@ defmodule Aiur.HttpServer do
             url: [host: normalize_host(host)],
             orchestrator: orchestrator,
             snapshot_timeout_ms: snapshot_timeout_ms,
+            dashboard_writable: dashboard_writable,
             secret_key_base: secret_key_base()
           ]
 
@@ -98,6 +100,14 @@ defmodule Aiur.HttpServer do
   defp loopback?(@loopback_v4), do: true
   defp loopback?(@loopback_v6), do: true
   defp loopback?(_), do: false
+
+  # Read-only unless the operator opted into dashboard writes. Fail closed if
+  # config can't be resolved — an observe-only dashboard is the safe default.
+  defp dashboard_writable? do
+    Config.dashboard_writable?()
+  rescue
+    _ -> false
+  end
 
   defp basic_auth_configured? do
     nonblank?(System.get_env("AIUR_DASHBOARD_USERNAME")) and

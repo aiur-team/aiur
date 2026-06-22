@@ -188,6 +188,7 @@ defmodule Aiur.TestSupport do
     hook_before_remove = Keyword.get(config, :hook_before_remove)
     hook_timeout_ms = Keyword.get(config, :hook_timeout_ms)
     observability_enabled = Keyword.get(config, :observability_enabled)
+    observability_writable = Keyword.get(config, :observability_writable)
     observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
     server_port = Keyword.get(config, :server_port)
@@ -251,7 +252,12 @@ defmodule Aiur.TestSupport do
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         agent_section,
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
-        observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
+        observability_yaml(
+          observability_enabled,
+          observability_writable,
+          observability_refresh_ms,
+          observability_render_interval_ms
+        ),
         server_yaml(server_port, server_host),
         opencode_yaml(
           opencode_command,
@@ -409,13 +415,15 @@ defmodule Aiur.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp observability_yaml(enabled, refresh_ms, render_interval_ms) do
+  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms) do
     [
       "observability:",
       "  dashboard_enabled: #{yaml_value(enabled)}",
+      writable != nil && "  dashboard_writable: #{yaml_value(writable)}",
       "  refresh_ms: #{yaml_value(refresh_ms)}",
       "  render_interval_ms: #{yaml_value(render_interval_ms)}"
     ]
+    |> Enum.reject(&(&1 == false))
     |> Enum.join("\n")
   end
 

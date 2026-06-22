@@ -606,6 +606,13 @@ pre,
   font-weight: 600;
 }
 
+.agent-chat-readonly {
+  margin: 0;
+  padding-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .state-badge-warning {
   background: #fff7e8;
   border-color: #f1d8a6;

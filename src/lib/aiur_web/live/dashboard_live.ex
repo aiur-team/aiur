@@ -18,6 +18,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
+      |> assign(:writable, dashboard_writable?())
 
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
@@ -58,7 +59,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("composer-change", %{"message" => message}, %{assigns: %{agent_log_modal: modal}} = socket)
+  def handle_event("composer-change", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
       when is_map(modal) do
     identifier = modal.issue_identifier
 
@@ -71,7 +72,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("composer-change", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("send-operator-message", %{"message" => message}, %{assigns: %{agent_log_modal: modal}} = socket)
+  def handle_event("send-operator-message", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
       when is_map(modal) do
     identifier = modal.issue_identifier
     text = String.trim(message)
@@ -95,7 +96,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("send-operator-message", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("pause-agent", _params, %{assigns: %{agent_log_modal: modal}} = socket) when is_map(modal) do
+  def handle_event("pause-agent", _params, %{assigns: %{writable: true, agent_log_modal: modal}} = socket) when is_map(modal) do
     identifier = modal.issue_identifier
 
     case AgentChat.pause(identifier) do
@@ -368,23 +369,27 @@ defmodule AiurWeb.DashboardLive do
               </div>
             </div>
 
-            <form class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
-              <%= if error = @chat_errors[@agent_log_modal.issue_identifier] do %>
-                <p class="agent-chat-error"><%= error %></p>
-              <% end %>
-              <textarea
-                class="agent-chat-textarea"
-                name="message"
-                rows="2"
-                placeholder="Message agent..."
-                aria-label="Message agent"
-                enterkeyhint="send"
-              ><%= @drafts[@agent_log_modal.issue_identifier] || "" %></textarea>
-              <div class="agent-chat-actions">
-                <button class="agent-chat-pause" type="button" phx-click="pause-agent">Pause</button>
-                <button class="agent-chat-send" type="submit">Send</button>
-              </div>
-            </form>
+            <%= if @writable do %>
+              <form class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
+                <%= if error = @chat_errors[@agent_log_modal.issue_identifier] do %>
+                  <p class="agent-chat-error"><%= error %></p>
+                <% end %>
+                <textarea
+                  class="agent-chat-textarea"
+                  name="message"
+                  rows="2"
+                  placeholder="Message agent..."
+                  aria-label="Message agent"
+                  enterkeyhint="send"
+                ><%= @drafts[@agent_log_modal.issue_identifier] || "" %></textarea>
+                <div class="agent-chat-actions">
+                  <button class="agent-chat-pause" type="button" phx-click="pause-agent">Pause</button>
+                  <button class="agent-chat-send" type="submit">Send</button>
+                </div>
+              </form>
+            <% else %>
+              <p class="agent-chat-readonly">Read-only dashboard — use the TUI to message or pause this agent.</p>
+            <% end %>
           </section>
         </div>
       <% end %>
@@ -402,6 +407,12 @@ defmodule AiurWeb.DashboardLive do
 
   defp snapshot_timeout_ms do
     Endpoint.config(:snapshot_timeout_ms) || 15_000
+  end
+
+  # Read-only by default until the dashboard parity pass (#371). Fail closed so
+  # the browser never exposes write controls when config is unresolved.
+  defp dashboard_writable? do
+    Endpoint.config(:dashboard_writable) == true
   end
 
   defp completed_runtime_seconds(payload) do
