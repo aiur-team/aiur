@@ -6,15 +6,18 @@ operational practices that aren't in the main README.
 
 ## Layout
 
-- `.aiurconfig` — the single Aiur config file (pure YAML). An optional
-  `prompt_file:` key points at a sibling Liquid prompt template. Run
-  `aiur init` to scaffold one.
+- `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`,
+  `.aiur/prompt.md`, and `.aiur/examples/`. The `prompt_file:`/`hooks_file:` keys
+  point at sibling files resolved relative to the config. Run `aiur init` to
+  scaffold one; a re-run over a legacy root `.aiurconfig` offers to migrate it in.
+  Discovery: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` → `~/.aiurconfig`.
 - `src/examples/workflows/` — portable example configs (Linear+Codex,
   GitHub+Codex, GitHub+Claude), each an `.aiurconfig` plus a `.prompt.md`
   template. Copy a pair when starting fresh.
-- `.aiurconfig` + `AIUR.md` (repo root) — the machine-local operational
-  config this repo dogfoods, plus its prompt template. Checked in but **not**
-  portable defaults. Used when you run `aiur` or `aiurdev` inside this repo.
+- `.aiurconfig` + `AIUR.md` (repo root) — the machine-local operational config
+  this repo currently dogfoods (legacy root layout, still supported), plus its
+  prompt template. Checked in but **not** portable defaults. Used when you run
+  `aiur` or `aiurdev` inside this repo.
 - `scripts/aiurdev` — the dev shim. It rebuilds the local Elixir release when
   sources are newer than the binary, then execs the shared launcher engine
   (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) with `AIUR_RELEASE_DIR`
@@ -37,7 +40,7 @@ aiurdev --bg                  # background run (detached tmux)
 aiurdev stop                  # stop the session (BEAM + tmux)
 aiurdev status                # report the running session
 aiurdev pause | resume        # pause / resume the workflow
-aiurdev init                  # scaffold .aiurconfig
+aiurdev init                  # scaffold .aiur/ (or migrate a legacy .aiurconfig)
 aiurdev build                 # force-rebuild the local release (shim-only)
 aiurdev --host …              # opt out of the local-only --host injection
 ```

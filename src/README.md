@@ -36,12 +36,12 @@ git clone https://github.com/its-everdred/aiur
 cd aiur
 npm run setup                    # installs the toolchain (mise + erlang/elixir) and symlinks aiurdev
 #   (or, if you already have mise:  mise run setup)
-cd src && aiurdev init           # scaffolds .aiurconfig in the current repo
+cd src && aiurdev init           # scaffolds .aiur/ (config, hooks, prompt.md, examples/) in the current repo
 # Or copy a starter pair (the config's prompt_file: points at the sibling template):
 #   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
 #   cp examples/workflows/linear-codex.prompt.md linear-codex.prompt.md
-# Edit .aiurconfig for your tracker, repo, credentials, and workspace.
-aiurdev ./.aiurconfig
+# Edit .aiur/config for your tracker, repo, credentials, and workspace.
+aiurdev                          # discovers .aiur/config (or a legacy ./.aiurconfig) automatically
 ```
 
 `aiurdev` is the local dev build, run from a repo clone; `aiur` is the
@@ -64,10 +64,15 @@ back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`.
 ## Setup wizard (`aiur init`)
 
 `aiur init` is an interactive wizard that scaffolds your config and provisions the
-repo. On a re-run it detects an existing `.aiurconfig`, prints your saved
-selections, and resumes — it never re-asks what you already answered. It walks:
+repo. aiur keeps its files in a `.aiur/` folder — `.aiur/config`, `.aiur/hooks`,
+`.aiur/prompt.md`, and `.aiur/examples/`. On a re-run it detects an existing config,
+prints your saved selections, and resumes — it never re-asks what you already
+answered. If it finds a legacy root-level `.aiurconfig`, it offers to migrate it
+into `.aiur/` (settings preserved); a declined migration keeps working unchanged. It
+walks:
 
-1. **Where to store config** — repo-local `./.aiurconfig` or global `~/.aiurconfig`.
+1. **Where to store config** — repo-local `./.aiur/` or global `~/.aiur/` (and, for
+   repo-local, an optional prompt to add `.aiur/` to `.gitignore`).
 2. **Tracker** — GitHub or Linear, plus the repo.
 3. **Agents & routing** — Claude and/or Codex, optional per-complexity model
    routing, and the permission mode.
@@ -85,9 +90,12 @@ When it finishes, add `agent:todo` to the issues you want worked and run `aiur`.
 
 ## Config
 
-An `.aiurconfig` file is pure YAML for adapters, credentials, and run policy. An
-optional `prompt_file:` key points at a sibling Markdown/Liquid template used as the
-agent prompt; when omitted, a built-in default prompt is used. Supported adapters:
+The config file (`.aiur/config`, or a legacy root `.aiurconfig`) is pure YAML for
+adapters, credentials, and run policy. Optional `prompt_file:` and `hooks_file:` keys
+point at sibling files (`prompt.md`, `hooks`), resolved relative to the config's own
+directory; when `prompt_file:` is omitted, a built-in default prompt is used.
+Discovery precedence: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` →
+`~/.aiurconfig`. Supported adapters:
 
 - **Trackers**: `linear`, `github`, `memory`
 - **Agents**: `codex`, `claude`

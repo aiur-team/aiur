@@ -403,7 +403,7 @@ defmodule Aiur.Config do
         "Invalid #{label} config: #{message}"
 
       {:missing_workflow_file, path, raw_reason} ->
-        "Missing #{Path.basename(path)} at #{path}: #{inspect(raw_reason)}. Run `aiur init` to scaffold a .aiurconfig."
+        "Missing #{Path.basename(path)} at #{path}: #{inspect(raw_reason)}. Run `aiur init` to scaffold a .aiur/config."
 
       {:missing_prompt_file, path, raw_reason} ->
         "Missing prompt_file at #{path}: #{inspect(raw_reason)}"
