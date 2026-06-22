@@ -27,6 +27,12 @@ defmodule Aiur.Init do
   @prompt_basename "prompt.md"
   @examples_dir "examples"
   @gitignore_entry ".aiur/"
+  # Legacy root example file -> new `.aiur/examples/` name, for the migration.
+  @legacy_examples [
+    {".aiurconfig.example", "config.example"},
+    {".aiurhooks.example", "hooks.example"},
+    {"AIUR.md.example", "prompt.md.example"}
+  ]
   @env_file_name ".env"
   @env_example_file_name ".env.example"
   @token_url "https://github.com/settings/tokens"
@@ -82,8 +88,10 @@ defmodule Aiur.Init do
 
   @type deps :: %{
           config_target: (atom() -> Path.t()),
+          legacy_config_target: (atom() -> Path.t()),
           existing_config_path: (Path.t() -> String.t() | nil),
           load_config: (Path.t() -> {:ok, map()} | {:error, term()}),
+          migrate_layout: (map() -> {:ok, map()} | {:error, term()}),
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
@@ -141,19 +149,34 @@ defmodule Aiur.Init do
   defp existing_config_target(%{force: true}, _deps), do: nil
 
   defp existing_config_target(_opts, deps) do
-    Enum.find_value([:repo_local, :global], fn location ->
-      deps.existing_config_path.(deps.config_target.(location))
+    Enum.find_value(config_probe_targets(deps), fn {kind, location, path} ->
+      if found = deps.existing_config_path.(path), do: {kind, location, found}
     end)
+  end
+
+  # Probe order mirrors `Aiur.Workflow` discovery: repo `.aiur/`, repo legacy,
+  # global `.aiur/`, global legacy. A `:legacy` hit drives the migration on
+  # resume; a `:new` hit just resumes in place.
+  defp config_probe_targets(deps) do
+    [
+      {:new, :repo_local, deps.config_target.(:repo_local)},
+      {:legacy, :repo_local, deps.legacy_config_target.(:repo_local)},
+      {:new, :global, deps.config_target.(:global)},
+      {:legacy, :global, deps.legacy_config_target.(:global)}
+    ]
   end
 
   # A re-run over an existing config skips the intro questions, shows what was
   # saved, and picks the token/label flow back up — so adding a token and
-  # re-running just continues setup instead of starting over.
-  defp resume(io, deps, target) do
+  # re-running just continues setup instead of starting over. When the config
+  # sits at a legacy root location, the re-run also offers to migrate it into the
+  # `.aiur/` folder (settings unchanged) before continuing.
+  defp resume(io, deps, {kind, location, target}) do
     case deps.load_config.(target) do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
         print_saved_summary(io, config)
+        maybe_migrate_layout(io, deps, kind, location, target)
         provision(io, deps, tracker_from_config(deps, config), agents_from_config(config))
 
       {:error, reason} ->
@@ -162,6 +185,33 @@ defmodule Aiur.Init do
            "Pass --force to recreate it: aiur init --force"}
     end
   end
+
+  # `:new` — already on the `.aiur/` layout, nothing to migrate.
+  defp maybe_migrate_layout(_io, _deps, :new, _location, _target), do: :ok
+
+  # `:legacy` — root-level files. Offer to move them into `.aiur/` (settings
+  # preserved verbatim), and for a repo-local layout, optionally gitignore the
+  # folder. Declining leaves the legacy layout, which still loads.
+  defp maybe_migrate_layout(io, deps, :legacy, location, legacy_target) do
+    io.puts.("\naiur now keeps its files in a #{layout_label(location)} folder; yours use the legacy root layout.")
+
+    if io.confirm.("Migrate them into #{layout_label(location)} now?", true) do
+      ignore? = location == :repo_local and io.confirm.("Also add #{@gitignore_entry} to .gitignore?", false)
+      new_target = deps.config_target.(location)
+
+      case deps.migrate_layout.(%{legacy_config: legacy_target, new_config: new_target, ignore: ignore?}) do
+        {:ok, _summary} -> io.puts.(["Migrated to: ", dim(new_target)])
+        {:error, reason} -> io.puts.("⚠️ Migration failed (#{inspect(reason)}); keeping the legacy layout.")
+      end
+    else
+      io.puts.("Skipped. aiur still reads your legacy layout.")
+    end
+
+    :ok
+  end
+
+  defp layout_label(:global), do: "~/.aiur/"
+  defp layout_label(_repo_local), do: ".aiur/"
 
   defp fresh_setup(io, deps, location, target) do
     tracker = prompt_tracker(io, deps, location)
@@ -881,8 +931,10 @@ defmodule Aiur.Init do
   defp runtime_deps do
     %{
       config_target: &config_target/1,
+      legacy_config_target: &legacy_config_target/1,
       existing_config_path: &existing_config_path/1,
       load_config: &load_config/1,
+      migrate_layout: &migrate_layout/1,
       read_example: fn -> @example_template end,
       detect_repo: &detect_repo/0,
       write_config: &write_config/2,
@@ -901,6 +953,9 @@ defmodule Aiur.Init do
 
   defp config_target(:global), do: Path.expand("~/" <> @config_file_name)
   defp config_target(_location), do: Path.join(File.cwd!(), @config_file_name)
+
+  defp legacy_config_target(:global), do: Path.expand("~/" <> @legacy_config_file_name)
+  defp legacy_config_target(_location), do: Path.join(File.cwd!(), @legacy_config_file_name)
 
   defp existing_config_path(target) do
     if File.regular?(target), do: target
@@ -958,8 +1013,10 @@ defmodule Aiur.Init do
 
   # Append an entry to the repo's `.gitignore` (creating it if absent), unless the
   # entry is already present. Idempotent; returns `:exists` when nothing changed.
-  defp add_gitignore_entry(entry) do
-    path = Path.join(File.cwd!(), ".gitignore")
+  defp add_gitignore_entry(entry), do: add_gitignore_entry(File.cwd!(), entry)
+
+  defp add_gitignore_entry(dir, entry) do
+    path = Path.join(dir, ".gitignore")
 
     existing =
       case File.read(path) do
@@ -976,6 +1033,130 @@ defmodule Aiur.Init do
       File.write!(path, existing <> separator <> entry <> "\n")
       {:added, path}
     end
+  end
+
+  @doc """
+  Migrate a legacy root-level aiur layout into the `.aiur/` folder. Copies the
+  referenced hooks/prompt files and any `*.example` templates into `.aiur/`,
+  writes the config to `.aiur/config` (rewriting `hooks_file:`/`prompt_file:` to
+  the folder-relative names), and only then removes the legacy originals — so a
+  partial failure never leaves a state aiur can't load. Tracked files are moved
+  via git (and removed with `git rm`); with `ignore: true`, `.aiur/` is appended
+  to `.gitignore` and the new files are left untracked. Settings are preserved
+  verbatim apart from the two pointer values.
+  """
+  @spec migrate_layout(%{
+          :legacy_config => Path.t(),
+          :new_config => Path.t(),
+          optional(:ignore) => boolean()
+        }) :: {:ok, %{moved: [Path.t()]}} | {:error, term()}
+  def migrate_layout(%{legacy_config: legacy_config, new_config: new_config} = opts) do
+    ignore? = Map.get(opts, :ignore, false)
+    base_dir = Path.dirname(legacy_config)
+    new_dir = Path.dirname(new_config)
+    git? = git_work_tree?(base_dir)
+
+    raw = File.read!(legacy_config)
+    config = parse_yaml(raw)
+
+    File.mkdir_p!(new_dir)
+
+    pointer_moves =
+      [
+        {pointer_src(base_dir, config["hooks_file"]), Path.join(new_dir, @aiurhooks_file_name)},
+        {pointer_src(base_dir, config["prompt_file"]), Path.join(new_dir, @prompt_basename)}
+      ]
+      |> Enum.reject(fn {src, _dest} -> is_nil(src) end)
+
+    example_moves =
+      for {legacy_name, new_name} <- @legacy_examples,
+          src = Path.join(base_dir, legacy_name),
+          File.regular?(src),
+          do: {src, Path.join([new_dir, @examples_dir, new_name])}
+
+    # 1. Copy content-preserving files into `.aiur/` (legacy left intact so far).
+    copied =
+      Enum.map(pointer_moves ++ example_moves, fn {src, dest} ->
+        File.mkdir_p!(Path.dirname(dest))
+        File.cp!(src, dest)
+        {src, dest}
+      end)
+
+    # 2. Write the rewritten config — the new layout is now complete and loadable.
+    File.write!(new_config, rewrite_pointers(raw))
+
+    # 3. Remove the legacy originals (config last is implicit: it's only removed
+    #    once `new_config` exists above).
+    [legacy_config | Enum.map(copied, fn {src, _dest} -> src end)]
+    |> Enum.each(&remove_path(&1, base_dir, git?))
+
+    new_paths = [new_config | Enum.map(copied, fn {_src, dest} -> dest end)]
+
+    # 4. Track the new files, or leave them untracked and gitignored.
+    if ignore? do
+      add_gitignore_entry(base_dir, @gitignore_entry)
+    else
+      if git?, do: git(base_dir, ["add" | new_paths])
+    end
+
+    {:ok, %{moved: new_paths}}
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp pointer_src(_base, value) when value in [nil, ""], do: nil
+
+  defp pointer_src(base, value) do
+    src = Path.expand(value, base)
+    if File.regular?(src), do: src
+  end
+
+  defp rewrite_pointers(raw) do
+    raw
+    |> replace_pointer_value("hooks_file", @aiurhooks_file_name)
+    |> replace_pointer_value("prompt_file", @prompt_basename)
+  end
+
+  defp replace_pointer_value(raw, key, new_value) do
+    Regex.replace(~r/^(#{key}:[ \t]*)\S+/m, raw, "\\1#{new_value}")
+  end
+
+  defp parse_yaml(raw) do
+    case YamlElixir.read_from_string(raw) do
+      {:ok, map} when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  defp git_work_tree?(dir) do
+    case System.cmd("git", ["rev-parse", "--is-inside-work-tree"], cd: dir, stderr_to_stdout: true) do
+      {out, 0} -> String.trim(out) == "true"
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  # Remove a legacy file: `git rm` when tracked (keeps git's rename detection
+  # against the freshly-added `.aiur/` copy), plain delete otherwise.
+  defp remove_path(path, base_dir, true) do
+    rel = Path.relative_to(path, base_dir)
+
+    case git(base_dir, ["rm", "-q", "-f", rel]) do
+      :ok -> :ok
+      :error -> File.rm(path)
+    end
+  end
+
+  defp remove_path(path, _base_dir, false), do: File.rm(path)
+
+  defp git(dir, args) do
+    case System.cmd("git", args, cd: dir, stderr_to_stdout: true) do
+      {_out, 0} -> :ok
+      _ -> :error
+    end
+  rescue
+    _ -> :error
   end
 
   @doc "Raw .aiurhooks template that `aiur init` scaffolds."
