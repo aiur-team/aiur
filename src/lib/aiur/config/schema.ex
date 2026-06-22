@@ -371,6 +371,26 @@ defmodule Aiur.Config.Schema do
     end
   end
 
+  defmodule Prewarm do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:enabled, :boolean, default: false)
+      field(:base_build, :string)
+      field(:poll_seconds, :integer, default: 0)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:enabled, :base_build, :poll_seconds], empty_values: [])
+      |> validate_number(:poll_seconds, greater_than_or_equal_to: 0)
+    end
+  end
+
   defmodule Observability do
     @moduledoc false
     use Ecto.Schema
@@ -458,6 +478,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -653,6 +674,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:server, with: &Server.changeset/2)
     |> cast_embed(:opencode, with: &Opencode.changeset/2)
     |> cast_embed(:events, with: &Events.changeset/2)
+    |> cast_embed(:prewarm, with: &Prewarm.changeset/2)
   end
 
   defp finalize_settings(settings) do
