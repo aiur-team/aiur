@@ -86,13 +86,14 @@ if [ "${1:-}" = "build" ]; then
   if [ "${2:-}" = "--deps" ]; then
     echo "🔨 clean force-rebuild incl. deps (wiping _build/dev)" >&2
     rm -rf "$elixir_dir/_build/dev"
+    ensure_elixir_deps
   else
     echo "🔨 force-rebuild aiur app + release (keeping dep artifacts)" >&2
     rm -rf "$elixir_dir/_build/dev/rel"
+    ensure_elixir_deps
     require_mise
     (cd "$elixir_dir" && "$mise_bin" exec -- mix compile --force) >&2
   fi
-  ensure_elixir_deps
   build_aiur
   exit 0
 fi
