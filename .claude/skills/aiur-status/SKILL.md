@@ -13,8 +13,9 @@ phrasing of what it's doing right now.
 
 ### 1. Gather recent log tails
 
-Run the gather script (resolves `workspace.root` from `.aiurconfig`, finds
-workspaces whose `logs/agent.md` changed recently, and prints a tail of each):
+Run the gather script (resolves `workspace.root` from `.aiur/config`, falling
+back to a legacy `.aiurconfig`; finds workspaces whose `logs/agent.md` changed
+recently, and prints a tail of each):
 
 ```bash
 bash .claude/skills/aiur-status/scripts/tail-agents.sh

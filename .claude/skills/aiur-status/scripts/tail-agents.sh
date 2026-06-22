@@ -12,15 +12,21 @@
 #   AIUR_TAIL_LINES         (default 45)  — log lines per agent
 #   AIUR_INCLUDE_STALE=1                  — include stale agents too (status-only)
 #
-# Usage: tail-agents.sh [path/to/.aiurconfig]   (defaults to ./.aiurconfig)
+# Usage: tail-agents.sh [path/to/config]
+#   Defaults to ./.aiur/config (current layout), falling back to ./.aiurconfig (legacy).
 set -euo pipefail
 
-config="${1:-.aiurconfig}"
+config="${1:-}"
+if [ -z "$config" ]; then
+  if [ -f .aiur/config ]; then config=".aiur/config"
+  elif [ -f .aiurconfig ]; then config=".aiurconfig"
+  else config=".aiur/config"; fi
+fi
 window_min="${AIUR_ACTIVE_WINDOW_MIN:-15}"
 tail_lines="${AIUR_TAIL_LINES:-45}"
 include_stale="${AIUR_INCLUDE_STALE:-0}"
 
-[ -f "$config" ] || { echo "no .aiurconfig at: $config" >&2; exit 1; }
+[ -f "$config" ] || { echo "no aiur config found (looked for .aiur/config and .aiurconfig): $config" >&2; exit 1; }
 
 # Resolve workspace.root from the YAML (top-level `workspace:` -> `root:`).
 root="$(awk '
