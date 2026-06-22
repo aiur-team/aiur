@@ -198,6 +198,31 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_pull_request_head_ref/2" do
+    test "returns the PR head branch ref" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/repos/owner/repo/pulls/21"
+        {:ok, %{status: 200, body: %{"head" => %{"ref" => "aiur/7"}}}}
+      end
+
+      assert {:ok, "aiur/7"} = Client.fetch_pull_request_head_ref(21, request_fun: request_fun)
+    end
+
+    test "surfaces a non-200 status as an error" do
+      request_fun = fn _ -> {:ok, %{status: 404}} end
+
+      assert {:error, {:github_api_status, 404}} =
+               Client.fetch_pull_request_head_ref(21, request_fun: request_fun)
+    end
+
+    test "errors when the head ref is missing from the payload" do
+      request_fun = fn _ -> {:ok, %{status: 200, body: %{"head" => %{}}}} end
+
+      assert {:error, :head_ref_missing} =
+               Client.fetch_pull_request_head_ref(21, request_fun: request_fun)
+    end
+  end
+
   describe "fetch_classified_pr_review_comments/2" do
     test "labels CODEOWNER review comments authoritative" do
       repo_root = codeowners_repo!("* @owner")

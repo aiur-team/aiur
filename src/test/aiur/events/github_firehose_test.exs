@@ -151,6 +151,71 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
     end
 
+    test "IssueCommentEvent on a PR re-keys to the ticket id via the head ref" do
+      # A PR-conversation comment fires as an IssueCommentEvent keyed by
+      # the PR's number (21), but the agent owns ticket 7. The firehose
+      # resolves PR 21 -> aiur/7 -> ticket 7 so the topic matches.
+      :ok = Exchange.subscribe("ticket.7.issue.commented")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e5")}],
+           body: [
+             %{
+               "type" => "IssueCommentEvent",
+               "actor" => %{"login" => "dan"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "issue" => %{"number" => 21, "pull_request" => %{"url" => "x"}},
+                 "comment" => %{"id" => 777, "body" => "ping"}
+               }
+             }
+           ]
+         }}
+      end
+
+      pr_lookup = fn 21 -> {:ok, "aiur/7"} end
+
+      assert {:ok, %{count: 1}} =
+               GithubFirehose.poll(request_fun: stub, pr_lookup_fun: pr_lookup)
+
+      assert_receive {:event, %{topic: "ticket.7.issue.commented"}}, 500
+    end
+
+    test "IssueCommentEvent on a PR falls back to the raw number when resolution fails" do
+      # Lookup error (network/rate-limit) or a non-aiur head ref must not
+      # drop the event — degrade to the pre-resolution behavior.
+      :ok = Exchange.subscribe("ticket.21.issue.commented")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e6")}],
+           body: [
+             %{
+               "type" => "IssueCommentEvent",
+               "actor" => %{"login" => "dan"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "issue" => %{"number" => 21, "pull_request" => %{"url" => "x"}},
+                 "comment" => %{"id" => 778, "body" => "ping"}
+               }
+             }
+           ]
+         }}
+      end
+
+      pr_lookup = fn 21 -> {:error, :boom} end
+
+      assert {:ok, %{count: 1}} =
+               GithubFirehose.poll(request_fun: stub, pr_lookup_fun: pr_lookup)
+
+      assert_receive {:event, %{topic: "ticket.21.issue.commented"}}, 500
+    end
+
     # Regression: the Events API returns the same historical event on
     # every poll within its ~24h window. Without dedup, a single
     # `pr.opened` becomes one `📤 opened a PR` row per poll cycle.

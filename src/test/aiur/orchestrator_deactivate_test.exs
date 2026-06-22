@@ -645,6 +645,105 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "issue.commented firehose reactivation (subscriber wiring)" do
+    test "topic parser extracts the ticket number from a valid topic" do
+      assert {:ok, "7"} =
+               Orchestrator.parse_issue_commented_topic_for_test("ticket.7.issue.commented")
+    end
+
+    test "topic parser rejects unrelated topics" do
+      for unrelated <- [
+            "ticket.7.pr.review_comment",
+            "ticket.7.issue.comment",
+            "ticket.7.issue.commented.extra",
+            "ticket.7.pr.opened",
+            "system.repo.branch.push"
+          ] do
+        assert :nomatch = Orchestrator.parse_issue_commented_topic_for_test(unrelated)
+      end
+    end
+
+    test "reactivates a :deactivated entry on ticket.<N>.issue.commented" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-issue-commented-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-issue-commented-1"
+      # The firehose resolves PR-conversation comments back to the ticket
+      # id before publishing, so the topic number is the agent identifier.
+      issue_identifier = "7"
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        {:noreply, next} =
+          Orchestrator.handle_info(
+            {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+            state
+          )
+
+        entry = Map.fetch!(next.running, issue_id)
+        refute get_in(entry, [:control, :status]) == :deactivated
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "leaves an unmatched ticket number untouched" do
+      issue_id = "issue-issue-commented-2"
+      issue_identifier = "7"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: issue_identifier,
+            issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :deactivated}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      # A comment whose topic number matches no running entry is a no-op.
+      assert {:noreply, ^state} =
+               Orchestrator.handle_info(
+                 {:event, %{topic: "ticket.999.issue.commented"}},
+                 state
+               )
+    end
+  end
+
   describe "pause-request topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid agent.pause.request topic" do
       assert {:ok, "100"} =
