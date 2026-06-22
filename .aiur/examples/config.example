@@ -1,9 +1,4 @@
-# aiur configuration — annotated reference.
-#
-# `aiurdev init` copies this file and fills the {{PLACEHOLDERS}} from your
-# answers. Settings shown uncommented are the essentials; the commented
-# blocks are advanced knobs with their defaults — uncomment and edit only
-# what you need. Anything omitted falls back to its built-in default.
+# aiur configuration — annotated reference. `aiur init` fills {{PLACEHOLDERS}}; uncommented = essentials, commented = advanced defaults, omitted = built-in default.
 
 # === Issue tracker ===
 tracker:
@@ -11,9 +6,7 @@ tracker:
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, cancelled, canceled]
 {{TRACKER_PROVIDER}}
-  # provider blocks (one is filled above from your answers):
-  #   github: { repo: owner/name, label_prefix: agent, bot_account: my-bot }
-  #   linear: { api_key: $LINEAR_API_KEY, project_slug: my-project, assignee: dev@example.com }
+  # provider block (filled above): github {repo, label_prefix, bot_account} | linear {api_key, project_slug, assignee}
 
 # === Coding agents ===
 agent:
@@ -46,13 +39,7 @@ workspace:
 prompt_file: {{PROMPT_FILE}}             # per-repo agent prompt appended to each turn
 
 # === Workspace bootstrap hooks ===
-# Shell aiur runs inside each per-issue workspace (these are NOT git hooks and
-# never touch your real checkout). They live in a separate `.aiur/hooks` file so
-# the multi-line scripts stay out of this config and a coding agent can
-# regenerate them independently. `aiur init` scaffolds `.aiur/hooks` from the
-# bundled example — edit it to fit your repo's toolchain. The path is resolved
-# relative to this config, so the value is just `hooks`.
-# (You can also inline a `hooks:` block here instead of using `hooks_file:`.)
+# Workspace shell hooks (NOT git hooks) in a separate `.aiur/hooks` file, path relative to this config; inline a `hooks:` block here instead if you prefer.
 hooks_file: hooks
 
 # === Polling / concurrency ===
