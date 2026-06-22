@@ -4,16 +4,6 @@ defmodule Aiur.OrchestratorMaxDurationTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator
 
-  # A live process that swallows whatever control messages the
-  # orchestrator sends it, so `send_pause_control_message` /
-  # `send_resume_control_message` resolve to `{:ok, _}` instead of
-  # `{:error, :agent_finished}`.
-  defp fake_agent_loop do
-    receive do
-      _ -> fake_agent_loop()
-    end
-  end
-
   defp working_entry(issue_id, identifier, started_at, pid) do
     %{
       pid: pid,
@@ -73,13 +63,25 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       identifier = "DUR-1"
       old = DateTime.add(DateTime.utc_now(), -3_600, :second)
 
-      state = state_with(%{issue_id => working_entry(issue_id, identifier, old, nil)})
+      # pid: self() so the cooperative {:pause_agent} control message is
+      # actually delivered (and assertable) rather than silently dropped
+      # as {:error, :agent_finished}.
+      state = state_with(%{issue_id => working_entry(issue_id, identifier, old, self())})
+
+      # Seed an unrelated retry so "no retry scheduled" is a real assertion
+      # against a non-empty map, not a vacuous pass on the empty default.
+      state = %{state | retry_attempts: %{"other-issue" => %{identifier: "X", error: "stalled"}}}
 
       next = Orchestrator.apply_overrun_check_for_test(state, 60)
 
-      # Entry survives — pausing keeps the agent in the list, not killed.
+      # The worker is told to park cooperatively — this is the load-bearing
+      # behavior that replaced the old terminate+retry kill.
+      assert_receive {:pause_agent, request_id} when is_integer(request_id)
+
+      # Entry survives — pausing keeps the agent in the list, not killed —
+      # and no retry is scheduled for it (the kill path is gone).
       assert Map.has_key?(next.running, issue_id)
-      refute Map.has_key?(next.retry_attempts, issue_id)
+      assert next.retry_attempts == state.retry_attempts
 
       entry = next.running[issue_id]
       assert get_in(entry, [:control, :status]) == :paused
@@ -117,19 +119,15 @@ defmodule Aiur.OrchestratorMaxDurationTest do
   end
 
   describe "resuming a duration-paused agent" do
-    setup do
-      pid = spawn_link(fn -> fake_agent_loop() end)
-      %{pid: pid}
-    end
-
-    test "flips back to :working, clears the reason, and hands a fresh budget", %{pid: pid} do
+    test "flips back to :working, clears the reason, and hands a fresh budget" do
       issue_id = "issue-dur-resume"
       identifier = "DUR-RESUME"
       old = DateTime.add(DateTime.utc_now(), -7_200, :second)
 
+      # pid: self() so we can assert the worker is told to resume.
       entry =
         issue_id
-        |> working_entry(identifier, old, pid)
+        |> working_entry(identifier, old, self())
         |> Map.merge(%{
           control: %{status: :paused},
           paused_reason: :max_agent_duration,
@@ -140,6 +138,8 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       assert {{:ok, :resumed}, next} =
                Orchestrator.resume_paused_issue_for_test(state, state.running[issue_id])
+
+      assert_receive {:resume_agent, request_id} when is_integer(request_id)
 
       resumed = next.running[issue_id]
       assert get_in(resumed, [:control, :status]) == :working
@@ -154,7 +154,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert get_in(rechecked.running, [issue_id, :control, :status]) == :working
     end
 
-    test "a manual pause (no duration reason) keeps its accrued runtime on resume", %{pid: pid} do
+    test "a manual pause (no duration reason) keeps its accrued runtime on resume" do
       issue_id = "issue-manual-resume"
       identifier = "MAN-RESUME"
       started = DateTime.add(DateTime.utc_now(), -300, :second)
@@ -162,7 +162,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       entry =
         issue_id
-        |> working_entry(identifier, started, pid)
+        |> working_entry(identifier, started, self())
         |> Map.merge(%{control: %{status: :paused}, paused_at: paused_at})
 
       state = state_with(%{issue_id => entry})
@@ -178,6 +178,40 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       # interval (~100s); it is NOT reset to now, so the accrued ~200s of
       # active runtime is preserved.
       assert DateTime.diff(DateTime.utc_now(), resumed.started_at, :second) > 150
+    end
+
+    test "resume is refused at the concurrency cap and leaves the duration pause intact" do
+      paused_id = "issue-dur-capped"
+      active_id = "issue-active-holder"
+      old = DateTime.add(DateTime.utc_now(), -7_200, :second)
+
+      paused_entry =
+        paused_id
+        |> working_entry("DUR-CAPPED", old, self())
+        |> Map.merge(%{
+          control: %{status: :paused},
+          paused_reason: :max_agent_duration,
+          paused_at: old
+        })
+
+      # A single active agent already occupies the only slot.
+      active_entry = working_entry(active_id, "ACTIVE-1", DateTime.utc_now(), self())
+
+      state = %{
+        state_with(%{paused_id => paused_entry, active_id => active_entry})
+        | max_concurrent_agents: 1
+      }
+
+      assert {{:error, :max_concurrent_agents_reached}, next} =
+               Orchestrator.resume_paused_issue_for_test(state, state.running[paused_id])
+
+      # The refused resume must not wake the worker, clear the reason, or
+      # reset the duration clock — the agent stays duration-paused.
+      refute_received {:resume_agent, _request_id}
+      paused = next.running[paused_id]
+      assert get_in(paused, [:control, :status]) == :paused
+      assert paused.paused_reason == :max_agent_duration
+      assert paused.started_at == old
     end
   end
 end
