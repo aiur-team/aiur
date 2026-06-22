@@ -88,6 +88,12 @@ defmodule Aiur.AgentList.Input do
 
   defp dispatch("\e", target, input_fun) do
     case input_fun.() do
+      # Raw mode (`min 0 time 1`) makes a read return "" on a 0.1s timeout. Under
+      # lag the bytes of an arrow-key sequence (`\e` `[` `C`) can be split across
+      # that boundary, so an empty read can land between `\e` and `[`. Skip it and
+      # keep waiting for the next byte instead of dropping the whole sequence —
+      # `read_csi/3` already treats mid-sequence empties this way.
+      "" -> dispatch("\e", target, input_fun)
       "[" -> read_csi(target, input_fun, "")
       _ -> :ok
     end

@@ -44,6 +44,23 @@ defmodule Aiur.AgentList.InputTest do
     assert_receive {:adjust_max, 1}, 500
   end
 
+  test "lagged arrow keys (empty timeout reads split the escape sequence) still adjust max" do
+    {:ok, target} = start_supervised({Target, self()}, id: :target_lagged)
+
+    # Under raw mode (`min 0 time 1`), a read can return "" (a 0.1s timeout)
+    # between the bytes of an escape sequence when the terminal/BEAM is lagging.
+    # The parser must skip those empty reads rather than dropping the keypress.
+    input = input_fun(["\e", "", "[", "", "D", "", "\e", "[", "", "C", :eof])
+
+    start_supervised!(
+      {Input, target: target, input_fun: input, skip_raw_mode: true},
+      id: :input_lagged
+    )
+
+    assert_receive {:adjust_max, -1}, 500
+    assert_receive {:adjust_max, 1}, 500
+  end
+
   test "capital-O dispatches activate_new_pane" do
     {:ok, target} = start_supervised({Target, self()})
     input = input_fun(["O", :eof])
