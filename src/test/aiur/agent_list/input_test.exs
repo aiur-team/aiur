@@ -61,6 +61,35 @@ defmodule Aiur.AgentList.InputTest do
     assert_receive {:adjust_max, 1}, 500
   end
 
+  test "a single empty read between ESC and `[` does not drop the arrow key" do
+    {:ok, target} = start_supervised({Target, self()}, id: :target_gap)
+
+    # Isolates the exact regression: the empty timeout read lands in the
+    # `\e`→`[` gap (not mid-CSI), so a failure here points straight at the
+    # `dispatch("\e")` empty-skip clause.
+    input = input_fun(["\e", "", "[", "C", :eof])
+
+    start_supervised!(
+      {Input, target: target, input_fun: input, skip_raw_mode: true},
+      id: :input_gap
+    )
+
+    assert_receive {:adjust_max, 1}, 500
+  end
+
+  test "a lone ESC with no following byte is a no-op" do
+    {:ok, target} = start_supervised({Target, self()}, id: :target_lone_esc)
+
+    input = input_fun(["\e", :eof])
+
+    start_supervised!(
+      {Input, target: target, input_fun: input, skip_raw_mode: true},
+      id: :input_lone_esc
+    )
+
+    refute_receive {:adjust_max, _}, 200
+  end
+
   test "capital-O dispatches activate_new_pane" do
     {:ok, target} = start_supervised({Target, self()})
     input = input_fun(["O", :eof])
