@@ -90,18 +90,21 @@ defmodule Aiur.LogFile do
   """
   @spec apply_config_debug() :: :ok
   def apply_config_debug do
-    if not debug_enabled?() and config_debug?() do
+    if not debug_enabled?() and config_file_debug?() do
       System.put_env("AIUR_DEBUG", "1")
     end
 
     :ok
   end
 
-  defp config_debug? do
-    case Aiur.Config.settings() do
-      {:ok, %{debug: true}} -> true
-      _ -> false
-    end
+  # Reads the `debug` key from the resolved config file. Failure-safe: this
+  # runs in `Application.start/2` before the supervision tree exists, so any
+  # error or raise (e.g. a legacy config key that `Schema.parse` rejects with
+  # an ArgumentError) must leave debug off rather than crash boot.
+  defp config_file_debug? do
+    match?({:ok, %{debug: true}}, Aiur.Config.settings())
+  rescue
+    _ -> false
   end
 
   @spec configure() :: :ok

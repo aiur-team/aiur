@@ -250,8 +250,27 @@ defmodule Aiur.LogFileTest do
       assert System.get_env("AIUR_DEBUG") == "true"
     end
 
+    test "preserves a truthy-alias flag verbatim even when config also wants debug", %{dir: dir} do
+      # When the flag is already on, config must be a no-op — it must not
+      # normalize the operator's flag value (e.g. "true" -> "1").
+      System.put_env("AIUR_DEBUG", "true")
+      write_config!(dir, "tracker:\n  kind: memory\ndebug: true\n")
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == "true"
+    end
+
     test "is failure-safe when the config cannot be read", %{dir: dir} do
       Aiur.Workflow.set_workflow_file_path(Path.join(dir, "does-not-exist"))
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == nil
+    end
+
+    test "is failure-safe when the config raises during schema validation", %{dir: dir} do
+      # A legacy `polling.interval_ms` key makes Schema.parse raise; the boot
+      # bridge must swallow it and leave debug off rather than crash start/2.
+      write_config!(dir, "tracker:\n  kind: memory\npolling:\n  interval_ms: 1000\ndebug: true\n")
 
       assert :ok = LogFile.apply_config_debug()
       assert System.get_env("AIUR_DEBUG") == nil
