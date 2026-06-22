@@ -21,6 +21,11 @@ npm install -g aiur-cli
 Requires [tmux](https://github.com/tmux/tmux) at runtime. Install
 [opencode](https://opencode.ai) too for in-pane agent chat.
 
+When a newer `aiur-cli` is published, a one-line update notice is printed to
+stderr (checked in the background at most once a day, never blocking your
+command). Set `AIUR_NO_UPDATE_NOTIFIER=1` to silence it; it is also skipped under
+CI (`CI=true`).
+
 ## Get started
 
 ```bash

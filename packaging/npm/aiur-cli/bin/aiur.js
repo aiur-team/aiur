@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 "use strict";
 
-const { spawnSync } = require("node:child_process");
+const { spawnSync, spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
+const os = require("node:os");
 
 // Node's spawnSync reports a missing executable via `result.error`; some
 // runtimes (e.g. Bun) throw instead. Normalize to the error-return shape so a
@@ -201,6 +202,228 @@ function ensureOpencode() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Update notifier
+//
+// When a newer aiur-cli is published, surface a one-line "update available"
+// notice — npm-update-notifier style: every run reads a small cache file and
+// prints from it; the registry is only hit in a detached background worker,
+// at most once per interval, so the check never blocks or errors the command.
+// The notice always goes to stderr so piped stdout stays clean.
+//
+// This file is its own background worker: main() re-spawns it with
+// AIUR_UPDATE_NOTIFIER_WORKER=1 set, which short-circuits to runUpdateWorker().
+// Keeps the launcher dependency-free (a tiny semver compare + https.get).
+// ---------------------------------------------------------------------------
+
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+const REGISTRY_LATEST_URL = "https://registry.npmjs.org/aiur-cli/latest";
+// Unpublished/source builds carry this sentinel; never nag on a dev checkout.
+const DEV_VERSION = "0.0.0";
+
+function currentVersion() {
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
+    );
+    return typeof pkg.version === "string" ? pkg.version : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Minimal semver: parse major.minor.patch with an optional prerelease tag.
+// Enough for the launcher's own clean release versions — not a full spec impl.
+// The regex is fully anchored (and tolerates a +build suffix) so a registry- or
+// cache-supplied string with trailing junk — e.g. control/ANSI bytes meant to
+// hijack the terminal when the notice is printed — fails to parse and is treated
+// as not-newer rather than reaching printUpdateNotice verbatim.
+function parseSemver(value) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    String(value).trim(),
+  );
+  if (!match) return null;
+  return { major: +match[1], minor: +match[2], patch: +match[3], pre: match[4] || "" };
+}
+
+// True when `a` is strictly newer than `b`. A release outranks a prerelease at
+// the same core version (1.0.0 > 1.0.0-rc.1); unparseable input is never newer.
+function semverGt(a, b) {
+  const pa = parseSemver(a);
+  const pb = parseSemver(b);
+  if (!pa || !pb) return false;
+  if (pa.major !== pb.major) return pa.major > pb.major;
+  if (pa.minor !== pb.minor) return pa.minor > pb.minor;
+  if (pa.patch !== pb.patch) return pa.patch > pb.patch;
+  if (pa.pre === pb.pre) return false;
+  if (!pa.pre) return true; // a is a release, b is a prerelease
+  if (!pb.pre) return false; // a is a prerelease, b is a release
+  return pa.pre > pb.pre; // both prereleases: lexical tiebreak
+}
+
+function cacheFile() {
+  const base = process.env.XDG_CACHE_HOME
+    ? path.join(process.env.XDG_CACHE_HOME, "aiur")
+    : path.join(os.homedir(), ".aiur");
+  return path.join(base, "update-check.json");
+}
+
+function readCache() {
+  try {
+    return JSON.parse(fs.readFileSync(cacheFile(), "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeCache(data) {
+  try {
+    const file = cacheFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // Write-then-rename so a reader never sees a half-written file: if the
+    // detached worker is killed mid-write, or two workers race, the rename is
+    // atomic on POSIX and a torn cache can't trigger a respawn-every-run loop.
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data));
+    fs.renameSync(tmp, file);
+  } catch (_) {
+    // A missing-cache write must never break the run; silently skip.
+  }
+}
+
+// Treat any non-falsy CI value except an explicit "false"/"0" as a CI run.
+function isCI() {
+  const value = process.env.CI;
+  return !!value && value !== "false" && value !== "0";
+}
+
+function notifierDisabled(current) {
+  return (
+    process.env.AIUR_NO_UPDATE_NOTIFIER === "1" ||
+    isCI() ||
+    !current ||
+    current === DEV_VERSION
+  );
+}
+
+function printUpdateNotice(current, latest) {
+  process.stderr.write(
+    `aiur: a new version is available — ${current} → ${latest}\n` +
+      "      update: npm install -g aiur-cli@latest\n",
+  );
+}
+
+// Synchronous, fast, never-throwing: print from cache when a newer version is
+// known, then kick off a detached refresh if the cache is stale. The notice is
+// TTY-gated so non-interactive/piped invocations stay quiet.
+function maybeNotifyUpdate() {
+  try {
+    const current = currentVersion();
+    if (notifierDisabled(current)) return;
+
+    const cache = readCache();
+    if (
+      cache &&
+      cache.latest &&
+      process.stderr.isTTY &&
+      semverGt(cache.latest, current)
+    ) {
+      printUpdateNotice(current, cache.latest);
+    }
+
+    const stale =
+      !cache ||
+      typeof cache.lastCheck !== "number" ||
+      Date.now() - cache.lastCheck > UPDATE_CHECK_INTERVAL_MS;
+    if (stale) spawnUpdateWorker();
+  } catch (_) {
+    // The version check is best-effort; never let it affect the command.
+  }
+}
+
+function spawnUpdateWorker() {
+  try {
+    const child = spawn(process.execPath, [__filename], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, AIUR_UPDATE_NOTIFIER_WORKER: "1" },
+    });
+    child.unref();
+  } catch (_) {
+    // If we can't detach a worker, just skip — the next run retries.
+  }
+}
+
+// Fetch the `latest` dist-tag's version. Bounded by a timeout and a response
+// cap; any error resolves to null so the worker stays silent when offline.
+function fetchLatestVersion(url, done) {
+  let settled = false;
+  const finish = (value) => {
+    if (settled) return;
+    settled = true;
+    done(value);
+  };
+  try {
+    const transport = url.startsWith("http://") ? require("node:http") : require("node:https");
+    const req = transport.get(
+      url,
+      { headers: { Accept: "application/json" }, timeout: 5000 },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return finish(null);
+        }
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+          // Abort an oversized body. req.destroy() emits only "close" (no "end"
+          // or "error"), so resolve here explicitly — otherwise the worker would
+          // hang forever and never stamp the cache, respawning on every run.
+          if (body.length > 1_000_000) {
+            req.destroy();
+            finish(null);
+          }
+        });
+        res.on("end", () => {
+          try {
+            const version = JSON.parse(body).version;
+            finish(typeof version === "string" ? version : null);
+          } catch (_) {
+            finish(null);
+          }
+        });
+      },
+    );
+    // A timeout's req.destroy() likewise emits only "close", so resolve here too
+    // rather than waiting on an event that never comes. "error" covers the
+    // connection-failure case (offline, refused).
+    req.on("timeout", () => {
+      req.destroy();
+      finish(null);
+    });
+    req.on("error", () => finish(null));
+  } catch (_) {
+    finish(null);
+  }
+}
+
+// Detached worker entrypoint: refresh the cache, then exit. Always stamps
+// lastCheck (even on failure) so an offline machine doesn't respawn every run.
+function runUpdateWorker() {
+  const previous = readCache();
+  const url = process.env.AIUR_REGISTRY_URL || REGISTRY_LATEST_URL;
+  fetchLatestVersion(url, (latest) => {
+    writeCache({
+      lastCheck: Date.now(),
+      // Keep the last known `latest` when the fetch fails so a transient outage
+      // doesn't drop a pending notice.
+      latest: latest || (previous && previous.latest) || null,
+    });
+    process.exit(0);
+  });
+}
+
 // `init` and `--version` run as foreground one-shots that never start the
 // tmux-backed UI, so their tmux/opencode provisioning is irrelevant — and tmux
 // may legitimately be absent on a machine that only ever runs `aiur init`.
@@ -214,6 +437,14 @@ function isForegroundOneShot(argv) {
 }
 
 function main() {
+  // Detached refresh worker: do only the registry check, never the real launch.
+  if (process.env.AIUR_UPDATE_NOTIFIER_WORKER === "1") {
+    runUpdateWorker();
+    return;
+  }
+
+  maybeNotifyUpdate();
+
   const releaseDir = resolveReleaseDir();
 
   if (!isForegroundOneShot(process.argv.slice(2))) {
