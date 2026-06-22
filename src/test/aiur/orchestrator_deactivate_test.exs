@@ -742,6 +742,36 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
     end
+
+    test "leaves a :working entry untouched (no re-dispatch on comment)" do
+      issue_id = "issue-issue-commented-3"
+      issue_identifier = "7"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: issue_identifier,
+            issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      # A live (:working) agent already sees the comment via its own
+      # subscription; the orchestrator must not re-dispatch it.
+      assert {:noreply, ^state} =
+               Orchestrator.handle_info(
+                 {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+                 state
+               )
+    end
   end
 
   describe "pause-request topic parser (subscriber wiring)" do

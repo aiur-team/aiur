@@ -244,9 +244,18 @@ defmodule Aiur.Events.GithubFirehose do
       # the ticket number.
       ticket_id = resolve_comment_ticket_id(issue, number, opts)
 
+      # `bypass_contamination`: a `:deactivated` ticket (agent in
+      # human-review) is intentionally excluded from the orchestrator's
+      # tracked set so the killed task's late `agent.*` events stay
+      # filtered. An inbound human comment, however, must still reach the
+      # orchestrator to reactivate that entry — so it skips the tracked
+      # filter. The orchestrator (and live agents) self-gate by
+      # subscription, so a comment on an untracked issue reaches no
+      # reactivation target.
       publish_opts = [
         actor: actor,
         issue_number: ticket_id,
+        bypass_contamination: true,
         dedup_key: comment_dedup_key(repo_name, "issue_comment", number, comment_id)
       ]
 

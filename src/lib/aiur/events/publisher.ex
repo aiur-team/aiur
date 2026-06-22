@@ -73,6 +73,15 @@ defmodule Aiur.Events.Publisher do
       bypasses filter (e.g. system topics like `system.main.branch.push`)
     * `:actor` — author login; if matches `bot_account`, drop
     * `:dedup_key` — `{repo, ref, sha}` triple; if set, dedup is applied
+    * `:bypass_contamination` — when `true`, skip the tracked-issue
+      filter for this publish. Used for external reactivation triggers
+      (firehose `issue.commented` / `pr.review_comment`): a `:deactivated`
+      ticket is intentionally absent from the tracked set (so the agent's
+      own late `agent.*` emissions stay filtered), but an inbound human
+      comment must still reach the orchestrator to reactivate it. The
+      `bot_self_loop?` and dedup gates still apply, and the orchestrator
+      and live agents self-gate by subscription, so untracked-issue
+      comments published this way reach no reactivation target.
   """
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped
@@ -83,7 +92,8 @@ defmodule Aiur.Events.Publisher do
       bot_self_loop?(actor) ->
         :filtered
 
-      not tracked?(Keyword.get(opts, :issue_number)) ->
+      not Keyword.get(opts, :bypass_contamination, false) and
+          not tracked?(Keyword.get(opts, :issue_number)) ->
         :filtered
 
       deduped?(Keyword.get(opts, :dedup_key)) ->

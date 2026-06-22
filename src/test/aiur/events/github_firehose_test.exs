@@ -216,6 +216,74 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.21.issue.commented"}}, 500
     end
 
+    test "IssueCommentEvent on a PR falls back to the raw number for a non-aiur head ref" do
+      # Resolution succeeds but the head ref is not a canonical aiur/<id>
+      # branch (e.g. a fork or renamed branch) — ref_to_topic rejects it,
+      # so the with/else falls through to the raw number.
+      :ok = Exchange.subscribe("ticket.21.issue.commented")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e7")}],
+           body: [
+             %{
+               "type" => "IssueCommentEvent",
+               "actor" => %{"login" => "dan"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "issue" => %{"number" => 21, "pull_request" => %{"url" => "x"}},
+                 "comment" => %{"id" => 779, "body" => "ping"}
+               }
+             }
+           ]
+         }}
+      end
+
+      pr_lookup = fn 21 -> {:ok, "feature/not-aiur"} end
+
+      assert {:ok, %{count: 1}} =
+               GithubFirehose.poll(request_fun: stub, pr_lookup_fun: pr_lookup)
+
+      assert_receive {:event, %{topic: "ticket.21.issue.commented"}}, 500
+    end
+
+    test "issue.commented passes the real tracked filter for an untracked/deactivated ticket" do
+      # A :deactivated ticket is excluded from the orchestrator's tracked
+      # set, so a naive publish would be :filtered. The bypass_contamination
+      # opt lets the reactivation comment through. Use a restrictive
+      # tracked_fn that rejects ticket 7 to prove the bypass fires.
+      Publisher.set_tracked_fn(fn n -> to_string(n) != "7" end)
+      :ok = Exchange.subscribe("ticket.7.issue.commented")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e8")}],
+           body: [
+             %{
+               "type" => "IssueCommentEvent",
+               "actor" => %{"login" => "dan"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "issue" => %{"number" => 21, "pull_request" => %{"url" => "x"}},
+                 "comment" => %{"id" => 780, "body" => "ping"}
+               }
+             }
+           ]
+         }}
+      end
+
+      pr_lookup = fn 21 -> {:ok, "aiur/7"} end
+
+      assert {:ok, %{count: 1}} =
+               GithubFirehose.poll(request_fun: stub, pr_lookup_fun: pr_lookup)
+
+      assert_receive {:event, %{topic: "ticket.7.issue.commented"}}, 500
+    end
+
     # Regression: the Events API returns the same historical event on
     # every poll within its ~24h window. Without dedup, a single
     # `pr.opened` becomes one `📤 opened a PR` row per poll cycle.
