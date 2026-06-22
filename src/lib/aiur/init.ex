@@ -17,6 +17,7 @@ defmodule Aiur.Init do
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Prompt
   alias Aiur.Prewarm.Detect
+  alias Aiur.RepoBase
 
   # New layout: aiur files live in a `.aiur/` folder (`.aiur/config`, `.aiur/hooks`,
   # `.aiur/prompt.md`, `.aiur/examples/`). `@config_file_name` is the repo-relative
@@ -96,6 +97,7 @@ defmodule Aiur.Init do
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
           detect_toolchain: (-> Detect.result()),
+          prewarm_build: (String.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
@@ -255,6 +257,7 @@ defmodule Aiur.Init do
         ensure_aiurhooks(io, deps, path)
         setup_env(io, deps, tracker)
         maybe_offer_gitignore(io, deps, location)
+        maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
 
       {:error, reason} ->
@@ -569,6 +572,29 @@ defmodule Aiur.Init do
     make it work on both Linux and macOS.
     """
   end
+
+  # On opt-in, build the warm base once during init (one-time clone + compile) so
+  # the first `aiur` run dispatches immediately. Mockable via deps for tests.
+  defp maybe_first_prewarm(io, deps, tracker, %{enabled: true, base_build: cmd})
+       when is_binary(cmd) and cmd != "" do
+    case tracker_repo(tracker) do
+      repo when is_binary(repo) and repo != "" ->
+        io.puts.("\nBuilding the warm base now — one-time clone + compile; later runs reuse it.")
+
+        case deps.prewarm_build.("https://github.com/#{repo}.git", cmd) do
+          {:ok, _path} ->
+            io.puts.("✅ Warm base ready.")
+
+          {:error, reason} ->
+            io.puts.(["⚠️  Warm base build failed (", inspect(reason), "); it retries on the next `aiur` run."])
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_first_prewarm(_io, _deps, _tracker, _prewarm), do: :ok
 
   # --- Template fill ---
 
@@ -997,6 +1023,7 @@ defmodule Aiur.Init do
       read_example: fn -> @example_template end,
       detect_repo: &detect_repo/0,
       detect_toolchain: &detect_toolchain/0,
+      prewarm_build: &run_first_prewarm/2,
       write_config: &write_config/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
@@ -1037,6 +1064,10 @@ defmodule Aiur.Init do
   end
 
   defp detect_toolchain, do: Detect.detect(File.cwd!())
+
+  defp run_first_prewarm(url, command) do
+    RepoBase.refresh(RepoBase.base_path(url), url, command)
+  end
 
   defp write_prompt_file(target, prompt_file, repo) do
     path = Path.expand(prompt_file, Path.dirname(target))

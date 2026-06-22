@@ -58,6 +58,10 @@ defmodule Aiur.InitTest do
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
         detect_toolchain: fn -> :none end,
+        prewarm_build: fn url, cmd ->
+          send(parent, {:prewarm_build, url, cmd})
+          {:ok, "/base"}
+        end,
         write_config: fn t, yaml ->
           File.mkdir_p!(Path.dirname(t))
           File.write!(t, yaml)
@@ -210,6 +214,9 @@ defmodule Aiur.InitTest do
       answers = github_answers(%{select: %{"Use this base build command?" => "use"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      # init runs the first warm-base build on opt-in
+      assert_received {:prewarm_build, _url, "mise exec -- mix compile"}
 
       config = File.read!(target)
       assert config =~ "enabled: true"
