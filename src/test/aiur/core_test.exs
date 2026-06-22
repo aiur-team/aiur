@@ -104,11 +104,11 @@ defmodule Aiur.CoreTest do
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
   end
 
-  test "current operator .aiurconfig file is valid and complete" do
+  test "current operator .aiur/config file is valid and complete" do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
-      Workflow.set_workflow_file_path(Path.expand("../.aiurconfig", File.cwd!()))
+      Workflow.set_workflow_file_path(Path.expand("../.aiur/config", File.cwd!()))
 
       assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
       assert is_map(config)
@@ -139,7 +139,7 @@ defmodule Aiur.CoreTest do
   test "checked-in workflow examples parse and portable examples stay generic" do
     workflow_paths =
       Path.wildcard("examples/workflows/*.aiurconfig") ++
-        Path.wildcard("../.aiurconfig")
+        Path.wildcard("../.aiur/config")
 
     assert Enum.any?(workflow_paths)
 
@@ -163,7 +163,7 @@ defmodule Aiur.CoreTest do
   test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
     workflow_paths = [
       "examples/workflows/github-codex.aiurconfig",
-      "../.aiurconfig"
+      "../.aiur/config"
     ]
 
     for path <- workflow_paths do
@@ -1092,10 +1092,10 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "in-repo operator .aiurconfig renders correctly" do
+  test "in-repo operator .aiur/config renders correctly" do
     workflow_path = Workflow.workflow_file_path()
 
-    Workflow.set_workflow_file_path(Path.expand("../.aiurconfig", File.cwd!()))
+    Workflow.set_workflow_file_path(Path.expand("../.aiur/config", File.cwd!()))
 
     issue = %Issue{
       identifier: "MT-616",

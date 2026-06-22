@@ -30,6 +30,7 @@ if config_env() == :test do
 
   workflow_file_path_for_tests =
     [
+      "../../.aiur/config",
       "../../.aiurconfig",
       "../test/fixtures/test.aiurconfig"
     ]

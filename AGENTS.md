@@ -6,10 +6,12 @@ operational practices that aren't in the main README.
 
 ## Layout
 
-- `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`,
-  `.aiur/prompt.md`, and `.aiur/examples/`. The `prompt_file:`/`hooks_file:` keys
-  point at sibling files resolved relative to the config. Run `aiur init` to
-  scaffold one; a re-run over a legacy root `.aiurconfig` offers to migrate it in.
+- `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`, and
+  `.aiur/prompt.md`. The `prompt_file:`/`hooks_file:` keys point at sibling files
+  resolved relative to the config. Run `aiur init` to scaffold these three; a re-run
+  over a legacy root `.aiurconfig` offers to migrate it in. This repo also tracks
+  `.aiur/examples/*.example` — the annotated templates `aiur init` embeds at compile
+  time (source-only; not copied into user repos).
   Discovery: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` → `~/.aiurconfig`.
 - `src/examples/workflows/` — portable example configs (Linear+Codex,
   GitHub+Codex, GitHub+Claude), each an `.aiurconfig` plus a `.prompt.md`

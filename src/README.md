@@ -36,7 +36,7 @@ git clone https://github.com/its-everdred/aiur
 cd aiur
 npm run setup                    # installs the toolchain (mise + erlang/elixir) and symlinks aiurdev
 #   (or, if you already have mise:  mise run setup)
-cd src && aiurdev init           # scaffolds .aiur/ (config, hooks, prompt.md, examples/) in the current repo
+cd src && aiurdev init           # scaffolds .aiur/ (config, hooks, prompt.md) in the current repo
 # Or copy a starter pair (the config's prompt_file: points at the sibling template):
 #   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
 #   cp examples/workflows/linear-codex.prompt.md linear-codex.prompt.md
@@ -64,8 +64,8 @@ back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`.
 ## Setup wizard (`aiur init`)
 
 `aiur init` is an interactive wizard that scaffolds your config and provisions the
-repo. aiur keeps its files in a `.aiur/` folder — `.aiur/config`, `.aiur/hooks`,
-`.aiur/prompt.md`, and `.aiur/examples/`. On a re-run it detects an existing config,
+repo. aiur keeps its files in a `.aiur/` folder — `.aiur/config`, `.aiur/hooks`, and
+`.aiur/prompt.md`. On a re-run it detects an existing config,
 prints your saved selections, and resumes — it never re-asks what you already
 answered. If it finds a legacy root-level `.aiurconfig`, it offers to migrate it
 into `.aiur/` (settings preserved); a declined migration keeps working unchanged. It

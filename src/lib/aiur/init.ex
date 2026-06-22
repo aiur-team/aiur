@@ -42,7 +42,7 @@ defmodule Aiur.Init do
   # turn template (Liquid), so it must reference the issue or the agent gets
   # no task. The `{{REPO}}` placeholder is init-filled (not Liquid); turn-time
   # `{{ issue.* }}` Liquid is preserved for PromptBuilder.
-  @prompt_example_path Path.expand("../../../AIUR.md.example", __DIR__)
+  @prompt_example_path Path.expand("../../../.aiur/examples/prompt.md.example", __DIR__)
   @external_resource @prompt_example_path
   @prompt_example_template File.read!(@prompt_example_path)
   @repo_placeholder "{{REPO}}"
@@ -63,18 +63,18 @@ defmodule Aiur.Init do
   @routing_order ["claude", "codex"]
 
   # Embed the annotated example at compile time so the wizard works from a
-  # release without a runtime file dependency. The canonical file lives at
-  # the repo root for humans to read.
-  @example_path Path.expand("../../../.aiurconfig.example", __DIR__)
+  # release without a runtime file dependency. aiur dogfoods the `.aiur/` layout,
+  # so the canonical templates live under `.aiur/examples/` in this repo.
+  @example_path Path.expand("../../../.aiur/examples/config.example", __DIR__)
   @external_resource @example_path
   @example_template File.read!(@example_path)
 
   # The scaffolded config references hooks via `hooks_file: hooks`, so init also
-  # writes a `.aiur/hooks` (from .aiurhooks.example) next to the config — otherwise
-  # the first run would fail resolving a missing hooks file. Embedded at compile
-  # time so the wizard works from a release with no runtime file dependency.
+  # writes a `.aiur/hooks` (from `.aiur/examples/hooks.example`) next to the config
+  # — otherwise the first run would fail resolving a missing hooks file. Embedded at
+  # compile time so the wizard works from a release with no runtime file dependency.
   @aiurhooks_file_name "hooks"
-  @aiurhooks_example_path Path.expand("../../../.aiurhooks.example", __DIR__)
+  @aiurhooks_example_path Path.expand("../../../.aiur/examples/hooks.example", __DIR__)
   @external_resource @aiurhooks_example_path
   @aiurhooks_example_template File.read!(@aiurhooks_example_path)
 
@@ -97,7 +97,6 @@ defmodule Aiur.Init do
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
-          ensure_examples: (Path.t() -> {:created | :exists, Path.t()}),
           add_gitignore_entry: (String.t() -> {:added | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
@@ -250,7 +249,6 @@ defmodule Aiur.Init do
         io.puts.(["Created: ", dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         ensure_aiurhooks(io, deps, path)
-        ensure_examples(io, deps, path)
         setup_env(io, deps, tracker)
         maybe_offer_gitignore(io, deps, location)
         provision(io, deps, tracker, agents)
@@ -581,15 +579,6 @@ defmodule Aiur.Init do
     case deps.ensure_aiurhooks.(target) do
       {:created, path} -> io.puts.(["Created: ", dim(path)])
       {:exists, _path} -> :ok
-    end
-  end
-
-  # Drop annotated `.aiur/examples/*.example` references next to the live config so
-  # the dev has a full template to copy from. Idempotent (overwrites the examples).
-  defp ensure_examples(io, deps, target) do
-    case deps.ensure_examples.(target) do
-      {:created, dir} -> io.puts.(["Created: ", dim(dir)])
-      {:exists, _dir} -> :ok
     end
   end
 
@@ -940,7 +929,6 @@ defmodule Aiur.Init do
       write_config: &write_config/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
-      ensure_examples: &write_examples/1,
       add_gitignore_entry: &add_gitignore_entry/1,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
@@ -997,18 +985,6 @@ defmodule Aiur.Init do
       File.write!(path, @aiurhooks_example_template)
       {:created, path}
     end
-  end
-
-  # Annotated templates the dev can copy from, dropped beside the live config at
-  # `.aiur/examples/{config,hooks,prompt.md}.example`. Always (re)written — they're
-  # reference material, not user-edited state.
-  defp write_examples(target) do
-    dir = Path.join(Path.dirname(target), @examples_dir)
-    File.mkdir_p!(dir)
-    File.write!(Path.join(dir, "config.example"), @example_template)
-    File.write!(Path.join(dir, "hooks.example"), @aiurhooks_example_template)
-    File.write!(Path.join(dir, "prompt.md.example"), @prompt_example_template)
-    {:created, dir}
   end
 
   # Append an entry to the repo's `.gitignore` (creating it if absent), unless the
