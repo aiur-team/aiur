@@ -70,11 +70,6 @@ defmodule Aiur.AgentList.Renderer do
   @ansi_green IO.ANSI.green()
   @ansi_red IO.ANSI.red()
   @ansi_reverse IO.ANSI.reverse()
-  # 256-color background for the selected agent-list row. 236 is a
-  # dark grey one or two shades lighter than the default terminal
-  # background — visible enough to mark the row without competing
-  # with text colors.
-  @ansi_selected_bg "\e[48;5;236m"
 
   @type state :: %{
           required(:summaries) => [AgentEvents.agent_summary()],
@@ -634,18 +629,20 @@ defmodule Aiur.AgentList.Renderer do
     row = [body, pad]
 
     if selected? do
-      # Fill the entire row width with a subtle background so the
-      # selected agent is visually obvious end-to-end. Each cell's
-      # `\e[0m` reset would otherwise clear the bg mid-row and
-      # leave a fragmented highlight; we re-apply
-      # `@ansi_selected_bg` immediately after every reset so the
-      # bg paints continuously through the whole row.
-      painted =
+      # Highlight the selected row with the terminal `reverse`/standout
+      # attribute rather than a fixed background color, so the row stays
+      # legible on both dark and light terminal themes (#366). Interior
+      # color SGRs are stripped first: under `reverse` a foreground color
+      # would invert into a background block and fragment the highlight,
+      # so the whole row inverts uniformly instead. OSC 8 ticket
+      # hyperlinks survive (strip_csi/1 leaves them intact). The closing
+      # `│` border stays un-inverted, matching the unselected rows.
+      highlighted =
         row
         |> IO.iodata_to_binary()
-        |> String.replace(@ansi_reset, @ansi_reset <> @ansi_selected_bg)
+        |> strip_csi()
 
-      [@ansi_selected_bg, painted, @ansi_reset, @ansi_gray, "│", @ansi_reset]
+      [@ansi_reverse, highlighted, @ansi_reset, @ansi_gray, "│", @ansi_reset]
     else
       [row, @ansi_gray, "│", @ansi_reset]
     end
@@ -1213,6 +1210,14 @@ defmodule Aiur.AgentList.Renderer do
       trimmed = truncate_visual(text, max(inner_width - 1, 0)) <> "…"
       [trimmed, String.duplicate(" ", max(inner_width - visual_width(trimmed), 0))]
     end
+  end
+
+  # Strip CSI sequences (colors, cursor moves) while leaving OSC 8
+  # hyperlink wrappers intact. Used to flatten a row's interior colors
+  # before wrapping it in the selected-row `reverse` highlight, without
+  # dropping the clickable ticket link.
+  defp strip_csi(text) do
+    Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]/, text, "")
   end
 
   defp strip_ansi(text) do

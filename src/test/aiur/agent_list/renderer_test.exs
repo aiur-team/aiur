@@ -135,6 +135,21 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "▶ MT-2"
   end
 
+  test "selected row uses a theme-aware reverse highlight, not a hardcoded background" do
+    summaries = [
+      %{identifier: "MT-1", status: :running, alert_count: 0},
+      %{identifier: "MT-2", status: :running, alert_count: 0}
+    ]
+
+    raw = render(base_state(%{summaries: summaries, selection_index: 1}))
+
+    # The selected row inverts via the terminal standout attribute so it
+    # stays legible on both dark and light terminal themes.
+    assert raw =~ IO.ANSI.reverse()
+    # No hardcoded 256-color background that assumes a dark terminal.
+    refute raw =~ "\e[48;5;236m"
+  end
+
   test "does not mark an agent row when the max control is focused" do
     summaries = [
       %{identifier: "MT-1", status: :running, alert_count: 0}
@@ -778,13 +793,22 @@ defmodule Aiur.AgentList.RendererTest do
     end
 
     test "percent: 100 tints the bar green and fills all 10 cells" do
-      summaries = [%{identifier: "MT-DONE", status: :running, alert_count: 0}]
+      # MT-DONE is rendered unselected (selection sits on MT-OTHER) so the
+      # green tint is asserted in isolation: the selected row flattens
+      # interior colors into its `reverse` highlight (see the theme-aware
+      # selection test above), which would otherwise strip this green.
+      summaries = [
+        %{identifier: "MT-DONE", status: :running, alert_count: 0},
+        %{identifier: "MT-OTHER", status: :running, alert_count: 0}
+      ]
+
       now_ms = System.monotonic_time(:millisecond)
 
       out =
         render(
           base_state(%{
             summaries: summaries,
+            selection_index: 1,
             columns: 200,
             progress_by_id: %{"MT-DONE" => [{100, now_ms}]},
             now_ms: now_ms
