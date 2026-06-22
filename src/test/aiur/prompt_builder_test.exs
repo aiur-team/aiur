@@ -74,4 +74,21 @@ defmodule Aiur.PromptBuilderTest do
 
     refute String.ends_with?(prompt, "   ")
   end
+
+  @tag config: @config
+  test "shared prompt points at the /aiur-agent skill for cross-ticket events" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+
+    assert String.contains?(prompt, "/aiur-agent")
+  end
+
+  @tag config: @config
+  test "shared prompt no longer inlines the cross-ticket event vocabulary" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+
+    # The allowlisted vocabulary now lives only in the /aiur-agent skill's
+    # event-taxonomy.md. Guards #382: no parallel copy in the pre-prompt.
+    refute String.contains?(prompt, "Event vocabulary (allowlisted")
+    refute String.contains?(prompt, "You can re-block")
+  end
 end
