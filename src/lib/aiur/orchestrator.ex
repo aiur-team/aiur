@@ -157,6 +157,11 @@ defmodule Aiur.Orchestrator do
   #
   #   * `ticket.*.pr.review_comment` — reactivate a `:deactivated`
   #     entry when a PR review comment lands.
+  #   * `ticket.*.issue.commented` — reactivate a `:deactivated` entry
+  #     when an issue or PR-conversation comment lands. The firehose
+  #     resolves PR-conversation comments back to the ticket id (via
+  #     the PR's `aiur/<id>` head ref) before publishing, so the topic
+  #     number matches the agent's identifier here.
   #   * `ticket.*.agent.pause.request` — when an agent emits
   #     pause.request it has decided to stop working. Flip its
   #     control status to `:paused` so `list_running_active_identifiers/0`
@@ -171,6 +176,7 @@ defmodule Aiur.Orchestrator do
   defp subscribe_to_orchestrator_topics do
     if Process.whereis(Exchange) do
       Exchange.subscribe("ticket.*.pr.review_comment")
+      Exchange.subscribe("ticket.*.issue.commented")
       Exchange.subscribe("ticket.*.agent.pause.request")
       Exchange.subscribe("ticket.*.branch.push")
     end
@@ -416,7 +422,10 @@ defmodule Aiur.Orchestrator do
   def handle_info({:event, %{topic: topic} = _event}, state) when is_binary(topic) do
     case classify_event_topic(topic) do
       {:pr_review_comment, identifier} ->
-        {:noreply, maybe_reactivate_on_pr_comment(state, identifier)}
+        {:noreply, maybe_reactivate_on_comment(state, identifier, "PR review comment")}
+
+      {:issue_commented, identifier} ->
+        {:noreply, maybe_reactivate_on_comment(state, identifier, "issue comment")}
 
       {:pause_request, identifier} ->
         {:noreply, maybe_pause_on_request(state, identifier)}
@@ -485,6 +494,13 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  defp parse_issue_commented_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.issue\.commented\z}, topic) do
+      [_, number] -> {:ok, number}
+      _ -> :nomatch
+    end
+  end
+
   defp parse_pause_request_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.agent\.pause\.request\z}, topic) do
       [_, identifier] -> {:ok, identifier}
@@ -505,6 +521,7 @@ defmodule Aiur.Orchestrator do
   # once to extract the identifier).
   defp classify_event_topic(topic) do
     with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
+         :nomatch <- tag_topic(:issue_commented, parse_issue_commented_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)) do
       tag_topic(:branch_push, parse_branch_push_topic(topic))
     end
@@ -513,10 +530,10 @@ defmodule Aiur.Orchestrator do
   defp tag_topic(tag, {:ok, identifier}), do: {tag, identifier}
   defp tag_topic(_tag, :nomatch), do: :nomatch
 
-  defp maybe_reactivate_on_pr_comment(%State{} = state, issue_number) do
+  defp maybe_reactivate_on_comment(%State{} = state, issue_number, source) do
     case find_running_by_identifier(state.running, issue_number) do
       running_entry when is_map(running_entry) ->
-        reactivate_if_deactivated(state, running_entry, issue_number)
+        reactivate_if_deactivated(state, running_entry, issue_number, source)
 
       _ ->
         state
@@ -706,9 +723,9 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp reactivate_if_deactivated(state, running_entry, issue_number) do
+  defp reactivate_if_deactivated(state, running_entry, issue_number, source) do
     if deactivated_running_entry?(running_entry) do
-      Logger.info("PR review comment reactivating: identifier=#{issue_number}")
+      Logger.info("#{source} reactivating: identifier=#{issue_number}")
 
       {_reply, next_state} = reactivate_issue(state, running_entry)
       next_state
@@ -906,6 +923,12 @@ defmodule Aiur.Orchestrator do
   @spec parse_pr_review_comment_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pr_review_comment_topic_for_test(topic) when is_binary(topic) do
     parse_pr_review_comment_topic(topic)
+  end
+
+  @doc false
+  @spec parse_issue_commented_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_issue_commented_topic_for_test(topic) when is_binary(topic) do
+    parse_issue_commented_topic(topic)
   end
 
   @doc false

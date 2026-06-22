@@ -21,6 +21,11 @@ defmodule Aiur.Events.GithubFirehose do
   | `IssueCommentEvent`                     | `ticket.<id>.issue.commented` |
   | `PullRequestReviewCommentEvent`         | `ticket.<id>.pr.review_comment` |
 
+  A PR-conversation comment arrives as an `IssueCommentEvent` keyed by
+  the PR's number; `<id>` above is resolved back to the originating
+  ticket via the PR's `aiur/<id>` head ref so the topic matches the
+  agent's identifier (see `resolve_comment_ticket_id/3`).
+
   Other event types are dropped silently. v1 keeps the surface narrow;
   add new types here as the brainstorm/use-cases call for them.
 
@@ -229,13 +234,32 @@ defmodule Aiur.Events.GithubFirehose do
     comment_id = Map.get(comment, "id")
 
     if is_integer(number) do
+      # A PR-conversation comment fires as an IssueCommentEvent whose
+      # `issue.number` is the PR's number, not the originating ticket's.
+      # Resolve it to the ticket id via the PR's `aiur/<id>` head ref so
+      # the topic matches the agent's identifier — the orchestrator
+      # reactivates a `:deactivated` entry and live agents subscribe by
+      # ticket id. Mirrors how PullRequestEvent already keys by head ref.
+      # Plain issue comments carry no `pull_request` key and already use
+      # the ticket number.
+      ticket_id = resolve_comment_ticket_id(issue, number, opts)
+
+      # `bypass_contamination`: a `:deactivated` ticket (agent in
+      # human-review) is intentionally excluded from the orchestrator's
+      # tracked set so the killed task's late `agent.*` events stay
+      # filtered. An inbound human comment, however, must still reach the
+      # orchestrator to reactivate that entry — so it skips the tracked
+      # filter. The orchestrator (and live agents) self-gate by
+      # subscription, so a comment on an untracked issue reaches no
+      # reactivation target.
       publish_opts = [
         actor: actor,
-        issue_number: number,
+        issue_number: ticket_id,
+        bypass_contamination: true,
         dedup_key: comment_dedup_key(repo_name, "issue_comment", number, comment_id)
       ]
 
-      {"ticket.#{number}.issue.commented", %{issue_number: number, comment: comment}, publish_opts}
+      {"ticket.#{ticket_id}.issue.commented", %{issue_number: ticket_id, comment: comment}, publish_opts}
     end
   end
 
@@ -259,6 +283,27 @@ defmodule Aiur.Events.GithubFirehose do
   end
 
   defp translate(_event, _opts), do: nil
+
+  # Resolve a comment's topic ticket id. For a PR-conversation comment
+  # (`issue.pull_request` present) look up the PR's `aiur/<id>` head ref
+  # and return `<id>`. On any failure — lookup error, or a non-`aiur/`
+  # branch — fall back to the raw number so the event still publishes
+  # rather than being dropped (matches pre-resolution behavior). A plain
+  # issue comment's number already IS the ticket id.
+  defp resolve_comment_ticket_id(issue, number, opts) do
+    if is_map(Map.get(issue, "pull_request")) do
+      lookup = Keyword.get(opts, :pr_lookup_fun, &Client.fetch_pull_request_head_ref/1)
+
+      with {:ok, head_ref} when is_binary(head_ref) <- lookup.(number),
+           {:ticket, id, _topic} <- ref_to_topic("refs/heads/" <> head_ref) do
+        id
+      else
+        _ -> number
+      end
+    else
+      number
+    end
+  end
 
   defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
   defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"

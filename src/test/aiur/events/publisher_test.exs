@@ -66,6 +66,34 @@ defmodule Aiur.Events.PublisherTest do
       assert count >= 1
       assert_receive {:event, _}, 500
     end
+
+    test "bypass_contamination skips the tracked filter for untracked issues" do
+      # A :deactivated ticket is intentionally absent from the tracked set,
+      # but an inbound human comment must still reach the orchestrator to
+      # reactivate it. bypass_contamination lets it through.
+      Publisher.set_tracked_fn(fn n -> n == 42 end)
+
+      :ok = Exchange.subscribe("ticket.99.issue.commented")
+
+      assert {:ok, _id, count} =
+               Publisher.publish("ticket.99.issue.commented", %{comment: %{}},
+                 issue_number: 99,
+                 bypass_contamination: true
+               )
+
+      assert count >= 1
+      assert_receive {:event, %{topic: "ticket.99.issue.commented"}}, 500
+    end
+
+    test "bypass_contamination still drops bot self-loop comments" do
+      # bot_account is "aiur-bot" (set in the workflow file at setup).
+      assert :filtered =
+               Publisher.publish("ticket.99.issue.commented", %{comment: %{}},
+                 issue_number: 99,
+                 bypass_contamination: true,
+                 actor: "aiur-bot"
+               )
+    end
   end
 
   describe "push dedup" do

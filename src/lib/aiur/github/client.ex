@@ -252,6 +252,36 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @doc """
+  Fetches a pull request's head branch ref (e.g. `"aiur/7"`) by number.
+  Used by `Aiur.Events.GithubFirehose` to resolve a PR-conversation
+  comment (which GitHub fires as an `IssueCommentEvent` keyed by the PR's
+  number) back to its originating ticket id.
+  """
+  @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def fetch_pull_request_head_ref(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: %{"head" => %{"ref" => ref}}}} when is_binary(ref) ->
+          {:ok, ref}
+
+        {:ok, %{status: 200}} ->
+          {:error, :head_ref_missing}
+
+        {:ok, %{status: status}} ->
+          {:error, {:github_api_status, status}}
+
+        {:error, reason} ->
+          {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number, opts \\ []) do
