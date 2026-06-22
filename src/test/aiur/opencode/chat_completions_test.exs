@@ -227,6 +227,21 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
     end
   end
 
+  describe "turn_idle_expired?/2 (inactivity watchdog)" do
+    test "true once silence reaches the watchdog window" do
+      assert ChatCompletions.turn_idle_expired?(600_000, 600_000)
+      assert ChatCompletions.turn_idle_expired?(600_001, 600_000)
+    end
+
+    test "false while real activity is still within the window (reschedule, no close)" do
+      # The watchdog timer fires 10 min after arming, but an
+      # actively-streaming turn keeps bumping last_event_at — so the
+      # measured silence is short and the stream must NOT close.
+      refute ChatCompletions.turn_idle_expired?(180_000, 600_000)
+      refute ChatCompletions.turn_idle_expired?(0, 600_000)
+    end
+  end
+
   describe "trailing_user_texts/1 (coalescing defenses)" do
     test "collects only the user run since the last assistant message" do
       body = %{

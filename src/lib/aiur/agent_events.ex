@@ -162,6 +162,7 @@ defmodule Aiur.AgentEvents do
     * `:error`       — `🔴` agent reported an error
     * `:done`        — `🏁` agent has fully finished (turn-completion broadcast reason)
     * `:deactivated` — `🏁` agent has stopped working for this iteration; ticket lives at 100% awaiting reactivation (PR comment, chat input, pause/resume, or label flip back to an active state)
+    * `:sleeping`    — `💤` the agent's chat-completion stream idle-closed (the watchdog saw no transcript activity for its inactivity window); the slot is still held and the next turn flips it back to `:working`
     * anything else (queued, idle, unknown) — `⚫` no live work state
   """
   @spec state_emoji(atom() | String.t() | nil) :: String.t()
@@ -175,6 +176,8 @@ defmodule Aiur.AgentEvents do
   def state_emoji("done"), do: "🏁"
   def state_emoji(:deactivated), do: "🏁"
   def state_emoji("deactivated"), do: "🏁"
+  def state_emoji(:sleeping), do: "💤"
+  def state_emoji("sleeping"), do: "💤"
   def state_emoji(_), do: "⚫"
 
   @spec agent_topic(agent_identifier()) :: String.t()

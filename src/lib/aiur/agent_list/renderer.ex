@@ -911,7 +911,7 @@ defmodule Aiur.AgentList.Renderer do
 
   defp summary_emoji(%{status: :running, identifier: identifier} = summary, markers, phase) do
     case Map.get(summary, :work_state) do
-      state when state in [:paused, "paused", :error, "error", :done, "done"] ->
+      state when state in [:paused, "paused", :error, "error", :done, "done", :sleeping, "sleeping"] ->
         AgentEvents.state_emoji(state)
 
       _ ->

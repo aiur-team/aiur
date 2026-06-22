@@ -561,6 +561,30 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # A bridge chat-completion stream idle-closed (the inactivity watchdog
+  # saw no transcript/event activity for its window). Flip a `:working`
+  # entry to `:sleeping` so every surface paints 💤
+  # (`AgentEvents.state_emoji/1`). A `:paused`/`:deactivated` entry keeps
+  # its more-specific state — sleeping never overrides those. The agent's
+  # slot is still held (`:sleeping` counts as active), and the next turn's
+  # `:worker_control_state :working` transitions it back to 🟢.
+  defp maybe_mark_sleeping(%State{} = state, identifier) do
+    case find_running_by_identifier(state.running, identifier) do
+      running_entry when is_map(running_entry) ->
+        existing_status =
+          (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
+
+        if existing_status == :working do
+          transition_control_status(state, running_entry, :sleeping, "stream.idle_close")
+        else
+          state
+        end
+
+      _ ->
+        state
+    end
+  end
+
   # `ticket.<blocker>.branch.push` arrived. For every paused running
   # entry that has this exact topic in its SubscriptionStore.snapshot
   # (i.e. it declared this ticket as a blocker via
@@ -885,6 +909,12 @@ defmodule Aiur.Orchestrator do
   @spec apply_pause_request_for_test(State.t(), String.t()) :: State.t()
   def apply_pause_request_for_test(%State{} = state, identifier) when is_binary(identifier) do
     maybe_pause_on_request(state, identifier)
+  end
+
+  @doc false
+  @spec apply_mark_sleeping_for_test(State.t(), String.t()) :: State.t()
+  def apply_mark_sleeping_for_test(%State{} = state, identifier) when is_binary(identifier) do
+    maybe_mark_sleeping(state, identifier)
   end
 
   @doc false
@@ -2586,6 +2616,22 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
+  @doc """
+  Mark a running agent as `:sleeping` (💤) because its chat-completion
+  stream idle-closed after the watchdog inactivity window. Fire-and-forget
+  cast from the opencode bridge — non-blocking for the closing stream, and
+  safe to call when no orchestrator is registered (the cast is dropped).
+  Only a `:working` entry sleeps; a `:paused`/`:deactivated` entry keeps
+  its more-specific state.
+  """
+  @spec mark_sleeping(String.t()) :: :ok
+  def mark_sleeping(issue_identifier), do: mark_sleeping(__MODULE__, issue_identifier)
+
+  @spec mark_sleeping(GenServer.server(), String.t()) :: :ok
+  def mark_sleeping(server, issue_identifier) when is_binary(issue_identifier) do
+    GenServer.cast(server, {:mark_sleeping, issue_identifier})
+  end
+
   @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
   def interrupt_agent(issue_identifier), do: interrupt_agent(__MODULE__, issue_identifier)
 
@@ -3878,6 +3924,11 @@ defmodule Aiur.Orchestrator do
   @impl true
   def handle_cast({:note_agent_activity, identifier}, state) do
     {:noreply, note_agent_activity_state(state, identifier)}
+  end
+
+  @impl true
+  def handle_cast({:mark_sleeping, identifier}, state) when is_binary(identifier) do
+    {:noreply, maybe_mark_sleeping(state, identifier)}
   end
 
   defp find_running_key_by_identifier(running, identifier) do

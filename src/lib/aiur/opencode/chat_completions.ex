@@ -257,35 +257,41 @@ defmodule Aiur.Opencode.ChatCompletions do
           codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
         end
 
+      # Inactivity watchdog. Armed once at stream open (`@watchdog_ms`
+      # after the SSE opens), but it is NOT an absolute wall-clock cap:
+      # when it fires we compare against `seg.last_event_at` (bumped only
+      # by real transcript/event deltas, never by the 15s heartbeat). If
+      # genuine activity happened since the timer was armed we reschedule
+      # for the remaining window, so an actively-streaming turn is never
+      # cut at the 10-minute mark — only true silence closes the stream.
       {:turn_watchdog, ^parent_id} ->
-        Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{parent_id}")
-        unsubscribe_stream(identifier)
+        silent_ms = now_ms() - seg.last_event_at
 
-        conn =
-          chunk(
-            conn,
-            completion_id,
-            "\n**system:** No turn activity in 10 minutes; closing stream.",
-            nil
-          )
+        if turn_idle_expired?(silent_ms, @watchdog_ms) do
+          Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{parent_id} silent_ms=#{silent_ms}")
+          # Paint the agent row 💤 (AgentEvents.state_emoji/1) so the
+          # operator sees the agent went to sleep on a genuinely idle
+          # stream. The next turn's `:worker_control_state :working`
+          # flips it back to 🟢.
+          Aiur.Orchestrator.mark_sleeping(identifier)
+          unsubscribe_stream(identifier)
 
-        chunk(conn, completion_id, nil, "timeout")
+          conn =
+            chunk(
+              conn,
+              completion_id,
+              "\n**system:** 💤 No turn activity in 10 minutes; closing stream.",
+              nil
+            )
+
+          chunk(conn, completion_id, nil, "timeout")
+        else
+          Process.send_after(self(), {:turn_watchdog, parent_id}, @watchdog_ms - silent_ms)
+          codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
+        end
 
       _other ->
         codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
-    after
-      @watchdog_ms ->
-        unsubscribe_stream(identifier)
-
-        conn =
-          chunk(
-            conn,
-            completion_id,
-            "\n**system:** No turn activity in 10 minutes; closing stream.",
-            nil
-          )
-
-        chunk(conn, completion_id, nil, "timeout")
     end
   end
 
@@ -372,6 +378,15 @@ defmodule Aiur.Opencode.ChatCompletions do
 
     elapsed_ms >= threshold_ms and silent_ms >= required_silence
   end
+
+  @doc false
+  # Turn-level inactivity check for the `{:turn_watchdog}` timer: true once
+  # the stream has been event-silent (no transcript/event delta — the 15s
+  # heartbeat does NOT bump `last_event_at`) for at least the watchdog
+  # window. Keeping this pure makes the idle-vs-reschedule decision
+  # unit-testable without Plug/process scaffolding.
+  @spec turn_idle_expired?(non_neg_integer(), pos_integer()) :: boolean()
+  def turn_idle_expired?(silent_ms, watchdog_ms), do: silent_ms >= watchdog_ms
 
   # Resolve the writer (serve base_url + session id) whose opencode issued
   # THIS chat-completion request — continuations must go only to the
