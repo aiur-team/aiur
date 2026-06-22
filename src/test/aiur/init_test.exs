@@ -318,6 +318,19 @@ defmodule Aiur.InitTest do
 
       refute_received {:migrate, _opts}
     end
+
+    test "resume migration passes ignore: true when the gitignore opt-in is accepted", %{dir: dir, target: target} do
+      legacy = Path.join(dir, ".aiurconfig")
+      File.write!(legacy, "tracker:\n  kind: memory\n")
+
+      answers = %{
+        confirm: %{"Migrate them into .aiur/ now?" => true, "Also add .aiur/ to .gitignore?" => true}
+      }
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      assert_received {:migrate, %{ignore: true}}
+    end
   end
 
   describe "migrate_layout/1" do
@@ -376,6 +389,7 @@ defmodule Aiur.InitTest do
       assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: true})
 
       assert File.read!(Path.join(repo, ".gitignore")) =~ ".aiur/"
+      refute File.regular?(legacy)
       {tracked, 0} = System.cmd("git", ["ls-files"], cd: repo)
       refute tracked =~ ".aiur/config"
     end
@@ -397,6 +411,107 @@ defmodule Aiur.InitTest do
 
       assert {:error, _reason} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
       refute File.regular?(new)
+    end
+
+    test "a write failure leaves the legacy config intact (move-order safety)", %{repo: repo} do
+      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
+      legacy = Path.join(repo, ".aiurconfig")
+      new = Path.join([repo, ".aiur", "config"])
+
+      # A read+execute-only .aiur/ dir makes writing .aiur/config fail mid-migration.
+      aiur_dir = Path.join(repo, ".aiur")
+      File.mkdir_p!(aiur_dir)
+      File.chmod!(aiur_dir, 0o500)
+
+      assert {:error, _reason} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
+      assert File.regular?(legacy)
+      refute File.regular?(new)
+
+      File.chmod!(aiur_dir, 0o755)
+    end
+
+    test "a pointer target outside the repo is never copied or deleted", %{repo: repo} do
+      outside = Path.join(System.tmp_dir!(), "aiur-outside-#{System.unique_integer([:positive])}.md")
+      File.write!(outside, "external prompt\n")
+      on_exit(fn -> File.rm_rf!(outside) end)
+
+      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nprompt_file: #{outside}\n")
+      legacy = Path.join(repo, ".aiurconfig")
+      new = Path.join([repo, ".aiur", "config"])
+
+      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
+
+      # external file untouched; pointer left absolute (still resolves) and not rewritten
+      assert File.regular?(outside)
+      refute File.regular?(Path.join([repo, ".aiur", "prompt.md"]))
+      assert File.read!(new) =~ "prompt_file: #{outside}"
+    end
+
+    test "a config with inline hooks (no hooks_file) migrates without a spurious pointer", %{repo: repo} do
+      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nhooks:\n  after_create: echo hi\n")
+      legacy = Path.join(repo, ".aiurconfig")
+      new = Path.join([repo, ".aiur", "config"])
+
+      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
+      cfg = File.read!(new)
+      refute cfg =~ "hooks_file:"
+      assert cfg =~ "after_create: echo hi"
+      refute File.regular?(Path.join([repo, ".aiur", "hooks"]))
+    end
+
+    test "a custom hooks_file path migrates to .aiur/hooks and rewrites the pointer", %{repo: repo} do
+      File.mkdir_p!(Path.join(repo, "scripts"))
+      File.write!(Path.join([repo, "scripts", "wh"]), "after_create: echo hi\n")
+      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nhooks_file: scripts/wh\n")
+      legacy = Path.join(repo, ".aiurconfig")
+      new = Path.join([repo, ".aiur", "config"])
+
+      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
+      assert File.regular?(Path.join([repo, ".aiur", "hooks"]))
+      assert File.read!(new) =~ "hooks_file: hooks"
+    end
+
+    test "a quoted prompt_file value containing a space is rewritten whole", %{repo: repo} do
+      File.write!(Path.join(repo, "my prompt.md"), "# p\n")
+      File.write!(Path.join(repo, ".aiurconfig"), ~s(tracker:\n  kind: memory\nprompt_file: "my prompt.md"\n))
+      legacy = Path.join(repo, ".aiurconfig")
+      new = Path.join([repo, ".aiur", "config"])
+
+      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
+      cfg = File.read!(new)
+      assert cfg =~ "prompt_file: prompt.md"
+      refute cfg =~ "my prompt.md"
+      assert File.regular?(Path.join([repo, ".aiur", "prompt.md"]))
+    end
+
+    test "ignore: true is idempotent — .aiur/ appears once in .gitignore", %{repo: repo} do
+      File.write!(Path.join(repo, ".gitignore"), ".aiur/\n")
+      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
+      legacy = Path.join(repo, ".aiurconfig")
+      new = Path.join([repo, ".aiur", "config"])
+
+      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: true})
+
+      occurrences =
+        Path.join(repo, ".gitignore")
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.count(&(String.trim(&1) == ".aiur/"))
+
+      assert occurrences == 1
+    end
+
+    test "the migrated config loads via Workflow.load", %{repo: repo} do
+      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nhooks_file: .aiurhooks\nprompt_file: AIUR.md\n")
+      File.write!(Path.join(repo, ".aiurhooks"), "after_create: echo hi\n")
+      File.write!(Path.join(repo, "AIUR.md"), "# prompt {{ issue.title }}\n")
+      legacy = Path.join(repo, ".aiurconfig")
+      new = Path.join([repo, ".aiur", "config"])
+
+      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
+      assert {:ok, loaded} = Workflow.load(new)
+      assert loaded.config["hooks"]["after_create"] == "echo hi"
+      assert loaded.prompt =~ "{{ issue.title }}"
     end
   end
 

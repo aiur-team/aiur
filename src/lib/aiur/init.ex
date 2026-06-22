@@ -69,8 +69,8 @@ defmodule Aiur.Init do
   @external_resource @example_path
   @example_template File.read!(@example_path)
 
-  # The scaffolded config references hooks via `hooks_file: .aiurhooks`, so init
-  # also writes a `.aiurhooks` (from this example) next to the config — otherwise
+  # The scaffolded config references hooks via `hooks_file: hooks`, so init also
+  # writes a `.aiur/hooks` (from .aiurhooks.example) next to the config — otherwise
   # the first run would fail resolving a missing hooks file. Embedded at compile
   # time so the wizard works from a release with no runtime file dependency.
   @aiurhooks_file_name "hooks"
@@ -211,7 +211,7 @@ defmodule Aiur.Init do
   end
 
   defp layout_label(:global), do: "~/.aiur/"
-  defp layout_label(_repo_local), do: ".aiur/"
+  defp layout_label(:repo_local), do: ".aiur/"
 
   defp fresh_setup(io, deps, location, target) do
     tracker = prompt_tracker(io, deps, location)
@@ -1061,12 +1061,16 @@ defmodule Aiur.Init do
 
     File.mkdir_p!(new_dir)
 
-    pointer_moves =
-      [
-        {pointer_src(base_dir, config["hooks_file"]), Path.join(new_dir, @aiurhooks_file_name)},
-        {pointer_src(base_dir, config["prompt_file"]), Path.join(new_dir, @prompt_basename)}
-      ]
-      |> Enum.reject(fn {src, _dest} -> is_nil(src) end)
+    # Resolve the referenced pointer files. `pointer_src/2` only returns a source
+    # that exists AND lives inside the repo — a `hooks_file:`/`prompt_file:` value
+    # pointing outside the repo (absolute or `../` traversal, or `~/shared`) is
+    # left in place, never copied or deleted.
+    pointers = [
+      {"hooks_file", pointer_src(base_dir, config["hooks_file"]), Path.join(new_dir, @aiurhooks_file_name)},
+      {"prompt_file", pointer_src(base_dir, config["prompt_file"]), Path.join(new_dir, @prompt_basename)}
+    ]
+
+    pointer_moves = for {_key, src, dest} <- pointers, not is_nil(src), do: {src, dest}
 
     example_moves =
       for {legacy_name, new_name} <- @legacy_examples,
@@ -1083,7 +1087,10 @@ defmodule Aiur.Init do
       end)
 
     # 2. Write the rewritten config — the new layout is now complete and loadable.
-    File.write!(new_config, rewrite_pointers(raw))
+    #    Only rewrite a pointer key whose file was actually migrated into `.aiur/`;
+    #    a key whose source stayed put keeps its original value (still resolves).
+    migrated_keys = for {key, src, _dest} <- pointers, not is_nil(src), do: key
+    File.write!(new_config, rewrite_pointers(raw, migrated_keys))
 
     # 3. Remove the legacy originals (config last is implicit: it's only removed
     #    once `new_config` exists above).
@@ -1096,7 +1103,7 @@ defmodule Aiur.Init do
     if ignore? do
       add_gitignore_entry(base_dir, @gitignore_entry)
     else
-      if git?, do: git(base_dir, ["add" | new_paths])
+      if git?, do: git(base_dir, ["add", "--" | new_paths])
     end
 
     {:ok, %{moved: new_paths}}
@@ -1108,17 +1115,28 @@ defmodule Aiur.Init do
 
   defp pointer_src(base, value) do
     src = Path.expand(value, base)
-    if File.regular?(src), do: src
+    if File.regular?(src) and inside?(base, src), do: src
   end
 
-  defp rewrite_pointers(raw) do
-    raw
-    |> replace_pointer_value("hooks_file", @aiurhooks_file_name)
-    |> replace_pointer_value("prompt_file", @prompt_basename)
+  # True when `path` is `base` itself or nested under it — guards the migration
+  # against copying/deleting a pointer target that resolves outside the repo
+  # (absolute, `~/...`, or `../` traversal).
+  defp inside?(base, path) do
+    base = Path.expand(base)
+    path = Path.expand(path)
+    path == base or String.starts_with?(path, base <> "/")
   end
 
+  defp rewrite_pointers(raw, keys) do
+    new_value = %{"hooks_file" => @aiurhooks_file_name, "prompt_file" => @prompt_basename}
+    Enum.reduce(keys, raw, fn key, acc -> replace_pointer_value(acc, key, new_value[key]) end)
+  end
+
+  # Rewrite the value of a top-level `key:` line, matching a double-quoted,
+  # single-quoted, or bare token so a quoted value containing spaces is replaced
+  # whole. Indented/nested keys and trailing inline comments are left untouched.
   defp replace_pointer_value(raw, key, new_value) do
-    Regex.replace(~r/^(#{key}:[ \t]*)\S+/m, raw, "\\1#{new_value}")
+    Regex.replace(~r/^(#{key}:[ \t]*)(?:"[^"]*"|'[^']*'|\S+)/m, raw, "\\1#{new_value}")
   end
 
   defp parse_yaml(raw) do
@@ -1142,7 +1160,7 @@ defmodule Aiur.Init do
   defp remove_path(path, base_dir, true) do
     rel = Path.relative_to(path, base_dir)
 
-    case git(base_dir, ["rm", "-q", "-f", rel]) do
+    case git(base_dir, ["rm", "-q", "-f", "--", rel]) do
       :ok -> :ok
       :error -> File.rm(path)
     end

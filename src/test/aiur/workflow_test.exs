@@ -112,6 +112,17 @@ defmodule Aiur.WorkflowTest do
       assert loaded.config["hooks"]["before_run"] == "mix deps.get"
     end
 
+    test "the new .aiur/config layout resolves hooks_file: hooks relative to .aiur/", %{dir: dir} do
+      aiur = Path.join(dir, ".aiur")
+      File.mkdir_p!(aiur)
+      File.write!(Path.join(aiur, "hooks"), "after_create: echo created\n")
+      path = Path.join(aiur, "config")
+      File.write!(path, "tracker:\n  kind: memory\nhooks_file: hooks\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["hooks"]["after_create"] == "echo created"
+    end
+
     test "hooks_file takes precedence over an inline hooks block", %{dir: dir} do
       File.write!(Path.join(dir, ".aiurhooks"), "after_create: from file\n")
       path = Path.join(dir, ".aiurconfig")

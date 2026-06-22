@@ -121,10 +121,10 @@ defmodule Aiur.Workflow do
     end
   end
 
-  # An optional `hooks_file:` key points at a sibling YAML file (default
-  # `.aiurhooks`) whose keys become the `hooks:` map, keeping multi-line hook
-  # scripts out of the main config. When set it replaces any inline `hooks:`
-  # block; when absent the inline block (if any) is used unchanged.
+  # An optional `hooks_file:` key points at a sibling YAML file (`hooks`, resolved
+  # relative to the config directory) whose keys become the `hooks:` map, keeping
+  # multi-line hook scripts out of the main config. When set it replaces any inline
+  # `hooks:` block; when absent the inline block (if any) is used unchanged.
   defp resolve_hooks(config, path) do
     case Map.get(config, "hooks_file") do
       rel when is_binary(rel) and rel != "" ->
@@ -193,8 +193,8 @@ defmodule Aiur.Workflow do
   end
 
   @doc """
-  Resolves the absolute `.aiurhooks` path referenced by `hooks_file:` in the
-  config, or nil when none is set.
+  Resolves the absolute path of the hooks file referenced by `hooks_file:` in the
+  config (relative to the config directory), or nil when none is set.
 
   Used by `WorkflowStore` to detect hook-file edits during change polling.
   """

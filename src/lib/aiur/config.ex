@@ -1,6 +1,7 @@
 defmodule Aiur.Config do
   @moduledoc """
-  Runtime configuration loaded from `.aiurconfig`.
+  Runtime configuration loaded from the aiur config file (`.aiur/config`, or a
+  legacy `.aiurconfig`).
   """
 
   alias Aiur.Config.Schema

@@ -1,6 +1,6 @@
 defmodule Aiur.CLI do
   @moduledoc """
-  Escript entrypoint for running Aiur with an explicit .aiurconfig path.
+  Escript entrypoint for running Aiur with an explicit config-file path.
   """
 
   alias Aiur.LogFile
@@ -145,7 +145,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]\n       aiur init [--force]"
+    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]"
   end
 
   @spec runtime_deps() :: deps()
