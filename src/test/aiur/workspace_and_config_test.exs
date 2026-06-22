@@ -1297,6 +1297,18 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert settings.alerts.alerts_file == "alerts.yaml"
   end
 
+  test "debug defaults to false and parses an explicit true" do
+    # `debug: true` is the config-driven equivalent of the `--debug` flag;
+    # an unset config must stay off, an explicit true must round-trip.
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.debug == false
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, debug: true})
+
+    assert settings.debug == true
+  end
+
   test "agent.max_agent_duration_minutes defaults to 60 and rejects negatives" do
     # Safety-net cap the orchestrator's overrun watchdog reads; 0 disables.
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})

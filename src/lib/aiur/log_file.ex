@@ -75,6 +75,35 @@ defmodule Aiur.LogFile do
     "#{ts}-#{List.to_string(:os.getpid())}"
   end
 
+  @doc """
+  Bridges a config-level `debug: true` into the `AIUR_DEBUG` env var so the
+  rest of the system — which reads `AIUR_DEBUG` directly (logging, the agent
+  list footer, pane manager, opencode slot) — treats it identically to the
+  `--debug` flag.
+
+  The flag wins: when `AIUR_DEBUG` is already truthy (set by the engine shell
+  from `--debug`) this is a no-op, so an explicit flag can never be downgraded
+  by config. Failure-safe — a missing or invalid config leaves debug off.
+
+  Call this once at application start, before `configure/0`, so every
+  supervised process sees a consistent flag.
+  """
+  @spec apply_config_debug() :: :ok
+  def apply_config_debug do
+    if not debug_enabled?() and config_debug?() do
+      System.put_env("AIUR_DEBUG", "1")
+    end
+
+    :ok
+  end
+
+  defp config_debug? do
+    case Aiur.Config.settings() do
+      {:ok, %{debug: true}} -> true
+      _ -> false
+    end
+  end
+
   @spec configure() :: :ok
   def configure do
     if debug_enabled?() do
