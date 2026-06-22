@@ -18,6 +18,7 @@ defmodule Aiur.Orchestrator do
     CodingAgent,
     Config,
     Issue,
+    RepoBase,
     Tracker,
     Workspace
   }
@@ -756,12 +757,7 @@ defmodule Aiur.Orchestrator do
       # dispatch or completion event.
       notify_dashboard(state)
 
-      state =
-        if available_slots(state) > 0 do
-          choose_issues(state, issues)
-        else
-          state
-        end
+      state = dispatch_or_hold(state, issues)
 
       %{state | initial_dispatch_cycle: false}
     else
@@ -816,6 +812,49 @@ defmodule Aiur.Orchestrator do
         state
     end
   end
+
+  # Eager pre-warm gate. When pre-warm is enabled, hold dispatch until the shared
+  # base is ready so per-issue workspaces materialize from it instead of cold-
+  # cloning. Async: it kicks RepoBase (which builds in its own process and emits
+  # phase events for the loading bar) and reads status without blocking the
+  # orchestrator. A failed base build falls back to cold dispatch rather than
+  # hanging the run.
+  defp dispatch_or_hold(state, issues) do
+    enabled? = Config.prewarm_enabled?()
+    phase = if enabled?, do: trigger_and_status(), else: :ready
+
+    case prewarm_gate(enabled?, phase) do
+      :dispatch ->
+        maybe_log_base_error(phase)
+        maybe_choose(state, issues)
+
+      :hold ->
+        state
+    end
+  end
+
+  defp trigger_and_status do
+    RepoBase.refresh_async()
+    RepoBase.status() |> elem(0)
+  end
+
+  defp maybe_choose(state, issues) do
+    if available_slots(state) > 0, do: choose_issues(state, issues), else: state
+  end
+
+  defp maybe_log_base_error({:error, reason}),
+    do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
+
+  defp maybe_log_base_error(_phase), do: :ok
+
+  @doc false
+  # Pure dispatch decision for the eager pre-warm gate, kept separate so it can be
+  # unit-tested without the orchestrator GenServer.
+  @spec prewarm_gate(boolean(), atom() | {:error, term()}) :: :dispatch | :hold
+  def prewarm_gate(false, _phase), do: :dispatch
+  def prewarm_gate(true, :ready), do: :dispatch
+  def prewarm_gate(true, {:error, _reason}), do: :dispatch
+  def prewarm_gate(true, _warming), do: :hold
 
   defp reconcile_running_issues(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
