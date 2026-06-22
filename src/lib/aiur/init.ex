@@ -134,6 +134,12 @@ defmodule Aiur.Init do
         location = prompt_location(io)
         fresh_setup(io, deps, location, deps.config_target.(location))
 
+      # NOTE: resume only re-provisions labels/auth — it does NOT prompt for
+      # config sections added by newer features (e.g. the `prewarm` block, #410),
+      # so a new feature is invisible to existing users unless they re-run with
+      # --force. Making resume detect schema-known sections the config lacks and
+      # offer to add them is tracked in #411; when you add a new init prompt,
+      # register it there so a standard `aiur init` backfills it without --force.
       target ->
         resume(io, deps, target)
     end
