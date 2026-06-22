@@ -1,6 +1,6 @@
 defmodule Aiur.CLI do
   @moduledoc """
-  Escript entrypoint for running Aiur with an explicit .aiurconfig path.
+  Escript entrypoint for running Aiur with an explicit config-file path.
   """
 
   alias Aiur.LogFile
@@ -139,13 +139,13 @@ defmodule Aiur.CLI do
           {:error, "Failed to start Aiur with workflow #{expanded_path}: #{inspect(reason)}"}
       end
     else
-      {:error, "Config file not found: #{expanded_path}. Run `aiur init` to scaffold a .aiurconfig."}
+      {:error, "Config file not found: #{expanded_path}. Run `aiur init` to scaffold a .aiur/config."}
     end
   end
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]\n       aiur init [--force]"
+    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]"
   end
 
   @spec runtime_deps() :: deps()

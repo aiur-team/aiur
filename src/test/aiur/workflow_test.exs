@@ -112,6 +112,17 @@ defmodule Aiur.WorkflowTest do
       assert loaded.config["hooks"]["before_run"] == "mix deps.get"
     end
 
+    test "the new .aiur/config layout resolves hooks_file: hooks relative to .aiur/", %{dir: dir} do
+      aiur = Path.join(dir, ".aiur")
+      File.mkdir_p!(aiur)
+      File.write!(Path.join(aiur, "hooks"), "after_create: echo created\n")
+      path = Path.join(aiur, "config")
+      File.write!(path, "tracker:\n  kind: memory\nhooks_file: hooks\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["hooks"]["after_create"] == "echo created"
+    end
+
     test "hooks_file takes precedence over an inline hooks block", %{dir: dir} do
       File.write!(Path.join(dir, ".aiurhooks"), "after_create: from file\n")
       path = Path.join(dir, ".aiurconfig")
@@ -189,10 +200,12 @@ defmodule Aiur.WorkflowTest do
   end
 
   describe "config path resolution" do
-    test "workflow_file_path defaults to .aiurconfig in cwd when app env unset", %{dir: dir} do
+    test "workflow_file_path defaults to .aiur/config in cwd when app env unset", %{dir: dir} do
       File.cd!(dir, fn ->
         Application.delete_env(:aiur, :workflow_file_path)
-        assert Path.basename(Workflow.workflow_file_path()) == ".aiurconfig"
+        path = Workflow.workflow_file_path()
+        assert Path.basename(path) == "config"
+        assert Path.basename(Path.dirname(path)) == ".aiur"
       end)
     end
 
@@ -210,20 +223,48 @@ defmodule Aiur.WorkflowTest do
       end)
     end
 
-    test "resolve_config_path prefers local, else global, else local for the error", %{dir: dir} do
-      local = Path.join(dir, "local.aiurconfig")
-      global = Path.join(dir, "global.aiurconfig")
+    test "resolve_config_path follows .aiur/config > .aiurconfig > ~/.aiur/config > ~/.aiurconfig", %{
+      dir: dir
+    } do
+      repo_new = Path.join([dir, "repo", ".aiur", "config"])
+      repo_legacy = Path.join([dir, "repo", ".aiurconfig"])
+      global_new = Path.join([dir, "home", ".aiur", "config"])
+      global_legacy = Path.join([dir, "home", ".aiurconfig"])
+      candidates = [repo_new, repo_legacy, global_new, global_legacy]
 
-      # neither present -> local path (so the caller surfaces "run aiur init")
-      assert Workflow.resolve_config_path(local, global) == local
+      # none present -> the new repo-local default (so the caller surfaces "run aiur init")
+      assert Workflow.resolve_config_path(candidates) == repo_new
 
-      File.write!(global, "tracker:\n  kind: memory\n")
-      # only global -> global
-      assert Workflow.resolve_config_path(local, global) == global
+      write_config = fn path ->
+        File.mkdir_p!(Path.dirname(path))
+        File.write!(path, "tracker:\n  kind: memory\n")
+      end
 
-      File.write!(local, "tracker:\n  kind: memory\n")
-      # both -> local wins
-      assert Workflow.resolve_config_path(local, global) == local
+      # only legacy global -> legacy global
+      write_config.(global_legacy)
+      assert Workflow.resolve_config_path(candidates) == global_legacy
+
+      # global new beats legacy global
+      write_config.(global_new)
+      assert Workflow.resolve_config_path(candidates) == global_new
+
+      # legacy repo beats anything global
+      write_config.(repo_legacy)
+      assert Workflow.resolve_config_path(candidates) == repo_legacy
+
+      # new repo-local wins outright
+      write_config.(repo_new)
+      assert Workflow.resolve_config_path(candidates) == repo_new
+    end
+
+    test "config_path_candidates is the 4-step precedence list anchored at cwd and home", %{dir: dir} do
+      File.cd!(dir, fn ->
+        assert [repo_new, repo_legacy, global_new, global_legacy] = Workflow.config_path_candidates()
+        assert repo_new == Path.join([File.cwd!(), ".aiur", "config"])
+        assert repo_legacy == Path.join(File.cwd!(), ".aiurconfig")
+        assert global_new == Path.join([Path.expand("~"), ".aiur", "config"])
+        assert global_legacy == Path.join(Path.expand("~"), ".aiurconfig")
+      end)
     end
   end
 end

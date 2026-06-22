@@ -211,13 +211,13 @@ defmodule Aiur.CoreTest do
     assert Config.settings!().tracker.linear.assignee == env_assignee
   end
 
-  test "workflow file path defaults to .aiurconfig in the current working directory when app env is unset" do
+  test "workflow file path defaults to .aiur/config in the current working directory when app env is unset" do
     original_workflow_path = Workflow.workflow_file_path()
 
     try do
       Workflow.clear_workflow_file_path()
 
-      assert Workflow.workflow_file_path() == Path.join(File.cwd!(), ".aiurconfig")
+      assert Workflow.workflow_file_path() == Path.join([File.cwd!(), ".aiur", "config"])
     after
       Workflow.set_workflow_file_path(original_workflow_path)
     end

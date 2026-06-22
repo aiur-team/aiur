@@ -47,12 +47,13 @@ prompt_file: {{PROMPT_FILE}}             # per-repo agent prompt appended to eac
 
 # === Workspace bootstrap hooks ===
 # Shell aiur runs inside each per-issue workspace (these are NOT git hooks and
-# never touch your real checkout). They live in a separate `.aiurhooks` file so
+# never touch your real checkout). They live in a separate `.aiur/hooks` file so
 # the multi-line scripts stay out of this config and a coding agent can
-# regenerate them independently. `aiur init` scaffolds `.aiurhooks` from
-# `.aiurhooks.example` — edit it to fit your repo's toolchain.
+# regenerate them independently. `aiur init` scaffolds `.aiur/hooks` from the
+# bundled example — edit it to fit your repo's toolchain. The path is resolved
+# relative to this config, so the value is just `hooks`.
 # (You can also inline a `hooks:` block here instead of using `hooks_file:`.)
-hooks_file: .aiurhooks
+hooks_file: hooks
 
 # === Polling / concurrency ===
 polling:

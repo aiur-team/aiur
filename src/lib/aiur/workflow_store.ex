@@ -1,7 +1,8 @@
 defmodule Aiur.WorkflowStore do
   @moduledoc """
-  Caches the last known good workflow and reloads it when `.aiurconfig` or its
-  referenced `prompt_file:` changes.
+  Caches the last known good workflow and reloads it when the config
+  (`.aiur/config`, or a legacy `.aiurconfig`) or its referenced `prompt_file:` /
+  `hooks_file:` changes.
   """
 
   use GenServer

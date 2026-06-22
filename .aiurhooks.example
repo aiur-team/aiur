@@ -1,8 +1,8 @@
 # === aiur workspace hooks ===
-# Referenced from .aiurconfig via `hooks_file: .aiurhooks`. These are the same
-# hook keys you can inline under `hooks:` in .aiurconfig — moved to their own
-# file so multi-line shell scripts stay out of the main config and your coding
-# agent can regenerate them independently.
+# Referenced from .aiur/config via `hooks_file: hooks`. These are the same hook
+# keys you can inline under `hooks:` in the config — moved to their own file so
+# multi-line shell scripts stay out of the main config and your coding agent can
+# regenerate them independently.
 #
 # When `hooks_file:` is set it REPLACES any inline `hooks:` block; when absent
 # the inline block (if any) is used unchanged.
