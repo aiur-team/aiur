@@ -1223,7 +1223,7 @@ defmodule Aiur.AgentList.Renderer do
   defp strip_ansi(text) do
     text
     # CSI (color/cursor) sequences: `\e[...m`, `\e[2J`, etc.
-    |> then(&Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]/, &1, ""))
+    |> strip_csi()
     # OSC 8 hyperlinks: `\e]8;;<url>\e\\<text>\e]8;;\e\\` (or BEL-terminated).
     # The text between the brackets is the visible part — we keep
     # everything between the ST and the closing OSC.
