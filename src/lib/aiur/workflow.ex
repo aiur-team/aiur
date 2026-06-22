@@ -1,16 +1,21 @@
 defmodule Aiur.Workflow do
   @moduledoc """
-  Loads workflow configuration and the agent prompt from `.aiurconfig`.
+  Loads workflow configuration and the agent prompt from the aiur config file.
 
-  `.aiurconfig` is pure YAML. An optional `prompt_file:` key points at a
-  markdown Liquid template (resolved relative to the config file's directory)
-  that becomes the per-repo agent prompt. When `prompt_file:` is absent the
-  prompt falls back to the built-in default template.
+  Config lives in a `.aiur/` folder (`.aiur/config`) with a backward-compatible
+  fallback to the legacy root `.aiurconfig`. The file is pure YAML. An optional
+  `prompt_file:` key points at a markdown Liquid template (resolved relative to
+  the config file's directory) that becomes the per-repo agent prompt. When
+  `prompt_file:` is absent the prompt falls back to the built-in default template.
   """
 
   alias Aiur.WorkflowStore
 
-  @config_file_name ".aiurconfig"
+  # New layout: config lives at `.aiur/config`; legacy layout is the root
+  # `.aiurconfig` dotfile. Both are honored on read (discovery falls back).
+  @aiur_dir ".aiur"
+  @config_basename "config"
+  @legacy_config_file_name ".aiurconfig"
 
   @spec workflow_file_path() :: Path.t()
   def workflow_file_path do
@@ -18,25 +23,37 @@ defmodule Aiur.Workflow do
   end
 
   @doc """
-  Resolve the config path: the repo-local `./.aiurconfig` if present, else
-  the global `~/.aiurconfig` if present, else the local path (so the caller
-  surfaces the "run aiur init" not-found error). When the global config is
-  used it carries no repo — `Aiur.GitHub.Config.repo/0` auto-detects it
-  from the cwd's git remote.
+  Resolve the config path by precedence: repo-local `./.aiur/config`, else the
+  legacy repo-local `./.aiurconfig`, else the global `~/.aiur/config`, else the
+  legacy global `~/.aiurconfig`. When none exist, returns the repo-local
+  `./.aiur/config` (the new default) so the caller surfaces the "run aiur init"
+  not-found error pointing at the current layout. When a global config is used it
+  carries no repo — `Aiur.GitHub.Config.repo/0` auto-detects it from the cwd's
+  git remote.
   """
   @spec detect_run_folder_config() :: Path.t()
   def detect_run_folder_config do
-    resolve_config_path(Path.join(File.cwd!(), @config_file_name), Path.expand("~/" <> @config_file_name))
+    resolve_config_path(config_path_candidates())
   end
 
   @doc false
-  @spec resolve_config_path(Path.t(), Path.t()) :: Path.t()
-  def resolve_config_path(local, global) do
-    cond do
-      File.regular?(local) -> local
-      File.regular?(global) -> global
-      true -> local
-    end
+  @spec config_path_candidates() :: [Path.t(), ...]
+  def config_path_candidates do
+    cwd = File.cwd!()
+    home = Path.expand("~")
+
+    [
+      Path.join([cwd, @aiur_dir, @config_basename]),
+      Path.join(cwd, @legacy_config_file_name),
+      Path.join([home, @aiur_dir, @config_basename]),
+      Path.join(home, @legacy_config_file_name)
+    ]
+  end
+
+  @doc false
+  @spec resolve_config_path([Path.t(), ...]) :: Path.t()
+  def resolve_config_path([default | _] = candidates) do
+    Enum.find(candidates, default, &File.regular?/1)
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok

@@ -59,9 +59,11 @@ defmodule Aiur.CLITest do
     refute_received :started
   end
 
-  test "defaults to .aiurconfig when workflow path is missing" do
+  test "defaults to .aiur/config when workflow path is missing" do
     deps = %{
-      file_regular?: fn path -> Path.basename(path) == ".aiurconfig" end,
+      file_regular?: fn path ->
+        Path.basename(path) == "config" and Path.basename(Path.dirname(path)) == ".aiur"
+      end,
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
