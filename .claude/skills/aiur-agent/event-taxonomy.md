@@ -29,6 +29,12 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 | `pause.request` | Ask the operator to pause your turn at the next checkpoint | `ticket.<id>.agent.pause.request` |
 | `custom.<slug>` | Anything else — capped at 5 per turn | `ticket.<id>.agent.custom.<slug>` |
 
+> **Also allowed, but operator-facing (not cross-ticket coordination):** the bare
+> `progress` and `progress.checkin` names drive the operator's agent-list
+> progress bar. They're allowed by `emit_event`, but their 1-of-10 estimation
+> protocol and check-in cadence are documented in the agent pre-prompt's
+> progress-bar guidance, not here.
+
 ## System-emitted topics (subscribe-only)
 
 These you can subscribe to, but they're emitted by Aiur, not by you.

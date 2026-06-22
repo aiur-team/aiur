@@ -1,0 +1,67 @@
+defmodule Aiur.AiurAgentSkillTest do
+  @moduledoc """
+  Guards #382: the `/aiur-agent` skill is the single source of truth for
+  cross-ticket events and is surfaced to BOTH coding-agent backends.
+
+  - Claude discovers skills under `.claude/skills/`.
+  - Codex discovers skills under `.codex/skills/`; `aiur-agent` there is a
+    symlink back to the canonical `.claude` copy so there is no second copy
+    to drift.
+  """
+  use ExUnit.Case, async: true
+
+  # test/aiur/ -> test/ -> src/ -> repo root
+  @repo_root Path.expand("../../..", __DIR__)
+  @claude_skill Path.join(@repo_root, ".claude/skills/aiur-agent")
+  @codex_skill Path.join(@repo_root, ".codex/skills/aiur-agent")
+
+  # The reference docs SKILL.md routes the agent to. The pre-prompt now points at
+  # the skill instead of inlining the vocabulary, so these must actually exist.
+  @reference_docs ~w(
+    overview.md
+    event-taxonomy.md
+    emit-and-subscribe.md
+    attention-and-resolve.md
+    stub-then-fetch.md
+  )
+
+  test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
+    assert File.dir?(@claude_skill)
+    assert File.exists?(Path.join(@claude_skill, "SKILL.md"))
+  end
+
+  test "Codex backend surface: skill resolves to the same canonical files" do
+    # A symlink (not a copy) keeps the single source of truth.
+    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(@codex_skill)
+
+    # The SKILL.md is readable through the Codex path and identical to the
+    # canonical one — the agent gets the same skill on either backend.
+    codex_skill_md = Path.join(@codex_skill, "SKILL.md")
+    claude_skill_md = Path.join(@claude_skill, "SKILL.md")
+    assert File.exists?(codex_skill_md)
+    assert File.read!(codex_skill_md) == File.read!(claude_skill_md)
+  end
+
+  test "the cross-ticket event vocabulary relocated into the skill" do
+    # #382: prove the allowlist the pre-prompt used to inline now lives in the
+    # skill — removal-only would leave the vocabulary nowhere the agent can read.
+    taxonomy = File.read!(Path.join(@claude_skill, "event-taxonomy.md"))
+
+    assert String.contains?(taxonomy, "Agent-emittable names")
+
+    for name <- ~w(decision.<slug> attention.resolved pause.request custom.<slug>) do
+      assert String.contains?(taxonomy, name), "event-taxonomy.md no longer documents #{name}"
+    end
+  end
+
+  test "every reference doc SKILL.md routes to exists on disk" do
+    # The pre-prompt now sends the agent to the skill; a dangling reference doc
+    # would strand an agent that followed the pointer.
+    skill_md = File.read!(Path.join(@claude_skill, "SKILL.md"))
+
+    for doc <- @reference_docs do
+      assert String.contains?(skill_md, doc), "SKILL.md no longer points at #{doc}"
+      assert File.exists?(Path.join(@claude_skill, doc)), "missing skill reference doc #{doc}"
+    end
+  end
+end

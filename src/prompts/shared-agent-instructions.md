@@ -22,26 +22,28 @@
 
 ### Cross-ticket events (`emit_event`, `aiur_subscribe`, `aiur_declare_blocker`)
 
-Aiur agents on different tickets coordinate through a topic-exchange event bus. Use these tools to **make blocking explicit, surface decisions, and unblock others early**.
+Aiur agents on different tickets coordinate through a topic-exchange event bus —
+declaring blockers, broadcasting decisions, opening operator attentions, and
+unblocking each other early. **The `/aiur-agent` skill is the single source of
+truth** for this system: the allowlisted event vocabulary, the subscribe/emit
+calls, the blocker → stub-then-fetch flow, and attentions.
 
-1. **Events fire between turns, not during them.** When you receive an event from another ticket, it lands in your inbox and is delivered at the next turn boundary (or as an urgent mid-turn drain for blocking-critical events). Don't poll mid-turn — keep working, and trust the inbox.
-2. **Blocking another agent is your highest priority.** If you have an open decision or a stub another ticket is waiting on (you've been declared a blocker via `aiur_declare_blocker`), drop unrelated work and resolve that first. Other tickets are paused on you.
-3. **Code around the blocker; don't claim unblocked.** If you're blocked on a function or value from another ticket, write a stub matching the agreed signature (or hardcode an obvious placeholder, or carve the call site out behind a feature flag — whatever's safe and quickly reversible) and keep working on the rest of your ticket. Do **not** emit `unblocked` while you're still depending on a workaround — `unblocked` means the real upstream change has landed and you've integrated it. Stay `blocked` in event terms until upstream's `branch.push` arrives and you swap your stub for the real thing; then emit `unblocked` with `payload: {was_blocked_by, mechanism}`.
-4. **You can re-block.** If integrating an upstream change reveals a new blocker, call `aiur_declare_blocker(issue)` again. Aiur tracks dependency state via the GitHub native API; declarations are idempotent.
-5. **Close attentions you open.** Every `emit_event("attention.<slug>", ...)` adds a ❗ to your row in the agent list. The operator sees it and may reply via PR comment. When the question is resolved, emit `attention.resolved` with `payload: {slug: "<the-slug>"}` to clear it. Do not let attentions accumulate.
-6. **Subscribe to more than the defaults when useful.** `aiur_declare_blocker` auto-subscribes you to a useful default subset of the blocker's events. If you also want to watch another ticket's progress (e.g., a sibling working in the same area), call `aiur_subscribe("ticket.<id>.#")` explicitly.
-7. **Search before expanding scope.** Before you start work on a ticket-adjacent concern, search the event log (`aiur --logs <id>`) for recent `progress.*` / `decision.*` events on related tickets. Don't duplicate work another agent is already doing.
+**Load the `/aiur-agent` skill before you emit, subscribe to, or react to any
+cross-ticket event** — don't rely on memory for the allowlisted names; the skill
+fails loud with the valid forms if you guess wrong. Two reflexes override normal
+work ordering, so they're worth stating up front:
 
-Event vocabulary (allowlisted — names outside this list are rejected by `emit_event`):
+- **Blocking another agent is your highest priority.** If another ticket is
+  paused on a decision or stub from you (you've been declared a blocker via
+  `aiur_declare_blocker`), drop unrelated work and resolve that first.
+- **Code around the blocker; don't stall your whole ticket on it.** Stub against
+  the agreed signature and keep working. The skill's `stub-then-fetch.md` has the
+  exact `unblocked` emit sequence (provisional vs. integrated) — follow it rather
+  than guessing the event timing from memory.
 
-- `progress` — numeric percent sample for the agent-list bar; payload `%{percent: 10..100, label: "<phase>: <what>, <tail>"}` (capped at 2 per turn — see "Progress emits" below). Treated as a phase guess by the ratchet — can ratchet UP only.
-- `progress.checkin` — the response to an `operator.progress_request` ping. Same payload shape as `progress`, but always overrides the bar even when it lowers the previous value. See "Operator check-ins" below.
-- `progress.<slug>` — milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`)
-- `decision.<slug>` — architectural choice worth broadcasting (`decision.use-amqp-matcher`)
-- `blocked` / `unblocked` — your work blocked / unblocked state changed
-- `attention.<slug>` — opens an operator ❗; resolved via `attention.resolved` with matching slug
-- `pause.request` — request operator pause your turn at the next checkpoint
-- `custom.<slug>` — anything else (capped at 5 per turn)
+The bare `progress` / `progress.checkin` emits that drive the operator's
+agent-list bar are a separate, operator-facing protocol — see "Progress emits"
+and "Operator check-ins" below, not the skill.
 
 ### Progress emits — 1-of-10 estimate at phase boundaries
 
