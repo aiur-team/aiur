@@ -91,6 +91,21 @@ defmodule Aiur.AgentPubSub do
 
   defp agent_chat_active_topic, do: "agents:chat_active"
 
+  @prewarm_topic "prewarm:phase"
+
+  @doc """
+  Subscribe to warm-base pre-warm phase events. `Aiur.RepoBase` broadcasts
+  `{:prewarm_phase, phase}` as it clones/fetches/builds the shared base; the
+  agent list renders a loading bar from these until the base is ready.
+  """
+  @spec subscribe_prewarm() :: :ok | {:error, term()}
+  def subscribe_prewarm, do: Phoenix.PubSub.subscribe(@pubsub, @prewarm_topic)
+
+  @spec broadcast_prewarm_phase(atom() | tuple()) :: :ok
+  def broadcast_prewarm_phase(phase) do
+    do_broadcast(@prewarm_topic, {:prewarm_phase, phase})
+  end
+
   @spec broadcast_alert(AgentEvents.agent_identifier(), AgentEvents.alert_event()) :: :ok
   def broadcast_alert(identifier, %{name: _, message: _, timestamp: _} = event)
       when is_binary(identifier) do
