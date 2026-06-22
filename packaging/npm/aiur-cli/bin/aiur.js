@@ -234,8 +234,14 @@ function currentVersion() {
 
 // Minimal semver: parse major.minor.patch with an optional prerelease tag.
 // Enough for the launcher's own clean release versions — not a full spec impl.
+// The regex is fully anchored (and tolerates a +build suffix) so a registry- or
+// cache-supplied string with trailing junk — e.g. control/ANSI bytes meant to
+// hijack the terminal when the notice is printed — fails to parse and is treated
+// as not-newer rather than reaching printUpdateNotice verbatim.
 function parseSemver(value) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(String(value).trim());
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    String(value).trim(),
+  );
   if (!match) return null;
   return { major: +match[1], minor: +match[2], patch: +match[3], pre: match[4] || "" };
 }
@@ -274,7 +280,12 @@ function writeCache(data) {
   try {
     const file = cacheFile();
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(data));
+    // Write-then-rename so a reader never sees a half-written file: if the
+    // detached worker is killed mid-write, or two workers race, the rename is
+    // atomic on POSIX and a torn cache can't trigger a respawn-every-run loop.
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data));
+    fs.renameSync(tmp, file);
   } catch (_) {
     // A missing-cache write must never break the run; silently skip.
   }
@@ -366,7 +377,13 @@ function fetchLatestVersion(url, done) {
         res.setEncoding("utf8");
         res.on("data", (chunk) => {
           body += chunk;
-          if (body.length > 1_000_000) req.destroy();
+          // Abort an oversized body. req.destroy() emits only "close" (no "end"
+          // or "error"), so resolve here explicitly — otherwise the worker would
+          // hang forever and never stamp the cache, respawning on every run.
+          if (body.length > 1_000_000) {
+            req.destroy();
+            finish(null);
+          }
         });
         res.on("end", () => {
           try {
@@ -378,7 +395,13 @@ function fetchLatestVersion(url, done) {
         });
       },
     );
-    req.on("timeout", () => req.destroy());
+    // A timeout's req.destroy() likewise emits only "close", so resolve here too
+    // rather than waiting on an event that never comes. "error" covers the
+    // connection-failure case (offline, refused).
+    req.on("timeout", () => {
+      req.destroy();
+      finish(null);
+    });
     req.on("error", () => finish(null));
   } catch (_) {
     finish(null);
@@ -388,14 +411,14 @@ function fetchLatestVersion(url, done) {
 // Detached worker entrypoint: refresh the cache, then exit. Always stamps
 // lastCheck (even on failure) so an offline machine doesn't respawn every run.
 function runUpdateWorker() {
-  const current = currentVersion();
   const previous = readCache();
   const url = process.env.AIUR_REGISTRY_URL || REGISTRY_LATEST_URL;
   fetchLatestVersion(url, (latest) => {
     writeCache({
       lastCheck: Date.now(),
+      // Keep the last known `latest` when the fetch fails so a transient outage
+      // doesn't drop a pending notice.
       latest: latest || (previous && previous.latest) || null,
-      current,
     });
     process.exit(0);
   });
