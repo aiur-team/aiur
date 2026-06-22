@@ -199,6 +199,33 @@ defmodule Aiur.WorkflowTest do
     end
   end
 
+  describe "prewarm base_build_file resolution" do
+    test "base_build_file loads the sibling script into prewarm.base_build", %{dir: dir} do
+      File.write!(Path.join(dir, "prewarm"), "mix deps.get && mix compile\n")
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  base_build_file: prewarm\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["prewarm"]["base_build"] == "mix deps.get && mix compile"
+    end
+
+    test "a base_build_file pointing at a missing file is a clear error", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  base_build_file: missing\n")
+
+      resolved = Path.expand("missing", dir)
+      assert {:error, {:missing_prewarm_file, ^resolved, :enoent}} = Workflow.load(path)
+    end
+
+    test "an inline base_build is left unchanged when no base_build_file is set", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  base_build: echo hi\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["prewarm"]["base_build"] == "echo hi"
+    end
+  end
+
   describe "config path resolution" do
     test "workflow_file_path defaults to .aiur/config in cwd when app env unset", %{dir: dir} do
       File.cd!(dir, fn ->

@@ -88,6 +88,12 @@ defmodule Aiur.InitTest do
             {:created, path}
           end
         end,
+        ensure_prewarm_file: fn t, cmd ->
+          path = Path.join(Path.dirname(t), "prewarm")
+          File.write!(path, cmd <> "\n")
+          send(parent, {:prewarm_file, cmd})
+          {:created, path}
+        end,
         add_gitignore_entry: fn entry ->
           path = Path.join(dir, ".gitignore")
           existing = if File.regular?(path), do: File.read!(path), else: ""
@@ -215,12 +221,15 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
-      # init runs the first warm-base build on opt-in
+      # init writes the command to the sibling .aiur/prewarm script and runs the
+      # first warm-base build on opt-in
+      assert_received {:prewarm_file, "mise exec -- mix compile"}
       assert_received {:prewarm_build, _url, "mise exec -- mix compile"}
 
       config = File.read!(target)
       assert config =~ "enabled: true"
-      assert config =~ ~s(base_build: "mise exec -- mix compile")
+      assert config =~ "base_build_file: prewarm"
+      refute config =~ ~s(base_build: ")
     end
 
     test "detection miss prints a fallback prompt and leaves prewarm disabled", %{dir: dir, target: target} do

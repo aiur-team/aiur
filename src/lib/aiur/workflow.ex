@@ -108,8 +108,10 @@ defmodule Aiur.Workflow do
   defp parse(content, path) do
     case yaml_to_map(content) do
       {:ok, config} ->
-        case resolve_hooks(config, path) do
-          {:ok, resolved} -> resolve_prompt(resolved, path)
+        with {:ok, config} <- resolve_hooks(config, path),
+             {:ok, config} <- resolve_prewarm(config, path) do
+          resolve_prompt(config, path)
+        else
           {:error, reason} -> {:error, reason}
         end
 
@@ -154,6 +156,28 @@ defmodule Aiur.Workflow do
 
       {:error, reason} ->
         {:error, {:missing_hooks_file, resolved, reason}}
+    end
+  end
+
+  # An optional `base_build_file:` under `prewarm:` points at a sibling script
+  # (convention `prewarm`, resolved relative to the config dir) whose raw shell
+  # contents become `prewarm.base_build` — keeping the multi-line build command
+  # out of the main config, mirroring `hooks_file`. When absent, an inline
+  # `base_build:` (if any) is used unchanged.
+  defp resolve_prewarm(config, path) do
+    with %{} = prewarm <- Map.get(config, "prewarm"),
+         rel when is_binary(rel) and rel != "" <- Map.get(prewarm, "base_build_file") do
+      resolved = Path.expand(rel, Path.dirname(path))
+
+      case File.read(resolved) do
+        {:ok, content} ->
+          {:ok, put_in(config, ["prewarm", "base_build"], String.trim(content))}
+
+        {:error, reason} ->
+          {:error, {:missing_prewarm_file, resolved, reason}}
+      end
+    else
+      _ -> {:ok, config}
     end
   end
 

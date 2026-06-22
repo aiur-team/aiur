@@ -76,6 +76,7 @@ defmodule Aiur.Init do
   # — otherwise the first run would fail resolving a missing hooks file. Embedded at
   # compile time so the wizard works from a release with no runtime file dependency.
   @aiurhooks_file_name "hooks"
+  @prewarm_file_name "prewarm"
   @aiurhooks_example_path Path.expand("../../../.aiur/examples/hooks.example", __DIR__)
   @external_resource @aiurhooks_example_path
   @aiurhooks_example_template File.read!(@aiurhooks_example_path)
@@ -101,6 +102,7 @@ defmodule Aiur.Init do
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
+          ensure_prewarm_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
           add_gitignore_entry: (String.t() -> {:added | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
@@ -261,6 +263,7 @@ defmodule Aiur.Init do
         io.puts.(["Created: ", dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         ensure_aiurhooks(io, deps, path)
+        ensure_prewarm_file(io, deps, path, prewarm)
         setup_env(io, deps, tracker)
         maybe_offer_gitignore(io, deps, location)
         maybe_first_prewarm(io, deps, tracker, prewarm)
@@ -619,14 +622,14 @@ defmodule Aiur.Init do
       "{{POLLING}}" => Integer.to_string(d.polling),
       "{{PRE_WARMED}}" => Integer.to_string(d.pre_warmed),
       "{{PREWARM_ENABLED}}" => to_string(d.prewarm.enabled),
-      "{{PREWARM_BASE_BUILD}}" => prewarm_base_build_line(d.prewarm)
+      "{{PREWARM_BASE_BUILD_FILE}}" => prewarm_base_build_file_line(d.prewarm)
     }
   end
 
-  defp prewarm_base_build_line(%{enabled: true, base_build: cmd}) when is_binary(cmd) and cmd != "",
-    do: "  base_build: #{inspect(cmd)}\n"
+  defp prewarm_base_build_file_line(%{enabled: true, base_build: cmd}) when is_binary(cmd) and cmd != "",
+    do: "  base_build_file: #{@prewarm_file_name}\n"
 
-  defp prewarm_base_build_line(_), do: ""
+  defp prewarm_base_build_file_line(_), do: ""
 
   defp fill_template(template, fills) do
     Enum.reduce(fills, template, fn {token, value}, acc ->
@@ -683,6 +686,19 @@ defmodule Aiur.Init do
       {:exists, _path} -> :ok
     end
   end
+
+  # Write the detected base build command to a sibling `.aiur/prewarm` script so
+  # the multi-line shell stays out of the config (which points at it via
+  # `prewarm.base_build_file`). Only on opt-in; never clobbers an existing script.
+  defp ensure_prewarm_file(io, deps, target, %{enabled: true, base_build: cmd})
+       when is_binary(cmd) and cmd != "" do
+    case deps.ensure_prewarm_file.(target, cmd) do
+      {:created, path} -> io.puts.(["Created: ", dim(path)])
+      {:exists, _path} -> :ok
+    end
+  end
+
+  defp ensure_prewarm_file(_io, _deps, _target, _prewarm), do: :ok
 
   # Repo-local only: offer to gitignore the whole `.aiur/` folder. Declining leaves
   # it tracked (team-shared config, as `.aiurconfig` was). Global setup has nothing
@@ -1033,6 +1049,7 @@ defmodule Aiur.Init do
       write_config: &write_config/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
+      ensure_prewarm_file: &write_prewarm_file/2,
       add_gitignore_entry: &add_gitignore_entry/1,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
@@ -1093,6 +1110,17 @@ defmodule Aiur.Init do
       {:exists, path}
     else
       File.write!(path, @aiurhooks_example_template)
+      {:created, path}
+    end
+  end
+
+  defp write_prewarm_file(target, command) do
+    path = Path.join(Path.dirname(target), @prewarm_file_name)
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      File.write!(path, command <> "\n")
       {:created, path}
     end
   end
