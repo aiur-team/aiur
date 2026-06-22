@@ -47,6 +47,9 @@ defmodule Aiur.AgentControlCLI do
     1
   end
 
+  # Empty/whitespace-only and over-long text are validated downstream by
+  # Orchestrator.send_operator_message (the shared delivery path), which returns
+  # {:error, :empty_message | :message_too_long}; we surface those via format_reason.
   defp deliver_message(status, text) do
     case send_message(canonical_identifier(status), text) do
       {:ok, _request_id} ->

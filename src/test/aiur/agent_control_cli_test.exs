@@ -268,24 +268,30 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "message surfaces delivery errors with a non-zero exit", %{orchestrator: pid} do
-    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
-      {:error, :empty_message}
-    end)
-
-    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
-
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
     end)
 
-    stderr =
-      capture_io(:stderr, fn ->
-        output = capture_io(fn -> AgentControlCLI.message("44", "   ") end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
 
-        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+    for {reason, expected} <- [
+          {:empty_message, "message is empty"},
+          {:message_too_long, "message is too long"},
+          {:invalid_message, "invalid message"}
+        ] do
+      Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
+        {:error, reason}
       end)
 
-    assert stderr =~ "aiur: failed to message #44 (message is empty)"
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.message("44", "anything") end)
+
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "aiur: failed to message #44 (#{expected})"
+    end
   end
 
   test "message reports a clear error when the orchestrator is unavailable", %{orchestrator: pid} do

@@ -590,16 +590,18 @@ cmd_pause_resume() {
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
+  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\")"
+
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
-    echo "aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\")" >&2
+    echo "$usage" >&2
     exit 64
   fi
   shift
 
   local text="$*"
   if [ -z "$text" ]; then
-    echo "aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\")" >&2
+    echo "$usage" >&2
     exit 64
   fi
 
