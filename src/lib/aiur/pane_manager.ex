@@ -98,9 +98,12 @@ defmodule Aiur.PaneManager do
   # in any realistic configuration.
   @open_queue_timeout_ms 60_000
 
-  # Debug-only periodic screen-grab interval. Captures every tracked
-  # pane's content into the log so post-mortem reviews can replay the
-  # visible state at each tick. Gated behind AIUR_DEBUG.
+  # Periodic screen-grab interval. Captures every tracked pane's content into the
+  # log so post-mortem reviews can replay the visible state at each tick. Gated
+  # behind its OWN flag (AIUR_SCREEN_GRAB), NOT AIUR_DEBUG: each tick forks one
+  # `capture-pane` per pane, so at high ticket counts it piles FD pressure onto a
+  # --debug run — and --debug must stay safe to leave on. Turn this on only when
+  # you specifically need pane snapshots.
   @screen_grab_interval_ms 2_000
   @screen_grab_max_lines 8
 
@@ -238,7 +241,7 @@ defmodule Aiur.PaneManager do
 
       :net_kernel.monitor_nodes(true, node_type: :hidden)
 
-      if debug_mode?() do
+      if screen_grab?() do
         Process.send_after(self(), :screen_grab_tick, @screen_grab_interval_ms)
       end
 
@@ -592,7 +595,7 @@ defmodule Aiur.PaneManager do
   def handle_info(:screen_grab_tick, state) do
     log_screen_grab(state)
 
-    if debug_mode?() do
+    if screen_grab?() do
       Process.send_after(self(), :screen_grab_tick, @screen_grab_interval_ms)
     end
 
@@ -664,6 +667,19 @@ defmodule Aiur.PaneManager do
 
   defp debug_mode? do
     case System.get_env("AIUR_DEBUG") do
+      value when is_binary(value) ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes"]
+
+      _ ->
+        false
+    end
+  end
+
+  # Whether the per-pane screen-grab capture loop runs. Deliberately separate
+  # from AIUR_DEBUG so a --debug run gets full structured logs WITHOUT the
+  # per-pane `capture-pane` fork loop that scales with ticket count.
+  defp screen_grab? do
+    case System.get_env("AIUR_SCREEN_GRAB") do
       value when is_binary(value) ->
         String.downcase(String.trim(value)) in ["1", "true", "yes"]
 

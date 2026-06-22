@@ -23,6 +23,18 @@
 
 set -euo pipefail
 
+# Raise the soft open-file limit toward the hard maximum. High agent concurrency
+# spawns many tmux/opencode/git subprocesses + sockets; on hosts with a low
+# default (macOS ships 256) that exhausts file descriptors (:emfile) and crashes
+# the node. Soft<=hard needs no privilege; best-effort, never fatal.
+__aiur_hard_nofile="$(ulimit -Hn 2>/dev/null || echo)"
+if [ "${__aiur_hard_nofile}" = "unlimited" ]; then
+  ulimit -Sn 65536 2>/dev/null || true
+elif [ -n "${__aiur_hard_nofile}" ]; then
+  ulimit -Sn "${__aiur_hard_nofile}" 2>/dev/null || true
+fi
+unset __aiur_hard_nofile
+
 die() {
   echo "❌ $*" >&2
   exit 1
