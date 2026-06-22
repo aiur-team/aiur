@@ -187,6 +187,22 @@ defmodule Aiur.CoreTest do
     assert prompt =~ "handoff"
   end
 
+  test "the using-aiur operating skill the prompt points at exists for both backends" do
+    # The slim prompts delegate the operating manual to this skill, so a rename
+    # that silently broke the pointer must fail a test. Tests run from `src/`;
+    # the skill lives at the repo root.
+    skill_dir = Path.expand("../.claude/skills/using-aiur", File.cwd!())
+
+    assert File.regular?(Path.join(skill_dir, "SKILL.md"))
+    assert File.regular?(Path.join(skill_dir, "reference/complexity-routing.md"))
+    assert File.regular?(Path.join(skill_dir, "reference/progress-and-checkins.md"))
+
+    # The codex backend sees the skill via a symlink mirroring `aiur-agent`.
+    codex_link = Path.expand("../.codex/skills/using-aiur", File.cwd!())
+    assert {:ok, _target} = File.read_link(codex_link)
+    assert File.regular?(Path.join(codex_link, "SKILL.md"))
+  end
+
   test "linear api token resolves from LINEAR_API_KEY env var" do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
     env_api_key = "test-linear-api-key"

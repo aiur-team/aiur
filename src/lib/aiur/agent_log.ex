@@ -241,7 +241,11 @@ defmodule Aiur.AgentLog do
 
     description =
       Regex.run(
-        ~r/Description:\n\n(.*?)(?:\n\n(?:Continuation context:|## )|\z)/s,
+        # Stop at the first AIUR boilerplate section that can follow the
+        # rendered description, or at `\z`. The headers are listed explicitly
+        # (not a generic `## `) so a `## ` heading inside the issue's own
+        # description is captured rather than truncated.
+        ~r/Description:\n\n(.*?)(?:\n\n(?:Continuation context:|## Workspace setup|## Required Setup|## Workflow|## Workpad Template)|\z)/s,
         text,
         capture: :all_but_first
       )

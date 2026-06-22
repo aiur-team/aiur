@@ -163,6 +163,41 @@ defmodule Aiur.AgentLogTest do
       refute body =~ "using-aiur"
     end
 
+    test "keeps markdown headings that are part of the issue description" do
+      # The boilerplate terminators are matched explicitly, so a `## ` heading
+      # inside the issue's own description is preserved, not truncated.
+      prompt = """
+      Issue:
+
+      Fix login bug
+
+      Description:
+
+      Login fails on invalid email.
+
+      ## Steps to reproduce
+
+      1. Submit a malformed address.
+
+      ## Workspace setup (this repo)
+
+      Follow repository setup.
+      """
+
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+          }
+        })
+
+      assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
+      assert body =~ "Steps to reproduce"
+      assert body =~ "Submit a malformed address"
+      refute body =~ "Workspace setup"
+    end
+
     test "falls back to raw summary for continuation prompts without issue sections" do
       prompt = "Continuation guidance:\n\nResume from the current workspace state."
 

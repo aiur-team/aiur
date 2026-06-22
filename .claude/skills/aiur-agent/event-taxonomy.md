@@ -20,6 +20,8 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 
 | Name | When to emit | Topic published |
 |------|--------------|-----------------|
+| `progress` | Numeric percent sample for the agent-list bar at a phase boundary; `payload: {percent: 10..100, label: "..."}` (capped 2/turn). See the `using-aiur` skill's `reference/progress-and-checkins.md` | `ticket.<id>.agent.progress` |
+| `progress.checkin` | Reply to an `operator.progress_request` ping; same payload shape as `progress`, always overrides the bar | `ticket.<id>.agent.progress.checkin` |
 | `progress.<slug>` | Hit a milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`) | `ticket.<id>.agent.progress.<slug>` |
 | `decision.<slug>` | Made an architectural choice worth broadcasting (`decision.use-amqp-matcher`) | `ticket.<id>.agent.decision.<slug>` |
 | `blocked` | Your work is now blocked — typically called right after `aiur_declare_blocker` | `ticket.<id>.agent.blocked` |
