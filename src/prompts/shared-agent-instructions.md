@@ -36,10 +36,10 @@ work ordering, so they're worth stating up front:
 - **Blocking another agent is your highest priority.** If another ticket is
   paused on a decision or stub from you (you've been declared a blocker via
   `aiur_declare_blocker`), drop unrelated work and resolve that first.
-- **Code around the blocker; don't claim `unblocked` while you depend on a
-  workaround.** Stub against the agreed signature and keep working; emit
-  `unblocked` only once the real upstream change has landed and you've integrated
-  it. See the skill's `stub-then-fetch.md` for the full pattern.
+- **Code around the blocker; don't stall your whole ticket on it.** Stub against
+  the agreed signature and keep working. The skill's `stub-then-fetch.md` has the
+  exact `unblocked` emit sequence (provisional vs. integrated) — follow it rather
+  than guessing the event timing from memory.
 
 The bare `progress` / `progress.checkin` emits that drive the operator's
 agent-list bar are a separate, operator-facing protocol — see "Progress emits"

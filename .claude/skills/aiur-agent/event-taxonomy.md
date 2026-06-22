@@ -32,8 +32,8 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 > **Also allowed, but operator-facing (not cross-ticket coordination):** the bare
 > `progress` and `progress.checkin` names drive the operator's agent-list
 > progress bar. They're allowed by `emit_event`, but their 1-of-10 estimation
-> protocol and check-in cadence live in the agent pre-prompt ("Progress emits" /
-> "Operator check-ins"), not here.
+> protocol and check-in cadence are documented in the agent pre-prompt's
+> progress-bar guidance, not here.
 
 ## System-emitted topics (subscribe-only)
 

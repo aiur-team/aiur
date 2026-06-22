@@ -91,4 +91,15 @@ defmodule Aiur.PromptBuilderTest do
     refute String.contains?(prompt, "Event vocabulary (allowlisted")
     refute String.contains?(prompt, "You can re-block")
   end
+
+  @tag config: @config
+  test "shared prompt keeps the operator-bar progress protocol (not moved to the skill)" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+
+    # The bare `progress` / `progress.checkin` operator-bar protocol is
+    # deliberately NOT part of /aiur-agent — guard against an over-zealous slim
+    # that strips it along with the cross-ticket vocabulary.
+    assert String.contains?(prompt, "Progress emits")
+    assert String.contains?(prompt, "Operator check-ins")
+  end
 end
