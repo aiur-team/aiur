@@ -89,6 +89,79 @@ defmodule Aiur.RepoBaseTest do
     end
   end
 
+  describe "server state machine" do
+    setup do
+      # An unnamed instance so we can drive its handlers without colliding with
+      # the supervised singleton (which always registers __MODULE__).
+      {:ok, pid} = GenServer.start_link(RepoBase, [])
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      {:ok, server: pid}
+    end
+
+    test "starts idle", %{server: pid} do
+      assert %{phase: :idle, build: nil, probe: nil} = :sys.get_state(pid)
+    end
+
+    test "refresh_async is a no-op when pre-warm is disabled", %{server: pid} do
+      GenServer.cast(pid, :refresh_async)
+      assert %{phase: :idle} = :sys.get_state(pid)
+    end
+
+    test "build_done success marks ready and records the head", %{server: pid} do
+      :sys.replace_state(pid, fn s ->
+        %{s | build: %{pid: pid, ref: make_ref(), head: "abc"}, phase: :building}
+      end)
+
+      send(pid, {:build_done, pid, "abc", {:ok, "/base"}})
+
+      assert %{phase: :ready, base_path: "/base", ready_head: "abc", build: nil} = :sys.get_state(pid)
+    end
+
+    test "build_done error sets the error phase", %{server: pid} do
+      :sys.replace_state(pid, fn s ->
+        %{s | build: %{pid: pid, ref: make_ref(), head: nil}, phase: :building}
+      end)
+
+      send(pid, {:build_done, pid, nil, {:error, :boom}})
+
+      assert %{phase: {:error, :boom}, build: nil} = :sys.get_state(pid)
+    end
+
+    test "build_head records the locked head on the in-flight build", %{server: pid} do
+      :sys.replace_state(pid, fn s -> %{s | build: %{pid: pid, ref: make_ref(), head: nil}} end)
+
+      send(pid, {:build_head, pid, "deadbeef"})
+
+      assert %{build: %{head: "deadbeef"}} = :sys.get_state(pid)
+    end
+
+    test "a crashed build process surfaces an error phase", %{server: pid} do
+      ref = make_ref()
+      :sys.replace_state(pid, fn s -> %{s | build: %{pid: self(), ref: ref, head: nil}, phase: :building} end)
+
+      send(pid, {:DOWN, ref, :process, self(), :killed})
+
+      assert %{phase: {:error, {:build_crashed, :killed}}, build: nil} = :sys.get_state(pid)
+    end
+
+    test "a remote-head advance past a ready base triggers a rebuild", %{server: pid} do
+      :sys.replace_state(pid, fn s -> %{s | build: nil, phase: :ready, ready_head: "old"} end)
+
+      send(pid, {:remote_head, "new"})
+
+      # resolve is disabled in test, so the triggered rebuild resolves to idle.
+      assert %{phase: :idle, probe: nil} = :sys.get_state(pid)
+    end
+
+    test "a remote-head with no advance leaves a ready base untouched", %{server: pid} do
+      :sys.replace_state(pid, fn s -> %{s | build: nil, phase: :ready, ready_head: "same"} end)
+
+      send(pid, {:remote_head, "same"})
+
+      assert %{phase: :ready} = :sys.get_state(pid)
+    end
+  end
+
   defp git!(args) do
     {out, status} = System.cmd("git", args, stderr_to_stdout: true)
     assert status == 0, "git #{Enum.join(args, " ")} failed: #{out}"

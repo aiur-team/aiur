@@ -62,6 +62,25 @@ defmodule Aiur.Prewarm.DetectTest do
       assert command =~ "poetry install"
     end
 
+    test "Python with only requirements.txt uses pip install -r" do
+      root = tmp_repo(%{"requirements.txt" => "flask\n"})
+      assert {:ok, %{language: :python, command: command}} = Detect.detect(root)
+      assert command =~ "pip install -r requirements.txt"
+    end
+
+    test "Node with yarn.lock uses corepack + immutable yarn" do
+      root = tmp_repo(%{"package.json" => "{}", "yarn.lock" => ""})
+      assert {:ok, %{command: command}} = Detect.detect(root)
+      assert command =~ "corepack enable"
+      assert command =~ "yarn install --immutable"
+    end
+
+    test "Node with bun.lockb uses bun install" do
+      root = tmp_repo(%{"package.json" => "{}", "bun.lockb" => ""})
+      assert {:ok, %{command: command}} = Detect.detect(root)
+      assert command =~ "bun install"
+    end
+
     test "no supported manifest -> :none" do
       assert :none = Detect.detect(tmp_repo(%{"README.md" => "hi"}))
     end

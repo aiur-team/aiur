@@ -95,6 +95,7 @@ defmodule Aiur.Init do
           migrate_layout: (map() -> {:ok, map()} | {:error, term()}),
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
+          detect_toolchain: (-> Detect.result()),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
