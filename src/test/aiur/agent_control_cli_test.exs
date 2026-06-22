@@ -234,6 +234,83 @@ defmodule Aiur.AgentControlCLITest do
     assert resume_stderr =~ "aiur: failed to resume #46 (max concurrent agents reached)"
   end
 
+  test "message delivers operator text to a running agent and reports success", %{orchestrator: pid} do
+    parent = self()
+
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn identifier, text ->
+      send(parent, {:messaged, identifier, text})
+      {:ok, 7}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+
+    assert output =~ "aiur: messaged #44"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    # Delivered through the canonical identifier, not the bare issue number.
+    assert_receive {:messaged, "repo#44", "ship it"}, 500
+  end
+
+  test "message to a non-running issue fails with a clear error" do
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.message("45", "hello") end)
+
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "aiur: failed to message #45 (no running agent)"
+  end
+
+  test "message surfaces delivery errors with a non-zero exit", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+
+    for {reason, expected} <- [
+          {:empty_message, "message is empty"},
+          {:message_too_long, "message is too long"},
+          {:invalid_message, "invalid message"}
+        ] do
+      Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
+        {:error, reason}
+      end)
+
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.message("44", "anything") end)
+
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "aiur: failed to message #44 (#{expected})"
+    end
+  end
+
+  test "message reports a clear error when the orchestrator is unavailable", %{orchestrator: pid} do
+    Process.unregister(Orchestrator)
+
+    try do
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.message("44", "hi") end)
+
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "aiur: orchestrator is not running"
+    after
+      Process.register(pid, Orchestrator)
+    end
+  end
+
   test "unavailable orchestrator returns clear errors", %{orchestrator: pid} do
     Process.unregister(Orchestrator)
 

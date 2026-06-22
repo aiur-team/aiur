@@ -190,6 +190,7 @@ Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>]
        aiur stop             stop the running session
        aiur status           show agent status
        aiur pause <ids|--all> | resume <ids|--all>
+       aiur message <id> <text>  send operator text to a running agent
        aiur --version
 EOF
 }
@@ -597,6 +598,30 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
+# `aiur message <issue> <text>` — deliver operator text to one running agent.
+# The text is base64-encoded for the RPC hop so arbitrary content (quotes,
+# backslashes, `#{}`, newlines) survives without Elixir-string escaping.
+cmd_message() {
+  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\")"
+
+  local issue="${1:-}"
+  if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
+    echo "$usage" >&2
+    exit 64
+  fi
+  shift
+
+  local text="$*"
+  if [ -z "$text" ]; then
+    echo "$usage" >&2
+    exit 64
+  fi
+
+  local encoded
+  encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
+  run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
+}
+
 sweep_dead_tmux_sockets() {
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
@@ -688,6 +713,10 @@ aiur_engine_main() {
     pause | resume)
       shift
       cmd_pause_resume "$cmd" "$@"
+      ;;
+    message)
+      shift
+      cmd_message "$@"
       ;;
     stop)
       cmd_stop

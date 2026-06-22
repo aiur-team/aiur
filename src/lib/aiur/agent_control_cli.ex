@@ -24,6 +24,48 @@ defmodule Aiur.AgentControlCLI do
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
 
+  @spec message(String.t(), String.t()) :: :ok
+  def message(issue, text) when is_binary(issue) and is_binary(text) do
+    issue
+    |> message_status(text, Orchestrator.status())
+    |> exit_marker()
+  end
+
+  defp message_status(issue, text, statuses) when is_list(statuses) do
+    case Enum.find(statuses, &target_matches?(&1, issue)) do
+      nil ->
+        print_failure(:message, %{identifier: issue, issue_id: issue}, :no_running_agent)
+        1
+
+      status ->
+        deliver_message(status, text)
+    end
+  end
+
+  defp message_status(_issue, _text, error) when error in [:timeout, :unavailable] do
+    print_orchestrator_status_error(error)
+    1
+  end
+
+  # Empty/whitespace-only and over-long text are validated downstream by
+  # Orchestrator.send_operator_message (the shared delivery path), which returns
+  # {:error, :empty_message | :message_too_long}; we surface those via format_reason.
+  defp deliver_message(status, text) do
+    case send_message(canonical_identifier(status), text) do
+      {:ok, _request_id} ->
+        IO.puts("aiur: messaged #{display_identifier(status)}")
+        0
+
+      {:error, reason} ->
+        print_failure(:message, status, reason)
+        1
+    end
+  end
+
+  defp send_message(identifier, text) do
+    Application.get_env(:aiur, :agent_control_cli_message_fun, &AgentChat.send/2).(identifier, text)
+  end
+
   defp control(action, targets) when action in [:pause, :resume] do
     action
     |> control_status(targets, Orchestrator.status())
@@ -220,6 +262,9 @@ defmodule Aiur.AgentControlCLI do
         agent_finished: "agent finished",
         max_concurrent_agents_reached: "max concurrent agents reached",
         not_resumable: "not resumable",
+        empty_message: "message is empty",
+        message_too_long: "message is too long",
+        invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
         timeout: "orchestrator timed out"
       },
