@@ -4,9 +4,10 @@ defmodule Aiur.Init do
 
   Runs as a foreground command (never the tmux-backed TUI): it asks the
   decisions that branch behavior using interactive Owl components, fills the
-  committed `.aiurconfig.example` template, writes the result to the chosen
-  target (`./.aiurconfig` or the global `~/.aiurconfig`), and — for GitHub
-  trackers — creates the labels aiur depends on.
+  committed config example template, writes the result to the chosen target
+  (`./.aiur/config` or the global `~/.aiur/config`, alongside `hooks`,
+  `prompt.md`, and `examples/`), and — for GitHub trackers — creates the labels
+  aiur depends on.
 
   The wizard takes an injected `io` (prompt/print) and `deps` (filesystem,
   network, auth) so it is fully unit-testable with no real side effects.
@@ -16,7 +17,16 @@ defmodule Aiur.Init do
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Prompt
 
-  @config_file_name ".aiurconfig"
+  # New layout: aiur files live in a `.aiur/` folder (`.aiur/config`, `.aiur/hooks`,
+  # `.aiur/prompt.md`, `.aiur/examples/`). `@config_file_name` is the repo-relative
+  # path used for both the target and user-facing messages; the legacy root
+  # `.aiurconfig` is still honored on read (see `Aiur.Workflow`) and is what the
+  # migration path (resume) moves into the folder.
+  @config_file_name ".aiur/config"
+  @legacy_config_file_name ".aiurconfig"
+  @prompt_basename "prompt.md"
+  @examples_dir "examples"
+  @gitignore_entry ".aiur/"
   @env_file_name ".env"
   @env_example_file_name ".env.example"
   @token_url "https://github.com/settings/tokens"
@@ -57,7 +67,7 @@ defmodule Aiur.Init do
   # also writes a `.aiurhooks` (from this example) next to the config — otherwise
   # the first run would fail resolving a missing hooks file. Embedded at compile
   # time so the wizard works from a release with no runtime file dependency.
-  @aiurhooks_file_name ".aiurhooks"
+  @aiurhooks_file_name "hooks"
   @aiurhooks_example_path Path.expand("../../../.aiurhooks.example", __DIR__)
   @external_resource @aiurhooks_example_path
   @aiurhooks_example_template File.read!(@aiurhooks_example_path)
@@ -79,6 +89,8 @@ defmodule Aiur.Init do
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
+          ensure_examples: (Path.t() -> {:created | :exists, Path.t()}),
+          add_gitignore_entry: (String.t() -> {:added | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
           install_claude_app_server: (-> :ok | {:error, String.t()}),
@@ -164,7 +176,7 @@ defmodule Aiur.Init do
     pre_warmed = prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
     polling = prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     # prompt_file is repo-specific, so the general global config omits it.
-    prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", "AIUR.md", nil)
+    prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
 
     fills =
       build_fills(%{
@@ -188,7 +200,9 @@ defmodule Aiur.Init do
         io.puts.(["Created: ", dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         ensure_aiurhooks(io, deps, path)
+        ensure_examples(io, deps, path)
         setup_env(io, deps, tracker)
+        maybe_offer_gitignore(io, deps, location)
         provision(io, deps, tracker, agents)
 
       {:error, reason} ->
@@ -310,7 +324,7 @@ defmodule Aiur.Init do
   # --- Prompts ---
 
   defp prompt_location(io) do
-    options = ["repo (./.aiurconfig)", "global (~/.aiurconfig)"]
+    options = ["repo (./.aiur/)", "global (~/.aiur/)"]
 
     case value_of(io.select.("Where will you store aiur settings for this project?", options, hd(options))) do
       "global" -> :global
@@ -510,13 +524,38 @@ defmodule Aiur.Init do
     end
   end
 
-  # The scaffolded config references `.aiurhooks` via `hooks_file:`, so make sure
-  # the file exists (created from .aiurhooks.example). Never clobber an existing
-  # one — the dev may have tuned it for their toolchain.
+  # The scaffolded config references the hooks file via `hooks_file: hooks`, so
+  # make sure `.aiur/hooks` exists (created from .aiurhooks.example). Never clobber
+  # an existing one — the dev may have tuned it for their toolchain.
   defp ensure_aiurhooks(io, deps, target) do
     case deps.ensure_aiurhooks.(target) do
       {:created, path} -> io.puts.(["Created: ", dim(path)])
       {:exists, _path} -> :ok
+    end
+  end
+
+  # Drop annotated `.aiur/examples/*.example` references next to the live config so
+  # the dev has a full template to copy from. Idempotent (overwrites the examples).
+  defp ensure_examples(io, deps, target) do
+    case deps.ensure_examples.(target) do
+      {:created, dir} -> io.puts.(["Created: ", dim(dir)])
+      {:exists, _dir} -> :ok
+    end
+  end
+
+  # Repo-local only: offer to gitignore the whole `.aiur/` folder. Declining leaves
+  # it tracked (team-shared config, as `.aiurconfig` was). Global setup has nothing
+  # in the repo to ignore, so the prompt is skipped.
+  defp maybe_offer_gitignore(_io, _deps, :global), do: :ok
+
+  defp maybe_offer_gitignore(io, deps, _repo_local) do
+    if io.confirm.("Add #{@gitignore_entry} to .gitignore?", false) do
+      case deps.add_gitignore_entry.(@gitignore_entry) do
+        {:added, path} -> io.puts.(["Updated: ", dim(path)])
+        {:exists, _path} -> :ok
+      end
+    else
+      :ok
     end
   end
 
@@ -849,6 +888,8 @@ defmodule Aiur.Init do
       write_config: &write_config/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
+      ensure_examples: &write_examples/1,
+      add_gitignore_entry: &add_gitignore_entry/1,
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
       install_claude_app_server: &install_claude_app_server/0,
@@ -873,6 +914,8 @@ defmodule Aiur.Init do
   end
 
   defp write_config(target, yaml) do
+    File.mkdir_p!(Path.dirname(target))
+
     case File.write(target, yaml) do
       :ok -> {:ok, target}
       {:error, reason} -> {:error, reason}
@@ -898,6 +941,40 @@ defmodule Aiur.Init do
     else
       File.write!(path, @aiurhooks_example_template)
       {:created, path}
+    end
+  end
+
+  # Annotated templates the dev can copy from, dropped beside the live config at
+  # `.aiur/examples/{config,hooks,prompt.md}.example`. Always (re)written — they're
+  # reference material, not user-edited state.
+  defp write_examples(target) do
+    dir = Path.join(Path.dirname(target), @examples_dir)
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, "config.example"), @example_template)
+    File.write!(Path.join(dir, "hooks.example"), @aiurhooks_example_template)
+    File.write!(Path.join(dir, "prompt.md.example"), @prompt_example_template)
+    {:created, dir}
+  end
+
+  # Append an entry to the repo's `.gitignore` (creating it if absent), unless the
+  # entry is already present. Idempotent; returns `:exists` when nothing changed.
+  defp add_gitignore_entry(entry) do
+    path = Path.join(File.cwd!(), ".gitignore")
+
+    existing =
+      case File.read(path) do
+        {:ok, content} -> content
+        {:error, _} -> ""
+      end
+
+    present? = existing |> String.split("\n") |> Enum.map(&String.trim/1) |> Enum.member?(entry)
+
+    if present? do
+      {:exists, path}
+    else
+      separator = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
+      File.write!(path, existing <> separator <> entry <> "\n")
+      {:added, path}
     end
   end
 

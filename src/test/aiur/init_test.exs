@@ -9,11 +9,11 @@ defmodule Aiur.InitTest do
 
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
-    target = Path.join(dir, ".aiurconfig")
-    # The wizard writes `prompt_file: AIUR.md`; Workflow.load resolves it, so
+    target = Path.join([dir, ".aiur", "config"])
+    File.mkdir_p!(Path.dirname(target))
+    # The wizard writes `prompt_file: prompt.md`; Workflow.load resolves it, so
     # the file must exist alongside the config for the written config to load.
-    File.write!(Path.join(dir, "AIUR.md"), "# agent prompt\n")
+    File.write!(Path.join([dir, ".aiur", "prompt.md"]), "# agent prompt\n")
     on_exit(fn -> File.rm_rf!(dir) end)
     {:ok, dir: dir, target: target}
   end
@@ -53,6 +53,7 @@ defmodule Aiur.InitTest do
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
         write_config: fn t, yaml ->
+          File.mkdir_p!(Path.dirname(t))
           File.write!(t, yaml)
           send(parent, {:write, t})
           {:ok, t}
@@ -68,13 +69,31 @@ defmodule Aiur.InitTest do
           end
         end,
         ensure_aiurhooks: fn t ->
-          path = Path.join(Path.dirname(t), ".aiurhooks")
+          path = Path.join(Path.dirname(t), "hooks")
 
           if File.regular?(path) do
             {:exists, path}
           else
             File.write!(path, "after_create: echo created\n")
             {:created, path}
+          end
+        end,
+        ensure_examples: fn t ->
+          dir = Path.join(Path.dirname(t), "examples")
+          File.mkdir_p!(dir)
+          File.write!(Path.join(dir, "config.example"), "# config example\n")
+          {:created, dir}
+        end,
+        add_gitignore_entry: fn entry ->
+          path = Path.join(dir, ".gitignore")
+          existing = if File.regular?(path), do: File.read!(path), else: ""
+
+          if existing |> String.split("\n") |> Enum.member?(entry) do
+            {:exists, path}
+          else
+            File.write!(path, existing <> entry <> "\n")
+            send(parent, {:gitignore, entry})
+            {:added, path}
           end
         end,
         ensure_env: fn content ->
@@ -365,21 +384,45 @@ defmodule Aiur.InitTest do
     end
 
     test "repo-local init creates the prompt file the config references", %{dir: dir, target: target} do
-      File.rm!(Path.join(dir, "AIUR.md"))
+      File.rm!(Path.join([dir, ".aiur", "prompt.md"]))
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
-      assert File.regular?(Path.join(dir, "AIUR.md"))
+      assert File.regular?(Path.join([dir, ".aiur", "prompt.md"]))
     end
 
-    test "repo-local init creates the .aiurhooks the config references", %{dir: dir, target: target} do
-      File.rm_rf!(Path.join(dir, ".aiurhooks"))
+    test "repo-local init creates the .aiur/hooks the config references", %{dir: dir, target: target} do
+      File.rm_rf!(Path.join([dir, ".aiur", "hooks"]))
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
-      assert File.regular?(Path.join(dir, ".aiurhooks"))
+      assert File.regular?(Path.join([dir, ".aiur", "hooks"]))
     end
 
-    test "init does not clobber an existing .aiurhooks", %{dir: dir, target: target} do
-      hooks_path = Path.join(dir, ".aiurhooks")
+    test "repo-local init scaffolds .aiur/examples", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert File.regular?(Path.join([dir, ".aiur", "examples", "config.example"]))
+    end
+
+    test "repo-local init appends .aiur/ to .gitignore when accepted", %{dir: dir, target: target} do
+      answers = github_answers(%{confirm: %{"Add .aiur/ to .gitignore?" => true}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      assert File.read!(Path.join(dir, ".gitignore")) =~ ".aiur/"
+    end
+
+    test "repo-local init leaves .gitignore untouched when declined", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      refute File.regular?(Path.join(dir, ".gitignore"))
+    end
+
+    test "global init does not offer the gitignore prompt", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{@location_label => "global"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+      refute_received {:gitignore, _entry}
+    end
+
+    test "init does not clobber an existing .aiur/hooks", %{dir: dir, target: target} do
+      hooks_path = Path.join([dir, ".aiur", "hooks"])
       File.write!(hooks_path, "after_create: my custom hook\n")
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
@@ -524,7 +567,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:select_opts, "Where will you store aiur settings for this project?", opts}
-      assert opts == ["repo (./.aiurconfig)", "global (~/.aiurconfig)"]
+      assert opts == ["repo (./.aiur/)", "global (~/.aiur/)"]
     end
 
     test "accepting the gate sets a default model per complexity tag", %{dir: dir, target: target} do
