@@ -68,6 +68,12 @@ defmodule Aiur.InitTest do
           send(parent, {:write, t})
           {:ok, t}
         end,
+        append_config: fn t, block ->
+          existing = File.read!(t)
+          File.write!(t, String.trim_trailing(existing, "\n") <> "\n\n" <> IO.iodata_to_binary(block))
+          send(parent, {:append, t})
+          {:ok, t}
+        end,
         ensure_prompt_file: fn t, pf, _repo ->
           path = Path.expand(pf, Path.dirname(t))
 
@@ -422,6 +428,73 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       assert_received {:migrate, %{ignore: true}}
+    end
+  end
+
+  describe "resume backfill of new config sections (#411)" do
+    # A config written before the prewarm block existed.
+    @legacy_yaml "tracker:\n  kind: github\n  github:\n    repo: octo/repo\nagent:\n  kind: claude\n"
+
+    test "offers a missing registered section and appends it on opt-in", %{dir: dir, target: target} do
+      File.write!(target, @legacy_yaml)
+
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ok, %{language: :elixir, build_root: ".", command: "mise exec -- mix compile"}}
+          end
+        })
+
+      # confirm "Keep a pre-warmed copy...?" defaults to true; accept the command.
+      answers = %{select: %{"Use this base build command?" => "use"}}
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      # Appended (not regenerated): original keys preserved, prewarm block added.
+      config = File.read!(target)
+      assert config =~ "repo: octo/repo"
+      assert config =~ "prewarm:"
+      assert config =~ "enabled: true"
+      # The command lives in the sibling `.aiur/prewarm` script, mirroring fresh
+      # setup; the appended block points at it via base_build_file.
+      assert config =~ "base_build_file: prewarm"
+      refute config =~ ~s(base_build: ")
+      assert_received {:prewarm_file, "mise exec -- mix compile"}
+      assert_received {:append, ^target}
+      # Reuses the existing first-build flow.
+      assert_received {:prewarm_build, _url, "mise exec -- mix compile"}
+    end
+
+    test "does not prompt when the registered section is already present", %{dir: dir, target: target} do
+      d = deps(self(), dir, target)
+      # First run writes a config that already includes the prewarm block.
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+      _ = puts_log()
+      _ = confirm_prompts()
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      refute Enum.any?(confirm_prompts(), &(&1 =~ ~r/pre-warmed copy/))
+      refute_received {:append, ^target}
+    end
+
+    test "declining the offer leaves the existing config untouched", %{dir: dir, target: target} do
+      File.write!(target, @legacy_yaml)
+      before = File.read!(target)
+
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn -> {:ok, %{language: :elixir, build_root: ".", command: "x"}} end
+        })
+
+      answers = %{
+        confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+      }
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(target) == before
+      refute_received {:append, ^target}
+      refute_received {:prewarm_build, _url, _cmd}
     end
   end
 
