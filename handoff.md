@@ -27,7 +27,8 @@ Plan: `docs/plans/2026-06-22-001-feat-repo-agnostic-prewarm-plan.md`.
   resolves to `src/`), everything routed through `mise exec --`. nx/turbo monorepos + ambiguity → fall
   back to an agent prompt.
 - **U4** `aiur init` final-step opt-in: detect → **show the command for confirm/edit/skip** → write the
-  `prewarm` block; agent-prompt fallback on a miss.
+  `prewarm` block **and run the first base build right then** (so the first `aiur` run dispatches
+  immediately); agent-prompt fallback on a miss.
 - **U5** Eager **async** dispatch gate in `orchestrator.ex` (`dispatch_or_hold`/`prewarm_gate`): holds
   `choose_issues` until the base is `:ready`, **never blocks the orchestrator process**, falls back to
   cold dispatch on a base-build error.
@@ -80,6 +81,15 @@ optimization before merge.
 
 ## How to run
 
+- **Runtime path** (warm base + materialization + loading bar): `aiurdev --debug` — the committed
+  `.aiur/config` already has `prewarm.enabled: true`, so the eager gate builds the base on the first run
+  (or reuses it if `init` already built it) and agents materialize from it.
+- **Init path** (opt-in → detect → consent → first build): aiur's repo already has a `.aiur/config`, so a
+  plain `aiurdev init` *resumes* and skips the prewarm prompt. To exercise the init→first-build path on
+  aiur: `aiurdev init --force` from the repo root → answer **yes** to "Keep a pre-warmed copy…" → accept
+  the detected Elixir/`src` command → it clones + compiles the base now ("Building the warm base now…" →
+  "✅ Warm base ready"). Then `git checkout .aiur/config` to restore the committed dogfood config (the
+  `--force` regenerated it). Or run `aiurdev init` in a scratch repo to avoid touching aiur's config.
 - Tests: `cd src && mise exec -- mix test [path]`. Full gate: `make -C src MIX='mise exec -- mix' all`.
 - Run (operator): `aiurdev --debug` (now FD-safe). `/aiur-status` to monitor.
 - Disable prewarm if needed: set `prewarm.enabled: false` in `.aiur/config`.
