@@ -57,6 +57,7 @@ defmodule Aiur.InitTest do
         end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
+        detect_toolchain: fn -> :none end,
         write_config: fn t, yaml ->
           File.mkdir_p!(Path.dirname(t))
           File.write!(t, yaml)
@@ -195,6 +196,54 @@ defmodule Aiur.InitTest do
     }
 
     Map.merge(base, overrides, fn _k, v1, v2 -> Map.merge(v1, v2) end)
+  end
+
+  describe "pre-warm opt-in" do
+    test "detection + accept writes an enabled prewarm block with the command", %{dir: dir, target: target} do
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ok, %{language: :elixir, build_root: "src", command: "mise exec -- mix compile"}}
+          end
+        })
+
+      answers = github_answers(%{select: %{"Use this base build command?" => "use"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      config = File.read!(target)
+      assert config =~ "enabled: true"
+      assert config =~ ~s(base_build: "mise exec -- mix compile")
+    end
+
+    test "detection miss prints a fallback prompt and leaves prewarm disabled", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{detect_toolchain: fn -> :none end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/paste this to your coding agent/))
+      config = File.read!(target)
+      assert config =~ "enabled: false"
+      refute config =~ "base_build:"
+    end
+
+    test "declining the opt-in leaves prewarm disabled", %{dir: dir, target: target} do
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn -> {:ok, %{language: :elixir, build_root: ".", command: "x"}} end
+        })
+
+      answers =
+        github_answers(%{
+          confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      config = File.read!(target)
+      assert config =~ "enabled: false"
+      refute config =~ "base_build:"
+    end
   end
 
   describe "existing-config handling" do
