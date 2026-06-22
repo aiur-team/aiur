@@ -227,18 +227,25 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
     end
   end
 
-  describe "turn_idle_expired?/2 (inactivity watchdog)" do
-    test "true once silence reaches the watchdog window" do
-      assert ChatCompletions.turn_idle_expired?(600_000, 600_000)
-      assert ChatCompletions.turn_idle_expired?(600_001, 600_000)
+  describe "watchdog_action/2 (inactivity watchdog)" do
+    test "closes once silence reaches the watchdog window" do
+      assert {:close, 600_000} = ChatCompletions.watchdog_action(600_000, 600_000)
+      assert {:close, 600_001} = ChatCompletions.watchdog_action(600_001, 600_000)
     end
 
-    test "false while real activity is still within the window (reschedule, no close)" do
-      # The watchdog timer fires 10 min after arming, but an
-      # actively-streaming turn keeps bumping last_event_at — so the
-      # measured silence is short and the stream must NOT close.
-      refute ChatCompletions.turn_idle_expired?(180_000, 600_000)
-      refute ChatCompletions.turn_idle_expired?(0, 600_000)
+    test "reschedules for the remaining window while activity is recent (no false close)" do
+      # The timer fires 10 min after arming, but an actively-streaming turn
+      # keeps bumping last_event_at — so measured silence is short and the
+      # watchdog must reschedule for exactly the remaining window, never close.
+      assert {:reschedule, 420_000} = ChatCompletions.watchdog_action(180_000, 600_000)
+      assert {:reschedule, 600_000} = ChatCompletions.watchdog_action(0, 600_000)
+    end
+
+    test "the reschedule delay is always strictly positive (no zero/negative send_after)" do
+      for silent <- [0, 1, 599_999] do
+        assert {:reschedule, delay} = ChatCompletions.watchdog_action(silent, 600_000)
+        assert delay > 0
+      end
     end
   end
 

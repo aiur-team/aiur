@@ -265,29 +265,29 @@ defmodule Aiur.Opencode.ChatCompletions do
       # for the remaining window, so an actively-streaming turn is never
       # cut at the 10-minute mark — only true silence closes the stream.
       {:turn_watchdog, ^parent_id} ->
-        silent_ms = now_ms() - seg.last_event_at
+        case watchdog_action(now_ms() - seg.last_event_at, @watchdog_ms) do
+          {:reschedule, delay_ms} ->
+            Process.send_after(self(), {:turn_watchdog, parent_id}, delay_ms)
+            codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
 
-        if turn_idle_expired?(silent_ms, @watchdog_ms) do
-          Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{parent_id} silent_ms=#{silent_ms}")
-          # Paint the agent row 💤 (AgentEvents.state_emoji/1) so the
-          # operator sees the agent went to sleep on a genuinely idle
-          # stream. The next turn's `:worker_control_state :working`
-          # flips it back to 🟢.
-          Aiur.Orchestrator.mark_sleeping(identifier)
-          unsubscribe_stream(identifier)
+          {:close, silent_ms} ->
+            Logger.warning("opencode_bridge turn_stream_watchdog identifier=#{identifier} aiur_turn=#{parent_id} silent_ms=#{silent_ms}")
+            # Paint the agent row 💤 (AgentEvents.state_emoji/1) so the
+            # operator sees the agent went to sleep on a genuinely idle
+            # stream. The next turn's `:worker_control_state :working`
+            # flips it back to 🟢.
+            Aiur.Orchestrator.mark_sleeping(identifier)
+            unsubscribe_stream(identifier)
 
-          conn =
-            chunk(
-              conn,
-              completion_id,
-              "\n**system:** 💤 No turn activity in 10 minutes; closing stream.",
-              nil
-            )
+            conn =
+              chunk(
+                conn,
+                completion_id,
+                "\n**system:** 💤 No turn activity in #{div(@watchdog_ms, 60_000)} minutes; closing stream.",
+                nil
+              )
 
-          chunk(conn, completion_id, nil, "timeout")
-        else
-          Process.send_after(self(), {:turn_watchdog, parent_id}, @watchdog_ms - silent_ms)
-          codex_turn_stream_loop(conn, identifier, parent_id, completion_id, last_role, seg)
+            chunk(conn, completion_id, nil, "timeout")
         end
 
       _other ->
@@ -380,13 +380,23 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   @doc false
-  # Turn-level inactivity check for the `{:turn_watchdog}` timer: true once
-  # the stream has been event-silent (no transcript/event delta — the 15s
-  # heartbeat does NOT bump `last_event_at`) for at least the watchdog
-  # window. Keeping this pure makes the idle-vs-reschedule decision
-  # unit-testable without Plug/process scaffolding.
-  @spec turn_idle_expired?(non_neg_integer(), pos_integer()) :: boolean()
-  def turn_idle_expired?(silent_ms, watchdog_ms), do: silent_ms >= watchdog_ms
+  # Decide what the `{:turn_watchdog}` timer does when it fires, given how
+  # long the stream has been event-silent (`silent_ms` — bumped only by real
+  # transcript/event deltas, never by the 15s heartbeat). At/over the window
+  # we `{:close, silent_ms}` (idle-close); otherwise `{:reschedule, delay_ms}`
+  # for the remaining window so an actively-streaming turn is never cut at the
+  # 10-minute mark. `delay_ms` is always strictly positive (the reschedule
+  # branch only runs when `silent_ms < watchdog_ms`). Pure so the close-vs-
+  # reschedule arithmetic is unit-testable without Plug/process scaffolding.
+  @spec watchdog_action(non_neg_integer(), pos_integer()) ::
+          {:close, non_neg_integer()} | {:reschedule, pos_integer()}
+  def watchdog_action(silent_ms, watchdog_ms) do
+    if silent_ms >= watchdog_ms do
+      {:close, silent_ms}
+    else
+      {:reschedule, watchdog_ms - silent_ms}
+    end
+  end
 
   # Resolve the writer (serve base_url + session id) whose opencode issued
   # THIS chat-completion request — continuations must go only to the
