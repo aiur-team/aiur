@@ -167,25 +167,37 @@ defmodule Aiur.AgentRunnerTest do
     end
   end
 
-  describe "rc_session_name/1" do
-    test "builds the operator-facing chat title from identifier and title" do
-      issue = %{identifier: "99", id: "gid-99", title: "Add greeting"}
-      assert AgentRunner.rc_session_name(issue) == "Aiur 99 - Add greeting"
+  describe "rc_session_name/2" do
+    test "builds the operator-facing chat title with repo, id, and title" do
+      issue = %{identifier: "7", id: "gid-7", title: "CLI: ENS namespace"}
+
+      assert AgentRunner.rc_session_name(issue, "its-applekid/actions") ==
+               "Aiur: Actions #7 - CLI: ENS namespace"
     end
 
     test "falls back to id when identifier is nil" do
       issue = %{identifier: nil, id: "412", title: "Fix it"}
-      assert AgentRunner.rc_session_name(issue) == "Aiur 412 - Fix it"
+      assert AgentRunner.rc_session_name(issue, "its-everdred/aiur") == "Aiur: Aiur #412 - Fix it"
+    end
+
+    test "preserves existing casing in the repo short name" do
+      issue = %{identifier: "1", id: "1", title: "x"}
+      assert AgentRunner.rc_session_name(issue, "owner/myRepo") == "Aiur: MyRepo #1 - x"
+    end
+
+    test "omits the repo when the tracker exposes none" do
+      issue = %{identifier: "9", id: "9", title: "No repo"}
+      assert AgentRunner.rc_session_name(issue, nil) == "Aiur: #9 - No repo"
     end
 
     test "strips control chars and quotes, collapses whitespace" do
       issue = %{identifier: "5", id: "5", title: "a\t'b'\n  `c`"}
-      assert AgentRunner.rc_session_name(issue) == "Aiur 5 - a b c"
+      assert AgentRunner.rc_session_name(issue, "owner/repo") == "Aiur: Repo #5 - a b c"
     end
 
     test "truncates to 60 characters" do
       issue = %{identifier: "7", id: "7", title: String.duplicate("x", 100)}
-      assert String.length(AgentRunner.rc_session_name(issue)) == 60
+      assert String.length(AgentRunner.rc_session_name(issue, "owner/repo")) == 60
     end
   end
 

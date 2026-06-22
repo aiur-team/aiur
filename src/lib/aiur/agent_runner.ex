@@ -525,9 +525,9 @@ defmodule Aiur.AgentRunner do
 
   # The `--remote-control <name>` string is what the operator sees as the
   # chat title in the Claude app / mobile, so derive it from the issue
-  # ("Aiur 99 - Title") rather than the opaque `aiur-repl-<pid>-<n>` window
-  # name. Only set when RC is active; headless and RC-off REPL sessions keep
-  # the default name.
+  # ("Aiur: Actions #99 - Title") rather than the opaque `aiur-repl-<pid>-<n>`
+  # window name. Only set when RC is active; headless and RC-off REPL sessions
+  # keep the default name.
   defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
   defp maybe_put_rc_name(opts, false, _issue), do: opts
 
@@ -569,18 +569,42 @@ defmodule Aiur.AgentRunner do
 
   def maybe_trust_remote_control_workspace(_workspace, _rc?, _worker_host, _trust_fun), do: :ok
 
+  # Operator-facing RC chat title: `Aiur: <Repo> #<ID> - <title>`, e.g.
+  # `Aiur: Actions #7 - CLI: ENS namespace`. The repo name is the capitalized
+  # short name of the configured tracker repo (`its-applekid/actions` ->
+  # `Actions`); when the tracker exposes no repo it is omitted, leaving
+  # `Aiur: #<ID> - <title>`. `repo` is injectable for tests.
   @doc false
-  @spec rc_session_name(Issue.t()) :: String.t()
-  def rc_session_name(issue) do
+  @spec rc_session_name(Issue.t(), String.t() | nil) :: String.t()
+  def rc_session_name(issue, repo \\ Tracker.project_identity()) do
     label = issue.identifier || issue.id
     title = issue.title || ""
 
-    "Aiur #{label} - #{title}"
+    "#{rc_session_prefix(repo)} ##{label} - #{title}"
     |> String.replace(~r/[[:cntrl:]'"`]/u, " ")
     |> String.replace(~r/\s+/u, " ")
     |> String.trim()
     |> String.slice(0, 60)
   end
+
+  defp rc_session_prefix(repo) do
+    case repo_short_name(repo) do
+      nil -> "Aiur:"
+      name -> "Aiur: #{name}"
+    end
+  end
+
+  # Capitalized short name of an `owner/name` repo string; nil when absent or
+  # empty. Only the first character is upcased so existing casing (e.g.
+  # `myRepo`) survives.
+  defp repo_short_name(repo) when is_binary(repo) do
+    case repo |> String.split("/") |> List.last() |> String.trim() do
+      "" -> nil
+      <<first::utf8, rest::binary>> -> String.upcase(<<first::utf8>>) <> rest
+    end
+  end
+
+  defp repo_short_name(_repo), do: nil
 
   @doc false
   # Start the resolved backend's session, tagging it with its backend so
