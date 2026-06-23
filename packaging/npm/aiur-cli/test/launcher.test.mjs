@@ -299,8 +299,10 @@ test("launcher routes init to a distribution-free foreground exec", () => {
 // to: the release `bin/aiur` (its `rpc` subcommand) and the bundled epmd
 // (`-names`). Behaviour is env-driven so one layout exercises every branch:
 //   AIUR_FAKE_RPC_MODE        ok | appfail | noconnection
-//   AIUR_FAKE_EPMD_REGISTERED "1" lists our node; anything else => absent
+//   AIUR_FAKE_EPMD_REGISTERED "1" lists our node (up); "error" => -names exits
+//                             non-zero (unreachable epmd => unknown); else absent (down)
 const CONTROL_NODE = "aiur-test@127.0.0.1";
+const CONTROL_SHORT = CONTROL_NODE.split("@")[0];
 
 function setupControlRpc() {
   const { launcher, releaseDir } = setupRealLauncher();
@@ -334,9 +336,11 @@ function setupControlRpc() {
     [
       "#!/usr/bin/env bash",
       'if [ "$1" = "-names" ]; then',
+      // "error" models an unreachable epmd daemon: -names itself exits non-zero.
+      '  if [ "${AIUR_FAKE_EPMD_REGISTERED:-0}" = "error" ]; then exit 1; fi',
       '  if [ "${AIUR_FAKE_EPMD_REGISTERED:-0}" = "1" ]; then',
       '    echo "epmd: up and running on port 4369 with data:"',
-      '    echo "name aiur-test at port 12345"',
+      `    echo "name ${CONTROL_SHORT} at port 12345"`,
       "  fi",
       "  exit 0",
       "fi",
@@ -373,7 +377,25 @@ test("control rpc surfaces the real error when the node is up but the rpc fails"
   expect(result.status).not.toBe(0);
   // The actual rpc stderr is shown, not masked.
   expect(result.stderr).toContain(":noconnection");
-  // The misleading "not running" hint is suppressed for a live node.
+  // The live-node branch fires its own explanatory line...
+  expect(result.stderr).toContain("node is running");
+  // ...and the misleading "not running" hint is suppressed.
+  expect(result.stderr).not.toContain("no running aiur node");
+});
+
+test("control rpc surfaces the real error when the node's epmd is unreachable", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "noconnection",
+    AIUR_FAKE_EPMD_REGISTERED: "error",
+  });
+
+  expect(result.status).not.toBe(0);
+  // Indeterminate node state must NOT be assumed "down": surfacing the real
+  // error rather than the friendly hint is the regression guard against
+  // re-masking a live node whose epmd we simply couldn't reach.
+  expect(result.stderr).toContain(":noconnection");
+  expect(result.stderr).toContain("could not confirm node state");
   expect(result.stderr).not.toContain("no running aiur node");
 });
 

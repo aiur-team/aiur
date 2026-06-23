@@ -697,23 +697,30 @@ trim() {
   printf '%s' "$s"
 }
 
-# Is our distribution node currently registered with the running epmd? epmd only
-# advertises a node while its BEAM holds the registration, so this tells a
-# genuinely-down node apart from a live one whose rpc we just couldn't complete.
-# Best-effort: a missing or unreachable epmd reports "not registered". Relies on
-# RELEASE_NODE + ERL_EPMD_ADDRESS (prepare_distribution) and release_dir
-# (resolve_release), so call it only after both have run.
-node_registered_with_epmd() {
+# Classify our distribution node's liveness via epmd, which only advertises a
+# node while its BEAM holds the registration. Echoes exactly one word:
+#   up      — node is registered: it is alive, so an rpc failure is a real error
+#   down    — epmd answered and our node is absent: it genuinely is not running
+#   unknown — epmd could not be queried (binary missing, or daemon unreachable),
+#             so node state is indeterminate and callers must NOT assume "down"
+#             and mask the real error
+# Distinguishing `unknown` from `down` matters: a live node whose epmd we cannot
+# reach must still surface its real rpc error rather than the "start aiur" hint.
+# Relies on RELEASE_NODE + ERL_EPMD_ADDRESS (prepare_distribution) and
+# release_dir (resolve_release), so call it only after both have run.
+probe_node_liveness() {
   local epmd names short="${RELEASE_NODE%@*}"
   for epmd in "$release_dir"/erts-*/bin/epmd; do
     [ -x "$epmd" ] || continue
-    names="$(ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}" "$epmd" -names 2>/dev/null)" || return 1
+    names="$(ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}" "$epmd" -names 2>/dev/null)" \
+      || { printf 'unknown'; return; }
     case "$names" in
-      *"name ${short} at port "*) return 0 ;;
-      *) return 1 ;;
+      *"name ${short} at port "*) printf 'up' ;;
+      *) printf 'down' ;;
     esac
+    return
   done
-  return 1
+  printf 'unknown'
 }
 
 # RPC an expression into the running node. The control CLI prints a trailing
@@ -736,15 +743,23 @@ run_control_rpc() {
     # outcomes ride the marker path below. `bin/aiur rpc` (Elixir --rpc-eval)
     # reports a genuinely-down node and a live-but-unreachable one identically
     # (`:noconnection`), and prints any exception raised inside the expression.
-    # So the reason string can't be trusted; probe epmd instead. A registered
-    # node is alive and the failure is real — surface it rather than masking it
-    # behind the "start aiur" hint, which only fits a node that truly isn't up.
-    if node_registered_with_epmd; then
-      [ -n "$output" ] && printf '%s\n' "$output" >&2
-      echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
-    else
-      echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
-    fi
+    # So the reason string can't be trusted; classify via epmd instead. Only a
+    # node epmd confirms is down earns the friendly "start aiur" hint; an `up`
+    # node failed for a real reason, and an `unknown` probe must not be assumed
+    # down — in both of those cases surface the actual rpc output, never mask it.
+    case "$(probe_node_liveness)" in
+      down)
+        echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+        ;;
+      up)
+        [ -n "$output" ] && printf '%s\n' "$output" >&2
+        echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+        ;;
+      *)
+        [ -n "$output" ] && printf '%s\n' "$output" >&2
+        echo "aiur: rpc to ${RELEASE_NODE} failed (could not confirm node state); see the error above" >&2
+        ;;
+    esac
     return 1
   fi
 
