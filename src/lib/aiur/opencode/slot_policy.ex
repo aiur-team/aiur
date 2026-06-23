@@ -13,13 +13,27 @@ defmodule Aiur.Opencode.SlotPolicy do
   `{:slot_ready, target_count}` emits a `:slot_chain_complete` perf
   event for telemetry.
 
+  ## Warm pool vs. hard cap
+
+  `pre_warmed_sessions` sizes only the WARM POOL — how many slots
+  auto-boot at startup (`target_count`). It is NOT the ceiling on how
+  many opencode instances can exist. Beyond the warm pool, an open with
+  no ready slot grows the pool one cold slot at a time (via `grow_slot/0`)
+  up to `max_slots` — the same `max(grid, max_concurrent_agents)` value
+  `PaneManager` uses for its slot bookkeeping, so every grown slot still
+  has a layout cell.
+
   ## Public API
 
     * `bump/0` — kept for backward compatibility with PaneManager's
       post-open call site. Now a no-op since every slot is already
       starting at boot.
+    * `grow_slot/0` — start the next slot on demand (cold), up to
+      `max_slots`. Returns `{:ok, index, pid}`, `{:error, :at_capacity}`,
+      or `{:error, reason}`.
     * `highest_started/0` — index of the highest slot started so far.
-    * `target_count/0` — upper bound on slots.
+    * `target_count/0` — warm-pool size (auto-booted at startup).
+    * `max_slots/0` — hard cap on total slots.
   """
 
   use GenServer
@@ -28,7 +42,7 @@ defmodule Aiur.Opencode.SlotPolicy do
   alias Aiur.Boot
   alias Aiur.Opencode.{Slot, SlotSupervisor}
 
-  defstruct target_count: 0, highest_started: 0
+  defstruct target_count: 0, highest_started: 0, max_slots: 0
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -66,13 +80,43 @@ defmodule Aiur.Opencode.SlotPolicy do
     :exit, _ -> 0
   end
 
-  @doc "Upper bound on slots this policy will start."
+  @doc "Warm-pool size — how many slots auto-boot at startup."
   @spec target_count() :: non_neg_integer()
   @spec target_count(GenServer.server()) :: non_neg_integer()
   def target_count(server \\ __MODULE__) do
     GenServer.call(server, :target_count, 1_000)
   catch
     :exit, _ -> 0
+  end
+
+  @doc "Hard cap on total slots (warm pool + on-demand growth)."
+  @spec max_slots() :: non_neg_integer()
+  @spec max_slots(GenServer.server()) :: non_neg_integer()
+  def max_slots(server \\ __MODULE__) do
+    GenServer.call(server, :max_slots, 1_000)
+  catch
+    :exit, _ -> 0
+  end
+
+  @doc """
+  Start the next slot on demand, cold, up to `max_slots`.
+
+  Called by `SlotSupervisor.acquire_slot_or_grow/0` when an open finds
+  no ready slot and every existing slot is busy — the warm pool is
+  exhausted but the hard cap hasn't been reached. Index allocation is
+  serialized through this GenServer's mailbox so concurrent opens never
+  collide on the same slot index.
+
+  Returns `{:ok, slot_index, pid}` on a fresh start, `{:error, :at_capacity}`
+  when `max_slots` is already reached, or `{:error, reason}` if the start
+  itself failed.
+  """
+  @spec grow_slot() :: {:ok, pos_integer(), pid()} | {:error, term()}
+  @spec grow_slot(GenServer.server()) :: {:ok, pos_integer(), pid()} | {:error, term()}
+  def grow_slot(server \\ __MODULE__) do
+    GenServer.call(server, :grow_slot, 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   @impl true
@@ -82,13 +126,18 @@ defmodule Aiur.Opencode.SlotPolicy do
         default_target_count()
       end)
 
-    Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} mode=parallel")
+    max_slots =
+      Keyword.get_lazy(opts, :max_slots, fn ->
+        default_max_slots()
+      end)
+
+    Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} max_slots=#{max_slots} mode=parallel")
 
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
 
     send(self(), :start_all_slots)
 
-    {:ok, %__MODULE__{target_count: target_count, highest_started: 0}}
+    {:ok, %__MODULE__{target_count: target_count, highest_started: 0, max_slots: max_slots}}
   end
 
   @impl true
@@ -181,6 +230,36 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:reply, state.target_count, state}
   end
 
+  def handle_call(:max_slots, _from, state) do
+    {:reply, state.max_slots, state}
+  end
+
+  def handle_call(:grow_slot, _from, %{highest_started: highest, max_slots: max} = state)
+      when highest >= max do
+    Aiur.Perf.event(:slot_policy_grow_at_capacity, highest_started: highest, max_slots: max)
+    {:reply, {:error, :at_capacity}, state}
+  end
+
+  def handle_call(:grow_slot, _from, %{highest_started: highest} = state) do
+    next = highest + 1
+
+    case SlotSupervisor.start_slot(next) do
+      {:ok, pid} ->
+        Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_starting, next})
+
+        Logger.info("opencode_slot_policy phase=grow elapsed_ms=#{Boot.elapsed_ms()} slot=#{next} max_slots=#{state.max_slots}")
+
+        Aiur.Perf.event(:slot_policy_grow, slot: next, max_slots: state.max_slots)
+
+        {:reply, {:ok, next, pid}, %{state | highest_started: next}}
+
+      {:error, reason} = err ->
+        Logger.warning("opencode_slot_policy phase=grow_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{next} reason=#{inspect(reason)}")
+
+        {:reply, err, state}
+    end
+  end
+
   # Pre-warm slot count is governed by the new `pre_warmed_sessions`
   # `.aiurconfig` setting (default 3). Capped at `max_concurrent_agents`
   # because spawning more pre-warm slots than the orchestrator will
@@ -191,6 +270,20 @@ defmodule Aiur.Opencode.SlotPolicy do
     pre_warmed = Aiur.Config.pre_warmed_sessions()
     max_agents = Aiur.Config.max_concurrent_agents()
     min(pre_warmed, max_agents)
+  rescue
+    _ -> 3
+  end
+
+  # Hard cap on total slots. Mirrors `PaneManager`'s `slot_count` —
+  # `max(grid, max_concurrent_agents)` — so every slot the pool can grow
+  # to still has a layout cell (PaneManager seeds `slot_panes` and lays
+  # out `1..slot_count`). Growing past it would leave a slot with no
+  # visual home. The warm pool (`target_count`) is independent and
+  # usually smaller.
+  defp default_max_slots do
+    grid = Aiur.Config.max_vertical_panes() * 2 - 1
+    max_agents = Aiur.Config.max_concurrent_agents()
+    max(grid, max_agents)
   rescue
     _ -> 3
   end
