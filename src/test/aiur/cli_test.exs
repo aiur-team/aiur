@@ -245,4 +245,60 @@ defmodule Aiur.CLITest do
     assert :ok = CLI.evaluate([@ack_flag, "--interactive", ".aiurconfig"], deps)
     assert Application.get_env(:aiur, :interactive_cli) == true
   end
+
+  defp passthrough_deps do
+    %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
+      ensure_all_started: fn -> {:ok, [:aiur]} end
+    }
+  end
+
+  test "enables headless mode when requested" do
+    previous = Application.get_env(:aiur, :headless)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :headless),
+        else: Application.put_env(:aiur, :headless, previous)
+    end)
+
+    Application.delete_env(:aiur, :headless)
+
+    assert :ok = CLI.evaluate([@ack_flag, "--headless", ".aiurconfig"], passthrough_deps())
+    assert Application.get_env(:aiur, :headless) == true
+  end
+
+  test "--max-agents N records the orchestrator launch override" do
+    previous = Application.get_env(:aiur, :max_concurrent_agents_override)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :max_concurrent_agents_override),
+        else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
+    end)
+
+    Application.delete_env(:aiur, :max_concurrent_agents_override)
+
+    assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], passthrough_deps())
+    assert Application.get_env(:aiur, :max_concurrent_agents_override) == 4
+  end
+
+  test "--max-agents rejects a non-positive value" do
+    previous = Application.get_env(:aiur, :max_concurrent_agents_override)
+    Application.delete_env(:aiur, :max_concurrent_agents_override)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :max_concurrent_agents_override),
+        else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
+    end)
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--max-agents", "0", ".aiurconfig"], passthrough_deps())
+    assert message =~ "Usage: aiur"
+    assert Application.get_env(:aiur, :max_concurrent_agents_override) == nil
+  end
 end

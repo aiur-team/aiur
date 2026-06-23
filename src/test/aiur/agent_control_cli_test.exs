@@ -335,4 +335,111 @@ defmodule Aiur.AgentControlCLITest do
       Process.register(pid, Orchestrator)
     end
   end
+
+  describe "agents/0" do
+    test "prints empty table when no agents are running" do
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "ISSUE  STATE      RUNTIME  ACTIVITY"
+      assert output =~ "(no active agents)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "prints one line per agent with state and current activity", %{orchestrator: pid} do
+      active =
+        "issue-44"
+        |> running_entry("repo#44", :working)
+        |> Map.merge(%{
+          started_at: DateTime.add(DateTime.utc_now(), -90, :second),
+          codex_app_server_pid: nil,
+          last_codex_timestamp: DateTime.utc_now(),
+          last_codex_event: "command_execution",
+          last_codex_message: "running mix test"
+        })
+
+      paused =
+        "issue-88"
+        |> running_entry("repo#88", :paused)
+        |> Map.merge(%{
+          codex_app_server_pid: nil,
+          last_codex_timestamp: nil,
+          last_codex_event: nil,
+          last_codex_message: nil
+        })
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-44" => active, "issue-88" => paused}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "#44"
+      assert output =~ "working"
+      # Activity prefers the latest event name; runtime renders compactly.
+      assert output =~ "command_execution"
+      assert output =~ "1m"
+      # A paused agent shows its work-state instead of stale activity text.
+      assert output =~ "#88"
+      assert output =~ "(paused)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "reports a clear error when the orchestrator is unavailable", %{orchestrator: pid} do
+      Process.unregister(Orchestrator)
+
+      try do
+        stderr =
+          capture_io(:stderr, fn ->
+            output = capture_io(fn -> AgentControlCLI.agents() end)
+            assert output =~ "__AIUR_CONTROL_EXIT__:1"
+          end)
+
+        assert stderr =~ "aiur: orchestrator is not running"
+      after
+        Process.register(pid, Orchestrator)
+      end
+    end
+  end
+
+  describe "set_max_agents/1" do
+    test "sets the cap and reports the new limit", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state -> %{state | session_max_concurrent_agents: nil} end)
+
+      output = capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
+
+      assert output =~ "aiur: max-agents set to 3 (0 active)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert %{max: 3, session_override?: true} = Orchestrator.max_concurrent_agents(pid)
+    end
+
+    test "rejects a cap below the active agent count", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{
+              "issue-1" => running_entry("issue-1", "repo#1", :working),
+              "issue-2" => running_entry("issue-2", "repo#2", :working)
+            }
+        }
+      end)
+
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.set_max_agents(1) end)
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "below active agent count"
+    end
+
+    test "rejects a non-positive cap without touching the orchestrator" do
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.set_max_agents(0) end)
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "must be a positive integer"
+    end
+  end
 end

@@ -18,6 +18,48 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  # Concise one-line-per-agent activity summary — the built-in, headless
+  # equivalent of the dashboard / `aiur-status` log-tailing skill. Pulls the
+  # orchestrator snapshot (richer than `status/0`: work-state + latest
+  # activity) and prints state + what each agent is doing right now.
+  @spec agents() :: :ok
+  def agents do
+    case snapshot() do
+      %{running: running} when is_list(running) ->
+        print_agents_table(running)
+        exit_marker(0)
+
+      error when error in [:timeout, :unavailable] ->
+        print_orchestrator_status_error(error)
+        exit_marker(1)
+
+      _other ->
+        print_orchestrator_status_error(:unavailable)
+        exit_marker(1)
+    end
+  end
+
+  # Absolute set of the concurrent-agent cap on a live node — `aiur set
+  # max-agents N`. Validation (positive, not below active) lives in the
+  # orchestrator; we surface its reply.
+  @spec set_max_agents(integer()) :: :ok
+  def set_max_agents(n) when is_integer(n) and n > 0 do
+    case set_max_agents_fun().(n) do
+      {:ok, status} ->
+        IO.puts("aiur: max-agents set to #{status.max} (#{status.active} active)")
+        exit_marker(0)
+
+      {:error, reason} ->
+        IO.puts(:stderr, "aiur: failed to set max-agents (#{format_reason(reason)})")
+        exit_marker(1)
+    end
+  end
+
+  def set_max_agents(_n) do
+    IO.puts(:stderr, "aiur: max-agents must be a positive integer")
+    exit_marker(1)
+  end
+
   @spec pause(:all | [String.t()]) :: :ok
   def pause(targets), do: control(:pause, targets)
 
@@ -191,6 +233,81 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
+  defp print_agents_table([]) do
+    IO.puts("ISSUE  STATE      RUNTIME  ACTIVITY")
+    IO.puts("(no active agents)")
+  end
+
+  defp print_agents_table(running) do
+    IO.puts("ISSUE  STATE      RUNTIME  ACTIVITY")
+
+    Enum.each(running, fn agent ->
+      IO.puts([
+        String.pad_trailing(display_identifier(agent), 6),
+        " ",
+        String.pad_trailing(to_string(Map.get(agent, :work_state, :working)), 10),
+        " ",
+        String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
+        " ",
+        agent_activity(agent)
+      ])
+    end)
+  end
+
+  defp agent_activity(agent) do
+    case Map.get(agent, :work_state, :working) do
+      state when state in [:paused, :deactivated] ->
+        "(#{state})"
+
+      _ ->
+        [Map.get(agent, :last_codex_event), Map.get(agent, :last_codex_message)]
+        |> Enum.map(&activity_string/1)
+        |> Enum.find("", &(&1 != ""))
+        |> case do
+          "" -> "(no activity yet)"
+          text -> truncate(text, 80)
+        end
+    end
+  end
+
+  defp activity_string(value) when is_binary(value), do: String.trim(value)
+  defp activity_string(nil), do: ""
+  defp activity_string(value), do: value |> to_string() |> String.trim()
+
+  defp truncate(text, max) do
+    collapsed = text |> String.replace(~r/\s+/, " ") |> String.trim()
+
+    if String.length(collapsed) > max do
+      String.slice(collapsed, 0, max - 1) <> "…"
+    else
+      collapsed
+    end
+  end
+
+  defp format_runtime(seconds) when is_integer(seconds) and seconds >= 0 do
+    cond do
+      seconds < 60 -> "#{seconds}s"
+      seconds < 3600 -> "#{div(seconds, 60)}m"
+      true -> "#{div(seconds, 3600)}h#{rem(div(seconds, 60), 60)}m"
+    end
+  end
+
+  defp format_runtime(_), do: "-"
+
+  defp snapshot do
+    Application.get_env(:aiur, :agent_control_cli_snapshot_fun, fn ->
+      Orchestrator.snapshot(Orchestrator, 5_000)
+    end).()
+  end
+
+  defp set_max_agents_fun do
+    Application.get_env(
+      :aiur,
+      :agent_control_cli_set_max_agents_fun,
+      &Orchestrator.set_max_concurrent_agents/1
+    )
+  end
+
   defp print_empty_selection(:pause, :all), do: IO.puts("aiur: no running agents")
   defp print_empty_selection(:resume, :all), do: IO.puts("aiur: no paused agents")
 
@@ -261,6 +378,7 @@ defmodule Aiur.AgentControlCLI do
         no_running_agent: "no running agent",
         agent_finished: "agent finished",
         max_concurrent_agents_reached: "max concurrent agents reached",
+        below_active_count: "below active agent count",
         not_resumable: "not resumable",
         empty_message: "message is empty",
         message_too_long: "message is too long",

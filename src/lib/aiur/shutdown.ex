@@ -48,10 +48,13 @@ defmodule Aiur.Shutdown do
   end
 
   # Kill claude/node grandchildren the headless backend reparented to init.
-  # Gated on :interactive_cli so test-suite cleanup (which resolves the REAL
-  # workspace root) never touches live agents.
+  # Gated on a real run (interactive foreground OR a `--bg`/headless node) so
+  # test-suite cleanup (which resolves the REAL workspace root, but sets
+  # neither flag) never touches live agents. A headless `--bg` node still uses
+  # the reparenting backend, so it must reap here too.
   defp reap_workspace_agents do
-    if Application.get_env(:aiur, :interactive_cli, false) do
+    if Application.get_env(:aiur, :interactive_cli, false) or
+         Application.get_env(:aiur, :headless, false) do
       RemoteControl.reap_workspace_agents(Config.workspace_root())
     end
 

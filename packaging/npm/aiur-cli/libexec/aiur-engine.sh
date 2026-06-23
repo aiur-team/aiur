@@ -218,11 +218,13 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg             start in a detached tmux session
+       aiur --bg             start in a lean, headless detached tmux session
        aiur stop             stop the running session
        aiur status           show agent status
+       aiur agents           show each agent's state + current activity
+       aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
        aiur message <id> <text>  send operator text to a running agent
        aiur --version
@@ -312,19 +314,28 @@ run_session() {
 
   init_argv_file
 
-  # Inject the flags a bare `aiur` needs: loopback bind, interactive UI, and the
-  # no-guardrails ack. Skip any the user already passed.
-  local has_host=0 has_interactive=0 has_ack=0 arg
+  # Inject the flags a bare `aiur` needs: loopback bind, UI mode, and the
+  # no-guardrails ack. Skip any the user already passed. Foreground runs are
+  # interactive (tmux panes + dashboard); `--bg` runs lean/headless — no panes,
+  # no dashboard bind, no chat backfill — and is driven over the control RPC
+  # (status/agents/message/pause/set). `aiur --bg --interactive` opts back into
+  # the full interactive stack for an attachable background session.
+  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
   for arg in "$@"; do
     case "$arg" in
       --host | --host=*) has_host=1 ;;
       --interactive) has_interactive=1 ;;
+      --headless) has_headless=1 ;;
       --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
     esac
   done
   local injected=()
   [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
-  [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
+  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
+    [ "$has_headless" -eq 1 ] || injected+=(--headless)
+  else
+    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
+  fi
   [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
 
   write_argv "${injected[@]}" "$@"
@@ -806,6 +817,35 @@ cmd_message() {
   run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
 }
 
+# `aiur agents` — concise one-line-per-agent state + current activity from a
+# live node (the headless equivalent of the dashboard / aiur-status skill).
+cmd_agents() {
+  [ "$#" -eq 0 ] || die "agents does not accept arguments"
+  run_control_rpc "Aiur.AgentControlCLI.agents()"
+}
+
+# `aiur set <key> <value>` — runtime config overrides without editing
+# `.aiur/config`. Currently: `aiur set max-agents N`.
+cmd_set() {
+  local key="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$key" in
+    max-agents)
+      local n="${1:-}"
+      if [ -z "$n" ] || [[ ! "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ]; then
+        echo "aiur: set max-agents expects a positive integer (e.g. aiur set max-agents 5)" >&2
+        exit 64
+      fi
+      run_control_rpc "Aiur.AgentControlCLI.set_max_agents($n)"
+      ;;
+    *)
+      echo "aiur: unknown setting: ${key:-(none)} (supported: max-agents)" >&2
+      exit 64
+      ;;
+  esac
+}
+
 sweep_dead_tmux_sockets() {
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
@@ -912,6 +952,14 @@ aiur_engine_main() {
     status)
       shift
       cmd_status "$@"
+      ;;
+    agents)
+      shift
+      cmd_agents "$@"
+      ;;
+    set)
+      shift
+      cmd_set "$@"
       ;;
     pause | resume)
       shift

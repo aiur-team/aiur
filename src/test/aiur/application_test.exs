@@ -31,4 +31,63 @@ defmodule Aiur.ApplicationTest do
       assert :ok = AiurApp.start_distribution(FailureStubDistribution)
     end
   end
+
+  describe "child_specs/1 headless gating" do
+    # The chat-pane machinery, the interactive CLI block, and the dashboard.
+    @ui_only [
+      Aiur.Tmux,
+      Aiur.PaneManager,
+      Aiur.Opencode.PrewarmSupervisor,
+      Aiur.AgentList.App,
+      Aiur.AgentList.Input,
+      Aiur.LauncherWatchdog,
+      Aiur.Opencode.PaneSupervisor,
+      Aiur.HttpServer
+    ]
+
+    # Agent backends kept in headless mode plus core infra both modes need.
+    @always [
+      Aiur.Orchestrator,
+      Aiur.ProcessReaper,
+      Aiur.Opencode.SessionSupervisor,
+      Aiur.Opencode.BridgeSupervisor,
+      Aiur.Opencode.TokenRegistry
+    ]
+
+    defp modules(specs) do
+      Enum.map(specs, fn
+        mod when is_atom(mod) -> mod
+        {mod, _opts} -> mod
+        %{id: id} -> id
+      end)
+    end
+
+    test "interactive run starts the full UI stack" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true))
+
+      for child <- @ui_only ++ @always, do: assert(child in mods, "expected #{inspect(child)}")
+    end
+
+    test "headless run skips UI-only work but keeps agent backends" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
+
+      for child <- @ui_only, do: refute(child in mods, "headless should skip #{inspect(child)}")
+      for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
+    end
+
+    test "headless boots measurably fewer children than interactive" do
+      interactive = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true)
+      headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+
+      assert length(headless) < length(interactive)
+    end
+
+    test "headless dashboard opt-in starts HttpServer without reviving panes" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
+
+      assert Aiur.HttpServer in mods
+      refute Aiur.Opencode.PaneSupervisor in mods
+      refute Aiur.PaneManager in mods
+    end
+  end
 end

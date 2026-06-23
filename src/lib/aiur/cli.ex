@@ -21,6 +21,8 @@ defmodule Aiur.CLI do
     host: :string,
     version: :boolean,
     interactive: :boolean,
+    headless: :boolean,
+    max_agents: :integer,
     force: :boolean
   ]
 
@@ -106,7 +108,9 @@ defmodule Aiur.CLI do
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps),
              :ok <- maybe_set_server_host(opts, deps),
-             :ok <- maybe_set_interactive(opts) do
+             :ok <- maybe_set_max_agents(opts),
+             :ok <- maybe_set_interactive(opts),
+             :ok <- maybe_set_headless(opts) do
           run(Aiur.Workflow.detect_run_folder_config(), deps)
         end
 
@@ -115,7 +119,9 @@ defmodule Aiur.CLI do
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps),
              :ok <- maybe_set_server_host(opts, deps),
-             :ok <- maybe_set_interactive(opts) do
+             :ok <- maybe_set_max_agents(opts),
+             :ok <- maybe_set_interactive(opts),
+             :ok <- maybe_set_headless(opts) do
           run(workflow_path, deps)
         end
 
@@ -145,7 +151,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]"
+    "Usage: aiur [--interactive] [--headless] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]"
   end
 
   @spec runtime_deps() :: deps()
@@ -270,6 +276,37 @@ defmodule Aiur.CLI do
     end
 
     :ok
+  end
+
+  # Lean `--bg` mode: skip UI-only supervised work (dashboard, chat panes,
+  # the interactive CLI block). The engine injects `--headless` for `--bg`;
+  # foreground stays interactive and unchanged.
+  defp maybe_set_headless(opts) do
+    if Keyword.get(opts, :headless, false) do
+      Application.put_env(:aiur, :headless, true)
+    end
+
+    :ok
+  end
+
+  # Override `agent.max_concurrent_agents` at launch without editing
+  # `.aiur/config`. Stored as the orchestrator's session override (highest
+  # precedence; survives config refresh) and read once in `Orchestrator.init/1`.
+  defp maybe_set_max_agents(opts) do
+    case Keyword.get_values(opts, :max_agents) do
+      [] ->
+        :ok
+
+      values ->
+        case List.last(values) do
+          n when is_integer(n) and n > 0 ->
+            Application.put_env(:aiur, :max_concurrent_agents_override, n)
+            :ok
+
+          _ ->
+            {:error, usage_message()}
+        end
+    end
   end
 
   @spec wait_for_shutdown() :: no_return()

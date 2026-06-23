@@ -112,6 +112,10 @@ defmodule Aiur.Orchestrator do
     state = %State{
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
+      # `--max-agents N` at launch: seed the session override (highest
+      # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
+      # holds without editing `.aiur/config`.
+      session_max_concurrent_agents: launch_max_concurrent_agents_override(),
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
       tick_timer_ref: nil,
@@ -2627,6 +2631,15 @@ defmodule Aiur.Orchestrator do
 
   defp deactivated_running_entry?(_entry), do: false
 
+  # `--max-agents N` at launch lands in `:max_concurrent_agents_override`
+  # (set by `Aiur.CLI`). Returns a positive integer or nil (no override).
+  defp launch_max_concurrent_agents_override do
+    case Application.get_env(:aiur, :max_concurrent_agents_override) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> nil
+    end
+  end
+
   defp max_concurrent_agent_limit(%State{} = state) do
     cond do
       is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
@@ -2815,6 +2828,27 @@ defmodule Aiur.Orchestrator do
   def adjust_max_concurrent_agents(server, delta) when is_integer(delta) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:adjust_max_concurrent_agents, delta}, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @doc """
+  Set the concurrent-agent cap to an absolute value at runtime (the
+  `aiur set max-agents N` control), without editing `.aiur/config`.
+  Rejected with `{:error, :below_active_count}` when `n` is below the
+  number of currently-active agents — we never strand running work.
+  """
+  @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
+  def set_max_concurrent_agents(n), do: set_max_concurrent_agents(__MODULE__, n)
+
+  @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def set_max_concurrent_agents(server, n) when is_integer(n) and n > 0 do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:set_max_concurrent_agents, n}, 5_000)
     else
       {:error, :unavailable}
     end
@@ -3342,6 +3376,18 @@ defmodule Aiur.Orchestrator do
       {:reply, {:error, :below_active_count}, state}
     else
       state = %{state | session_max_concurrent_agents: next}
+      notify_dashboard(state)
+      {:reply, {:ok, max_concurrent_agent_status(state)}, state}
+    end
+  end
+
+  def handle_call({:set_max_concurrent_agents, n}, _from, state) when is_integer(n) and n > 0 do
+    active = active_running_count(state.running)
+
+    if n < active do
+      {:reply, {:error, :below_active_count}, state}
+    else
+      state = %{state | session_max_concurrent_agents: n}
       notify_dashboard(state)
       {:reply, {:ok, max_concurrent_agent_status(state)}, state}
     end
