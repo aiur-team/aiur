@@ -261,6 +261,12 @@ defmodule Aiur.LogFileTest do
     end
 
     test "is failure-safe when the config cannot be read", %{dir: dir} do
+      # AIUR_DEBUG is BEAM-wide (process-global): the describe's setup deletes it,
+      # but a sibling test that sets it to "1" can leak in under test ordering/load
+      # and the on_exit save/restore can't isolate a global env var. Delete it again
+      # here so this assertion reflects apply_config_debug's decision, not inherited
+      # global state.
+      System.delete_env("AIUR_DEBUG")
       Aiur.Workflow.set_workflow_file_path(Path.join(dir, "does-not-exist"))
 
       assert :ok = LogFile.apply_config_debug()
