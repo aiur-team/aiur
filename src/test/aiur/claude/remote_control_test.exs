@@ -201,7 +201,17 @@ defmodule Aiur.Claude.RemoteControlTest do
 
   describe "reap_workspace_agents/2" do
     setup do
-      root = Path.join(System.tmp_dir!(), "rwa-root-#{System.unique_integer([:positive])}")
+      # Canonicalize the root so fake `/proc/<pid>/cwd` targets (built from `root`)
+      # match the root after reap_workspace_agents canonicalizes it internally —
+      # mirroring production, where the kernel reports cwd symlink-resolved.
+      raw = Path.join(System.tmp_dir!(), "rwa-root-#{System.unique_integer([:positive])}")
+
+      root =
+        case Aiur.PathSafety.canonicalize(raw) do
+          {:ok, path} -> path
+          _ -> raw
+        end
+
       proc = Path.join(System.tmp_dir!(), "rwa-proc-#{System.unique_integer([:positive])}")
       File.mkdir_p!(proc)
       on_exit(fn -> File.rm_rf(proc) end)
@@ -223,20 +233,87 @@ defmodule Aiur.Claude.RemoteControlTest do
       end
     end
 
-    test "kills only claude/node processes whose cwd is under the workspace root", %{root: root, proc: proc} do
-      fake_proc(proc, 100, "claude", Path.join(root, "101"))
+    test "kills every process whose cwd is strictly under the workspace root, regardless of comm",
+         %{root: root, proc: proc} do
+      # The leak (#453) is the WHOLE agent tree: renamed coding agents, opencode
+      # clients, and the mix/beam.smp test children they spawn. None of these have
+      # comm `claude`/`node`, so the sweep must be cwd-scoped, not comm-scoped.
+      fake_proc(proc, 100, "aiur-claude", Path.join(root, "101"))
       fake_proc(proc, 200, "node", Path.join([root, "101", "sub"]))
-      fake_proc(proc, 300, "claude", "/home/op/github/aiur")
-      fake_proc(proc, 400, "bash", Path.join(root, "101"))
-      fake_proc(proc, 500, "claude", root)
+      fake_proc(proc, 300, "codex", Path.join(root, "202"))
+      fake_proc(proc, 400, "opencode", Path.join(root, "303"))
+      fake_proc(proc, 500, "mix", Path.join([root, "404", "src"]))
+      fake_proc(proc, 600, "beam.smp", Path.join([root, "404", "src"]))
+      # Spared: out-of-tree process, and the workspace root itself (never the root).
+      fake_proc(proc, 700, "claude", "/home/op/github/aiur")
+      fake_proc(proc, 800, "bash", root)
       File.mkdir_p!(Path.join(proc, "notapid"))
 
       parent = self()
       kill_fun = fn pid -> send(parent, {:killed, pid}) end
 
+      assert :ok =
+               RemoteControl.reap_workspace_agents(root,
+                 proc_dir: proc,
+                 kill_fun: kill_fun,
+                 protected_pids: []
+               )
+
+      assert Enum.sort(collect_killed([])) == [100, 200, 300, 400, 500, 600]
+    end
+
+    test "spares protected pids (the running BEAM and its supervised descendants)",
+         %{root: root, proc: proc} do
+      fake_proc(proc, 100, "aiur-claude", Path.join(root, "101"))
+      fake_proc(proc, 200, "beam.smp", Path.join(root, "202"))
+
+      parent = self()
+      kill_fun = fn pid -> send(parent, {:killed, pid}) end
+
+      assert :ok =
+               RemoteControl.reap_workspace_agents(root,
+                 proc_dir: proc,
+                 kill_fun: kill_fun,
+                 protected_pids: [200]
+               )
+
+      assert collect_killed([]) == [100]
+    end
+
+    test "spares the running BEAM by default (self_pid_tree), reaps the rest",
+         %{root: root, proc: proc} do
+      self_os_pid = String.to_integer(System.pid())
+      # Above Linux's default max pid (2^22), so it can never collide with a real
+      # descendant pgrep returns into the protected self-tree.
+      other = 2_000_000_000
+      fake_proc(proc, self_os_pid, "beam.smp", Path.join(root, "self"))
+      fake_proc(proc, other, "aiur-claude", Path.join(root, "other"))
+
+      parent = self()
+      kill_fun = fn pid -> send(parent, {:killed, pid}) end
+
+      # protected_pids omitted → default self_pid_tree() must spare the BEAM.
       assert :ok = RemoteControl.reap_workspace_agents(root, proc_dir: proc, kill_fun: kill_fun)
 
-      assert Enum.sort(collect_killed([])) == [100, 200]
+      killed = collect_killed([])
+      refute self_os_pid in killed
+      assert other in killed
+    end
+
+    test "refuses to sweep a dangerously-shallow root", %{proc: proc} do
+      fake_proc(proc, 100, "aiur-claude", "/home/agent-101")
+
+      parent = self()
+      kill_fun = fn pid -> send(parent, {:killed, pid}) end
+
+      assert :ok =
+               RemoteControl.reap_workspace_agents("/home",
+                 proc_dir: proc,
+                 kill_fun: kill_fun,
+                 protected_pids: []
+               )
+
+      assert collect_killed([]) == []
     end
 
     test "no-ops when the workspace root has no agents", %{root: root, proc: proc} do
@@ -245,9 +322,66 @@ defmodule Aiur.Claude.RemoteControlTest do
       parent = self()
       kill_fun = fn pid -> send(parent, {:killed, pid}) end
 
-      assert :ok = RemoteControl.reap_workspace_agents(root, proc_dir: proc, kill_fun: kill_fun)
+      assert :ok =
+               RemoteControl.reap_workspace_agents(root,
+                 proc_dir: proc,
+                 kill_fun: kill_fun,
+                 protected_pids: []
+               )
 
       assert collect_killed([]) == []
+    end
+  end
+
+  # Drives the REAL stop-path sweep against REAL processes and the real /proc
+  # filesystem (excluded on platforms without /proc, e.g. macOS — see
+  # test_helper.exs). Regression for #453: the box stayed pegged after
+  # `aiurdev stop` because workspace-rooted survivors lived on.
+  describe "reap_workspace_agents/1 (real processes under a temp workspace root)" do
+    @tag :real_proc
+    test "reaps a real process rooted under the workspace and spares one outside it" do
+      root = Path.join(System.tmp_dir!(), "rwa-live-#{System.unique_integer([:positive])}")
+      inside = Path.join(root, "ticket-1/src")
+      outside = Path.join(System.tmp_dir!(), "rwa-out-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(inside)
+      File.mkdir_p!(outside)
+      on_exit(fn -> File.rm_rf(root) && File.rm_rf(outside) end)
+
+      inside_pid = spawn_sleeper(inside)
+      outside_pid = spawn_sleeper(outside)
+      on_exit(fn -> System.cmd("kill", ["-KILL", to_string(outside_pid)], stderr_to_stdout: true) end)
+
+      # protected_pids: [] so the test's own BEAM tree is not spared — the
+      # sleepers are BEAM children here, whereas in production the orphans have
+      # reparented to init. The BEAM itself is never a target: its cwd is the
+      # repo, not under `root`.
+      assert :ok = RemoteControl.reap_workspace_agents(root, protected_pids: [])
+
+      assert os_pid_dead?(inside_pid), "expected the workspace-rooted process to be reaped"
+      assert os_pid_alive?(outside_pid), "expected the out-of-root process to survive"
+    end
+
+    defp spawn_sleeper(cwd) do
+      port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])
+      {:os_pid, os_pid} = Port.info(port, :os_pid)
+      os_pid
+    end
+
+    defp os_pid_alive?(os_pid) do
+      match?({_, 0}, System.cmd("kill", ["-0", to_string(os_pid)], stderr_to_stdout: true))
+    end
+
+    defp os_pid_dead?(os_pid), do: wait_dead(os_pid, 50)
+
+    defp wait_dead(os_pid, 0), do: not os_pid_alive?(os_pid)
+
+    defp wait_dead(os_pid, n) do
+      if os_pid_alive?(os_pid) do
+        Process.sleep(50)
+        wait_dead(os_pid, n - 1)
+      else
+        true
+      end
     end
   end
 end

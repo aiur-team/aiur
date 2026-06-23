@@ -26,6 +26,8 @@ defmodule Aiur.Claude.RemoteControl do
   simultaneous toggles can't clobber each other's keys.
   """
 
+  require Logger
+
   @session_url_regex ~r{https://claude\.ai/code/session_[A-Za-z0-9]+}
   # On teardown, wait for the RC process to exit after SIGTERM before
   # escalating to SIGKILL.
@@ -307,23 +309,97 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   @doc """
-  Reap agent processes whose working directory lives under `workspace_root`.
+  Reap every process whose working directory lives under `workspace_root`.
 
-  Called on aiur shutdown to kill any `claude`/`node` grandchild the headless
-  backend left reparented to init. Scoped strictly to processes whose `cwd` is
-  *under* the workspace root (never the root itself), so an operator's
-  out-of-band interactive claude — running anywhere else — is never touched.
+  Called on aiur shutdown (`Aiur.Shutdown.cleanup/1`) to kill the whole agent
+  tree the backends left reparented to init: the renamed coding agents
+  (`aiur-claude`/`codex`), the `opencode` clients they drive, and the `mix` /
+  `beam.smp` compile+test children those spawn (#453). Earlier this matched only
+  `comm in ~w(claude node)`, so every other tree member survived `aiurdev stop`
+  and kept pegging CPU — the sweep is therefore cwd-scoped, not comm-scoped.
+
+  Scoped strictly to processes whose `cwd` is *under* the workspace root (never
+  the root itself), so an operator's out-of-band process running anywhere else is
+  never touched. The running BEAM and its still-supervised descendant tree are
+  also spared (`protected_pids`), so a mis-set root can't make aiur kill itself
+  or a child it is still managing; orphaned agents have reparented to init, so
+  they are not descendants and stay in the kill set.
   """
   @spec reap_workspace_agents(Path.t(), keyword()) :: :ok
   def reap_workspace_agents(workspace_root, opts \\ []) when is_binary(workspace_root) do
     proc_dir = Keyword.get(opts, :proc_dir, "/proc")
     kill_fun = Keyword.get(opts, :kill_fun, &graceful_kill/1)
+    protected = MapSet.new(Keyword.get_lazy(opts, :protected_pids, &self_pid_tree/0))
 
-    workspace_root
-    |> workspace_agent_pids(proc_dir)
-    |> Enum.each(kill_fun)
+    case sweep_root(workspace_root) do
+      {:ok, root} ->
+        root
+        |> workspace_agent_pids(proc_dir)
+        |> Enum.reject(&MapSet.member?(protected, &1))
+        |> reap_all(kill_fun)
+
+      :skip ->
+        :ok
+    end
 
     :ok
+  end
+
+  # The kernel reports `/proc/<pid>/cwd` fully symlink-resolved, so the configured
+  # root must be canonicalized too — otherwise a symlinked component (e.g. a
+  # `/tmp`→`/private/tmp` parent) makes the prefix match fail and silently spares
+  # *every* orphan, the exact #453 symptom. Refuse a dangerously-shallow root as
+  # well: a mis-resolved `/` or `/home` would turn the broadened sweep into a
+  # host-wide reap.
+  defp sweep_root(workspace_root) do
+    canonical =
+      case Aiur.PathSafety.canonicalize(workspace_root) do
+        {:ok, path} -> path
+        _ -> Path.expand(workspace_root)
+      end
+
+    if shallow_root?(canonical) do
+      Logger.warning("reap_workspace_agents refusing_shallow_root root=#{inspect(canonical)}")
+      :skip
+    else
+      {:ok, canonical}
+    end
+  end
+
+  # "/", "", or a single top-level segment (e.g. "/home") is too broad to sweep.
+  defp shallow_root?(path) do
+    path
+    |> Path.split()
+    |> Enum.reject(&(&1 in ["", "/"]))
+    |> length() < 2
+  end
+
+  # Kill concurrently, not serially: a single `graceful_kill` blocks up to its
+  # SIGTERM+SIGKILL grace, so a serial sweep of a many-agent run (the #453 box
+  # had ~30 orphans) could run for the sum of those waits and overrun the stop
+  # path's SIGKILL deadline, leaving survivors. Concurrency bounds wall-clock to
+  # roughly one grace period regardless of count. `on_timeout: :kill_task` keeps
+  # one wedged kill from stalling shutdown — best-effort, like the rest of cleanup.
+  defp reap_all([], _kill_fun), do: :ok
+
+  defp reap_all(pids, kill_fun) do
+    pids
+    |> Task.async_stream(kill_fun,
+      max_concurrency: min(length(pids), 32),
+      timeout: 2 * @kill_grace_ms + 1_000,
+      on_timeout: :kill_task,
+      ordered: false
+    )
+    |> Stream.run()
+  end
+
+  # The BEAM's own OS pid plus its live descendants — the processes a cwd-scoped
+  # sweep must never kill (itself, or a child it is still supervising).
+  defp self_pid_tree do
+    case Integer.parse(System.pid()) do
+      {pid, _} -> [pid | collect_descendants(pid)]
+      :error -> []
+    end
   end
 
   defp workspace_agent_pids(workspace_root, proc_dir) do
@@ -342,12 +418,12 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   defp workspace_agent?(proc_entry, workspace_root) do
-    with {:ok, comm} <- File.read(Path.join(proc_entry, "comm")),
-         true <- String.trim(comm) in ~w(claude node),
-         {:ok, cwd} <- File.read_link(Path.join(proc_entry, "cwd")) do
-      cwd != workspace_root and String.starts_with?(cwd <> "/", workspace_root <> "/")
-    else
-      _ -> false
+    case File.read_link(Path.join(proc_entry, "cwd")) do
+      {:ok, cwd} ->
+        cwd != workspace_root and String.starts_with?(cwd <> "/", workspace_root <> "/")
+
+      _ ->
+        false
     end
   end
 

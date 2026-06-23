@@ -40,7 +40,12 @@ cond do
     :ok
 end
 
-ExUnit.start(exclude: [:perf_regression])
+# `:real_proc` tests spawn live processes and read the real /proc filesystem;
+# they only run where /proc exists (Linux CI / the dogfood box), and are
+# excluded elsewhere (e.g. macOS dev) rather than silently passing.
+real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
+
+ExUnit.start(exclude: [:perf_regression] ++ real_proc_exclude)
 
 ExUnit.after_suite(fn _result ->
   case original_home do
