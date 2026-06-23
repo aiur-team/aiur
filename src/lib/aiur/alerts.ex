@@ -44,11 +44,15 @@ defmodule Aiur.Alerts do
   @category_basenames %{needs_input: "needs-input", stuck: "stuck", done: "done", default: "default"}
 
   # Substring → category, in match order. The first match wins, so more specific
-  # markers are listed ahead of broader ones.
+  # markers are listed ahead of broader ones. This drives OS-default-sound
+  # selection only; the topic→sound *mapping* in the bundled `alerts.yaml` is the
+  # source of truth for the non-OS-default path. Keep new alert topics in sync
+  # across both. The `.paused` needle is delimiter-anchored so it does not also
+  # match the `agent.unpaused` resume topic.
   @topic_categories [
     {"human-review", :needs_input},
     {"input_required", :needs_input},
-    {"paused", :stuck},
+    {".paused", :stuck},
     {"thrash", :stuck},
     {"tokens_exhausted", :stuck},
     {"pr.merged", :done},

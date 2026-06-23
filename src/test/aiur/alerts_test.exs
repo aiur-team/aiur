@@ -510,6 +510,18 @@ defmodule Aiur.AlertsTest do
       assert build_args.("/tmp/a.aiff") == ["/tmp/a.aiff"]
     end
 
+    test "Linux picks paplay first with a bare-path argv when it is present" do
+      # paplay is the first candidate; when present it short-circuits the rest
+      # and takes a bare path (no `-f`).
+      find = fn
+        "paplay" -> "/usr/bin/paplay"
+        _ -> "/usr/bin/should-not-be-probed"
+      end
+
+      assert {"/usr/bin/paplay", build_args} = Alerts.player_command({:unix, :linux}, find)
+      assert build_args.("/tmp/a.oga") == ["/tmp/a.oga"]
+    end
+
     test "Linux prefers paplay, then canberra-gtk-play (-f), then aplay" do
       # Only canberra is present → it wins over the later aplay, and its argv
       # carries the `-f` flag freedesktop's player requires.
@@ -549,6 +561,13 @@ defmodule Aiur.AlertsTest do
       assert :done = Alerts.categorize_topic("ticket.MT-1.pr.merged")
       assert :done = Alerts.categorize_topic("ticket.MT-1.issue.label.added.agent.merging")
       assert :done = Alerts.categorize_topic("ticket.MT-1.issue.state.changed")
+    end
+
+    test "the agent.unpaused resume topic is not miscategorized as :stuck" do
+      # `.paused` is delimiter-anchored so it matches `agent.paused` but not the
+      # `agent.unpaused` resume event — a resume must not play the stuck sound.
+      assert :stuck = Alerts.categorize_topic("ticket.MT-1.agent.paused")
+      assert :default = Alerts.categorize_topic("ticket.MT-1.agent.unpaused")
     end
 
     test "uncategorized and non-binary topics fall back to :default" do
@@ -712,6 +731,43 @@ defmodule Aiur.AlertsTest do
                Alerts.emit_system("ticket.MT-CFG.agent.paused", issue: "MT-CFG", player: probe)
 
       assert_receive {:played, ^stuck_file}
+    end
+
+    test "mapping mode loads the config alerts_file and joins bare sound names to sound_dir", %{
+      workspace_root: root
+    } do
+      # Exercises two new seams at once: (1) alerts_path precedence — with no
+      # :alerts_file_path app-env override set, the config `alerts_file` is used
+      # instead of the bundled alerts.yaml; (2) resolve_sound_path joins a bare
+      # filename from the mapping onto `sound_dir`.
+      sound_dir = Path.join(root, "clips")
+      File.mkdir_p!(sound_dir)
+
+      custom_yaml = Path.join(root, "custom-alerts.yaml")
+
+      File.write!(custom_yaml, """
+      alerts:
+        "ticket.*.agent.paused":
+          message: Custom paused
+          sound:
+            - "custom-stuck.wav"
+      """)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: root,
+        alerts_enabled: true,
+        alerts_use_os_default_sounds: false,
+        alerts_sound_dir: sound_dir,
+        alerts_file: custom_yaml
+      )
+
+      probe = fn sound -> send(self(), {:played, sound}) end
+      expected = Path.join(sound_dir, "custom-stuck.wav")
+
+      assert :ok =
+               Alerts.emit_system("ticket.MT-CFG.agent.paused", issue: "MT-CFG", player: probe)
+
+      assert_receive {:played, ^expected}
     end
 
     test "OS-default mode falls back to the host OS sound for the category", %{
