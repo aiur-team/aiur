@@ -3,6 +3,8 @@ defmodule Aiur.Claude.RemoteControlTest do
 
   alias Aiur.Claude.RemoteControl
 
+  @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
+
   @captured_url_line "Continue coding in the Claude mobile app or https://claude.ai/code/session_01RY7wJRVZgf4RUenZYtSDUz"
 
   describe "parse_session_url/1 (characterization of the real TUI line)" do
@@ -101,6 +103,7 @@ defmodule Aiur.Claude.RemoteControlTest do
   end
 
   describe "graceful_kill_tree/1" do
+    @tag skip: @pgrep_skip_reason
     test "reaps the bash wrapper AND its surviving child (the headless orphan)" do
       # Mirror the headless backend: a `bash -lc` wrapper that forks a child
       # it does NOT exec into. Killing only the bash pid leaves that child
