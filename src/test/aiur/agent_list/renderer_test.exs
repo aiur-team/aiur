@@ -150,6 +150,58 @@ defmodule Aiur.AgentList.RendererTest do
     refute raw =~ "\e[48;5;236m"
   end
 
+  describe "ID column OSC 8 ticket hyperlink (#414)" do
+    # `id_cell_with_link/2` reads :project_label from the layout map, which
+    # render/1 must thread in from state. These tests guard against the
+    # regression where project_label lived only on state and the link was
+    # silently dead in every live render.
+    @issue_link "\e]8;;https://github.com/its-everdred/aiur/issues/414\e\\"
+
+    test "wraps a numeric identifier in an OSC 8 link to its GitHub issue" do
+      summaries = [%{identifier: "414", status: :running, alert_count: 0}]
+
+      raw =
+        render(base_state(%{summaries: summaries, project_label: "its-everdred/aiur"}))
+
+      assert raw =~ @issue_link
+    end
+
+    test "preserves the ticket link on the selected row" do
+      summaries = [%{identifier: "414", status: :running, alert_count: 0}]
+
+      raw =
+        render(
+          base_state(%{
+            summaries: summaries,
+            selection_index: 0,
+            project_label: "its-everdred/aiur"
+          })
+        )
+
+      # The selected row is inverted and stripped of CSI color, but OSC 8
+      # hyperlinks must survive so the link stays clickable when highlighted.
+      assert raw =~ IO.ANSI.reverse()
+      assert raw =~ @issue_link
+    end
+
+    test "emits no link when the project is unknown" do
+      summaries = [%{identifier: "414", status: :running, alert_count: 0}]
+
+      raw = render(base_state(%{summaries: summaries, project_label: nil}))
+
+      refute raw =~ "\e]8;;"
+    end
+
+    test "emits no link for a non-numeric identifier" do
+      summaries = [%{identifier: "MT-1", status: :running, alert_count: 0}]
+
+      raw =
+        render(base_state(%{summaries: summaries, project_label: "its-everdred/aiur"}))
+
+      refute raw =~ "\e]8;;"
+    end
+  end
+
   test "does not mark an agent row when the max control is focused" do
     summaries = [
       %{identifier: "MT-1", status: :running, alert_count: 0}

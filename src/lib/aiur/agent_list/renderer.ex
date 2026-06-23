@@ -135,6 +135,7 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:now_ms, Map.get(state, :now_ms, System.monotonic_time(:millisecond)))
         |> Map.put(:prewarm_active?, Map.get(state, :prewarm_active?, false))
         |> Map.put(:prewarm_phase, Map.get(state, :prewarm_phase))
+        |> Map.put(:project_label, Map.get(state, :project_label))
 
       markers = compute_markers(state, summaries)
 
