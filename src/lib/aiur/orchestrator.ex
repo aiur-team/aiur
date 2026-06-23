@@ -968,6 +968,23 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec apply_overrun_check_for_test(State.t(), non_neg_integer()) :: State.t()
+  def apply_overrun_check_for_test(%State{} = state, max_seconds)
+      when is_integer(max_seconds) and max_seconds >= 0 do
+    now = DateTime.utc_now()
+
+    Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+      maybe_pause_overrunning_entry(state_acc, issue_id, running_entry, now, max_seconds)
+    end)
+  end
+
+  @doc false
+  @spec resume_paused_issue_for_test(State.t(), map()) :: {term(), State.t()}
+  def resume_paused_issue_for_test(%State{} = state, running_entry) when is_map(running_entry) do
+    resume_paused_issue(state, running_entry)
+  end
+
+  @doc false
   @spec apply_thrash_check_for_test(State.t(), String.t(), integer()) :: {:ok, State.t()} | {:trip, State.t()}
   def apply_thrash_check_for_test(%State{} = state, issue_id, now_ms)
       when is_binary(issue_id) and is_integer(now_ms) do
@@ -1348,11 +1365,13 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Hard safety net: kill any agent that has been actively running longer
-  # than `agent.max_agent_duration_minutes` (paused/blocked time excluded
-  # via `running_seconds/2`). Reuses the stall path's terminate+retry so a
-  # runaway that keeps getting re-dispatched eventually exhausts retries and
-  # gives up, rather than looping forever.
+  # Safety check-in, not a kill: pause any agent that has been actively
+  # running longer than `agent.max_agent_duration_minutes` (paused/blocked
+  # time excluded via `running_seconds/2`). The duration cap is almost
+  # always "I want to check in," not "this work is done" — pausing keeps
+  # the agent in the list, holding its slot and its session/turn context,
+  # so the operator can review and resume with one keystroke instead of
+  # restarting from scratch.
   defp reconcile_overrunning_agents(%State{} = state) do
     max_seconds = Config.max_agent_duration_minutes() * 60
 
@@ -1367,13 +1386,16 @@ defmodule Aiur.Orchestrator do
         now = DateTime.utc_now()
 
         Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
-          maybe_kill_overrunning_entry(state_acc, issue_id, running_entry, now, max_seconds)
+          maybe_pause_overrunning_entry(state_acc, issue_id, running_entry, now, max_seconds)
         end)
     end
   end
 
-  # True when an entry should be killed for exceeding the duration cap:
-  # actively running (not paused/deactivated) past `max_seconds`.
+  # True when an entry has exceeded the duration cap: actively running
+  # (not paused/deactivated) past `max_seconds`. Paused entries are
+  # excluded so a duration-paused agent is never re-paused on the next
+  # tick (its `running_seconds` is frozen while paused, but the guard
+  # makes the intent explicit).
   @doc false
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def overrunning_entry?(running_entry, now, max_seconds) when is_map(running_entry) do
@@ -1382,19 +1404,24 @@ defmodule Aiur.Orchestrator do
       running_seconds(Map.get(running_entry, :started_at), now) > max_seconds
   end
 
-  defp maybe_kill_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
+  # Mirror the operator-pause path: queue the cooperative `{:pause_agent}`
+  # control message so the worker parks at its next turn boundary, then
+  # flip control status to `:paused`. Stamping `paused_reason` makes the
+  # pause attributable to the duration cap (distinct from a manual or
+  # blocker pause), and reusing the `:paused` state means slot accounting
+  # (`paused_running_count`/`available_slots`) and the resume paths treat
+  # it identically to a manual pause for free.
+  defp maybe_pause_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
     if overrunning_entry?(running_entry, now, max_seconds) do
       identifier = Map.get(running_entry, :identifier, issue_id)
       seconds = running_seconds(Map.get(running_entry, :started_at), now)
 
-      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; killing agent")
+      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent")
 
-      state
-      |> terminate_running_issue(issue_id, false)
-      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), %{
-        identifier: identifier,
-        error: "exceeded max_agent_duration of #{div(max_seconds, 60)}m"
-      })
+      _ = send_pause_control_message(state, identifier)
+
+      paused_entry = Map.put(running_entry, :paused_reason, :max_agent_duration)
+      transition_control_status(state, paused_entry, :paused, "max_agent_duration")
     else
       state
     end
@@ -2255,6 +2282,7 @@ defmodule Aiur.Orchestrator do
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working,
+              pause_reason: Map.get(entry, :paused_reason),
               backend: entry_backend(entry),
               remote_control: remote_control_summary(entry)
             })
@@ -2281,6 +2309,7 @@ defmodule Aiur.Orchestrator do
               runtime_seconds: effective_runtime_seconds(entry, now),
               turn_count: Map.get(entry, :turn_count, 0),
               work_state: get_in(entry, [:control, :status]) || :working,
+              pause_reason: Map.get(entry, :paused_reason),
               backend: entry_backend(entry),
               remote_control: remote_control_summary(entry)
             })
@@ -3886,6 +3915,14 @@ defmodule Aiur.Orchestrator do
         # timestamp and be killed on the very next reconcile tick before
         # any codex notification could refresh the field.
         state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
+        # A duration-capped pause froze the entry after its *active*
+        # runtime already exceeded `max_agent_duration`. A plain thaw only
+        # excludes the paused interval, so `running_seconds` would still be
+        # over the cap and the next reconcile tick would re-pause the
+        # just-resumed agent in a loop. Resetting `started_at` to NOW hands
+        # the operator a fresh duration budget — the resume is a deliberate
+        # "check in, keep going" — and clears the reason.
+        state = update_in(state.running, &reset_duration_clock_if_capped(&1, issue_id, now))
         # An operator-driven resume is a deliberate restart, so clear any
         # thrash budget the entry accrued before it paused — otherwise a
         # long-paused blockee could resume already over its window.
@@ -3907,6 +3944,25 @@ defmodule Aiur.Orchestrator do
     case Map.get(running, issue_id) do
       entry when is_map(entry) ->
         Map.put(running, issue_id, Map.put(entry, :last_codex_timestamp, now))
+
+      _ ->
+        running
+    end
+  end
+
+  # Resume-side reset for a duration-capped pause: restart the duration
+  # baseline so the resumed agent gets a full fresh budget, and drop the
+  # `paused_reason` marker so a later manual pause is attributed
+  # correctly. A no-op for manually/blocker-paused entries (no marker).
+  defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now) when is_map(running) do
+    case Map.get(running, issue_id) do
+      %{paused_reason: :max_agent_duration} = entry ->
+        updated =
+          entry
+          |> Map.put(:started_at, now)
+          |> Map.delete(:paused_reason)
+
+        Map.put(running, issue_id, updated)
 
       _ ->
         running
