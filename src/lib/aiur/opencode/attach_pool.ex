@@ -414,66 +414,16 @@ defmodule Aiur.Opencode.AttachPool do
       )
     end
 
-    # Initial-active identifiers that DID get paired are handled
-    # by start_leadoff_task's background_fill — the slot's leadoff
-    # Task attaches all OTHER active identifiers into that slot
-    # after the leadoff paints. So at boot, every initial-active
-    # identifier ends up in every slot.
-    #
-    # POST-BOOT additions (e.g., a ⚫ queued agent gets dispatched
-    # and shows up in `added`) miss that boot fill because the
-    # leadoff Tasks already completed. Without dedicated handling
-    # they stay ⏳ forever. Solution: for each unpaired added
-    # identifier, fire a background attach to every running slot.
-    # Same shape as the boot fill but driven from do_seed instead
-    # of from a leadoff task.
-    unpaired_added = added -- paired_added
-    running_slots = running_slot_indexes()
-
-    Enum.each(unpaired_added, fn id ->
-      Enum.each(running_slots, fn slot_index ->
-        spawn_post_boot_fill(slot_index, id)
-      end)
-    end)
-
+    # Leadoff-only fan-out (#409): each slot paints exactly its one
+    # leadoff identifier (the `leadoff_pairs` above). Non-leadoff
+    # agents — including post-boot additions that found no free slot —
+    # are NOT attached anywhere. Opening one goes through
+    # `AttachPool.consume` → `:miss` → `PaneManager.open_with_placeholder`
+    # (on-demand cold open, the path non-leadoff agents already took
+    # since their slot showed a different leadoff). This collapses the
+    # old M×N SessionWriter/session/SQLite fan-out that exhausted file
+    # descriptors at high concurrency (the `:emfile` crash).
     new_state
-  end
-
-  defp spawn_post_boot_fill(slot_index, identifier) do
-    case slot_pid_for(slot_index) do
-      {:ok, slot_pid} ->
-        Task.start(fn -> run_post_boot_fill(slot_pid, slot_index, identifier) end)
-
-      :error ->
-        :ok
-    end
-  end
-
-  defp run_post_boot_fill(slot_pid, slot_index, identifier) do
-    span =
-      Aiur.Perf.span_begin(:attach_pool_fill,
-        identifier: identifier,
-        slot: slot_index,
-        source: :post_boot
-      )
-
-    case Slot.attach(slot_pid, identifier) do
-      {:ok, _} ->
-        Aiur.Perf.span_end(span,
-          identifier: identifier,
-          slot: slot_index,
-          source: :post_boot
-        )
-
-      {:error, reason} ->
-        Aiur.Perf.span_end(span,
-          result: :failed,
-          identifier: identifier,
-          slot: slot_index,
-          source: :post_boot,
-          reason: reason
-        )
-    end
   end
 
   defp kickoff_fan_out(state, slot_index) do
@@ -512,12 +462,7 @@ defmodule Aiur.Opencode.AttachPool do
     case slot_pid_for(slot_index) do
       {:ok, slot_pid} ->
         pool = self()
-        # Snapshot rest of the active identifiers at task-spawn time so
-        # the background fill runs against a stable list — even if
-        # active_identifiers shifts during boot.
-        fill_identifiers = state.active_identifiers -- [identifier]
-
-        Task.start(fn -> run_leadoff_task(pool, slot_pid, slot_index, identifier, fill_identifiers) end)
+        Task.start(fn -> run_leadoff_task(pool, slot_pid, slot_index, identifier) end)
 
         state
 
@@ -526,20 +471,19 @@ defmodule Aiur.Opencode.AttachPool do
     end
   end
 
-  defp run_leadoff_task(pool, slot_pid, slot_index, identifier, fill_identifiers) do
+  # Paint this slot's single leadoff identifier. Leadoff-only fan-out
+  # (#409): no background attach of the other active identifiers — that
+  # was the M×N SessionWriter/session/SQLite blow-up behind `:emfile`.
+  # Non-leadoff agents open on demand via `AttachPool.consume` → `:miss`
+  # → cold respawn (the path they already took, since their slot showed
+  # a different leadoff).
+  defp run_leadoff_task(pool, slot_pid, slot_index, identifier) do
     span = Aiur.Perf.span_begin(:attach_pool_leadoff, identifier: identifier, slot: slot_index)
 
     case Slot.set_visible(slot_pid, identifier) do
       {:ok, _pane_id} ->
         Aiur.Perf.span_end(span, identifier: identifier, slot: slot_index)
         send(pool, {:attach_task_done, slot_index, identifier, :ok})
-        # Background fill: after this slot's leadoff is painted, attach
-        # every OTHER active identifier so they show 🔘 (attached-shared)
-        # and `AttachPool.consume` can warm-open them via this slot when
-        # the user clicks them. Runs SEQUENTIALLY through THIS slot's
-        # mailbox so it doesn't compete with other slots' leadoffs (those
-        # run in their own Tasks against their own slots).
-        background_fill_slot(slot_pid, slot_index, fill_identifiers)
 
       {:error, reason} ->
         Aiur.Perf.span_end(span,
@@ -552,35 +496,6 @@ defmodule Aiur.Opencode.AttachPool do
         send(pool, {:attach_failed, identifier, slot_index, reason})
         send(pool, {:attach_task_done, slot_index, identifier, {:error, reason}})
     end
-  end
-
-  # Fire `Slot.attach` for each fill identifier against this slot.
-  # Sequential through the slot's GenServer mailbox — runs strictly
-  # AFTER the leadoff's `set_visible` returned, so it never blocks the
-  # critical "first paint" path. Fully fire-and-forget; failures (e.g.
-  # `:identifier_unknown` for agents added post-boot) are logged via
-  # the perf span and otherwise ignored.
-  defp background_fill_slot(slot_pid, slot_index, fill_identifiers) do
-    Enum.each(fill_identifiers, fn fill_id ->
-      span =
-        Aiur.Perf.span_begin(:attach_pool_fill,
-          identifier: fill_id,
-          slot: slot_index
-        )
-
-      case Slot.attach(slot_pid, fill_id) do
-        {:ok, _} ->
-          Aiur.Perf.span_end(span, identifier: fill_id, slot: slot_index)
-
-        {:error, reason} ->
-          Aiur.Perf.span_end(span,
-            result: :failed,
-            identifier: fill_id,
-            slot: slot_index,
-            reason: reason
-          )
-      end
-    end)
   end
 
   defp slot_already_fanned_out?(state, slot_index) do
