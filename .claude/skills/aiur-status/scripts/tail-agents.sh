@@ -46,9 +46,13 @@ sessions="$(tmux ls 2>/dev/null | cut -d: -f1 || true)"
 
 now="$(date +%s)"
 found=0
-for ws in "$root"/*/; do
-  log="$ws/logs/agent.md"
+# Workspaces live at <root>/<id>/logs/agent.md (legacy flat) or, since repo
+# namespacing (#406), <root>/<repo>/<id>/logs/agent.md. Find the agent.md files
+# directly and derive the id from the workspace dir (parent of logs/), so both
+# layouts work regardless of nesting depth.
+while IFS= read -r log; do
   [ -f "$log" ] || continue
+  ws="$(dirname "$(dirname "$log")")"
   id="$(basename "$ws")"
 
   m="$(mtime_epoch "$log")"; m="${m:-0}"
@@ -64,6 +68,6 @@ for ws in "$root"/*/; do
   echo "===== AGENT ${id} | last activity ${age_min}m ago | session ${has_session} ====="
   tail -n "$tail_lines" "$log"
   echo
-done
+done < <(find "$root" -maxdepth 4 -type f -name agent.md 2>/dev/null)
 
 [ "$found" -gt 0 ] || echo "(no active agents — nothing modified in the last ${window_min}m under ${root})"

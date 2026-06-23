@@ -75,10 +75,19 @@ Rules for the phrasing:
 - Don't invent progress the log doesn't show. If a tail is ambiguous, say "unclear — last event Nm ago".
 - If the script reports no active agents, say so in one line; don't print an empty table.
 
-## Live monitoring
+## Monitoring cadence (default)
 
-This is a snapshot. For a live feed, pair it with the loop skill, e.g.
-`/loop 60s /aiur-status` — re-runs every 60s so the table refreshes as agents work.
+Default to **live monitoring on a 2-minute interval** — emit a fresh per-agent
+status table every 2 minutes while aiur is running, so the operator gets a steady
+heartbeat without asking. Drive it with the loop skill:
+
+    /loop 2m /aiur-status
+
+Each tick runs steps 1–3 (gather → classify → emit). Keep looping until every
+agent reaches a terminal state (✅/❌, or the script reports no active agents) or
+the operator stops it. If this skill is **already** running inside a `/loop`, do
+NOT start a nested loop — just emit the table and let the existing loop re-invoke.
+For a single one-shot snapshot instead of the loop, say so explicitly when invoking.
 
 ## Notes
 
