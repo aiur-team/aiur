@@ -41,4 +41,16 @@ defmodule Aiur.AgentEnvironmentTest do
     refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
     assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
   end
+
+  describe "base_env/1" do
+    test "trusts the base mise config via MISE_TRUSTED_CONFIG_PATHS" do
+      assert AgentEnvironment.base_env("/tmp/base") == [
+               {"MISE_TRUSTED_CONFIG_PATHS", "/tmp/base"}
+             ]
+    end
+
+    test "returns an empty list for a non-binary path so callers can splat safely" do
+      assert AgentEnvironment.base_env(nil) == []
+    end
+  end
 end
