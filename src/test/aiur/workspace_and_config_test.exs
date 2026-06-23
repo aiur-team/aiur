@@ -124,8 +124,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
       )
 
     try do
-      # GitHub: segment is the repo name (the half after owner/), so issue #10
-      # in two different repos lands in two distinct directories.
+      # GitHub: segment is the full owner/name, so issue #10 in two different
+      # repos lands in two distinct directories.
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "octo/widgets",
@@ -135,7 +135,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert {:ok, widgets_ws} = Workspace.create_for_issue("10")
 
       assert {:ok, canonical_widgets} =
-               Aiur.PathSafety.canonicalize(Path.join([workspace_root, "widgets", "10"]))
+               Aiur.PathSafety.canonicalize(Path.join([workspace_root, "octo", "widgets", "10"]))
 
       assert widgets_ws == canonical_widgets
       # basename stays the bare issue id so `basename "$PWD"` still names the branch.
@@ -150,6 +150,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert {:ok, gadgets_ws} = Workspace.create_for_issue("10")
       assert gadgets_ws != widgets_ws
       assert Path.basename(Path.dirname(gadgets_ws)) == "gadgets"
+      # owner is kept so forks of the same repo name never collide.
+      assert gadgets_ws |> Path.dirname() |> Path.dirname() |> Path.basename() == "octo"
 
       # A bare repo name (no owner/ prefix) is used verbatim as the segment.
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -161,18 +163,50 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert {:ok, bare_ws} = Workspace.create_for_issue("10")
       assert Path.basename(Path.dirname(bare_ws)) == "barerepo"
 
-      # Unsafe characters in the repo segment are sanitized so they can't
-      # escape the workspace root.
+      # Path-traversal components are dropped so the repo segment can't escape
+      # the workspace root.
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
-        tracker_repo: "octo/we..ird/name",
+        tracker_repo: "octo/../escape",
         workspace_root: workspace_root
       )
 
-      assert {:ok, sanitized_ws} = Workspace.create_for_issue("10")
-      segment = Path.basename(Path.dirname(sanitized_ws))
-      refute segment =~ "/"
-      assert segment == "we..ird_name"
+      assert {:ok, safe_ws} = Workspace.create_for_issue("10")
+      refute safe_ws =~ ".."
+
+      assert {:ok, canonical_safe} =
+               Aiur.PathSafety.canonicalize(Path.join([workspace_root, "octo", "escape", "10"]))
+
+      assert safe_ws == canonical_safe
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "repo namespacing is idempotent when the root already ends with the repo segment" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-idempotent-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      # `aiur init` bakes owner/name into the root; materialization must not
+      # double it into <root>/octo/widgets/octo/widgets/<issue>.
+      baked_root = Path.join([workspace_root, "octo", "widgets"])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "octo/widgets",
+        workspace_root: baked_root
+      )
+
+      assert {:ok, ws} = Workspace.create_for_issue("10")
+
+      assert {:ok, expected} =
+               Aiur.PathSafety.canonicalize(Path.join([workspace_root, "octo", "widgets", "10"]))
+
+      assert ws == expected
     after
       File.rm_rf(workspace_root)
     end

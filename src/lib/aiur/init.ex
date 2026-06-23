@@ -237,12 +237,21 @@ defmodule Aiur.Init do
   defp layout_label(:global), do: "~/.aiur/"
   defp layout_label(:repo_local), do: ".aiur/"
 
+  # Default workspace root, scoped by the repo captured in the tracker prompt so
+  # agents land in ~/.aiur/workspaces/<owner>/<repo>/<issue> (the runtime append
+  # is idempotent, so baking owner/name into the root never doubles it). The
+  # global config has no fixed repo, so it keeps the bare root.
+  defp workspace_default(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "",
+    do: "~/.aiur/workspaces/" <> repo
+
+  defp workspace_default(_tracker), do: "~/.aiur/workspaces"
+
   defp fresh_setup(io, deps, location, target) do
     tracker = prompt_tracker(io, deps, location)
     agents = prompt_agents(io)
     routing = prompt_routing(io, agents)
     permission_mode = prompt_permission_mode(io)
-    workspace_root = io.input.("Where should agents work?", "~/.aiur/workspaces", nil)
+    workspace_root = io.input.("Where should agents work?", workspace_default(tracker), nil)
     max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
     max_turns = prompt_max_turns(io)
     max_duration = prompt_max_duration(io)
