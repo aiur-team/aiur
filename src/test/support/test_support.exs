@@ -89,6 +89,38 @@ defmodule Aiur.TestSupport do
   def restore_env(key, nil), do: System.delete_env(key)
   def restore_env(key, value), do: System.put_env(key, value)
 
+  @doc """
+  Returns a skip reason when `pgrep -P <pid>` cannot read the OS process list,
+  or `nil` when it can.
+
+  The process-reaping tests spawn a `bash -lc` wrapper, discover the child it
+  forks via `pgrep -P`, then assert the production reap path kills the whole
+  tree. Both the discovery and the production reap (`RemoteControl.collect_descendants/1`)
+  depend on `pgrep`. In sandboxes where `pgrep` cannot reach the process list —
+  e.g. the macOS agent sandbox, which fails with `sysmond service not found` /
+  `pgrep: Cannot get process list` — those tests strand at child discovery
+  before the code under test even runs. Tests gate on this with
+  `@tag skip: @pgrep_skip_reason` so they skip with a clear reason there and
+  still run wherever `pgrep` works (Linux CI, the dogfood box, macOS dev).
+
+  The probe is functional, not OS-based: it backgrounds a known child and
+  confirms `pgrep -P` actually discovers it (exit 0). A broken `pgrep` errors
+  instead of returning the child, which is exactly the failure being guarded.
+  """
+  @spec pgrep_skip_reason() :: String.t() | nil
+  def pgrep_skip_reason do
+    if System.find_executable("pgrep") do
+      probe = ~s(sleep 1 & child=$!; pgrep -P $$ >/dev/null 2>&1; rc=$?; kill "$child" 2>/dev/null; exit $rc)
+
+      case System.cmd("sh", ["-c", probe], stderr_to_stdout: true) do
+        {_out, 0} -> nil
+        _ -> "pgrep cannot read the process list in this environment (e.g. macOS sandbox: sysmond unavailable)"
+      end
+    else
+      "pgrep is not on $PATH"
+    end
+  end
+
   def stop_default_http_server do
     if is_nil(Process.whereis(Aiur.Supervisor)) do
       :ok

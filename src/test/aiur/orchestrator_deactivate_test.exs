@@ -7,6 +7,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
 
+  @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
+
   describe "reconcile with nil / non-binary issue state (crash regression)" do
     # Live crash signature (from production logs):
     #   ** (FunctionClauseError) no function clause matching in
@@ -1555,6 +1557,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   describe "whole-app shutdown reaping (terminate/2)" do
+    @tag skip: @pgrep_skip_reason
     test "reaps every running entry's headless agent subtree on shutdown" do
       # Mirror the headless backend: a `bash -lc` wrapper that forks a child
       # it never execs. On whole-app shutdown the supervisor brutally kills
