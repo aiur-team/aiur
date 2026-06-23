@@ -197,16 +197,27 @@ defmodule Aiur.OrchestratorStatusTest do
     # Optimistic flip: the row reads :paused immediately from the operator
     # action, before the worker's async :worker_control_state confirmation —
     # so pressing space pauses the agent at any moment, even mid-spin-up.
-    assert [%{identifier: "repo#47", state: :paused}] = Orchestrator.status(orchestrator_name, 1_000)
+    #
+    # Each transition is read through `wait_for_status`, which retries the
+    # `status` GenServer.call through transient :timeout. The pause/resume state
+    # is set synchronously inside its handle_call before reply, so the value is
+    # authoritative the instant the call returns — the only failure mode was the
+    # 1s call timing out under CPU contention, which retrying absorbs. Mailbox
+    # FIFO also guarantees the status read after the async :worker_control_state
+    # send is processed *after* that message, so the read is properly ordered.
+    assert [%{identifier: "repo#47", state: :paused}] =
+             wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :paused}], &1))
 
     send(pid, {:worker_control_state, "issue-round-trip", :paused})
 
-    assert [%{identifier: "repo#47", state: :paused}] = Orchestrator.status(orchestrator_name, 1_000)
+    assert [%{identifier: "repo#47", state: :paused}] =
+             wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :paused}], &1))
 
     assert {:ok, :resumed} = Orchestrator.resume_agent(orchestrator_name, "repo#47")
     assert_receive {:resume_agent, resume_request_id} when is_integer(resume_request_id), 500
 
-    assert [%{identifier: "repo#47", state: :running}] = Orchestrator.status(orchestrator_name, 1_000)
+    assert [%{identifier: "repo#47", state: :running}] =
+             wait_for_status(orchestrator_name, &match?([%{identifier: "repo#47", state: :running}], &1))
   end
 
   test "resuming a paused agent is blocked when active capacity is full" do
@@ -1503,9 +1514,11 @@ defmodule Aiur.OrchestratorStatusTest do
       |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
     end)
 
+    tick_at_ms = System.monotonic_time(:millisecond)
     send(pid, :tick)
     Process.sleep(100)
     state = :sys.get_state(pid)
+    observed_at_ms = System.monotonic_time(:millisecond)
 
     refute Process.alive?(worker_pid)
     refute Map.has_key?(state.running, issue_id)
@@ -1518,9 +1531,16 @@ defmodule Aiur.OrchestratorStatusTest do
            } = state.retry_attempts[issue_id]
 
     assert is_integer(due_at_ms)
-    remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
-    assert remaining_ms >= 9_500
-    assert remaining_ms <= 10_500
+
+    # Attempt 1 schedules a fixed 10s base backoff (@failure_retry_base_ms).
+    # `due_at_ms` was set to (monotonic_at_schedule + 10_000) at some instant
+    # between the tick send and our state read, so it is bounded by those two
+    # monotonic readings. Asserting that window is load-independent: a slow
+    # scheduler shifts both endpoints together and cannot push `due_at_ms`
+    # outside it, unlike the previous `remaining >= 9_500` slack budget that a
+    # ~600ms scheduling stall was enough to blow.
+    assert due_at_ms >= tick_at_ms + 10_000
+    assert due_at_ms <= observed_at_ms + 10_000
   end
 
   test "orchestrator emits blocker coordination events from poll transitions" do
@@ -1603,6 +1623,27 @@ defmodule Aiur.OrchestratorStatusTest do
     file_config = handler_config.config
     assert file_config.type == :file
     assert is_list(file_config.file)
+  end
+
+  defp wait_for_status(orchestrator_name, predicate, timeout_ms \\ 5_000)
+       when is_function(predicate, 1) do
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_status(orchestrator_name, predicate, deadline_ms)
+  end
+
+  defp do_wait_for_status(orchestrator_name, predicate, deadline_ms) do
+    status = Orchestrator.status(orchestrator_name, 1_000)
+
+    if is_list(status) and predicate.(status) do
+      status
+    else
+      if System.monotonic_time(:millisecond) >= deadline_ms do
+        flunk("timed out waiting for orchestrator status: #{inspect(status)}")
+      else
+        Process.sleep(5)
+        do_wait_for_status(orchestrator_name, predicate, deadline_ms)
+      end
+    end
   end
 
   defp wait_for_snapshot(pid, predicate, timeout_ms \\ 200) when is_function(predicate, 1) do
