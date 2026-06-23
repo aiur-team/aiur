@@ -561,11 +561,19 @@ session_cleanup() {
   # a lingering poller would outlive this teardown.
   [ -n "$_session_watchdog_pid" ] && kill "$_session_watchdog_pid" 2>/dev/null || true
 
-  # kill-server (not kill-session) on aiur's private socket: tears down every
-  # pane agent across all windows AND leaves no live aiur tmux server, then reaps
-  # headless agents from the pidfile. Idempotent with the watchdog's own reap.
-  # reap_aiur_agents re-resolves tmux itself and reaps headless agents even when
-  # tmux is absent, so it is not gated on $_session_tmux.
+  # kill-session on the detached aiur session FIRST: this is what propagates
+  # SIGHUP to the BEAM in that session so it begins its own orderly shutdown.
+  # Without it the BEAM survives Ctrl+C, holding port 4000 + the node name and
+  # breaking the next launch (regression test/aiur/regression/shutdown_cleanup_test.exs).
+  if [ -n "$_session_tmux" ] && [ -n "$_session_socket" ] && [ -n "$_session_name" ]; then
+    "$_session_tmux" -L "$_session_socket" kill-session -t "$_session_name" 2>/dev/null || true
+  fi
+
+  # Then kill-server on aiur's private socket: tears down every pane agent across
+  # all windows AND leaves no live aiur tmux server, then reaps headless agents
+  # from the pidfile. Idempotent with the watchdog's own reap and the kill-session
+  # above. reap_aiur_agents re-resolves tmux itself and reaps headless agents even
+  # when tmux is absent, so it is not gated on $_session_tmux.
   reap_aiur_agents "$_session_socket" "$_session_pidfile"
 
   local beam_pids pid waited=0
