@@ -3,6 +3,8 @@ defmodule Aiur.RepoBaseTest do
   # the phase-event test must not race other tests emitting on the same topic.
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.RepoBase
 
   setup do
@@ -56,9 +58,79 @@ defmodule Aiur.RepoBaseTest do
     end
 
     test "returns an error and skips the marker when base_build fails", %{origin: origin, base: base} do
+      log =
+        capture_log(fn ->
+          assert {:error, {:base_build_failed, status, out}} =
+                   RepoBase.refresh(base, origin, "echo failed-output; exit 3")
+
+          assert status == 3
+          assert out =~ "failed-output"
+        end)
+
+      assert log =~ "prewarm base_build failed"
+      assert log =~ "failed-output"
+      assert log =~ "status 3"
+      refute File.exists?(Path.join(base, ".aiur-base-built"))
+    end
+
+    test "trusts mise config files from the base checkout for base_build", %{origin: origin, base: base} do
+      File.write!(Path.join(origin, "mise.toml"), "[tools]\n")
+      git!(["-C", origin, "add", "mise.toml"])
+      git!(["-C", origin, "commit", "--quiet", "-m", "add mise config"])
+
+      assert {:ok, ^base} =
+               RepoBase.refresh(
+                 base,
+                 origin,
+                 "printf '%s' \"$MISE_TRUSTED_CONFIG_PATHS\" > trusted_paths"
+               )
+
+      trusted_paths =
+        base
+        |> Path.join("trusted_paths")
+        |> File.read!()
+        |> String.split(":", trim: true)
+
+      assert Path.join(base, "mise.toml") in trusted_paths
+    end
+
+    test "does not overwrite inherited mise trusted config paths", %{origin: origin, base: base} do
+      inherited = Path.join(System.tmp_dir!(), "inherited-mise.toml")
+      File.write!(Path.join(origin, "mise.toml"), "[tools]\n")
+      git!(["-C", origin, "add", "mise.toml"])
+      git!(["-C", origin, "commit", "--quiet", "-m", "add mise config"])
+
+      previous = System.get_env("MISE_TRUSTED_CONFIG_PATHS")
+      System.put_env("MISE_TRUSTED_CONFIG_PATHS", inherited)
+
+      try do
+        assert {:ok, ^base} =
+                 RepoBase.refresh(
+                   base,
+                   origin,
+                   "printf '%s' \"$MISE_TRUSTED_CONFIG_PATHS\" > trusted_paths"
+                 )
+
+        trusted_paths =
+          base
+          |> Path.join("trusted_paths")
+          |> File.read!()
+          |> String.split(":", trim: true)
+
+        assert Path.join(base, "mise.toml") in trusted_paths
+        assert inherited in trusted_paths
+      after
+        if previous do
+          System.put_env("MISE_TRUSTED_CONFIG_PATHS", previous)
+        else
+          System.delete_env("MISE_TRUSTED_CONFIG_PATHS")
+        end
+      end
+    end
+
+    test "returns the base_build exit status", %{origin: origin, base: base} do
       assert {:error, {:base_build_failed, status, _out}} = RepoBase.refresh(base, origin, "exit 3")
       assert status == 3
-      refute File.exists?(Path.join(base, ".aiur-base-built"))
     end
 
     test "emits ordered phase events", %{origin: origin, base: base} do

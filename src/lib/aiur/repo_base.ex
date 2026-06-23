@@ -297,11 +297,25 @@ defmodule Aiur.RepoBase do
     # detected command sets its own HEX_HOME/MIX_HOME so the base owns the
     # caches workspaces copy.
     scrubbed = AgentEnvironment.scrub_shell_command(command)
-    {out, status} = System.cmd("sh", ["-lc", scrubbed], cd: base_path, stderr_to_stdout: true)
+
+    {out, status} =
+      System.cmd("sh", ["-lc", scrubbed],
+        cd: base_path,
+        env: base_build_env(base_path),
+        stderr_to_stdout: true
+      )
 
     case status do
-      0 -> :ok
-      _ -> {:error, {:base_build_failed, status, out}}
+      0 ->
+        :ok
+
+      _ ->
+        Logger.error("""
+        prewarm base_build failed in #{base_path} with status #{status}
+        #{out}
+        """)
+
+        {:error, {:base_build_failed, status, out}}
     end
   end
 
@@ -326,6 +340,26 @@ defmodule Aiur.RepoBase do
 
   defp built?(base_path), do: File.exists?(Path.join(base_path, @built_marker))
   defp mark_built(base_path), do: File.write!(Path.join(base_path, @built_marker), "")
+
+  defp base_build_env(base_path) do
+    case trusted_mise_config_paths(base_path) do
+      [] -> []
+      paths -> [{"MISE_TRUSTED_CONFIG_PATHS", Enum.join(paths, ":")}]
+    end
+  end
+
+  defp trusted_mise_config_paths(base_path) do
+    inherited =
+      "MISE_TRUSTED_CONFIG_PATHS"
+      |> System.get_env("")
+      |> String.split(":", trim: true)
+
+    base_paths =
+      [Path.join(base_path, "mise.toml"), Path.join(base_path, ".mise.toml")]
+      |> Enum.filter(&File.exists?/1)
+
+    Enum.uniq(base_paths ++ inherited)
+  end
 
   ## ---- config / topology ----
 
