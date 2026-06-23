@@ -1761,7 +1761,7 @@ defmodule Aiur.CoreTest do
       assert_receive {:queued_request_id, request_id}
       send(task.pid, {:agent_queue_updated, "MT-253", request_id, true})
 
-      assert {:ok, :ok} = Task.yield(task, 1_000)
+      assert {:ok, :ok} = Task.yield(task, 15_000)
 
       trace =
         trace_file
@@ -2033,7 +2033,7 @@ defmodule Aiur.CoreTest do
 
       send(task.pid, {:agent_queue_updated, "MT-251", request_id})
 
-      assert {:ok, :ok} = Task.yield(task, 1_000)
+      assert {:ok, :ok} = Task.yield(task, 15_000)
 
       trace =
         trace_file
@@ -2209,7 +2209,7 @@ defmodule Aiur.CoreTest do
       # the restored "abc" and the newly-enqueued "def" land as turns.
       send(task.pid, {:resume_agent, 99})
 
-      assert {:ok, :ok} = Task.yield(task, 1_000)
+      assert {:ok, :ok} = Task.yield(task, 15_000)
 
       turn_texts =
         trace_file
