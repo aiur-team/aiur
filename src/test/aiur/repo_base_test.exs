@@ -91,10 +91,32 @@ defmodule Aiur.RepoBaseTest do
 
   describe "server state machine" do
     setup do
+      # Pin a prewarm-disabled config and force the shared WorkflowStore cache to
+      # reload it, so `resolve/0` is deterministically `:disabled` and the instance
+      # never schedules a poll. Otherwise a sibling test that left a prewarm-enabled
+      # config cached makes the auto-poll start a real build mid-test (flaky).
+      tmp = Path.join(System.tmp_dir!(), "rb_cfg_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      cfg = Path.join(tmp, "config")
+      File.write!(cfg, "tracker:\n  kind: memory\n")
+      prev_path = Application.get_env(:aiur, :workflow_file_path)
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
       # An unnamed instance so we can drive its handlers without colliding with
       # the supervised singleton (which always registers __MODULE__).
       {:ok, pid} = GenServer.start_link(RepoBase, [])
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+
+        case prev_path do
+          nil -> Aiur.Workflow.clear_workflow_file_path()
+          p -> Aiur.Workflow.set_workflow_file_path(p)
+        end
+
+        File.rm_rf!(tmp)
+      end)
+
       {:ok, server: pid}
     end
 

@@ -167,6 +167,13 @@ defmodule Aiur.OrchestratorStatusTest do
   end
 
   test "pause then resume round trip updates status around worker control messages" do
+    # Null the Linear token so the orchestrator's startup poll fails *instantly*
+    # with {:error, :missing_linear_api_token} — no real api.linear.app call to
+    # block the GenServer (which timed out the 1s `status` call under load), and no
+    # successful fetch (which would reconcile the injected running agent away and
+    # kill its worker pid, here `self()`). The poll erroring is the pre-fix
+    # behavior; this just makes it fast and network-free.
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_api_token: nil)
     orchestrator_name = Module.concat(__MODULE__, :PauseResumeRoundTripOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     parent = self()
