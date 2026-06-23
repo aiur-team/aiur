@@ -32,7 +32,46 @@ defmodule Aiur.Application do
     install_signal_handlers()
     maybe_start_distribution()
 
-    interactive_cli? = Application.get_env(:aiur, :interactive_cli, false)
+    headless? = Application.get_env(:aiur, :headless, false)
+    # Headless is authoritative: if both flags somehow end up set (e.g. a
+    # hand-run `aiur --headless` that also injected `--interactive`), the lean
+    # path wins rather than booting a half-built interactive tree.
+    interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
+
+    children =
+      child_specs(
+        interactive_cli?: interactive_cli?,
+        headless?: headless?,
+        dashboard?: dashboard_enabled?(headless?)
+      )
+
+    Supervisor.start_link(
+      children,
+      strategy: :one_for_one,
+      name: Aiur.Supervisor
+    )
+  end
+
+  @doc """
+  Build the supervision children for the given run shape.
+
+  `--bg`/headless runs (`headless?: true`) skip the work that only ever
+  serves the interactive UI — the web dashboard, the opencode chat-pane
+  machinery, and the whole interactive CLI block (tmux, pane manager,
+  opencode pre-warm, agent-list panes). The agent **backends** that
+  actually run agents (session writers, the opencode bridge, token
+  registry) are kept so a headless node still does real work; an operator
+  drives it over the control RPC (`status` / `agents` / `message` /
+  `pause` / `set max-agents`) instead of attaching to panes.
+
+  Pure so the gating is unit-testable without booting the application —
+  pass the resolved booleans and assert which children appear.
+  """
+  @spec child_specs(keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
+  def child_specs(opts) do
+    interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
+    headless? = Keyword.fetch!(opts, :headless?)
+    dashboard? = Keyword.fetch!(opts, :dashboard?)
 
     cli_children =
       if interactive_cli? do
@@ -48,44 +87,63 @@ defmodule Aiur.Application do
         []
       end
 
-    children =
-      [
-        {Phoenix.PubSub, name: Aiur.PubSub},
-        {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
-        {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
-        {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
-        {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
-        {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
-        # Before Task.Supervisor: children stop in reverse order, so the
-        # reaper outlives the runner tasks/ports whose OS processes it must
-        # sweep in its terminate/2 backstop.
-        Aiur.ProcessReaper,
-        {Task.Supervisor, name: Aiur.TaskSupervisor},
-        Aiur.WorkflowStore,
-        Aiur.RepoBase,
-        Aiur.Events.IdGenerator,
-        Aiur.Events.Exchange,
-        Aiur.Events.Publisher,
-        {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
-        Aiur.Events.SubscriptionStoreSupervisor,
-        Aiur.OperatorWaitLog,
-        Aiur.Orchestrator,
-        Aiur.Events.LsRemoteTicker,
-        Aiur.ProgressCheckin.Worker,
-        Aiur.Logs.Retention,
-        Aiur.HttpServer,
-        Aiur.Opencode.TokenRegistry,
-        Aiur.Opencode.ActiveTurns,
-        Aiur.Opencode.PaneSupervisor,
-        Aiur.Opencode.SessionSupervisor,
-        Aiur.Opencode.BridgeSupervisor
-      ] ++ cli_children
+    [
+      {Phoenix.PubSub, name: Aiur.PubSub},
+      {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
+      {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
+      {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
+      {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
+      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
+      # Before Task.Supervisor: children stop in reverse order, so the
+      # reaper outlives the runner tasks/ports whose OS processes it must
+      # sweep in its terminate/2 backstop.
+      Aiur.ProcessReaper,
+      {Task.Supervisor, name: Aiur.TaskSupervisor},
+      Aiur.WorkflowStore,
+      Aiur.RepoBase,
+      Aiur.Events.IdGenerator,
+      Aiur.Events.Exchange,
+      Aiur.Events.Publisher,
+      {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
+      Aiur.Events.SubscriptionStoreSupervisor,
+      Aiur.OperatorWaitLog,
+      Aiur.Orchestrator,
+      Aiur.Events.LsRemoteTicker,
+      Aiur.ProgressCheckin.Worker,
+      Aiur.Logs.Retention,
+      # Dashboard: always on interactively; in headless only when the
+      # operator opted in via `--port`/`server.port` (see `dashboard?/1`).
+      if(dashboard?, do: Aiur.HttpServer),
+      Aiur.Opencode.TokenRegistry,
+      Aiur.Opencode.ActiveTurns,
+      # Chat-pane machinery — UI-only, never read by a headless run.
+      unless(headless?, do: Aiur.Opencode.PaneSupervisor),
+      Aiur.Opencode.SessionSupervisor,
+      Aiur.Opencode.BridgeSupervisor
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Kernel.++(cli_children)
+  end
 
-    Supervisor.start_link(
-      children,
-      strategy: :one_for_one,
-      name: Aiur.Supervisor
-    )
+  # In headless mode the dashboard is off unless the operator explicitly
+  # asked for it — `--port` (server_port_override) or a non-zero
+  # `server.port` in config. Interactive runs always start it (unchanged).
+  defp dashboard_enabled?(false = _headless?), do: true
+
+  defp dashboard_enabled?(true = _headless?) do
+    dashboard_opted_in?()
+  rescue
+    # Config not resolvable at boot — fail closed (no dashboard in headless).
+    _ -> false
+  end
+
+  # A usable port is the opt-in signal: a positive `--port` override or a
+  # non-zero `server.port`. Port 0 (the default, and an ephemeral-bind value)
+  # is NOT an opt-in — otherwise `--bg --port 0` would silently bind the
+  # dashboard, defeating the lean-mode "no dashboard bind" guarantee.
+  defp dashboard_opted_in? do
+    port_override = Application.get_env(:aiur, :server_port_override)
+    (is_integer(port_override) and port_override > 0) or Aiur.Config.settings!().server.port > 0
   end
 
   @impl true
