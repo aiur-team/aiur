@@ -165,4 +165,71 @@ defmodule Aiur.ProcessReaperTest do
     assert :ok = ProcessReaper.unregister(:nonexistent_reaper, {:os_pid, 111})
     assert :ok = ProcessReaper.reap(:nonexistent_reaper, [:agent], [])
   end
+
+  describe "AIUR_AGENT_TMPFILE pidfile (launcher-side crash reaper feed)" do
+    setup do
+      path = Path.join(System.tmp_dir!(), "aiur-agents-#{System.unique_integer([:positive])}")
+      File.write!(path, "")
+      System.put_env("AIUR_AGENT_TMPFILE", path)
+
+      on_exit(fn ->
+        System.delete_env("AIUR_AGENT_TMPFILE")
+        File.rm(path)
+      end)
+
+      %{pidfile: path}
+    end
+
+    test "appends an agent os_pid with its comm guard", %{reaper: reaper, pidfile: path} do
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 4321}, comm: "claude")
+
+      assert wait_for_lines(path) == ["pid 4321 claude"]
+    end
+
+    test "appends an agent os_pid with no comm as a bare line", %{reaper: reaper, pidfile: path} do
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 99}, [])
+
+      assert wait_for_lines(path) == ["pid 99"]
+    end
+
+    test "appends an agent pane ref", %{reaper: reaper, pidfile: path} do
+      :ok = ProcessReaper.register(reaper, :agent, {:pane, "%7"}, [])
+
+      assert wait_for_lines(path) == ["pane %7"]
+    end
+
+    test "does not record :serve entries (handled by session tmpfile)", %{reaper: reaper, pidfile: path} do
+      :ok = ProcessReaper.register(reaper, :serve, {:os_pid, 555}, comm: "opencode")
+      # A later agent registration proves the writer ran but skipped the serve.
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 556}, comm: "codex")
+
+      assert wait_for_lines(path) == ["pid 556 codex"]
+    end
+
+    test "no-ops cleanly when the env var is unset", %{reaper: reaper, pidfile: path} do
+      System.delete_env("AIUR_AGENT_TMPFILE")
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 1}, comm: "claude")
+
+      # Give the GenServer a beat; the file must stay empty.
+      :ok = ProcessReaper.reap(reaper, [], [])
+      assert File.read!(path) == ""
+    end
+  end
+
+  # The append happens inside the GenServer after the call returns, so poll.
+  defp wait_for_lines(path, attempts \\ 50) do
+    lines = path |> File.read!() |> String.split("\n", trim: true)
+
+    cond do
+      lines != [] ->
+        lines
+
+      attempts == 0 ->
+        []
+
+      true ->
+        Process.sleep(10)
+        wait_for_lines(path, attempts - 1)
+    end
+  end
 end
