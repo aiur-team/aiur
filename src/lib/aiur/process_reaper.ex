@@ -33,6 +33,13 @@ defmodule Aiur.ProcessReaper do
   The spawn→register crash window is NOT covered here; that remains assigned
   to the `reap_workspace_agents` pgrep layer.
 
+  A **dead BEAM** (e.g. an `:emfile` crash) can reap nothing from inside itself,
+  so on each `:agent` register this module also appends the agent's os_pid/pane
+  to the `AIUR_AGENT_TMPFILE` pidfile (see `record_agent_pidfile/3`). The bash
+  launcher's BEAM-death watchdog reads that file to kill pane + headless agents
+  after the BEAM is gone — mirroring how `AIUR_SESSION_TMPFILE` feeds the
+  opencode-session cleanup trap.
+
   Registrations no-op when `:process_reaper_registrations` is configured
   false (test env) so unit tests never kill host processes.
   """
@@ -200,6 +207,13 @@ defmodule Aiur.ProcessReaper do
   # Only `:agent` entries are recorded — `:serve` (opencode-serve) is handled by
   # the session tmpfile + HTTP delete path. Best-effort: a write failure must
   # never break agent registration.
+  #
+  # The file is append-only by design: `unregister/2` does not prune it. The
+  # launcher truncates it once per run and guards every recorded pid at reap time
+  # (alive + command still matches the recorded comm), so a cleanly-exited or
+  # recycled pid is skipped rather than mis-killed — the same pid-reuse guarantee
+  # the in-memory `cmdline_guard` gives, without the BEAM having to rewrite a file
+  # on every agent teardown.
   defp record_agent_pidfile(:agent, ref, meta) do
     case System.get_env("AIUR_AGENT_TMPFILE") do
       nil -> :ok
@@ -214,6 +228,8 @@ defmodule Aiur.ProcessReaper do
     do: "pid #{pid} #{comm}"
 
   defp pidfile_line({:os_pid, pid}, _meta), do: "pid #{pid}"
+  # Pane lines are recorded for diagnostics/symmetry; the launcher reaps panes via
+  # `tmux kill-server`, not this pidfile, so it reads only `pid` lines.
   defp pidfile_line({:pane, pane_id}, _meta), do: "pane #{pane_id}"
 
   defp append_pidfile_line(path, line) do

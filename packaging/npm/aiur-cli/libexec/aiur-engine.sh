@@ -402,13 +402,10 @@ run_session() {
   # (:emfile) mid-run, agent windows keep the orphaned session alive so the
   # `tmux attach` below never returns and the EXIT trap never fires — the
   # watchdog is the external reaper that survives the dead BEAM, kill-servers
-  # the session, and unblocks the attach.
-  local beam_pid
-  beam_pid="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null | head -n1 || true)"
-  if [ -n "$beam_pid" ]; then
-    _session_watchdog_pid="$(start_beam_death_watchdog \
-      "$beam_pid" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
-  fi
+  # the session, and unblocks the attach. It polls the same release-BEAM pattern
+  # session_cleanup uses, so it never depends on capturing a single live pid.
+  _session_watchdog_pid="$(start_beam_death_watchdog \
+    "$release_dir/.*erts.*beam.smp" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
@@ -518,20 +515,33 @@ reap_aiur_agents() {
   for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
 }
 
-# Background watchdog that survives the BEAM. Polls the BEAM's pid and, the
-# moment it disappears (orderly halt OR :emfile-style crash), reaps every agent.
-# kill-server collapses the orphaned tmux session, which returns the foreground
-# `tmux attach` so the EXIT trap (session_cleanup) runs its idempotent reap too.
+# Background watchdog that survives the BEAM. Polls for the release BEAM by
+# command pattern and, once it has SEEN the BEAM and then the BEAM disappears
+# (orderly halt OR :emfile-style crash), reaps every agent. Polling the pattern
+# rather than a captured pid avoids two failure modes: a recycled BEAM pid the
+# watchdog would poll forever, and an empty pid at arm time that would silently
+# disarm the only crash reaper. The `seen` latch prevents a startup race from
+# reaping before the BEAM has come up. kill-server collapses the orphaned tmux
+# session, which returns the foreground `tmux attach` so the EXIT trap
+# (session_cleanup) runs its idempotent reap too.
 #
-#   $1 beam_pid  $2 socket  $3 pidfile  $4 interval_s
+#   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s
 # Prints the watchdog's own pid so the caller can kill it on a clean teardown.
 start_beam_death_watchdog() {
-  local beam_pid="$1" socket="$2" pidfile="$3" interval="${4:-1}"
+  local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
   (
-    while kill -0 "$beam_pid" 2>/dev/null; do sleep "$interval"; done
+    seen=0
+    while :; do
+      if pgrep -f "$beam_pattern" >/dev/null 2>&1; then
+        seen=1
+      elif [ "$seen" = 1 ]; then
+        break
+      fi
+      sleep "$interval"
+    done
     reap_aiur_agents "$socket" "$pidfile"
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
@@ -554,9 +564,9 @@ session_cleanup() {
   # kill-server (not kill-session) on aiur's private socket: tears down every
   # pane agent across all windows AND leaves no live aiur tmux server, then reaps
   # headless agents from the pidfile. Idempotent with the watchdog's own reap.
-  if [ -n "$_session_tmux" ]; then
-    reap_aiur_agents "$_session_socket" "$_session_pidfile"
-  fi
+  # reap_aiur_agents re-resolves tmux itself and reaps headless agents even when
+  # tmux is absent, so it is not gated on $_session_tmux.
+  reap_aiur_agents "$_session_socket" "$_session_pidfile"
 
   local beam_pids pid waited=0
   beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"

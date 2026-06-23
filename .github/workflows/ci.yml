@@ -80,6 +80,10 @@ jobs:
         run: make deps
       - name: Test with coverage
         run: make coverage
+      - name: Install tmux for regression test
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Agent teardown reaping regression (#423)
+        run: make regression
 
   dialyzer:
     runs-on: ubuntu-latest

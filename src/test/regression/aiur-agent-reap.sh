@@ -71,13 +71,18 @@ bash -c 'sleep 600 & exec -a aiur-fake-claude sleep 600' & CLAUDE=$!
 disown 2>/dev/null
 bash -c 'sleep 600 & exec -a aiur-fake-codex  sleep 600' & CODEX=$!
 disown 2>/dev/null
-SPAWNED+=("$CLAUDE" "$CODEX")
+# A headless agent recorded with NO comm (the BEAM writes a bare `pid N` line for
+# os_pids registered without a :comm) must be reaped unconditionally.
+sleep 600 & BARE=$!
+disown 2>/dev/null
+SPAWNED+=("$CLAUDE" "$CODEX" "$BARE")
 sleep 0.3
 CLAUDE_CHILD="$(pgrep -P "$CLAUDE" | head -n1)"
 CODEX_CHILD="$(pgrep -P "$CODEX" | head -n1)"
 [ -n "$CLAUDE_CHILD" ] || fail "claude agent has no child to tree-reap"
 printf 'pid %s claude\n' "$CLAUDE" >>"$PIDFILE1"
 printf 'pid %s codex\n' "$CODEX" >>"$PIDFILE1"
+printf 'pid %s\n' "$BARE" >>"$PIDFILE1" # bare line, no comm → unconditional reap
 printf 'pane %%9\n' >>"$PIDFILE1" # pane refs are ignored by the launcher reaper
 
 # Decoy: a live process recorded with comm "claude" whose command is NOT claude.
@@ -93,10 +98,11 @@ server_dead || fail "aiur tmux server still alive after reap"
 for p in "${PANE_PIDS[@]}"; do wait_gone "$p" || fail "pane agent $p survived reap"; done
 wait_gone "$CLAUDE" || fail "claude agent $CLAUDE survived reap"
 wait_gone "$CODEX" || fail "codex agent $CODEX survived reap"
+wait_gone "$BARE" || fail "bare (no-comm) agent $BARE survived reap"
 wait_gone "$CLAUDE_CHILD" || fail "claude child $CLAUDE_CHILD survived reap (tree not killed)"
 [ -n "$CODEX_CHILD" ] && { wait_gone "$CODEX_CHILD" || fail "codex child survived reap"; }
 gone "$DECOY" && fail "pid-reuse decoy $DECOY was killed (comm guard failed)"
-echo "  ok: panes + headless trees reaped, server gone, decoy spared"
+echo "  ok: panes + headless trees (incl. bare) reaped, server gone, decoy spared"
 
 echo "=== Test 2: BEAM-death watchdog (simulates crash mid-turn) ==="
 
@@ -113,12 +119,13 @@ SPAWNED+=("$AGENT2")
 sleep 0.2
 printf 'pid %s claude\n' "$AGENT2" >>"$PIDFILE2"
 
-# Stand-in for the BEAM. The watchdog polls THIS pid and reaps when it dies.
-sleep 600 & FAKE_BEAM=$!
+# Stand-in for the BEAM, with a command the watchdog can match by pattern (the
+# real watchdog polls the release-BEAM command pattern, not a captured pid).
+bash -c 'exec -a aiur-fake-beam.smp sleep 600' & FAKE_BEAM=$!
 disown 2>/dev/null
 SPAWNED+=("$FAKE_BEAM")
 
-WD="$(start_beam_death_watchdog "$FAKE_BEAM" "$SOCKET" "$PIDFILE2" 0.2)"
+WD="$(start_beam_death_watchdog "aiur-fake-beam.smp" "$SOCKET" "$PIDFILE2" 0.2)"
 SPAWNED+=("$WD")
 
 # Before the BEAM dies the watchdog must touch nothing.
