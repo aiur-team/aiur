@@ -395,7 +395,7 @@ test("control rpc surfaces the real error when the node's epmd is unreachable", 
   // error rather than the friendly hint is the regression guard against
   // re-masking a live node whose epmd we simply couldn't reach.
   expect(result.stderr).toContain(":noconnection");
-  expect(result.stderr).toContain("could not confirm node state");
+  expect(result.stderr).toContain("could not query epmd to confirm node state");
   expect(result.stderr).not.toContain("no running aiur node");
 });
 

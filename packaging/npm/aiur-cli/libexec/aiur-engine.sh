@@ -757,7 +757,7 @@ run_control_rpc() {
         ;;
       *)
         [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (could not confirm node state); see the error above" >&2
+        echo "aiur: rpc to ${RELEASE_NODE} failed (could not query epmd to confirm node state); see the error above" >&2
         ;;
     esac
     return 1
