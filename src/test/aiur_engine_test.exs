@@ -132,7 +132,13 @@ defmodule AiurEngineTest do
     on_exit(fn -> File.rm_rf!(dir) end)
 
     src = "cd #{dir}; source #{@engine}; load_dotenv; echo \"TOK=$GITHUB_TOKEN|FOO=$FOO\""
-    {out, 0} = System.cmd("bash", ["-c", src], stderr_to_stdout: true)
+
+    {out, 0} =
+      System.cmd("bash", ["-c", src],
+        env: [{"GITHUB_TOKEN", nil}, {"FOO", nil}],
+        stderr_to_stdout: true
+      )
+
     assert out =~ "TOK=fromfile|FOO=bar baz"
 
     # A value already in the environment is never clobbered by the file.
@@ -236,5 +242,96 @@ defmodule AiurEngineTest do
     {out, code} = run_engine_real(["message"], [{"AIUR_RELEASE_DIR", fake_release()}])
     assert code == 64
     assert out =~ "message expects an issue ID and text"
+  end
+
+  # --- stale /tmp artifact reaping (#334) -------------------------------------
+  #
+  # The reaper only ever scans the temp roots TMPDIR / XDG_RUNTIME_DIR point at,
+  # so each test redirects both at a throwaway mktemp dir — the real /tmp is never
+  # touched. Old mtimes use `touch -t CCYYMMDDhhmm`, which both GNU and BSD touch
+  # accept, so these run identically on Linux CI and macOS dev.
+
+  test "sweep_stale_tmp_artifacts reaps stale aiur-* debris and spares live/fresh/non-matching" do
+    script = """
+    source #{@engine}
+    T="$(mktemp -d "${TMPDIR:-/tmp}/aiur-reap-test.XXXXXX")"
+    OLD="$(date -d '3 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-3H +%Y%m%d%H%M)"
+
+    touch -t "$OLD" "$T/aiur-argv.STALE"
+    touch "$T/aiur-argv.FRESH"
+    mkdir -p "$T/aiur-rc"; touch "$T/aiur-rc/live.log"; touch -t "$OLD" "$T/aiur-rc"
+    mkdir -p "$T/aiur-debug"; touch -t "$OLD" "$T/aiur-debug/old.log"; touch -t "$OLD" "$T/aiur-debug"
+    mkdir -p "$T/aiur_workspaces/w"; touch -t "$OLD" "$T/aiur_workspaces/w/f"; touch -t "$OLD" "$T/aiur_workspaces"
+    mkdir -p "$T/aiur100-hex"; touch -t "$OLD" "$T/aiur100-hex/c"; touch -t "$OLD" "$T/aiur100-hex"
+    touch -t "$OLD" "$T/aiur-4000000000-agents"
+    sleep 30 & LIVE=$!
+    touch -t "$OLD" "$T/aiur-$LIVE-agents"
+    touch -t "$OLD" "$T/unrelated.txt"
+
+    TMPDIR="$T" XDG_RUNTIME_DIR="$T" AIUR_TMP_REAP_MINUTES=60 sweep_stale_tmp_artifacts
+
+    chk(){ if [ "$2" = present ]; then [ -e "$T/$1" ] && echo "PASS $1" || echo "FAIL $1 expected-present"; else [ -e "$T/$1" ] && echo "FAIL $1 expected-gone" || echo "PASS $1"; fi; }
+    chk aiur-argv.STALE gone
+    chk aiur-argv.FRESH present
+    chk aiur-rc present
+    chk aiur-debug gone
+    chk aiur_workspaces present
+    chk aiur100-hex present
+    chk aiur-4000000000-agents gone
+    chk "aiur-$LIVE-agents" present
+    chk unrelated.txt present
+    kill "$LIVE" 2>/dev/null || true
+    rm -rf "$T"
+    """
+
+    {out, code} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+    assert code == 0, "fixture script aborted:\n#{out}"
+    refute out =~ "FAIL", "unexpected reaper outcome:\n#{out}"
+
+    # Each outcome asserted by name so a regression names exactly what drifted.
+    for name <- ~w(aiur-argv.STALE aiur-argv.FRESH aiur-rc aiur-debug aiur_workspaces
+                   aiur100-hex aiur-4000000000-agents unrelated.txt) do
+      assert out =~ "PASS #{name}", "missing PASS #{name} in:\n#{out}"
+    end
+
+    # The live-pid pidfile (name carries a runtime pid) was spared.
+    assert out =~ ~r/PASS aiur-\d+-agents/
+  end
+
+  test "sweep_stale_tmp_artifacts default window spares artifacts younger than 24h" do
+    # A 3-hour-old artifact must survive the conservative 1440-minute default —
+    # this is the guard that a same-day dev/test run is never reaped out from under.
+    script = """
+    source #{@engine}
+    T="$(mktemp -d "${TMPDIR:-/tmp}/aiur-reap-default.XXXXXX")"
+    OLD="$(date -d '3 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-3H +%Y%m%d%H%M)"
+    touch -t "$OLD" "$T/aiur-argv.RECENT"
+    TMPDIR="$T" XDG_RUNTIME_DIR="$T" sweep_stale_tmp_artifacts
+    [ -e "$T/aiur-argv.RECENT" ] && echo "KEPT" || echo "GONE"
+    rm -rf "$T"
+    """
+
+    {out, 0} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+    assert out =~ "KEPT"
+    refute out =~ "GONE"
+  end
+
+  test "sweep_stale_tmp_artifacts is disabled by a 0 or non-numeric AIUR_TMP_REAP_MINUTES" do
+    script = """
+    source #{@engine}
+    T="$(mktemp -d "${TMPDIR:-/tmp}/aiur-reap-off.XXXXXX")"
+    OLD="$(date -d '3 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-3H +%Y%m%d%H%M)"
+    touch -t "$OLD" "$T/aiur-argv.STALE"
+    TMPDIR="$T" XDG_RUNTIME_DIR="$T" AIUR_TMP_REAP_MINUTES=0 sweep_stale_tmp_artifacts
+    [ -e "$T/aiur-argv.STALE" ] && echo "KEPT-ZERO" || echo "GONE-ZERO"
+    TMPDIR="$T" XDG_RUNTIME_DIR="$T" AIUR_TMP_REAP_MINUTES=abc sweep_stale_tmp_artifacts
+    [ -e "$T/aiur-argv.STALE" ] && echo "KEPT-NAN" || echo "GONE-NAN"
+    rm -rf "$T"
+    """
+
+    {out, 0} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+    assert out =~ "KEPT-ZERO"
+    assert out =~ "KEPT-NAN"
+    refute out =~ "GONE"
   end
 end
