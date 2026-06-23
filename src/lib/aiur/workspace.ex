@@ -107,6 +107,11 @@ defmodule Aiur.Workspace do
   @spec materialize_from_base(Path.t(), Path.t()) :: :ok | {:error, term()}
   def materialize_from_base(base, workspace) do
     File.rm_rf!(workspace)
+    # The repo-namespaced layout (`<root>/<repo>/<issue>`) means the `<repo>`
+    # parent dir may not exist yet for the first agent of a repo; `cp` needs it
+    # present. The cold `create_workspace/1` path gets this via `mkdir_p!`; the
+    # materialize path must create the parent itself (the leaf is made by `cp`).
+    File.mkdir_p!(Path.dirname(workspace))
 
     with {_out, 0} <- copy_tree(base, workspace),
          {_out2, 0} <-
