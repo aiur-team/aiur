@@ -55,6 +55,13 @@ prewarm:
   enabled: {{PREWARM_ENABLED}}           # turn on to pre-warm a shared base before agents dispatch
 {{PREWARM_BASE_BUILD_FILE}}  poll_seconds: 0                        # background base refresh interval (s); 0 = refresh eagerly/lazily only
 
+# === Alert sound effects (opt-in; play a sound when an agent is stuck or needs input) ===
+alerts:
+  enabled: {{ALERTS_ENABLED}}                  # master switch for alert sound playback (macOS + Linux)
+  use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
+  # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
+  # alerts_file: ~/my-alerts.yaml              # custom topic→sound mapping; use an absolute or ~/ path (a missing file falls back to the bundled alerts.yaml)
+
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }

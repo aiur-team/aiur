@@ -206,6 +206,17 @@ defmodule Aiur.Config do
     settings!().prewarm.poll_seconds
   end
 
+  @doc """
+  Resolved alert sound settings (`enabled`, `use_os_default_sounds`,
+  `sound_dir`, `alerts_file`). Returns the non-raising `{:ok, _} | {:error, _}`
+  so `Aiur.Alerts` can fall back to safe defaults rather than crashing a turn
+  when no workflow config is loaded (early boot, tests).
+  """
+  @spec alerts_settings() :: {:ok, Schema.Alerts.t()} | {:error, term()}
+  def alerts_settings do
+    with {:ok, settings} <- settings(), do: {:ok, settings.alerts}
+  end
+
   @spec max_retry_attempts() :: pos_integer()
   def max_retry_attempts do
     settings!().agent.max_retry_attempts

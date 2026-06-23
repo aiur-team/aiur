@@ -137,11 +137,12 @@ defmodule Aiur.Init do
         fresh_setup(io, deps, location, deps.config_target.(location))
 
       # NOTE: resume only re-provisions labels/auth — it does NOT prompt for
-      # config sections added by newer features (e.g. the `prewarm` block, #410),
-      # so a new feature is invisible to existing users unless they re-run with
-      # --force. Making resume detect schema-known sections the config lacks and
-      # offer to add them is tracked in #411; when you add a new init prompt,
-      # register it there so a standard `aiur init` backfills it without --force.
+      # config sections added by newer features (e.g. the `prewarm` block #410,
+      # the `alerts` block #422), so a new feature is invisible to existing users
+      # unless they re-run with --force. Making resume detect schema-known
+      # sections the config lacks and offer to add them is tracked in #411; when
+      # you add a new init prompt (alerts is the latest), register it there so a
+      # standard `aiur init` backfills it without --force.
       target ->
         resume(io, deps, target)
     end
@@ -239,6 +240,7 @@ defmodule Aiur.Init do
     # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
     prewarm = prompt_prewarm(io, deps, location)
+    alerts = prompt_alerts(io)
 
     fills =
       build_fills(%{
@@ -253,7 +255,8 @@ defmodule Aiur.Init do
         pre_warmed: pre_warmed,
         polling: polling,
         prompt_file: prompt_file,
-        prewarm: prewarm
+        prewarm: prewarm,
+        alerts: alerts
       })
 
     config_yaml = fill_template(deps.read_example.(), fills)
@@ -339,9 +342,17 @@ defmodule Aiur.Init do
       "workspace_root: #{workspace["root"]}",
       "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
       "polling_interval_seconds: #{polling["interval_seconds"]}",
+      alerts_summary_line(config),
       config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
     ]
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp alerts_summary_line(config) do
+    case config["alerts"] do
+      %{"enabled" => enabled} -> "alerts: #{enabled}"
+      _ -> nil
+    end
   end
 
   defp format_routing(routing) when is_map(routing) do
@@ -605,6 +616,20 @@ defmodule Aiur.Init do
 
   defp maybe_first_prewarm(_io, _deps, _tracker, _prewarm), do: :ok
 
+  # --- Alert sound opt-in ---
+
+  # A final opt-in for cross-platform alert sounds. "Yes" enables playback and
+  # the built-in macOS/Linux OS-default sound set; "no" writes the section
+  # disabled. Sounds are machine-level, so this is offered for global configs
+  # too (unlike prewarm, which is per-repo).
+  defp prompt_alerts(io) do
+    if io.confirm.("Add sound effects for alerts (e.g. an agent is stuck or needs your input)?", false) do
+      %{enabled: true, use_os_default_sounds: true}
+    else
+      %{enabled: false, use_os_default_sounds: false}
+    end
+  end
+
   # --- Template fill ---
 
   defp build_fills(d) do
@@ -622,7 +647,9 @@ defmodule Aiur.Init do
       "{{POLLING}}" => Integer.to_string(d.polling),
       "{{PRE_WARMED}}" => Integer.to_string(d.pre_warmed),
       "{{PREWARM_ENABLED}}" => to_string(d.prewarm.enabled),
-      "{{PREWARM_BASE_BUILD_FILE}}" => prewarm_base_build_file_line(d.prewarm)
+      "{{PREWARM_BASE_BUILD_FILE}}" => prewarm_base_build_file_line(d.prewarm),
+      "{{ALERTS_ENABLED}}" => to_string(d.alerts.enabled),
+      "{{ALERTS_OS_SOUNDS}}" => to_string(d.alerts.use_os_default_sounds)
     }
   end
 

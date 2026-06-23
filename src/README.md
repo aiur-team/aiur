@@ -187,7 +187,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
-- Optional local alert sounds: see `alerts.yaml` at the repo root.
+- Optional alert sounds play when an agent gets stuck or needs input. Enable via the
+  `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master
+  switch; `use_os_default_sounds: true` plays built-in macOS/Linux system sounds out of the
+  box (macOS via `afplay`, Linux via `paplay`/`canberra-gtk-play`/`aplay`); `sound_dir`
+  points at a folder of custom clips that overrides the defaults; `alerts_file` overrides the
+  topic→sound mapping (defaults to `alerts.yaml` at the repo root). Playback is fully gated by
+  `enabled` and is a no-op when no player binary or sound file is available.
 
 ## Testing
 

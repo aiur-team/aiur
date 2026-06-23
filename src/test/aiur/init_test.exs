@@ -262,6 +262,39 @@ defmodule Aiur.InitTest do
     end
   end
 
+  describe "alert sound opt-in" do
+    test "accepting writes an enabled alerts block with OS-default sounds", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      config = File.read!(target)
+      # Scope the assertion to the alerts block so it can't pass on prewarm's
+      # `enabled:` line.
+      assert config =~ ~r/alerts:\n\s+enabled: true/
+      assert config =~ "use_os_default_sounds: true"
+    end
+
+    test "declining writes a disabled alerts block", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      # The confirm mock defaults unknown prompts to their default (false), so
+      # the standard github answers already decline the alerts opt-in.
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      config = File.read!(target)
+      assert config =~ ~r/alerts:\n\s+enabled: false/
+      assert config =~ "use_os_default_sounds: false"
+    end
+  end
+
   describe "existing-config handling" do
     test "an unreadable existing config errors with a --force hint", %{dir: dir, target: target} do
       File.write!(target, "- not\n- a\n- map\n")

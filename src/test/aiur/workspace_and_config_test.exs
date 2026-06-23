@@ -1270,6 +1270,33 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, prewarm: %{poll_seconds: -1}})
   end
 
+  test "alerts default to enabled with OS sounds off (back-compat) and round-trip overrides" do
+    # Back-compat hard requirement: a machine with no `alerts:` section keeps
+    # playing its existing alerts.yaml + ~/alerts sounds, so the defaults must be
+    # enabled + OS-default sounds OFF. An explicit block must round-trip.
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.alerts.enabled == true
+    assert settings.alerts.use_os_default_sounds == false
+    assert settings.alerts.sound_dir == nil
+    assert settings.alerts.alerts_file == nil
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               alerts: %{
+                 enabled: false,
+                 use_os_default_sounds: true,
+                 sound_dir: "~/alerts",
+                 alerts_file: "alerts.yaml"
+               }
+             })
+
+    assert settings.alerts.enabled == false
+    assert settings.alerts.use_os_default_sounds == true
+    assert settings.alerts.sound_dir == "~/alerts"
+    assert settings.alerts.alerts_file == "alerts.yaml"
+  end
+
   test "agent.max_agent_duration_minutes defaults to 60 and rejects negatives" do
     # Safety-net cap the orchestrator's overrun watchdog reads; 0 disables.
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
