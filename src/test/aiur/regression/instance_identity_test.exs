@@ -19,7 +19,14 @@ defmodule Aiur.Regression.InstanceIdentityTest do
   defp identity(root) do
     {out, 0} =
       System.cmd("bash", [@engine, "__identity"],
-        env: [{"AIUR_REPO_ROOT", root}],
+        # Reset the identity vars the engine exports — a key/node inherited from a
+        # parent aiur (this suite dogfoods aiur) would otherwise subvert derivation.
+        env: [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_INSTANCE_KEY", nil},
+          {"AIUR_RELEASE_NODE", nil},
+          {"USER", "tester"}
+        ],
         stderr_to_stdout: true
       )
 
@@ -63,14 +70,63 @@ defmodule Aiur.Regression.InstanceIdentityTest do
 
       {out, 0} =
         System.cmd("bash", [@engine, "__identity"],
-          env: [{"AIUR_REPO_ROOT", ""}],
+          env: [
+            {"AIUR_REPO_ROOT", ""},
+            {"AIUR_INSTANCE_KEY", nil},
+            {"AIUR_RELEASE_NODE", nil},
+            {"USER", "tester"}
+          ],
           cd: tmp,
           stderr_to_stdout: true
         )
 
-      user = System.get_env("USER") || System.get_env("LOGNAME")
       assert out =~ "AIUR_INSTANCE_KEY=\n"
-      assert out =~ "AIUR_RELEASE_NODE=aiur-#{user}@127.0.0.1"
+      assert out =~ "AIUR_RELEASE_NODE=aiur-tester@127.0.0.1"
+    end
+
+    test "walk-up from cwd: a subdir and the project root derive the same key; a sibling root differs" do
+      # AIUR_REPO_ROOT unset, so the key is derived by walking $PWD up to `.aiur/config`
+      # — the real launch/control path that explicit-root tests never exercise.
+      base = Path.join(System.tmp_dir!(), "aiur-walkup-#{System.unique_integer([:positive])}")
+      root_a = Path.join(base, "projA")
+      deep_a = Path.join([root_a, "src", "deep"])
+      root_b = Path.join(base, "projB")
+      File.mkdir_p!(Path.join(root_a, ".aiur"))
+      File.write!(Path.join([root_a, ".aiur", "config"]), "")
+      File.mkdir_p!(deep_a)
+      File.mkdir_p!(Path.join(root_b, ".aiur"))
+      File.write!(Path.join([root_b, ".aiur", "config"]), "")
+      on_exit(fn -> File.rm_rf!(base) end)
+
+      key = fn cd ->
+        {out, 0} =
+          System.cmd("bash", [@engine, "__identity"],
+            env: [
+              {"AIUR_REPO_ROOT", nil},
+              {"AIUR_INSTANCE_KEY", nil},
+              {"AIUR_RELEASE_NODE", nil},
+              {"USER", "tester"}
+            ],
+            cd: cd,
+            stderr_to_stdout: true
+          )
+
+        out
+        |> String.split("\n", trim: true)
+        |> Enum.find_value(fn line ->
+          case String.split(line, "=", parts: 2) do
+            ["AIUR_INSTANCE_KEY", v] -> v
+            _ -> nil
+          end
+        end)
+      end
+
+      root_key = key.(root_a)
+      assert root_key not in [nil, ""]
+      # control invoked from a subdir must resolve the launch's identity (criterion 2)
+      assert key.(deep_a) == root_key
+      # a different project root gets a different identity (criterion 1)
+      refute key.(root_b) == root_key
     end
   end
 

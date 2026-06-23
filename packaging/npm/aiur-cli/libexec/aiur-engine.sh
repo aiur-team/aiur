@@ -65,6 +65,10 @@ aiur_instance_key() {
   local root
   root="$(aiur_project_root)"
   [ -n "$root" ] || return 0
+  # Canonicalize (resolve symlinks) so launch and control commands invoked via
+  # different logical paths to the same project agree on the key. Fall back to the
+  # literal path when the dir doesn't exist (e.g. a test-fixture root).
+  root="$(cd "$root" 2>/dev/null && pwd -P || printf '%s' "$root")"
   printf '%s' "$root" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-10
 }
 
@@ -402,9 +406,10 @@ run_session() {
     kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
   fi
 
-  # One-time transition: a keyed instance also reaps a stale beam under the legacy
+  # Transition reclaim: a keyed instance also reaps a stale beam under the legacy
   # un-keyed name (aiur-$USER@127.0.0.1) — but only when no live legacy session
-  # exists, so a pre-fix run still in progress is never killed.
+  # exists, so a pre-fix run still in progress is never killed. (Runs on every keyed
+  # launch, not latched; it's a cheap best-effort sweep guarded by has-session.)
   if [ -n "${AIUR_INSTANCE_KEY:-}" ]; then
     local legacy_socket="${AIUR_SESSION_PREFIX}-${USER:-user}"
     if ! "$tmux_bin" -L "$legacy_socket" -f "$conf" has-session -t "${legacy_socket}-default" 2>/dev/null; then
