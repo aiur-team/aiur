@@ -228,6 +228,28 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
     end
   end
 
+  describe "idle stream-close paints 💤 on the running row (#339)" do
+    test "a running agent whose work_state is :sleeping renders 💤, not the warm marker" do
+      out =
+        render_state(%{
+          summaries: [
+            %{
+              identifier: "MT-SLEEPING",
+              status: :running,
+              alert_count: 0,
+              work_state: :sleeping
+            }
+          ],
+          # Even fully warm, the sleeping state wins — the row must show
+          # the operator the stream went idle, not a ready/green marker.
+          warm_identifiers: MapSet.new(["MT-SLEEPING"])
+        })
+
+      assert out =~ "💤"
+      refute out =~ "🟢"
+    end
+  end
+
   defp render_state(overrides) do
     %{
       summaries: [],

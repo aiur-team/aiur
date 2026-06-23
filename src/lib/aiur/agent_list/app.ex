@@ -1409,6 +1409,9 @@ defmodule Aiur.AgentList.App do
       :working -> 0
       # ⏸️ paused — still alive, less urgent than working
       :paused -> 1
+      # 💤 sleeping (idle stream-close) — still alive and mid-turn, just
+      # quiet; sorts with :paused, above finished/errored rows.
+      :sleeping -> 1
       # 🔴 error — surface above queued but below healthy
       :error -> 2
       # 🏁 deactivated (awaiting human review) — finished work, lives
