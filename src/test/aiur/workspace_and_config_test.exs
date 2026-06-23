@@ -40,6 +40,41 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "materialize_from_base creates the workspace's parent dir when missing (repo-namespaced layout)" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-materialize-parent-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      base = Path.join(test_root, "base")
+      File.mkdir_p!(base)
+      File.write!(Path.join(base, "README.md"), "warm base\n")
+      System.cmd("git", ["-C", base, "init", "-b", "main"])
+      System.cmd("git", ["-C", base, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", base, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", base, "add", "README.md"])
+      System.cmd("git", ["-C", base, "commit", "-m", "initial"])
+
+      # Repo-namespaced layout `<root>/<repo>/<issue>` where the `<repo>` parent
+      # dir does not exist yet (first agent for a repo). Regression: the
+      # materialize path was missing the parent mkdir the cold path has, so `cp`
+      # failed with "No such file or directory" and fell back to a cold clone.
+      workspace = Path.join([test_root, "workspaces", "some-repo", "429"])
+      refute File.exists?(Path.dirname(workspace))
+
+      assert :ok = Workspace.materialize_from_base(base, workspace)
+      assert File.dir?(workspace)
+      assert File.read!(Path.join(workspace, "README.md")) == "warm base\n"
+
+      assert {branch, 0} = System.cmd("git", ["-C", workspace, "branch", "--show-current"])
+      assert String.trim(branch) == "aiur/429"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "after_create hook receives THIS_REPOSITORY_URL for the configured repo" do
     test_root =
       Path.join(
