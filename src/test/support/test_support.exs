@@ -259,7 +259,8 @@ defmodule Aiur.TestSupport do
           opencode_bridge_host,
           opencode_serve_args,
           opencode_model_prefix
-        )
+        ),
+        alerts_yaml(overrides)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
 
@@ -348,6 +349,27 @@ defmodule Aiur.TestSupport do
 
   defp agent_backend_yaml(nil, _config), do: nil
   defp agent_backend_yaml(_kind, _config), do: nil
+
+  # Only renders an `alerts:` block when a test passes alerts overrides, so the
+  # default generated config has no alerts section (exercising schema defaults).
+  defp alerts_yaml(overrides) do
+    lines =
+      [
+        alerts_line("enabled", overrides, :alerts_enabled),
+        alerts_line("use_os_default_sounds", overrides, :alerts_use_os_default_sounds),
+        alerts_line("sound_dir", overrides, :alerts_sound_dir),
+        alerts_line("alerts_file", overrides, :alerts_file)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    if lines == [], do: nil, else: Enum.join(["alerts:" | lines], "\n")
+  end
+
+  defp alerts_line(key, overrides, override_key) do
+    if Keyword.has_key?(overrides, override_key) do
+      "  #{key}: #{yaml_value(Keyword.get(overrides, override_key))}"
+    end
+  end
 
   defp yaml_value(value) when is_binary(value) do
     "\"" <> String.replace(value, "\"", "\\\"") <> "\""

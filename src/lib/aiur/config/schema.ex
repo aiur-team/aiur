@@ -396,6 +396,36 @@ defmodule Aiur.Config.Schema do
     end
   end
 
+  defmodule Alerts do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @type t :: %__MODULE__{}
+
+    @primary_key false
+    embedded_schema do
+      # `enabled` defaults true so machines already using `alerts.yaml` +
+      # `~/alerts/*.wav` keep playing without an `alerts:` section (the OS-default
+      # cross-platform set is the opt-in piece, gated by `use_os_default_sounds`).
+      field(:enabled, :boolean, default: true)
+      # false → topic→sound mapping from the alerts file (existing behaviour);
+      # true → built-in macOS/Linux system sounds keyed by alert category.
+      field(:use_os_default_sounds, :boolean, default: false)
+      # Optional folder of custom sound files. In mapping mode it resolves bare
+      # filenames; in OS-default mode a `<category>.<ext>` file here wins over the
+      # OS sound.
+      field(:sound_dir, :string)
+      # Optional custom topic→sound YAML; defaults to the repo `alerts.yaml`.
+      field(:alerts_file, :string)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      cast(schema, attrs, [:enabled, :use_os_default_sounds, :sound_dir, :alerts_file], empty_values: [])
+    end
+  end
+
   defmodule Observability do
     @moduledoc false
     use Ecto.Schema
@@ -484,6 +514,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
     embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:alerts, Alerts, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -680,6 +711,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:opencode, with: &Opencode.changeset/2)
     |> cast_embed(:events, with: &Events.changeset/2)
     |> cast_embed(:prewarm, with: &Prewarm.changeset/2)
+    |> cast_embed(:alerts, with: &Alerts.changeset/2)
   end
 
   defp finalize_settings(settings) do
