@@ -186,4 +186,94 @@ defmodule Aiur.LogFileTest do
       end
     end
   end
+
+  describe "apply_config_debug/0" do
+    setup do
+      original_debug = System.get_env("AIUR_DEBUG")
+      original_path = Application.get_env(:aiur, :workflow_file_path)
+      System.delete_env("AIUR_DEBUG")
+
+      dir = Path.join(System.tmp_dir!(), "aiur-config-debug-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+
+      on_exit(fn ->
+        File.rm_rf!(dir)
+
+        case original_path do
+          nil -> Aiur.Workflow.clear_workflow_file_path()
+          path -> Aiur.Workflow.set_workflow_file_path(path)
+        end
+
+        case original_debug do
+          nil -> System.delete_env("AIUR_DEBUG")
+          value -> System.put_env("AIUR_DEBUG", value)
+        end
+      end)
+
+      %{dir: dir}
+    end
+
+    defp write_config!(dir, body) do
+      path = Path.join(dir, "config")
+      File.write!(path, body)
+      Aiur.Workflow.set_workflow_file_path(path)
+    end
+
+    test "sets AIUR_DEBUG when config debug: true and the flag is unset", %{dir: dir} do
+      write_config!(dir, "tracker:\n  kind: memory\ndebug: true\n")
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == "1"
+    end
+
+    test "leaves AIUR_DEBUG unset when config debug: false", %{dir: dir} do
+      write_config!(dir, "tracker:\n  kind: memory\ndebug: false\n")
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == nil
+    end
+
+    test "leaves AIUR_DEBUG unset when the debug key is absent", %{dir: dir} do
+      write_config!(dir, "tracker:\n  kind: memory\n")
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == nil
+    end
+
+    test "does not override an already-enabled AIUR_DEBUG (flag wins)", %{dir: dir} do
+      # The engine shell sets AIUR_DEBUG=1 from --debug before boot; config
+      # must never clobber it, even with a conflicting debug: false.
+      System.put_env("AIUR_DEBUG", "true")
+      write_config!(dir, "tracker:\n  kind: memory\ndebug: false\n")
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == "true"
+    end
+
+    test "preserves a truthy-alias flag verbatim even when config also wants debug", %{dir: dir} do
+      # When the flag is already on, config must be a no-op — it must not
+      # normalize the operator's flag value (e.g. "true" -> "1").
+      System.put_env("AIUR_DEBUG", "true")
+      write_config!(dir, "tracker:\n  kind: memory\ndebug: true\n")
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == "true"
+    end
+
+    test "is failure-safe when the config cannot be read", %{dir: dir} do
+      Aiur.Workflow.set_workflow_file_path(Path.join(dir, "does-not-exist"))
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == nil
+    end
+
+    test "is failure-safe when the config raises during schema validation", %{dir: dir} do
+      # A legacy `polling.interval_ms` key makes Schema.parse raise; the boot
+      # bridge must swallow it and leave debug off rather than crash start/2.
+      write_config!(dir, "tracker:\n  kind: memory\npolling:\n  interval_ms: 1000\ndebug: true\n")
+
+      assert :ok = LogFile.apply_config_debug()
+      assert System.get_env("AIUR_DEBUG") == nil
+    end
+  end
 end

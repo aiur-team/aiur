@@ -63,6 +63,7 @@ alerts:
   # alerts_file: ~/my-alerts.yaml              # custom topic→sound mapping; use an absolute or ~/ path (a missing file falls back to the bundled alerts.yaml)
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
+# debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16 }
