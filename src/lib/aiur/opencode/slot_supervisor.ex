@@ -22,7 +22,12 @@ defmodule Aiur.Opencode.SlotSupervisor do
   use DynamicSupervisor
   require Logger
 
-  alias Aiur.Opencode.{Slot, SlotRegistry}
+  alias Aiur.Opencode.{Slot, SlotPolicy, SlotRegistry}
+
+  # Slot statuses that mean "warm capacity is still coming online" — a
+  # slot in one of these will reach `:ready` on its own, so an open that
+  # finds no ready slot should just wait rather than grow the pool.
+  @warming_states [:booting, :serve_starting, :attach_spawning]
 
   # An ETS-backed LRU ring would be overkill; a simple atomic counter
   # in the registry value would be too. Slot workers stamp their
@@ -88,6 +93,62 @@ defmodule Aiur.Opencode.SlotSupervisor do
           Enum.min_by(candidates, fn {index, _pid, _snap} -> index end)
 
         {index, pid}
+    end
+  end
+
+  @doc """
+  Acquire a ready slot, growing the pool on demand when the warm pool is
+  exhausted.
+
+  Same selection as `acquire_slot/0`, but when no slot is `:ready`:
+
+    * if any slot is still warming (`#{inspect(@warming_states)}`), return
+      `{:error, :no_ready_slot}` — capacity is already coming online, so
+      the caller should wait for it rather than start more.
+    * otherwise every slot is `:active` (the warm pool is fully consumed),
+      so ask `SlotPolicy` to grow the pool one cold slot. Growth is
+      best-effort and asynchronous from the caller's view: it still
+      returns `{:error, :no_ready_slot}` so the caller waits for the new
+      slot to warm, while `SlotPolicy` enforces the `max_slots` ceiling.
+
+  This is the allocation entry point for user-initiated opens — it lets
+  `pre_warmed_sessions` size the warm pool without capping total opencode
+  instances.
+  """
+  @spec acquire_slot_or_grow() :: {pos_integer(), pid()} | {:error, :no_ready_slot}
+  def acquire_slot_or_grow do
+    snapshots =
+      SlotRegistry.all()
+      |> Enum.map(fn {index, pid} -> {index, pid, Slot.snapshot(pid)} end)
+
+    ready =
+      Enum.filter(snapshots, fn {_index, _pid, snap} -> Map.get(snap, :status) == :ready end)
+
+    case ready do
+      [_ | _] = candidates ->
+        {index, pid, _snap} =
+          Enum.min_by(candidates, fn {index, _pid, _snap} -> index end)
+
+        {index, pid}
+
+      [] ->
+        unless any_warming?(snapshots), do: try_grow()
+        {:error, :no_ready_slot}
+    end
+  end
+
+  defp any_warming?(snapshots) do
+    Enum.any?(snapshots, fn {_index, _pid, snap} ->
+      Map.get(snap, :status) in @warming_states
+    end)
+  end
+
+  # Best-effort: a missing/at-capacity SlotPolicy must never crash an
+  # open. The caller already treats the return as "wait for a slot".
+  defp try_grow do
+    case SlotPolicy.grow_slot() do
+      {:ok, _index, _pid} -> :ok
+      {:error, _reason} -> :ok
     end
   end
 
