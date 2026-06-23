@@ -71,26 +71,27 @@ defmodule Aiur.AgentList.Renderer do
   @ansi_red IO.ANSI.red()
   @ansi_reverse IO.ANSI.reverse()
 
-  # Work states the renderer paints with `AgentEvents.state_emoji/1`
-  # (each has a canonical glyph) rather than the warm-marker
-  # progression (⏳ → 🔘 → ⚪ → 🟢).
-  @state_emoji_work_states [
-    :paused,
-    "paused",
-    :error,
-    "error",
-    :sleeping,
-    "sleeping",
-    :done,
-    "done",
-    :deactivated,
-    "deactivated"
-  ]
+  # Work states meaning the agent has finished this iteration. Used to
+  # render 🏁 and to suppress the warming/starting LATEST placeholder so
+  # a finished agent never freezes on "Warming up…" (#425). Named
+  # "finished" rather than "terminal" because this module already uses
+  # "terminal" for the TTY.
+  @finished_work_states [:deactivated, "deactivated", :done, "done"]
 
-  # Terminal work states: the agent has finished this iteration. Used to
-  # suppress the warming/starting LATEST placeholder so a finished agent
-  # never freezes on "Warming up…" (#425).
-  @terminal_work_states [:deactivated, "deactivated", :done, "done"]
+  # Work states the renderer paints with `AgentEvents.state_emoji/1`
+  # (each has a canonical glyph) rather than the warm-marker progression
+  # (⏳ → 🔘 → ⚪ → 🟢). Superset of @finished_work_states plus the
+  # still-alive paused/error/sleeping states (`:sleeping` → 💤, #418) —
+  # derived from @finished_work_states so a future finished state lands
+  # in both sets at once.
+  @state_emoji_work_states [
+                             :paused,
+                             "paused",
+                             :error,
+                             "error",
+                             :sleeping,
+                             "sleeping"
+                           ] ++ @finished_work_states
 
   # Faint dotted track shown in the PROGRESS column when an agent has no
   # samples yet. A full row of `░` (the bar's empty-cell glyph) reads as
@@ -870,7 +871,7 @@ defmodule Aiur.AgentList.Renderer do
         # `attach` is nil — but it is NOT warming up. Suppress the
         # warming/starting placeholder so the row doesn't freeze on
         # "Warming up…" after the agent has gone terminal (#425).
-        Map.get(summary, :work_state) in @terminal_work_states -> ""
+        Map.get(summary, :work_state) in @finished_work_states -> ""
         Map.get(summary, :status) == :queued -> "Queueing agent…"
         is_nil(attach) -> "Warming up…"
         match?(%{visible_in: nil}, attach) -> "Warming up…"
