@@ -100,6 +100,7 @@ defmodule Aiur.Init do
           detect_toolchain: (-> Detect.result()),
           prewarm_build: (String.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
+          append_config: (Path.t(), iodata() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
           ensure_prewarm_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
@@ -136,13 +137,14 @@ defmodule Aiur.Init do
         location = prompt_location(io)
         fresh_setup(io, deps, location, deps.config_target.(location))
 
-      # NOTE: resume only re-provisions labels/auth — it does NOT prompt for
-      # config sections added by newer features (e.g. the `prewarm` block #410,
-      # the `alerts` block #422), so a new feature is invisible to existing users
-      # unless they re-run with --force. Making resume detect schema-known
-      # sections the config lacks and offer to add them is tracked in #411; when
-      # you add a new init prompt (alerts is the latest), register it there so a
-      # standard `aiur init` backfills it without --force.
+      # Resume re-provisions labels/auth AND backfills config sections added by
+      # newer features. `resume/3` walks `promptable_sections/0` and, for any
+      # registered section the saved config lacks (e.g. the `prewarm` block from
+      # #410), reuses that section's fresh-setup prompt to offer adding it —
+      # appending to the existing config instead of regenerating it. CONVENTION
+      # (#411): whenever you add a new init prompt for a new config section,
+      # register it in `promptable_sections/0` so a standard `aiur init`
+      # backfills it for existing users without needing `--force`.
       target ->
         resume(io, deps, target)
     end
@@ -188,8 +190,10 @@ defmodule Aiur.Init do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
         print_saved_summary(io, config)
-        maybe_migrate_layout(io, deps, kind, location, target)
-        provision(io, deps, tracker_from_config(deps, config), agents_from_config(config))
+        effective_target = maybe_migrate_layout(io, deps, kind, location, target)
+        tracker = tracker_from_config(deps, config)
+        backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+        provision(io, deps, tracker, agents_from_config(config))
 
       {:error, reason} ->
         {:error,
@@ -198,8 +202,11 @@ defmodule Aiur.Init do
     end
   end
 
+  # Returns the path the config now lives at, so a later backfill appends to the
+  # right file even after a migration moved it.
+
   # `:new` — already on the `.aiur/` layout, nothing to migrate.
-  defp maybe_migrate_layout(_io, _deps, :new, _location, _target), do: :ok
+  defp maybe_migrate_layout(_io, _deps, :new, _location, target), do: target
 
   # `:legacy` — root-level files. Offer to move them into `.aiur/` (settings
   # preserved verbatim), and for a repo-local layout, optionally gitignore the
@@ -212,14 +219,18 @@ defmodule Aiur.Init do
       new_target = deps.config_target.(location)
 
       case deps.migrate_layout.(%{legacy_config: legacy_target, new_config: new_target, ignore: ignore?}) do
-        {:ok, _summary} -> io.puts.(["Migrated to: ", dim(new_target)])
-        {:error, reason} -> io.puts.("⚠️ Migration failed (#{inspect(reason)}); keeping the legacy layout.")
+        {:ok, _summary} ->
+          io.puts.(["Migrated to: ", dim(new_target)])
+          new_target
+
+        {:error, reason} ->
+          io.puts.("⚠️ Migration failed (#{inspect(reason)}); keeping the legacy layout.")
+          legacy_target
       end
     else
       io.puts.("Skipped. aiur still reads your legacy layout.")
+      legacy_target
     end
-
-    :ok
   end
 
   defp layout_label(:global), do: "~/.aiur/"
@@ -395,6 +406,91 @@ defmodule Aiur.Init do
   end
 
   defp routing_backend(value), do: value |> to_string() |> String.split(":") |> hd()
+
+  # --- Resume backfill of init-promptable sections (#411) ---
+
+  # The registry of config sections a standard `aiur init` resume can backfill.
+  # See the convention note on `run/3`: each entry pairs a top-level config key
+  # with the fresh-setup prompt that configures it, so an existing user is
+  # offered any section their config predates — no per-feature resume code.
+  #
+  # Each entry:
+  #   * `key`       — top-level config key; its absence marks the section missing
+  #   * `label`     — human name for the "Added …" confirmation line
+  #   * `prompt`    — `(io, deps, location) -> answer`; the fresh-setup prompt
+  #   * `opted_in?` — `(answer) -> boolean`; did the user choose to add it?
+  #   * `to_yaml`   — `(answer) -> iodata`; the YAML block to append on opt-in
+  #   * `first_run` — `(io, deps, target, tracker, answer) -> any`; one-time side
+  #                   effect after the block is appended (gets the config target
+  #                   so it can write sibling files, e.g. the `prewarm` script)
+  defp promptable_sections do
+    [
+      %{
+        key: "prewarm",
+        label: "warm-base pre-warm",
+        prompt: &prompt_prewarm/3,
+        opted_in?: fn answer -> answer.enabled end,
+        to_yaml: &prewarm_section_yaml/1,
+        first_run: &first_prewarm_backfill/5
+      }
+    ]
+  end
+
+  # For each registered section the saved config lacks, reuse its fresh-setup
+  # prompt to offer adding it. On opt-in, append the rendered block to the
+  # existing file (never regenerate — hand-tuned settings stay put) and run the
+  # section's one-time side effect. Declining leaves the config untouched.
+  defp backfill_missing_sections(io, deps, location, tracker, config, target) do
+    promptable_sections()
+    |> Enum.filter(&missing_section?(config, &1.key))
+    |> Enum.each(&offer_section(io, deps, location, tracker, target, &1))
+  end
+
+  defp missing_section?(config, key), do: not Map.has_key?(config, key)
+
+  defp offer_section(io, deps, location, tracker, target, section) do
+    answer = section.prompt.(io, deps, location)
+
+    # Only run the one-time side effect once the section actually persisted —
+    # mirrors fresh setup, which builds the warm base only on a successful write.
+    if section.opted_in?.(answer) and append_section(io, deps, target, section, answer) == :ok do
+      section.first_run.(io, deps, target, tracker, answer)
+    end
+  end
+
+  defp append_section(io, deps, target, section, answer) do
+    case deps.append_config.(target, section.to_yaml.(answer)) do
+      {:ok, path} ->
+        io.puts.(["Added ", section.label, " to ", dim(path)])
+        :ok
+
+      {:error, reason} ->
+        io.puts.(["⚠️  Couldn't update #{Path.basename(target)} (", inspect(reason), ")."])
+        :error
+    end
+  end
+
+  # The `prewarm:` block, matching the committed config example. Only rendered on
+  # opt-in (`enabled: true`); the command lives in the sibling `.aiur/prewarm`
+  # script (written by `first_prewarm_backfill/5`), so the block points at it via
+  # `base_build_file` rather than inlining the command (mirrors fresh setup).
+  defp prewarm_section_yaml(_prewarm) do
+    [
+      "# === Warm base pre-warm (added by `aiur init`) ===\n",
+      "prewarm:\n",
+      "  enabled: true\n",
+      "  base_build_file: #{@prewarm_file_name}\n",
+      "  poll_seconds: 0\n"
+    ]
+  end
+
+  # Backfill side effect for the prewarm section: write the sibling `.aiur/prewarm`
+  # script the appended `base_build_file` points at, then run the one-time first
+  # build — mirroring fresh setup's `ensure_prewarm_file` + `maybe_first_prewarm`.
+  defp first_prewarm_backfill(io, deps, target, tracker, answer) do
+    ensure_prewarm_file(io, deps, target, answer)
+    maybe_first_prewarm(io, deps, tracker, answer)
+  end
 
   # --- Prompts ---
 
@@ -1074,6 +1170,7 @@ defmodule Aiur.Init do
       detect_toolchain: &detect_toolchain/0,
       prewarm_build: &run_first_prewarm/2,
       write_config: &write_config/2,
+      append_config: &append_config_section/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
       ensure_prewarm_file: &write_prewarm_file/2,
@@ -1110,6 +1207,16 @@ defmodule Aiur.Init do
     case File.write(target, yaml) do
       :ok -> {:ok, target}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Append a config section to an existing file, separated by a blank line, so a
+  # resume backfill adds the block without disturbing the user's other settings.
+  defp append_config_section(target, block) do
+    with {:ok, existing} <- File.read(target),
+         body = String.trim_trailing(existing, "\n") <> "\n\n" <> IO.iodata_to_binary(block),
+         :ok <- File.write(target, body) do
+      {:ok, target}
     end
   end
 
