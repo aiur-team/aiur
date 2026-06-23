@@ -1369,6 +1369,28 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
   end
 
+  test "agent.max_load_average defaults to disabled, casts integers, rejects non-positive" do
+    # The CPU load gate (#465) is opt-in: an absent key must yield nil (no
+    # throttling, byte-for-byte back-compat), an explicit value must round-trip
+    # as a float, a YAML-written integer must cast (not error), and a
+    # non-positive threshold must be rejected (it would stall all dispatch).
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.max_load_average == nil
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 1.5}})
+
+    assert settings.agent.max_load_average == 1.5
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 2}})
+
+    assert settings.agent.max_load_average == 2.0
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 0}})
+  end
+
   test "prewarm defaults to disabled and validates poll_seconds" do
     # Pre-warm is opt-in: an absent block must yield disabled + no base_build +
     # no polling (byte-for-byte back-compat), an explicit block must round-trip,
