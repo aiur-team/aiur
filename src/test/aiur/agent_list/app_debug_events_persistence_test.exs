@@ -116,7 +116,9 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
   # which raced under CPU load: the assert could run before the event was
   # applied to a frame (latest == nil → FunctionClauseError in =~) or on a
   # stale frame missing the newest event. On timeout, returns the most
-  # recent frame seen so the caller's assertion fails with real content.
+  # recent frame seen — or a sentinel string when nothing ever rendered —
+  # so the caller's `assert =~` always fails with a readable message
+  # instead of a FunctionClauseError.
   @await_timeout_ms 2_000
 
   defp await_render(expected) do
@@ -133,7 +135,7 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
         visible_latest
 
       System.monotonic_time(:millisecond) >= deadline ->
-        visible_latest
+        visible_latest || "<no frame rendered within #{@await_timeout_ms}ms>"
 
       true ->
         Process.sleep(10)
