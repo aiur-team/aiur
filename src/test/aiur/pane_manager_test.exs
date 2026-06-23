@@ -153,6 +153,49 @@ defmodule Aiur.PaneManagerTest do
     assert {:ok, ^pane_id} = Task.await(task, 1_000)
   end
 
+  defp open_in_slot_with_title(pm, tmux, identifier, new_pane_id, title) do
+    live_panes = ["%1" | Map.values(PaneManager.list_open_panes(pm))]
+
+    task =
+      Task.async(fn ->
+        PaneManager.open_conversation(pm, identifier, "echo " <> identifier, title: title)
+      end)
+
+    drain_reconcile_if_requested(tmux, live_panes)
+    respond_split(tmux, new_pane_id)
+    drain_focus(tmux, new_pane_id)
+    drain_set_title(tmux, new_pane_id)
+    drain_layout_apply(tmux)
+    assert {:ok, ^new_pane_id} = Task.await(task, 1_000)
+  end
+
+  # Like open_via_respawn but passes a :title and returns the exact
+  # `select-pane -T` command so a swap test can assert the new agent's title.
+  defp open_via_respawn_with_title(pm, tmux, identifier, pane_id, title) do
+    live_panes = ["%1" | Map.values(PaneManager.list_open_panes(pm))]
+
+    task =
+      Task.async(fn ->
+        PaneManager.open_conversation(pm, identifier, "echo " <> identifier, title: title)
+      end)
+
+    drain_reconcile_if_requested(tmux, live_panes)
+    respond_respawn(tmux, pane_id)
+
+    title_cmd =
+      receive do
+        {:tmux_mock_out, "select-pane -t " <> _ = cmd} ->
+          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 7 0\n%end 1 7 0\n"})
+          cmd
+      after
+        1_000 -> flunk("expected select-pane -T title set for #{pane_id}")
+      end
+
+    drain_layout_apply(tmux)
+    assert {:ok, ^pane_id} = Task.await(task, 1_000)
+    title_cmd
+  end
+
   defp open_placeholder(pm, tmux, identifier, new_pane_id, live_panes) do
     task = Task.async(fn -> PaneManager.open_conversation(pm, identifier, "__aiur_opencode__ #{identifier}") end)
     drain_reconcile_if_requested(tmux, live_panes)
@@ -199,6 +242,32 @@ defmodule Aiur.PaneManagerTest do
     assert {:ok, "%10"} = Task.await(task, 1_000)
   end
 
+  test "a title with newlines/control chars is scrubbed to a single line", %{tmux: tmux, pm: pm} do
+    task =
+      Task.async(fn ->
+        PaneManager.open_conversation(pm, "7", "echo 7", title: "Line one\nLine two\tend")
+      end)
+
+    drain_reconcile_if_requested(tmux, ["%1"])
+    respond_split(tmux, "%10")
+    drain_focus(tmux, "%10")
+
+    title_cmd =
+      receive do
+        {:tmux_mock_out, "select-pane -t " <> _ = cmd} ->
+          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 7 0\n%end 1 7 0\n"})
+          cmd
+      after
+        1_000 -> flunk("expected select-pane -T title set")
+      end
+
+    # The single-line pane border must not receive a raw newline/tab.
+    assert title_cmd == "select-pane -t %10 -T 7 Line one Line two end"
+
+    drain_layout_apply(tmux)
+    assert {:ok, "%10"} = Task.await(task, 1_000)
+  end
+
   test "five opens populate five distinct slots", %{tmux: tmux, pm: pm} do
     open_in_slot(pm, tmux, "MT-1", "%10")
     open_in_slot(pm, tmux, "MT-2", "%11")
@@ -230,6 +299,22 @@ defmodule Aiur.PaneManagerTest do
     panes = PaneManager.list_open_panes(pm)
     assert Map.get(panes, "MT-6") == "%10"
     refute Map.has_key?(panes, "MT-1")
+  end
+
+  test "swapping a slot to a different agent re-titles the pane to the new agent",
+       %{tmux: tmux, pm: pm} do
+    # Fill all five slots, titling slot 1 with MT-1's issue title.
+    open_in_slot_with_title(pm, tmux, "MT-1", "%10", "Original issue")
+    open_in_slot(pm, tmux, "MT-2", "%11")
+    open_in_slot(pm, tmux, "MT-3", "%12")
+    open_in_slot(pm, tmux, "MT-4", "%13")
+    open_in_slot(pm, tmux, "MT-5", "%14")
+
+    # The sixth open wraps to slot 1 (%10, held by MT-1) and respawns it for
+    # MT-6. The pane title must follow the swap — reflect MT-6, not MT-1.
+    title_cmd = open_via_respawn_with_title(pm, tmux, "MT-6", "%10", "Replacement issue")
+
+    assert title_cmd == "select-pane -t %10 -T MT-6 Replacement issue"
   end
 
   test "close_conversation issues kill-pane, applies layout, frees the slot", %{

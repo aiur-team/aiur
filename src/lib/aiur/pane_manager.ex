@@ -1598,9 +1598,18 @@ defmodule Aiur.PaneManager do
 
   defp pane_title_text(%__MODULE__{} = state, identifier) do
     case Map.get(state.title_by_identifier, identifier) do
-      title when is_binary(title) and title != "" -> "#{identifier} #{title}"
+      title when is_binary(title) and title != "" -> "#{identifier} #{scrub_title(title)}"
       _ -> identifier
     end
+  end
+
+  # The pane border is a single line, so a raw newline or control character in
+  # an issue title would garble it (no injection risk — the title is one argv
+  # element and tmux does not re-evaluate format sequences inside a pane title).
+  # Collapse any control char (incl. CR/LF/tab) to a space so the title stays
+  # on one line; tmux's `pane-border-format` handles width truncation.
+  defp scrub_title(title) do
+    String.replace(title, ~r/[\x00-\x1f\x7f]/, " ")
   end
 
   defp forget_identifier_for_pane(%__MODULE__{} = state, pane_id) do
@@ -1609,7 +1618,11 @@ defmodule Aiur.PaneManager do
         state
 
       old_identifier ->
-        %{state | identifier_to_pane: Map.delete(state.identifier_to_pane, old_identifier)}
+        %{
+          state
+          | identifier_to_pane: Map.delete(state.identifier_to_pane, old_identifier),
+            title_by_identifier: Map.delete(state.title_by_identifier, old_identifier)
+        }
     end
   end
 
@@ -1625,7 +1638,11 @@ defmodule Aiur.PaneManager do
 
     new_state =
       if identifier do
-        %{new_state | identifier_to_pane: Map.delete(new_state.identifier_to_pane, identifier)}
+        %{
+          new_state
+          | identifier_to_pane: Map.delete(new_state.identifier_to_pane, identifier),
+            title_by_identifier: Map.delete(new_state.title_by_identifier, identifier)
+        }
       else
         new_state
       end
