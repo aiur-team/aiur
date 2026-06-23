@@ -791,5 +791,24 @@ defmodule Aiur.AlertsTest do
         path -> assert_receive {:played, ^path}
       end
     end
+
+    test "a missing config alerts_file falls back to the bundled mapping", %{workspace_root: root} do
+      # A typo'd / non-existent custom alerts_file must not silently kill all
+      # alert sounds — alerts_path falls back to the bundled alerts.yaml, so a
+      # real bundled topic still resolves its sound.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: root,
+        alerts_enabled: true,
+        alerts_file: Path.join(root, "does-not-exist.yaml")
+      )
+
+      probe = fn sound -> send(self(), {:played, sound}) end
+
+      assert :ok =
+               Alerts.emit_system("ticket.MT-CFG.issue.state.changed", issue: "MT-CFG", player: probe)
+
+      expected = Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
+      assert_receive {:played, ^expected}
+    end
   end
 end

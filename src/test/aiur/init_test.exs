@@ -276,7 +276,9 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
       config = File.read!(target)
-      assert config =~ "alerts:"
+      # Scope the assertion to the alerts block so it can't pass on prewarm's
+      # `enabled:` line.
+      assert config =~ ~r/alerts:\n\s+enabled: true/
       assert config =~ "use_os_default_sounds: true"
     end
 
@@ -288,7 +290,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
 
       config = File.read!(target)
-      assert config =~ "alerts:"
+      assert config =~ ~r/alerts:\n\s+enabled: false/
       assert config =~ "use_os_default_sounds: false"
     end
   end

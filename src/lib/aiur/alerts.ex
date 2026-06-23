@@ -217,10 +217,18 @@ defmodule Aiur.Alerts do
     end
   end
 
+  # A configured `alerts_file` is only honoured when it actually exists, so a
+  # typo'd or missing custom path falls back to the bundled `alerts.yaml` rather
+  # than silently dropping every alert sound. Relative paths resolve against the
+  # daemon's cwd — prefer an absolute or `~/`-prefixed path (see config.example).
   defp configured_alerts_file do
     case alert_settings().alerts_file do
-      file when is_binary(file) and file != "" -> expand_sound_path(file)
-      _ -> nil
+      file when is_binary(file) and file != "" ->
+        expanded = expand_sound_path(file)
+        if File.exists?(expanded), do: expanded
+
+      _ ->
+        nil
     end
   end
 
@@ -400,7 +408,16 @@ defmodule Aiur.Alerts do
 
   defp os_type, do: :os.type()
 
-  defp expand_sound_path("~/" <> rest), do: Path.join(System.user_home!(), rest)
+  # Non-raising `~/` expansion: sound resolution runs outside `maybe_play_sound`'s
+  # rescue, so a missing HOME must degrade to the unexpanded path, never crash a
+  # turn.
+  defp expand_sound_path("~/" <> rest = path) do
+    case System.user_home() do
+      home when is_binary(home) -> Path.join(home, rest)
+      _ -> path
+    end
+  end
+
   defp expand_sound_path(path), do: path
 
   # `enabled: false` gates all playback; a nil sound (nothing matched / no OS
