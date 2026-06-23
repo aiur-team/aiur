@@ -32,14 +32,17 @@ defmodule Aiur.Application do
     install_signal_handlers()
     maybe_start_distribution()
 
-    interactive_cli? = Application.get_env(:aiur, :interactive_cli, false)
     headless? = Application.get_env(:aiur, :headless, false)
+    # Headless is authoritative: if both flags somehow end up set (e.g. a
+    # hand-run `aiur --headless` that also injected `--interactive`), the lean
+    # path wins rather than booting a half-built interactive tree.
+    interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
 
     children =
       child_specs(
         interactive_cli?: interactive_cli?,
         headless?: headless?,
-        dashboard?: dashboard?(headless?)
+        dashboard?: dashboard_enabled?(headless?)
       )
 
     Supervisor.start_link(
@@ -125,18 +128,22 @@ defmodule Aiur.Application do
   # In headless mode the dashboard is off unless the operator explicitly
   # asked for it — `--port` (server_port_override) or a non-zero
   # `server.port` in config. Interactive runs always start it (unchanged).
-  defp dashboard?(false), do: true
+  defp dashboard_enabled?(false = _headless?), do: true
 
-  defp dashboard?(true) do
+  defp dashboard_enabled?(true = _headless?) do
     dashboard_opted_in?()
   rescue
     # Config not resolvable at boot — fail closed (no dashboard in headless).
     _ -> false
   end
 
+  # A usable port is the opt-in signal: a positive `--port` override or a
+  # non-zero `server.port`. Port 0 (the default, and an ephemeral-bind value)
+  # is NOT an opt-in — otherwise `--bg --port 0` would silently bind the
+  # dashboard, defeating the lean-mode "no dashboard bind" guarantee.
   defp dashboard_opted_in? do
-    is_integer(Application.get_env(:aiur, :server_port_override)) or
-      Aiur.Config.settings!().server.port > 0
+    port_override = Application.get_env(:aiur, :server_port_override)
+    (is_integer(port_override) and port_override > 0) or Aiur.Config.settings!().server.port > 0
   end
 
   @impl true

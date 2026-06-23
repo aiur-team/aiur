@@ -24,7 +24,7 @@ defmodule Aiur.AgentControlCLI do
   # activity) and prints state + what each agent is doing right now.
   @spec agents() :: :ok
   def agents do
-    case snapshot() do
+    case Orchestrator.snapshot(Orchestrator, 10_000) do
       %{running: running} when is_list(running) ->
         print_agents_table(running)
         exit_marker(0)
@@ -44,7 +44,7 @@ defmodule Aiur.AgentControlCLI do
   # orchestrator; we surface its reply.
   @spec set_max_agents(integer()) :: :ok
   def set_max_agents(n) when is_integer(n) and n > 0 do
-    case set_max_agents_fun().(n) do
+    case Orchestrator.set_max_concurrent_agents(n) do
       {:ok, status} ->
         IO.puts("aiur: max-agents set to #{status.max} (#{status.active} active)")
         exit_marker(0)
@@ -233,13 +233,15 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
+  @agents_header "ISSUE  STATE      RUNTIME  ACTIVITY"
+
   defp print_agents_table([]) do
-    IO.puts("ISSUE  STATE      RUNTIME  ACTIVITY")
+    IO.puts(@agents_header)
     IO.puts("(no active agents)")
   end
 
   defp print_agents_table(running) do
-    IO.puts("ISSUE  STATE      RUNTIME  ACTIVITY")
+    IO.puts(@agents_header)
 
     Enum.each(running, fn agent ->
       IO.puts([
@@ -293,20 +295,6 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp format_runtime(_), do: "-"
-
-  defp snapshot do
-    Application.get_env(:aiur, :agent_control_cli_snapshot_fun, fn ->
-      Orchestrator.snapshot(Orchestrator, 5_000)
-    end).()
-  end
-
-  defp set_max_agents_fun do
-    Application.get_env(
-      :aiur,
-      :agent_control_cli_set_max_agents_fun,
-      &Orchestrator.set_max_concurrent_agents/1
-    )
-  end
 
   defp print_empty_selection(:pause, :all), do: IO.puts("aiur: no running agents")
   defp print_empty_selection(:resume, :all), do: IO.puts("aiur: no paused agents")

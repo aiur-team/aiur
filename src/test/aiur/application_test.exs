@@ -89,5 +89,20 @@ defmodule Aiur.ApplicationTest do
       refute Aiur.Opencode.PaneSupervisor in mods
       refute Aiur.PaneManager in mods
     end
+
+    test "ProcessReaper starts before Task.Supervisor in both shapes" do
+      # Load-bearing ordering: children stop in reverse, so the reaper must
+      # outlive the runner tasks/ports it sweeps in its terminate/2 backstop.
+      # The headless gating must not disturb this.
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        reaper = Enum.find_index(mods, &(&1 == Aiur.ProcessReaper))
+        task_sup = Enum.find_index(mods, &(&1 == Task.Supervisor))
+        assert reaper < task_sup, "ProcessReaper must precede Task.Supervisor for #{inspect(opts)}"
+      end
+    end
   end
 end

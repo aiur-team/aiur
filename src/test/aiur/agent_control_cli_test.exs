@@ -384,6 +384,36 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "falls back to last_codex_message, then to a placeholder, and collapses long activity", %{orchestrator: pid} do
+      base = fn id, ident -> id |> running_entry(ident, :working) |> Map.merge(%{codex_app_server_pid: nil, last_codex_timestamp: nil}) end
+
+      # event nil -> fall back to message; multi-line + >80 chars -> single line, truncated.
+      long = "tool\noutput " <> String.duplicate("x", 120)
+
+      msg_only = base.("issue-1", "repo#1") |> Map.merge(%{last_codex_event: nil, last_codex_message: long})
+      idle = base.("issue-2", "repo#2") |> Map.merge(%{last_codex_event: nil, last_codex_message: nil})
+
+      deactivated =
+        "issue-3"
+        |> running_entry("repo#3", :deactivated)
+        |> Map.merge(%{codex_app_server_pid: nil, last_codex_timestamp: nil, last_codex_event: nil, last_codex_message: nil})
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-1" => msg_only, "issue-2" => idle, "issue-3" => deactivated}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      # Activity is collapsed to a single line and ellipsis-truncated.
+      assert output =~ "tool output xxx"
+      refute output =~ "tool\noutput"
+      assert output =~ "…"
+      # No-activity and deactivated placeholders render.
+      assert output =~ "(no activity yet)"
+      assert output =~ "(deactivated)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
     test "reports a clear error when the orchestrator is unavailable", %{orchestrator: pid} do
       Process.unregister(Orchestrator)
 

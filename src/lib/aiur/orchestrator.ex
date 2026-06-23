@@ -2640,6 +2640,19 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # Shared body for the adjust/set cap handlers: refuse to drop the cap below
+  # the count of currently-active agents (never strand running work), else
+  # apply the new session override and notify the dashboard.
+  defp apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
+    if next < active_running_count(state.running) do
+      {:reply, {:error, :below_active_count}, state}
+    else
+      state = %{state | session_max_concurrent_agents: next}
+      notify_dashboard(state)
+      {:reply, {:ok, max_concurrent_agent_status(state)}, state}
+    end
+  end
+
   defp max_concurrent_agent_limit(%State{} = state) do
     cond do
       is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
@@ -2841,6 +2854,10 @@ defmodule Aiur.Orchestrator do
   `aiur set max-agents N` control), without editing `.aiur/config`.
   Rejected with `{:error, :below_active_count}` when `n` is below the
   number of currently-active agents — we never strand running work.
+
+  Session-scoped like `adjust_max_concurrent_agents/1`: it lives in
+  orchestrator state, so a `--max-agents` launch override (or the config
+  default) re-seeds the cap if the orchestrator process restarts.
   """
   @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
   def set_max_concurrent_agents(n), do: set_max_concurrent_agents(__MODULE__, n)
@@ -3368,29 +3385,12 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_call({:adjust_max_concurrent_agents, delta}, _from, state) when is_integer(delta) do
-    current = max_concurrent_agent_limit(state)
-    next = max(current + delta, 1)
-    active = active_running_count(state.running)
-
-    if next < active do
-      {:reply, {:error, :below_active_count}, state}
-    else
-      state = %{state | session_max_concurrent_agents: next}
-      notify_dashboard(state)
-      {:reply, {:ok, max_concurrent_agent_status(state)}, state}
-    end
+    next = max(max_concurrent_agent_limit(state) + delta, 1)
+    apply_session_max_concurrent_agents(state, next)
   end
 
   def handle_call({:set_max_concurrent_agents, n}, _from, state) when is_integer(n) and n > 0 do
-    active = active_running_count(state.running)
-
-    if n < active do
-      {:reply, {:error, :below_active_count}, state}
-    else
-      state = %{state | session_max_concurrent_agents: n}
-      notify_dashboard(state)
-      {:reply, {:ok, max_concurrent_agent_status(state)}, state}
-    end
+    apply_session_max_concurrent_agents(state, n)
   end
 
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) when is_binary(issue_identifier) do
