@@ -697,6 +697,25 @@ trim() {
   printf '%s' "$s"
 }
 
+# Is our distribution node currently registered with the running epmd? epmd only
+# advertises a node while its BEAM holds the registration, so this tells a
+# genuinely-down node apart from a live one whose rpc we just couldn't complete.
+# Best-effort: a missing or unreachable epmd reports "not registered". Relies on
+# RELEASE_NODE + ERL_EPMD_ADDRESS (prepare_distribution) and release_dir
+# (resolve_release), so call it only after both have run.
+node_registered_with_epmd() {
+  local epmd names short="${RELEASE_NODE%@*}"
+  for epmd in "$release_dir"/erts-*/bin/epmd; do
+    [ -x "$epmd" ] || continue
+    names="$(ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}" "$epmd" -names 2>/dev/null)" || return 1
+    case "$names" in
+      *"name ${short} at port "*) return 0 ;;
+      *) return 1 ;;
+    esac
+  done
+  return 1
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
@@ -713,7 +732,19 @@ run_control_rpc() {
   set -e
 
   if [ "$status" -ne 0 ]; then
-    echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+    # A non-zero exit here is the rpc transport failing — application-level
+    # outcomes ride the marker path below. `bin/aiur rpc` (Elixir --rpc-eval)
+    # reports a genuinely-down node and a live-but-unreachable one identically
+    # (`:noconnection`), and prints any exception raised inside the expression.
+    # So the reason string can't be trusted; probe epmd instead. A registered
+    # node is alive and the failure is real — surface it rather than masking it
+    # behind the "start aiur" hint, which only fits a node that truly isn't up.
+    if node_registered_with_epmd; then
+      [ -n "$output" ] && printf '%s\n' "$output" >&2
+      echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+    else
+      echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+    fi
     return 1
   fi
 
