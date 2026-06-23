@@ -44,6 +44,34 @@ defmodule Aiur.Prewarm.DetectTest do
       refute command =~ "run build"
     end
 
+    test "Node npm workspaces build once from the workspace root" do
+      root =
+        tmp_repo(%{
+          "package.json" => ~s({"workspaces":["packages/*"]}),
+          "package-lock.json" => "{}",
+          "packages/a/package.json" => ~s({"scripts":{"build":"tsc"}}),
+          "packages/b/package.json" => "{}"
+        })
+
+      assert {:ok, %{language: :node, build_root: ".", command: command}} = Detect.detect(root)
+      assert command =~ "npm ci"
+      assert command =~ "npm run build --workspaces --if-present"
+      refute command =~ "cd packages"
+    end
+
+    test "pnpm-workspace.yaml promotes the repo root even without a root package.json" do
+      root =
+        tmp_repo(%{
+          "pnpm-workspace.yaml" => "packages:\n  - packages/*\n",
+          "pnpm-lock.yaml" => "",
+          "packages/a/package.json" => "{}"
+        })
+
+      assert {:ok, %{language: :node, build_root: ".", command: command}} = Detect.detect(root)
+      assert command =~ "pnpm install --frozen-lockfile"
+      assert command =~ "pnpm -r --if-present build"
+    end
+
     test "Go builds with go mod download + go build" do
       root = tmp_repo(%{"go.mod" => "module x", "go.sum" => ""})
       assert {:ok, %{language: :go, command: command}} = Detect.detect(root)
@@ -97,9 +125,20 @@ defmodule Aiur.Prewarm.DetectTest do
       assert :none = Detect.detect(root)
     end
 
-    test "nx monorepo -> :none (defer to fallback)" do
+    test "nx monorepo builds through the workspace orchestrator" do
       root = tmp_repo(%{"package.json" => "{}", "pnpm-lock.yaml" => "", "nx.json" => "{}"})
-      assert :none = Detect.detect(root)
+
+      assert {:ok, %{language: :node, build_root: ".", command: command}} = Detect.detect(root)
+      assert command =~ "pnpm install --frozen-lockfile"
+      assert command =~ "pnpm exec nx run-many -t build --all"
+    end
+
+    test "turbo monorepo builds through the workspace orchestrator" do
+      root = tmp_repo(%{"package.json" => "{}", "package-lock.json" => "{}", "turbo.json" => "{}"})
+
+      assert {:ok, %{language: :node, build_root: ".", command: command}} = Detect.detect(root)
+      assert command =~ "npm ci"
+      assert command =~ "npm exec -- turbo run build"
     end
   end
 

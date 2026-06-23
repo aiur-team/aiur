@@ -10,7 +10,8 @@ defmodule Aiur.Prewarm.Detect do
 
   Returns `{:ok, %{language:, build_root:, command:}}` or `:none` when nothing
   is detected or detection is ambiguous (multiple languages with no
-  lockfile-tiebreaker, or a monorepo orchestrator like nx/turbo). `:none` is the
+  lockfile-tiebreaker). JS/TS workspaces are a first-class base case: install at
+  the workspace root, then run the workspace/orchestrator build. `:none` is the
   signal to fall back to the agent-prompt path — never a guess.
   """
 
@@ -42,8 +43,11 @@ defmodule Aiur.Prewarm.Detect do
   @doc "Detect the warm-base build command for the repo rooted at `root`."
   @spec detect(Path.t()) :: result()
   def detect(root \\ ".") do
-    root
-    |> find_manifests()
+    manifests = find_manifests(root)
+    root = Path.expand(root)
+
+    manifests
+    |> maybe_add_root_node_workspace(root)
     |> shallowest_per_language()
     |> select()
     |> case do
@@ -75,11 +79,23 @@ defmodule Aiur.Prewarm.Detect do
   defp collect_manifests(dir, depth, acc) do
     Enum.reduce(@manifests, acc, fn {lang, files}, a ->
       if Enum.any?(files, &File.regular?(Path.join(dir, &1))) do
-        [{lang, dir, depth} | a]
+        [{lang, Path.expand(dir), depth} | a]
       else
         a
       end
     end)
+  end
+
+  defp maybe_add_root_node_workspace(manifests, root) do
+    if root_node_workspace?(root) do
+      [{:node, root, 0} | manifests]
+    else
+      manifests
+    end
+  end
+
+  defp root_node_workspace?(root) do
+    File.regular?(Path.join(root, "pnpm-workspace.yaml")) or package_workspaces?(root)
   end
 
   defp shallowest_per_language(manifests) do
@@ -110,21 +126,9 @@ defmodule Aiur.Prewarm.Detect do
   # ---- command synthesis ----
 
   defp resolve(lang, dir, root) do
-    if node_orchestrator?(lang, dir) do
-      :none
-    else
-      rel = relative_root(dir, root)
-      {:ok, %{language: lang, build_root: rel, command: prefix(rel) <> command_for(lang, dir)}}
-    end
+    rel = relative_root(dir, root)
+    {:ok, %{language: lang, build_root: rel, command: prefix(rel) <> command_for(lang, dir)}}
   end
-
-  # nx/turbo monorepos have orchestrator-specific build graphs a generic
-  # `<pm> run build` would get wrong -> defer to the agent-prompt fallback.
-  defp node_orchestrator?(:node, dir) do
-    File.regular?(Path.join(dir, "nx.json")) or File.regular?(Path.join(dir, "turbo.json"))
-  end
-
-  defp node_orchestrator?(_lang, _dir), do: false
 
   defp relative_root(dir, root) do
     case Path.relative_to(dir, root) do
@@ -175,14 +179,67 @@ defmodule Aiur.Prewarm.Detect do
     end
   end
 
-  # Append a build step only when package.json actually declares a `build` script.
+  # Workspace roots build from the root once instead of treating each package as
+  # a separate project. Orchestrator files win because their graph is the source
+  # of truth when present.
   defp node_build(dir) do
+    cond do
+      File.regular?(Path.join(dir, "nx.json")) ->
+        node_exec(dir, "nx run-many -t build --all")
+
+      File.regular?(Path.join(dir, "turbo.json")) ->
+        node_exec(dir, "turbo run build")
+
+      node_workspace?(dir) ->
+        node_workspace_build(dir)
+
+      package_script?(dir, "build") ->
+        pm = node_run_pm(dir)
+        "mise exec -- #{pm} run build"
+
+      true ->
+        nil
+    end
+  end
+
+  defp node_workspace?(dir) do
+    File.regular?(Path.join(dir, "pnpm-workspace.yaml")) or package_workspaces?(dir)
+  end
+
+  defp package_workspaces?(dir) do
     with {:ok, raw} <- File.read(Path.join(dir, "package.json")),
-         {:ok, %{"scripts" => %{"build" => _}}} <- Jason.decode(raw) do
-      pm = node_run_pm(dir)
-      "mise exec -- #{pm} run build"
+         {:ok, package} <- Jason.decode(raw),
+         workspaces when not is_nil(workspaces) <- Map.get(package, "workspaces") do
+      is_list(workspaces) or is_map(workspaces)
     else
-      _ -> nil
+      _ -> false
+    end
+  end
+
+  defp package_script?(dir, script) do
+    with {:ok, raw} <- File.read(Path.join(dir, "package.json")),
+         {:ok, %{"scripts" => scripts}} when is_map(scripts) <- Jason.decode(raw) do
+      Map.has_key?(scripts, script)
+    else
+      _ -> false
+    end
+  end
+
+  defp node_workspace_build(dir) do
+    case node_run_pm(dir) do
+      "pnpm" -> "mise exec -- pnpm -r --if-present build"
+      "npm" -> "mise exec -- npm run build --workspaces --if-present"
+      "yarn" -> "mise exec -- yarn workspaces foreach -A run build"
+      "bun" -> "mise exec -- bun run build"
+    end
+  end
+
+  defp node_exec(dir, command) do
+    case node_run_pm(dir) do
+      "pnpm" -> "mise exec -- pnpm exec #{command}"
+      "npm" -> "mise exec -- npm exec -- #{command}"
+      "yarn" -> "mise exec -- yarn #{command}"
+      "bun" -> "mise exec -- bunx #{command}"
     end
   end
 
