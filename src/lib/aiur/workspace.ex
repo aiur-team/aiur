@@ -241,15 +241,66 @@ defmodule Aiur.Workspace do
     end
   end
 
+  @doc """
+  Per-issue workspace path under `root`, applying the same repo-namespace
+  segment `create_for_issue/1` uses. `root` should already be expanded.
+
+  Lets other modules (per-workspace alert logging, the opencode session
+  writer) locate an existing workspace without re-deriving the layout — keeping
+  them in sync with whatever `create_for_issue/1` produced.
+  """
+  @spec workspace_path_under(Path.t(), String.t()) :: Path.t()
+  def workspace_path_under(root, identifier) when is_binary(root) and is_binary(identifier) do
+    issue_workspace_path(root, safe_identifier(identifier))
+  end
+
   defp workspace_path_for_issue(safe_id, nil) when is_binary(safe_id) do
     Config.settings!().workspace.root
-    |> Path.join(safe_id)
+    |> issue_workspace_path(safe_id)
     |> PathSafety.canonicalize()
   end
 
   defp workspace_path_for_issue(safe_id, worker_host) when is_binary(safe_id) and is_binary(worker_host) do
-    {:ok, Path.join(Config.settings!().workspace.root, safe_id)}
+    {:ok, issue_workspace_path(Config.settings!().workspace.root, safe_id)}
   end
+
+  # Namespace per-issue workspaces by repo so two repos sharing a root never
+  # collide on issue number: <root>/<repo>/<issue>. Trackers without a repo
+  # segment (memory, or a misconfigured provider) fall back to <root>/<issue>.
+  defp issue_workspace_path(root, safe_id) do
+    case repo_segment() do
+      nil -> Path.join(root, safe_id)
+      segment -> Path.join([root, segment, safe_id])
+    end
+  end
+
+  # Repo-name-only segment (e.g. "aiur", not "its-everdred/aiur"): shorter and
+  # matches the operator's layout. GitHub uses the name half of owner/name;
+  # Linear uses project_slug. Sanitized with safe_identifier/1 for path safety.
+  defp repo_segment do
+    settings = Config.settings!()
+
+    raw =
+      case settings.tracker.kind do
+        "github" -> github_repo_name(settings.tracker.github.repo)
+        "linear" -> settings.tracker.linear.project_slug
+        _ -> nil
+      end
+
+    case raw do
+      value when is_binary(value) and value != "" -> safe_identifier(value)
+      _ -> nil
+    end
+  end
+
+  defp github_repo_name(repo) when is_binary(repo) do
+    case String.split(repo, "/", parts: 2) do
+      [_owner, name] when name != "" -> name
+      _ -> repo
+    end
+  end
+
+  defp github_repo_name(_repo), do: nil
 
   defp safe_identifier(identifier) do
     String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")

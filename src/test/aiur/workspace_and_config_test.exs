@@ -81,6 +81,93 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Path.basename(first_workspace) == "MT_Det"
   end
 
+  test "workspace path is namespaced by repo so issue numbers do not collide across repos" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-repo-namespace-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      # GitHub: segment is the repo name (the half after owner/), so issue #10
+      # in two different repos lands in two distinct directories.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "octo/widgets",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, widgets_ws} = Workspace.create_for_issue("10")
+
+      assert {:ok, canonical_widgets} =
+               Aiur.PathSafety.canonicalize(Path.join([workspace_root, "widgets", "10"]))
+
+      assert widgets_ws == canonical_widgets
+      # basename stays the bare issue id so `basename "$PWD"` still names the branch.
+      assert Path.basename(widgets_ws) == "10"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "octo/gadgets",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, gadgets_ws} = Workspace.create_for_issue("10")
+      assert gadgets_ws != widgets_ws
+      assert Path.basename(Path.dirname(gadgets_ws)) == "gadgets"
+
+      # A bare repo name (no owner/ prefix) is used verbatim as the segment.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "barerepo",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, bare_ws} = Workspace.create_for_issue("10")
+      assert Path.basename(Path.dirname(bare_ws)) == "barerepo"
+
+      # Unsafe characters in the repo segment are sanitized so they can't
+      # escape the workspace root.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "octo/we..ird/name",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, sanitized_ws} = Workspace.create_for_issue("10")
+      segment = Path.basename(Path.dirname(sanitized_ws))
+      refute segment =~ "/"
+      assert segment == "we..ird_name"
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace falls back to a flat <root>/<issue> layout for the memory tracker" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-memory-flat-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      # The memory tracker has no repo segment, so the issue dir sits directly
+      # under the root (no namespacing).
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root
+      )
+
+      assert {:ok, canonical_flat} =
+               Aiur.PathSafety.canonicalize(Path.join(workspace_root, "MEM-1"))
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MEM-1")
+      assert workspace == canonical_flat
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "workspace reuses existing issue directory without deleting local changes" do
     workspace_root =
       Path.join(
@@ -125,8 +212,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
       )
 
     try do
-      stale_workspace = Path.join(workspace_root, "MT-STALE")
-      File.mkdir_p!(workspace_root)
+      stale_workspace = Path.join([workspace_root, "project", "MT-STALE"])
+      File.mkdir_p!(Path.dirname(stale_workspace))
       File.write!(stale_workspace, "old state\n")
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
@@ -150,9 +237,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     try do
       workspace_root = Path.join(test_root, "workspaces")
       outside_root = Path.join(test_root, "outside")
-      symlink_path = Path.join(workspace_root, "MT-SYM")
+      symlink_path = Path.join([workspace_root, "project", "MT-SYM"])
 
-      File.mkdir_p!(workspace_root)
+      File.mkdir_p!(Path.dirname(symlink_path))
       File.mkdir_p!(outside_root)
       File.ln_s!(outside_root, symlink_path)
 
@@ -185,7 +272,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: linked_root)
 
       assert {:ok, canonical_workspace} =
-               Aiur.PathSafety.canonicalize(Path.join(actual_root, "MT-LINK"))
+               Aiur.PathSafety.canonicalize(Path.join([actual_root, "project", "MT-LINK"]))
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-LINK")
       assert workspace == canonical_workspace
@@ -267,7 +354,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
-      workspace = Path.join(workspace_root, "MT-608")
+      workspace = Path.join([workspace_root, "project", "MT-608"])
       assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
 
       assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
@@ -286,8 +373,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
       )
 
     try do
-      target_workspace = Path.join(workspace_root, "S_1")
-      untouched_workspace = Path.join(workspace_root, "OTHER-#{System.unique_integer([:positive])}")
+      target_workspace = Path.join([workspace_root, "project", "S_1"])
+      untouched_workspace = Path.join([workspace_root, "project", "OTHER-#{System.unique_integer([:positive])}"])
 
       File.mkdir_p!(target_workspace)
       File.mkdir_p!(untouched_workspace)
@@ -1641,7 +1728,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       trace = File.read!(trace_file)
       assert trace =~ "-p 2200 worker-01 bash -lc"
       assert trace =~ "__AIUR_WORKSPACE__"
-      assert trace =~ "~/.aiur-remote-workspaces/MT-SSH-WS"
+      assert trace =~ "~/.aiur-remote-workspaces/project/MT-SSH-WS"
       assert trace =~ "${workspace#~/}"
       assert trace =~ "echo before-run"
       assert trace =~ "echo after-run"

@@ -792,7 +792,7 @@ defmodule Aiur.Opencode.SessionWriter do
     cwd =
       Aiur.Config.workspace_root()
       |> Path.expand()
-      |> Path.join(Aiur.Opencode.Config.safe_identifier(state.identifier))
+      |> Aiur.Workspace.workspace_path_under(state.identifier)
 
     # For turn-grouped messages, opencode renders `finish` from the
     # step-finish part. Set a sensible default on the message row so

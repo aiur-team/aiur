@@ -1,6 +1,5 @@
 tracker:
   kind: github
-  # human-review intentionally excluded so the agent's turn loop ends after a PR push (no turn-burning polls); orchestrator resumes on rework/merging.
   active_states:
     - todo
     - in-progress

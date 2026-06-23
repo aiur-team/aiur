@@ -241,7 +241,7 @@ defmodule Aiur.Init do
     agents = prompt_agents(io)
     routing = prompt_routing(io, agents)
     permission_mode = prompt_permission_mode(io)
-    workspace_root = io.input.("Where should agents work?", "~/code/aiur-workspaces", nil)
+    workspace_root = io.input.("Where should agents work?", "~/.aiur/workspaces", nil)
     max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
     max_turns = prompt_max_turns(io)
     max_duration = prompt_max_duration(io)
