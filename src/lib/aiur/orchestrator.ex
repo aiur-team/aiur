@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator do
     Config,
     Issue,
     RepoBase,
+    SystemLoad,
     Tracker,
     Workspace
   }
@@ -863,7 +864,8 @@ defmodule Aiur.Orchestrator do
   # cloning. Async: it kicks RepoBase (which builds in its own process and emits
   # phase events for the loading bar) and reads status without blocking the
   # orchestrator. A failed base build falls back to cold dispatch rather than
-  # hanging the run.
+  # hanging the run. The base build is kicked here, before the CPU load gate, so
+  # a transiently busy box still warms its base (the build is one-time + cached).
   defp dispatch_or_hold(state, issues) do
     enabled? = Config.prewarm_enabled?()
     phase = if enabled?, do: trigger_and_status(), else: :ready
@@ -871,11 +873,49 @@ defmodule Aiur.Orchestrator do
     case prewarm_gate(enabled?, phase) do
       :dispatch ->
         maybe_log_base_error(phase)
-        maybe_choose(state, issues)
+        maybe_choose_under_load(state, issues)
 
       :hold ->
         state
     end
+  end
+
+  # CPU load gate (#465): once the base is ready, hold the poll choose-loop while
+  # the host 1-min load exceeds `max_load_average` per scheduler, so the
+  # already-running agents' full mix-test suites don't melt the box. Scoped to
+  # NEW-work admission only — retries and reactivations re-run already-claimed
+  # work (bounded by the count cap) and intentionally bypass this gate, since
+  # rescheduling them under load would burn their `max_retry_attempts` budget. A
+  # held tick re-arms at the configured poll interval and resumes once load
+  # drops; already-running agents are never touched.
+  defp maybe_choose_under_load(state, issues) do
+    threshold = Config.max_load_average()
+    schedulers = System.schedulers_online()
+    load = read_load(threshold)
+
+    case load_gate(load, threshold, schedulers) do
+      :hold ->
+        log_load_hold(load, threshold, schedulers)
+        state
+
+      :dispatch ->
+        maybe_choose(state, issues)
+    end
+  end
+
+  @doc false
+  # Reads the host 1-min load only when the gate is enabled (threshold > 0), so
+  # the disabled default never touches /proc. Exposed for unit-testing the
+  # short-circuit; the pure hold/dispatch decision is load_gate/3.
+  @spec read_load(number() | nil) :: float() | :unavailable
+  def read_load(threshold) when is_number(threshold) and threshold > 0, do: SystemLoad.avg1()
+  def read_load(_threshold), do: :unavailable
+
+  defp log_load_hold(load, threshold, schedulers) do
+    Logger.info(
+      "aiur_perf load_hold load=#{load} threshold=#{threshold} " <>
+        "schedulers=#{schedulers} limit=#{threshold * schedulers}"
+    )
   end
 
   defp trigger_and_status do
@@ -900,6 +940,18 @@ defmodule Aiur.Orchestrator do
   def prewarm_gate(true, :ready), do: :dispatch
   def prewarm_gate(true, {:error, _reason}), do: :dispatch
   def prewarm_gate(true, _warming), do: :hold
+
+  @doc false
+  # Pure CPU load gate (#465), kept separate so it can be unit-tested without the
+  # orchestrator GenServer. Holds new dispatch only when the 1-min load average
+  # strictly exceeds `threshold` per scheduler; fails open (dispatch) when the
+  # gate is disabled (nil/<=0 threshold) or the load is unavailable (non-Linux).
+  @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
+  def load_gate(_load, nil, _schedulers), do: :dispatch
+  def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
+  def load_gate(:unavailable, _threshold, _schedulers), do: :dispatch
+  def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
+  def load_gate(_load, _threshold, _schedulers), do: :dispatch
 
   defp reconcile_running_issues(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
