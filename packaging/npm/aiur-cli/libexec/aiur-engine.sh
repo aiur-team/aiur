@@ -880,10 +880,9 @@ sweep_dead_tmux_sockets() {
 # tempfiles and leaked test artifacts. Runs alongside sweep_dead_tmux_sockets on
 # foreground teardown (session_cleanup) and on `aiur stop`. Bounded and safe:
 #
-#   * Only top-level `aiur-*` (hyphen) entries under the temp roots the engine and
-#     BEAM write to. That prefix never matches the live workspace root
-#     `aiur_workspaces` (underscore) nor the reusable per-issue caches `aiur<N>-...`
-#     (no hyphen after `aiur`); the dev release lives in `_build`, never /tmp.
+#   * Only exact top-level Aiur artifact families under the temp roots the engine
+#     and BEAM write to. Arbitrary operator worktrees/checkouts like
+#     `/tmp/aiur-pr490` are not candidates.
 #   * Age-gated by AIUR_TMP_REAP_MINUTES (default 1440 = 24h). An entry is removed
 #     only when NOTHING in its subtree was modified within the window, so a live
 #     run's shared debug dir (aiur-rc / aiur-claude-hooks / aiur-debug) holding a
@@ -893,6 +892,26 @@ sweep_dead_tmux_sockets() {
 #     the whole tree is spared.
 #   * A live run's `aiur-<pid>-sessions|-agents` bookkeeping is kept while its pid
 #     is alive, regardless of age.
+is_aiur_tmp_artifact_candidate() {
+  local base="$1" pid
+  case "$base" in
+    aiur-argv.* | aiur-startup.* | aiur-pane.* | aiur-launcher.* | aiur-capture.* | \
+      aiur-trap.*.log | aiur-tree.*.json | aiur-wrapper.pid | aiur-*-frames.bin | \
+      aiur-rc | aiur-claude-hooks | aiur-debug)
+      return 0
+      ;;
+    aiur-*-sessions | aiur-*-agents)
+      pid="${base#aiur-}"
+      pid="${pid%-*}"
+      [ -n "$pid" ] && [ -z "${pid//[0-9]/}" ]
+      return
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 sweep_stale_tmp_artifacts() {
   local minutes="${AIUR_TMP_REAP_MINUTES:-1440}"
   case "$minutes" in '' | *[!0-9]*) return 0 ;; esac
@@ -917,6 +936,9 @@ sweep_stale_tmp_artifacts() {
   uid="$(id -u)"
   for d in "${roots[@]}"; do
     while IFS= read -r -d '' path; do
+      base="${path##*/}"
+      is_aiur_tmp_artifact_candidate "$base" || continue
+
       # Spare mixed-ownership trees; cleanup should never cross user boundaries.
       if ! found="$(find "$path" ! -user "$uid" -print -quit 2>/dev/null)"; then
         continue
@@ -932,7 +954,6 @@ sweep_stale_tmp_artifacts() {
         continue
       fi
       # Spare a live run's session/agent bookkeeping (name is aiur-<pid>-<kind>).
-      base="${path##*/}"
       case "$base" in
         aiur-*-sessions | aiur-*-agents)
           pid="${base#aiur-}"

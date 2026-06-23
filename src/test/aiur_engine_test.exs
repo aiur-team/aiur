@@ -251,7 +251,7 @@ defmodule AiurEngineTest do
   # touched. Old mtimes use `touch -t CCYYMMDDhhmm`, which both GNU and BSD touch
   # accept, so these run identically on Linux CI and macOS dev.
 
-  test "sweep_stale_tmp_artifacts reaps stale aiur-* debris and spares live/fresh/non-matching" do
+  test "sweep_stale_tmp_artifacts reaps stale known debris and spares live/fresh/non-matching" do
     script = """
     source #{@engine}
     T="$(mktemp -d "${TMPDIR:-/tmp}/aiur-reap-test.XXXXXX")"
@@ -261,8 +261,10 @@ defmodule AiurEngineTest do
     touch "$T/aiur-argv.FRESH"
     mkdir -p "$T/aiur-rc"; touch "$T/aiur-rc/live.log"; touch -t "$OLD" "$T/aiur-rc"
     mkdir -p "$T/aiur-debug"; touch -t "$OLD" "$T/aiur-debug/old.log"; touch -t "$OLD" "$T/aiur-debug"
+    mkdir -p "$T/aiur-pr123"; touch -t "$OLD" "$T/aiur-pr123/checkout"; touch -t "$OLD" "$T/aiur-pr123"
     mkdir -p "$T/aiur_workspaces/w"; touch -t "$OLD" "$T/aiur_workspaces/w/f"; touch -t "$OLD" "$T/aiur_workspaces"
     mkdir -p "$T/aiur100-hex"; touch -t "$OLD" "$T/aiur100-hex/c"; touch -t "$OLD" "$T/aiur100-hex"
+    touch -t "$OLD" "$T/aiur-user-note.txt"
     touch -t "$OLD" "$T/aiur-4000000000-agents"
     sleep 30 & LIVE=$!
     touch -t "$OLD" "$T/aiur-$LIVE-agents"
@@ -275,8 +277,10 @@ defmodule AiurEngineTest do
     chk aiur-argv.FRESH present
     chk aiur-rc present
     chk aiur-debug gone
+    chk aiur-pr123 present
     chk aiur_workspaces present
     chk aiur100-hex present
+    chk aiur-user-note.txt present
     chk aiur-4000000000-agents gone
     chk "aiur-$LIVE-agents" present
     chk unrelated.txt present
@@ -290,7 +294,8 @@ defmodule AiurEngineTest do
 
     # Each outcome asserted by name so a regression names exactly what drifted.
     for name <- ~w(aiur-argv.STALE aiur-argv.FRESH aiur-rc aiur-debug aiur_workspaces
-                   aiur100-hex aiur-4000000000-agents unrelated.txt) do
+                   aiur-pr123 aiur100-hex aiur-user-note.txt aiur-4000000000-agents
+                   unrelated.txt) do
       assert out =~ "PASS #{name}", "missing PASS #{name} in:\n#{out}"
     end
 
