@@ -823,7 +823,7 @@ defmodule Aiur.AgentList.RendererTest do
              "expected green ANSI wrap around the full bar at percent: 100"
     end
 
-    test "rows without progress samples render an empty bar (no green)" do
+    test "rows without progress samples render an intentional empty track, not a hatched bar" do
       summaries = [%{identifier: "MT-IDLE", status: :running, alert_count: 0}]
 
       out =
@@ -837,8 +837,60 @@ defmodule Aiur.AgentList.RendererTest do
 
       row = row_for(out, "MT-IDLE")
       assert row, "expected MT-IDLE row"
-      assert visible(row) =~ "░░░░░░░░░░"
+      # A full row of ░ reads as a corrupt/half-filled bar (#425). With no
+      # samples we render a faint dotted track instead so the empty state
+      # is unambiguous.
+      assert visible(row) =~ "··········"
+      refute visible(row) =~ "░", "no-sample state must not render the hatched ░ bar"
       refute String.contains?(row, @ansi_green)
+    end
+  end
+
+  describe "deactivated / finished agents (#425)" do
+    test "a deactivated agent renders 🏁, not the warming ⏳ marker" do
+      summaries = [
+        %{identifier: "MT-FIN", status: :running, alert_count: 0, work_state: :deactivated}
+      ]
+
+      out =
+        render(base_state(%{summaries: summaries, columns: 200}))
+        |> visible()
+
+      row = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-FIN"))
+      assert row, "expected MT-FIN row"
+      assert row =~ "🏁", "deactivated agent should reach 🏁"
+      refute row =~ "⏳", "deactivated agent must not show the warming hourglass"
+    end
+
+    test "a deactivated agent with a detached slot does not show 'Warming up…'" do
+      # A finished agent has its slot released, so attach_state is empty
+      # and there is no latest event — the LATEST column previously fell
+      # back to a frozen 'Warming up…' placeholder (#425).
+      summaries = [
+        %{
+          identifier: "MT-DET",
+          status: :running,
+          alert_count: 0,
+          work_state: :deactivated,
+          title: "finished work"
+        }
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            attach_state: %{},
+            latest_event_by_id: %{}
+          })
+        )
+        |> visible()
+
+      row = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-DET"))
+      assert row, "expected MT-DET row"
+      refute row =~ "Warming up", "a finished agent must not be stuck in the warming placeholder"
+      refute row =~ "Starting", "a finished agent must not show a starting placeholder"
     end
   end
 
