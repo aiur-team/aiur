@@ -1,114 +1,151 @@
-# HANDOFF — repo-agnostic eager prewarm: BUILT, awaiting Mac verification
+# HANDOFF — aiur dogfood loop, continuing on a bigger box
 
-_Last updated: 2026-06-22. Branch `feat/prewarm-base`. Full local gate green (fmt + credo --strict +
-tests + 85.44% coverage + dialyzer)._
+_Last updated: 2026-06-23. Punted from a 12-core MacBook (CPU-bound at 3 agents — see "The CPU
+ceiling" below) to a machine with more cores. Prewarm is shipped + verified; this is the
+ongoing dogfood/debug loop._
 
-## TL;DR for the verification agent
+## The goal (current `/goal` — carry this forward verbatim)
 
-The repo-agnostic eager **prewarm** feature is fully implemented on **`feat/prewarm-base`** (12 commits,
-9 implementation units, all tested, `make -C src all` green on Linux). It builds **one shared,
-pre-compiled base of latest `main` once** and materializes each agent workspace from it via
-copy-on-write, instead of every agent cold-cloning + recompiling. Your job is to **pull this branch on
-the MacBook (APFS = true copy-on-write) and verify it works at real scale** against aiur itself, then
-**collect the findings** the implementing session needs to make a final optimization pass before merge.
+> Triage open issues #266–#443 — quick-spike each, close the genuinely outdated ones, and label
+> every agent-doable one `complexity:5` + `agent:todo` (reassessing even the human-review-tagged
+> tickets, since most are agent-doable) so aiur picks them up. Then run the aiurdev debug loop:
+> launch it, monitor agents as they work the backlog while watching for CPU bottlenecks and
+> confirming prewarm is working, debug and route any issues found (file an `agent:todo` ticket —
+> preferred — or self-fix via the CE loop when it needs your input or isn't agent-safe), and
+> review + merge agents' fix PRs as they land until the queue is worked down.
 
-Design of record: `docs/brainstorms/2026-06-22-prewarm-design-research-and-questions.md`.
-Plan: `docs/plans/2026-06-22-001-feat-repo-agnostic-prewarm-plan.md`.
+**Phase 1 (triage): DONE** — 7 closed as outdated, 21 labeled `agent:todo`+`complexity:5`.
+**Phase 2 (debug loop): IN PROGRESS** — many fix PRs merged (below); blocked from scaling by the
+CPU ceiling. Your job: continue phase 2 on the bigger box until the queue is worked down.
 
-## What was built (the 9 units)
+## TL;DR for the next machine
 
-- **U1** `prewarm` config block (`enabled`, `base_build`, `poll_seconds`) + accessors.
-- **U2** `Aiur.RepoBase` GenServer — one warm base at `~/.aiur/repo/<owner>/<name>`, clone-once,
-  fetch+reset-when-main-moved, **async builds**, **PubSub phase events** (cloning→fetching→building→
-  ready), and **preemption**: a newer `main` (detected via `git ls-remote`) kills an in-flight stale
-  build and restarts.
-- **U3** `Aiur.Prewarm.Detect` — lockfile/manifest detection (Elixir/Node/Go/Rust/Python) with a
-  **build-root walk** (aiur's `mix.exs` is in `src/` behind a decoy root `package.json` — verified it
-  resolves to `src/`), everything routed through `mise exec --`. nx/turbo monorepos + ambiguity → fall
-  back to an agent prompt.
-- **U4** `aiur init` final-step opt-in: detect → **show the command for confirm/edit/skip** → write the
-  `prewarm` block **and run the first base build right then** (so the first `aiur` run dispatches
-  immediately); agent-prompt fallback on a miss.
-- **U5** Eager **async** dispatch gate in `orchestrator.ex` (`dispatch_or_hold`/`prewarm_gate`): holds
-  `choose_issues` until the base is `:ready`, **never blocks the orchestrator process**, falls back to
-  cold dispatch on a base-build error.
-- **U6** aiur-owned materialization in `workspace.ex` (`materialize_from_base`): `cp --reflink=auto -a`
-  (Linux) / `cp -c` (macOS) from the base + branch `aiur/<id>`, **skipping** the cold after_create hook;
-  cold-clone path preserved byte-for-byte for unconfigured/remote/undetected/copy-fail.
-- **U7** Agent-list loading bar: spinner + live phase label before agents populate, resumes at the live
-  phase on launch-mid-build, clears once the list populates.
-- **U8** `--debug` FD safety: **decoupled `aiur_screen_grab` from `--debug`** (now its own
-  `AIUR_SCREEN_GRAB` flag, default off), cached the tmux exe path, and **raised `ulimit -n`** in
-  `aiur-engine.sh` (covers `aiur` and `aiurdev`).
-- **U9** Dogfood: aiur's own `.aiur/config` has `prewarm.enabled: true` with an Elixir base_build that
-  scopes `HEX_HOME`/`MIX_HOME` so the warm caches copy into workspaces.
+1. `git checkout main && git pull` (all the fixes below are on `main`; the old `feat/prewarm-base`
+   work is merged).
+2. Read **"The CPU ceiling"** — it's why we punted. Then **land #465 first** (it unlocks scaling),
+   or just run more agents because you have more cores.
+3. `aiurdev build` → set concurrency in `.aiur/config` → `aiurdev --bg --debug` → verify prewarm
+   `:ready` → monitor agents + load → review/merge PRs as they land → route new issues as
+   `agent:todo`. The `aiur-run` skill (`.claude/skills/aiur-run`) is the full operator playbook.
 
-## Your job (run on the MacBook, APFS)
+## What this session merged (the loop's output so far)
 
-1. `git fetch && git checkout feat/prewarm-base` on the Mac. Build the release (`aiurdev` rebuilds).
-2. Run aiur against **aiur itself** with the full set of current `agent:todo` tickets (the dogfood
-   config already has `prewarm.enabled: true`). Use **`--debug`** — it must now be safe at this scale.
-3. Drive **`/aiur-status`** (the operator monitor) to watch agents and surface findings/crashes.
-4. On the **first run** the base builds once (clone aiur → `~/.aiur/repo/its-everdred/aiur` → compile,
-   a few minutes) while the agent list shows the **loading bar**; agents dispatch once it's `:ready`.
-   Subsequent runs should find the base warm (fast) and agents should materialize in **seconds**.
+- **#439** — #431 per-instance aiur identity (cwd-keyed node/tmux/socket) + env scrub so an inner
+  aiur can't reap the outer. **A second aiur from a different repo root now coexists** — so this
+  new machine's run won't collide with anything.
+- **#441** — prewarm: trust base `mise.toml`, surface `base_build` failures.
+- **#444** — flaky-test global-state leak fixes.
+- **#451** — `aiur-run` operator skill.
+- **#452** — #337 orchestrator status timing flakes.
+- **#458** — #453 clean-stop: `aiurdev stop` reaps the whole agent tree by cwd. **Validated** — but
+  see #468 caveat below.
+- **#457** — #409 FD footprint: caps the attach N×M fan-out (the `:emfile` driver).
+- **#460** — #449 lean `--bg` headless mode + **`--max-agents` flag** + `agents` status command.
+- **#462** — agents on the `its-applekid` machine add `Co-authored-by: its-everdred`; never mention
+  Claude/AI in commit/PR text. (Already in the shared agent prompt.)
+- **#463 / #464 / #466** — three more flaky-test fixes (#446 AIUR_DEBUG, #459 ls_remote_ticker,
+  #448 debug-events). These make agent CIs reliable.
 
-## What we're looking for (success criteria + risk watch-list)
+## The CPU ceiling (READ before scaling — this is why we punted)
 
-- **Warm vs cold timing**: boot → first agent message should drop from minutes to seconds once the base
-  is warm. Capture the numbers.
-- **No `:emfile` / no crash** at ~6+ concurrent agents **with `--debug` on** (the whole point of U8).
-- **Detection correctness**: the init flow / dogfood base_build builds `src/` (Elixir), not Node off the
-  root `package.json`.
-- **Materialization actually fired**: workspaces should have a populated `.git` + warm `_build`/deps and
-  be on branch `aiur/<id>`, and the cold after_create clone should be SKIPPED (look for the absence of a
-  fresh `git clone` in `after_create`). **macOS `cp -c` is untested on Linux — this run is its first
-  real exercise.** If `cp -c` errors (non-APFS path), it should fall back to cold clone, not hang.
-- **Loading bar**: shows phases; a launch *during* a build resumes at the live phase (not from scratch).
-- **Preemption**: if `main` advances mid-build (e.g. an agent merges), the stale base build should be
-  killed and restarted — agents must never spin off a stale base. (Hard to force; note if you see it.)
-- **Mix `_build` relocation**: the copied `_build` must work in the workspace (the `before_run` hook's
-  incremental `mix compile` is the safety net). Watch the first agent's `mix` calls — fast, not a full
-  recompile.
+The 12-core MacBook **melts at 5 agents** (load 115–129) and even **bursts to ~129 at 3** when all
+agents hit `mix test` at the same moment. Root cause: each agent runs the **full `mix test` suite
+(~70s at 100% CPU)** during its CE loop; N concurrent suite runs saturate the cores. `max_concurrent_agents`
+caps the agent *count* but nothing caps collective CPU. Stable steady-state at 3 is load 2–9, but the
+test-sync **bursts** are dangerous.
 
-## Context to collect back (for the pre-merge optimization pass)
+- **#465 is the structural unlock** (`agent:todo`, filed this session): CPU-aware throttling — a global
+  heavy-op semaphore (only K agents run `mix test`/`compile` at once), and/or load-gated dispatch,
+  and/or affected-tests-only during the loop. **Prioritize #465**, then raise `max_concurrent_agents`.
+- On a box with more cores you can run more agents right away — but #465 still makes it robust.
 
-Write a throttled re-measurement into **`docs/measurements/`** with: per-phase timings (clone→fetch→
-build→ready, then per-agent boot→first-message), cold-vs-warm comparison, the steady-state **tmux fork
-rate** and **open-FD census** (`ls /proc/<beam-pid>/fd | wc -l` on Linux; `lsof -p <pid> | wc -l` on
-Mac), any crashes/`:emfile`, and any new aiur issues you file. Flag anything that wants a final
-optimization before merge.
+## Linux-specific edge cases (⚠️ the next box is Linux — this whole loop ran on macOS)
 
-## How to run
+Everything above was exercised on a Mac. The Linux box may surface **new bugs** in these spots —
+re-verify each, and **file `agent:todo` tickets** for anything that breaks:
 
-- **Runtime path** (warm base + materialization + loading bar): `aiurdev --debug` — the committed
-  `.aiur/config` already has `prewarm.enabled: true`, so the eager gate builds the base on the first run
-  (or reuses it if `init` already built it) and agents materialize from it.
-- **Init path** (opt-in → detect → consent → first build): aiur's repo already has a `.aiur/config`, so a
-  plain `aiurdev init` *resumes* and skips the prewarm prompt. To exercise the init→first-build path on
-  aiur: `aiurdev init --force` from the repo root → answer **yes** to "Keep a pre-warmed copy…" → accept
-  the detected Elixir/`src` command → it clones + compiles the base now ("Building the warm base now…" →
-  "✅ Warm base ready"). Then `git checkout .aiur/config` to restore the committed dogfood config (the
-  `--force` regenerated it). Or run `aiurdev init` in a scratch repo to avoid touching aiur's config.
-- Tests: `cd src && mise exec -- mix test [path]`. Full gate: `make -C src MIX='mise exec -- mix' all`.
-- Run (operator): `aiurdev --debug` (now FD-safe). `/aiur-status` to monitor.
-- Disable prewarm if needed: set `prewarm.enabled: false` in `.aiur/config`.
-- Pane snapshots in logs (old `--debug` behavior): now opt-in via `AIUR_SCREEN_GRAB=1`.
+- **CoW materialization path flips.** macOS used `cp -c` (APFS clonefile); Linux uses
+  `cp --reflink=auto -a` (`workspace.ex`, U6). True reflink needs **btrfs/XFS** — on **ext4** it
+  silently falls back to a **full copy**: slower materialize + much more disk per workspace. Watch
+  boot→materialize time and disk under `workspace.root`; if it's slow/heavy, reflink isn't firing and
+  prewarm's CPU/disk win shrinks.
+- **Linux load average ≠ macOS.** Linux counts **D-state (uninterruptible I/O wait)** in the load
+  number, so disk-bound CoW copies + concurrent git/compile can push load high from **I/O**, not just
+  CPU. The "load < ~2× cores" heuristic may misread — cross-check actual CPU (`top`, `mpstat`,
+  `/proc/loadavg` vs `vmstat`) before concluding it's a CPU meltdown. The 3-agent ceiling we hit is a
+  macOS/12-core number; recalibrate it here.
+- **`:emfile` / FD limits differ.** Linux default `ulimit -n` and per-process FD accounting differ
+  from macOS; `aiur-engine.sh` raises it, but re-watch for `:emfile` (#409) as you scale agents.
+- **Orphan reap / reparenting (#468).** Linux reparents orphans to PID 1 or a subreaper
+  (`PR_SET_CHILD_SUBREAPER`); the shutdown-straggler behavior may differ from what we saw. The cwd-reap
+  backstop uses `lsof -d cwd` (works on Linux); `readlink /proc/<pid>/cwd` is the native fallback if
+  `lsof` is missing.
+- **Bigger box = higher ceiling.** More cores means you can likely run more than 3 agents right away —
+  ramp up while watching *CPU* (not I/O-inflated load). #465 still makes high concurrency robust.
+- Codex backend is already Linux-configured (`.aiur/config` `writableRoots` → `/home/applekid`,
+  `/home/orangekid`).
 
-## Gotchas / known limitations
+## Clean-stop status (#458 + the new #468)
 
-- **Eager-gate poll latency**: when the base becomes ready, the next dispatch waits up to one poll
-  interval (`polling.interval_seconds`, dogfood = 5s). No subscribe-to-`:ready` nudge in v1 — fine for a
-  multi-minute build; lower `interval_seconds` if it feels laggy.
-- **Local dispatch only**: remote/SSH workers always use the cold-clone path (no base on the remote host).
-- **The base_build in aiur's `.aiur/config` is aiur-specific** (mix, `src/` root, scoped HEX/MIX homes).
-  For a generic repo, `aiur init` detects a generic command.
-- **`:emfile` structural fixes are deferred to [#409](https://github.com/its-everdred/aiur/issues/409)**
-  (after merge): opencode-serve pooling, attach N×M fan-out cap, event-driven pane-death,
-  capture-pane→pipe-pane, per-identifier SessionWriter subscription. This PR ships only the cheap
-  fork-reducers + the `ulimit` net + the compile-storm collapse (which removes the dominant FD holder).
+- `aiurdev stop` now reaps the agent tree (no more manual orphan hunts in the normal case).
+- **#468** (filed this session): under **heavy mid-`mix test` load** the reap isn't fully synchronous
+  before `System.halt` — a **straggler can survive**. Until #468 lands, after every `aiurdev stop`
+  run the cwd-reap backstop:
+  ```bash
+  for pid in $(pgrep -f 'claude|codex|beam.smp|opencode|mix'); do
+    c=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | grep '^n' | sed 's/^n//')
+    case "$c" in *aiur-workspaces*|*.aiur/repo*) kill -9 "$pid";; esac
+  done
+  ```
+  Safe because Claude Code's own cwd is the repo, not a workspace.
 
-## Do not
+## The backlog (where the work is)
 
-- Merge without operator go-ahead. Open PRs / push are fine; merge is operator-only.
-- Treat a single flaky `pane_manager_live_test`/`debug_events_ticker` red as real — re-run.
+- **`agent:todo` (dispatch-ready):** `#465` (CPU throttle — PRIORITIZE), `#468` (shutdown straggler),
+  `#376` (warm-pool cap), `#447` (core_test flake), `#461` (subscription_store flake).
+  _(The GitHub label-search index lags; trust `gh issue view`. `#376/#447/#461` were just reset from
+  `in-progress`→`todo` for clean cross-machine pickup.)_
+- **WIP preserved on GitHub branches** (agents resume by pulling these): `aiur/376` (has **draft PR
+  #467** "Size warm pool without capping opencode slots"), `aiur/447`, `aiur/461`.
+- **Broader doable backlog:** ~22 `complexity:5` tickets from the #266–443 triage are **not yet
+  `agent:todo`** — promote them in batches as you scale (`gh issue edit N1 N2 … --add-label agent:todo`).
+
+## Operator procedures (the `aiur-run` skill has the full version)
+
+- **Config** (`.aiur/config`): set `agent.max_concurrent_agents` AND `pre_warmed_sessions` **both = your
+  target** (#376: `pre_warmed_sessions` still hard-caps live agents). Currently `3/3` — raise on the
+  bigger box. Never `aiurdev init --force` (clobbers config). `tracker.kind: github`, repo
+  `its-everdred/aiur`, `label_prefix: agent`, routing `4/5 → claude`, `prewarm.enabled: true`.
+- **Launch:** `aiurdev build` (force release rebuild) → `aiurdev --bg --debug` (detached, logs under
+  `~/.aiur/logs`). Refuses if `$TMUX` is set. Never `--test`/`--test3` (resets sandbox tickets).
+- **Verify prewarm every launch:** base at `~/.aiur/repo/its-everdred/aiur/.aiur-base-built`; log reaches
+  `prewarm:phase … :ready`; workspaces materialize in seconds (CoW), not per-agent cold builds.
+- **Monitor:** `/aiur-status` (loop `2m`); watch `uptime` load — healthy if it stays under ~2× cores.
+  Watch for `:emfile` in the log (#409 mostly fixed) and the test-sync bursts (#465).
+- **Stop:** `aiurdev stop`, then the #468 cwd-reap backstop above.
+- **On a load spike toward danger:** stop, reap by cwd, lower concurrency, relaunch.
+
+## Conventions (enforced; already in the agent prompt / CLAUDE.md)
+
+- Commit messages **3–7 words**, **never mention AI/Claude/models**.
+- `its-applekid` author → add `Co-authored-by: its-everdred <kevinweaver2@gmail.com>` trailer (#462).
+- Tickets the operator opens get `agent:todo`. **Merge is operator-authorized** (agents open/ready PRs,
+  don't self-merge). Use targeted `git add`, never `-A` (there's a stray `.aiur/config.bak`).
+- **NEVER read `.env`/secret files.** `.aiur/config` is gh-auth (no tokens) — safe.
+
+## Gotchas
+
+- Flaky CI: each agent PR's CI may hit a random suite flake — **re-run to green** (the merged flaky
+  fixes + remaining `#447/#461` shrink this). Don't treat one flaky red as real.
+- GitHub secondary rate-limit on rapid mutations: a single multi-issue `gh issue edit N1 N2 …` is one
+  operation and bypasses it; loops trip it.
+- Leftover `agent:in-progress` labels make the orchestrator **resume the wrong tickets** on relaunch —
+  clear them before launching (we hit this twice).
+
+## Next steps for the new machine
+
+1. Pull `main`, `aiurdev build`, set concurrency for your core count, launch.
+2. **Land #465** (CPU throttle) → then scale `max_concurrent_agents` up confidently.
+3. Work the backlog: flaky fixes `#447`/`#461`, `#376`, `#468`, then promote + work the broader 22.
+4. Review + merge PRs as they land (`/code-review` or green/red); route new issues as `agent:todo`.
+5. Keep verifying prewarm `:ready` and watching load; reap stragglers per #468 until it's fixed.
