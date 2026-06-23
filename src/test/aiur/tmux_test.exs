@@ -138,6 +138,23 @@ defmodule Aiur.TmuxTest do
     assert :ok = Task.await(task, 1_000)
   end
 
+  test "set_pane_title/3 issues select-pane -T with the title as one argv element", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+        Tmux.set_pane_title(name, "%42", "7 CLI: ENS namespace (resolve, reverse, info)")
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "select-pane -t %42 -T 7 CLI: ENS namespace (resolve, reverse, info)"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+    assert :ok = Task.await(task, 1_000)
+  end
+
   test "list_panes/2 returns pane ids for a target window", %{name: name} do
     parent = self()
 

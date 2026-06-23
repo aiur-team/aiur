@@ -87,7 +87,11 @@ defmodule Aiur.PaneManager do
             # a Slot worker has produced the final opencode-attach pane.
             # They are included in layout occupancy but not reported as
             # open chat panes.
-            placeholder_panes: %{}
+            placeholder_panes: %{},
+            # identifier => issue title string, captured from the `:title`
+            # open/attach option. Used to build the "<id> <title>" tmux pane
+            # title set on every bind so the pane border names its agent.
+            title_by_identifier: %{}
 
   @type orientation :: :horizontal | :vertical
 
@@ -294,6 +298,7 @@ defmodule Aiur.PaneManager do
   @impl true
   def handle_call({:open, identifier, command_to_run, opts}, from, state) do
     Aiur.Perf.event(:pane_open_request, identifier: identifier)
+    state = remember_title(state, identifier, opts)
     state = reconcile_visible_panes(state)
 
     case Map.fetch(state.identifier_to_pane, identifier) do
@@ -318,7 +323,9 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  def handle_call({:attach, identifier, _command, _opts}, from, state) do
+  def handle_call({:attach, identifier, _command, opts}, from, state) do
+    state = remember_title(state, identifier, opts)
+
     cond do
       Map.has_key?(state.identifier_to_pane, identifier) ->
         # Identifier already visible somewhere — refocus existing pane
@@ -1116,11 +1123,15 @@ defmodule Aiur.PaneManager do
   defp record_placeholder(state, identifier, placeholder_pane_id, slot) do
     placeholders = Map.get(state, :placeholder_panes, %{})
 
-    Map.put(
-      state,
-      :placeholder_panes,
-      Map.put(placeholders, identifier, %{pane_id: placeholder_pane_id, slot: slot})
-    )
+    new_state =
+      Map.put(
+        state,
+        :placeholder_panes,
+        Map.put(placeholders, identifier, %{pane_id: placeholder_pane_id, slot: slot})
+      )
+
+    set_pane_title(new_state, placeholder_pane_id, identifier)
+    new_state
   end
 
   defp drop_placeholder(state, identifier) do
@@ -1565,13 +1576,56 @@ defmodule Aiur.PaneManager do
   # State bookkeeping --------------------------------------------------------
 
   defp record_slot_pane(%__MODULE__{} = state, slot, pane_id, identifier) do
-    %{
+    new_state = %{
       state
       | identifier_to_pane: Map.put(state.identifier_to_pane, identifier, pane_id),
         pane_to_identifier: Map.put(state.pane_to_identifier, pane_id, identifier),
         pane_to_slot: Map.put(state.pane_to_slot, pane_id, slot),
         slot_panes: Map.put(state.slot_panes, slot, pane_id)
     }
+
+    set_pane_title(new_state, pane_id, identifier)
+    new_state
+  end
+
+  # Capture the issue title from the open/attach `:title` option so a later
+  # bind can render "<id> <title>" in the pane border. AgentList already
+  # resolves the title in-memory and passes it through; absent/blank titles
+  # leave the cache untouched and the pane shows the bare identifier.
+  defp remember_title(%__MODULE__{} = state, identifier, opts) do
+    case Keyword.get(opts, :title) do
+      title when is_binary(title) and title != "" ->
+        %{state | title_by_identifier: Map.put(state.title_by_identifier, identifier, title)}
+
+      _ ->
+        state
+    end
+  end
+
+  # Best-effort: set the pane's tmux title to "<id> <issue title>" so the
+  # configured `pane-border-format` names the agent each pane holds. The
+  # format truncates to the pane width with an ellipsis, so we always set the
+  # full title and let tmux clip per pane size (and re-clip on resize). A
+  # failed title set never blocks the open/swap that triggered it.
+  defp set_pane_title(%__MODULE__{} = state, pane_id, identifier) do
+    _ = Tmux.set_pane_title(state.tmux, pane_id, pane_title_text(state, identifier))
+    :ok
+  end
+
+  defp pane_title_text(%__MODULE__{} = state, identifier) do
+    case Map.get(state.title_by_identifier, identifier) do
+      title when is_binary(title) and title != "" -> "#{identifier} #{scrub_title(title)}"
+      _ -> identifier
+    end
+  end
+
+  # The pane border is a single line, so a raw newline or control character in
+  # an issue title would garble it (no injection risk — the title is one argv
+  # element and tmux does not re-evaluate format sequences inside a pane title).
+  # Collapse any control char (incl. CR/LF/tab) to a space so the title stays
+  # on one line; tmux's `pane-border-format` handles width truncation.
+  defp scrub_title(title) do
+    String.replace(title, ~r/[\x00-\x1f\x7f]/, " ")
   end
 
   defp forget_identifier_for_pane(%__MODULE__{} = state, pane_id) do
@@ -1580,7 +1634,11 @@ defmodule Aiur.PaneManager do
         state
 
       old_identifier ->
-        %{state | identifier_to_pane: Map.delete(state.identifier_to_pane, old_identifier)}
+        %{
+          state
+          | identifier_to_pane: Map.delete(state.identifier_to_pane, old_identifier),
+            title_by_identifier: Map.delete(state.title_by_identifier, old_identifier)
+        }
     end
   end
 
@@ -1596,7 +1654,11 @@ defmodule Aiur.PaneManager do
 
     new_state =
       if identifier do
-        %{new_state | identifier_to_pane: Map.delete(new_state.identifier_to_pane, identifier)}
+        %{
+          new_state
+          | identifier_to_pane: Map.delete(new_state.identifier_to_pane, identifier),
+            title_by_identifier: Map.delete(new_state.title_by_identifier, identifier)
+        }
       else
         new_state
       end

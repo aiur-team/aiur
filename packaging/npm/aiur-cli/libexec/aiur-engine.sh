@@ -374,6 +374,11 @@ run_session() {
     exit 1
   fi
 
+  # Title the agent-list pane (the only pane in the fresh session). The conf's
+  # `pane-border-status`/`pane-border-format` render it; PaneManager titles the
+  # chat panes it opens. Best-effort — a missing title just shows the default.
+  "$tmux_bin" -L "$socket" -f "$conf" select-pane -t "$session" -T "AIUR Agents" 2>/dev/null || true
+
   # Grace window: surface a boot crash instead of attaching to nothing.
   local tick
   for ((tick = 0; tick < 30; tick++)); do
