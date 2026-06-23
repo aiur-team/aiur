@@ -193,6 +193,7 @@ defmodule Aiur.Init do
         effective_target = maybe_migrate_layout(io, deps, kind, location, target)
         tracker = tracker_from_config(deps, config)
         backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+        maybe_resume_prewarm(io, deps, tracker, config)
         provision(io, deps, tracker, agents_from_config(config))
 
       {:error, reason} ->
@@ -492,6 +493,21 @@ defmodule Aiur.Init do
     maybe_first_prewarm(io, deps, tracker, answer)
   end
 
+  defp maybe_resume_prewarm(io, deps, tracker, config) do
+    case prewarm_from_config(config) do
+      %{enabled: true, base_build: cmd} = prewarm when is_binary(cmd) and cmd != "" ->
+        maybe_first_prewarm(io, deps, tracker, prewarm)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp prewarm_from_config(%{"prewarm" => %{"enabled" => true, "base_build" => cmd}}),
+    do: %{enabled: true, base_build: cmd}
+
+  defp prewarm_from_config(_config), do: %{enabled: false, base_build: nil}
+
   # --- Prompts ---
 
   defp prompt_location(io) do
@@ -678,14 +694,49 @@ defmodule Aiur.Init do
 
   defp prewarm_fallback_prompt do
     """
-    Enable aiur's warm-base pre-warm for this repo by setting, in .aiur/config:
+    You are working in a repository managed by aiur, an agent-orchestration
+    runtime. aiur runs coding agents in isolated workspaces. To avoid every
+    agent cold-cloning, installing dependencies, and compiling at the same time,
+    aiur can keep one shared, pre-installed checkout of this repo's main branch
+    called the warm base. Agent workspaces are materialized from that base with
+    copy-on-write, so they inherit dependency caches and build artifacts.
+
+    Your task: detect this repo's real install + build command, write it into
+    .aiur/config as prewarm.base_build, and verify it locally. Do not just
+    describe the command.
+
+    base_build conventions:
+    - It runs in a checkout of this repo's main branch, and aiur reruns it when
+      main changes. Make it idempotent and incremental.
+    - Route every tool call through `mise exec --` so Linux and macOS use the
+      repo-pinned toolchain.
+    - cd into the directory that holds the build manifest before running the
+      install/build command.
+    - Use frozen/locked installs: `npm ci`, `pnpm install --frozen-lockfile`,
+      `yarn install --immutable`, `uv sync --frozen`, etc.
+    - Do not mutate tracked source. Do not use brew, apt, sudo, or machine-local
+      absolute paths.
+
+    Concrete examples:
+    - Node/pnpm workspaces:
+      `mise exec -- corepack enable && mise exec -- pnpm install --frozen-lockfile && mise exec -- pnpm -r --if-present build`
+    - Node/npm workspaces:
+      `mise exec -- npm ci && mise exec -- npm run build --workspaces --if-present`
+    - Elixir app in src/:
+      `cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile`
+
+    Write this exact block shape in .aiur/config, replacing the command:
+
       prewarm:
         enabled: true
         base_build: "<one-time install + compile command>"
-    base_build runs once in a checkout of this repo's main. Conventions: route
-    every runtime call through `mise exec --`; cd into the directory holding the
-    build manifest; use frozen installs; don't mutate source; no brew/apt/sudo;
-    make it work on both Linux and macOS.
+        poll_seconds: 0
+
+    Then run the base_build command once in a clean checkout and confirm it exits
+    0 and produces the expected artifacts (for example node_modules, dist, _build,
+    target). Run it a second time unchanged and confirm it is fast or a near
+    no-op. Fix the command until both runs succeed, then report the final command
+    and the artifacts it prepares.
     """
   end
 

@@ -243,7 +243,17 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
 
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/paste this to your coding agent/))
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "paste this to your coding agent"
+      assert log =~ "agent-orchestration"
+      assert log =~ "copy-on-write"
+      assert log =~ "mise exec --"
+      assert log =~ "Node/pnpm workspaces"
+      assert log =~ "Elixir app in src"
+      assert log =~ "prewarm:"
+      assert log =~ "base_build:"
+      assert log =~ "Run it a second time unchanged"
+
       config = File.read!(target)
       assert config =~ "enabled: false"
       refute config =~ "base_build:"
@@ -428,6 +438,31 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       assert_received {:migrate, %{ignore: true}}
+    end
+
+    test "resume verifies an existing enabled prewarm config", %{target: target} do
+      File.write!(
+        target,
+        """
+        tracker:
+          kind: github
+          github:
+            repo: octo/repo
+        agent:
+          kind: claude
+        prewarm:
+          enabled: true
+          base_build: mise exec -- npm ci && mise exec -- npm run build
+        """
+      )
+
+      assert :ok = Init.run(%{force: false}, io(self()), deps(self(), Path.dirname(target), target))
+
+      assert_received {:prewarm_build, "https://github.com/octo/repo.git", "mise exec -- npm ci && mise exec -- npm run build"}
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ "Building the warm base now"))
+      assert Enum.any?(log, &(&1 =~ "Warm base ready"))
     end
   end
 
