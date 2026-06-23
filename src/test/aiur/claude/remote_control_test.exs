@@ -201,7 +201,17 @@ defmodule Aiur.Claude.RemoteControlTest do
 
   describe "reap_workspace_agents/2" do
     setup do
-      root = Path.join(System.tmp_dir!(), "rwa-root-#{System.unique_integer([:positive])}")
+      # Canonicalize the root so fake `/proc/<pid>/cwd` targets (built from `root`)
+      # match the root after reap_workspace_agents canonicalizes it internally —
+      # mirroring production, where the kernel reports cwd symlink-resolved.
+      raw = Path.join(System.tmp_dir!(), "rwa-root-#{System.unique_integer([:positive])}")
+
+      root =
+        case Aiur.PathSafety.canonicalize(raw) do
+          {:ok, path} -> path
+          _ -> raw
+        end
+
       proc = Path.join(System.tmp_dir!(), "rwa-proc-#{System.unique_integer([:positive])}")
       File.mkdir_p!(proc)
       on_exit(fn -> File.rm_rf(proc) end)
@@ -268,6 +278,42 @@ defmodule Aiur.Claude.RemoteControlTest do
                )
 
       assert collect_killed([]) == [100]
+    end
+
+    test "spares the running BEAM by default (self_pid_tree), reaps the rest",
+         %{root: root, proc: proc} do
+      self_os_pid = String.to_integer(System.pid())
+      # Above Linux's default max pid (2^22), so it can never collide with a real
+      # descendant pgrep returns into the protected self-tree.
+      other = 2_000_000_000
+      fake_proc(proc, self_os_pid, "beam.smp", Path.join(root, "self"))
+      fake_proc(proc, other, "aiur-claude", Path.join(root, "other"))
+
+      parent = self()
+      kill_fun = fn pid -> send(parent, {:killed, pid}) end
+
+      # protected_pids omitted → default self_pid_tree() must spare the BEAM.
+      assert :ok = RemoteControl.reap_workspace_agents(root, proc_dir: proc, kill_fun: kill_fun)
+
+      killed = collect_killed([])
+      refute self_os_pid in killed
+      assert other in killed
+    end
+
+    test "refuses to sweep a dangerously-shallow root", %{proc: proc} do
+      fake_proc(proc, 100, "aiur-claude", "/home/agent-101")
+
+      parent = self()
+      kill_fun = fn pid -> send(parent, {:killed, pid}) end
+
+      assert :ok =
+               RemoteControl.reap_workspace_agents("/home",
+                 proc_dir: proc,
+                 kill_fun: kill_fun,
+                 protected_pids: []
+               )
+
+      assert collect_killed([]) == []
     end
 
     test "no-ops when the workspace root has no agents", %{root: root, proc: proc} do

@@ -26,6 +26,8 @@ defmodule Aiur.Claude.RemoteControl do
   simultaneous toggles can't clobber each other's keys.
   """
 
+  require Logger
+
   @session_url_regex ~r{https://claude\.ai/code/session_[A-Za-z0-9]+}
   # On teardown, wait for the RC process to exit after SIGTERM before
   # escalating to SIGKILL.
@@ -329,12 +331,47 @@ defmodule Aiur.Claude.RemoteControl do
     kill_fun = Keyword.get(opts, :kill_fun, &graceful_kill/1)
     protected = MapSet.new(Keyword.get_lazy(opts, :protected_pids, &self_pid_tree/0))
 
-    workspace_root
-    |> workspace_agent_pids(proc_dir)
-    |> Enum.reject(&MapSet.member?(protected, &1))
-    |> reap_all(kill_fun)
+    case sweep_root(workspace_root) do
+      {:ok, root} ->
+        root
+        |> workspace_agent_pids(proc_dir)
+        |> Enum.reject(&MapSet.member?(protected, &1))
+        |> reap_all(kill_fun)
+
+      :skip ->
+        :ok
+    end
 
     :ok
+  end
+
+  # The kernel reports `/proc/<pid>/cwd` fully symlink-resolved, so the configured
+  # root must be canonicalized too — otherwise a symlinked component (e.g. a
+  # `/tmp`→`/private/tmp` parent) makes the prefix match fail and silently spares
+  # *every* orphan, the exact #453 symptom. Refuse a dangerously-shallow root as
+  # well: a mis-resolved `/` or `/home` would turn the broadened sweep into a
+  # host-wide reap.
+  defp sweep_root(workspace_root) do
+    canonical =
+      case Aiur.PathSafety.canonicalize(workspace_root) do
+        {:ok, path} -> path
+        _ -> Path.expand(workspace_root)
+      end
+
+    if shallow_root?(canonical) do
+      Logger.warning("reap_workspace_agents refusing_shallow_root root=#{inspect(canonical)}")
+      :skip
+    else
+      {:ok, canonical}
+    end
+  end
+
+  # "/", "", or a single top-level segment (e.g. "/home") is too broad to sweep.
+  defp shallow_root?(path) do
+    path
+    |> Path.split()
+    |> Enum.reject(&(&1 in ["", "/"]))
+    |> length() < 2
   end
 
   # Kill concurrently, not serially: a single `graceful_kill` blocks up to its
