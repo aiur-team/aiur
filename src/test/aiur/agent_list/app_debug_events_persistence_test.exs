@@ -50,8 +50,7 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       }
 
       send(pid, {:event_debug, entry})
-      Process.sleep(100)
-      latest_with_event = drain_latest()
+      latest_with_event = await_render("💬 42 pushed")
 
       assert latest_with_event =~ "💬 42 pushed", "events box should render the event"
 
@@ -59,8 +58,7 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       # surface: if debug_events is stripped from render_state, the
       # events box goes empty here.
       send(pid, :refresh_tick)
-      Process.sleep(100)
-      latest_after_refresh = drain_latest()
+      latest_after_refresh = await_render("💬 42 pushed")
 
       assert latest_after_refresh =~ "💬 42 pushed",
              "events box MUST still show event after refresh_tick"
@@ -79,12 +77,13 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
         }
 
         send(pid, {:event_debug, entry})
-        Process.sleep(50)
+        # Wait for each event to land so the accumulation order is
+        # deterministic, not dependent on a fixed sleep under load.
+        await_render("💬 #{i} pushed")
       end
 
       send(pid, :refresh_tick)
-      Process.sleep(100)
-      final = drain_latest()
+      final = await_render("💬 3 pushed")
 
       assert final =~ "💬 1 pushed"
       assert final =~ "💬 2 pushed"
@@ -100,17 +99,45 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       drain_renders()
 
       DebugLog.broadcast(:publish, "ticket.7.pr.merged", id: 99)
-      Process.sleep(100)
-      latest_with_event = drain_latest()
+      latest_with_event = await_render("💬 7 merged a PR")
 
       assert latest_with_event =~ "💬 7 merged a PR"
 
       send(pid, :refresh_tick)
-      Process.sleep(100)
-      latest_after_refresh = drain_latest()
+      latest_after_refresh = await_render("💬 7 merged a PR")
 
       assert latest_after_refresh =~ "💬 7 merged a PR",
              "event MUST persist across refresh tick"
+    end
+  end
+
+  # Poll rendered frames until one contains `expected`, returning that
+  # frame (ANSI-stripped). Replaces fixed `Process.sleep` + `drain_latest`,
+  # which raced under CPU load: the assert could run before the event was
+  # applied to a frame (latest == nil → FunctionClauseError in =~) or on a
+  # stale frame missing the newest event. On timeout, returns the most
+  # recent frame seen so the caller's assertion fails with real content.
+  @await_timeout_ms 2_000
+
+  defp await_render(expected) do
+    deadline = System.monotonic_time(:millisecond) + @await_timeout_ms
+    await_render(expected, deadline, nil)
+  end
+
+  defp await_render(expected, deadline, last) do
+    latest = drain_latest(last)
+    visible_latest = visible(latest)
+
+    cond do
+      is_binary(visible_latest) and visible_latest =~ expected ->
+        visible_latest
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        visible_latest
+
+      true ->
+        Process.sleep(10)
+        await_render(expected, deadline, latest)
     end
   end
 
@@ -123,11 +150,9 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
     end
   end
 
-  # Drain all pending {:rendered, _} and return the most recent payload
-  # with ANSI / OSC 8 hyperlink escapes stripped so string-match
-  # assertions stay readable.
-  defp drain_latest, do: drain_latest(nil) |> visible()
-
+  # Drain all pending {:rendered, _} and return the most recent raw payload
+  # (or `acc` if none arrived). `visible/1` strips ANSI / OSC 8 hyperlink
+  # escapes so string-match assertions stay readable.
   defp drain_latest(acc) do
     receive do
       {:rendered, body} -> drain_latest(body)
