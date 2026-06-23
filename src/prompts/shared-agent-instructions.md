@@ -147,7 +147,7 @@ Run this loop:
 2. Add / update / run tests
 3. Build
 4. Lint (with autofix)
-5. Commit using short, 3–7 word messages
+5. Commit using short, 3–7 word messages, keeping your machine's git identity as the author. **When that author is `its-applekid` (email `its.applekid@gmail.com`)**, add GitHub's co-author trailer crediting the project owner: a blank line at the end of the message, then `Co-authored-by: its-everdred <kevinweaver2@gmail.com>`. Commits authored by `its-everdred` already carry that credit and need no trailer. **Never** mention Claude, Codex, AI, models, or "generated with" in commit messages or PR descriptions — keep them plain and human.
 6. Push to `origin aiur/<issue-number>` — the same branch your workspace was set up on
 7. **Open the PR as a draft** with `--head aiur/<issue-number>` (not ready for review yet)
 8. **Self-review the draft PR with `ce-code-review`** against the diff you just pushed
