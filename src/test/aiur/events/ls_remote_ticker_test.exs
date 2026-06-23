@@ -24,6 +24,20 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     fn _remote, _patterns -> {:ok, refs} end
   end
 
+  # Drive one tick and block until the GenServer has finished handling
+  # it. The `:polled` and `:published` sends both happen synchronously
+  # inside `handle_info(:tick, ...)`, so a `:sys.get_state/1` call —
+  # which queues behind `:tick` in the same FIFO mailbox — returns only
+  # after the tick's messages are already in this process's mailbox.
+  # This replaces the time-based `assert_receive ..., 500` waits, which
+  # flaked under full-suite CI scheduler contention (#459): the messages
+  # were never lost, only delivered late.
+  defp tick(pid) do
+    send(pid, :tick)
+    :sys.get_state(pid)
+    :ok
+  end
+
   test "first tick records SHAs without publishing", %{publisher: publisher} do
     ls_remote_fun = ls_remote_returning(%{"refs/heads/aiur/99" => "sha1"})
 
@@ -37,7 +51,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         start_paused?: true
       )
 
-    send(pid, :tick)
+    tick(pid)
     refute_receive {:published, _topic, _payload, _opts}, 100
   end
 
@@ -65,12 +79,12 @@ defmodule Aiur.Events.LsRemoteTickerTest do
       )
 
     # Bootstrap tick.
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     # SHA for aiur/99 changes; aiur/100 stays.
     Agent.update(agent, fn _ -> %{ref_a => "sha2", ref_b => "shaA"} end)
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     assert_receive {:published, "ticket.99.branch.push", payload, opts}, 500
@@ -103,11 +117,11 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         start_paused?: true
       )
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 2_000
 
     Agent.update(agent, fn _ -> %{"refs/heads/aiur/101" => "newsha"} end)
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 2_000
 
     assert_receive {:published, "ticket.101.branch.push", _, _}, 2_000
@@ -134,7 +148,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         start_paused?: true
       )
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     # The branch-name lock in shared-agent-instructions.md keeps
@@ -153,7 +167,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
        }}
     end)
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     refute_receive {:published, "ticket.99.branch.push", _, _}, 200
@@ -181,11 +195,11 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         start_paused?: true
       )
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/abc" => "shaA"}} end)
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     refute_receive {:published, "ticket." <> _rest, _, _}, 200
@@ -214,11 +228,11 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         start_paused?: true
       )
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     Agent.update(agent, fn _ -> %{"refs/heads/main" => "shaB"} end)
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     assert_receive {:published, "system.main.branch.push", _, opts}, 500
@@ -246,18 +260,18 @@ defmodule Aiur.Events.LsRemoteTickerTest do
       )
 
     # Bootstrap.
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     # Now flip to error response.
     Agent.update(agent, fn _ -> {:error, :git_ls_remote_failed} end)
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
     assert Process.alive?(pid)
 
     # Recover: success again with a changed SHA → publish fires.
     Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/99" => "sha2"}} end)
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
     assert_receive {:published, "ticket.99.branch.push", _, _}, 500
   end
@@ -289,7 +303,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     # phantom auto-resumes for every paused blockee. The lost-push
     # window between an error and the next success is recovered by
     # the firehose as the second detection source.
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     # Tick 2 succeeds with multiple refs that LOOK new because the
@@ -304,7 +318,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
        }}
     end)
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
     refute_receive {:published, _topic, _payload, _opts}, 200
 
@@ -318,7 +332,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
        }}
     end)
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
     assert_receive {:published, "ticket.99.branch.push", _, _}, 500
     refute_receive {:published, "ticket.100.branch.push", _, _}, 100
@@ -349,11 +363,11 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         start_paused?: true
       )
 
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/99" => "sha1"}} end)
-    send(pid, :tick)
+    tick(pid)
     assert_receive :polled, 500
 
     assert_receive {:published, "ticket.99.branch.push", _, opts}, 500
