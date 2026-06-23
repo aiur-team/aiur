@@ -151,12 +151,13 @@ defmodule Aiur.Opencode.SessionWriter do
     # the next attach.
     root_msg_id = replay_history(state)
     :ok = AgentPubSub.subscribe_agent(state.identifier)
-    # Subscribe to the cross-ticket event debug stream so we can persist
-    # 📬/📤/📄 ticker rows for this agent on every DebugLog mark whose
-    # `identifier` matches ours. The filter happens in handle_info —
-    # DebugLog's topic is process-global so we receive every agent's
-    # marks and skip the ones that aren't ours.
-    :ok = DebugLog.subscribe()
+    # Subscribe to THIS agent's cross-ticket event debug stream so we
+    # can persist 📬/📤/📄 ticker rows for it. DebugLog routes each mark
+    # to a per-identifier sub-topic (#409), so we only receive our own
+    # marks instead of the global firehose that, at high concurrency,
+    # fanned every mark to all M×N writers. The `EventRow.matches?`
+    # guard in handle_info stays as cheap defense-in-depth.
+    :ok = DebugLog.subscribe(state.identifier)
 
     schedule_turn_sweep()
 
