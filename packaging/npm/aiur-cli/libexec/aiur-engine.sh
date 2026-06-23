@@ -678,6 +678,11 @@ session_cleanup() {
   # Reap agent-driver sockets this run orphaned at close, not next launch.
   sweep_dead_tmux_sockets || true
 
+  # Reap stale aiur /tmp debris (per-run tempfiles, leaked test artifacts) so a
+  # tmpfs /tmp can't fill across runs. Age-gated + pid-safe; our own still-present
+  # tempfiles are spared (fresh + live pid) before the explicit rm below clears them.
+  sweep_stale_tmp_artifacts || true
+
   rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" 2>/dev/null || true
   return $code
 }
@@ -917,6 +922,103 @@ sweep_dead_tmux_sockets() {
   return 0
 }
 
+# Reap stale aiur /tmp debris so a tmpfs /tmp can't fill from accumulated per-run
+# tempfiles and leaked test artifacts. Runs alongside sweep_dead_tmux_sockets on
+# foreground teardown (session_cleanup) and on `aiur stop`. Bounded and safe:
+#
+#   * Only exact top-level Aiur artifact families under the temp roots the engine
+#     and BEAM write to. Arbitrary operator worktrees/checkouts like
+#     `/tmp/aiur-pr490` are not candidates.
+#   * Age-gated by AIUR_TMP_REAP_MINUTES (default 1440 = 24h). An entry is removed
+#     only when NOTHING in its subtree was modified within the window, so a live
+#     run's shared debug dir (aiur-rc / aiur-claude-hooks / aiur-debug) holding a
+#     fresh file is spared even when the dir's own mtime is stale. A non-numeric or
+#     0 value disables the sweep.
+#   * Ownership-gated: if anything in the tree is not owned by the effective user,
+#     the whole tree is spared.
+#   * A live run's `aiur-<pid>-sessions|-agents` bookkeeping is kept while its pid
+#     is alive, regardless of age.
+is_aiur_tmp_artifact_candidate() {
+  local base="$1" pid
+  case "$base" in
+    aiur-argv.* | aiur-startup.* | aiur-pane.* | aiur-launcher.* | aiur-capture.* | \
+      aiur-trap.*.log | aiur-tree.*.json | aiur-wrapper.pid | aiur-*-frames.bin | \
+      aiur-rc | aiur-claude-hooks | aiur-debug)
+      return 0
+      ;;
+    aiur-*-sessions | aiur-*-agents)
+      pid="${base#aiur-}"
+      pid="${pid%-*}"
+      [ -n "$pid" ] && [ -z "${pid//[0-9]/}" ]
+      return
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+sweep_stale_tmp_artifacts() {
+  local minutes="${AIUR_TMP_REAP_MINUTES:-1440}"
+  case "$minutes" in '' | *[!0-9]*) return 0 ;; esac
+  [ "$minutes" -gt 0 ] || return 0
+
+  # The dirs the engine + BEAM target: ${TMPDIR:-/tmp} (argv/startup/pane tempfiles
+  # plus the BEAM's System.tmp_dir debug dirs) and ${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}
+  # (the session/agent pidfiles' session_root). Deduped — a typical box scans one dir.
+  local roots=() d seen
+  for d in "${TMPDIR:-/tmp}" "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"; do
+    [ -d "$d" ] || continue
+    seen=0
+    local root
+    for root in "${roots[@]}"; do
+      [ "$root" = "$d" ] && { seen=1; break; }
+    done
+    [ "$seen" -eq 1 ] || roots+=("$d")
+  done
+  [ "${#roots[@]}" -gt 0 ] || return 0
+
+  local removed=0 path base pid uid found
+  uid="$(id -u)"
+  for d in "${roots[@]}"; do
+    while IFS= read -r -d '' path; do
+      base="${path##*/}"
+      is_aiur_tmp_artifact_candidate "$base" || continue
+
+      # Spare mixed-ownership trees; cleanup should never cross user boundaries.
+      if ! found="$(find "$path" ! -user "$uid" -print -quit 2>/dev/null)"; then
+        continue
+      fi
+      if [ -n "$found" ]; then
+        continue
+      fi
+      # Spare anything modified within the window anywhere in its subtree.
+      if ! found="$(find "$path" -mmin "-$minutes" -print -quit 2>/dev/null)"; then
+        continue
+      fi
+      if [ -n "$found" ]; then
+        continue
+      fi
+      # Spare a live run's session/agent bookkeeping (name is aiur-<pid>-<kind>).
+      case "$base" in
+        aiur-*-sessions | aiur-*-agents)
+          pid="${base#aiur-}"
+          pid="${pid%-*}"
+          if [ -n "$pid" ] && [ -z "${pid//[0-9]/}" ] && kill -0 "$pid" 2>/dev/null; then
+            continue
+          fi
+          ;;
+      esac
+      if rm -rf -- "$path" 2>/dev/null; then
+        removed=$((removed + 1))
+      fi
+    done < <(find "$d" -maxdepth 1 -mindepth 1 -name 'aiur-*' -print0 2>/dev/null)
+  done
+
+  [ "$removed" -gt 0 ] && echo "🧹 swept $removed stale aiur tmp artifact(s)" >&2
+  return 0
+}
+
 # Stop the running session: kill the tmux session + the release BEAM, then sweep.
 cmd_stop() {
   resolve_release
@@ -968,6 +1070,7 @@ cmd_stop() {
   done
 
   sweep_dead_tmux_sockets
+  sweep_stale_tmp_artifacts
 }
 
 # --- dispatch ----------------------------------------------------------------
