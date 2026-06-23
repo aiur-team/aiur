@@ -511,6 +511,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(woke.running, [issue_id, :control, :status]) == :working
     end
 
+    test "the {:mark_sleeping, identifier} cast clause flips :working to :sleeping" do
+      issue_id = "issue-sleep-cast"
+      identifier = "SLEEP-CAST"
+
+      state = sleeping_state(issue_id, identifier, :working)
+
+      {:noreply, next} =
+        Orchestrator.handle_cast({:mark_sleeping, identifier}, state)
+
+      assert get_in(next.running, [issue_id, :control, :status]) == :sleeping
+    end
+
     defp sleeping_state(issue_id, identifier, status) do
       %Orchestrator.State{
         running: %{
