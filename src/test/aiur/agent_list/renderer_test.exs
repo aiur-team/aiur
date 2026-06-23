@@ -823,7 +823,7 @@ defmodule Aiur.AgentList.RendererTest do
              "expected green ANSI wrap around the full bar at percent: 100"
     end
 
-    test "rows without progress samples render an empty bar (no green)" do
+    test "rows without progress samples render an intentional empty track, not a hatched bar" do
       summaries = [%{identifier: "MT-IDLE", status: :running, alert_count: 0}]
 
       out =
@@ -837,8 +837,123 @@ defmodule Aiur.AgentList.RendererTest do
 
       row = row_for(out, "MT-IDLE")
       assert row, "expected MT-IDLE row"
-      assert visible(row) =~ "░░░░░░░░░░"
+      # A full row of ░ reads as a corrupt/half-filled bar (#425). With no
+      # samples we render a faint dotted track instead so the empty state
+      # is unambiguous.
+      assert visible(row) =~ "··········"
+      refute visible(row) =~ "░", "no-sample state must not render the hatched ░ bar"
       refute String.contains?(row, @ansi_green)
+    end
+  end
+
+  describe "deactivated / finished agents (#425)" do
+    # Every member of the renderer's finished-work-state set should reach
+    # 🏁 and never the warming ⏳ — both atom and string encodings, and
+    # both :deactivated and :done. Parametrized so dropping any member
+    # from the constant (or breaking a string variant) fails a test.
+    for work_state <- [:deactivated, "deactivated", :done, "done"] do
+      test "a finished agent (work_state=#{inspect(work_state)}) renders 🏁, not the warming ⏳ marker" do
+        summaries = [
+          %{identifier: "MT-FIN", status: :running, alert_count: 0, work_state: unquote(work_state)}
+        ]
+
+        out =
+          render(base_state(%{summaries: summaries, columns: 200}))
+          |> visible()
+
+        row = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-FIN"))
+        assert row, "expected MT-FIN row"
+        assert row =~ "🏁", "finished agent should reach 🏁"
+        refute row =~ "⏳", "finished agent must not show the warming hourglass"
+      end
+    end
+
+    test "a seeded deactivated agent shows 🏁 + green 100% bar + blank LATEST together" do
+      # The real production row for a finished agent: app.ex seeds a 100%
+      # progress sample on deactivation, so the row paints 🏁, a green
+      # full bar, and (with no latest event) an empty LATEST — the exact
+      # acceptance state from #425. MT-OTHER holds the selection so the
+      # green tint on MT-FIN isn't flattened by the reverse highlight.
+      now_ms = System.monotonic_time(:millisecond)
+
+      summaries = [
+        %{identifier: "MT-FIN", status: :running, alert_count: 0, work_state: :deactivated, title: "shipped"},
+        %{identifier: "MT-OTHER", status: :running, alert_count: 0, work_state: :working}
+      ]
+
+      raw =
+        render(
+          base_state(%{
+            summaries: summaries,
+            selection_index: 1,
+            columns: 200,
+            progress_by_id: %{"MT-FIN" => [{100, now_ms}]},
+            latest_event_by_id: %{},
+            now_ms: now_ms
+          })
+        )
+
+      row = Enum.find(String.split(raw, ["\r\n", "\n"]), &(&1 =~ "MT-FIN"))
+      assert row, "expected MT-FIN row"
+      assert visible(row) =~ "🏁"
+      assert visible(row) =~ "██████████", "deactivated agent should show the full 100% bar"
+      assert String.contains?(row, @ansi_green), "the 100% bar should be tinted green"
+      refute visible(row) =~ "Warming up", "finished row must not show the warming placeholder"
+    end
+
+    test "a deactivated agent that still has a latest event shows the event, not a blank LATEST" do
+      # The placeholder suppression must only replace the warming/starting
+      # placeholder — never swallow a real final message. latest_cell only
+      # falls back to the placeholder when there is no latest event, so a
+      # deactivated agent with an event must still render it.
+      summaries = [
+        %{identifier: "MT-MSG", status: :running, alert_count: 0, work_state: :deactivated, title: "done"}
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            latest_event_by_id: %{"MT-MSG" => %{message: "pushed PR 421"}}
+          })
+        )
+        |> visible()
+
+      row = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-MSG"))
+      assert row, "expected MT-MSG row"
+      assert row =~ "pushed PR 421", "deactivated agent's real latest event must still render"
+    end
+
+    test "a deactivated agent with a detached slot does not show 'Warming up…'" do
+      # A finished agent has its slot released, so attach_state is empty
+      # and there is no latest event — the LATEST column previously fell
+      # back to a frozen 'Warming up…' placeholder (#425).
+      summaries = [
+        %{
+          identifier: "MT-DET",
+          status: :running,
+          alert_count: 0,
+          work_state: :deactivated,
+          title: "finished work"
+        }
+      ]
+
+      out =
+        render(
+          base_state(%{
+            summaries: summaries,
+            columns: 200,
+            attach_state: %{},
+            latest_event_by_id: %{}
+          })
+        )
+        |> visible()
+
+      row = Enum.find(String.split(out, ["\r\n", "\n"]), &(&1 =~ "MT-DET"))
+      assert row, "expected MT-DET row"
+      refute row =~ "Warming up", "a finished agent must not be stuck in the warming placeholder"
+      refute row =~ "Starting", "a finished agent must not show a starting placeholder"
     end
   end
 

@@ -71,6 +71,35 @@ defmodule Aiur.AgentList.Renderer do
   @ansi_red IO.ANSI.red()
   @ansi_reverse IO.ANSI.reverse()
 
+  # Work states meaning the agent has finished this iteration. Used to
+  # render 🏁 and to suppress the warming/starting LATEST placeholder so
+  # a finished agent never freezes on "Warming up…" (#425). Named
+  # "finished" rather than "terminal" because this module already uses
+  # "terminal" for the TTY.
+  @finished_work_states [:deactivated, "deactivated", :done, "done"]
+
+  # Work states the renderer paints with `AgentEvents.state_emoji/1`
+  # (each has a canonical glyph) rather than the warm-marker progression
+  # (⏳ → 🔘 → ⚪ → 🟢). Superset of @finished_work_states plus the
+  # still-alive paused/error/sleeping states (`:sleeping` → 💤, #418) —
+  # derived from @finished_work_states so a future finished state lands
+  # in both sets at once.
+  @state_emoji_work_states [
+                             :paused,
+                             "paused",
+                             :error,
+                             "error",
+                             :sleeping,
+                             "sleeping"
+                           ] ++ @finished_work_states
+
+  # Faint dotted track shown in the PROGRESS column when an agent has no
+  # samples yet. A full row of `░` (the bar's empty-cell glyph) reads as
+  # a corrupt/half-filled bar (#425); the dotted track reads
+  # unambiguously as "no progress data yet" while keeping the fixed
+  # @progress_bar_width.
+  @empty_progress_track String.duplicate("·", @progress_bar_width)
+
   @type state :: %{
           required(:summaries) => [AgentEvents.agent_summary()],
           required(:selection_index) => non_neg_integer(),
@@ -731,10 +760,10 @@ defmodule Aiur.AgentList.Renderer do
   end
 
   # Progress + ETA pair, rendered as one cell of fixed width 16:
-  # `<bar 10> <eta 5>`. Empty bar + empty ETA when the tracker has
-  # no samples for the id — width stays the same so the column
-  # never jitters. No `—` placeholder; the absence is conveyed by
-  # the empty bar alone.
+  # `<bar 10> <eta 5>`. When the tracker has no samples for the id we
+  # render the faint dotted @empty_progress_track (not a full row of
+  # `░`, which reads as a corrupt/half-filled bar — #425). Width stays
+  # the same either way so the column never jitters.
   #
   # At percent: 100 (the agent's stop-work signal — see
   # `src/prompts/shared-agent-instructions.md`'s "Progress emits"
@@ -749,7 +778,7 @@ defmodule Aiur.AgentList.Renderer do
 
     case ProgressTracker.estimate(samples, now_ms) do
       :unknown ->
-        ProgressTracker.bar(0, @progress_bar_width)
+        @empty_progress_track
 
       %{percent: 100} ->
         full_bar = ProgressTracker.bar(100, @progress_bar_width)
@@ -838,6 +867,11 @@ defmodule Aiur.AgentList.Renderer do
 
     phrase =
       cond do
+        # A finished (deactivated/done) agent has released its slot, so
+        # `attach` is nil — but it is NOT warming up. Suppress the
+        # warming/starting placeholder so the row doesn't freeze on
+        # "Warming up…" after the agent has gone terminal (#425).
+        Map.get(summary, :work_state) in @finished_work_states -> ""
         Map.get(summary, :status) == :queued -> "Queueing agent…"
         is_nil(attach) -> "Warming up…"
         match?(%{visible_in: nil}, attach) -> "Warming up…"
@@ -921,13 +955,20 @@ defmodule Aiur.AgentList.Renderer do
   # `summary_emoji` shows, for a running working agent, the active
   # workflow phase (🧠/📋/🔨/🔍 — #68) when one is known, falling back
   # to the precomputed instant-open marker otherwise. Pre-warm ⏳ still
-  # wins while the pane isn't warm. Paused/error/done defer to
-  # AgentEvents.
+  # wins while the pane isn't warm. Paused/error/done/deactivated defer
+  # to AgentEvents.
   defp summary_emoji(%{status: :queued}, _markers, _phase), do: "⚫"
 
   defp summary_emoji(%{status: :running, identifier: identifier} = summary, markers, phase) do
     case Map.get(summary, :work_state) do
-      state when state in [:paused, "paused", :error, "error", :done, "done", :sleeping, "sleeping"] ->
+      state when state in @state_emoji_work_states ->
+        # `:deactivated` (and `:done`) are terminal: route through
+        # AgentEvents.state_emoji so a finished agent reaches 🏁 instead
+        # of falling through to the warm-marker logic and freezing on ⏳
+        # (#425). emoji_sort_key and the progress seeding already treat
+        # these as finished; the renderer was the lone surface out of
+        # sync. `:sleeping` is still-alive but also routes through
+        # AgentEvents.state_emoji for its 💤 glyph (#418).
         AgentEvents.state_emoji(state)
 
       _ ->
