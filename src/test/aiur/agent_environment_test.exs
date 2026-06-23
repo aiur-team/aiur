@@ -64,4 +64,49 @@ defmodule Aiur.AgentEnvironmentTest do
       assert AgentEnvironment.base_env(nil) == []
     end
   end
+
+  describe "workspace_env/1" do
+    # Repos keep `mise.toml` at the root (including aiur itself), so the trust
+    # path must be the workspace ROOT — not a hardcoded `elixir/mise.toml`
+    # sub-path that does not exist and leaves the real config untrusted (#440).
+    test "trusts the workspace root via MISE_TRUSTED_CONFIG_PATHS, not a sub-path" do
+      env = AgentEnvironment.workspace_env("/work/aiur/440")
+
+      assert {~c"MISE_TRUSTED_CONFIG_PATHS", trusted} =
+               List.keyfind(env, ~c"MISE_TRUSTED_CONFIG_PATHS", 0)
+
+      assert trusted == ~c"/work/aiur/440"
+      refute trusted == ~c"/work/aiur/440/elixir/mise.toml"
+    end
+
+    test "exposes per-workspace hex/mix homes and the agent-workspace marker" do
+      env = AgentEnvironment.workspace_env("/work/aiur/440")
+
+      assert {~c"HEX_HOME", ~c"/work/aiur/440/.aiur-hex"} =
+               List.keyfind(env, ~c"HEX_HOME", 0)
+
+      assert {~c"MIX_HOME", ~c"/work/aiur/440/.aiur-mix"} =
+               List.keyfind(env, ~c"MIX_HOME", 0)
+
+      assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
+               List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
+    end
+
+    test "returns an empty list for a non-binary path so callers can splat safely" do
+      assert AgentEnvironment.workspace_env(nil) == []
+    end
+  end
+
+  describe "workspace_env_export_prefix/1" do
+    test "exports MISE_TRUSTED_CONFIG_PATHS pointed at the workspace root" do
+      prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/440")
+
+      assert prefix =~ "MISE_TRUSTED_CONFIG_PATHS='/work/aiur/440'"
+      refute prefix =~ "elixir/mise.toml"
+    end
+
+    test "returns an empty string for a non-binary path" do
+      assert AgentEnvironment.workspace_env_export_prefix(nil) == ""
+    end
+  end
 end

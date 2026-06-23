@@ -697,6 +697,32 @@ trim() {
   printf '%s' "$s"
 }
 
+# Classify our distribution node's liveness via epmd, which only advertises a
+# node while its BEAM holds the registration. Echoes exactly one word:
+#   up      — node is registered: it is alive, so an rpc failure is a real error
+#   down    — epmd answered and our node is absent: it genuinely is not running
+#   unknown — epmd could not be queried (binary missing, or daemon unreachable),
+#             so node state is indeterminate and callers must NOT assume "down"
+#             and mask the real error
+# Distinguishing `unknown` from `down` matters: a live node whose epmd we cannot
+# reach must still surface its real rpc error rather than the "start aiur" hint.
+# Relies on RELEASE_NODE + ERL_EPMD_ADDRESS (prepare_distribution) and
+# release_dir (resolve_release), so call it only after both have run.
+probe_node_liveness() {
+  local epmd names short="${RELEASE_NODE%@*}"
+  for epmd in "$release_dir"/erts-*/bin/epmd; do
+    [ -x "$epmd" ] || continue
+    names="$(ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}" "$epmd" -names 2>/dev/null)" \
+      || { printf 'unknown'; return; }
+    case "$names" in
+      *"name ${short} at port "*) printf 'up' ;;
+      *) printf 'down' ;;
+    esac
+    return
+  done
+  printf 'unknown'
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
@@ -713,7 +739,27 @@ run_control_rpc() {
   set -e
 
   if [ "$status" -ne 0 ]; then
-    echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+    # A non-zero exit here is the rpc transport failing — application-level
+    # outcomes ride the marker path below. `bin/aiur rpc` (Elixir --rpc-eval)
+    # reports a genuinely-down node and a live-but-unreachable one identically
+    # (`:noconnection`), and prints any exception raised inside the expression.
+    # So the reason string can't be trusted; classify via epmd instead. Only a
+    # node epmd confirms is down earns the friendly "start aiur" hint; an `up`
+    # node failed for a real reason, and an `unknown` probe must not be assumed
+    # down — in both of those cases surface the actual rpc output, never mask it.
+    case "$(probe_node_liveness)" in
+      down)
+        echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+        ;;
+      up)
+        [ -n "$output" ] && printf '%s\n' "$output" >&2
+        echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+        ;;
+      *)
+        [ -n "$output" ] && printf '%s\n' "$output" >&2
+        echo "aiur: rpc to ${RELEASE_NODE} failed (could not query epmd to confirm node state); see the error above" >&2
+        ;;
+    esac
     return 1
   fi
 

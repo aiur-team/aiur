@@ -22,7 +22,15 @@ defmodule Aiur.Events.SubscriptionStoreTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      File.rm_rf!(tmp_dir)
+      # Non-raising rm_rf: the SubscriptionStore writer persists into this
+      # dir via JsonStore's atomic write (a `<path>.tmp.<n>` staging file
+      # renamed into place). Under CI load that staging file can land
+      # between rm_rf's directory listing and its final rmdir, so the rmdir
+      # sees a non-empty dir and fails with :eexist. The dir is unique per
+      # test under the system tmp dir, so a rare leftover is harmless —
+      # tolerate the race instead of crashing an unrelated run. Matches the
+      # `File.rm_rf/1` teardown convention in `Aiur.TestSupport`.
+      File.rm_rf(tmp_dir)
     end)
 
     %{tmp_dir: tmp_dir, identifier: identifier}
