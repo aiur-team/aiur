@@ -47,7 +47,8 @@ defmodule Aiur.Shutdown do
     :ok
   end
 
-  # Kill claude/node grandchildren the headless backend reparented to init.
+  # Kill the whole agent tree the backends reparented to init — coding agents,
+  # opencode clients, and the mix/beam.smp test children they spawn (#453).
   # Gated on :interactive_cli so test-suite cleanup (which resolves the REAL
   # workspace root) never touches live agents.
   defp reap_workspace_agents do
