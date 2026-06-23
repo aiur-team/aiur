@@ -28,17 +28,22 @@ defmodule Aiur.Config do
         }
 
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings do
-    case Workflow.current() do
-      {:ok, %{config: config}} when is_map(config) ->
-        config
-        |> prepare_config()
-        |> Schema.parse()
+  def settings, do: settings_from(Workflow.current())
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+  # Like `settings/0` but reads the config file directly, bypassing the
+  # `WorkflowStore` cache. For callers that must see on-disk truth rather than a
+  # possibly-stale cached config — notably `LogFile.apply_config_debug/0`, which
+  # runs at boot before the cache exists and must stay deterministic under test.
+  @spec settings_uncached() :: {:ok, Schema.t()} | {:error, term()}
+  def settings_uncached, do: settings_from(Workflow.load())
+
+  defp settings_from({:ok, %{config: config}}) when is_map(config) do
+    config
+    |> prepare_config()
+    |> Schema.parse()
   end
+
+  defp settings_from({:error, reason}), do: {:error, reason}
 
   @spec settings!() :: Schema.t()
   def settings! do

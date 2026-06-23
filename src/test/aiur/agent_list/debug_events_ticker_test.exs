@@ -92,7 +92,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
 
     test "hides oldest events when section would exceed budget" do
       events =
-        for i <- 100..1, do: debug_entry(:publish, topic: "ticket.#{i}.branch.push", id: i)
+        for i <- 100..1//-1, do: debug_entry(:publish, topic: "ticket.#{i}.branch.push", id: i)
 
       state = build_state(rows: 24, debug_events: events)
       output = state |> Renderer.render() |> IO.iodata_to_binary()
@@ -413,7 +413,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
     end
   end
 
-  defp debug_entry(kind, opts \\ []) do
+  defp debug_entry(kind, opts) do
     %{
       kind: kind,
       topic: Keyword.get(opts, :topic, "ticket.1.branch.push"),

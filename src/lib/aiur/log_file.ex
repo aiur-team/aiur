@@ -102,7 +102,10 @@ defmodule Aiur.LogFile do
   # error or raise (e.g. a legacy config key that `Schema.parse` rejects with
   # an ArgumentError) must leave debug off rather than crash boot.
   defp config_file_debug? do
-    match?({:ok, %{debug: true}}, Aiur.Config.settings())
+    # Read the config file directly (uncached): this runs at boot before the
+    # WorkflowStore cache exists, and under test a stale cached `debug:` value
+    # from a sibling test would otherwise leak in and flip the flag.
+    match?({:ok, %{debug: true}}, Aiur.Config.settings_uncached())
   rescue
     _ -> false
   end
