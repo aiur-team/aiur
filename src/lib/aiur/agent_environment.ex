@@ -3,7 +3,14 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE)
+  # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
+  # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
+  # (codex inherits all env) leaks the outer instance's keyed identity into an inner
+  # `aiurdev` it launches, which then reuses the outer's node/session and reaps the
+  # live outer run. AIUR_REPO_ROOT is the root the key is hashed from — if it leaks the
+  # inner recomputes the *outer's* key, so scrub it too (defense in depth: the dev shim
+  # does not export it today, but any wrapping harness might).
+  @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -19,7 +26,7 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE; " <>
+    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT; " <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE) unset \"$aiur_env_name\" ;; " <>
