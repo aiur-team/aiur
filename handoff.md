@@ -1,151 +1,72 @@
-# HANDOFF — aiur dogfood loop, continuing on a bigger box
+# Handoff - Aiur dogfood loop paused
 
-_Last updated: 2026-06-23. Punted from a 12-core MacBook (CPU-bound at 3 agents — see "The CPU
-ceiling" below) to a machine with more cores. Prewarm is shipped + verified; this is the
-ongoing dogfood/debug loop._
+Last updated: 2026-06-23. Aiur is paused/stopped by operator request. Do not restart Aiur, change agent labels, or continue the dogfood loop until the operator explicitly says to resume.
 
-## The goal (current `/goal` — carry this forward verbatim)
+## Current State
 
-> Triage open issues #266–#443 — quick-spike each, close the genuinely outdated ones, and label
-> every agent-doable one `complexity:5` + `agent:todo` (reassessing even the human-review-tagged
-> tickets, since most are agent-doable) so aiur picks them up. Then run the aiurdev debug loop:
-> launch it, monitor agents as they work the backlog while watching for CPU bottlenecks and
-> confirming prewarm is working, debug and route any issues found (file an `agent:todo` ticket —
-> preferred — or self-fix via the CE loop when it needs your input or isn't agent-safe), and
-> review + merge agents' fix PRs as they land until the queue is worked down.
+- `scripts/aiurdev status` reports no running node:
+  `aiur: no running aiur node at aiur-orangekid-5c1b32aea9@127.0.0.1; start aiur and try again`
+- Open PRs: none.
+- Local checkout is dirty with user/local edits. Do not revert these:
+  - `.aiur/config`
+  - `.env.example`
+  - `handoff.md`
+  - untracked `.aiurconfig`
+  - untracked `AIUR.md`
+- Main may need a normal merge pull later, but preserve local edits. The operator previously allowed pulling main as long as local edits stay intact.
 
-**Phase 1 (triage): DONE** — 7 closed as outdated, 21 labeled `agent:todo`+`complexity:5`.
-**Phase 2 (debug loop): IN PROGRESS** — many fix PRs merged (below); blocked from scaling by the
-CPU ceiling. Your job: continue phase 2 on the bigger box until the queue is worked down.
+## Recent Completed Work
 
-## TL;DR for the next machine
+- PR #490 for issue #334 was salvaged, reviewed, and merged.
+  - PR: https://github.com/its-everdred/aiur/pull/490
+  - Merge commit: `5da7524e27b2a22a273ba2d1dc659586b2156309`
+  - Closing issue #334 is closed, though it may still have stale agent/human-review labels.
+- Earlier merged PRs in this run:
+  - #476 closed #437
+  - #467 closed #376
 
-1. `git checkout main && git pull` (all the fixes below are on `main`; the old `feat/prewarm-base`
-   work is merged).
-2. Read **"The CPU ceiling"** — it's why we punted. Then **land #465 first** (it unlocks scaling),
-   or just run more agents because you have more cores.
-3. `aiurdev build` → set concurrency in `.aiur/config` → `aiurdev --bg --debug` → verify prewarm
-   `:ready` → monitor agents + load → review/merge PRs as they land → route new issues as
-   `agent:todo`. The `aiur-run` skill (`.claude/skills/aiur-run`) is the full operator playbook.
+## Active Queue Snapshot
 
-## What this session merged (the loop's output so far)
+`agent:todo` open issues at handoff:
 
-- **#439** — #431 per-instance aiur identity (cwd-keyed node/tmux/socket) + env scrub so an inner
-  aiur can't reap the outer. **A second aiur from a different repo root now coexists** — so this
-  new machine's run won't collide with anything.
-- **#441** — prewarm: trust base `mise.toml`, surface `base_build` failures.
-- **#444** — flaky-test global-state leak fixes.
-- **#451** — `aiur-run` operator skill.
-- **#452** — #337 orchestrator status timing flakes.
-- **#458** — #453 clean-stop: `aiurdev stop` reaps the whole agent tree by cwd. **Validated** — but
-  see #468 caveat below.
-- **#457** — #409 FD footprint: caps the attach N×M fan-out (the `:emfile` driver).
-- **#460** — #449 lean `--bg` headless mode + **`--max-agents` flag** + `agents` status command.
-- **#462** — agents on the `its-applekid` machine add `Co-authored-by: its-everdred`; never mention
-  Claude/AI in commit/PR text. (Already in the shared agent prompt.)
-- **#463 / #464 / #466** — three more flaky-test fixes (#446 AIUR_DEBUG, #459 ls_remote_ticker,
-  #448 debug-events). These make agent CIs reliable.
+- #492 `aiurdev status sees bg agents while RPC commands report no running node` - `model:codex`
+- #491 `Move alert sound mappings into .aiur with alerts.example`
+- #488 `Background aiur daemon disappears without crash record during active run`
+- #487 `Design workspace-local log layout and pause for operator decision`
+- #489 `aiur-status tails stale workspace root and misses active background runs`
+- #486 `aiurdev agents crashes on structured Codex activity events` - `model:codex`
+- #485 `Resume agents do not ingest PR comments posted while offline`
+- #484 `GitHub tracker skips agent:rework issues despite active_states including rework`
+- #483 `Audit and slim down tmux usage in background mode`
 
-## The CPU ceiling (READ before scaling — this is why we punted)
+Stale `agent:in-progress` labels are present even though Aiur is stopped:
 
-The 12-core MacBook **melts at 5 agents** (load 115–129) and even **bursts to ~129 at 3** when all
-agents hit `mix test` at the same moment. Root cause: each agent runs the **full `mix test` suite
-(~70s at 100% CPU)** during its CE loop; N concurrent suite runs saturate the cores. `max_concurrent_agents`
-caps the agent *count* but nothing caps collective CPU. Stable steady-state at 3 is load 2–9, but the
-test-sync **bursts** are dangerous.
+- #482 `Run agent aiurdev IR tests in isolated sandboxes` - `model:codex`
+- #481 `Make aiur run/status skills discoverable by Codex`
+- #479 `Agents reproducing load-sensitive flakes spawn unbounded CPU load-generators that starve sibling agents` - `model:codex`
+- #477 `Load gate (#465) is off by default...` - `model:codex`
+- #469 `Config + init: per-complexity model and effort selection...` - `model:codex`
+- #468 `Shutdown reap (#458) leaves a straggler under heavy mid-test load...` - `model:codex`
 
-- **#465 is the structural unlock** (`agent:todo`, filed this session): CPU-aware throttling — a global
-  heavy-op semaphore (only K agents run `mix test`/`compile` at once), and/or load-gated dispatch,
-  and/or affected-tests-only during the loop. **Prioritize #465**, then raise `max_concurrent_agents`.
-- On a box with more cores you can run more agents right away — but #465 still makes it robust.
+Do not assume these are actually running. They likely need label cleanup before any restart, but the operator asked to pause all work, so no cleanup was performed.
 
-## Linux-specific edge cases (⚠️ the next box is Linux — this whole loop ran on macOS)
+## Important Risks
 
-Everything above was exercised on a Mac. The Linux box may surface **new bugs** in these spots —
-re-verify each, and **file `agent:todo` tickets** for anything that breaks:
+- Keep concurrency at 1 until the load/process bugs are fixed.
+- Do not reactivate #447 without operator confirmation. It previously spawned many `yes` CPU load generators and pause did not stick.
+- #479 tracks the unbounded load-generator problem.
+- #482 tracks nested/manual `aiurdev` IR tests needing their own sandbox. Before that is fixed, agents that run `scripts/aiurdev --test` from their own workspaces can interfere with the operator's main Aiur session.
+- #486 means `scripts/aiurdev agents` may crash on structured Codex activity events. Prefer `scripts/aiurdev status` plus logs until fixed.
 
-- **CoW materialization path flips.** macOS used `cp -c` (APFS clonefile); Linux uses
-  `cp --reflink=auto -a` (`workspace.ex`, U6). True reflink needs **btrfs/XFS** — on **ext4** it
-  silently falls back to a **full copy**: slower materialize + much more disk per workspace. Watch
-  boot→materialize time and disk under `workspace.root`; if it's slow/heavy, reflink isn't firing and
-  prewarm's CPU/disk win shrinks.
-- **Linux load average ≠ macOS.** Linux counts **D-state (uninterruptible I/O wait)** in the load
-  number, so disk-bound CoW copies + concurrent git/compile can push load high from **I/O**, not just
-  CPU. The "load < ~2× cores" heuristic may misread — cross-check actual CPU (`top`, `mpstat`,
-  `/proc/loadavg` vs `vmstat`) before concluding it's a CPU meltdown. The 3-agent ceiling we hit is a
-  macOS/12-core number; recalibrate it here.
-- **`:emfile` / FD limits differ.** Linux default `ulimit -n` and per-process FD accounting differ
-  from macOS; `aiur-engine.sh` raises it, but re-watch for `:emfile` (#409) as you scale agents.
-- **Orphan reap / reparenting (#468).** Linux reparents orphans to PID 1 or a subreaper
-  (`PR_SET_CHILD_SUBREAPER`); the shutdown-straggler behavior may differ from what we saw. The cwd-reap
-  backstop uses `lsof -d cwd` (works on Linux); `readlink /proc/<pid>/cwd` is the native fallback if
-  `lsof` is missing.
-- **Bigger box = higher ceiling.** More cores means you can likely run more than 3 agents right away —
-  ramp up while watching *CPU* (not I/O-inflated load). #465 still makes high concurrency robust.
-- Codex backend is already Linux-configured (`.aiur/config` `writableRoots` → `/home/applekid`,
-  `/home/orangekid`).
+## Alert Flag Finding
 
-## Clean-stop status (#458 + the new #468)
+There does not appear to be a dedicated built-in alert topic for "agent killed" or generic "agent ended." Current alert coverage includes `agent.paused`, `agent.unpaused`, `agent.error.tokens_exhausted`, phase ends like `agent.work.end` / `agent.review.end`, and tracker events such as human-review labels, PR merged, and issue state changes. If this matters operationally, file a new `agent:todo` ticket to emit explicit termination alerts such as `ticket.<id>.agent.killed` or `ticket.<id>.agent.terminated`, with default alert mapping and tests.
 
-- `aiurdev stop` now reaps the agent tree (no more manual orphan hunts in the normal case).
-- **#468** (filed this session): under **heavy mid-`mix test` load** the reap isn't fully synchronous
-  before `System.halt` — a **straggler can survive**. Until #468 lands, after every `aiurdev stop`
-  run the cwd-reap backstop:
-  ```bash
-  for pid in $(pgrep -f 'claude|codex|beam.smp|opencode|mix'); do
-    c=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | grep '^n' | sed 's/^n//')
-    case "$c" in *aiur-workspaces*|*.aiur/repo*) kill -9 "$pid";; esac
-  done
-  ```
-  Safe because Claude Code's own cwd is the repo, not a workspace.
+## If Resuming Later
 
-## The backlog (where the work is)
-
-- **`agent:todo` (dispatch-ready):** `#465` (CPU throttle — PRIORITIZE), `#468` (shutdown straggler),
-  `#376` (warm-pool cap), `#447` (core_test flake), `#461` (subscription_store flake).
-  _(The GitHub label-search index lags; trust `gh issue view`. `#376/#447/#461` were just reset from
-  `in-progress`→`todo` for clean cross-machine pickup.)_
-- **WIP preserved on GitHub branches** (agents resume by pulling these): `aiur/376` (has **draft PR
-  #467** "Size warm pool without capping opencode slots"), `aiur/447`, `aiur/461`.
-- **Broader doable backlog:** ~22 `complexity:5` tickets from the #266–443 triage are **not yet
-  `agent:todo`** — promote them in batches as you scale (`gh issue edit N1 N2 … --add-label agent:todo`).
-
-## Operator procedures (the `aiur-run` skill has the full version)
-
-- **Config** (`.aiur/config`): set `agent.max_concurrent_agents` AND `pre_warmed_sessions` **both = your
-  target** (#376: `pre_warmed_sessions` still hard-caps live agents). Currently `3/3` — raise on the
-  bigger box. Never `aiurdev init --force` (clobbers config). `tracker.kind: github`, repo
-  `its-everdred/aiur`, `label_prefix: agent`, routing `4/5 → claude`, `prewarm.enabled: true`.
-- **Launch:** `aiurdev build` (force release rebuild) → `aiurdev --bg --debug` (detached, logs under
-  `~/.aiur/logs`). Refuses if `$TMUX` is set. Never `--test`/`--test3` (resets sandbox tickets).
-- **Verify prewarm every launch:** base at `~/.aiur/repo/its-everdred/aiur/.aiur-base-built`; log reaches
-  `prewarm:phase … :ready`; workspaces materialize in seconds (CoW), not per-agent cold builds.
-- **Monitor:** `/aiur-status` (loop `2m`); watch `uptime` load — healthy if it stays under ~2× cores.
-  Watch for `:emfile` in the log (#409 mostly fixed) and the test-sync bursts (#465).
-- **Stop:** `aiurdev stop`, then the #468 cwd-reap backstop above.
-- **On a load spike toward danger:** stop, reap by cwd, lower concurrency, relaunch.
-
-## Conventions (enforced; already in the agent prompt / CLAUDE.md)
-
-- Commit messages **3–7 words**, **never mention AI/Claude/models**.
-- `its-applekid` author → add `Co-authored-by: its-everdred <kevinweaver2@gmail.com>` trailer (#462).
-- Tickets the operator opens get `agent:todo`. **Merge is operator-authorized** (agents open/ready PRs,
-  don't self-merge). Use targeted `git add`, never `-A` (there's a stray `.aiur/config.bak`).
-- **NEVER read `.env`/secret files.** `.aiur/config` is gh-auth (no tokens) — safe.
-
-## Gotchas
-
-- Flaky CI: each agent PR's CI may hit a random suite flake — **re-run to green** (the merged flaky
-  fixes + remaining `#447/#461` shrink this). Don't treat one flaky red as real.
-- GitHub secondary rate-limit on rapid mutations: a single multi-issue `gh issue edit N1 N2 …` is one
-  operation and bypasses it; loops trip it.
-- Leftover `agent:in-progress` labels make the orchestrator **resume the wrong tickets** on relaunch —
-  clear them before launching (we hit this twice).
-
-## Next steps for the new machine
-
-1. Pull `main`, `aiurdev build`, set concurrency for your core count, launch.
-2. **Land #465** (CPU throttle) → then scale `max_concurrent_agents` up confidently.
-3. Work the backlog: flaky fixes `#447`/`#461`, `#376`, `#468`, then promote + work the broader 22.
-4. Review + merge PRs as they land (`/code-review` or green/red); route new issues as `agent:todo`.
-5. Keep verifying prewarm `:ready` and watching load; reap stragglers per #468 until it's fixed.
+1. Confirm with the operator before starting anything.
+2. Recheck `scripts/aiurdev status`, `gh pr list`, and current `agent:*` labels.
+3. Clean stale `agent:in-progress` labels intentionally; do not blindly reactivate risky tickets.
+4. Restart conservatively with one agent only, for example `scripts/aiurdev --bg --max-agents 1`.
+5. Watch the selected ticket, Aiur logs, and process list closely for nested-run or CPU runaway regressions.
+6. Review any agent PRs before merge; merge only when tests/checks are green and the behavior is verified.
