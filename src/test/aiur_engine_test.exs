@@ -13,7 +13,9 @@ defmodule AiurEngineTest do
       {"AIUR_PROFILES_FILE", nil},
       {"AIUR_RELEASE_NODE", nil},
       {"AIUR_COOKIE_FILE", nil},
-      {"AIUR_RELEASE_DIR", nil}
+      {"AIUR_RELEASE_DIR", nil},
+      {"AIUR_REPO_ROOT", nil},
+      {"AIUR_INSTANCE_KEY", nil}
     ]
 
     env = base ++ overrides
@@ -28,11 +30,14 @@ defmodule AiurEngineTest do
     end)
   end
 
-  test "resolves the single aiur identity" do
+  test "resolves a per-instance keyed identity" do
+    # Runs inside an aiur project (this repo has .aiur/config), so the node name is
+    # keyed by the project root — two instances for the same user can't collide (#431).
     id = identity([])
 
     assert id["AIUR_SESSION_PREFIX"] == "aiur"
-    assert id["AIUR_RELEASE_NODE"] == "aiur-tester@127.0.0.1"
+    assert id["AIUR_RELEASE_NODE"] =~ ~r/\Aaiur-tester-[0-9a-f]{1,12}@127\.0\.0\.1\z/
+    assert id["AIUR_INSTANCE_KEY"] =~ ~r/\A[0-9a-f]{1,12}\z/
     assert id["AIUR_BG_STATE_DIR"] =~ ~r{/\.config/aiur$}
     assert id["AIUR_COOKIE_FILE"] =~ ~r{/\.config/aiur/cookie$}
   end
@@ -42,8 +47,8 @@ defmodule AiurEngineTest do
 
     assert id["AIUR_BG_STATE_DIR"] == "/tmp/aiur-test-state"
     assert id["AIUR_COOKIE_FILE"] == "/tmp/aiur-test-state/cookie"
-    # naming stays the fixed aiur identity regardless of state dir
-    assert id["AIUR_RELEASE_NODE"] == "aiur-tester@127.0.0.1"
+    # the instance key is derived from the project root, not the state dir
+    assert id["AIUR_RELEASE_NODE"] =~ ~r/\Aaiur-tester-[0-9a-f]{1,12}@127\.0\.0\.1\z/
   end
 
   # A minimal stub release: start_erl.data + a fake `elixir` that echoes its args

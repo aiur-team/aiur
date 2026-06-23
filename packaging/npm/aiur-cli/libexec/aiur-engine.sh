@@ -42,7 +42,31 @@ die() {
 
 engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# --- distribution identity (fixed: the single `aiur` identity) ---------------
+# --- distribution identity (per-instance: keyed by the aiur project root) -----
+
+# The aiur project root (dir holding the active config). AIUR_REPO_ROOT (set by
+# the dev shim) wins; otherwise walk up from $PWD. Empty when run outside a project.
+aiur_project_root() {
+  if [ -n "${AIUR_REPO_ROOT:-}" ]; then printf '%s' "$AIUR_REPO_ROOT"; return; fi
+  local d="$PWD"
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    if [ -f "$d/.aiur/config" ] || [ -f "$d/.aiurconfig" ]; then
+      printf '%s' "$d"
+      return
+    fi
+    d="$(dirname "$d")"
+  done
+}
+
+# Short, stable, node-name-legal (lowercase hex) key for the project root, so two
+# aiur instances for the same user get distinct node/session/socket names and can't
+# reap each other. Empty when no project resolves (names fall back to the legacy form).
+aiur_instance_key() {
+  local root
+  root="$(aiur_project_root)"
+  [ -n "$root" ] || return 0
+  printf '%s' "$root" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-10
+}
 
 aiur_resolve_identity() {
   local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -51,10 +75,15 @@ aiur_resolve_identity() {
   : "${AIUR_COOKIE_FILE:=$AIUR_BG_STATE_DIR/cookie}"
   : "${AIUR_SESSION_PREFIX:=aiur}"
   : "${AIUR_PROFILES_FILE:=$config_home/aiur/aiur.profiles}"
-  : "${AIUR_RELEASE_NODE:=aiur-${USER}@127.0.0.1}"
+  # Compute the per-instance key once. `${VAR+x}` so an explicit empty value (no
+  # project resolved) is honored and not recomputed on each call.
+  if [ -z "${AIUR_INSTANCE_KEY+x}" ]; then
+    AIUR_INSTANCE_KEY="$(aiur_instance_key)"
+  fi
+  : "${AIUR_RELEASE_NODE:=aiur-${USER}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}@127.0.0.1}"
 
   export AIUR_BG_STATE_DIR AIUR_COOKIE_FILE AIUR_SESSION_PREFIX \
-    AIUR_PROFILES_FILE AIUR_RELEASE_NODE
+    AIUR_PROFILES_FILE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY
 }
 
 aiur_print_identity() {
@@ -64,6 +93,7 @@ aiur_print_identity() {
   printf 'AIUR_SESSION_PREFIX=%s\n' "$AIUR_SESSION_PREFIX"
   printf 'AIUR_PROFILES_FILE=%s\n' "$AIUR_PROFILES_FILE"
   printf 'AIUR_RELEASE_NODE=%s\n' "$AIUR_RELEASE_NODE"
+  printf 'AIUR_INSTANCE_KEY=%s\n' "$AIUR_INSTANCE_KEY"
   printf 'AIUR_COOKIE_FILE=%s\n' "$AIUR_COOKIE_FILE"
 }
 
@@ -304,8 +334,8 @@ run_session() {
     export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:-} +fnu"
   fi
 
-  local session="${AIUR_SESSION_PREFIX}-${USER:-user}-default"
-  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}"
+  local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
+  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
   local conf
   conf="$(resolve_tmux_conf)"
   [ -f "$conf" ] || die "tmux conf not found at $conf"
@@ -364,12 +394,22 @@ run_session() {
     install_foreground_traps
   fi
 
-  # An orphaned BEAM (its tmux session gone) can still hold the node name —
-  # under the unified identity, even one from a different release dir. With no
-  # live session on our socket, reap any name-holder so the launch isn't blocked
-  # by "name seems to be in use".
+  # An orphaned BEAM (its tmux session gone) can still hold THIS instance's node
+  # name. With no live session on our (instance-keyed) socket, reap the name-holder
+  # so the launch isn't blocked by "name seems to be in use". The keyed name means
+  # this only ever reaps our own instance's orphan, never another live aiur.
   if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
     kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+  fi
+
+  # One-time transition: a keyed instance also reaps a stale beam under the legacy
+  # un-keyed name (aiur-$USER@127.0.0.1) — but only when no live legacy session
+  # exists, so a pre-fix run still in progress is never killed.
+  if [ -n "${AIUR_INSTANCE_KEY:-}" ]; then
+    local legacy_socket="${AIUR_SESSION_PREFIX}-${USER:-user}"
+    if ! "$tmux_bin" -L "$legacy_socket" -f "$conf" has-session -t "${legacy_socket}-default" 2>/dev/null; then
+      kill_beams_matching "-name aiur-${USER}@127.0.0.1"
+    fi
   fi
 
   if ! "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
@@ -793,8 +833,8 @@ cmd_stop() {
 
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
-  local session="${AIUR_SESSION_PREFIX}-${USER:-user}-default"
-  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}"
+  local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
+  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
   if [ -n "$tmux_bin" ]; then
     "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
   fi
