@@ -320,6 +320,12 @@ run_session() {
   export AIUR_SESSION_TMPFILE="${session_root}/aiur-${$}-sessions"
   : >"$AIUR_SESSION_TMPFILE"
 
+  # Agent pidfile: the BEAM appends one line per spawned agent (pane or headless
+  # os_pid) via Aiur.ProcessReaper. The BEAM-death watchdog and session_cleanup
+  # reap from it after the BEAM is gone — a crashed BEAM can kill nothing itself.
+  export AIUR_AGENT_TMPFILE="${session_root}/aiur-${$}-agents"
+  : >"$AIUR_AGENT_TMPFILE"
+
   local startup_capture
   startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.XXXXXX")"
 
@@ -336,7 +342,7 @@ run_session() {
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
-      AIUR_SESSION_TMPFILE ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_DEBUG; do
+      AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_DEBUG; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -353,7 +359,7 @@ run_session() {
     _session_socket="$socket" _session_name="$session" _session_conf="$conf" \
       _session_tmpfile="$AIUR_SESSION_TMPFILE" _session_capture="$startup_capture" \
       _session_argv="$argv_file" _session_release="$release_dir" _session_tmux="$tmux_bin" \
-      _session_node="$AIUR_RELEASE_NODE"
+      _session_node="$AIUR_RELEASE_NODE" _session_pidfile="$AIUR_AGENT_TMPFILE"
     install_foreground_traps
   fi
 
@@ -390,6 +396,18 @@ run_session() {
     echo "aiur started in the background (tmux session ${session}). Attach with: aiur" >&2
     rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
     return 0
+  fi
+
+  # Arm the BEAM-death watchdog before attaching. If the BEAM crashes
+  # (:emfile) mid-run, agent windows keep the orphaned session alive so the
+  # `tmux attach` below never returns and the EXIT trap never fires — the
+  # watchdog is the external reaper that survives the dead BEAM, kill-servers
+  # the session, and unblocks the attach.
+  local beam_pid
+  beam_pid="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null | head -n1 || true)"
+  if [ -n "$beam_pid" ]; then
+    _session_watchdog_pid="$(start_beam_death_watchdog \
+      "$beam_pid" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
   fi
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
@@ -429,17 +447,115 @@ kill_beams_matching() {
   for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
 }
 
+# Echo $1 and every descendant pid, depth-first. Mac-safe (`pgrep -P`, no
+# /proc), mirroring Aiur.RemoteControl.collect_descendants so the launcher reaps
+# the same tree the BEAM-side reaper would. The recorded agent pid is a bash
+# `-lc` wrapper; the model process (claude --print / codex) is its child and
+# reparents to init if only the wrapper is signalled — orphan-and-survive is
+# exactly the bug — so the whole tree must be collected before any kill lands.
+agent_pid_tree() {
+  local root="$1" child
+  printf '%s\n' "$root"
+  for child in $(pgrep -P "$root" 2>/dev/null || true); do
+    agent_pid_tree "$child"
+  done
+}
+
+# pid-reuse guard: succeeds when pid $1 is alive AND its command still contains
+# the comm substring $2 the BEAM recorded. An empty comm kills unconditionally.
+# Mirrors the BEAM-side cmdline guard (Aiur.ProcessReaper) but Mac-safe via
+# `ps -o command=`, so a recycled pid whose command no longer matches is spared.
+agent_pid_matches() {
+  local pid="$1" comm="$2" cmd
+  kill -0 "$pid" 2>/dev/null || return 1
+  [ -n "$comm" ] || return 0
+  cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  case "$cmd" in *"$comm"*) return 0 ;; *) return 1 ;; esac
+}
+
+# Reap every aiur agent the BEAM can no longer reap itself.
+#
+#   $1 socket   aiur tmux socket (-L); kill-server nukes all panes (may be empty)
+#   $2 pidfile  AIUR_AGENT_TMPFILE (BEAM-written agent refs; may be empty/missing)
+#
+# tmux runs on aiur's PRIVATE socket (-L aiur-$USER), so kill-server tears down
+# every REPL/chat pane agent in one shot AND leaves no live aiur tmux server —
+# never touching the operator's own default tmux. Headless agents (claude/codex
+# app-servers spawned via Port) are bare OS processes that reparent to init on a
+# BEAM crash; kill-server can't see them, so they're reaped from the pidfile by
+# process tree, comm-guarded against pid reuse. Idempotent.
+reap_aiur_agents() {
+  local socket="$1" pidfile="${2:-}"
+  local tmux_bin
+  tmux_bin="$(command -v tmux || true)"
+
+  if [ -n "$tmux_bin" ] && [ -n "$socket" ]; then
+    "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
+  fi
+
+  [ -n "$pidfile" ] && [ -r "$pidfile" ] || return 0
+
+  # Snapshot the full process tree of every still-matching headless agent before
+  # signalling, so descendants that reparent mid-reap are already on the list.
+  local kind pid comm tree=() p
+  while read -r kind pid comm; do
+    [ "$kind" = "pid" ] && [ -n "$pid" ] || continue
+    agent_pid_matches "$pid" "$comm" || continue
+    while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
+  done <"$pidfile"
+
+  [ "${#tree[@]}" -gt 0 ] || return 0
+
+  for p in "${tree[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
+  local waited=0
+  while [ "$waited" -lt 20 ]; do
+    local any=0
+    for p in "${tree[@]}"; do kill -0 "$p" 2>/dev/null && { any=1; break; }; done
+    [ "$any" -eq 0 ] && break
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
+}
+
+# Background watchdog that survives the BEAM. Polls the BEAM's pid and, the
+# moment it disappears (orderly halt OR :emfile-style crash), reaps every agent.
+# kill-server collapses the orphaned tmux session, which returns the foreground
+# `tmux attach` so the EXIT trap (session_cleanup) runs its idempotent reap too.
+#
+#   $1 beam_pid  $2 socket  $3 pidfile  $4 interval_s
+# Prints the watchdog's own pid so the caller can kill it on a clean teardown.
+start_beam_death_watchdog() {
+  local beam_pid="$1" socket="$2" pidfile="$3" interval="${4:-1}"
+  # Redirect the subshell's stdout so a command-substitution caller
+  # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
+  # blocking on the still-open pipe until the watchdog finishes.
+  (
+    while kill -0 "$beam_pid" 2>/dev/null; do sleep "$interval"; done
+    reap_aiur_agents "$socket" "$pidfile"
+  ) >/dev/null 2>&1 &
+  printf '%s\n' "$!"
+}
+
 # Foreground teardown: kill the session + BEAM and reap opencode sessions on exit.
 _session_socket="" _session_name="" _session_conf="" _session_tmpfile=""
 _session_capture="" _session_argv="" _session_release="" _session_tmux="" _session_node=""
+_session_pidfile="" _session_watchdog_pid=""
 _cleanup_ran=0
 session_cleanup() {
   [ "$_cleanup_ran" = 1 ] && return 0
   _cleanup_ran=1
   local code=$?
 
+  # Stop the BEAM-death watchdog: cleanup is running, so it has no work left and
+  # a lingering poller would outlive this teardown.
+  [ -n "$_session_watchdog_pid" ] && kill "$_session_watchdog_pid" 2>/dev/null || true
+
+  # kill-server (not kill-session) on aiur's private socket: tears down every
+  # pane agent across all windows AND leaves no live aiur tmux server, then reaps
+  # headless agents from the pidfile. Idempotent with the watchdog's own reap.
   if [ -n "$_session_tmux" ]; then
-    "$_session_tmux" -L "$_session_socket" -f "$_session_conf" kill-session -t "$_session_name" 2>/dev/null || true
+    reap_aiur_agents "$_session_socket" "$_session_pidfile"
   fi
 
   local beam_pids pid waited=0
@@ -482,7 +598,7 @@ session_cleanup() {
   # Reap agent-driver sockets this run orphaned at close, not next launch.
   sweep_dead_tmux_sockets || true
 
-  rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" 2>/dev/null || true
+  rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" 2>/dev/null || true
   return $code
 }
 install_foreground_traps() {
@@ -652,6 +768,25 @@ cmd_stop() {
   # Reap any BEAM holding our node name regardless of which release dir launched
   # it — orphans from a dev build or a prior install share the unified name.
   kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+
+  # The BEAM (alive until the TERM above) reaped its own headless agents through
+  # ProcessReaper on Application.stop. kill-server is the guarantee the earlier
+  # kill-session can't give for mid-turn agents: every pane agent across all
+  # windows dies and no live aiur tmux server is left behind.
+  if [ -n "$tmux_bin" ]; then
+    "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
+  fi
+
+  # Belt-and-suspenders for a mid-turn stop: sweep any headless agent (this run
+  # or a prior crashed one) still recorded in a pidfile. comm-guarded, so a
+  # recycled pid is spared. Empty socket: the kill-server above already ran.
+  local session_root agentfile
+  session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+  for agentfile in "$session_root"/aiur-*-agents; do
+    [ -e "$agentfile" ] || continue
+    reap_aiur_agents "" "$agentfile"
+    rm -f "$agentfile" 2>/dev/null || true
+  done
 
   sweep_dead_tmux_sockets
 }

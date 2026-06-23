@@ -159,6 +159,7 @@ defmodule Aiur.ProcessReaper do
   end
 
   def handle_call({:register, kind, ref, meta}, _from, state) do
+    record_agent_pidfile(kind, ref, meta)
     {:reply, :ok, put_in(state.entries[ref], {kind, meta})}
   end
 
@@ -189,6 +190,39 @@ defmodule Aiur.ProcessReaper do
     end)
 
     :ok
+  end
+
+  # ----------------------------------------------------- crash-reaper pidfile
+
+  # Mirrors the `AIUR_SESSION_TMPFILE` precedent: the BEAM appends one line per
+  # spawned agent so the bash launcher's BEAM-death watchdog can reap pane and
+  # headless agents after the BEAM itself is gone (a dead BEAM can kill nothing).
+  # Only `:agent` entries are recorded — `:serve` (opencode-serve) is handled by
+  # the session tmpfile + HTTP delete path. Best-effort: a write failure must
+  # never break agent registration.
+  defp record_agent_pidfile(:agent, ref, meta) do
+    case System.get_env("AIUR_AGENT_TMPFILE") do
+      nil -> :ok
+      "" -> :ok
+      path -> append_pidfile_line(path, pidfile_line(ref, meta))
+    end
+  end
+
+  defp record_agent_pidfile(_kind, _ref, _meta), do: :ok
+
+  defp pidfile_line({:os_pid, pid}, %{comm: comm}) when is_binary(comm) and comm != "",
+    do: "pid #{pid} #{comm}"
+
+  defp pidfile_line({:os_pid, pid}, _meta), do: "pid #{pid}"
+  defp pidfile_line({:pane, pane_id}, _meta), do: "pane #{pane_id}"
+
+  defp append_pidfile_line(path, line) do
+    File.write(path, line <> "\n", [:append])
+    :ok
+  rescue
+    error ->
+      Logger.warning("process_reaper pidfile_write_failed path=#{path} error=#{inspect(error)}")
+      :ok
   end
 
   # ---------------------------------------------------------------- kills
