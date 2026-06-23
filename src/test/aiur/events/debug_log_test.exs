@@ -20,6 +20,7 @@ defmodule Aiur.Events.DebugLogTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Events.DebugLog
+  alias Aiur.Opencode.EventRow
 
   test "per-identifier subscriber receives :publish marks for its own ticket topic" do
     DebugLog.subscribe("issue-1")
@@ -63,5 +64,58 @@ defmodule Aiur.Events.DebugLogTest do
 
     assert_receive {:event_debug, %{topic: "ticket.issue-1.pr.opened"}}, 500
     assert_receive {:event_debug, %{kind: :receive, identifier: "issue-2"}}, 500
+  end
+
+  # The per-identifier routing in DebugLog.broadcast and the in-handler
+  # `EventRow.matches?/2` guard are duplicated logic bound only by a
+  # comment. This pins their equivalence: a per-identifier subscriber
+  # receives an entry IFF `matches?` would have accepted it — including
+  # the non-`ticket.` topic case where neither should deliver.
+  test "per-identifier delivery matches EventRow.matches?/2 for representative entries" do
+    DebugLog.subscribe("issue-1")
+
+    entries = [
+      {%{kind: :publish, topic: "ticket.issue-1.pr.opened", identifier: nil}, true},
+      {%{kind: :publish, topic: "ticket.issue-2.pr.opened", identifier: nil}, false},
+      {%{kind: :receive, topic: "ticket.issue-9.branch.push", identifier: "issue-1"}, true},
+      {%{kind: :receive, topic: "ticket.issue-1.branch.push", identifier: "issue-2"}, false},
+      {%{kind: :publish, topic: "system.main.branch.push", identifier: nil}, false}
+    ]
+
+    for {{entry, expected}, idx} <- Enum.with_index(entries) do
+      assert EventRow.matches?(entry, "issue-1") == expected,
+             "matches?/2 baseline drifted for #{inspect(entry)}"
+
+      DebugLog.broadcast(entry.kind, entry.topic, id: 100 + idx, identifier: entry.identifier, body: nil)
+
+      if expected do
+        topic = entry.topic
+        assert_receive {:event_debug, %{topic: ^topic}}, 500
+      end
+    end
+
+    # Negative cases must not have leaked onto issue-1's sub-topic. By
+    # now the positive broadcasts above have been drained; anything left
+    # matching a known-negative topic is a routing bug.
+    refute_receive {:event_debug, %{topic: "ticket.issue-2.pr.opened"}}, 50
+    refute_receive {:event_debug, %{topic: "ticket.issue-1.branch.push"}}, 50
+    refute_receive {:event_debug, %{topic: "system.main.branch.push"}}, 50
+  end
+
+  # The fix only works if the consumer is wired to the per-identifier
+  # topic. Guards the exact regression: reverting session_writer.ex to
+  # the global `DebugLog.subscribe()` would re-open the M×N mailbox fan
+  # while every behavioral test above (which subscribes a bare process)
+  # still passes.
+  test "SessionWriter subscribes per-identifier, not the global firehose" do
+    source =
+      Path.expand("../../../lib/aiur/opencode/session_writer.ex", __DIR__)
+      |> File.read!()
+
+    assert source =~ ~r/DebugLog\.subscribe\(state\.identifier\)/,
+           "SessionWriter MUST subscribe its own DebugLog sub-topic (#409 item 4)"
+
+    refute source =~ ~r/DebugLog\.subscribe\(\)/,
+           "SessionWriter MUST NOT subscribe the global DebugLog firehose — that is the M×N fan-out the fix removed"
   end
 end
