@@ -71,7 +71,7 @@ defmodule Aiur.RepoBase do
         ok
 
       {:error, reason} = err ->
-        emit({:error, reason})
+        log_and_emit_error(reason)
         err
     end
   end
@@ -130,7 +130,7 @@ defmodule Aiur.RepoBase do
 
   # The build worker crashed without a clean :build_done.
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{build: %{ref: ref}} = state) do
-    emit({:error, {:build_crashed, reason}})
+    log_and_emit_error({:build_crashed, reason})
     {:noreply, %{state | build: nil, phase: {:error, {:build_crashed, reason}}}}
   end
 
@@ -231,7 +231,7 @@ defmodule Aiur.RepoBase do
 
     case result do
       {:ok, _} -> emit(:ready)
-      {:error, reason} -> emit({:error, reason})
+      {:error, reason} -> log_and_emit_error(reason)
     end
   end
 
@@ -293,11 +293,18 @@ defmodule Aiur.RepoBase do
 
   defp run_base_build(base_path, command) do
     # Same execution shape as workspace hooks: scrub the operator's Erlang
-    # distribution env at the shell level, then run in the base dir. The
-    # detected command sets its own HEX_HOME/MIX_HOME so the base owns the
-    # caches workspaces copy.
+    # distribution env at the shell level, then run in the base dir. `base_env/1`
+    # trusts the base's mise.toml (MISE_TRUSTED_CONFIG_PATHS) so mise-provided
+    # tools run; the detected command still sets its own HEX_HOME/MIX_HOME so the
+    # base owns the caches workspaces copy.
     scrubbed = AgentEnvironment.scrub_shell_command(command)
-    {out, status} = System.cmd("sh", ["-lc", scrubbed], cd: base_path, stderr_to_stdout: true)
+
+    {out, status} =
+      System.cmd("sh", ["-lc", scrubbed],
+        cd: base_path,
+        env: AgentEnvironment.base_env(base_path),
+        stderr_to_stdout: true
+      )
 
     case status do
       0 -> :ok
@@ -375,4 +382,17 @@ defmodule Aiur.RepoBase do
   end
 
   defp emit(phase), do: AgentPubSub.broadcast_prewarm_phase(phase)
+
+  # Prewarm failures used to be broadcast only as a phase event, so a base that
+  # could not build looped silently while agents fell back to cold clones. Log
+  # at error (with the captured command output) at the source, then broadcast.
+  defp log_and_emit_error(reason) do
+    Logger.error("prewarm base unavailable: " <> format_error(reason))
+    emit({:error, reason})
+  end
+
+  defp format_error({tag, status, out}) when is_integer(status) and is_binary(out),
+    do: "#{tag} (exit #{status}): #{String.slice(String.trim(out), 0, 1500)}"
+
+  defp format_error(reason), do: inspect(reason)
 end

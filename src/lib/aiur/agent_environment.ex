@@ -83,6 +83,23 @@ defmodule Aiur.AgentEnvironment do
 
   def workspace_env_export_prefix(_), do: ""
 
+  @doc """
+  `System.cmd`-compatible env tuples (binary key/value) that trust the prewarm
+  base checkout's `mise` config. `RepoBase` runs `base_build` in the freshly-
+  cloned base dir; without this its `mise.toml` is untrusted and every
+  mise-provided tool (pnpm, node, `mix` via `mise exec`) fails with
+  "Config files ... are not trusted", so the base never builds. Trusts the base
+  ROOT so the config is honored wherever the repo keeps it (root or sub-path).
+  Returns `[]` for a non-binary arg so callers can splat into `System.cmd` env
+  unconditionally.
+  """
+  @spec base_env(any()) :: [{String.t(), String.t()}]
+  def base_env(base_path) when is_binary(base_path) do
+    [{"MISE_TRUSTED_CONFIG_PATHS", base_path}]
+  end
+
+  def base_env(_), do: []
+
   defp shell_escape(value) when is_binary(value) do
     "'" <> String.replace(value, "'", "'\\''") <> "'"
   end

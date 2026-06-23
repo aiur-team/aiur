@@ -61,6 +61,35 @@ defmodule Aiur.RepoBaseTest do
       refute File.exists?(Path.join(base, ".aiur-base-built"))
     end
 
+    test "runs base_build with the base mise.toml trusted", %{origin: origin, base: base} do
+      # base_build records the trust path it actually ran with; proves base_env/1
+      # reached the build shell (regression for the untrusted-base prewarm hang).
+      assert {:ok, ^base} =
+               RepoBase.refresh(base, origin, ~s(printf '%s' "$MISE_TRUSTED_CONFIG_PATHS" > trust_path))
+
+      assert File.read!(Path.join(base, "trust_path")) =~ base
+    end
+
+    test "logs base_build failures at error with the captured output", %{origin: origin, base: base} do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, {:base_build_failed, 3, _}} =
+                   RepoBase.refresh(base, origin, "echo boom 1>&2; exit 3")
+        end)
+
+      assert log =~ "prewarm base unavailable"
+      assert log =~ "boom"
+    end
+
+    test "does not log a prewarm error on a successful base_build", %{origin: origin, base: base} do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+        end)
+
+      refute log =~ "prewarm base unavailable"
+    end
+
     test "emits ordered phase events", %{origin: origin, base: base} do
       Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
 
