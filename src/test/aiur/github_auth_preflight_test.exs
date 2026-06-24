@@ -4,8 +4,6 @@ defmodule Aiur.GitHubAuthPreflightTest do
   alias Aiur.GitHub.Client
 
   defmodule FailingPreflightClient do
-    def auth_token_fingerprint, do: "token-fingerprint"
-
     def preflight_auth do
       {:error,
        {:github_auth_preflight_failed,
@@ -16,7 +14,8 @@ defmodule Aiur.GitHubAuthPreflightTest do
           token_source: "GITHUB_TOKEN",
           status: 401,
           gh_keyring_status: :available,
-          message: "GitHub auth preflight failed for GITHUB_TOKEN while validating owner/repo issues access. Aiur uses GITHUB_TOKEN and it takes precedence over `gh` keyring auth."
+          message:
+            "GitHub auth preflight failed for GITHUB_TOKEN while validating owner/repo issues access. Aiur uses GITHUB_TOKEN and it takes precedence over `gh` keyring auth."
         }}}
     end
 

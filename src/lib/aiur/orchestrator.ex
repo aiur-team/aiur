@@ -70,7 +70,6 @@ defmodule Aiur.Orchestrator do
             agent_rate_limits: map() | nil,
             codex_totals: map() | nil,
             codex_rate_limits: map() | nil,
-            github_auth_preflight: map() | nil,
             events_etag: String.t() | nil,
             events_last_id: String.t() | nil
           }
@@ -96,7 +95,6 @@ defmodule Aiur.Orchestrator do
       agent_rate_limits: nil,
       codex_totals: nil,
       codex_rate_limits: nil,
-      github_auth_preflight: nil,
       events_etag: nil,
       events_last_id: nil
     ]
@@ -468,7 +466,9 @@ defmodule Aiur.Orchestrator do
         state =
           case reason do
             :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+              Logger.info(
+                "Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check"
+              )
 
               state
               |> complete_issue(issue_id)
@@ -480,7 +480,9 @@ defmodule Aiur.Orchestrator do
               })
 
             _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+              Logger.warning(
+                "Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry"
+              )
 
               next_attempt = next_retry_attempt_from_running(running_entry)
 
@@ -492,7 +494,9 @@ defmodule Aiur.Orchestrator do
               })
           end
 
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+        Logger.info(
+          "Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}"
+        )
 
         notify_dashboard(state)
         {:noreply, state}
@@ -657,19 +661,25 @@ defmodule Aiur.Orchestrator do
   # the cap is blocking the resume, and stamp a hint on the entry so a
   # future reconcile tick (when a slot opens up) can drain the queue.
   defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
-    Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+    Logger.info(
+      "Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}"
+    )
 
     case resume_paused_issue(state, entry) do
       {{:ok, :resumed}, next_state} ->
         next_state
 
       {{:error, :max_concurrent_agents_reached}, next_state} ->
-        Logger.warning("Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint")
+        Logger.warning(
+          "Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint"
+        )
 
         stamp_pending_auto_resume(next_state, identifier, blocker_identifier, topic)
 
       {{:error, reason}, next_state} ->
-        Logger.warning("Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
+        Logger.warning(
+          "Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}"
+        )
 
         next_state
     end
@@ -716,7 +726,9 @@ defmodule Aiur.Orchestrator do
     end
   catch
     :exit, reason ->
-      Logger.warning("subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}")
+      Logger.warning(
+        "subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}"
+      )
 
       false
   end
@@ -743,7 +755,9 @@ defmodule Aiur.Orchestrator do
     if old_status == new_status do
       state
     else
-      Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
+      Logger.info(
+        "Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}"
+      )
 
       now = DateTime.utc_now()
 
@@ -761,7 +775,13 @@ defmodule Aiur.Orchestrator do
 
   defp reactivate_if_deactivated(state, running_entry, issue_number, source, event) do
     if deactivated_running_entry?(running_entry) do
-      transition_and_revalidate_comment_reactivation(state, running_entry, issue_number, source, event)
+      transition_and_revalidate_comment_reactivation(
+        state,
+        running_entry,
+        issue_number,
+        source,
+        event
+      )
     else
       state
     end
@@ -773,16 +793,28 @@ defmodule Aiur.Orchestrator do
         state
 
       {:skip, reason} ->
-        Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        Logger.info(
+          "#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+        )
+
         state
 
       {:error, reason} ->
-        Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+        )
+
         state
     end
   end
 
-  defp transition_and_revalidate_comment_reactivation(state, running_entry, issue_number, source, event) do
+  defp transition_and_revalidate_comment_reactivation(
+         state,
+         running_entry,
+         issue_number,
+         source,
+         event
+       ) do
     issue_key = rework_issue_key(running_entry, issue_number)
 
     case transition_comment_issue_to_rework(issue_key, source, event) do
@@ -796,7 +828,11 @@ defmodule Aiur.Orchestrator do
 
       {:error, reason} ->
         context = comment_reactivation_context(running_entry, issue_number)
-        Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
+
+        Logger.warning(
+          "#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}"
+        )
+
         state
     end
   end
@@ -830,14 +866,21 @@ defmodule Aiur.Orchestrator do
         state
 
       {:error, reason} ->
-        Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
+        Logger.warning(
+          "#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}"
+        )
+
         state
     end
   end
 
   defp fetch_current_reactivation_issue(%{issue: %Issue{id: issue_id} = issue})
        when is_binary(issue_id) do
-    case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
+    case revalidate_issue_for_dispatch(
+           issue,
+           &Tracker.fetch_issue_states_by_ids/1,
+           terminal_state_set()
+         ) do
       {:ok, %Issue{} = refreshed_issue} -> {:ok, refreshed_issue}
       {:skip, %Issue{} = refreshed_issue} -> {:skip, refreshed_issue.state}
       {:skip, :missing} -> {:skip, :missing}
@@ -946,33 +989,11 @@ defmodule Aiur.Orchestrator do
   end
 
   defp ensure_github_auth_preflight(%State{} = state) do
-    token_fingerprint = GitHubTracker.auth_token_fingerprint()
-
-    if github_auth_preflight_current?(state.github_auth_preflight, token_fingerprint) do
-      {:ok, state}
-    else
-      case GitHubTracker.auth_preflight() do
-        :ok ->
-          {:ok,
-           %{
-             state
-             | github_auth_preflight: %{
-                 token_fingerprint: token_fingerprint,
-                 checked_at: DateTime.utc_now()
-               }
-           }}
-
-        {:error, reason} ->
-          {:error, reason, %{state | github_auth_preflight: nil}}
-      end
+    case GitHubTracker.auth_preflight() do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:error, reason, state}
     end
   end
-
-  defp github_auth_preflight_current?(%{token_fingerprint: fingerprint}, fingerprint)
-       when is_binary(fingerprint),
-       do: true
-
-  defp github_auth_preflight_current?(_cached, _fingerprint), do: false
 
   defp log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do
     Logger.error(GitHubClient.format_auth_preflight_error(reason))
@@ -1094,7 +1115,8 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_log_base_error({:error, reason}),
-    do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
+    do:
+      Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
 
   defp maybe_log_base_error(_phase), do: :ok
 
@@ -1142,7 +1164,9 @@ defmodule Aiur.Orchestrator do
           |> reconcile_missing_running_issue_ids(running_ids, issues)
 
         {:error, reason} ->
-          Logger.debug("Failed to refresh running issue states: #{inspect(reason)}; keeping active workers")
+          Logger.debug(
+            "Failed to refresh running issue states: #{inspect(reason)}; keeping active workers"
+          )
 
           state
       end
@@ -1246,7 +1270,8 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
-  @spec apply_thrash_check_for_test(State.t(), String.t(), integer()) :: {:ok, State.t()} | {:trip, State.t()}
+  @spec apply_thrash_check_for_test(State.t(), String.t(), integer()) ::
+          {:ok, State.t()} | {:trip, State.t()}
   def apply_thrash_check_for_test(%State{} = state, issue_id, now_ms)
       when is_binary(issue_id) and is_integer(now_ms) do
     check_thrash_budget(state, issue_id, now_ms)
@@ -1291,7 +1316,8 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
-  @spec select_worker_host_for_test(term(), String.t() | nil) :: String.t() | nil | :no_worker_capacity
+  @spec select_worker_host_for_test(term(), String.t() | nil) ::
+          String.t() | nil | :no_worker_capacity
   def select_worker_host_for_test(%State{} = state, preferred_worker_host) do
     select_worker_host(state, preferred_worker_host)
   end
@@ -1334,12 +1360,16 @@ defmodule Aiur.Orchestrator do
   defp reconcile_issue_state(%Issue{} = issue, state, active_states, terminal_states) do
     cond do
       terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info("Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
+        Logger.info(
+          "Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent"
+        )
 
         terminate_running_issue(state, issue.id, true)
 
       !issue_routable_to_worker?(issue) ->
-        Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
+        Logger.info(
+          "Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent"
+        )
 
         terminate_running_issue(state, issue.id, false)
 
@@ -1350,7 +1380,9 @@ defmodule Aiur.Orchestrator do
         deactivate_running_issue(state, issue.id)
 
       true ->
-        Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
+        Logger.info(
+          "Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent"
+        )
 
         terminate_running_issue(state, issue.id, false)
     end
@@ -1437,10 +1469,14 @@ defmodule Aiur.Orchestrator do
   defp log_missing_running_issue(%State{} = state, issue_id) when is_binary(issue_id) do
     case Map.get(state.running, issue_id) do
       %{identifier: identifier} ->
-        Logger.info("Issue no longer visible during running-state refresh: issue_id=#{issue_id} issue_identifier=#{identifier}; stopping active agent")
+        Logger.info(
+          "Issue no longer visible during running-state refresh: issue_id=#{issue_id} issue_identifier=#{identifier}; stopping active agent"
+        )
 
       _ ->
-        Logger.info("Issue no longer visible during running-state refresh: issue_id=#{issue_id}; stopping active agent")
+        Logger.info(
+          "Issue no longer visible during running-state refresh: issue_id=#{issue_id}; stopping active agent"
+        )
     end
   end
 
@@ -1523,7 +1559,9 @@ defmodule Aiur.Orchestrator do
         state
 
       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
-        Logger.info("Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot")
+        Logger.info(
+          "Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot"
+        )
 
         # Close any open chat-completion SSE streams for this identifier
         # BEFORE killing the task. `terminate_task/1` brutally kills the
@@ -1601,7 +1639,9 @@ defmodule Aiur.Orchestrator do
 
         case resume_paused_issue(state, entry) do
           {{:ok, :resumed}, next_state} ->
-            Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+            Logger.info(
+              "Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}"
+            )
 
             clear_pending_auto_resume(next_state, entry)
 
@@ -1677,7 +1717,9 @@ defmodule Aiur.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       seconds = running_seconds(Map.get(running_entry, :started_at), now)
 
-      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent")
+      Logger.warning(
+        "Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent"
+      )
 
       _ = send_pause_control_message(state, identifier)
 
@@ -1739,7 +1781,9 @@ defmodule Aiur.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       session_id = running_entry_session_id(running_entry)
 
-      Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
+      Logger.warning(
+        "Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff"
+      )
 
       next_attempt = next_retry_attempt_from_running(running_entry)
 
@@ -1822,13 +1866,25 @@ defmodule Aiur.Orchestrator do
       state =
         Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
           auto_subscribe_for_dependency(issue, current_blockers[blocker_id])
-          enqueue_dependency_event(state_acc, issue, current_blockers[blocker_id], :dependency_added)
+
+          enqueue_dependency_event(
+            state_acc,
+            issue,
+            current_blockers[blocker_id],
+            :dependency_added
+          )
         end)
 
       state =
         Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
           auto_unsubscribe_for_dependency(issue, previous_blockers[blocker_id])
-          enqueue_dependency_event(state_acc, issue, previous_blockers[blocker_id], :dependency_removed)
+
+          enqueue_dependency_event(
+            state_acc,
+            issue,
+            previous_blockers[blocker_id],
+            :dependency_removed
+          )
         end)
 
       Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
@@ -1846,7 +1902,11 @@ defmodule Aiur.Orchestrator do
 
   defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{}), do: state
 
-  defp emit_task_state_transition_alert(%State{} = state, %Issue{} = previous_issue, %Issue{} = issue) do
+  defp emit_task_state_transition_alert(
+         %State{} = state,
+         %Issue{} = previous_issue,
+         %Issue{} = issue
+       ) do
     previous_state = state_slug(previous_issue.state)
     current_state = state_slug(issue.state)
 
@@ -1867,8 +1927,11 @@ defmodule Aiur.Orchestrator do
 
   defp blocker_map(%Issue{blocked_by: blockers}) when is_list(blockers) do
     Enum.reduce(blockers, %{}, fn
-      %{id: blocker_id} = blocker, acc when is_binary(blocker_id) -> Map.put(acc, blocker_id, blocker)
-      _blocker, acc -> acc
+      %{id: blocker_id} = blocker, acc when is_binary(blocker_id) ->
+        Map.put(acc, blocker_id, blocker)
+
+      _blocker, acc ->
+        acc
     end)
   end
 
@@ -1893,7 +1956,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind) when is_map(blocker) do
+  defp enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
+       when is_map(blocker) do
     body = blocker_event_body(issue, blocker, update_kind)
 
     {queue_store, item} =
@@ -1938,10 +2002,12 @@ defmodule Aiur.Orchestrator do
     do: "Dependency on #{blocker[:identifier] || blocker[:id]} was removed"
 
   defp blocker_event_summary(_issue, blocker, :blocker_became_terminal),
-    do: "Blocker #{blocker[:identifier] || blocker[:id]} reached terminal state #{blocker[:state]}"
+    do:
+      "Blocker #{blocker[:identifier] || blocker[:id]} reached terminal state #{blocker[:state]}"
 
   defp blocker_event_summary(_issue, blocker, :blocker_became_non_terminal),
-    do: "Blocker #{blocker[:identifier] || blocker[:id]} returned to non-terminal state #{blocker[:state]}"
+    do:
+      "Blocker #{blocker[:identifier] || blocker[:id]} returned to non-terminal state #{blocker[:state]}"
 
   defp dependency_event_dedupe_key(issue, blocker, update_kind) do
     [
@@ -1997,7 +2063,13 @@ defmodule Aiur.Orchestrator do
     state
   end
 
-  defp maybe_schedule_startup_todo_alert(previous_state, next_state, %Issue{} = issue, index, true) do
+  defp maybe_schedule_startup_todo_alert(
+         previous_state,
+         next_state,
+         %Issue{} = issue,
+         index,
+         true
+       ) do
     if normalize_issue_state(issue.state) == "todo" and
          not MapSet.member?(previous_state.claimed, issue.id) and
          MapSet.member?(next_state.claimed, issue.id) do
@@ -2011,13 +2083,20 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp maybe_schedule_startup_todo_alert(_previous_state, _next_state, _issue, index, _initial_dispatch_cycle?),
-    do: index
+  defp maybe_schedule_startup_todo_alert(
+         _previous_state,
+         _next_state,
+         _issue,
+         index,
+         _initial_dispatch_cycle?
+       ),
+       do: index
 
   defp sort_issues_for_dispatch(issues) when is_list(issues) do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
-        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+        {priority_rank(issue.priority), issue_created_at_sort_key(issue),
+         issue.identifier || issue.id || ""}
 
       _ ->
         {priority_rank(nil), issue_created_at_sort_key(nil), ""}
@@ -2076,7 +2155,12 @@ defmodule Aiur.Orchestrator do
   defp effective_state_limit(issue_state, %State{} = state) do
     config = Config.settings!()
     normalized = normalize_issue_state(issue_state)
-    Map.get(config.agent.max_concurrent_agents_by_state, normalized, max_concurrent_agent_limit(state))
+
+    Map.get(
+      config.agent.max_concurrent_agents_by_state,
+      normalized,
+      max_concurrent_agent_limit(state)
+    )
   end
 
   defp running_issue_count_for_state(running, issue_state) when is_map(running) do
@@ -2186,21 +2270,33 @@ defmodule Aiur.Orchestrator do
   end
 
   defp dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
-    case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
+    case revalidate_issue_for_dispatch(
+           issue,
+           &Tracker.fetch_issue_states_by_ids/1,
+           terminal_state_set()
+         ) do
       {:ok, %Issue{} = refreshed_issue} ->
         do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host)
 
       {:skip, :missing} ->
-        Logger.info("Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}")
+        Logger.info(
+          "Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}"
+        )
+
         state
 
       {:skip, %Issue{} = refreshed_issue} ->
-        Logger.info("Skipping stale dispatch after issue refresh: #{issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}")
+        Logger.info(
+          "Skipping stale dispatch after issue refresh: #{issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}"
+        )
 
         state
 
       {:error, reason} ->
-        Logger.warning("Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.warning(
+          "Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}"
+        )
+
         state
     end
   end
@@ -2220,7 +2316,10 @@ defmodule Aiur.Orchestrator do
 
     case select_worker_host(state, preferred_worker_host) do
       :no_worker_capacity ->
-        Logger.debug("No SSH worker slots available for #{issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
+        Logger.debug(
+          "No SSH worker slots available for #{issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}"
+        )
+
         state
 
       worker_host ->
@@ -2238,7 +2337,8 @@ defmodule Aiur.Orchestrator do
   # spawn_issue_on_worker_host, means a tripped attempt pays no workspace
   # clone cost. The breaker resets when the window lapses, so the issue
   # gets another window on the next poll tick.
-  @spec check_thrash_budget(State.t(), String.t(), integer()) :: {:ok, State.t()} | {:trip, State.t()}
+  @spec check_thrash_budget(State.t(), String.t(), integer()) ::
+          {:ok, State.t()} | {:trip, State.t()}
   defp check_thrash_budget(%State{} = state, issue_id, now_ms) do
     window_ms = Config.codex_thrash_window_seconds() * 1_000
 
@@ -2263,9 +2363,13 @@ defmodule Aiur.Orchestrator do
   defp trip_thrash_breaker(%State{} = state, issue) do
     count = get_in(state.codex_thrash_budget, [issue.id, :count]) || 0
 
-    Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
+    Logger.warning(
+      "Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch"
+    )
 
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open", issue: issue.identifier)
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
+      issue: issue.identifier
+    )
 
     state
   end
@@ -2276,12 +2380,18 @@ defmodule Aiur.Orchestrator do
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host, orchestrator: recipient)
+           AgentRunner.run(issue, recipient,
+             attempt: attempt,
+             worker_host: worker_host,
+             orchestrator: recipient
+           )
          end) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 
-        Logger.info("Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
+        Logger.info(
+          "Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}"
+        )
 
         running =
           Map.put(state.running, issue.id, %{
@@ -2389,7 +2499,9 @@ defmodule Aiur.Orchestrator do
 
       error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 
-      Logger.warning("Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}")
+      Logger.warning(
+        "Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}"
+      )
 
       %{
         state
@@ -2412,7 +2524,8 @@ defmodule Aiur.Orchestrator do
     Map.get(metadata, :delay_type) != :continuation
   end
 
-  defp pop_retry_attempt_state(%State{} = state, issue_id, retry_token) when is_reference(retry_token) do
+  defp pop_retry_attempt_state(%State{} = state, issue_id, retry_token)
+       when is_reference(retry_token) do
     case Map.get(state.retry_attempts, issue_id) do
       %{attempt: attempt, retry_token: ^retry_token} = retry_entry ->
         metadata = %{
@@ -2422,7 +2535,8 @@ defmodule Aiur.Orchestrator do
           workspace_path: Map.get(retry_entry, :workspace_path)
         }
 
-        {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
+        {:ok, attempt, metadata,
+         %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
 
       _ ->
         :missing
@@ -2439,7 +2553,9 @@ defmodule Aiur.Orchestrator do
             |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
 
           {:error, reason} ->
-            Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}")
+            Logger.warning(
+              "Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}"
+            )
 
             {:noreply,
              schedule_issue_retry(
@@ -2453,7 +2569,9 @@ defmodule Aiur.Orchestrator do
       {:error, reason, state} ->
         formatted = format_retry_preflight_error(reason)
 
-        Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
+        Logger.warning(
+          "Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}"
+        )
 
         {:noreply,
          schedule_issue_retry(
@@ -2475,7 +2593,9 @@ defmodule Aiur.Orchestrator do
 
     cond do
       terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
+        Logger.info(
+          "Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace"
+        )
 
         cleanup_issue_workspace(issue.identifier, metadata[:worker_host])
         {:noreply, release_issue_claim(state, issue_id)}
@@ -2484,7 +2604,9 @@ defmodule Aiur.Orchestrator do
         handle_active_retry(state, issue, attempt, metadata)
 
       true ->
-        Logger.debug("Issue left active states, removing claim issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
+        Logger.debug(
+          "Issue left active states, removing claim issue_id=#{issue_id} issue_identifier=#{issue.identifier}"
+        )
 
         {:noreply, release_issue_claim(state, issue_id)}
     end
@@ -2509,7 +2631,10 @@ defmodule Aiur.Orchestrator do
         cleanup_terminal_workspaces_after_preflight(state)
 
       {:error, reason, state} ->
-        Logger.warning("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
+        Logger.warning(
+          "Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}"
+        )
+
         state
     end
   end
@@ -2521,13 +2646,17 @@ defmodule Aiur.Orchestrator do
         state
 
       {:error, reason} ->
-        Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+        Logger.warning(
+          "Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}"
+        )
+
         state
     end
   end
 
-  defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier}) when is_binary(identifier),
-    do: cleanup_issue_workspace(identifier)
+  defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier})
+       when is_binary(identifier),
+       do: cleanup_issue_workspace(identifier)
 
   defp cleanup_terminal_issue_workspace(_issue), do: :ok
 
@@ -2724,7 +2853,8 @@ defmodule Aiur.Orchestrator do
     %{state | claimed: MapSet.delete(state.claimed, issue_id)}
   end
 
-  defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do
+  defp retry_delay(attempt, metadata)
+       when is_integer(attempt) and attempt > 0 and is_map(metadata) do
     if metadata[:delay_type] == :continuation and attempt == 1 do
       @continuation_retry_delay_ms
     else
@@ -2734,7 +2864,11 @@ defmodule Aiur.Orchestrator do
 
   defp failure_retry_delay(attempt) do
     max_delay_power = min(attempt - 1, 10)
-    min(@failure_retry_base_ms * (1 <<< max_delay_power), Config.settings!().agent.max_retry_backoff_ms)
+
+    min(
+      @failure_retry_base_ms * (1 <<< max_delay_power),
+      Config.settings!().agent.max_retry_backoff_ms
+    )
   end
 
   defp normalize_retry_attempt(attempt) when is_integer(attempt) and attempt > 0, do: attempt
@@ -2806,7 +2940,8 @@ defmodule Aiur.Orchestrator do
     |> elem(0)
   end
 
-  defp running_worker_host_count(running, worker_host) when is_map(running) and is_binary(worker_host) do
+  defp running_worker_host_count(running, worker_host)
+       when is_map(running) and is_binary(worker_host) do
     Enum.count(running, fn
       {_issue_id, %{worker_host: ^worker_host} = entry} -> active_running_entry?(entry)
       _ -> false
@@ -3068,7 +3203,8 @@ defmodule Aiur.Orchestrator do
   @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(issue_identifier), do: resume_agent(__MODULE__, issue_identifier)
 
-  @spec resume_agent(GenServer.server(), String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  @spec resume_agent(GenServer.server(), String.t()) ::
+          {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(server, issue_identifier) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:resume_agent, issue_identifier}, 5_000)
@@ -3097,7 +3233,8 @@ defmodule Aiur.Orchestrator do
   @spec adjust_max_concurrent_agents(integer()) :: {:ok, map()} | {:error, term()}
   def adjust_max_concurrent_agents(delta), do: adjust_max_concurrent_agents(__MODULE__, delta)
 
-  @spec adjust_max_concurrent_agents(GenServer.server(), integer()) :: {:ok, map()} | {:error, term()}
+  @spec adjust_max_concurrent_agents(GenServer.server(), integer()) ::
+          {:ok, map()} | {:error, term()}
   def adjust_max_concurrent_agents(server, delta) when is_integer(delta) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:adjust_max_concurrent_agents, delta}, 5_000)
@@ -3123,7 +3260,8 @@ defmodule Aiur.Orchestrator do
   @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
   def set_max_concurrent_agents(n), do: set_max_concurrent_agents(__MODULE__, n)
 
-  @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, term()}
   def set_max_concurrent_agents(server, n) when is_integer(n) and n > 0 do
     if GenServer.whereis(server) do
       GenServer.call(server, {:set_max_concurrent_agents, n}, 5_000)
@@ -3136,7 +3274,8 @@ defmodule Aiur.Orchestrator do
   end
 
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
-  def control_capabilities(issue_identifier), do: control_capabilities(__MODULE__, issue_identifier)
+  def control_capabilities(issue_identifier),
+    do: control_capabilities(__MODULE__, issue_identifier)
 
   @spec control_capabilities(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(server, issue_identifier) when is_binary(issue_identifier) do
@@ -3151,7 +3290,8 @@ defmodule Aiur.Orchestrator do
   end
 
   @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
-  def set_remote_control(issue_identifier, on?), do: set_remote_control(__MODULE__, issue_identifier, on?)
+  def set_remote_control(issue_identifier, on?),
+    do: set_remote_control(__MODULE__, issue_identifier, on?)
 
   @spec set_remote_control(GenServer.server(), String.t(), boolean()) ::
           {:ok, :on | :off} | {:error, term()}
@@ -3178,7 +3318,8 @@ defmodule Aiur.Orchestrator do
   read-modify-write on `~/.claude.json` must not race a parallel dispatch).
   """
   @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
-  def ensure_remote_control_trust(workspace), do: ensure_remote_control_trust(__MODULE__, workspace)
+  def ensure_remote_control_trust(workspace),
+    do: ensure_remote_control_trust(__MODULE__, workspace)
 
   @spec ensure_remote_control_trust(GenServer.server(), Path.t()) :: :ok | {:error, term()}
   def ensure_remote_control_trust(server, workspace) when is_binary(workspace) do
@@ -3192,15 +3333,18 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
-  @spec claim_next_queue_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  @spec claim_next_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
     GenServer.call(server, {:claim_next_queue_item, issue_identifier}, 5_000)
   catch
     :exit, _ -> {:error, :unavailable}
   end
 
-  @spec claim_next_checkpoint_queue_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
-  def claim_next_checkpoint_queue_item(server, issue_identifier) when is_binary(issue_identifier) do
+  @spec claim_next_checkpoint_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_checkpoint_queue_item(server, issue_identifier)
+      when is_binary(issue_identifier) do
     GenServer.call(server, {:claim_next_checkpoint_queue_item, issue_identifier}, 5_000)
   catch
     :exit, _ -> {:error, :unavailable}
@@ -3231,7 +3375,8 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
-  @spec claim_next_queue_item_for_test(GenServer.server(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  @spec claim_next_queue_item_for_test(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item_for_test(server, issue_identifier) when is_binary(issue_identifier) do
     claim_next_queue_item(server, issue_identifier)
   end
@@ -3277,15 +3422,18 @@ defmodule Aiur.Orchestrator do
     :exit, _ -> {:error, :unavailable}
   end
 
-  @spec fail_delivered_queue_items(GenServer.server(), String.t(), term()) :: :ok | {:error, term()}
-  def fail_delivered_queue_items(server, issue_identifier, reason) when is_binary(issue_identifier) do
+  @spec fail_delivered_queue_items(GenServer.server(), String.t(), term()) ::
+          :ok | {:error, term()}
+  def fail_delivered_queue_items(server, issue_identifier, reason)
+      when is_binary(issue_identifier) do
     GenServer.call(server, {:fail_delivered_queue_items, issue_identifier, reason}, 5_000)
   catch
     :exit, _ -> {:error, :unavailable}
   end
 
   @doc false
-  @spec mark_queue_item_failed_for_test(GenServer.server(), integer(), term()) :: :ok | {:error, term()}
+  @spec mark_queue_item_failed_for_test(GenServer.server(), integer(), term()) ::
+          :ok | {:error, term()}
   def mark_queue_item_failed_for_test(server, item_id, reason) when is_integer(item_id) do
     mark_queue_item_failed(server, item_id, reason)
   end
@@ -3510,7 +3658,8 @@ defmodule Aiur.Orchestrator do
           last_codex_event: metadata.last_codex_event,
           work_state: get_in(metadata, [:control, :status]) || :working,
           queue_depth: capabilities.queue_depth,
-          pending_operator_messages: pending_operator_messages_for_issue(state, metadata.identifier),
+          pending_operator_messages:
+            pending_operator_messages_for_issue(state, metadata.identifier),
           control: capabilities,
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
@@ -3578,7 +3727,8 @@ defmodule Aiur.Orchestrator do
     {:reply, {:ok, issue_control_capabilities(state, issue_identifier)}, state}
   end
 
-  def handle_call({:pause_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+  def handle_call({:pause_agent, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
     {reply, state} = pause_agent_reply(state, issue_identifier)
     {:reply, reply, state}
   end
@@ -3587,7 +3737,8 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:interrupt_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+  def handle_call({:interrupt_agent, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
     {:reply, interrupt_agent_reply(state, issue_identifier), state}
   end
 
@@ -3595,7 +3746,8 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:pane_interrupt, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+  def handle_call({:pane_interrupt, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
     {reply, state} = pane_interrupt_reply(state, issue_identifier)
     {:reply, reply, state}
   end
@@ -3615,7 +3767,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  def handle_call({:resume_agent, issue_identifier}, _from, state) when is_binary(issue_identifier) do
+  def handle_call({:resume_agent, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
     {reply, state} = resume_issue(state, issue_identifier)
     notify_dashboard(state)
     {:reply, reply, state}
@@ -3638,7 +3791,8 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:ensure_remote_control_trust, workspace}, _from, state)
       when is_binary(workspace) do
-    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
+    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()),
+     state}
   end
 
   def handle_call(:max_concurrent_agents, _from, state) do
@@ -3654,8 +3808,10 @@ defmodule Aiur.Orchestrator do
     apply_session_max_concurrent_agents(state, n)
   end
 
-  def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) when is_binary(issue_identifier) do
-    {queue_store, item} = AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
+  def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) do
+    {queue_store, item} =
+      AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
 
     {queue_store, item} =
       case item do
@@ -3755,12 +3911,14 @@ defmodule Aiur.Orchestrator do
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
-  def handle_call({:restore_queue_item_pending, item_id}, _from, state) when is_integer(item_id) do
+  def handle_call({:restore_queue_item_pending, item_id}, _from, state)
+      when is_integer(item_id) do
     {queue_store, _item} = AgentQueueStore.restore_pending(state.queue_store, item_id)
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
-  def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state) when is_integer(item_id) do
+  def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state)
+      when is_integer(item_id) do
     {queue_store, _item} = AgentQueueStore.mark_failed(state.queue_store, item_id, reason)
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
@@ -3779,7 +3937,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:fail_delivered_queue_items, issue_identifier, reason}, _from, state)
       when is_binary(issue_identifier) do
-    {queue_store, _items} = AgentQueueStore.fail_delivered(state.queue_store, issue_identifier, reason)
+    {queue_store, _items} =
+      AgentQueueStore.fail_delivered(state.queue_store, issue_identifier, reason)
+
     {:reply, :ok, %{state | queue_store: queue_store}}
   end
 
@@ -3790,20 +3950,42 @@ defmodule Aiur.Orchestrator do
 
     case validate_operator_message(body) do
       {:ok, text} ->
-        enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback, turn_id)
+        enqueue_validated_operator_message(
+          state,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
 
       {:error, _reason} = error ->
         {error, state}
     end
   end
 
-  defp enqueue_validated_operator_message(state, issue_identifier, text, delivery_policy, fallback, turn_id) do
+  defp enqueue_validated_operator_message(
+         state,
+         issue_identifier,
+         text,
+         delivery_policy,
+         fallback,
+         turn_id
+       ) do
     case find_running_by_identifier(state.running, issue_identifier) do
       nil ->
         {{:error, :no_running_agent}, state}
 
       running_entry ->
-        enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+        enqueue_for_running_entry(
+          state,
+          running_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
     end
   end
 
@@ -3813,13 +3995,37 @@ defmodule Aiur.Orchestrator do
   # so we can't push active over max no matter which entry point the
   # operator uses. If no slot is free, the cap error propagates and the
   # conversation pane surfaces it.
-  defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
+  defp enqueue_for_running_entry(
+         state,
+         running_entry,
+         issue_identifier,
+         text,
+         delivery_policy,
+         fallback,
+         turn_id
+       ) do
     cond do
       deactivated_running_entry?(running_entry) ->
-        enqueue_after_reactivate(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+        enqueue_after_reactivate(
+          state,
+          running_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
 
       paused_running_entry?(running_entry) ->
-        enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id)
+        enqueue_after_resume(
+          state,
+          running_entry,
+          issue_identifier,
+          text,
+          delivery_policy,
+          fallback,
+          turn_id
+        )
 
       true ->
         do_enqueue_running_operator_message(
@@ -3837,7 +4043,15 @@ defmodule Aiur.Orchestrator do
   # Mirrors `enqueue_after_resume/7` for the `:deactivated → :working`
   # transition. The fresh agent task spawned by `reactivate_issue/2`
   # will pick up the queued operator message when it boots.
-  defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
+  defp enqueue_after_reactivate(
+         state,
+         running_entry,
+         issue_identifier,
+         text,
+         delivery_policy,
+         fallback,
+         turn_id
+       ) do
     case reactivate_issue(state, running_entry) do
       {{:ok, :reactivated}, next_state} ->
         reactivated_entry = find_running_by_identifier(next_state.running, issue_identifier)
@@ -3857,7 +4071,15 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp enqueue_after_resume(state, running_entry, issue_identifier, text, delivery_policy, fallback, turn_id) do
+  defp enqueue_after_resume(
+         state,
+         running_entry,
+         issue_identifier,
+         text,
+         delivery_policy,
+         fallback,
+         turn_id
+       ) do
     case resume_paused_issue(state, running_entry) do
       {{:ok, :resumed}, next_state} ->
         resumed_entry = find_running_by_identifier(next_state.running, issue_identifier)
@@ -3891,7 +4113,11 @@ defmodule Aiur.Orchestrator do
     case normalize_delivery_request(delivery_policy, fallback, capabilities) do
       {:ok, queue_opts} ->
         {queue_store, item} =
-          AgentQueue.operator_message(issue_identifier, text, Keyword.put(queue_opts, :turn_id, turn_id))
+          AgentQueue.operator_message(
+            issue_identifier,
+            text,
+            Keyword.put(queue_opts, :turn_id, turn_id)
+          )
           |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
         # NOTE: previously we emitted a `chat.send` alert here for every
@@ -3948,7 +4174,8 @@ defmodule Aiur.Orchestrator do
     {:error, :invalid_message}
   end
 
-  defp maybe_emit_agent_control_alert(:working, :paused, running_entry) when is_map(running_entry) do
+  defp maybe_emit_agent_control_alert(:working, :paused, running_entry)
+       when is_map(running_entry) do
     Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.paused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
@@ -3956,7 +4183,8 @@ defmodule Aiur.Orchestrator do
     )
   end
 
-  defp maybe_emit_agent_control_alert(:paused, :working, running_entry) when is_map(running_entry) do
+  defp maybe_emit_agent_control_alert(:paused, :working, running_entry)
+       when is_map(running_entry) do
     Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
@@ -3999,7 +4227,8 @@ defmodule Aiur.Orchestrator do
     if Process.alive?(pid) do
       send(
         pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true}
+        {:agent_queue_updated, item.target_issue_identifier, item.id,
+         item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true}
       )
     end
 
@@ -4223,7 +4452,9 @@ defmodule Aiur.Orchestrator do
     state = %{state | running: Map.put(state.running, issue_id, new_entry)}
     state = refresh_tracked_set(state)
 
-    Logger.info("Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task")
+    Logger.info(
+      "Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task"
+    )
 
     # Reactivation is a deliberate operator restart; clear the thrash
     # budget so the fresh task starts with a full window.
@@ -4307,7 +4538,8 @@ defmodule Aiur.Orchestrator do
   # baseline so the resumed agent gets a full fresh budget, and drop the
   # `paused_reason` marker so a later manual pause is attributed
   # correctly. A no-op for manually/blocker-paused entries (no marker).
-  defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now) when is_map(running) do
+  defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now)
+       when is_map(running) do
     case Map.get(running, issue_id) do
       %{paused_reason: :max_agent_duration} = entry ->
         updated =
@@ -4341,8 +4573,11 @@ defmodule Aiur.Orchestrator do
   @spec note_agent_activity_state(State.t(), String.t()) :: State.t()
   def note_agent_activity_state(%State{} = state, identifier) when is_binary(identifier) do
     case find_running_key_by_identifier(state.running, identifier) do
-      nil -> state
-      issue_id -> update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, DateTime.utc_now()))
+      nil ->
+        state
+
+      issue_id ->
+        update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, DateTime.utc_now()))
     end
   end
 
@@ -4379,12 +4614,17 @@ defmodule Aiur.Orchestrator do
 
   defp thaw_pause_clock(running, issue_id, previous_status, now) when is_map(running) do
     case Map.get(running, issue_id) do
-      nil -> running
-      entry -> Map.put(running, issue_id, shift_started_at_by_pause_if(entry, previous_status, now))
+      nil ->
+        running
+
+      entry ->
+        Map.put(running, issue_id, shift_started_at_by_pause_if(entry, previous_status, now))
     end
   end
 
-  defp shift_started_at_by_pause_if(entry, :paused, now), do: shift_started_at_by_pause(entry, now)
+  defp shift_started_at_by_pause_if(entry, :paused, now),
+    do: shift_started_at_by_pause(entry, now)
+
   defp shift_started_at_by_pause_if(entry, _previous, _now), do: entry
 
   defp shift_started_at_by_pause(%{paused_at: %DateTime{} = paused_at} = entry, %DateTime{} = now) do
@@ -4451,13 +4691,15 @@ defmodule Aiur.Orchestrator do
 
   defp resume_worker_slot_available?(%State{}, _worker_host), do: true
 
-  defp queue_depth_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+  defp queue_depth_for_issue(%State{} = state, issue_identifier)
+       when is_binary(issue_identifier) do
     state.queue_store
     |> AgentQueueStore.list_pending(issue_identifier)
     |> length()
   end
 
-  defp pending_operator_messages_for_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+  defp pending_operator_messages_for_issue(%State{} = state, issue_identifier)
+       when is_binary(issue_identifier) do
     state.queue_store
     |> AgentQueueStore.list_visible_operator_messages(issue_identifier)
     |> Enum.map(fn item ->
@@ -4476,7 +4718,8 @@ defmodule Aiur.Orchestrator do
   defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
   defp operator_item_text(_item), do: ""
 
-  defp issue_control_capabilities(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+  defp issue_control_capabilities(%State{} = state, issue_identifier)
+       when is_binary(issue_identifier) do
     running_entry = find_running_by_identifier(state.running, issue_identifier)
     can_interrupt = get_in(running_entry || %{}, [:control, :can_interrupt]) == true
     safe_checkpoints = get_in(running_entry || %{}, [:control, :safe_checkpoints]) || []
@@ -4517,7 +4760,9 @@ defmodule Aiur.Orchestrator do
   defp set_remote_control_reply(state, issue_identifier, on?) do
     case find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
-        if on?, do: promote_to_remote(state, running_entry), else: demote_from_remote(state, running_entry)
+        if on?,
+          do: promote_to_remote(state, running_entry),
+          else: demote_from_remote(state, running_entry)
 
       _ ->
         {{:error, :not_running}, state}
@@ -4555,7 +4800,9 @@ defmodule Aiur.Orchestrator do
             do_promote_to_remote(state, running_entry, issue)
 
           {:error, reason} ->
-            Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
+            Logger.error(
+              "Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}"
+            )
 
             {{:error, {:rc_trust_failed, reason}}, state}
         end
@@ -4569,11 +4816,18 @@ defmodule Aiur.Orchestrator do
       :ok ->
         relabeled = add_issue_label(issue, label)
         state = teardown_for_redispatch(state, running_entry)
-        Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
+
+        Logger.info(
+          "Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}"
+        )
+
         {{:ok, :on}, do_dispatch_issue(state, relabeled, nil, nil)}
 
       {:error, reason} ->
-        Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+        Logger.error(
+          "Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}"
+        )
+
         {{:error, {:rc_label_failed, reason}}, state}
     end
   end
@@ -4598,11 +4852,18 @@ defmodule Aiur.Orchestrator do
           :ok ->
             relabeled = remove_issue_label(issue, label)
             state = teardown_for_redispatch(state, running_entry)
-            Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
+
+            Logger.info(
+              "Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}"
+            )
+
             {{:ok, :off}, do_dispatch_issue(state, relabeled, nil, nil)}
 
           {:error, reason} ->
-            Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+            Logger.error(
+              "Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}"
+            )
+
             {{:error, {:rc_label_failed, reason}}, state}
         end
     end
@@ -4953,7 +5214,8 @@ defmodule Aiur.Orchestrator do
 
   defp apply_agent_rate_limits(state, _update), do: state
 
-  defp apply_token_delta(nil, token_delta), do: apply_token_delta(@empty_agent_totals, token_delta)
+  defp apply_token_delta(nil, token_delta),
+    do: apply_token_delta(@empty_agent_totals, token_delta)
 
   defp apply_token_delta(agent_totals, token_delta) do
     input_tokens = Map.get(agent_totals, :input_tokens, 0) + token_delta.input_tokens
@@ -5364,8 +5626,17 @@ defmodule Aiur.Orchestrator do
   defp auto_subscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
          blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      attach_and_subscribe(blockee_identifier, default_blockee_subscriptions(blocker_identifier), "blocker:auto")
-      attach_and_subscribe(blocker_identifier, default_blocker_subscriptions(blockee_identifier), "blockee:auto")
+      attach_and_subscribe(
+        blockee_identifier,
+        default_blockee_subscriptions(blocker_identifier),
+        "blocker:auto"
+      )
+
+      attach_and_subscribe(
+        blocker_identifier,
+        default_blocker_subscriptions(blockee_identifier),
+        "blockee:auto"
+      )
     end
 
     :ok
@@ -5416,8 +5687,17 @@ defmodule Aiur.Orchestrator do
   defp auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
          blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      remove_auto_subscriptions(blockee_identifier, default_blockee_subscriptions(blocker_identifier), "blocker:auto")
-      remove_auto_subscriptions(blocker_identifier, default_blocker_subscriptions(blockee_identifier), "blockee:auto")
+      remove_auto_subscriptions(
+        blockee_identifier,
+        default_blockee_subscriptions(blocker_identifier),
+        "blocker:auto"
+      )
+
+      remove_auto_subscriptions(
+        blocker_identifier,
+        default_blocker_subscriptions(blockee_identifier),
+        "blockee:auto"
+      )
     end
 
     :ok
@@ -5472,11 +5752,17 @@ defmodule Aiur.Orchestrator do
     ]
   end
 
-  defp blockee_identifier_for(%Issue{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp blockee_identifier_for(%Issue{identifier: identifier}) when is_binary(identifier),
+    do: identifier
+
   defp blockee_identifier_for(_), do: nil
 
-  defp blocker_identifier_for(%{identifier: identifier}) when is_binary(identifier), do: identifier
-  defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
+  defp blocker_identifier_for(%{identifier: identifier}) when is_binary(identifier),
+    do: identifier
+
+  defp blocker_identifier_for(%{"identifier" => identifier}) when is_binary(identifier),
+    do: identifier
+
   defp blocker_identifier_for(_), do: nil
 
   # Mid-turn-drain helpers. Returns the list of direct-blocker
@@ -5500,7 +5786,10 @@ defmodule Aiur.Orchestrator do
 
   defp direct_blockers_for(_state, _identifier), do: []
 
-  defp blocker_critical_digest?(%{category: :coordination_event, event_type: :events_digest, body: body}, direct_blockers) do
+  defp blocker_critical_digest?(
+         %{category: :coordination_event, event_type: :events_digest, body: body},
+         direct_blockers
+       ) do
     events = Map.get(body || %{}, :events, [])
     Enum.any?(events, fn event -> blocker_critical_event?(event, direct_blockers) end)
   end

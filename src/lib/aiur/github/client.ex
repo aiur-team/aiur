@@ -8,18 +8,6 @@ defmodule Aiur.GitHub.Client do
 
   @base_url "https://api.github.com"
 
-  @spec auth_token_fingerprint() :: String.t() | nil
-  def auth_token_fingerprint do
-    case GitHub.Config.token() do
-      nil ->
-        nil
-
-      token ->
-        :crypto.hash(:sha256, token)
-        |> Base.encode16(case: :lower)
-    end
-  end
-
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []) do
     with {:ok, {owner, repo}} <- parse_repo(),
@@ -40,12 +28,14 @@ defmodule Aiur.GitHub.Client do
         :ok
 
       {:error, diagnostic} ->
-        {:error, {:github_auth_preflight_failed, enrich_auth_diagnostic(diagnostic, gh_auth_status_fun)}}
+        {:error,
+         {:github_auth_preflight_failed, enrich_auth_diagnostic(diagnostic, gh_auth_status_fun)}}
     end
   end
 
   @spec format_auth_preflight_error(term()) :: String.t()
-  def format_auth_preflight_error({:github_auth_preflight_failed, diagnostic}) when is_map(diagnostic) do
+  def format_auth_preflight_error({:github_auth_preflight_failed, diagnostic})
+      when is_map(diagnostic) do
     Map.get(diagnostic, :message) || Map.get(diagnostic, "message") || inspect(diagnostic)
   end
 
@@ -61,13 +51,15 @@ defmodule Aiur.GitHub.Client do
     if state_names == [], do: {:ok, []}, else: do_fetch_issues_by_states(state_names, opts)
   end
 
-  @spec fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
+          {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []) when is_list(issue_ids) do
     if issue_ids == [], do: {:ok, []}, else: do_fetch_issue_states_by_ids(issue_ids, opts)
   end
 
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
-  def create_comment(issue_number, body, opts \\ []) when is_binary(issue_number) and is_binary(body) do
+  def create_comment(issue_number, body, opts \\ [])
+      when is_binary(issue_number) and is_binary(body) do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
@@ -299,7 +291,14 @@ defmodule Aiur.GitHub.Client do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      query = URI.encode_query(%{"state" => "open", "head" => "#{owner}:aiur/#{issue_number}", "per_page" => "10"})
+
+      query =
+        URI.encode_query(%{
+          "state" => "open",
+          "head" => "#{owner}:aiur/#{issue_number}",
+          "per_page" => "10"
+        })
+
       url = "#{@base_url}/repos/#{owner}/#{repo}/pulls?#{query}"
 
       case fetch_json_list(request_fun, token, url) do
@@ -360,8 +359,11 @@ defmodule Aiur.GitHub.Client do
       context = Codeowners.repo_ownership(opts)
 
       case fetch_json_list(request_fun, token, url) do
-        {:ok, comments} -> {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
-        {:error, _reason} = error -> error
+        {:ok, comments} ->
+          {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
+
+        {:error, _reason} = error ->
+          error
       end
     end
   end
@@ -375,7 +377,16 @@ defmodule Aiur.GitHub.Client do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       issue_url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
-      do_update_issue_state(request_fun, token, issue_url, owner, repo, issue_number, prefix, state_name)
+      do_update_issue_state(
+        request_fun,
+        token,
+        issue_url,
+        owner,
+        repo,
+        issue_number,
+        prefix,
+        state_name
+      )
     end
   end
 
@@ -401,7 +412,9 @@ defmodule Aiur.GitHub.Client do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
 
       case request_fun.(%{method: :delete, url: url, token: token}) do
         # 404 = label already absent; treat as success so the toggle is idempotent.
@@ -418,7 +431,10 @@ defmodule Aiur.GitHub.Client do
     [
       %{endpoint: :rate_limit, url: "#{@base_url}/rate_limit"},
       %{endpoint: :repository, url: "#{@base_url}/repos/#{owner}/#{repo}"},
-      %{endpoint: :issues, url: "#{@base_url}/repos/#{owner}/#{repo}/issues?state=open&per_page=1"}
+      %{
+        endpoint: :issues,
+        url: "#{@base_url}/repos/#{owner}/#{repo}/issues?state=open&per_page=1"
+      }
     ]
   end
 
@@ -443,7 +459,15 @@ defmodule Aiur.GitHub.Client do
         end
 
       {:ok, %{status: status} = response} ->
-        {:error, auth_diagnostic(auth_failure_reason(status, response), endpoint, status, response, owner, repo)}
+        {:error,
+         auth_diagnostic(
+           auth_failure_reason(status, response),
+           endpoint,
+           status,
+           response,
+           owner,
+           repo
+         )}
 
       {:error, reason} ->
         {:error,
@@ -518,17 +542,25 @@ defmodule Aiur.GitHub.Client do
   defp human_auth_reason(%{reason: :invalid_or_expired_token, status: status}),
     do: "GitHub returned HTTP #{status}, which usually means the token is invalid or expired"
 
-  defp human_auth_reason(%{reason: :rate_limited, status: status, rate_limit_remaining: 0, rate_limit_reset: reset}),
-    do: "GitHub returned HTTP #{status} and the REST rate limit is exhausted#{reset_suffix(reset)}"
+  defp human_auth_reason(%{
+         reason: :rate_limited,
+         status: status,
+         rate_limit_remaining: 0,
+         rate_limit_reset: reset
+       }),
+       do:
+         "GitHub returned HTTP #{status} and the REST rate limit is exhausted#{reset_suffix(reset)}"
 
   defp human_auth_reason(%{reason: :rate_limited, status: status}),
     do: "GitHub returned HTTP #{status} with a rate-limit response"
 
   defp human_auth_reason(%{reason: :forbidden, status: status}),
-    do: "GitHub returned HTTP #{status}, which usually means missing repository permissions or a secondary rate limit"
+    do:
+      "GitHub returned HTTP #{status}, which usually means missing repository permissions or a secondary rate limit"
 
   defp human_auth_reason(%{reason: :repo_not_accessible, status: status}),
-    do: "GitHub returned HTTP #{status}, so the token cannot access the configured repository or github.repo is wrong"
+    do:
+      "GitHub returned HTTP #{status}, so the token cannot access the configured repository or github.repo is wrong"
 
   defp human_auth_reason(%{reason: :request_failed, request_error: error}),
     do: "the request failed before GitHub returned a status (#{error})"
@@ -540,7 +572,8 @@ defmodule Aiur.GitHub.Client do
   defp reset_suffix(reset), do: " until #{reset}"
 
   defp human_gh_keyring_status(:available),
-    do: "`gh` keyring auth appears usable when GITHUB_TOKEN is removed, but Aiur will not use it while GITHUB_TOKEN is set."
+    do:
+      "`gh` keyring auth appears usable when GITHUB_TOKEN is removed, but Aiur will not use it while GITHUB_TOKEN is set."
 
   defp human_gh_keyring_status(:unavailable),
     do: "`gh` keyring auth was not usable when checked without GITHUB_TOKEN."
@@ -586,7 +619,9 @@ defmodule Aiur.GitHub.Client do
 
   defp rate_limit_reset(_response), do: nil
 
-  defp rate_limit_body_remaining(%{body: %{"resources" => %{"core" => %{"remaining" => remaining}}}})
+  defp rate_limit_body_remaining(%{
+         body: %{"resources" => %{"core" => %{"remaining" => remaining}}}
+       })
        when is_integer(remaining),
        do: remaining
 
@@ -608,7 +643,9 @@ defmodule Aiur.GitHub.Client do
   # separately and deduplicate by issue id.
   defp fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
     Enum.reduce_while(labels, {:ok, %{}}, fn label, {:ok, acc} ->
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
+
       reduce_label_issues(request_fun, url, token, owner, repo, prefix, acc)
     end)
     |> case do
@@ -706,7 +743,16 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
-  defp do_update_issue_state(request_fun, token, issue_url, owner, repo, issue_number, prefix, state_name) do
+  defp do_update_issue_state(
+         request_fun,
+         token,
+         issue_url,
+         owner,
+         repo,
+         issue_number,
+         prefix,
+         state_name
+       ) do
     new_label = "#{prefix}:#{normalize_state(state_name)}"
 
     case request_fun.(%{method: :get, url: issue_url, token: token}) do
@@ -729,7 +775,9 @@ defmodule Aiur.GitHub.Client do
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
     |> Enum.each(fn label ->
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+
       request_fun.(%{method: :delete, url: url, token: token})
     end)
 
@@ -867,7 +915,10 @@ defmodule Aiur.GitHub.Client do
         {:ok, :not_installed}
 
       gh ->
-        case System.cmd(gh, ["auth", "status"], env: [{"GITHUB_TOKEN", nil}], stderr_to_stdout: true) do
+        case System.cmd(gh, ["auth", "status"],
+               env: [{"GITHUB_TOKEN", nil}],
+               stderr_to_stdout: true
+             ) do
           {_output, 0} -> {:ok, :available}
           {_output, _status} -> {:ok, :unavailable}
         end
