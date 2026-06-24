@@ -1417,6 +1417,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert settings.agent.max_load_average == nil
 
+    # Real YAML loads arrive string-keyed; the explicit null must survive
+    # drop_nil_values on that production shape too, not just the atom-keyed map.
+    assert {:ok, settings} =
+             Schema.parse(%{"tracker" => %{"kind" => "memory"}, "agent" => %{"max_load_average" => nil}})
+
+    assert settings.agent.max_load_average == nil
+
     assert {:ok, settings} =
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 1.5}})
 

@@ -316,7 +316,6 @@ defmodule Aiur.Config.Schema do
         ],
         empty_values: []
       )
-      |> preserve_explicit_nil_max_load_average(attrs)
       |> validate_number(:max_concurrent_agents, greater_than: 0)
       |> validate_number(:max_turns, greater_than: 0)
       |> validate_number(:max_retry_attempts, greater_than: 0)
@@ -340,20 +339,6 @@ defmodule Aiur.Config.Schema do
     defp drop_uncapped_max_turns(attrs) do
       Enum.reduce([:max_turns, "max_turns"], attrs, &drop_key_if_uncapped/2)
     end
-
-    defp preserve_explicit_nil_max_load_average(changeset, attrs) do
-      if explicit_nil?(attrs, :max_load_average) or explicit_nil?(attrs, "max_load_average") do
-        put_change(changeset, :max_load_average, nil)
-      else
-        changeset
-      end
-    end
-
-    defp explicit_nil?(attrs, key) when is_map(attrs) do
-      Map.has_key?(attrs, key) and is_nil(Map.get(attrs, key))
-    end
-
-    defp explicit_nil?(_attrs, _key), do: false
 
     defp drop_key_if_uncapped(key, attrs) do
       case Map.fetch(attrs, key) do
@@ -807,6 +792,10 @@ defmodule Aiur.Config.Schema do
     if preserve_nil_path?(path), do: Map.put(acc, key, nil), else: acc
   end
 
+  # max_load_average defaults to 1.5 (gate on), so an explicit YAML null is the
+  # only way to disable the gate. Without this, drop_nil_values/2 would strip the
+  # null before the changeset, letting the default silently re-enable the gate.
+  # Keep this path aligned with the Agent schema field's location.
   defp preserve_nil_path?(["agent", "max_load_average"]), do: true
   defp preserve_nil_path?(_path), do: false
 
