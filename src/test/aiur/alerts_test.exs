@@ -561,6 +561,7 @@ defmodule Aiur.AlertsTest do
     test "stuck topics" do
       assert :stuck = Alerts.categorize_topic("ticket.MT-1.agent.paused")
       assert :stuck = Alerts.categorize_topic("ticket.MT-1.agent.thrash_circuit_open")
+      assert :stuck = Alerts.categorize_topic("ticket.MT-1.agent.retry_exhausted")
       assert :stuck = Alerts.categorize_topic("ticket.MT-1.agent.error.tokens_exhausted")
     end
 
