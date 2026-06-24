@@ -129,7 +129,8 @@ defmodule Aiur.Codex.CodingAgent do
                tool_executor,
                auto_approve_requests,
                on_safe_checkpoint,
-               turn_id
+               turn_id,
+               issue_identifier(issue)
              ) do
           {:ok, result} ->
             Logger.info("Codex session completed for #{issue_context(issue)} session_id=#{session_id}")
@@ -349,7 +350,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp session_policies(workspace, nil) do
-    Aiur.Codex.Config.runtime_settings(workspace)
+    Config.codex_runtime_settings(workspace)
   end
 
   defp session_policies(workspace, worker_host) when is_binary(worker_host) do
@@ -418,7 +419,8 @@ defmodule Aiur.Codex.CodingAgent do
          tool_executor,
          auto_approve_requests,
          on_safe_checkpoint,
-         turn_id
+         turn_id,
+         issue_identifier
        ) do
     receive_loop(session, %{
       on_message: on_message,
@@ -430,6 +432,7 @@ defmodule Aiur.Codex.CodingAgent do
       outstanding_turns: 1,
       pending_operator_requests: %{},
       current_turn_id: turn_id,
+      issue_identifier: issue_identifier,
       pause_request_id: nil,
       pending_interrupt_request_id: nil,
       interrupt_action: nil
@@ -458,13 +461,22 @@ defmodule Aiur.Codex.CodingAgent do
           result -> result
         end
 
-      {:agent_queue_updated, _issue_identifier, _item_id, true} ->
+      {:agent_queue_updated, issue_identifier, _item_id, true}
+      when issue_identifier == state.issue_identifier ->
         case handle_operator_queue_update(session, state) do
           {:continue, next_state} -> receive_loop(session, next_state)
           result -> result
         end
 
-      {:agent_queue_updated, _issue_identifier, _item_id, false} ->
+      {:agent_queue_updated, issue_identifier, _item_id, _deliver_now}
+      when issue_identifier == state.issue_identifier ->
+        receive_loop(session, state)
+
+      {:agent_queue_updated, issue_identifier, _item_id}
+      when issue_identifier == state.issue_identifier ->
+        receive_loop(session, state)
+
+      {:agent_queue_updated, _issue_identifier, _item_id, _deliver_now} ->
         receive_loop(session, state)
 
       {:agent_queue_updated, _issue_identifier, _item_id} ->
@@ -1383,6 +1395,10 @@ defmodule Aiur.Codex.CodingAgent do
   defp issue_context(%{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
   end
+
+  defp issue_identifier(%{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp issue_identifier(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
+  defp issue_identifier(_issue), do: nil
 
   defp stop_port(port) when is_port(port) do
     case :erlang.port_info(port) do

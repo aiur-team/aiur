@@ -9,7 +9,12 @@ defmodule ScriptsAiurdevTest do
 
   # A fake repo root whose engine just echoes how the shim invoked it, so we can
   # assert on AIUR_RELEASE_DIR + forwarded args without building a real release.
-  defp fake_repo(root \\ Path.join(System.tmp_dir!(), "aiurdev-shim-#{System.unique_integer([:positive])}")) do
+  defp fake_repo(
+         root \\ Path.join(
+           System.tmp_dir!(),
+           "aiurdev-shim-#{System.unique_integer([:positive])}"
+         )
+       ) do
     libexec = Path.join([root, "packaging", "npm", "aiur-cli", "libexec"])
     File.mkdir_p!(libexec)
     # `--test` resets the sandbox from $repo_root/src; the dir must exist to cd into.
@@ -316,7 +321,8 @@ defmodule ScriptsAiurdevTest do
         {"TMUX", nil},
         {"HOME", home},
         {"AIUR_MISE_BIN", mise},
-        {"AIUR_AGENT_WORKSPACE", root}
+        {"AIUR_AGENT_WORKSPACE", root},
+        {"AIUR_OPENCODE_BRIDGE_PORT", nil}
       ])
 
     sandbox_root = Path.join(root, ".aiur-agent-ir")

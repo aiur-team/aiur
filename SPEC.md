@@ -478,6 +478,11 @@ fields locally if they want stricter startup checks.
   - Default: implementation-defined.
 - `turn_sandbox_policy` (Codex `SandboxPolicy` value)
   - Default: implementation-defined.
+  - When the value is a Codex `workspaceWrite` policy, implementations MUST add the
+    runtime issue workspace to `writableRoots` before starting a turn. Existing roots
+    are preserved. This keeps agent-visible Git metadata writable even when the
+    workflow config supplies extra explicit roots.
+  - Non-`workspaceWrite` policy types are passed through unchanged.
 - `turn_timeout_ms` (integer)
   - Default: `3600000` (1 hour)
 - `read_timeout_ms` (integer)
