@@ -4,6 +4,8 @@ defmodule Aiur.CoreTest do
   alias Aiur.Config.Schema
 
   defmodule RetryPollFailingGitHubClient do
+    def preflight_auth, do: :ok
+
     def fetch_candidate_issues do
       case Application.get_env(:aiur, :retry_poll_failure_test_pid) do
         pid when is_pid(pid) -> send(pid, :retry_poll_fetch_candidate_issues)

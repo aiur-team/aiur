@@ -435,9 +435,31 @@ defmodule Aiur.Claude.RemoteControlTest do
     end
 
     defp spawn_sleeper(cwd) do
-      port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])
-      {:os_pid, os_pid} = Port.info(port, :os_pid)
+      {output, 0} =
+        System.cmd("sh", ["-c", "cd \"$1\" || exit 1; sleep 300 >/dev/null 2>&1 & echo $!", "sh", cwd])
+
+      os_pid =
+        output
+        |> String.trim()
+        |> String.to_integer()
+
+      wait_for_proc_cwd(os_pid, cwd)
       os_pid
+    end
+
+    defp wait_for_proc_cwd(os_pid, cwd, attempts \\ 20)
+
+    defp wait_for_proc_cwd(_os_pid, _cwd, 0), do: :ok
+
+    defp wait_for_proc_cwd(os_pid, cwd, attempts) do
+      case File.read_link("/proc/#{os_pid}/cwd") do
+        {:ok, ^cwd} ->
+          :ok
+
+        _ ->
+          Process.sleep(10)
+          wait_for_proc_cwd(os_pid, cwd, attempts - 1)
+      end
     end
 
     defp os_pid_alive?(os_pid) do
