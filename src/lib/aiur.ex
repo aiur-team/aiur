@@ -32,6 +32,7 @@ defmodule Aiur.Application do
     Aiur.Shutdown.record_workspace_root()
     install_signal_handlers()
     maybe_start_distribution()
+    resolve_github_token()
 
     headless? = Application.get_env(:aiur, :headless, false)
     # Headless is authoritative: if both flags somehow end up set (e.g. a
@@ -188,6 +189,19 @@ defmodule Aiur.Application do
   end
 
   defp maybe_start_distribution, do: start_distribution()
+
+  # Resolve the GitHub token once at boot — before the Orchestrator /
+  # GithubFirehose children that need GitHub auth start — preferring a valid
+  # GITHUB_TOKEN env var but falling back to the gh keyring when the env token
+  # is stale/invalid. Best-effort: a resolution error must not crash boot.
+  defp resolve_github_token do
+    Aiur.GitHub.Config.resolve_token()
+    :ok
+  rescue
+    error ->
+      Logger.warning("aiur_boot phase=github_token_resolve_failed error=#{inspect(error)}")
+      :ok
+  end
 
   # BEAM-level signal routing. The Erlang VM's default handlers already do
   # what we want for catchable signals:

@@ -25,7 +25,32 @@ defmodule Aiur.GitHub.Config do
 
   @spec token() :: String.t() | nil
   def token do
-    normalize_secret(System.get_env("GITHUB_TOKEN"))
+    case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
+      :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
+      resolved -> resolved
+    end
+  end
+
+  @doc """
+  Resolve the GitHub token once at startup: prefer a VALID `GITHUB_TOKEN` env
+  var, but fall back to the gh keyring when the env token is absent or invalid
+  (e.g. a stale token sourced from .env). Caches the result; `token/0` returns it.
+  """
+  @spec resolve_token(keyword()) :: String.t() | nil
+  def resolve_token(opts \\ []) do
+    validate = Keyword.get(opts, :validate_fun, &valid_github_token?/1)
+    keyring = Keyword.get(opts, :keyring_fun, &keyring_token/0)
+    env = normalize_secret(System.get_env("GITHUB_TOKEN"))
+
+    resolved =
+      cond do
+        is_binary(env) and validate.(env) -> env
+        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> kt
+        true -> env
+      end
+
+    :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+    resolved
   end
 
   @spec label_prefix() :: String.t()
@@ -82,6 +107,40 @@ defmodule Aiur.GitHub.Config do
     |> Map.from_struct()
     |> Map.get(String.to_existing_atom(key))
   end
+
+  # Query the gh keyring with the env tokens CLEARED so gh returns the stored
+  # login rather than echoing the (possibly stale) env var. nil when gh is
+  # absent or not logged in via keyring (headless/CI).
+  defp keyring_token do
+    case System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
+           env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
+           stderr_to_stdout: true
+         ) do
+      {out, 0} -> normalize_secret(out)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  # Cheap validity probe: GET /rate_limit returns 200 for a usable token.
+  defp valid_github_token?(token) when is_binary(token) do
+    case Req.get("https://api.github.com/rate_limit",
+           headers: [
+             {"Authorization", "Bearer #{token}"},
+             {"Accept", "application/vnd.github+json"},
+             {"User-Agent", "aiur"}
+           ],
+           connect_options: [timeout: 10_000]
+         ) do
+      {:ok, %{status: status}} when status in 200..299 -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp valid_github_token?(_), do: false
 
   defp normalize_secret(value) when is_binary(value) do
     case String.trim(value) do
