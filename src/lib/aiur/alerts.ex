@@ -54,6 +54,7 @@ defmodule Aiur.Alerts do
     {"input_required", :needs_input},
     {".paused", :stuck},
     {"thrash", :stuck},
+    {"retry_exhausted", :stuck},
     {"tokens_exhausted", :stuck},
     {"pr.merged", :done},
     {"merging", :done},

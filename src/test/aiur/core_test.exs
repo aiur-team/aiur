@@ -684,12 +684,19 @@ defmodule Aiur.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
-    send(pid, {:DOWN, ref, :process, self(), :boom})
-    Process.sleep(50)
+    log =
+      capture_log(fn ->
+        send(pid, {:DOWN, ref, :process, self(), :boom})
+        Process.sleep(50)
+      end)
+
     state = :sys.get_state(pid)
 
     refute Map.has_key?(state.retry_attempts, issue_id),
            "expected the orchestrator to give up after exceeding max_retry_attempts"
+
+    assert log =~ "after 3 failed attempt(s)"
+    assert log =~ "ticket.MT-EX.agent.retry_exhausted"
   end
 
   test "first abnormal worker exit waits before retrying" do
@@ -730,6 +737,84 @@ defmodule Aiur.CoreTest do
              state.retry_attempts[issue_id]
 
     assert_due_in_range(due_at_ms, before_down_ms, 9_000, 10_500)
+  end
+
+  test "slot-starved retry preserves failure attempt and remains queued" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      max_concurrent_agents: 1,
+      tracker_active_states: ["Todo", "In Progress"],
+      tracker_terminal_states: ["Done", "Cancelled"]
+    )
+
+    issue_id = "issue-slot-starved"
+    retry_token = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :SlotStarvedRetryOrchestrator)
+    issue = %Issue{id: issue_id, identifier: "MT-SLOT", title: "Retry me", state: "In Progress"}
+
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    busy_worker_pid =
+      spawn(fn ->
+        receive do
+          :done -> :ok
+        end
+      end)
+
+    other_running_entry = %{
+      pid: busy_worker_pid,
+      ref: make_ref(),
+      identifier: "MT-BUSY",
+      issue: %Issue{id: "issue-busy", identifier: "MT-BUSY", state: "In Progress"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{"issue-busy" => other_running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{
+        issue_id => %{
+          attempt: 1,
+          retry_token: retry_token,
+          timer_ref: nil,
+          due_at_ms: System.monotonic_time(:millisecond),
+          identifier: "MT-SLOT",
+          error: "agent exited: :response_timeout"
+        }
+      })
+    end)
+
+    before_retry_ms = System.monotonic_time(:millisecond)
+    send(pid, {:retry_issue, issue_id, retry_token})
+    Process.sleep(50)
+    state = :sys.get_state(pid)
+    observed_at_ms = System.monotonic_time(:millisecond)
+
+    assert %{
+             attempt: 1,
+             due_at_ms: due_at_ms,
+             identifier: "MT-SLOT",
+             error: "no available orchestrator slots"
+           } = state.retry_attempts[issue_id]
+
+    assert is_reference(state.retry_attempts[issue_id].retry_token)
+    assert due_at_ms >= before_retry_ms + 1_000
+    assert due_at_ms <= observed_at_ms + 1_000
+
+    busy_state = %{state | running: %{"issue-busy" => other_running_entry}}
+    freed_state = %{state | running: %{}}
+    refute Orchestrator.retry_dispatch_ready_for_test(issue, busy_state)
+    assert Orchestrator.retry_dispatch_ready_for_test(issue, freed_state)
   end
 
   test "stale retry timer messages do not consume newer retry entries" do

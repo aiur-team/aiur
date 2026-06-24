@@ -88,6 +88,11 @@ alerts:
     sound:
       - "~/alerts/advisor-not-enough-minerals.wav"
       - "~/alerts/advisor-require-more-vesphene-gas.wav"
+  "ticket.*.agent.retry_exhausted":
+    message: Agent retry budget exhausted
+    sound:
+      - "~/alerts/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor-additional-pylons.wav"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:
