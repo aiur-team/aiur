@@ -557,6 +557,7 @@ defmodule Aiur.Config.Schema do
     case settings.agent.codex.turn_sandbox_policy do
       %{} = policy ->
         policy
+        |> maybe_add_workspace_writable_root(expand_configured_workspace(workspace))
 
       _ ->
         workspace
@@ -571,7 +572,9 @@ defmodule Aiur.Config.Schema do
   def resolve_runtime_turn_sandbox_policy(settings, workspace \\ nil, opts \\ []) do
     case settings.agent.codex.turn_sandbox_policy do
       %{} = policy ->
-        {:ok, policy}
+        with {:ok, workspace_root} <- runtime_policy_workspace_root(workspace, opts) do
+          {:ok, maybe_add_workspace_writable_root(policy, workspace_root)}
+        end
 
       _ ->
         workspace
@@ -950,6 +953,51 @@ defmodule Aiur.Config.Schema do
 
   defp default_runtime_turn_sandbox_policy(workspace_root, _opts) do
     {:error, {:unsafe_turn_sandbox_policy, {:invalid_workspace_root, workspace_root}}}
+  end
+
+  defp runtime_policy_workspace_root(workspace, opts) when is_binary(workspace) do
+    if String.trim(workspace) == "" do
+      {:ok, nil}
+    else
+      if Keyword.get(opts, :remote, false) do
+        {:ok, workspace}
+      else
+        workspace
+        |> expand_local_workspace_root()
+        |> PathSafety.canonicalize()
+      end
+    end
+  end
+
+  defp runtime_policy_workspace_root(_workspace, _opts), do: {:ok, nil}
+
+  defp expand_configured_workspace(workspace) when is_binary(workspace) do
+    if String.trim(workspace) == "" do
+      nil
+    else
+      expand_local_workspace_root(workspace)
+    end
+  end
+
+  defp expand_configured_workspace(_workspace), do: nil
+
+  defp maybe_add_workspace_writable_root(policy, nil), do: policy
+
+  defp maybe_add_workspace_writable_root(%{} = policy, workspace_root) when is_binary(workspace_root) do
+    case Map.get(policy, "type") || Map.get(policy, :type) do
+      "workspaceWrite" ->
+        writable_roots = Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || []
+        writable_roots = if is_list(writable_roots), do: writable_roots, else: []
+
+        Map.put(policy, "writableRoots", append_unique(writable_roots, workspace_root))
+
+      _ ->
+        policy
+    end
+  end
+
+  defp append_unique(values, value) do
+    if value in values, do: values, else: values ++ [value]
   end
 
   defp default_workspace_root(workspace, _fallback) when is_binary(workspace) and workspace != "",

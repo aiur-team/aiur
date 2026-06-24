@@ -41,24 +41,14 @@ defmodule Aiur.Codex.Config do
 
   @spec turn_sandbox_policy(Path.t() | nil) :: map()
   def turn_sandbox_policy(workspace \\ nil) do
-    case resolve_turn_sandbox_policy(workspace) do
-      {:ok, value} -> value
-      {:error, _} -> default_turn_sandbox_policy(workspace)
-    end
+    Aiur.Config.codex_turn_sandbox_policy(workspace)
+  rescue
+    ArgumentError -> default_turn_sandbox_policy(workspace)
   end
 
   @spec runtime_settings(Path.t() | nil) :: {:ok, map()} | {:error, term()}
   def runtime_settings(workspace \\ nil) do
-    with {:ok, ap} <- resolve_approval_policy(),
-         {:ok, ts} <- resolve_thread_sandbox(),
-         {:ok, tsp} <- resolve_turn_sandbox_policy(workspace) do
-      {:ok,
-       %{
-         approval_policy: ap,
-         thread_sandbox: ts,
-         turn_sandbox_policy: tsp
-       }}
-    end
+    Aiur.Config.codex_runtime_settings(workspace)
   end
 
   @impl Aiur.AgentConfig
@@ -108,19 +98,6 @@ defmodule Aiur.Codex.Config do
 
       value ->
         {:error, "Invalid codex.thread_sandbox in .aiurconfig: #{inspect(value)}"}
-    end
-  end
-
-  defp resolve_turn_sandbox_policy(workspace) do
-    case section_value("turn_sandbox_policy") do
-      nil ->
-        {:ok, default_turn_sandbox_policy(workspace)}
-
-      value when is_map(value) ->
-        {:ok, value}
-
-      value ->
-        {:error, "Invalid codex.turn_sandbox_policy in .aiurconfig: #{inspect(value)}"}
     end
   end
 

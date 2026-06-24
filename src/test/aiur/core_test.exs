@@ -2611,6 +2611,7 @@ defmodule Aiur.CoreTest do
 
       workspace_cache = Path.join(Path.expand(workspace), ".cache")
       File.mkdir_p!(workspace_cache)
+      assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
@@ -2652,9 +2653,13 @@ defmodule Aiur.CoreTest do
                end
              end)
 
+      expected_writable_roots =
+        [Path.expand(workspace), workspace_cache]
+        |> then(fn roots -> if canonical_workspace in roots, do: roots, else: roots ++ [canonical_workspace] end)
+
       expected_turn_policy = %{
         "type" => "workspaceWrite",
-        "writableRoots" => [Path.expand(workspace), workspace_cache]
+        "writableRoots" => expected_writable_roots
       }
 
       assert Enum.any?(lines, fn line ->

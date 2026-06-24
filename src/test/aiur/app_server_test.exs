@@ -76,7 +76,7 @@ defmodule Aiur.AppServerTest do
     end
   end
 
-  test "app server passes explicit turn sandbox policies through unchanged" do
+  test "app server augments explicit workspaceWrite policies and passes other policies through" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -100,6 +100,7 @@ defmodule Aiur.AppServerTest do
 
       System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
+      assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
@@ -163,6 +164,7 @@ defmodule Aiur.AppServerTest do
 
         trace = File.read!(trace_file)
         lines = String.split(trace, "\n", trim: true)
+        expected_policy = expected_runtime_policy(configured_policy, canonical_workspace)
 
         assert Enum.any?(lines, fn line ->
                  if String.starts_with?(line, "JSON:") do
@@ -171,7 +173,7 @@ defmodule Aiur.AppServerTest do
                    |> Jason.decode!()
                    |> then(fn payload ->
                      payload["method"] == "turn/start" &&
-                       get_in(payload, ["params", "sandboxPolicy"]) == configured_policy
+                       get_in(payload, ["params", "sandboxPolicy"]) == expected_policy
                    end)
                  else
                    false
@@ -1418,4 +1420,12 @@ defmodule Aiur.AppServerTest do
       File.rm_rf(test_root)
     end
   end
+
+  defp expected_runtime_policy(%{"type" => "workspaceWrite"} = policy, workspace) do
+    Map.update(policy, "writableRoots", [workspace], fn roots ->
+      if workspace in roots, do: roots, else: roots ++ [workspace]
+    end)
+  end
+
+  defp expected_runtime_policy(policy, _workspace), do: policy
 end

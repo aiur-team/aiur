@@ -349,7 +349,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp session_policies(workspace, nil) do
-    Aiur.Codex.Config.runtime_settings(workspace)
+    Config.codex_runtime_settings(workspace)
   end
 
   defp session_policies(workspace, worker_host) when is_binary(worker_host) do

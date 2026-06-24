@@ -345,11 +345,13 @@ defmodule ScriptsAiurdevTest do
           cd: pwd
         )
 
-      sandbox_root = Path.join(pwd, ".aiur-agent-ir")
+      {real_pwd, 0} = System.cmd("pwd", ["-P"], cd: pwd)
+      real_pwd = String.trim(real_pwd)
+      real_sandbox_root = Path.join(real_pwd, ".aiur-agent-ir")
 
-      assert out =~ "workspace marker: #{pwd}"
-      assert out =~ "agent IR sandbox: #{sandbox_root}"
-      assert out =~ "MISE_AIUR_BG_STATE_DIR: #{sandbox_root}/state"
+      assert out =~ "workspace marker: #{real_pwd}"
+      assert out =~ "agent IR sandbox: #{real_sandbox_root}"
+      assert out =~ "MISE_AIUR_BG_STATE_DIR: #{real_sandbox_root}/state"
       assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     after
       File.rm_rf(Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482"]))
