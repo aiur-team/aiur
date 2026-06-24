@@ -22,6 +22,90 @@ defmodule Aiur.GitHub.ClientTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    test "fetches configured active state labels including rework" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"]
+      )
+
+      parent = self()
+
+      request_fun = fn %{method: :get, url: url} ->
+        decoded_url = URI.decode(url)
+
+        state =
+          cond do
+            decoded_url =~ "labels=sym:todo" -> "todo"
+            decoded_url =~ "labels=sym:in-progress" -> "in-progress"
+            decoded_url =~ "labels=sym:rework" -> "rework"
+            decoded_url =~ "labels=sym:merging" -> "merging"
+            true -> flunk("unexpected labels query: #{decoded_url}")
+          end
+
+        send(parent, {:label_request, state})
+
+        body =
+          if state == "rework" do
+            [
+              %{
+                "number" => 35,
+                "title" => "Fix review feedback",
+                "body" => nil,
+                "html_url" => "https://github.com/owner/repo/issues/35",
+                "labels" => [%{"name" => "sym:rework"}],
+                "assignee" => nil,
+                "created_at" => "2026-06-23T00:00:00Z",
+                "updated_at" => "2026-06-23T01:00:00Z"
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: body}}
+      end
+
+      assert {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+      assert issue.id == "35"
+      assert issue.state == "rework"
+
+      assert_received {:label_request, "todo"}
+      assert_received {:label_request, "in-progress"}
+      assert_received {:label_request, "rework"}
+      assert_received {:label_request, "merging"}
+    end
+
+    test "deduplicates an issue carrying multiple active-state labels" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["in-progress", "rework"]
+      )
+
+      issue = fn ->
+        %{
+          "number" => 35,
+          "title" => "Fix review feedback",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/35",
+          "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:rework"}],
+          "assignee" => nil,
+          "created_at" => "2026-06-23T00:00:00Z",
+          "updated_at" => "2026-06-23T01:00:00Z"
+        }
+      end
+
+      # The same issue is returned under both queried labels; the client must
+      # collapse it to a single candidate via id-based dedup.
+      request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: [issue.()]}} end
+
+      assert {:ok, [deduped]} = Client.fetch_candidate_issues(request_fun: request_fun)
+      assert deduped.id == "35"
+    end
+
     test "returns normalized issues from GitHub API" do
       request_fun = fn %{method: :get, url: url, token: token} ->
         assert token == "test-gh-token"
