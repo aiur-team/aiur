@@ -298,34 +298,49 @@ defmodule Aiur.Events.GithubFirehose do
     actor = get_in(event, ["actor", "login"])
     repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
     comment_id = Map.get(comment, "id")
+    dedup_key = comment_dedup_key(repo_name, "issue_comment", number, comment_id)
 
-    if is_integer(number) do
-      # A PR-conversation comment fires as an IssueCommentEvent whose
-      # `issue.number` is the PR's number, not the originating ticket's.
-      # Resolve it to the ticket id via the PR's `aiur/<id>` head ref so
-      # the topic matches the agent's identifier — the orchestrator
-      # reactivates a `:deactivated` entry and live agents subscribe by
-      # ticket id. Mirrors how PullRequestEvent already keys by head ref.
-      # Plain issue comments carry no `pull_request` key and already use
-      # the ticket number.
-      ticket_id = resolve_comment_ticket_id(issue, number, opts)
+    cond do
+      not is_integer(number) ->
+        nil
 
-      # `bypass_contamination`: a `:deactivated` ticket (agent in
-      # human-review) is intentionally excluded from the orchestrator's
-      # tracked set so the killed task's late `agent.*` events stay
-      # filtered. An inbound human comment, however, must still reach the
-      # orchestrator to reactivate that entry — so it skips the tracked
-      # filter. The orchestrator (and live agents) self-gate by
-      # subscription, so a comment on an untracked issue reaches no
-      # reactivation target.
-      publish_opts = [
-        actor: actor,
-        issue_number: ticket_id,
-        bypass_contamination: true,
-        dedup_key: comment_dedup_key(repo_name, "issue_comment", number, comment_id)
-      ]
+      # The GitHub Events API replays in-window events for ~24h and the
+      # Publisher dedups by `dedup_key` at publish time. Resolving a
+      # PR-conversation comment to its ticket id costs a synchronous
+      # head-ref GET (the IssueCommentEvent's `issue.pull_request` carries
+      # no head ref), so short-circuit on a dedup hit BEFORE that lookup —
+      # otherwise the same in-window comment re-fetches the head ref on
+      # every poll cycle until it ages out of the dedup window. (#408)
+      already_deduped?(dedup_key) ->
+        nil
 
-      {"ticket.#{ticket_id}.issue.commented", %{issue_number: ticket_id, comment: comment}, publish_opts}
+      true ->
+        # A PR-conversation comment fires as an IssueCommentEvent whose
+        # `issue.number` is the PR's number, not the originating ticket's.
+        # Resolve it to the ticket id via the PR's `aiur/<id>` head ref so
+        # the topic matches the agent's identifier — the orchestrator
+        # reactivates a `:deactivated` entry and live agents subscribe by
+        # ticket id. Mirrors how PullRequestEvent already keys by head ref.
+        # Plain issue comments carry no `pull_request` key and already use
+        # the ticket number.
+        ticket_id = resolve_comment_ticket_id(issue, number, opts)
+
+        # `bypass_contamination`: a `:deactivated` ticket (agent in
+        # human-review) is intentionally excluded from the orchestrator's
+        # tracked set so the killed task's late `agent.*` events stay
+        # filtered. An inbound human comment, however, must still reach the
+        # orchestrator to reactivate that entry — so it skips the tracked
+        # filter. The orchestrator (and live agents) self-gate by
+        # subscription, so a comment on an untracked issue reaches no
+        # reactivation target.
+        publish_opts = [
+          actor: actor,
+          issue_number: ticket_id,
+          bypass_contamination: true,
+          dedup_key: dedup_key
+        ]
+
+        {"ticket.#{ticket_id}.issue.commented", %{issue_number: ticket_id, comment: comment}, publish_opts}
     end
   end
 
@@ -352,6 +367,18 @@ defmodule Aiur.Events.GithubFirehose do
   end
 
   defp translate(_event, _opts), do: nil
+
+  # Pre-check the Publisher dedup table with the same key `publish/3`
+  # would record. Lets the firehose skip a comment's ticket-id resolution
+  # (a synchronous head-ref GET for PR-conversation comments) when the
+  # event is a GitHub Events-API replay already published this window.
+  # `push_seen?/3` is a read-only lookup; the recording side-effect stays
+  # in `Publisher.publish/3`, so the first sighting still publishes.
+  defp already_deduped?({repo, ref, sha})
+       when is_binary(repo) and is_binary(ref) and is_binary(sha),
+       do: Publisher.push_seen?(repo, ref, sha)
+
+  defp already_deduped?(_), do: false
 
   # Resolve a comment's topic ticket id. For a PR-conversation comment
   # (`issue.pull_request` present) look up the PR's `aiur/<id>` head ref

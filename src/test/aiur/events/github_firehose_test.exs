@@ -459,6 +459,41 @@ defmodule Aiur.Events.GithubFirehoseTest do
       refute_receive {:event, %{topic: "ticket.66.issue.commented"}}, 200
     end
 
+    test "IssueCommentEvent on a PR resolves the head ref once across deduped replays" do
+      # The GitHub Events API replays in-window events for ~24h. Resolving a
+      # PR-conversation comment to its ticket id costs a synchronous head-ref
+      # GET; it must run on the first sighting only, not on every poll cycle
+      # until the comment ages out of the dedup window. Checking the comment
+      # dedup key before the lookup short-circuits the replays. (#408)
+      :ok = Exchange.subscribe("ticket.7.issue.commented")
+
+      # Distinct PR/comment ids from the other PR-comment tests so the
+      # shared Publisher dedup table isn't pre-seeded for this key.
+      event = pr_issue_comment_event("c1", 4080, 4081, "ping")
+      stub = fn _ -> {:ok, %{status: 200, headers: [{"ETag", ~s("e5")}], body: [event]}} end
+
+      parent = self()
+
+      pr_lookup = fn 4080 ->
+        send(parent, :head_ref_lookup)
+        {:ok, "aiur/7"}
+      end
+
+      assert {:ok, %{count: 1}} =
+               GithubFirehose.poll(request_fun: stub, pr_lookup_fun: pr_lookup)
+
+      assert_receive {:event, %{topic: "ticket.7.issue.commented"}}, 500
+      assert_receive :head_ref_lookup, 500
+
+      # Replay: Publisher would dedup the publish anyway, but the head-ref
+      # lookup must be short-circuited BEFORE it runs.
+      assert {:ok, %{count: 0}} =
+               GithubFirehose.poll(request_fun: stub, pr_lookup_fun: pr_lookup)
+
+      refute_receive {:event, %{topic: "ticket.7.issue.commented"}}, 200
+      refute_receive :head_ref_lookup, 200
+    end
+
     test "does not backfill when the previous event watermark is still on page 1" do
       :ok = Exchange.subscribe("ticket.66.issue.commented")
 
