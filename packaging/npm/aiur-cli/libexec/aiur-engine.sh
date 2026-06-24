@@ -372,6 +372,11 @@ run_session() {
   export AIUR_AGENT_TMPFILE="${session_root}/aiur-${$}-agents"
   : >"$AIUR_AGENT_TMPFILE"
 
+  # Workspace-root handoff for the shell cwd-sweep backstop. The BEAM writes the
+  # resolved Aiur.Config.workspace_root() here after config loads.
+  export AIUR_WORKSPACE_ROOT_FILE="${session_root}/aiur-${$}-workspace-root"
+  : >"$AIUR_WORKSPACE_ROOT_FILE"
+
   # Background runs persist under a known run log dir so (a) the BEAM-death
   # watchdog, which outlives the BEAM, can drop a crash record next to aiur.log,
   # and (b) the post-start boot capture is not lost to /tmp when the launcher
@@ -406,8 +411,8 @@ run_session() {
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
-      AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT \
-      AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG; do
+      AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
+      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -424,7 +429,8 @@ run_session() {
     _session_socket="$socket" _session_name="$session" _session_conf="$conf" \
       _session_tmpfile="$AIUR_SESSION_TMPFILE" _session_capture="$startup_capture" \
       _session_argv="$argv_file" _session_release="$release_dir" _session_tmux="$tmux_bin" \
-      _session_node="$AIUR_RELEASE_NODE" _session_pidfile="$AIUR_AGENT_TMPFILE"
+      _session_node="$AIUR_RELEASE_NODE" _session_pidfile="$AIUR_AGENT_TMPFILE" \
+      _session_workspace_root_file="$AIUR_WORKSPACE_ROOT_FILE"
     install_foreground_traps
   fi
 
@@ -436,7 +442,7 @@ run_session() {
       echo "aiur is already running in the background (tmux session ${session})." >&2
       echo "Use: aiur status   # inspect agents" >&2
       echo "Use: aiur stop     # stop it before starting a fresh session" >&2
-      rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+      rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" 2>/dev/null || true
       return 0
     fi
 
@@ -474,7 +480,7 @@ run_session() {
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
-    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" 2>/dev/null || true
     exit 1
   fi
 
@@ -495,7 +501,7 @@ run_session() {
       kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
     fi
     [ "$mode" = "foreground" ] && return 1
-    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" 2>/dev/null || true
     exit 1
   fi
 
@@ -508,7 +514,7 @@ run_session() {
     background_watchdog_pid="$(start_beam_death_watchdog \
       "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1 \
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
-      "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)")"
+      "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
     echo "aiur started in the background (tmux session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
@@ -524,21 +530,19 @@ run_session() {
   # the session, and unblocks the attach. It polls the node name rather than a
   # captured pid, so another Aiur instance from the same release cannot hold it open.
   _session_watchdog_pid="$(start_beam_death_watchdog \
-    "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
+    "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 0 \
+    "" "" "" "" "$AIUR_WORKSPACE_ROOT_FILE")"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
-  # Capture stderr in a tempfile instead of process substitution: some sandboxed
-  # pseudo-terminals reject /dev/fd/N redirections even though tmux itself works.
-  local attach_err attach_status
-  attach_err="$(mktemp "${TMPDIR:-/tmp}/aiur-attach.XXXXXX")"
-  if "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2>"$attach_err"; then
-    attach_status=0
-  else
-    attach_status=$?
-  fi
-  grep -v -F "[server exited]" "$attach_err" >&2 || true
-  rm -f "$attach_err"
-  return "$attach_status"
+  # Avoid process substitution here: some sandboxed non-TTY launchers reject
+  # opening /dev/fd/* during the real manual-test wrapper path.
+  local attach_stderr attach_code
+  attach_stderr="$(mktemp "${TMPDIR:-/tmp}/aiur-attach-stderr.XXXXXX")"
+  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2>"$attach_stderr"
+  attach_code=$?
+  grep -v -F "[server exited]" "$attach_stderr" >&2 || true
+  rm -f "$attach_stderr" 2>/dev/null || true
+  return "$attach_code"
 }
 
 resolve_tmux_conf() {
@@ -700,6 +704,123 @@ record_beam_crash() {
   fi
 }
 
+canonical_workspace_root() {
+  local root="$1"
+  if [ -d "$root" ]; then
+    (cd "$root" 2>/dev/null && pwd -P) || printf '%s\n' "$root"
+  else
+    printf '%s\n' "$root"
+  fi
+}
+
+workspace_root_is_shallow() {
+  local root="${1%/}" trimmed
+  trimmed="${root#/}"
+  [ -n "$trimmed" ] || return 0
+  case "$trimmed" in
+    */*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+workspace_cwd_pids() {
+  local root="${1%/}" proc_dir="${2:-/proc}" entry pid cwd
+  [ -d "$proc_dir" ] || return 0
+
+  for entry in "$proc_dir"/[0-9]*; do
+    [ -d "$entry" ] || continue
+    pid="${entry##*/}"
+    cwd="$(readlink "$entry/cwd" 2>/dev/null || true)"
+    [ -n "$cwd" ] || continue
+    cwd="${cwd%/}"
+    if [ "$cwd" != "$root" ] && [[ "$cwd/" == "$root/"* ]]; then
+      printf '%s\n' "$pid"
+    fi
+  done
+}
+
+shell_protected_pid_list() {
+  local p
+  printf '%s\n' "$$"
+  [ "${BASHPID:-$$}" = "$$" ] || printf '%s\n' "$BASHPID"
+  [ -n "${PPID:-}" ] && printf '%s\n' "$PPID"
+  for p in $(agent_pid_tree "$$" 2>/dev/null || true); do
+    printf '%s\n' "$p"
+  done
+}
+
+reap_workspace_cwd_agents() {
+  local root="${1:-}"
+  [ -n "$root" ] || return 0
+  [ -d /proc ] || return 0
+
+  root="$(canonical_workspace_root "$root")"
+  if workspace_root_is_shallow "$root"; then
+    echo "⚠️ refusing shallow workspace cwd sweep root: $root" >&2
+    return 0
+  fi
+
+  local max_sweeps="${AIUR_WORKSPACE_REAP_SWEEPS:-6}"
+  case "$max_sweeps" in '' | *[!0-9]*) max_sweeps=6 ;; esac
+  [ "$max_sweeps" -gt 0 ] || return 0
+
+  local protected pids=() filtered=() pid p sweep waited any
+  protected=" $(shell_protected_pid_list | tr '\n' ' ') "
+
+  sweep=0
+  while [ "$sweep" -lt "$max_sweeps" ]; do
+    mapfile -t pids < <(workspace_cwd_pids "$root" /proc)
+    filtered=()
+    for pid in "${pids[@]}"; do
+      case "$protected" in *" $pid "*) continue ;; esac
+      kill -0 "$pid" 2>/dev/null && filtered+=("$pid")
+    done
+
+    [ "${#filtered[@]}" -gt 0 ] || return 0
+
+    for p in "${filtered[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
+    waited=0
+    while [ "$waited" -lt 10 ]; do
+      any=0
+      for p in "${filtered[@]}"; do kill -0 "$p" 2>/dev/null && { any=1; break; }; done
+      [ "$any" -eq 0 ] && break
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+    for p in "${filtered[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
+
+    sweep=$((sweep + 1))
+    sleep 0.1
+  done
+}
+
+reap_workspace_cwd_from_file() {
+  local root_file="${1:-}" root
+  [ -n "$root_file" ] && [ -s "$root_file" ] || return 0
+  IFS= read -r root <"$root_file" || root=""
+  reap_workspace_cwd_agents "$root"
+}
+
+current_workspace_root() {
+  resolve_release
+  prepare_distribution >/dev/null 2>&1 || return 1
+
+  local output status line
+  set +e
+  output="$("$release_bin" rpc "IO.puts(Aiur.Config.workspace_root())" 2>/dev/null)"
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      "" | :ok) continue ;;
+      *) printf '%s\n' "$line"; return 0 ;;
+    esac
+  done <<<"$output"
+  return 1
+}
+
 # Background watchdog that survives the BEAM. Polls for the release BEAM by
 # command pattern and, once it has SEEN the BEAM and then the BEAM disappears
 # (orderly halt OR :emfile-style crash), reaps every agent. Polling the pattern
@@ -712,12 +833,13 @@ record_beam_crash() {
 #
 #   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s  $5 initial_seen
 #   $6 node  $7 run_log_dir  $8 stop_sentinel  $9 crash_marker
+#   $10 workspace_root_file
 # Args 6-9 arm crash recording (background mode). Omit them (foreground) and the
 # watchdog only reaps — a foreground BEAM death is already visible at the UI.
 # Prints the watchdog's own pid so the caller can kill it on a clean teardown.
 start_beam_death_watchdog() {
   local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}" initial_seen="${5:-0}"
-  local node="${6:-}" run_log_dir="${7:-}" stop_sentinel="${8:-}" crash_marker="${9:-}"
+  local node="${6:-}" run_log_dir="${7:-}" stop_sentinel="${8:-}" crash_marker="${9:-}" workspace_root_file="${10:-}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
@@ -740,6 +862,7 @@ start_beam_death_watchdog() {
       record_beam_crash "$node" "$run_log_dir" "$crash_marker"
     fi
     reap_aiur_agents "$socket" "$pidfile"
+    reap_workspace_cwd_from_file "$workspace_root_file"
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
 }
@@ -799,7 +922,7 @@ wait_for_session_startup() {
 # Foreground teardown: kill the session + BEAM and reap opencode sessions on exit.
 _session_socket="" _session_name="" _session_conf="" _session_tmpfile=""
 _session_capture="" _session_argv="" _session_release="" _session_tmux="" _session_node=""
-_session_pidfile="" _session_watchdog_pid=""
+_session_pidfile="" _session_watchdog_pid="" _session_workspace_root_file=""
 _cleanup_ran=0
 session_cleanup() {
   [ "$_cleanup_ran" = 1 ] && return 0
@@ -829,6 +952,11 @@ session_cleanup() {
   # release dir, so release-path pgrep would terminate sibling workflows.
   [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}"
 
+  # Final cwd-sweep backstop after the BEAM is gone: catches workspace-rooted
+  # agents or test children that registered too late, reparented during the
+  # BEAM-side sweep, or survived a bounded in-BEAM cleanup.
+  reap_workspace_cwd_from_file "$_session_workspace_root_file"
+
   # Reap the epmd our BEAM spawned for distribution so it doesn't linger after
   # exit. The node is dead by now, so `epmd -kill` succeeds; it safely refuses
   # while any *other* Erlang node is alive, so a daemon shared with an unrelated
@@ -856,7 +984,7 @@ session_cleanup() {
   # tempfiles are spared (fresh + live pid) before the explicit rm below clears them.
   sweep_stale_tmp_artifacts || true
 
-  rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" 2>/dev/null || true
+  rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" "$_session_workspace_root_file" 2>/dev/null || true
   return $code
 }
 install_foreground_traps() {
@@ -1211,6 +1339,9 @@ cmd_stop() {
   resolve_release
   aiur_resolve_identity
 
+  local workspace_root
+  workspace_root="$(current_workspace_root 2>/dev/null || true)"
+
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
   local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
@@ -1232,6 +1363,10 @@ cmd_stop() {
   # Reap any BEAM holding our node name regardless of which release dir launched
   # it. Do not sweep by release dir: sibling instances share dev releases.
   kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+
+  # Final cwd-sweep backstop after the BEAM is dead. `cmd_stop` is a fresh shell,
+  # so it captures the root from the live control node before the kill above.
+  reap_workspace_cwd_agents "$workspace_root"
 
   # The BEAM (alive until the TERM above) reaped its own headless agents through
   # ProcessReaper on Application.stop. kill-server is the guarantee the earlier

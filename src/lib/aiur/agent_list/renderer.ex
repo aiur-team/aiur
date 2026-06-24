@@ -391,7 +391,8 @@ defmodule Aiur.AgentList.Renderer do
     bold_label = @ansi_bold <> label <> @ansi_reset
     max_text = if focused?, do: "[#{max}]", else: to_string(max)
     affordance = if focused?, do: "  ← →", else: ""
-    plain = "#{prefix}#{label} #{kind} (#{count}/#{max_text})#{affordance}"
+    drain_text = if count > max, do: " drain", else: ""
+    plain = "#{prefix}#{label} #{kind} (#{count}/#{max_text}#{drain_text})#{affordance}"
     pad = padding_for(plain, inner_width)
 
     max_style =
@@ -414,6 +415,7 @@ defmodule Aiur.AgentList.Renderer do
       max_text,
       @ansi_reset,
       @ansi_cyan,
+      drain_text,
       ")",
       affordance,
       @ansi_reset,

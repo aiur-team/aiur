@@ -1175,12 +1175,6 @@ defmodule Aiur.AgentList.App do
 
   defp handle_max_adjust_result(state, {:ok, _status}), do: state
 
-  defp handle_max_adjust_result(state, {:error, :below_active_count}) do
-    ring_bell(state)
-    schedule_max_agents_alert_clear()
-    %{state | max_agents_alert?: true}
-  end
-
   defp handle_max_adjust_result(state, _result), do: state
 
   defp ring_bell(state) do

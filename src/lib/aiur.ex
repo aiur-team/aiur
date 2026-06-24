@@ -29,6 +29,7 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.configure()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     log_process_identity()
+    Aiur.Shutdown.record_workspace_root()
     install_signal_handlers()
     maybe_start_distribution()
 
@@ -105,6 +106,7 @@ defmodule Aiur.Application do
       Aiur.Events.IdGenerator,
       Aiur.Events.Exchange,
       Aiur.Events.Publisher,
+      Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
       Aiur.OperatorWaitLog,
