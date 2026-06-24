@@ -312,11 +312,8 @@ defmodule Aiur.Workspace do
   defp stale_leftover_refresh_refusal?(_reason), do: false
 
   defp todo_dispatch?(%{issue_state: issue_state, issue_labels: labels}) do
-    case normalize_issue_state(issue_state) do
-      "todo" -> true
-      "" -> Enum.any?(labels, &(normalize_issue_state(&1) == "agent:todo"))
-      _ -> false
-    end
+    normalize_issue_state(issue_state) == "todo" or
+      Enum.any?(labels, &(normalize_issue_state(&1) == "agent:todo"))
   end
 
   defp normalize_issue_state(value) when is_binary(value) do
