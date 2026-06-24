@@ -285,9 +285,10 @@ defmodule Aiur.Config.Schema do
       # Safety net: hard-kill an agent that has been actively running this
       # many minutes (paused/blocked time excluded). 0 disables.
       field(:max_agent_duration_minutes, :integer, default: 60)
-      # Per-scheduler 1-min load ceiling for the dispatch load gate (#465). nil
-      # disables it (default); new dispatch holds while load > value * cores.
-      field(:max_load_average, :float)
+      # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
+      # Enabled by default so high-concurrency runs have protection without
+      # extra operator knowledge; explicit YAML null disables it.
+      field(:max_load_average, :float, default: 1.5)
 
       embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
       embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -315,6 +316,7 @@ defmodule Aiur.Config.Schema do
         ],
         empty_values: []
       )
+      |> preserve_explicit_nil_max_load_average(attrs)
       |> validate_number(:max_concurrent_agents, greater_than: 0)
       |> validate_number(:max_turns, greater_than: 0)
       |> validate_number(:max_retry_attempts, greater_than: 0)
@@ -338,6 +340,20 @@ defmodule Aiur.Config.Schema do
     defp drop_uncapped_max_turns(attrs) do
       Enum.reduce([:max_turns, "max_turns"], attrs, &drop_key_if_uncapped/2)
     end
+
+    defp preserve_explicit_nil_max_load_average(changeset, attrs) do
+      if explicit_nil?(attrs, :max_load_average) or explicit_nil?(attrs, "max_load_average") do
+        put_change(changeset, :max_load_average, nil)
+      else
+        changeset
+      end
+    end
+
+    defp explicit_nil?(attrs, key) when is_map(attrs) do
+      Map.has_key?(attrs, key) and is_nil(Map.get(attrs, key))
+    end
+
+    defp explicit_nil?(_attrs, _key), do: false
 
     defp drop_key_if_uncapped(key, attrs) do
       case Map.fetch(attrs, key) do
@@ -768,17 +784,31 @@ defmodule Aiur.Config.Schema do
   defp normalize_key(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_key(value), do: to_string(value)
 
-  defp drop_nil_values(value) when is_map(value) do
+  defp drop_nil_values(value), do: drop_nil_values(value, [])
+
+  defp drop_nil_values(value, path) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, nested}, acc ->
-      case drop_nil_values(nested) do
-        nil -> acc
-        normalized -> Map.put(acc, key, normalized)
+      child_path = path ++ [key]
+
+      case drop_nil_values(nested, child_path) do
+        nil ->
+          put_preserved_nil(acc, key, child_path)
+
+        normalized ->
+          Map.put(acc, key, normalized)
       end
     end)
   end
 
-  defp drop_nil_values(value) when is_list(value), do: Enum.map(value, &drop_nil_values/1)
-  defp drop_nil_values(value), do: value
+  defp drop_nil_values(value, path) when is_list(value), do: Enum.map(value, &drop_nil_values(&1, path))
+  defp drop_nil_values(value, _path), do: value
+
+  defp put_preserved_nil(acc, key, path) do
+    if preserve_nil_path?(path), do: Map.put(acc, key, nil), else: acc
+  end
+
+  defp preserve_nil_path?(["agent", "max_load_average"]), do: true
+  defp preserve_nil_path?(_path), do: false
 
   defp resolve_secret_setting(nil, fallback), do: normalize_secret_value(fallback)
 

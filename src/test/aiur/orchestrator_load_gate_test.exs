@@ -35,10 +35,10 @@ defmodule Aiur.OrchestratorLoadGateTest do
     end
   end
 
-  # read_load/1 is the wiring that decides WHETHER to read /proc at all: the
-  # disabled default (nil threshold) must never touch the load source, while an
+  # read_load/1 is the wiring that decides WHETHER to read /proc at all: an
+  # explicit-disable nil threshold must never touch the load source, while an
   # enabled threshold reads the live 1-min average. This guards the short-circuit
-  # that keeps the gate free for everyone who has not opted in.
+  # operators can use when they intentionally disable the gate.
   describe "read_load/1" do
     setup do
       previous = Application.get_env(:aiur, :loadavg_source_override)
@@ -51,7 +51,7 @@ defmodule Aiur.OrchestratorLoadGateTest do
       assert Orchestrator.read_load(1.5) == 7.5
     end
 
-    test "does NOT read the load source when the threshold is nil (disabled default)" do
+    test "does NOT read the load source when the threshold is nil (explicitly disabled)" do
       Application.put_env(:aiur, :loadavg_source_override, fn ->
         flunk("avg1 must not be read when the load gate is disabled")
       end)
