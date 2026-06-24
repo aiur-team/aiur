@@ -50,7 +50,8 @@ rebuilds when stale.
 
 ## 3. Launch (detached, logged)
 
-Run it backgrounded and keep the log:
+Run it backgrounded and **always pass `--debug`** — the verbose logs under `~/.aiur/logs` are how
+you monitor agents and diagnose snags (firehose/token failures, workspace-hook errors, stalls):
 
 ```
 aiurdev --bg --debug    # --debug = AIUR_DEBUG=1 (verbose); logs land under ~/.aiur/logs

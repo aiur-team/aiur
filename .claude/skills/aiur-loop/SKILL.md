@@ -38,8 +38,9 @@ tickets the developer didn't authorize.
 
 ## The loop (run per the Step-0 answers)
 
-1. **Launch** via `aiur-run` in the current repo. Clean slate first (no stray BEAM, dashboard
-   port free, epmd clear) — a stale instance will grab newly-`agent:todo` tickets on old code.
+1. **Launch** via `aiur-run` in the current repo, **always with `--debug`** so each agent's logs
+   are captured under `~/.aiur/logs` for monitoring + diagnosis. Clean slate first (no stray BEAM,
+   dashboard port free, epmd clear) — a stale instance will grab newly-`agent:todo` tickets on old code.
 2. **Monitor** with `aiur-monitor` at the agreed interval. Watch for bugs, stuck agents, CPU/FD.
 3. **Curate the backlog** — if opted in, file focused `agent:todo` tickets (repro + acceptance
    criteria) so aiur keeps picking up work; keep the queue fed toward the agreed scope.
