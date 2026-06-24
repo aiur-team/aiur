@@ -67,9 +67,7 @@ defmodule Aiur.Orchestrator do
             agent_totals: map() | nil,
             agent_rate_limits: map() | nil,
             codex_totals: map() | nil,
-            codex_rate_limits: map() | nil,
-            events_etag: String.t() | nil,
-            events_last_id: String.t() | nil
+            codex_rate_limits: map() | nil
           }
 
     defstruct [
@@ -93,8 +91,7 @@ defmodule Aiur.Orchestrator do
       agent_rate_limits: nil,
       codex_totals: nil,
       codex_rate_limits: nil,
-      events_etag: nil,
-      events_last_id: nil
+      events_etag: nil
     ]
   end
 
@@ -809,8 +806,6 @@ defmodule Aiur.Orchestrator do
     Map.get(event, :author_trusted?) == true or Map.get(event, "author_trusted?") == true
   end
 
-  defp trusted_comment_event?(_event), do: false
-
   defp rework_issue_key(%{issue: %Issue{id: issue_id}}, _issue_number) when is_binary(issue_id),
     do: issue_id
 
@@ -872,10 +867,10 @@ defmodule Aiur.Orchestrator do
   end
 
   defp poll_github_firehose(%State{} = state) do
-    case GithubFirehose.poll(etag: state.events_etag, last_event_id: state.events_last_id) do
-      {:ok, %{etag: etag, last_event_id: last_event_id, count: count}} ->
+    case GithubFirehose.poll(etag: state.events_etag) do
+      {:ok, %{etag: etag, count: count}} ->
         if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
-        %{state | events_etag: etag, events_last_id: last_event_id}
+        %{state | events_etag: etag}
 
       {:error, _reason} ->
         # Preserve cached etag so we retry as If-None-Match next tick
