@@ -2,6 +2,7 @@ defmodule AiurEngineTest do
   use ExUnit.Case, async: true
 
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
+  @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
 
   # Run the engine's `__identity` probe with a clean AIUR_* env plus the given
   # overrides, returning the resolved KEY=VALUE map.
@@ -130,6 +131,7 @@ defmodule AiurEngineTest do
     refute out =~ "BIN:"
   end
 
+  @tag skip: @pgrep_skip_reason
   test "kill_beams_matching reaps a node-name holder from any release dir" do
     # A unified node name means an orphaned BEAM from a different release dir
     # still blocks a launch; the reaper must match by `-name`, not release path.
@@ -142,9 +144,40 @@ defmodule AiurEngineTest do
     source #{@engine}
     set +e
     bash -c 'exec -a "beam.smp #{marker} extra" sleep 10' >/dev/null 2>&1 &
-    for _ in $(seq 1 20); do pgrep -f -- '#{marker}' >/dev/null && break; sleep 0.1; done
-    kill_beams_matching '#{marker}'
-    pgrep -f -- '#{marker}' >/dev/null && echo STILL_ALIVE || echo REAPED
+    seen=0
+    for _ in $(seq 1 20); do
+      pgrep_out="$(pgrep -f -- '#{marker}' 2>&1)"
+      pgrep_status=$?
+      case "$pgrep_status" in
+        0) seen=1; break ;;
+        1)
+          if [ -n "$pgrep_out" ]; then
+            printf 'PGREP_ERROR: %s\\n' "$pgrep_out"
+            break
+          fi
+          ;;
+        *) printf 'PGREP_ERROR: %s\\n' "$pgrep_out"; break ;;
+      esac
+      sleep 0.1
+    done
+    if [ "$seen" -ne 1 ]; then
+      echo SETUP_FAILED
+    else
+      kill_beams_matching '#{marker}'
+    fi
+    pgrep_out="$(pgrep -f -- '#{marker}' 2>&1)"
+    pgrep_status=$?
+    case "$pgrep_status" in
+      0) echo STILL_ALIVE ;;
+      1)
+        if [ -n "$pgrep_out" ]; then
+          printf 'PGREP_ERROR: %s\\n' "$pgrep_out"
+        else
+          echo REAPED
+        fi
+        ;;
+      *) printf 'PGREP_ERROR: %s\\n' "$pgrep_out" ;;
+    esac
     """
 
     path = Path.join(System.tmp_dir!(), "aiur-reap-#{System.unique_integer([:positive])}.sh")
@@ -152,6 +185,8 @@ defmodule AiurEngineTest do
     on_exit(fn -> File.rm(path) end)
 
     {out, _} = System.cmd("bash", [path], stderr_to_stdout: true)
+    refute out =~ "PGREP_ERROR"
+    refute out =~ "SETUP_FAILED"
     assert out =~ "REAPED"
   end
 
