@@ -61,6 +61,22 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              "session_cleanup MUST sweep so agent-driver sockets this run orphaned are reaped at close"
     end
 
+    test "runs the workspace cwd sweep after the BEAM is dead" do
+      cleanup = cleanup_block()
+
+      assert cleanup =~ ~r/kill_beams_matching "-name \$\{_session_node\}".+reap_workspace_cwd_from_file "\$_session_workspace_root_file"/s,
+             """
+             session_cleanup MUST run the cwd-scoped workspace backstop after
+             the BEAM node-name reap. Running it before the BEAM exits can race
+             with BEAM-side cleanup and miss reparented workspace processes.
+             """
+    end
+
+    test "removes the workspace root handoff tempfile" do
+      assert cleanup_block() =~ ~r/rm -f .*\$_session_workspace_root_file/,
+             "session_cleanup must remove the per-run workspace-root tempfile"
+    end
+
     test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
       source = File.read!(@engine)
 
@@ -78,10 +94,61 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
   end
 
+  describe "engine workspace cwd sweep" do
+    test "is rooted in proc cwd, guarded against shallow roots, and escalates to KILL" do
+      source = File.read!(@engine)
+
+      assert source =~ "workspace_cwd_pids()",
+             "engine needs a cwd-scoped pid scanner for the post-BEAM backstop"
+
+      assert source =~ ~r/readlink "\$entry\/cwd"/,
+             "workspace sweep must inspect /proc/<pid>/cwd"
+
+      assert source =~ "workspace_root_is_shallow",
+             "workspace sweep must refuse dangerously broad roots"
+
+      assert source =~ ~r/kill -TERM "\$p"/,
+             "workspace sweep must try graceful termination first"
+
+      assert source =~ ~r/kill -KILL "\$p"/,
+             "workspace sweep must force-kill survivors after the grace period"
+    end
+
+    test "cmd_stop captures the root before killing the node and sweeps after" do
+      stop = cmd_stop_block()
+
+      assert stop =~ ~r/workspace_root="\$\(current_workspace_root/,
+             "cmd_stop must capture the live node's configured workspace root before killing it"
+
+      assert stop =~ ~r/kill_beams_matching "-name \$\{AIUR_RELEASE_NODE\}".+reap_workspace_cwd_agents "\$workspace_root"/s,
+             "cmd_stop must run the cwd sweep after the BEAM node-name reap"
+    end
+
+    test "watchdog receives the workspace root file and sweeps after BEAM death" do
+      source = File.read!(@engine)
+
+      assert source =~ ~s(workspace_root_file="${6:-}"),
+             "watchdog must accept the workspace-root handoff file path"
+
+      assert source =~ ~r/reap_aiur_agents "\$socket" "\$pidfile"\n\s+reap_workspace_cwd_from_file "\$workspace_root_file"/,
+             "watchdog must run the cwd sweep after pidfile agent reap"
+
+      assert source =~ ~r/start_beam_death_watchdog \\\n\s+"-name \$\{AIUR_RELEASE_NODE\}" "\$socket" "\$AIUR_AGENT_TMPFILE" 1 1 "\$AIUR_WORKSPACE_ROOT_FILE"/,
+             "background watchdog must receive AIUR_WORKSPACE_ROOT_FILE"
+    end
+  end
+
   # Pull the session_cleanup body out of the engine for source asserts.
   defp cleanup_block do
     [_, block] =
       Regex.run(~r/session_cleanup\(\) \{(.+?)\n\}\ninstall_foreground_traps/us, File.read!(@engine), capture: :all)
+
+    block
+  end
+
+  defp cmd_stop_block do
+    [_, block] =
+      Regex.run(~r/cmd_stop\(\) \{(.+?)\n\}\n\n# --- dispatch/us, File.read!(@engine), capture: :all)
 
     block
   end

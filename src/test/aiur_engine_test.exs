@@ -151,6 +151,39 @@ defmodule AiurEngineTest do
     assert out =~ "REAPED"
   end
 
+  test "workspace cwd sweep reaps only descendants of a non-shallow root" do
+    if File.dir?("/proc") do
+      root = Path.join(System.tmp_dir!(), "aiur-cwd-reap-#{System.unique_integer([:positive])}")
+      inside = Path.join(root, "repo/468")
+      outside = Path.join(System.tmp_dir!(), "aiur-cwd-spared-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(inside)
+      File.mkdir_p!(outside)
+
+      inside_pid = spawn_sleeper(inside)
+      outside_pid = spawn_sleeper(outside)
+
+      on_exit(fn ->
+        kill_pid(inside_pid)
+        kill_pid(outside_pid)
+        File.rm_rf(root)
+        File.rm_rf(outside)
+      end)
+
+      {out, 0} =
+        run_sourced_engine(
+          """
+          AIUR_WORKSPACE_REAP_SWEEPS=2 reap_workspace_cwd_agents "$ROOT"
+          AIUR_WORKSPACE_REAP_SWEEPS=2 reap_workspace_cwd_agents /tmp
+          """,
+          [{"ROOT", root}]
+        )
+
+      assert out =~ "refusing shallow workspace cwd sweep root: /tmp"
+      assert wait_dead(inside_pid), "expected the workspace-rooted process to be reaped"
+      assert os_pid_alive?(outside_pid), "expected the out-of-root process to survive"
+    end
+  end
+
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
     dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -197,6 +230,28 @@ defmodule AiurEngineTest do
   end
 
   defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+  defp spawn_sleeper(cwd) do
+    port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])
+    {:os_pid, os_pid} = Port.info(port, :os_pid)
+    os_pid
+  end
+
+  defp os_pid_alive?(pid), do: match?({_, 0}, System.cmd("kill", ["-0", to_string(pid)], stderr_to_stdout: true))
+
+  defp wait_dead(pid, attempts \\ 50)
+  defp wait_dead(pid, 0), do: not os_pid_alive?(pid)
+
+  defp wait_dead(pid, attempts) do
+    if os_pid_alive?(pid) do
+      Process.sleep(50)
+      wait_dead(pid, attempts - 1)
+    else
+      true
+    end
+  end
+
+  defp kill_pid(pid), do: System.cmd("kill", ["-KILL", to_string(pid)], stderr_to_stdout: true)
 
   defp run_sourced_engine(script, env) do
     # The engine's launch/stop paths reap any BEAM holding their node name
@@ -501,7 +556,7 @@ defmodule AiurEngineTest do
     assert out =~ "aiur started in the background"
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
-    assert events_log =~ " 1 1\n"
+    assert events_log =~ ~r/ 1 1 \S+-workspace-root\n/
     assert events_log =~ "DISOWN:424242"
   end
 

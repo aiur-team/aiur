@@ -33,6 +33,8 @@ defmodule Aiur.Claude.RemoteControl do
   # escalating to SIGKILL.
   @kill_grace_ms 2_000
   @kill_poll_ms 25
+  @workspace_reap_max_sweeps 6
+  @workspace_reap_backoff_ms 100
 
   # --------------------------------------------------------------- url parse
 
@@ -330,13 +332,12 @@ defmodule Aiur.Claude.RemoteControl do
     proc_dir = Keyword.get(opts, :proc_dir, "/proc")
     kill_fun = Keyword.get(opts, :kill_fun, &graceful_kill/1)
     protected = MapSet.new(Keyword.get_lazy(opts, :protected_pids, &self_pid_tree/0))
+    max_sweeps = positive_integer(Keyword.get(opts, :max_sweeps), @workspace_reap_max_sweeps)
+    backoff_ms = non_negative_integer(Keyword.get(opts, :backoff_ms), @workspace_reap_backoff_ms)
 
     case sweep_root(workspace_root) do
       {:ok, root} ->
-        root
-        |> workspace_agent_pids(proc_dir)
-        |> Enum.reject(&MapSet.member?(protected, &1))
-        |> reap_all(kill_fun)
+        reap_workspace_agents_until_empty(root, proc_dir, protected, kill_fun, max_sweeps, backoff_ms)
 
       :skip ->
         :ok
@@ -372,6 +373,47 @@ defmodule Aiur.Claude.RemoteControl do
     |> Path.split()
     |> Enum.reject(&(&1 in ["", "/"]))
     |> length() < 2
+  end
+
+  defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value, default), do: default
+
+  defp non_negative_integer(value, _default) when is_integer(value) and value >= 0, do: value
+  defp non_negative_integer(_value, default), do: default
+
+  defp reap_workspace_agents_until_empty(root, proc_dir, protected, kill_fun, sweeps_left, backoff_ms) do
+    pids = workspace_reap_candidates(root, proc_dir, protected)
+
+    case pids do
+      [] ->
+        :ok
+
+      _ ->
+        reap_all(pids, kill_fun)
+
+        if sweeps_left <= 1 do
+          log_workspace_reap_survivors(root, proc_dir, protected)
+        else
+          Process.sleep(backoff_ms)
+          reap_workspace_agents_until_empty(root, proc_dir, protected, kill_fun, sweeps_left - 1, backoff_ms)
+        end
+    end
+  end
+
+  defp workspace_reap_candidates(root, proc_dir, protected) do
+    root
+    |> workspace_agent_pids(proc_dir)
+    |> Enum.reject(&MapSet.member?(protected, &1))
+  end
+
+  defp log_workspace_reap_survivors(root, proc_dir, protected) do
+    case workspace_reap_candidates(root, proc_dir, protected) do
+      [] ->
+        :ok
+
+      survivors ->
+        Logger.warning("reap_workspace_agents exhausted root=#{inspect(root)} survivors=#{inspect(Enum.sort(survivors))}")
+    end
   end
 
   # Kill concurrently, not serially: a single `graceful_kill` blocks up to its

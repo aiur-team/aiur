@@ -228,6 +228,10 @@ defmodule Aiur.Claude.RemoteControlTest do
       File.ln_s!(cwd, Path.join(dir, "cwd"))
     end
 
+    defp remove_fake_proc(proc, pid) do
+      File.rm_rf!(Path.join(proc, Integer.to_string(pid)))
+    end
+
     defp collect_killed(acc) do
       receive do
         {:killed, pid} -> collect_killed([pid | acc])
@@ -259,7 +263,9 @@ defmodule Aiur.Claude.RemoteControlTest do
                RemoteControl.reap_workspace_agents(root,
                  proc_dir: proc,
                  kill_fun: kill_fun,
-                 protected_pids: []
+                 protected_pids: [],
+                 max_sweeps: 1,
+                 backoff_ms: 0
                )
 
       assert Enum.sort(collect_killed([])) == [100, 200, 300, 400, 500, 600]
@@ -277,7 +283,9 @@ defmodule Aiur.Claude.RemoteControlTest do
                RemoteControl.reap_workspace_agents(root,
                  proc_dir: proc,
                  kill_fun: kill_fun,
-                 protected_pids: [200]
+                 protected_pids: [200],
+                 max_sweeps: 1,
+                 backoff_ms: 0
                )
 
       assert collect_killed([]) == [100]
@@ -296,7 +304,13 @@ defmodule Aiur.Claude.RemoteControlTest do
       kill_fun = fn pid -> send(parent, {:killed, pid}) end
 
       # protected_pids omitted → default self_pid_tree() must spare the BEAM.
-      assert :ok = RemoteControl.reap_workspace_agents(root, proc_dir: proc, kill_fun: kill_fun)
+      assert :ok =
+               RemoteControl.reap_workspace_agents(root,
+                 proc_dir: proc,
+                 kill_fun: kill_fun,
+                 max_sweeps: 1,
+                 backoff_ms: 0
+               )
 
       killed = collect_killed([])
       refute self_os_pid in killed
@@ -313,7 +327,9 @@ defmodule Aiur.Claude.RemoteControlTest do
                RemoteControl.reap_workspace_agents("/home",
                  proc_dir: proc,
                  kill_fun: kill_fun,
-                 protected_pids: []
+                 protected_pids: [],
+                 max_sweeps: 1,
+                 backoff_ms: 0
                )
 
       assert collect_killed([]) == []
@@ -329,10 +345,64 @@ defmodule Aiur.Claude.RemoteControlTest do
                RemoteControl.reap_workspace_agents(root,
                  proc_dir: proc,
                  kill_fun: kill_fun,
-                 protected_pids: []
+                 protected_pids: [],
+                 max_sweeps: 1,
+                 backoff_ms: 0
                )
 
       assert collect_killed([]) == []
+    end
+
+    test "retries until a process that appears after the first sweep is gone",
+         %{root: root, proc: proc} do
+      fake_proc(proc, 100, "aiur-claude", Path.join(root, "101"))
+
+      parent = self()
+
+      kill_fun = fn
+        100 ->
+          send(parent, {:killed, 100})
+          remove_fake_proc(proc, 100)
+          fake_proc(proc, 200, "beam.smp", Path.join([root, "101", "src"]))
+
+        200 ->
+          send(parent, {:killed, 200})
+          remove_fake_proc(proc, 200)
+      end
+
+      assert :ok =
+               RemoteControl.reap_workspace_agents(root,
+                 proc_dir: proc,
+                 kill_fun: kill_fun,
+                 protected_pids: [],
+                 max_sweeps: 3,
+                 backoff_ms: 0
+               )
+
+      assert Enum.sort(collect_killed([])) == [100, 200]
+    end
+
+    test "bounds retries when a process remains under the workspace root",
+         %{root: root, proc: proc} do
+      fake_proc(proc, 100, "beam.smp", Path.join([root, "101", "src"]))
+
+      parent = self()
+      kill_fun = fn 100 -> send(parent, {:killed, 100}) end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok =
+                   RemoteControl.reap_workspace_agents(root,
+                     proc_dir: proc,
+                     kill_fun: kill_fun,
+                     protected_pids: [],
+                     max_sweeps: 2,
+                     backoff_ms: 0
+                   )
+        end)
+
+      assert Enum.sort(collect_killed([])) == [100, 100]
+      assert log =~ "reap_workspace_agents exhausted"
     end
   end
 
