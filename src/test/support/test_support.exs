@@ -41,6 +41,16 @@ defmodule Aiur.TestSupport do
             "workflow-#{System.unique_integer([:positive])}"
           )
 
+        # The valid baseline the suite booted with (test_helper.exs points this
+        # at the checked-in `fixtures/test.aiurconfig`). Restore it on exit
+        # rather than deleting the key — deleting it leaves the global config
+        # resolving to a possibly-missing run-folder path, so any later read of
+        # `Config.settings!/0` while `WorkflowStore` is mid-reload/restart raises
+        # `missing_workflow_file`. That raise in a permanent top-level child's
+        # `init/1` (e.g. `Orchestrator`) crash-loops `Aiur.Supervisor` past its
+        # `max_restarts` and takes the whole `:aiur` app down — the #589 cascade.
+        previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
+
         File.mkdir_p!(workflow_root)
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
@@ -49,11 +59,31 @@ defmodule Aiur.TestSupport do
         stop_default_http_server()
 
         on_exit(fn ->
-          Application.delete_env(:aiur, :workflow_file_path)
+          case previous_workflow_file_path do
+            nil -> Application.delete_env(:aiur, :workflow_file_path)
+            path -> Application.put_env(:aiur, :workflow_file_path, path)
+          end
+
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
           File.rm_rf(workflow_root)
+
+          # Reload the store onto the restored baseline so the next test never
+          # observes the now-deleted `workflow_root` config, and recover the
+          # app if a sibling test's child terminate/restart toppled it while
+          # the config was transiently bad (the #589 cascade safety net).
+          if Process.whereis(Aiur.WorkflowStore) do
+            try do
+              Aiur.WorkflowStore.force_reload()
+            catch
+              :exit, _ -> :ok
+            end
+          end
+
+          unless Process.whereis(Aiur.Supervisor) do
+            Application.ensure_all_started(:aiur)
+          end
         end)
 
         :ok

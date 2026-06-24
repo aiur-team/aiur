@@ -1,5 +1,11 @@
 defmodule ScriptsAiurdevTest do
-  use ExUnit.Case, async: true
+  # async: false — the agent-workspace fallback tests `File.cd!` the BEAM into a
+  # temp dir to resolve the real (symlink-expanded) PWD the shim will see. The
+  # working directory is process-global, so running this concurrently with the
+  # rest of the suite races ExUnit's parallel test compiler (which resolves test
+  # files via relative paths) and surfaces as a `MatchError {:error, :enoent}`
+  # compiling some unrelated `test/...` file under the temp cwd (#589).
+  use ExUnit.Case, async: false
 
   # aiurdev is now a thin dev shim: it resolves the repo-local release, rebuilds
   # it when stale, and execs the shared engine with AIUR_RELEASE_DIR set. The
@@ -588,7 +594,12 @@ defmodule ScriptsAiurdevTest do
 
   test "agent workspace non-test detection falls back to PWD and roots sandbox there" do
     root = fake_repo()
-    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482"])
+    # Per-run unique id under `aiur-workspaces` so concurrent test runs that
+    # share `/tmp` (e.g. two CI jobs on one self-hosted runner, or this
+    # `async: true` module's two PWD-fallback tests) can't collide on a fixed
+    # path. A sibling run's `rm_rf` would otherwise yank the dir out from under
+    # another run's cwd and surface as `MatchError {:error, :enoent}`.
+    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482-#{System.unique_integer([:positive])}"])
     home = sandbox_home()
     mise = fake_mise()
 
@@ -618,13 +629,15 @@ defmodule ScriptsAiurdevTest do
       assert out =~ "AIUR_BG_STATE_DIR: #{sandbox_root}/state"
       assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     after
-      File.rm_rf(Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482"]))
+      File.rm_rf(pwd)
     end
   end
 
   test "agent workspace --test detection falls back to PWD and blocks before sandboxing" do
     root = fake_repo()
-    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "483"])
+    # Per-run unique id under `aiur-workspaces` (see the sibling test above) to
+    # keep concurrent runs sharing `/tmp` from colliding on a fixed path.
+    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "483-#{System.unique_integer([:positive])}"])
     home = sandbox_home()
     mise = fake_mise()
 
@@ -654,7 +667,7 @@ defmodule ScriptsAiurdevTest do
       refute out =~ "ENGINE_ARGS:"
       assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     after
-      File.rm_rf(Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "483"]))
+      File.rm_rf(pwd)
     end
   end
 

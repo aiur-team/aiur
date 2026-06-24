@@ -716,7 +716,12 @@ defmodule Aiur.CoreTest do
     log =
       capture_log(fn ->
         send(pid, {:DOWN, ref, :process, self(), :boom})
-        Process.sleep(50)
+        # Synchronous barrier inside the capture window: `:sys.get_state/1`
+        # blocks until the orchestrator has fully handled the :DOWN (and emitted
+        # both its "giving up" warning and the retry_exhausted alert), so the log
+        # is captured deterministically. A bare `Process.sleep/1` raced the
+        # async alert emission under suite load and flaked (#589).
+        :sys.get_state(pid)
       end)
 
     state = :sys.get_state(pid)
