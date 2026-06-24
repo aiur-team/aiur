@@ -414,6 +414,8 @@ Fields:
   - Runs before each agent attempt after workspace preparation and before launching the coding
     agent.
   - Failure aborts the current attempt.
+  - A recognized stale-workspace refresh refusal on a `todo` issue MAY recreate the workspace
+    and retry the hook once; dirty workspaces for resumed active issues must still fail closed.
 - `after_run` (multiline shell script string, OPTIONAL)
   - Runs after each agent attempt (success, failure, timeout, or cancellation) once the workspace
     exists.

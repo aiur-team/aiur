@@ -256,16 +256,96 @@ defmodule Aiur.Workspace do
     hooks = Config.settings!().hooks
 
     hook_result =
-      case hooks.before_run do
-        nil ->
-          :ok
+      run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)
 
-        command ->
-          run_hook(command, workspace, issue_context, "before_run", worker_host)
-      end
+    case hook_result do
+      :ok ->
+        ensure_git_metadata_writable(workspace, worker_host)
 
-    with :ok <- hook_result do
-      ensure_git_metadata_writable(workspace, worker_host)
+      {:error, reason} = error ->
+        maybe_recreate_stale_workspace(
+          error,
+          reason,
+          hooks.before_run,
+          workspace,
+          issue_context,
+          worker_host
+        )
+    end
+  end
+
+  defp run_before_run_command(nil, _workspace, _issue_context, _worker_host), do: :ok
+
+  defp run_before_run_command(command, workspace, issue_context, worker_host) do
+    run_hook(command, workspace, issue_context, "before_run", worker_host)
+  end
+
+  defp maybe_recreate_stale_workspace(error, reason, before_run, workspace, issue_context, worker_host) do
+    cond do
+      is_nil(before_run) ->
+        error
+
+      not stale_leftover_refresh_refusal?(reason) ->
+        error
+
+      not todo_dispatch?(issue_context) ->
+        error
+
+      true ->
+        Logger.warning(
+          "Recreating stale leftover workspace after before_run dirty-refresh refusal #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}"
+        )
+
+        with :ok <- recreate_workspace(workspace, worker_host),
+             :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
+          ensure_git_metadata_writable(workspace, worker_host)
+        end
+    end
+  end
+
+  defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, output})
+       when is_binary(output) do
+    String.contains?(output, "Refusing to refresh workspace") and
+      String.contains?(output, "tracked source changes")
+  end
+
+  defp stale_leftover_refresh_refusal?(_reason), do: false
+
+  defp todo_dispatch?(%{issue_state: issue_state, issue_labels: labels}) do
+    case normalize_issue_state(issue_state) do
+      "todo" -> true
+      "" -> Enum.any?(labels, &(normalize_issue_state(&1) == "agent:todo"))
+      _ -> false
+    end
+  end
+
+  defp normalize_issue_state(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_issue_state(_value), do: ""
+
+  defp recreate_workspace(workspace, nil) do
+    {:ok, _workspace, _created?} = create_or_materialize(workspace)
+    :ok
+  end
+
+  defp recreate_workspace(workspace, worker_host) when is_binary(worker_host) do
+    script =
+      [
+        "set -eu",
+        remote_shell_assign("workspace", workspace),
+        "rm -rf \"$workspace\"",
+        "mkdir -p \"$workspace\""
+      ]
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} -> :ok
+      {:ok, {output, status}} -> {:error, {:workspace_prepare_failed, worker_host, status, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -820,24 +900,30 @@ defmodule Aiur.Workspace do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp issue_context(%{id: issue_id, identifier: identifier}) do
+  defp issue_context(%{id: issue_id, identifier: identifier} = issue) do
     %{
       issue_id: issue_id,
-      issue_identifier: identifier || "issue"
+      issue_identifier: identifier || "issue",
+      issue_state: Map.get(issue, :state),
+      issue_labels: Map.get(issue, :labels, [])
     }
   end
 
   defp issue_context(identifier) when is_binary(identifier) do
     %{
       issue_id: nil,
-      issue_identifier: identifier
+      issue_identifier: identifier,
+      issue_state: nil,
+      issue_labels: []
     }
   end
 
   defp issue_context(_identifier) do
     %{
       issue_id: nil,
-      issue_identifier: "issue"
+      issue_identifier: "issue",
+      issue_state: nil,
+      issue_labels: []
     }
   end
 

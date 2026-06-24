@@ -277,6 +277,63 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "before_run recreates dirty leftover workspaces for todo dispatches" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-stale-leftover-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-1")
+
+      issue = %Issue{
+        id: "issue-stale-1",
+        identifier: "STALE-1",
+        title: "Recover stale workspace",
+        state: "todo",
+        labels: ["agent:todo"]
+      }
+
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+
+      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "before_run still protects dirty in-progress resume workspaces" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-protect-resume-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "LIVE-1")
+
+      issue = %Issue{
+        id: "issue-live-1",
+        identifier: "LIVE-1",
+        title: "Protect resume workspace",
+        state: "in-progress",
+        labels: ["agent:in-progress"]
+      }
+
+      assert {:error, {:workspace_hook_failed, "before_run", 65, output}} =
+               Workspace.run_before_run_hook(workspace, issue)
+
+      assert output =~ "Refusing to refresh workspace from origin/main"
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "materialize_from_base creates the workspace's parent dir when missing (repo-namespaced layout)" do
     test_root =
       Path.join(
@@ -2278,6 +2335,63 @@ defmodule Aiur.WorkspaceAndConfigTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  defp bootstrap_dirty_refresh_workspace!(test_root, identifier) do
+    source_repo = Path.join(test_root, "source")
+    remote_repo = Path.join(test_root, "remote.git")
+    workspace_root = Path.join(test_root, "workspaces")
+    trace_file = Path.join(test_root, "before-run.trace")
+
+    File.mkdir_p!(source_repo)
+    File.write!(Path.join(source_repo, "README.md"), "initial\n")
+    git!(["-C", source_repo, "init", "-b", "main"])
+    git!(["-C", source_repo, "config", "user.name", "Test User"])
+    git!(["-C", source_repo, "config", "user.email", "test@example.com"])
+    git!(["-C", source_repo, "add", "README.md"])
+    git!(["-C", source_repo, "commit", "-m", "initial"])
+    git!(["clone", "--bare", source_repo, remote_repo])
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: workspace_root,
+      hook_after_create: """
+      git clone #{shell_quote(remote_repo)} .
+      issue_id="$(basename "$PWD")"
+      git checkout -b "aiur/${issue_id}" origin/main
+      """,
+      hook_before_run: """
+      printf 'attempt\\n' >> #{shell_quote(trace_file)}
+      if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+        git clone #{shell_quote(remote_repo)} .
+        issue_id="$(basename "$PWD")"
+        git checkout -b "aiur/${issue_id}" origin/main
+      else
+        git fetch origin main
+        if ! git diff --quiet -- . || ! git diff --cached --quiet -- .; then
+          echo "Refusing to refresh workspace from origin/main because tracked source changes are present." >&2
+          echo "Commit or resolve the workspace changes before resuming this agent." >&2
+          exit 65
+        fi
+        git merge --no-edit origin/main
+      fi
+      """
+    )
+
+    assert {:ok, workspace} = Workspace.create_for_issue(identifier)
+    File.write!(Path.join(workspace, "README.md"), "dirty\n")
+
+    {workspace, trace_file}
+  end
+
+  defp git!(args) do
+    {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    output
+  end
+
+  defp shell_quote(value) do
+    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
   defp append_unique(values, value) do
