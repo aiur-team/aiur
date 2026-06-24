@@ -67,7 +67,9 @@ defmodule Aiur.Orchestrator do
             agent_totals: map() | nil,
             agent_rate_limits: map() | nil,
             codex_totals: map() | nil,
-            codex_rate_limits: map() | nil
+            codex_rate_limits: map() | nil,
+            events_etag: String.t() | nil,
+            events_last_id: String.t() | nil
           }
 
     defstruct [
@@ -91,7 +93,8 @@ defmodule Aiur.Orchestrator do
       agent_rate_limits: nil,
       codex_totals: nil,
       codex_rate_limits: nil,
-      events_etag: nil
+      events_etag: nil,
+      events_last_id: nil
     ]
   end
 
@@ -866,11 +869,16 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp poll_github_firehose(%State{} = state) do
-    case GithubFirehose.poll(etag: state.events_etag) do
-      {:ok, %{etag: etag, count: count}} ->
+  defp poll_github_firehose(%State{} = state, opts \\ []) do
+    poll_opts =
+      opts
+      |> Keyword.put_new(:etag, state.events_etag)
+      |> Keyword.put_new(:last_event_id, state.events_last_id)
+
+    case GithubFirehose.poll(poll_opts) do
+      {:ok, %{etag: etag, last_event_id: last_event_id, count: count}} ->
         if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
-        %{state | events_etag: etag}
+        %{state | events_etag: etag, events_last_id: last_event_id}
 
       {:error, _reason} ->
         # Preserve cached etag so we retry as If-None-Match next tick
@@ -1102,6 +1110,12 @@ defmodule Aiur.Orchestrator do
   @spec parse_issue_commented_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_issue_commented_topic_for_test(topic) when is_binary(topic) do
     parse_issue_commented_topic(topic)
+  end
+
+  @doc false
+  @spec poll_github_firehose_for_test(State.t(), keyword()) :: State.t()
+  def poll_github_firehose_for_test(%State{} = state, opts) when is_list(opts) do
+    poll_github_firehose(state, opts)
   end
 
   @doc false
