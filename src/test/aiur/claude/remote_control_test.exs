@@ -424,11 +424,11 @@ defmodule Aiur.Claude.RemoteControlTest do
       outside_pid = spawn_sleeper(outside)
       on_exit(fn -> System.cmd("kill", ["-KILL", to_string(outside_pid)], stderr_to_stdout: true) end)
 
-      # protected_pids: [] so the test's own BEAM tree is not spared — the
-      # sleepers are BEAM children here, whereas in production the orphans have
-      # reparented to init. The BEAM itself is never a target: its cwd is the
-      # repo, not under `root`.
-      assert :ok = RemoteControl.reap_workspace_agents(root, protected_pids: [])
+      # Exercise the production self-protection path. This test runs inside the
+      # same BEAM as the rest of the suite, so disabling protected_pids risks
+      # killing supervised test infrastructure if procfs reports a transient
+      # cwd under the fixture root.
+      assert :ok = RemoteControl.reap_workspace_agents(root)
 
       assert os_pid_dead?(inside_pid), "expected the workspace-rooted process to be reaped"
       assert os_pid_alive?(outside_pid), "expected the out-of-root process to survive"

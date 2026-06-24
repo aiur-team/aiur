@@ -33,6 +33,7 @@ defmodule Aiur.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
+  @max_retry_poll_failures 3
   # Slightly above the dashboard render interval so the `0s` in-progress
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
@@ -2425,6 +2426,7 @@ defmodule Aiur.Orchestrator do
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
+    retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
 
     if failure_retry?(metadata) and next_attempt > Config.max_retry_attempts() do
       if is_reference(old_timer), do: Process.cancel_timer(old_timer)
@@ -2448,7 +2450,15 @@ defmodule Aiur.Orchestrator do
 
       error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 
-      Logger.warning("Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}")
+      log_scheduled_retry(
+        issue_id,
+        identifier,
+        delay_ms,
+        next_attempt,
+        retry_poll_failures,
+        metadata,
+        error_suffix
+      )
 
       %{
         state
@@ -2460,6 +2470,7 @@ defmodule Aiur.Orchestrator do
               due_at_ms: due_at_ms,
               identifier: identifier,
               error: error,
+              retry_poll_failures: retry_poll_failures,
               worker_host: worker_host,
               workspace_path: workspace_path
             })
@@ -2468,7 +2479,33 @@ defmodule Aiur.Orchestrator do
   end
 
   defp failure_retry?(metadata) when is_map(metadata) do
-    Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait]
+    Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait, :precondition]
+  end
+
+  defp log_scheduled_retry(
+         issue_id,
+         identifier,
+         delay_ms,
+         attempt,
+         retry_poll_failures,
+         metadata,
+         error_suffix
+       ) do
+    case Map.get(metadata, :delay_type) do
+      :continuation ->
+        Logger.warning("Scheduling continuation retry issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{attempt})#{error_suffix}")
+
+      :capacity_wait ->
+        Logger.warning("Retrying capacity precondition issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (agent_attempt #{attempt})#{error_suffix}")
+
+      :precondition ->
+        Logger.warning(
+          "Retrying retry-poll precondition issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (agent_attempt #{attempt}, retry_poll_failure #{retry_poll_failures}/#{@max_retry_poll_failures})#{error_suffix}"
+        )
+
+      _ ->
+        Logger.warning("Retrying agent failure issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{attempt})#{error_suffix}")
+    end
   end
 
   defp pop_retry_attempt_state(%State{} = state, issue_id, retry_token)
@@ -2478,6 +2515,7 @@ defmodule Aiur.Orchestrator do
         metadata = %{
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
+          retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path)
         }
@@ -2499,15 +2537,7 @@ defmodule Aiur.Orchestrator do
             |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
 
           {:error, reason} ->
-            Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}")
-
-            {:noreply,
-             schedule_issue_retry(
-               state,
-               issue_id,
-               attempt + 1,
-               Map.merge(metadata, %{error: "retry poll failed: #{inspect(reason)}"})
-             )}
+            {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
         end
 
       {:error, reason, state} ->
@@ -2515,13 +2545,7 @@ defmodule Aiur.Orchestrator do
 
         Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
 
-        {:noreply,
-         schedule_issue_retry(
-           state,
-           issue_id,
-           attempt + 1,
-           Map.merge(metadata, %{error: "retry poll skipped: #{formatted}"})
-         )}
+        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, formatted)}
     end
   end
 
@@ -2529,6 +2553,47 @@ defmodule Aiur.Orchestrator do
     do: GitHubClient.format_auth_preflight_error(reason)
 
   defp format_retry_preflight_error(reason), do: inspect(reason)
+
+  defp handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
+    identifier = metadata[:identifier] || issue_id
+    retry_poll_failures = normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
+
+    Logger.warning(
+      "Retry poll failed for issue_id=#{issue_id} issue_identifier=#{identifier} retry_poll_failure=#{retry_poll_failures}/#{@max_retry_poll_failures} agent_attempt=#{attempt} tracker_error=#{inspect(reason)}"
+    )
+
+    if retry_poll_failures >= @max_retry_poll_failures do
+      emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata)
+      release_issue_claim(state, issue_id)
+    else
+      schedule_issue_retry(
+        state,
+        issue_id,
+        attempt,
+        Map.merge(metadata, %{
+          delay_type: :precondition,
+          error: "retry poll failed: #{inspect(reason)}",
+          retry_poll_failures: retry_poll_failures
+        })
+      )
+    end
+  end
+
+  defp emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata) do
+    message =
+      "Retry polling could not confirm issue state for #{identifier} after #{@max_retry_poll_failures} tracker failure(s); released claim so the ticket can be picked up after tracker recovery. Last tracker error: #{inspect(reason)}. Last agent retry attempt remains #{attempt}."
+
+    Logger.error(
+      "Retry poll exhausted for issue_id=#{issue_id} issue_identifier=#{identifier} agent_attempt=#{attempt} max_retry_poll_failures=#{@max_retry_poll_failures} tracker_error=#{inspect(reason)}; releasing claim"
+    )
+
+    Alerts.emit_custom(
+      "orchestrator.retry_poll.exhausted",
+      message,
+      issue: identifier,
+      worker_host: metadata[:worker_host]
+    )
+  end
 
   defp handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata) do
     terminal_states = terminal_state_set()
@@ -2788,13 +2853,25 @@ defmodule Aiur.Orchestrator do
     %{state | claimed: MapSet.delete(state.claimed, issue_id)}
   end
 
+  defp retry_delay(attempt, %{delay_type: :continuation})
+       when is_integer(attempt) and attempt == 1 do
+    @continuation_retry_delay_ms
+  end
+
+  defp retry_delay(_attempt, %{delay_type: :capacity_wait}) do
+    @continuation_retry_delay_ms
+  end
+
+  defp retry_delay(_attempt, %{delay_type: :precondition, retry_poll_failures: retry_poll_failures}) do
+    retry_poll_failures
+    |> normalize_retry_poll_failures()
+    |> max(1)
+    |> failure_retry_delay()
+  end
+
   defp retry_delay(attempt, metadata)
        when is_integer(attempt) and attempt > 0 and is_map(metadata) do
-    if metadata[:delay_type] == :capacity_wait or (metadata[:delay_type] == :continuation and attempt == 1) do
-      @continuation_retry_delay_ms
-    else
-      failure_retry_delay(attempt)
-    end
+    failure_retry_delay(attempt)
   end
 
   defp failure_retry_delay(attempt) do
@@ -2809,6 +2886,11 @@ defmodule Aiur.Orchestrator do
   defp normalize_retry_attempt(attempt) when is_integer(attempt) and attempt > 0, do: attempt
   defp normalize_retry_attempt(_attempt), do: 0
 
+  defp normalize_retry_poll_failures(failures) when is_integer(failures) and failures > 0,
+    do: failures
+
+  defp normalize_retry_poll_failures(_failures), do: 0
+
   defp next_retry_attempt_from_running(running_entry) do
     case Map.get(running_entry, :retry_attempt) do
       attempt when is_integer(attempt) and attempt > 0 -> attempt + 1
@@ -2822,6 +2904,12 @@ defmodule Aiur.Orchestrator do
 
   defp pick_retry_error(previous_retry, metadata) do
     metadata[:error] || Map.get(previous_retry, :error)
+  end
+
+  defp pick_retry_poll_failures(previous_retry, metadata) do
+    metadata
+    |> Map.get(:retry_poll_failures, Map.get(previous_retry, :retry_poll_failures))
+    |> normalize_retry_poll_failures()
   end
 
   defp pick_retry_worker_host(previous_retry, metadata) do
