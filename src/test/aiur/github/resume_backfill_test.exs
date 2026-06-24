@@ -71,7 +71,9 @@ defmodule Aiur.GitHub.ResumeBackfillTest do
       assert_received {:published, "ticket.35.issue.commented", conv_payload, conv_opts}
       assert get_in(conv_payload, [:comment, "body"]) == "Codex review result"
       assert conv_opts[:bypass_contamination]
+      assert conv_opts[:actor] == "its-everdred"
       assert conv_opts[:issue_number] == "35"
+      assert Map.has_key?(conv_payload, :author_trusted?)
       assert conv_opts[:dedup_key] == {"owner/repo", "issue_comment:49", "4783049689"}
 
       assert_received {:published, "ticket.35.pr.review_comment", review_payload, review_opts}

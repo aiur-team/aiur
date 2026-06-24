@@ -27,7 +27,7 @@ defmodule Aiur.GitHub.ResumeBackfill do
   require Logger
 
   alias Aiur.Codeowners
-  alias Aiur.Events.{Publisher, Sanitizer}
+  alias Aiur.Events.{GithubFirehose, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config, as: GitHubConfig
 
@@ -62,6 +62,13 @@ defmodule Aiur.GitHub.ResumeBackfill do
 
         :ok
     end
+  rescue
+    # Replaying already-persisted comments is best-effort: a raise in a
+    # fetch, the sanitizer, or publish must never abort the agent run.
+    error ->
+      Logger.warning("resume_backfill crashed identifier=#{identifier} error=#{Exception.message(error)}")
+
+      :ok
   end
 
   defp discover_pr_number(identifier, opts) do
@@ -120,7 +127,7 @@ defmodule Aiur.GitHub.ResumeBackfill do
         actor: author,
         issue_number: identifier,
         bypass_contamination: true,
-        dedup_key: dedup_key(repo, kind, pr_number, Map.get(comment, "id"))
+        dedup_key: GithubFirehose.comment_dedup_key(repo, kind, pr_number, Map.get(comment, "id"))
       ]
 
       publish_fun.(topic, payload, publish_opts)
@@ -130,13 +137,4 @@ defmodule Aiur.GitHub.ResumeBackfill do
 
     :ok
   end
-
-  # Mirrors `Aiur.Events.GithubFirehose.comment_dedup_key/4` so a later
-  # live firehose observation of the same comment dedupes against this
-  # backfill publish.
-  defp dedup_key(repo, kind, parent_number, comment_id)
-       when is_binary(repo) and is_binary(kind) and is_integer(parent_number) and is_integer(comment_id),
-       do: {repo, "#{kind}:#{parent_number}", Integer.to_string(comment_id)}
-
-  defp dedup_key(_, _, _, _), do: nil
 end

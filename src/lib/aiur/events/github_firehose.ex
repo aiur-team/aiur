@@ -340,10 +340,22 @@ defmodule Aiur.Events.GithubFirehose do
 
   defp pr_dedup_key(_, _, _, _), do: nil
 
-  defp comment_dedup_key(repo, kind, parent_number, comment_id)
-       when is_binary(repo) and is_binary(kind) and is_integer(parent_number) and
-              is_integer(comment_id),
-       do: {repo, "#{kind}:#{parent_number}", Integer.to_string(comment_id)}
+  @doc ~S"""
+  Builds the `(repo, "#{kind}:#{parent_number}", comment_id)` dedup
+  triple for a GitHub comment. Public so the resume-time backfill
+  (`Aiur.GitHub.ResumeBackfill`) republishes offline comments with the
+  exact same key the firehose stamps, guaranteeing cross-source dedup by
+  construction rather than by two copies staying in sync. `kind` is
+  `"issue_comment"` or `"pr_review_comment"`; `parent_number` is the
+  parent issue/PR number. Returns `nil` for a missing/non-integer id so
+  the publish still goes through (dedup simply disabled for that one).
+  """
+  @spec comment_dedup_key(String.t() | nil, String.t(), integer() | nil, integer() | nil) ::
+          {String.t(), String.t(), String.t()} | nil
+  def comment_dedup_key(repo, kind, parent_number, comment_id)
+      when is_binary(repo) and is_binary(kind) and is_integer(parent_number) and
+             is_integer(comment_id),
+      do: {repo, "#{kind}:#{parent_number}", Integer.to_string(comment_id)}
 
-  defp comment_dedup_key(_, _, _, _), do: nil
+  def comment_dedup_key(_, _, _, _), do: nil
 end
