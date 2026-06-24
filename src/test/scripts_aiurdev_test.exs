@@ -483,6 +483,7 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "manual --test runs are blocked inside agent workspaces"
     assert out =~ "workspace marker: #{root}"
     assert out =~ "mutate the live dogfood backlog"
+    assert out =~ "do not retry from a copied /tmp harness, clone, or alternate checkout"
     refute out =~ "agent IR sandbox"
     refute out =~ "mix aiur.test.reset"
     refute out =~ "ENGINE_ARGS:"

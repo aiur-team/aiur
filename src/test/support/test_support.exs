@@ -202,6 +202,7 @@ defmodule Aiur.TestSupport do
     tracker_kind = Keyword.get(config, :tracker_kind)
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
+    tracker_base_branch = Keyword.get(config, :tracker_base_branch)
     agent_kind = Keyword.get(config, :agent_kind)
     agent_routing = Keyword.get(config, :agent_routing)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
@@ -255,6 +256,7 @@ defmodule Aiur.TestSupport do
         "  kind: #{yaml_value(tracker_kind)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
+        "  base_branch: #{yaml_value(tracker_base_branch)}",
         tracker_backend_yaml(tracker_kind, config)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))

@@ -30,6 +30,7 @@ Continuation context:
 - Use the local tracker and repository auth already configured for this environment.
 - Work in the current workspace checkout. Use `git` directly.
 - Follow the repository's own setup, build, test, and lint instructions (see its `README`, `AGENTS.md`, or `CONTRIBUTING`).
+- If a repository-specific guard blocks manual test mode from an agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or a fresh clone.
 - For real implementation tickets, branch from `origin/main`, keep changes small, add tests, run the project's build and lint, push to `origin`, and open a PR.
 - For test tickets that explicitly say not to change code, do not create commits or PRs.
 

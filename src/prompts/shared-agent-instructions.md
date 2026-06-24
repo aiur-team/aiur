@@ -112,6 +112,16 @@ Rules:
 
 Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for you, pointing at per-workspace directories. `mise trust` has already been run for the workspace's `mise.toml`. Run `mix` and `mise exec -- mix ...` directly — do not prefix commands with `HEX_HOME=/tmp/...` or `MISE_TRUSTED_CONFIG_PATHS=...`. Inventing your own paths bypasses the pre-warmed Hex cache and forces a re-fetch of every dependency.
 
+### Manual CLI verification from agent turns
+
+Agent issue workspaces must not run `scripts/aiurdev --test` or `--test3`
+directly. If the guard prints `manual --test runs are blocked inside agent
+workspaces`, stop that verification path for the current turn and report the
+blocker or use focused non-manual tests. Do not retry by copying the repo to
+`/tmp`, cloning another checkout, changing wrapper tmux names, or otherwise
+constructing an alternate harness. Operator-root manual test runs are allowed
+only outside agent turns.
+
 ### Synthetic load repros
 
 Prefer deterministic flake reproduction over brute CPU load: seeded ordering, repeat-until-failure loops, and fault injection are better shared-run neighbors than load generators. If a repro truly needs synthetic load, cap generator workers to `max(1, cores / 4)`, stop them promptly, and never spawn a fixed high count such as `yes ... x16` on the shared host.

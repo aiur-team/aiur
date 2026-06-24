@@ -102,4 +102,13 @@ defmodule Aiur.PromptBuilderTest do
     assert String.contains?(prompt, "Progress emits")
     assert String.contains?(prompt, "Operator check-ins")
   end
+
+  @tag config: @config
+  test "shared prompt tells agents not to retry blocked manual-test guards" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+
+    assert String.contains?(prompt, "manual --test runs are blocked inside agent")
+    assert String.contains?(prompt, "Do not retry by copying the repo to")
+    assert String.contains?(prompt, "Operator-root manual test runs are allowed")
+  end
 end

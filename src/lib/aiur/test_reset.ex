@@ -80,14 +80,15 @@ defmodule Aiur.TestReset do
       (marker = System.get_env("AIUR_AGENT_WORKSPACE")) && marker != "" ->
         say("❌ refusing to run mix aiur.test.reset from inside an agent workspace")
         say("   AIUR_AGENT_WORKSPACE=#{marker}")
-        say("   Re-run through scripts/aiurdev --test/--test3 so the agent IR sandbox")
-        say("   is established before reset, stop, or log cleanup.")
+        say("   Agents must stop here: do not retry through scripts/aiurdev, /tmp,")
+        say("   a copied harness, or another clone.")
         {:error, :agent_workspace_blocked}
 
       opts.repo_root && String.contains?(opts.repo_root, "/aiur-workspaces/") ->
         say("❌ refusing to run mix aiur.test.reset from inside an agent workspace tree")
         say("   repo_root=#{opts.repo_root}")
-        say("   Re-run through scripts/aiurdev --test/--test3 so the agent IR sandbox is active.")
+        say("   Agents must stop here: do not retry through scripts/aiurdev, /tmp,")
+        say("   a copied harness, or another clone.")
         {:error, :agent_workspace_blocked}
 
       true ->

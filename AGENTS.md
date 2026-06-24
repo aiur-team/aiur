@@ -193,9 +193,12 @@ curl, mix scripts, or background-mode launches.
 
 Agent issue workspaces are blocked from launching `scripts/aiurdev --test`
 or `--test3` directly. Those flags reset pinned GitHub sandbox tickets and
-can mutate the live dogfood backlog. Run this recipe from the operator repo
-root or a dedicated isolated harness, then use the socket/session printed by
-that launched instance.
+can mutate the live dogfood backlog. If an agent sees the guard message
+`manual --test runs are blocked inside agent workspaces`, it must stop that
+verification path and report the blocker; it must not retry from `/tmp`, a
+copied harness, a fresh clone, or an alternate wrapper-tmux name. Run this
+recipe only from the operator repo root, then use the socket/session printed
+by that launched instance.
 
 1. **Spawn aiur inside a wrapper tmux on a separate socket.** The
    wrapper supplies the pty `scripts/aiurdev` needs for its internal

@@ -184,12 +184,16 @@ defmodule Aiur.Orchestrator do
   #     SubscriptionStore inbox accumulates the push event but the
   #     blockee process is idle until the next manual chat or label
   #     change.
+  #   * `system.*.branch.push` — when the default branch advances,
+  #     stop active agents so they cannot continue executing stale
+  #     checkout runbooks or scripts after safety fixes land on main.
   defp subscribe_to_orchestrator_topics do
     if Process.whereis(Exchange) do
       Exchange.subscribe("ticket.*.pr.review_comment")
       Exchange.subscribe("ticket.*.issue.commented")
       Exchange.subscribe("ticket.*.agent.pause.request")
       Exchange.subscribe("ticket.*.branch.push")
+      Exchange.subscribe("system.*.branch.push")
     end
 
     :ok
@@ -444,6 +448,9 @@ defmodule Aiur.Orchestrator do
       {:branch_push, blocker_identifier} ->
         {:noreply, maybe_resume_blockees_on_push(state, blocker_identifier, topic)}
 
+      {:system_branch_push, branch} ->
+        {:noreply, maybe_stop_active_agents_on_default_branch_push(state, branch, event)}
+
       :nomatch ->
         {:noreply, state}
     end
@@ -526,6 +533,13 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  defp parse_system_branch_push_topic(topic) do
+    case Regex.run(~r{\Asystem\.([^.]+)\.branch\.push\z}, topic) do
+      [_, branch] -> {:ok, branch}
+      _ -> :nomatch
+    end
+  end
+
   # Single-pass topic classifier: runs each parser at most once and
   # returns a tagged tuple the caller pattern-matches on. Cheaper than
   # a `cond` that calls every parser twice (once for the match? test,
@@ -533,8 +547,9 @@ defmodule Aiur.Orchestrator do
   defp classify_event_topic(topic) do
     with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
          :nomatch <- tag_topic(:issue_commented, parse_issue_commented_topic(topic)),
-         :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)) do
-      tag_topic(:branch_push, parse_branch_push_topic(topic))
+         :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
+         :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
+      tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
     end
   end
 
@@ -587,6 +602,34 @@ defmodule Aiur.Orchestrator do
 
       _ ->
         state
+    end
+  end
+
+  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, branch, event)
+       when is_binary(branch) do
+    if branch == default_branch_name() do
+      sha = Map.get(event, :sha) || Map.get(event, "sha")
+
+      state.running
+      |> Enum.reject(fn {_issue_id, running_entry} ->
+        paused_running_entry?(running_entry) or deactivated_running_entry?(running_entry)
+      end)
+      |> Enum.reduce(state, fn {issue_id, running_entry}, state_acc ->
+        Logger.warning("Default branch advanced; stopping active stale agent: branch=#{branch} sha=#{sha || "-"} issue_id=#{issue_id} issue_identifier=#{Map.get(running_entry, :identifier)}")
+
+        terminate_running_issue(state_acc, issue_id, false)
+      end)
+    else
+      state
+    end
+  end
+
+  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, _branch, _event), do: state
+
+  defp default_branch_name do
+    case Config.settings!() do
+      %{tracker: %{base_branch: name}} when is_binary(name) and name != "" -> name
+      _ -> "main"
     end
   end
 
@@ -1197,6 +1240,12 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec parse_system_branch_push_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_system_branch_push_topic_for_test(topic) when is_binary(topic) do
+    parse_system_branch_push_topic(topic)
+  end
+
+  @doc false
   @spec apply_pause_request_for_test(State.t(), String.t()) :: State.t()
   def apply_pause_request_for_test(%State{} = state, identifier) when is_binary(identifier) do
     maybe_pause_on_request(state, identifier)
@@ -1214,6 +1263,13 @@ defmodule Aiur.Orchestrator do
       when is_binary(blocker_identifier) do
     topic = "ticket." <> blocker_identifier <> ".branch.push"
     maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+  end
+
+  @doc false
+  @spec apply_system_branch_push_for_test(State.t(), String.t(), map()) :: State.t()
+  def apply_system_branch_push_for_test(%State{} = state, branch, event \\ %{})
+      when is_binary(branch) and is_map(event) do
+    maybe_stop_active_agents_on_default_branch_push(state, branch, event)
   end
 
   @doc false
