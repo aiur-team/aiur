@@ -137,6 +137,8 @@ on your `PATH`:
 |---|---|
 | `aiurdev` | Start the workflow in the foreground with a local-only bind |
 | `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
+| `aiurdev --test` | Reset the first pinned sandbox ticket, then start an interactive smoke run |
+| `aiurdev --test3` | Reset the pinned 3-ticket blocker-chain sandbox, then start an interactive smoke run |
 | `aiurdev --bg` | Start a headless BEAM in one detached tmux lifetime session after the control RPC is ready |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state |
@@ -179,6 +181,12 @@ aiurdev --port 4099
 aiurdev --port 4099 --bg
 aiurdev --port 4102 ./.aiurconfig
 ```
+
+The `--test` and `--test3` reset paths require their pinned sandbox issues to
+be open before launch. If a pinned issue is closed, reset removes any detected
+`agent:*` or `model:*` labels from that closed issue, skips normal dispatch
+labeling, and aborts with instructions to reopen the ticket or update
+`.aiur-test-tickets.json`.
 
 ## Dashboard
 

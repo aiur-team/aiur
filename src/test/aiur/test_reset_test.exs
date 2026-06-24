@@ -264,6 +264,139 @@ defmodule Aiur.TestResetTest do
     end
   end
 
+  describe "prepare_reset_ticket/2" do
+    test "returns :open for open tickets without editing labels" do
+      metadata_argv = TestReset.issue_metadata_command_args(99)
+      metadata = Jason.encode!(%{"state" => "OPEN", "labels" => [%{"name" => "agent:done"}]})
+      agent = start_supervised!({Agent, fn -> [] end})
+
+      runner = fn argv ->
+        Agent.update(agent, &[argv | &1])
+
+        case argv do
+          ^metadata_argv -> {metadata, 0}
+          _ -> {"unexpected argv: #{inspect(argv)}", 1}
+        end
+      end
+
+      assert :open = TestReset.prepare_reset_ticket(99, runner)
+      assert Agent.get(agent, &Enum.reverse/1) == [metadata_argv]
+    end
+
+    test "closed tickets remove automation labels and do not add agent todo" do
+      metadata_argv = TestReset.issue_metadata_command_args(99)
+
+      metadata =
+        Jason.encode!(%{
+          "state" => "CLOSED",
+          "labels" => [
+            %{"name" => "agent:todo"},
+            %{"name" => "model:codex"},
+            %{"name" => "needs-triage"}
+          ]
+        })
+
+      cleanup_argv = [
+        "issue",
+        "edit",
+        "99",
+        "--remove-label",
+        "agent:todo,model:codex"
+      ]
+
+      agent = start_supervised!({Agent, fn -> [] end})
+
+      runner = fn argv ->
+        Agent.update(agent, &[argv | &1])
+
+        case argv do
+          ^metadata_argv -> {metadata, 0}
+          ^cleanup_argv -> {"", 0}
+          _ -> {"unexpected argv: #{inspect(argv)}", 1}
+        end
+      end
+
+      assert {:closed, ["agent:todo", "model:codex"]} =
+               TestReset.prepare_reset_ticket(99, runner)
+
+      commands = Agent.get(agent, &Enum.reverse/1)
+      assert commands == [metadata_argv, cleanup_argv]
+      refute Enum.any?(commands, &("--add-label" in &1))
+    end
+
+    test "closed ticket cleanup failure blocks reset" do
+      metadata_argv = TestReset.issue_metadata_command_args(99)
+
+      metadata =
+        Jason.encode!(%{
+          "state" => "CLOSED",
+          "labels" => [%{"name" => "agent:todo"}]
+        })
+
+      runner = fn
+        ^metadata_argv -> {metadata, 0}
+        _argv -> {"permission denied", 1}
+      end
+
+      assert {:error, "closed ticket automation label cleanup failed: permission denied"} =
+               TestReset.prepare_reset_ticket(99, runner)
+    end
+
+    test "closed pinned ticket abort message prints numeric issue ids", %{tmp_dir: tmp_dir} do
+      write_reset_fixture!(tmp_dir, [99])
+      bin_dir = Path.join(tmp_dir, "bin")
+      File.mkdir_p!(bin_dir)
+      gh_trace = Path.join(tmp_dir, "gh-trace")
+
+      File.write!(
+        Path.join(bin_dir, "gh"),
+        """
+        #!/bin/sh
+        printf '%s\\n' "$*" >> "$GH_TRACE"
+
+        if [ "$1" = "issue" ] && [ "$2" = "view" ] && [ "$3" = "99" ]; then
+          printf '%s\\n' '{"state":"CLOSED","labels":[{"name":"agent:todo"}]}'
+          exit 0
+        fi
+
+        if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$3" = "99" ]; then
+          exit 0
+        fi
+
+        echo "unexpected gh argv: $*" >&2
+        exit 1
+        """
+      )
+
+      File.chmod!(Path.join(bin_dir, "gh"), 0o755)
+
+      output =
+        with_env(
+          [
+            {"PATH", bin_dir <> ":" <> System.get_env("PATH", "")},
+            {"GH_TRACE", gh_trace}
+          ],
+          fn ->
+            ExUnit.CaptureIO.capture_io(:stderr, fn ->
+              assert {:error, {:tickets_not_open, [99]}} =
+                       TestReset.run(%{
+                         repo_root: tmp_dir,
+                         confirm: true,
+                         force: true,
+                         allow_remote: true
+                       })
+            end)
+          end
+        )
+
+      assert output =~ "sandbox ticket(s) must be open before reset: [99]"
+      refute output =~ "~c"
+      trace = File.read!(gh_trace)
+      assert trace =~ "issue edit 99 --remove-label agent:todo"
+      refute trace =~ "--add-label"
+    end
+  end
+
   # Regression: when reset_labels invoked `gh issue edit N --remove-label
   # "agent:todo,..." --add-label "agent:todo"` (same label in both),
   # the API resolved them such that the remove won, stripping the
