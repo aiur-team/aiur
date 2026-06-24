@@ -1,6 +1,6 @@
 ---
-name: aiur-status
-description: "Tail the logs of all active aiur agents and report each one's current status as a concise table. Use when aiur is running and you want a quick overview of in-flight agents — e.g. 'iarc status', 'aiur status', 'how are the agents doing', 'agent status', 'tail the agents', 'what are the agents working on'."
+name: aiur-monitor
+description: "Use when you want to view the status of a running aiur session's agents — tails each active agent's log and emits a one-glance status table. For checking in on aiur, whether a CLI-viewable session you're watching or a background run; to LAUNCH aiur itself use the aiur-run skill instead. Triggers: 'aiur status', 'aiur monitor', 'how are the agents doing', 'what are the agents working on', 'tail the agents', 'iarc status'."
 ---
 
 # Agent Status
@@ -22,7 +22,7 @@ Run the gather script. It scans **both** the `workspace.root` from `.aiur/config
 probes daemon health, and prints a tail of each recently-active agent:
 
 ```bash
-bash .claude/skills/aiur-status/scripts/tail-agents.sh
+bash .claude/skills/aiur-monitor/scripts/tail-agents.sh
 ```
 
 Scanning both roots is the fix for #489: a `--bg` run materializes workspaces
@@ -101,7 +101,7 @@ Default to **live monitoring on a 2-minute interval** — emit a fresh per-agent
 status table every 2 minutes while aiur is running, so the operator gets a steady
 heartbeat without asking. Drive it with the loop skill:
 
-    /loop 2m /aiur-status
+    /loop 2m /aiur-monitor
 
 Each tick runs steps 1–3 (gather → classify → emit). Keep looping until every
 agent reaches a terminal state (✅/❌, or the script reports no active agents) or
