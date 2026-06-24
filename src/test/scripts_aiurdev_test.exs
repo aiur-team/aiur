@@ -439,6 +439,28 @@ defmodule ScriptsAiurdevTest do
     refute out =~ "agent IR sandbox"
   end
 
+  test "--test3 resets the blocker sandbox then runs, stripping the flag" do
+    root = fake_repo()
+    home = sandbox_home()
+    mise = fake_mise()
+
+    {out, 0} =
+      run_shim(["--test3"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"HOME", home},
+        {"AIUR_MISE_BIN", mise}
+      ])
+
+    assert out =~ "mix aiur.test.reset"
+    assert out =~ "--allow-remote"
+    refute out =~ "--single"
+    refute out =~ "ENGINE_ARGS: --test3"
+    refute File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    refute out =~ "agent IR sandbox"
+  end
+
   test "agent workspace --test is blocked before reset, clear, stop, or launch" do
     root = fake_agent_repo(334)
     home = sandbox_home()
