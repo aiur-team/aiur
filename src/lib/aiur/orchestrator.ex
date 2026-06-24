@@ -1275,6 +1275,14 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec retry_dispatch_ready_for_test(Issue.t(), State.t(), String.t() | nil) :: boolean()
+  def retry_dispatch_ready_for_test(%Issue{} = issue, %State{} = state, worker_host \\ nil) do
+    retry_candidate_issue?(issue, terminal_state_set()) and
+      dispatch_slots_available?(issue, state) and
+      worker_slots_available?(state, worker_host)
+  end
+
+  @doc false
   @spec revalidate_issue_for_dispatch_for_test(Issue.t(), ([String.t()] -> term())) ::
           {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
   def revalidate_issue_for_dispatch_for_test(%Issue{} = issue, issue_fetcher)
@@ -2422,10 +2430,11 @@ defmodule Aiur.Orchestrator do
       if is_reference(old_timer), do: Process.cancel_timer(old_timer)
 
       error_suffix = if is_binary(error), do: " error=#{error}", else: ""
+      failed_attempts = max(next_attempt - 1, Map.get(previous_retry, :attempt, 0))
 
-      Logger.warning(
-        "Giving up on issue_id=#{issue_id} issue_identifier=#{identifier} after #{previous_retry.attempt} failed attempt(s); max_retry_attempts=#{Config.max_retry_attempts()}#{error_suffix}"
-      )
+      Logger.warning("Giving up on issue_id=#{issue_id} issue_identifier=#{identifier} after #{failed_attempts} failed attempt(s); max_retry_attempts=#{Config.max_retry_attempts()}#{error_suffix}")
+
+      Alerts.emit_system("ticket.#{identifier}.agent.retry_exhausted", issue: identifier)
 
       %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}
     else
@@ -2459,7 +2468,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp failure_retry?(metadata) when is_map(metadata) do
-    Map.get(metadata, :delay_type) != :continuation
+    Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait]
   end
 
   defp pop_retry_attempt_state(%State{} = state, issue_id, retry_token)
@@ -2765,10 +2774,11 @@ defmodule Aiur.Orchestrator do
        schedule_issue_retry(
          state,
          issue.id,
-         attempt + 1,
+         attempt,
          Map.merge(metadata, %{
            identifier: issue.identifier,
-           error: "no available orchestrator slots"
+           error: "no available orchestrator slots",
+           delay_type: :capacity_wait
          })
        )}
     end
@@ -2780,7 +2790,7 @@ defmodule Aiur.Orchestrator do
 
   defp retry_delay(attempt, metadata)
        when is_integer(attempt) and attempt > 0 and is_map(metadata) do
-    if metadata[:delay_type] == :continuation and attempt == 1 do
+    if metadata[:delay_type] == :capacity_wait or (metadata[:delay_type] == :continuation and attempt == 1) do
       @continuation_retry_delay_ms
     else
       failure_retry_delay(attempt)
