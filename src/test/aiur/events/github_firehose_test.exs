@@ -502,6 +502,24 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:events_page_requested, "2"}
     end
 
+    test "backfill fetch errors fail the poll without advancing the watermark" do
+      :ok = Exchange.subscribe("ticket.66.issue.commented")
+
+      page_1 = [issue_comment_event("new-1", 66, 778, "fresh ping") | ignored_events("burst", 29)]
+
+      stub = fn req ->
+        case request_page(req) do
+          "1" -> {:ok, %{status: 200, headers: [{"ETag", ~s("e9")}], body: page_1}}
+          "2" -> {:error, :timeout}
+        end
+      end
+
+      assert {:error, {:github_api_request, :timeout}} =
+               GithubFirehose.poll(request_fun: stub, last_event_id: "last-seen")
+
+      refute_receive {:event, %{topic: "ticket.66.issue.commented"}}, 100
+    end
+
     test "drops events for untracked tickets when tracked_fn rejects" do
       :ok = Exchange.subscribe("ticket.99.#")
       Publisher.set_tracked_fn(fn n -> n != "99" end)

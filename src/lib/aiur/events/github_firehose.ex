@@ -73,15 +73,16 @@ defmodule Aiur.Events.GithubFirehose do
         {:ok, %{etag: etag, last_event_id: last_event_id, count: 0}}
 
       {:ok, {:events, events, etag, _poll_interval}} ->
-        {:ok, pages} = fetch_backfill_pages(events, last_event_id, opts)
-        events_to_publish = events_since_watermark(pages, last_event_id)
+        with {:ok, pages} <- fetch_backfill_pages(events, last_event_id, opts) do
+          events_to_publish = events_since_watermark(pages, last_event_id)
 
-        count =
-          events_to_publish
-          |> Enum.map(&publish_one(&1, opts))
-          |> Enum.count(&match?({:ok, _, _}, &1))
+          count =
+            events_to_publish
+            |> Enum.map(&publish_one(&1, opts))
+            |> Enum.count(&match?({:ok, _, _}, &1))
 
-        {:ok, %{etag: etag, last_event_id: newest_event_id(events) || last_event_id, count: count}}
+          {:ok, %{etag: etag, last_event_id: newest_event_id(events) || last_event_id, count: count}}
+        end
 
       {:error, reason} ->
         Logger.warning("GithubFirehose poll failed: #{inspect(reason)}")
@@ -119,7 +120,7 @@ defmodule Aiur.Events.GithubFirehose do
 
       {:error, reason} ->
         Logger.warning("GithubFirehose backfill page=#{page} failed: #{inspect(reason)}")
-        {:ok, Enum.reverse(pages)}
+        {:error, reason}
     end
   end
 
