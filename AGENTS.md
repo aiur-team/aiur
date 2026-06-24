@@ -38,7 +38,7 @@ hand unless something is broken.
 
 ```text
 aiurdev                       # foreground run, local-only bind (full interactive UI)
-aiurdev --bg                  # lean headless background run (detached tmux, no panes/dashboard)
+aiurdev --bg                  # lean headless background run (one detached tmux lifetime session, no panes/dashboard)
 aiurdev --max-agents <n>      # override agent.max_concurrent_agents at launch
 aiurdev stop                  # stop the session (BEAM + tmux)
 aiurdev status                # report the running session
@@ -273,11 +273,15 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    `tmux -L claude-driver kill-server`.
 
 Gotchas worth remembering:
-- `--bg` mode runs the workflow/agents **headlessly**: it starts agents
-  but skips the interactive UI (no chat panes, no dashboard bind). Observe
-  it with `aiurdev agents` / `aiurdev status` over the control RPC. For
-  manual testing that needs the interactive TUI (chat panes), use
-  foreground `aiurdev --test` instead.
+- `--bg` mode runs the workflow/agents **headlessly** inside the BEAM: it
+  skips the interactive UI tree (no agent-list pane, chat panes, prewarm
+  panes, or dashboard bind unless explicitly requested). The launcher still
+  creates one detached tmux session as the BEAM lifetime holder and crash
+  cleanup anchor. Observe it with `aiurdev agents` / `aiurdev status` over
+  the control RPC. If that tmux session already exists, `--bg` treats a live
+  control plane as "already running" and cleans up stale tmux state before a
+  restart. For manual testing that needs the interactive TUI (chat panes),
+  use foreground `aiurdev --test` instead.
 - The wrapper-tmux socket name (e.g. `claude-driver`) is the agent's
   choice and must NOT collide with `aiur-orangekid` (aiur's own
   internal socket).
