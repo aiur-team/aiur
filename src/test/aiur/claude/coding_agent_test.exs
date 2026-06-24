@@ -2,6 +2,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
+  alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Workflow
@@ -57,6 +58,127 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       |> Enum.find(&(&1["method"] == "turn/start"))
 
     assert turn_frame["params"]["model"] == "claude-opus-4-8"
+
+    thread_frame =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(&1["method"] == "thread/start"))
+
+    advertised_tool_names =
+      thread_frame
+      |> get_in(["params", "dynamicTools"])
+      |> Enum.map(& &1["name"])
+      |> Enum.sort()
+
+    expected_tool_names =
+      DynamicTool.tool_specs()
+      |> Enum.map(& &1["name"])
+      |> Enum.sort()
+
+    assert advertised_tool_names == expected_tool_names
+  end
+
+  test "tool calls execute through the injected tool executor" do
+    root = Path.join(System.tmp_dir!(), "aiur_claude_tool_call_#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_with_tool_call(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:tool", title: "tool-call"}
+    test_pid = self()
+
+    tool_executor = fn tool, arguments ->
+      send(test_pid, {:tool_called, tool, arguments})
+
+      %{
+        "success" => true,
+        "contentItems" => [
+          %{"type" => "inputText", "text" => ~s({"ok":true})}
+        ]
+      }
+    end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+
+    assert {:ok, %{result: :turn_completed}} =
+             ClaudeAgent.run_turn(session, "emit progress", issue, tool_executor: tool_executor)
+
+    ClaudeAgent.stop_session(session)
+
+    assert_received {:tool_called, "emit_event", %{"name" => "progress", "message" => "40%", "payload" => %{"percent" => 40}}}
+
+    response_frame =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(Map.get(&1, "id") == 101))
+
+    assert get_in(response_frame, ["result", "success"]) == true
+    assert get_in(response_frame, ["result", "output"]) == ~s({"ok":true})
+  end
+
+  test "tool call failures and unsupported calls are reported" do
+    root = Path.join(System.tmp_dir!(), "aiur_claude_tool_errors_#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    failed_call =
+      ~s({"jsonrpc":"2.0","id":101,"method":"item/tool/call","params":{"tool":"emit_alert","arguments":{"name":"phase.work.start","message":"starting"}}})
+
+    unsupported_call = ~s({"jsonrpc":"2.0","id":102,"method":"item/tool/call","params":{}})
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_with_two_tool_calls(frames, failed_call, unsupported_call)
+    )
+
+    issue = %{id: 1, identifier: "test:tool-errors", title: "tool-errors"}
+    test_pid = self()
+
+    on_message = fn message -> send(test_pid, {:agent_message, message}) end
+
+    tool_executor = fn tool, arguments ->
+      send(test_pid, {:tool_called, tool, arguments})
+      %{"success" => false, "error" => "not available"}
+    end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+
+    assert {:ok, %{result: :turn_completed}} =
+             ClaudeAgent.run_turn(session, "emit progress", issue,
+               on_message: on_message,
+               tool_executor: tool_executor
+             )
+
+    ClaudeAgent.stop_session(session)
+
+    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}}
+    assert_received {:tool_called, nil, %{}}
+    assert_received {:agent_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "emit_alert"}}}}
+    assert_received {:agent_message, %{event: :unsupported_tool_call, payload: %{"params" => %{}}}}
+
+    response_ids =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.map(&Map.get(&1, "id"))
+
+    assert 101 in response_ids
+    assert 102 in response_ids
   end
 
   test "two concurrent claude sessions run distinct models: config default vs issue tag" do
@@ -128,6 +250,41 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "*'\"initialize\"'*) echo '#{init}' ;; " <>
       "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
       "*'\"turn/start\"'*) echo '#{turn}'; echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_app_server_with_tool_call(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+
+    tool_call =
+      ~s({"jsonrpc":"2.0","id":101,"method":"item/tool/call","params":{"name":"emit_event","callId":"call-101","threadId":"t1","turnId":"u1","arguments":{"name":"progress","message":"40%","payload":{"percent":40}}}})
+
+    completed = ~s({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{tool_call}' ;; " <>
+      "*'\"id\":101'*) echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_app_server_with_two_tool_calls(frames, first_tool_call, second_tool_call) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+    completed = ~s({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{first_tool_call}' ;; " <>
+      "*'\"id\":101'*) echo '#{second_tool_call}' ;; " <>
+      "*'\"id\":102'*) echo '#{completed}' ;; " <>
       "esac; done"
   end
 end

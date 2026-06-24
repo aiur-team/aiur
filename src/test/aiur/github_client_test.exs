@@ -4,12 +4,21 @@ defmodule Aiur.GitHub.ClientTest do
   alias Aiur.GitHub.Client
   alias Aiur.Workflow
 
+  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
+    prev_cached_token = :persistent_term.get(@token_cache_key, :unset)
+    :persistent_term.erase(@token_cache_key)
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
     on_exit(fn ->
       restore_env("GITHUB_TOKEN", prev_token)
+
+      case prev_cached_token do
+        :unset -> :persistent_term.erase(@token_cache_key)
+        token -> :persistent_term.put(@token_cache_key, token)
+      end
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
