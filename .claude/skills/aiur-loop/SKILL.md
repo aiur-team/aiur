@@ -30,8 +30,11 @@ launching anything, ask (AskUserQuestion) and record the answers for the whole s
    and the developer merges / never merge without explicit OK)
 5. **Self-fix** — may you take a ticket yourself (CE brainstorm→plan→work→review, or
    debug-first) when an agent is stuck or a fix is complex + important, or always route to agents?
-6. **Cadence & concurrency** — status-update interval, starting agent count, and willingness to
-   ramp concurrency up as load allows.
+6. **Cadence & concurrency** — **ASK the status-update interval** (offer 5 / 10 / 15 min;
+   **default 5 minutes** if they don't specify). Whatever value they pick feeds the **REQUIRED**
+   auto-cadence from `aiur-monitor` (not optional) and is recorded once for the session — the
+   operator never re-asks. Also ask starting agent count and willingness to ramp concurrency up
+   as load allows.
 
 When unspecified, default to the LESS autonomous option and confirm before merging or filing
 tickets the developer didn't authorize.
@@ -41,7 +44,14 @@ tickets the developer didn't authorize.
 1. **Launch** via `aiur-run` in the current repo, **always with `--debug`** so each agent's logs
    are captured under `~/.aiur/logs` for monitoring + diagnosis. Clean slate first (no stray BEAM,
    dashboard port free, epmd clear) — a stale instance will grab newly-`agent:todo` tickets on old code.
-2. **Monitor** with `aiur-monitor` at the agreed interval. Watch for bugs, stuck agents, CPU/FD.
+2. **Monitor** with `aiur-monitor`. This is REQUIRED, not optional: while the run is live you
+   **MUST** post a fresh formatted status table every `<the operator's chosen interval>`
+   automatically (the `/loop <chosen>m` interval — **default 5 minutes** if unset; "approximately"
+   is not license to stretch it past the chosen interval; the operator should never have to ask;
+   don't skip a tick when steady — see `aiur-monitor`'s required "Monitoring cadence"). Use the
+   interval the operator chose in Step 0 (question 6); the cadence stays automatic and unprompted
+   regardless of the value — never let an operator-set interval become "post only when asked."
+   Watch for bugs, stuck agents, CPU/FD.
 3. **Curate the backlog** — if opted in, file focused `agent:todo` tickets (repro + acceptance
    criteria) so aiur keeps picking up work; keep the queue fed toward the agreed scope.
 4. **Review each PR** at the agreed level — typically a code/CE review with findings left as a

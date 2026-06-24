@@ -95,19 +95,40 @@ Output **only** a status table — one row per agent, never wrapped. Use this la
 - Don't invent progress the log doesn't show; ambiguous tail ⇒ `unclear`. No active agents ⇒ say so in one line, don't print an empty table.
 - **Daemon row.** When the `DAEMON` header reports `node no` with recent activity (or a `daemon down:` line), prepend a `🔴 daemon down · last activity Nm ago` row to the table — never collapse a downed-but-recently-active node to "no active agents".
 
-## Monitoring cadence (default)
+## Monitoring cadence (REQUIRED DEFAULT)
 
-Default to **live monitoring on a 2-minute interval** — emit a fresh per-agent
-status table every 2 minutes while aiur is running, so the operator gets a steady
-heartbeat without asking. Drive it with the loop skill:
+This is a required behavior, not soft guidance. **WHILE an aiur run is live** (you launched it
+via `aiur-run`, or one is running in this repo) you **MUST** post the operator a fresh formatted
+status table (steps 1–3: gather → classify → emit) **every `<the operator's chosen interval>`**
+(established once by asking — via `aiur-run`'s launch ask / `aiur-loop`'s Step 0 — and **default
+5 minutes** if unset; the `/loop <chosen>m` interval; "approximately" is not license to stretch it
+past the chosen interval), **automatically**, until the run reaches a terminal state or the
+operator says stop — you do not get to opt out of "watching"; a live run obligates the cadence.
+5 minutes is the recommended default; the operator picks the value once and you never re-ask it.
 
-    /loop 2m /aiur-monitor
+Drive it with the loop skill (substitute the chosen interval; defaults to 5m):
 
-Each tick runs steps 1–3 (gather → classify → emit). Keep looping until every
-agent reaches a terminal state (✅/❌, or the script reports no active agents) or
-the operator stops it. If this skill is **already** running inside a `/loop`, do
-NOT start a nested loop — just emit the table and let the existing loop re-invoke.
-For a single one-shot snapshot instead of the loop, say so explicitly when invoking.
+    /loop <chosen>m /aiur-monitor    # e.g. /loop 5m /aiur-monitor for the default
+
+Rules — close every "wait to be asked" loophole (these apply to the chosen interval):
+- The operator should **NEVER** have to ask for the next update. The cadence is automatic;
+  re-asking is the failure this rule exists to prevent.
+- **Don't skip a tick because "nothing changed."** Post the table anyway and note
+  steady-state (e.g. roll-up "9 running · steady, no change since HH:MM"). A missing tick
+  reads as "the agent stopped watching."
+- **Don't wait for a PR, an event, or a state change** to post. The chosen-interval clock is the
+  only trigger.
+- **Don't defer the tick because you're mid-task.** Reviewing a PR, curating tickets,
+  or fixing a bug does NOT pause the clock. The status table is posted on every interval tick
+  regardless of what else you're doing — interleave it, don't postpone it.
+- **Terminal / stop only.** Keep looping until the operator explicitly stops it OR the run
+  has truly ended (daemon down AND no active agents on two consecutive ticks). A single
+  "no active agents" read early in a run is warm-up/dispatch lag, NOT a terminal state —
+  keep ticking.
+- If this skill is **already** running inside a `/loop`, do NOT start a nested loop — just
+  emit the table and let the existing loop re-invoke on the next interval tick.
+- A single one-shot snapshot (no cadence) is allowed only when the operator explicitly asks
+  for one; otherwise the live-run default is the chosen-interval auto-cadence above (default 5 min).
 
 ## Alert relay
 
