@@ -315,7 +315,7 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp activity_string(value), do: value |> to_string() |> String.trim()
+  defp activity_string(value), do: value |> inspect(limit: 5, printable_limit: 120) |> String.trim()
 
   defp truncate(text, max) do
     collapsed = text |> String.replace(~r/\s+/, " ") |> String.trim()
