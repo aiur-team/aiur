@@ -69,7 +69,8 @@ defmodule Aiur.OpencodeThemeTest do
     end
 
     test "copies the bundled theme JSON to the themes dir", ctx do
-      assert :ok = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
+      assert {:ok, :active} =
+               OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
 
       copied = Path.join(ctx.themes_dir, "aiur.json")
       assert File.exists?(copied)
@@ -82,7 +83,9 @@ defmodule Aiur.OpencodeThemeTest do
     end
 
     test "creates kv.json with theme key when state file is absent", ctx do
-      assert :ok = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
+      assert {:ok, :active} =
+               OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
+
       assert {:ok, kv} = Jason.decode(File.read!(ctx.kv_path))
       assert kv["theme"] == "aiur"
     end
@@ -96,7 +99,8 @@ defmodule Aiur.OpencodeThemeTest do
 
       File.write!(ctx.kv_path, Jason.encode!(original))
 
-      assert :ok = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
+      assert {:ok, :custom_theme_preserved} =
+               OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
 
       {:ok, kv} = Jason.decode(File.read!(ctx.kv_path))
       assert kv["theme"] == "dracula", "user's custom theme must NOT be overridden"
@@ -107,7 +111,8 @@ defmodule Aiur.OpencodeThemeTest do
     test "upgrades a default opencode theme to aiur (kv.json had `theme: opencode`)", ctx do
       File.write!(ctx.kv_path, Jason.encode!(%{"theme" => "opencode", "theme_mode" => "dark"}))
 
-      assert :ok = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
+      assert {:ok, :active} =
+               OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
 
       {:ok, kv} = Jason.decode(File.read!(ctx.kv_path))
       assert kv["theme"] == "aiur"
@@ -115,13 +120,30 @@ defmodule Aiur.OpencodeThemeTest do
     end
 
     test "idempotent — running twice produces the same kv.json", ctx do
-      :ok = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
+      {:ok, :active} = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
       first_kv = File.read!(ctx.kv_path)
 
-      :ok = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
+      {:ok, :active} = OpencodeTheme.ensure_active(themes_dir: ctx.themes_dir, kv_path: ctx.kv_path)
       second_kv = File.read!(ctx.kv_path)
 
       assert first_kv == second_kv
+    end
+
+    test "skips instead of reporting success when config and state paths are not writable", ctx do
+      blocked_config = Path.join(ctx.tmp, "blocked-config")
+      blocked_state = Path.join(ctx.tmp, "blocked-state")
+      File.write!(blocked_config, "not a directory")
+      File.write!(blocked_state, "not a directory")
+
+      themes_dir = Path.join(blocked_config, "opencode/themes")
+      kv_path = Path.join(blocked_state, "opencode/kv.json")
+
+      assert {:skipped, failures} =
+               OpencodeTheme.ensure_active(themes_dir: themes_dir, kv_path: kv_path)
+
+      refute failures == []
+      assert {:themes_dir, ^themes_dir, _} = Enum.find(failures, &match?({:themes_dir, _, _}, &1))
+      assert {:kv_read, ^kv_path, _} = Enum.find(failures, &match?({:kv_read, _, _}, &1))
     end
   end
 end
