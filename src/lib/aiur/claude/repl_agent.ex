@@ -107,6 +107,7 @@ defmodule Aiur.Claude.ReplAgent do
     tmux = Keyword.get(opts, :tmux, Tmux)
     expanded = Path.expand(workspace)
     model = Keyword.get(opts, :model) || Config.model()
+    effort = Keyword.get(opts, :effort)
     rc? = Keyword.get(opts, :remote_control, false)
     repl_name = default_repl_name()
     rc_name = Keyword.get(opts, :rc_name) || repl_name
@@ -122,7 +123,7 @@ defmodule Aiur.Claude.ReplAgent do
     # composes with the operator's own settings). Best-effort: a missing
     # identifier or unbound dashboard degrades to no hooks rather than failing.
     settings_path = maybe_hook_settings(rc?, Keyword.get(opts, :identifier))
-    command = build_command(expanded, model, rc?, rc_name, settings_path)
+    command = build_command(expanded, model, effort, rc?, rc_name, settings_path)
 
     Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?)
 
@@ -1055,12 +1056,13 @@ defmodule Aiur.Claude.ReplAgent do
 
   # `exec` replaces the wrapping shell so the pane's top process IS `claude`,
   # which makes `pane_pid` the process graceful_kill must terminate.
-  defp build_command(workspace, model, rc?, rc_name, settings_path) do
+  defp build_command(workspace, model, effort, rc?, rc_name, settings_path) do
     flags =
       ["claude"]
       |> append_if(rc?, ["--remote-control", shell_escape(rc_name)])
       |> Kernel.++(["--permission-mode", shell_escape(Config.permission_mode())])
       |> append_if(is_binary(model), ["--model", shell_escape(model || "")])
+      |> append_if(is_binary(effort), ["--effort", shell_escape(effort || "")])
       |> append_if(is_binary(settings_path), ["--settings", shell_escape(settings_path || "")])
       |> Enum.join(" ")
 

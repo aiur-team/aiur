@@ -22,7 +22,7 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.Claude.DisplayTailer
   alias Aiur.Codex.DynamicTool
-  alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore, Topic}
+  alias Aiur.Events.{DebugLog, IdGenerator, Publisher, Sanitizer, SubscriptionStore, Topic}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
 
@@ -108,17 +108,26 @@ defmodule Aiur.AgentRunner do
   # publisher log to read. Patterns under `system.…` aren't backed by
   # an issue log today; they're listed in the residual risks (operator-
   # facing system events can't be replayed on restart yet).
-  defp maybe_enqueue_bootstrap_digest(%Issue{identifier: identifier}) when is_binary(identifier) do
+  defp maybe_enqueue_bootstrap_digest(%Issue{identifier: identifier} = issue) when is_binary(identifier) do
     snapshot = SubscriptionStore.snapshot(identifier)
 
-    case snapshot do
-      %{last_seen_event_id: cursor, subscribed_to: subs} when is_integer(cursor) and subs != [] ->
-        events = bootstrap_events(cursor, subs)
-        enqueue_bootstrap_if_any(identifier, events, cursor)
+    replay_events =
+      case snapshot do
+        %{last_seen_event_id: cursor, subscribed_to: subs} when is_integer(cursor) and subs != [] ->
+          bootstrap_events(cursor, subs)
 
-      _ ->
-        :ok
-    end
+        _ ->
+          []
+      end
+
+    comment_events = current_comment_context_events(issue)
+
+    events =
+      (replay_events ++ comment_events)
+      |> Enum.uniq_by(&bootstrap_event_key/1)
+      |> Enum.sort_by(&event_field(&1, :id))
+
+    enqueue_bootstrap_if_any(identifier, events, bootstrap_cursor_for_log(snapshot))
   end
 
   defp maybe_enqueue_bootstrap_digest(_issue), do: :ok
@@ -183,6 +192,143 @@ defmodule Aiur.AgentRunner do
     |> Enum.uniq_by(& &1.id)
     |> Enum.sort_by(& &1.id)
   end
+
+  @doc false
+  @spec current_comment_context_events_for_test(Issue.t(), map()) :: [map()]
+  def current_comment_context_events_for_test(issue, fetchers) when is_map(fetchers) do
+    current_comment_context_events(issue, fetchers)
+  end
+
+  defp current_comment_context_events(issue, fetchers \\ comment_context_fetchers())
+
+  defp current_comment_context_events(%Issue{identifier: identifier}, fetchers)
+       when is_binary(identifier) do
+    issue_events =
+      fetch_comment_events(
+        "ticket.#{identifier}.issue.commented",
+        fn -> fetchers.issue_comments.(identifier) end
+      )
+
+    pr_events = pr_comment_context_events(identifier, fetchers)
+
+    Enum.uniq_by(issue_events ++ pr_events, &bootstrap_event_key/1)
+  end
+
+  defp current_comment_context_events(_issue, _fetchers), do: []
+
+  defp pr_comment_context_events(identifier, fetchers) do
+    case fetchers.open_pr.(identifier) do
+      {:ok, %{} = pr} -> pr_comment_context_events_for_pr(identifier, pr_number(pr), fetchers)
+      {:ok, nil} -> []
+      {:error, reason} -> log_comment_context_open_pr_failed(identifier, reason)
+    end
+  end
+
+  defp pr_comment_context_events_for_pr(_identifier, nil, _fetchers), do: []
+
+  defp pr_comment_context_events_for_pr(identifier, pr_number, fetchers) do
+    fetch_comment_events(
+      "ticket.#{identifier}.issue.commented",
+      fn -> fetchers.issue_comments.(pr_number) end
+    ) ++
+      fetch_comment_events(
+        "ticket.#{identifier}.pr.review_comment",
+        fn -> fetchers.pr_review_comments.(pr_number) end
+      )
+  end
+
+  defp log_comment_context_open_pr_failed(identifier, reason) do
+    Logger.warning("comment_context open_pr_failed identifier=#{identifier} reason=#{inspect(reason)}")
+    []
+  end
+
+  defp comment_context_fetchers do
+    %{
+      issue_comments: &Tracker.fetch_classified_issue_comments/1,
+      open_pr: &Tracker.fetch_open_pull_request_for_branch/1,
+      pr_review_comments: &Tracker.fetch_classified_pr_review_comments/1
+    }
+  end
+
+  defp fetch_comment_events(topic, fetch_fun) when is_function(fetch_fun, 0) do
+    case fetch_fun.() do
+      {:ok, comments} when is_list(comments) ->
+        Enum.map(comments, &comment_context_event(topic, &1))
+
+      {:error, reason} ->
+        Logger.warning("comment_context fetch_failed topic=#{topic} reason=#{inspect(reason)}")
+        []
+    end
+  end
+
+  defp comment_context_event(topic, comment) do
+    author = comment_author(comment)
+
+    payload =
+      %{
+        comment: comment,
+        source: :github,
+        author: author,
+        author_trusted?: Map.get(comment, :authoritative, false)
+      }
+      |> Sanitizer.scrub()
+
+    summary = get_in(payload, [:comment, "body"]) || ""
+
+    payload
+    |> Map.merge(%{
+      id: comment_event_id(comment),
+      topic: topic,
+      summary: summary,
+      message: summary
+    })
+  end
+
+  defp comment_author(comment) when is_map(comment) do
+    get_in(comment, ["user", "login"]) ||
+      get_in(comment, [:user, :login]) ||
+      get_in(comment, ["author", "login"]) ||
+      get_in(comment, [:author, :login])
+  end
+
+  defp comment_author(_comment), do: nil
+
+  defp comment_event_id(comment) when is_map(comment) do
+    case Map.get(comment, "id") || Map.get(comment, :id) do
+      id when is_integer(id) -> id
+      _ -> IdGenerator.next_id()
+    end
+  end
+
+  defp comment_event_id(_comment), do: IdGenerator.next_id()
+
+  defp pr_number(pr) when is_map(pr) do
+    case Map.get(pr, "number") || Map.get(pr, :number) do
+      number when is_integer(number) -> number
+      number when is_binary(number) -> number
+      _ -> nil
+    end
+  end
+
+  defp bootstrap_event_key(event) when is_map(event) do
+    topic = event_field(event, :topic)
+    comment_id = event |> event_field(:comment) |> comment_event_id_or_nil()
+    {topic, comment_id || event_field(event, :id)}
+  end
+
+  defp bootstrap_event_key(event), do: event
+
+  defp comment_event_id_or_nil(%{} = comment) do
+    case Map.get(comment, "id") || Map.get(comment, :id) do
+      id when is_integer(id) -> id
+      _ -> nil
+    end
+  end
+
+  defp comment_event_id_or_nil(_comment), do: nil
+
+  defp bootstrap_cursor_for_log(%{last_seen_event_id: cursor}) when is_integer(cursor), do: cursor
+  defp bootstrap_cursor_for_log(_snapshot), do: nil
 
   # Extract the static `<id>` from `ticket.<id>.…` patterns so bootstrap
   # reads the publisher's log, not the subscriber's. Returns the set of
@@ -416,6 +562,7 @@ defmodule Aiur.AgentRunner do
 
     backend = CodingAgent.backend_for(issue)
     model = CodingAgent.model_for(issue)
+    effort = CodingAgent.effort_for(issue)
 
     rc? =
       (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
@@ -423,7 +570,7 @@ defmodule Aiur.AgentRunner do
 
     session_backend = remote_session_backend(backend, rc?)
 
-    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} remote_control=#{rc?}")
+    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
 
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
@@ -433,6 +580,7 @@ defmodule Aiur.AgentRunner do
       [
         backend: session_backend,
         model: model,
+        effort: effort,
         worker_host: worker_host,
         remote_control: rc?,
         identifier: issue.identifier

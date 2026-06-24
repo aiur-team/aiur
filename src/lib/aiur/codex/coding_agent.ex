@@ -50,9 +50,10 @@ defmodule Aiur.Codex.CodingAgent do
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
     model = Keyword.get(opts, :model)
+    effort = Keyword.get(opts, :effort)
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- start_port(expanded_workspace, worker_host, model) do
+         {:ok, port} <- start_port(expanded_workspace, worker_host, model, effort) do
       metadata = port_metadata(port, worker_host)
 
       # Local spawns run bash -lc "codex … app-server"; a remote spawn's
@@ -244,7 +245,7 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  defp start_port(workspace, nil, model) do
+  defp start_port(workspace, nil, model, effort) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -257,7 +258,7 @@ defmodule Aiur.Codex.CodingAgent do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(codex_command(model)))],
+            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(codex_command(model, effort)))],
             cd: String.to_charlist(workspace),
             env: AgentEnvironment.workspace_env(workspace),
             line: @port_line_bytes
@@ -268,29 +269,37 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  defp start_port(workspace, worker_host, model) when is_binary(worker_host) do
-    SSH.start_port(worker_host, remote_launch_command(workspace, model), line: @port_line_bytes)
+  defp start_port(workspace, worker_host, model, effort) when is_binary(worker_host) do
+    SSH.start_port(worker_host, remote_launch_command(workspace, model, effort), line: @port_line_bytes)
   end
 
-  defp remote_launch_command(workspace, model) do
+  defp remote_launch_command(workspace, model, effort) do
     [
       AgentEnvironment.workspace_env_export_prefix(workspace),
       "cd #{shell_escape(workspace)}",
-      AgentEnvironment.scrub_shell_command(codex_command(model), exec: true)
+      AgentEnvironment.scrub_shell_command(codex_command(model, effort), exec: true)
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join(" && ")
   end
 
-  # Codex pins its model in the launch command. A per-issue model override
-  # appends a trailing `--config model="<variant>"`; codex applies the last
-  # `--config` for a key, so this beats any model baked into the configured
-  # command. The variant is charset-validated upstream
-  # (`Aiur.CodingAgent` `model:` label), so splicing it is injection-safe.
-  defp codex_command(nil), do: Aiur.Codex.Config.command()
+  # Codex pins its model and reasoning effort in the launch command. A
+  # per-issue model override appends a trailing `--config model="<variant>"`,
+  # and a per-complexity effort appends `--config model_reasoning_effort="<e>"`;
+  # codex applies the last `--config` for a key, so these beat any value baked
+  # into the configured command (e.g. an `--config model_reasoning_effort=high`
+  # default). The appended values are shell-escaped as complete `--config`
+  # arguments, and effort is validated against the backend's `efforts/1` set.
+  defp codex_command(model, effort) do
+    Aiur.Codex.Config.command()
+    |> append_config("model", model)
+    |> append_config("model_reasoning_effort", effort)
+  end
 
-  defp codex_command(model) when is_binary(model) do
-    Aiur.Codex.Config.command() <> " --config 'model=\"#{model}\"'"
+  defp append_config(command, _key, nil), do: command
+
+  defp append_config(command, key, value) when is_binary(value) do
+    command <> " --config " <> shell_escape(~s(#{key}="#{value}"))
   end
 
   defp port_metadata(port, worker_host \\ nil) when is_port(port) do
@@ -1694,8 +1703,8 @@ defmodule Aiur.Codex.CodingAgent do
   defp needs_input_field?(_payload), do: false
 
   @doc false
-  @spec codex_command_for_test(String.t() | nil) :: String.t()
-  def codex_command_for_test(model), do: codex_command(model)
+  @spec codex_command_for_test(String.t() | nil, String.t() | nil) :: String.t()
+  def codex_command_for_test(model, effort \\ nil), do: codex_command(model, effort)
 
   @doc false
   @spec unretryable_codex_error_for_test(map()) :: boolean()

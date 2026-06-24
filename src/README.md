@@ -134,7 +134,7 @@ on your `PATH`:
 |---|---|
 | `aiurdev` | Start the workflow in the foreground with a local-only bind |
 | `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
-| `aiurdev --bg` | Start in a detached tmux session after the control RPC is ready |
+| `aiurdev --bg` | Start a headless BEAM in one detached tmux lifetime session after the control RPC is ready |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
@@ -159,6 +159,14 @@ already-paused agent is a no-op and exits successfully.
 
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.
+
+Background mode is headless at the application layer: it skips the interactive
+agent-list pane, chat/prewarm panes, and dashboard unless the dashboard is
+explicitly opted in with a positive port. The launcher still uses one detached
+tmux session to own the BEAM lifetime and cleanup watchdog. If that session is
+already live, `aiurdev --bg` exits successfully with an "already running" hint;
+if the tmux session is stale and the control RPC is down, the launcher cleans it
+up before starting a fresh background run.
 
 Use `--port <N>` before the config path to override the dashboard/workflow port
 for one invocation:

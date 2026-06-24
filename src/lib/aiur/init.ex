@@ -560,32 +560,57 @@ defmodule Aiur.Init do
   end
 
   # Optional per-complexity-tag routing. With the gate accepted, each story-point
-  # tag (1-5) picks a default model; declining routes every tag to the primary
-  # agent's default model. Remote mode is not chosen here — it is applied per
-  # ticket via the model:remote tag (explained when tags are listed).
+  # tag (1-5) picks backend, model, then backend-native effort. Declining routes
+  # every tag to the primary agent's default backend/model/effort. Remote mode is
+  # not chosen here — it is applied per ticket via the model:remote tag
+  # (explained when tags are listed).
   defp prompt_routing(io, agents) do
     primary = primary_kind(agents)
 
     io.puts.("Aiur supports story point complexity tags to optimize agent effort per ticket.")
 
-    if io.confirm.("Would you like to select models for 5 complexity tags?", false) do
-      options = routing_options(agents)
-      io.puts.("Select default model for issues with the following story points (1-5):")
-      Map.new(1..5, fn level -> {level, value_of(io.select.("complexity:#{level}", options, primary))} end)
+    if io.confirm.("Would you like to select models and effort for 5 complexity tags?", false) do
+      io.puts.("Select backend, model, and effort for issues with the following story points (1-5):")
+      Map.new(1..5, fn level -> {level, prompt_routing_level(io, agents, level, primary)} end)
     else
       Map.new(1..5, fn level -> {level, primary} end)
     end
   end
 
-  # The bare-backend option runs the backend's own default model; the
-  # "(default model)" help is greyed by dim_help/1 and stripped to the bare
-  # value by value_of/1.
-  defp routing_options(agents) do
-    Enum.flat_map(agents, fn kind ->
-      models = CodingAgent.backends() |> Map.get(kind, %{}) |> Map.get(:models, [])
-      ["#{kind} (default model)" | Enum.map(models, &"#{kind}:#{&1}")]
-    end)
+  defp prompt_routing_level(io, agents, level, primary) do
+    backend = io.select.("complexity:#{level} backend", agents, primary) |> value_of()
+    model = prompt_routing_model(io, backend, level)
+    effort = prompt_routing_effort(io, backend, level)
+
+    routing_value(backend, model, effort)
   end
+
+  defp prompt_routing_model(io, backend, level) do
+    models = CodingAgent.backends() |> Map.get(backend, %{}) |> Map.get(:models, [])
+
+    case io.select.("complexity:#{level} #{backend} model", ["default model" | models], "default model") |> value_of() do
+      "default model" -> nil
+      model -> model
+    end
+  end
+
+  defp prompt_routing_effort(io, backend, level) do
+    case CodingAgent.efforts(backend) do
+      [] ->
+        nil
+
+      efforts ->
+        case io.select.("complexity:#{level} #{backend} effort", ["default effort" | efforts], "default effort") |> value_of() do
+          "default effort" -> nil
+          effort -> effort
+        end
+    end
+  end
+
+  defp routing_value(backend, nil, nil), do: backend
+  defp routing_value(backend, model, nil), do: "#{backend}:#{model}"
+  defp routing_value(backend, nil, effort), do: "#{backend}::#{effort}"
+  defp routing_value(backend, model, effort), do: "#{backend}:#{model}:#{effort}"
 
   # Only bypassPermissions works for autonomous agents; the interactive modes
   # would hang waiting for approvals, so they are offered but redirected.

@@ -388,7 +388,8 @@ run_session() {
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
-      AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_DEBUG; do
+      AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT \
+      AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -407,6 +408,23 @@ run_session() {
       _session_argv="$argv_file" _session_release="$release_dir" _session_tmux="$tmux_bin" \
       _session_node="$AIUR_RELEASE_NODE" _session_pidfile="$AIUR_AGENT_TMPFILE"
     install_foreground_traps
+  fi
+
+  # Background starts are intentionally idempotent. A prior live node should not
+  # fall through to tmux's opaque "duplicate session" failure, and a stale tmux
+  # session whose BEAM/control plane is gone should be reclaimed before retry.
+  if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    if [ "$(probe_control_liveness)" = "up" ]; then
+      echo "aiur is already running in the background (tmux session ${session})." >&2
+      echo "Use: aiur status   # inspect agents" >&2
+      echo "Use: aiur stop     # stop it before starting a fresh session" >&2
+      rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+      return 0
+    fi
+
+    echo "aiur found stale tmux session ${session}; cleaning it up before restart" >&2
+    reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
+    kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
   fi
 
   # An orphaned BEAM (its tmux session gone) can still hold THIS instance's node

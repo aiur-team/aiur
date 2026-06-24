@@ -52,6 +52,14 @@ defmodule Aiur.ProcessReaperTest do
     assert_receive {:killed_tree, 4242}
   end
 
+  test "entries returns normalized registered refs for observers", %{reaper: reaper} do
+    :ok = ProcessReaper.register(reaper, :agent, {:os_pid, "4242"}, comm: "codex")
+    :ok = ProcessReaper.register(reaper, :serve, {:os_pid, 77}, comm: "opencode")
+
+    assert {{:os_pid, 4242}, :agent, %{comm: "codex"}} in ProcessReaper.entries(reaper)
+    assert {{:os_pid, 77}, :serve, %{comm: "opencode"}} in ProcessReaper.entries(reaper)
+  end
+
   test "nil and garbage refs are ignored", %{reaper: reaper} do
     tp = self()
     :ok = ProcessReaper.register(reaper, :agent, {:os_pid, nil}, [])
@@ -164,6 +172,7 @@ defmodule Aiur.ProcessReaperTest do
     assert :ok = ProcessReaper.register(:nonexistent_reaper, :agent, {:os_pid, 111}, [])
     assert :ok = ProcessReaper.unregister(:nonexistent_reaper, {:os_pid, 111})
     assert :ok = ProcessReaper.reap(:nonexistent_reaper, [:agent], [])
+    assert [] = ProcessReaper.entries(:nonexistent_reaper)
   end
 
   describe "AIUR_AGENT_TMPFILE pidfile (launcher-side crash reaper feed)" do

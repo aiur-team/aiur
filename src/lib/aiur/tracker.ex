@@ -9,6 +9,10 @@ defmodule Aiur.Tracker do
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
+  @callback fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  @callback fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  @callback fetch_open_pull_request_for_branch(String.t() | integer()) ::
+              {:ok, map() | nil} | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
@@ -48,6 +52,22 @@ defmodule Aiur.Tracker do
   @spec remove_label(String.t(), String.t()) :: :ok | {:error, term()}
   def remove_label(issue_id, label) do
     adapter().remove_label(issue_id, label)
+  end
+
+  @spec fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_issue_comments(issue_id) do
+    adapter().fetch_classified_issue_comments(issue_id)
+  end
+
+  @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_review_comments(pr_number) do
+    adapter().fetch_classified_pr_review_comments(pr_number)
+  end
+
+  @spec fetch_open_pull_request_for_branch(String.t() | integer()) ::
+          {:ok, map() | nil} | {:error, term()}
+  def fetch_open_pull_request_for_branch(issue_id) do
+    adapter().fetch_open_pull_request_for_branch(issue_id)
   end
 
   @spec project_identity() :: String.t() | nil
