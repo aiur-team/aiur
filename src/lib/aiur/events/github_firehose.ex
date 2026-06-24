@@ -281,6 +281,7 @@ defmodule Aiur.Events.GithubFirehose do
       publish_opts = [
         actor: actor,
         issue_number: id,
+        bypass_contamination: action == "closed" and Map.get(pr, "merged") == true,
         dedup_key: pr_dedup_key(repo_name, pr_number, action, head_sha)
       ]
 

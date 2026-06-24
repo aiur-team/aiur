@@ -720,6 +720,14 @@ Distinct terminal reasons are important because retry logic and logs differ.
 - `Reconciliation State Refresh`
   - Stop runs whose issue states are terminal or no longer active.
 
+- `Implementation-defined External Completion Event`
+  - A tracker adapter MAY receive an external completion signal for a running or deactivated issue
+    outside the normal polling path, such as a GitHub pull request merge event for the issue branch.
+  - When that signal proves the issue is complete, the orchestrator SHOULD transition the issue to a
+    terminal state and release any retained running entry.
+  - Benign operator or monitor comments that merely report a successful review SHOULD NOT be treated
+    as rework-triggering feedback.
+
 - `Stall Timeout`
   - Kill worker and schedule retry.
 
@@ -834,6 +842,10 @@ Part B: Tracker state refresh
   - If tracker state is still active: update the in-memory issue snapshot.
   - If tracker state is neither active nor terminal: terminate worker without workspace cleanup.
 - If state refresh fails, keep workers running and try again on the next tick.
+
+Implementations that map tracker states to labels SHOULD remove active automation labels from
+already-closed issues instead of adding a new active label during late reconciliation or event
+handling. A terminal label MAY still be added when the target state is terminal.
 
 ### 8.6 Startup Terminal Workspace Cleanup
 

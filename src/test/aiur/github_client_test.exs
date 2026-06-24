@@ -591,6 +591,138 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert :ok = Client.update_issue_state("42", "Done", request_fun: request_fun)
     end
+
+    test "closed issues remove stale active labels without adding a new active label" do
+      test_pid = self()
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+
+        case req.method do
+          :get ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "closed",
+                 "labels" => [
+                   %{"name" => "sym:done"},
+                   %{"name" => "sym:human-review"},
+                   %{"name" => "sym:rework"},
+                   %{"name" => "other"}
+                 ]
+               }
+             }}
+
+          _ ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :delete, url: human_review_url}}
+      assert_receive {:github_request, %{method: :delete, url: rework_url}}
+      refute human_review_url =~ "sym:done"
+      refute rework_url =~ "sym:done"
+      refute_receive {:github_request, %{method: :post}}, 100
+      refute_receive {:github_request, %{method: :patch}}, 100
+
+      assert human_review_url =~ "sym:human-review" or human_review_url =~ "sym%3Ahuman-review"
+      assert rework_url =~ "sym:rework" or rework_url =~ "sym%3Arework"
+    end
+
+    test "active label add rechecks issue state after stale label removal" do
+      test_pid = self()
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:human-review"}]
+               }
+             }}
+
+          {:delete, 1} ->
+            {:ok, %{status: 200}}
+
+          {:get, 2} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "closed",
+                 "labels" => [%{"name" => "sym:done"}, %{"name" => "sym:rework"}]
+               }
+             }}
+
+          {:delete, 3} ->
+            {:ok, %{status: 200}}
+
+          _ ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :delete, url: human_review_url}}
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :delete, url: rework_url}}
+      refute human_review_url =~ "sym:done"
+      refute rework_url =~ "sym:done"
+      refute_receive {:github_request, %{method: :post}}, 100
+      refute_receive {:github_request, %{method: :patch}}, 100
+
+      assert human_review_url =~ "sym:human-review" or human_review_url =~ "sym%3Ahuman-review"
+      assert rework_url =~ "sym:rework" or rework_url =~ "sym%3Arework"
+    end
+
+    test "closed issue active-label cleanup reports delete failures" do
+      test_pid = self()
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+
+        case req.method do
+          :get ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "closed",
+                 "labels" => [%{"name" => "sym:human-review"}]
+               }
+             }}
+
+          :delete ->
+            {:ok, %{status: 500}}
+
+          _ ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert {:error, {:github_api_status, 500}} =
+               Client.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :delete}}
+      refute_receive {:github_request, %{method: :post}}, 100
+      refute_receive {:github_request, %{method: :patch}}, 100
+    end
   end
 
   defp codeowners_repo!(content) do
