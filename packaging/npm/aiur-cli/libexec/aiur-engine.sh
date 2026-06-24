@@ -1055,7 +1055,15 @@ run_control_rpc() {
     # down — in both of those cases surface the actual rpc output, never mask it.
     case "$(probe_node_liveness)" in
       down)
-        echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+        local crash_marker
+        crash_marker="$(aiur_crash_marker_path)"
+        if [ -f "$crash_marker" ]; then
+          echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
+          sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
+          echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
+        else
+          echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+        fi
         ;;
       up)
         [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1334,6 +1342,16 @@ cmd_stop() {
   tmux_bin="$(command -v tmux || true)"
   local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
   local socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
+
+  # Tell the background BEAM-death watchdog this exit is intentional before we
+  # kill the BEAM, so it consumes the sentinel instead of recording a crash. The
+  # watchdog removes the sentinel when it fires; a fresh start also clears it.
+  # Clear any prior crash marker too — `status` should report a clean stop, not
+  # a stale orphan from an earlier dead run.
+  mkdir -p "$AIUR_BG_STATE_DIR" 2>/dev/null || true
+  : >"$(aiur_stop_sentinel_path)" 2>/dev/null || true
+  rm -f "$(aiur_crash_marker_path)" 2>/dev/null || true
+
   if [ -n "$tmux_bin" ]; then
     "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
   fi

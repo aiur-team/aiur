@@ -309,6 +309,47 @@ defmodule AiurEngineTest do
     assert out =~ "Aiur.AgentControlCLI.status()"
   end
 
+  test "down control RPC with crash marker reports orphaned-agent guidance" do
+    state = tmp_state()
+    rpc = Path.join(System.tmp_dir!(), "aiur-rpc-fail-#{System.unique_integer([:positive])}")
+
+    File.write!(rpc, "#!/usr/bin/env bash\necho transport failed >&2\nexit 42\n")
+    File.chmod!(rpc, 0o755)
+
+    on_exit(fn ->
+      File.rm(rpc)
+      File.rm_rf(state)
+    end)
+
+    script = """
+    resolve_release() { :; }
+    prepare_distribution() { :; }
+    probe_node_liveness() { printf down; }
+    release_bin="$RPC"
+    mkdir -p "$AIUR_BG_STATE_DIR"
+    echo "crash details" >"$(aiur_crash_marker_path)"
+    if run_control_rpc "Aiur.AgentControlCLI.status()"; then
+      code=0
+    else
+      code=$?
+    fi
+    echo "CODE=$code"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_BG_STATE_DIR", state},
+        {"RELEASE_NODE", "aiur-crashed@127.0.0.1"},
+        {"RPC", rpc}
+      ])
+
+    assert out =~ "background daemon at aiur-crashed@127.0.0.1 is DOWN after an unexpected exit"
+    assert out =~ "crash details"
+    assert out =~ "run 'aiur stop' to reap any orphaned agents"
+    assert out =~ "CODE=1"
+    refute out =~ "start aiur and try again"
+  end
+
   test "background startup waits until the control plane is ready" do
     tmux = fake_tmux_script("exit 0")
     capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
@@ -664,6 +705,60 @@ defmodule AiurEngineTest do
     assert out =~ "SIBLING_ALIVE"
     refute out =~ "SIBLING_DEAD"
     assert out =~ "KILL_BEAM:-name aiur-"
+  end
+
+  test "cmd_stop marks a clean stop before killing the BEAM and cwd sweep" do
+    state = tmp_state()
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(System.tmp_dir!(), "aiur-workspaces-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace_root)
+
+    tmux = fake_tmux_script("exit 0")
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm_rf(workspace_root)
+      File.rm(events)
+    end)
+
+    script = """
+    resolve_release() { :; }
+    aiur_resolve_identity() { :; }
+    current_workspace_root() { printf '%s\\n' "$WORKSPACE_ROOT"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    reap_aiur_agents() { :; }
+    kill_beams_matching() {
+      echo "KILL_BEAM:$*" >> "$EVENTS"
+      [ -f "$(aiur_stop_sentinel_path)" ] && echo "SENTINEL_PRESENT_BEFORE_KILL" >> "$EVENTS"
+      [ ! -f "$(aiur_crash_marker_path)" ] && echo "CRASH_MARKER_CLEARED_BEFORE_KILL" >> "$EVENTS"
+    }
+    reap_workspace_cwd_agents() { echo "CWD_REAP:$1" >> "$EVENTS"; }
+    mkdir -p "$AIUR_BG_STATE_DIR"
+    echo stale >"$(aiur_crash_marker_path)"
+    cmd_stop
+    cat "$EVENTS"
+    [ -f "$(aiur_stop_sentinel_path)" ] && echo "SENTINEL_LEFT_FOR_WATCHDOG"
+    [ -e "$(aiur_crash_marker_path)" ] && echo "CRASH_MARKER_STILL_PRESENT" || echo "CRASH_MARKER_REMOVED"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_BG_STATE_DIR", state},
+        {"EVENTS", events},
+        {"PATH", path},
+        {"WORKSPACE_ROOT", workspace_root},
+        {"USER", "tester"}
+      ])
+
+    assert out =~ "SENTINEL_PRESENT_BEFORE_KILL"
+    assert out =~ "CRASH_MARKER_CLEARED_BEFORE_KILL"
+    assert out =~ "CWD_REAP:#{workspace_root}"
+    assert out =~ "SENTINEL_LEFT_FOR_WATCHDOG"
+    assert out =~ "CRASH_MARKER_REMOVED"
+    refute out =~ "CRASH_MARKER_STILL_PRESENT"
   end
 
   test "message RPCs the message expression with base64-encoded text" do
