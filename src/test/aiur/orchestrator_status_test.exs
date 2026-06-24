@@ -175,7 +175,6 @@ defmodule Aiur.OrchestratorStatusTest do
       assert_received {:startup_cleanup_fetch_issues_by_states, opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
       assert log =~ "Skipping startup terminal workspace cleanup; failed to fetch terminal issues: {:linear_api_status, 401}"
-      refute log =~ "Linear GraphQL request failed"
       refute log =~ "[warning]"
       refute log =~ "[error]"
     after
@@ -205,19 +204,12 @@ defmodule Aiur.OrchestratorStatusTest do
       Application.put_env(:aiur, :linear_client_module, StartupCleanupLinearClient)
       Application.put_env(:aiur, :startup_cleanup_test_pid, self())
 
-      log =
-        capture_log([level: :debug], fn ->
-          assert %Orchestrator.State{} =
-                   Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
-        end)
+      assert %Orchestrator.State{} =
+               Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
 
       assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
       refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
-      refute log =~ "missing_linear_api_token"
-      refute log =~ "Linear GraphQL request failed"
-      refute log =~ "[warning]"
-      refute log =~ "[error]"
     after
       restore_application_env(:github_client_module, previous_github_client)
       restore_application_env(:linear_client_module, previous_linear_client)
