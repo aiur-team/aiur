@@ -147,7 +147,8 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
       assert source =~ ~r/reap_aiur_agents "\$socket" "\$pidfile"\n\s+reap_workspace_cwd_from_file "\$workspace_root_file"/,
              "watchdog must run the cwd sweep after pidfile agent reap"
 
-      assert source =~ ~r/start_beam_death_watchdog \\\n\s+"-name \$\{AIUR_RELEASE_NODE\}" "\$socket" "\$AIUR_AGENT_TMPFILE" 1 1 \\\n\s+"\$AIUR_RELEASE_NODE" "\$\{AIUR_LOGS_ROOT:-\}" \\\n\s+"\$\(aiur_stop_sentinel_path\)" "\$\(aiur_crash_marker_path\)" "\$AIUR_WORKSPACE_ROOT_FILE"/,
+      assert source =~
+               ~r/start_beam_death_watchdog \\\n\s+"-name \$\{AIUR_RELEASE_NODE\}" "\$socket" "\$AIUR_AGENT_TMPFILE" 1 1 \\\n\s+"\$AIUR_RELEASE_NODE" "\$\{AIUR_LOGS_ROOT:-\}" \\\n\s+"\$\(aiur_stop_sentinel_path\)" "\$\(aiur_crash_marker_path\)" "\$AIUR_WORKSPACE_ROOT_FILE"/,
              "background watchdog must receive AIUR_WORKSPACE_ROOT_FILE"
     end
   end
