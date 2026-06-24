@@ -49,7 +49,9 @@ defmodule Aiur.GitHub.Config do
         true -> env
       end
 
-    :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+    # Only cache a real token; caching nil would shadow a later GITHUB_TOKEN
+    # (e.g. per-test env), since token/0 treats a cached nil as resolved.
+    if is_binary(resolved), do: :persistent_term.put({__MODULE__, :resolved_token}, resolved)
     resolved
   end
 

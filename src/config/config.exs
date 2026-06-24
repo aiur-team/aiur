@@ -23,6 +23,10 @@ if config_env() == :test do
   # tests force-enable this against their own dedicated instances.
   config :aiur, :process_reaper_registrations, false
 
+  # Tests manage GITHUB_TOKEN themselves; a boot resolution would cache a nil
+  # (no valid token in CI) and shadow the per-test env tokens.
+  config :aiur, :resolve_github_token_on_boot, false
+
   config :aiur, :server_host_override, "127.0.0.1"
   config :aiur, :server_port_override, 0
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"

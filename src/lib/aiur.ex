@@ -32,7 +32,7 @@ defmodule Aiur.Application do
     Aiur.Shutdown.record_workspace_root()
     install_signal_handlers()
     maybe_start_distribution()
-    resolve_github_token()
+    if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
 
     headless? = Application.get_env(:aiur, :headless, false)
     # Headless is authoritative: if both flags somehow end up set (e.g. a
