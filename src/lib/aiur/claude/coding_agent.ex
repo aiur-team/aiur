@@ -2,9 +2,9 @@ defmodule Aiur.Claude.CodingAgent do
   @moduledoc """
   Claude Code app-server backend implementing the CodingAgent behaviour.
 
-  Simplified variant of Codex.CodingAgent without approval request handling
-  or DynamicTool integration. Communicates via the same JSON-RPC 2.0 stdio
-  protocol used by the Codex app-server.
+  Simplified variant of Codex.CodingAgent without approval request handling.
+  Communicates via the same JSON-RPC 2.0 stdio protocol used by the Codex
+  app-server and advertises the same Aiur DynamicTool surface.
   """
 
   @version Mix.Project.config()[:version]
@@ -13,6 +13,7 @@ defmodule Aiur.Claude.CodingAgent do
 
   require Logger
   alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.Codex.DynamicTool
 
   @initialize_id 1
   @thread_start_id 2
@@ -70,6 +71,12 @@ defmodule Aiur.Claude.CodingAgent do
       ) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
     on_safe_checkpoint = Keyword.get(opts, :on_safe_checkpoint, fn _checkpoint -> :noop end)
+
+    tool_executor =
+      Keyword.get(opts, :tool_executor, fn tool, arguments ->
+        DynamicTool.execute(tool, arguments)
+      end)
+
     model = Map.get(session, :model)
 
     case start_turn(port, thread_id, prompt, issue, workspace, model) do
@@ -88,7 +95,14 @@ defmodule Aiur.Claude.CodingAgent do
           metadata
         )
 
-        case await_turn_completion(session, on_message, on_safe_checkpoint, turn_id, issue_identifier(issue)) do
+        case await_turn_completion(
+               session,
+               on_message,
+               on_safe_checkpoint,
+               tool_executor,
+               turn_id,
+               issue_identifier(issue)
+             ) do
           {:ok, result} ->
             Logger.info("Claude session completed for #{issue_context(issue)} session_id=#{session_id}")
 
@@ -252,7 +266,8 @@ defmodule Aiur.Claude.CodingAgent do
       "id" => @thread_start_id,
       "params" => %{
         "permissionMode" => Aiur.Claude.Config.permission_mode(),
-        "cwd" => Path.expand(workspace)
+        "cwd" => Path.expand(workspace),
+        "dynamicTools" => DynamicTool.tool_specs()
       }
     })
 
@@ -297,10 +312,11 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp await_turn_completion(session, on_message, on_safe_checkpoint, turn_id, issue_identifier) do
+  defp await_turn_completion(session, on_message, on_safe_checkpoint, tool_executor, turn_id, issue_identifier) do
     receive_loop(session, %{
       on_message: on_message,
       on_safe_checkpoint: on_safe_checkpoint,
+      tool_executor: tool_executor,
       timeout_ms: Config.agent_turn_timeout_ms(),
       pending_line: "",
       outstanding_turns: 1,
@@ -418,6 +434,37 @@ defmodule Aiur.Claude.CodingAgent do
 
     fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
     {:error, {:turn_failed, params}}
+  end
+
+  defp handle_decoded_incoming(
+         session,
+         state,
+         %{"method" => "item/tool/call", "id" => id, "params" => params} = payload,
+         payload_string,
+         port,
+         on_message
+       ) do
+    metadata = metadata_from_message(port, payload)
+    tool_name = tool_call_name(params)
+    arguments = tool_call_arguments(params)
+
+    result = normalize_tool_result(state.tool_executor.(tool_name, arguments))
+
+    send_message(port, %{
+      "id" => id,
+      "result" => result
+    })
+
+    event =
+      case result do
+        %{"success" => true} -> :tool_call_completed
+        _ when is_nil(tool_name) -> :unsupported_tool_call
+        _ -> :tool_call_failed
+      end
+
+    emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
+
+    {:continue, maybe_process_safe_checkpoint(session, state, %{kind: :tool_result, method: "item/tool/call"})}
   end
 
   defp handle_decoded_incoming(session, state, %{"method" => method} = payload, payload_string, port, on_message)
@@ -713,6 +760,15 @@ defmodule Aiur.Claude.CodingAgent do
     _error -> :ok
   end
 
+  defp normalize_tool_result(%{"output" => _output} = result), do: result
+
+  defp normalize_tool_result(%{"contentItems" => [%{"text" => output} | _]} = result)
+       when is_binary(output) do
+    Map.put(result, "output", output)
+  end
+
+  defp normalize_tool_result(result), do: result
+
   defp await_response(port, request_id) do
     with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "")
   end
@@ -893,6 +949,27 @@ defmodule Aiur.Claude.CodingAgent do
   defp put_if_number(metadata, _key, _value), do: metadata
 
   defp default_on_message(_message), do: :ok
+
+  defp tool_call_name(params) when is_map(params) do
+    case Map.get(params, "tool") || Map.get(params, :tool) || Map.get(params, "name") || Map.get(params, :name) do
+      name when is_binary(name) ->
+        case String.trim(name) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp tool_call_name(_params), do: nil
+
+  defp tool_call_arguments(params) when is_map(params) do
+    Map.get(params, "arguments") || Map.get(params, :arguments) || %{}
+  end
+
+  defp tool_call_arguments(_params), do: %{}
 
   defp maybe_put_model(params, override) do
     case override || Aiur.Claude.Config.model() do

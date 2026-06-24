@@ -94,6 +94,26 @@ defmodule Aiur.Events.PublisherTest do
                  actor: "aiur-bot"
                )
     end
+
+    test "malformed dedup keys do not block publishing" do
+      :ok = Exchange.subscribe("ticket.42.agent.progress")
+
+      assert {:ok, _id, count} =
+               Publisher.publish("ticket.42.agent.progress", %{message: "working"}, dedup_key: {nil, "refs/heads/aiur/42", "abc"})
+
+      assert count >= 1
+      assert_receive {:event, %{message: "working", topic: "ticket.42.agent.progress"}}, 500
+    end
+
+    test "ignores unexpected process messages" do
+      publisher = Process.whereis(Publisher)
+      assert is_pid(publisher)
+
+      send(publisher, :unexpected_message)
+      Process.sleep(10)
+
+      assert Process.alive?(publisher)
+    end
   end
 
   describe "push dedup" do
