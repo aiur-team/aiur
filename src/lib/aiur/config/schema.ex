@@ -667,14 +667,12 @@ defmodule Aiur.Config.Schema do
   # backends), so `efforts/1` returns its real set. `claude+remote` dispatches
   # through the interactive REPL transport, so validate its effort against that
   # transport rather than the headless app-server wrapper.
-  defp valid_routing_effort?(value) when is_binary(value) do
+  defp valid_routing_effort?(value) do
     case routing_effort(value) do
       nil -> true
       effort -> effort in Aiur.CodingAgent.efforts(routing_effort_backend(value))
     end
   end
-
-  defp valid_routing_effort?(_value), do: true
 
   defp routing_effort_backend(value) do
     case {routing_backend(value), routing_remote_flag?(value)} do
