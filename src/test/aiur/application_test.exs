@@ -50,6 +50,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.Orchestrator,
       Aiur.ProcessReaper,
       Aiur.AgentResourceGuard,
+      Aiur.GitHub.CodeOwners,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
