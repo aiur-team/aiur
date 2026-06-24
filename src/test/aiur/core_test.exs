@@ -846,6 +846,7 @@ defmodule Aiur.CoreTest do
     orchestrator_name = Module.concat(__MODULE__, :RetryPollFailureOrchestrator)
     previous_github_client = Application.get_env(:aiur, :github_client_module)
     previous_test_pid = Application.get_env(:aiur, :retry_poll_failure_test_pid)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
@@ -857,6 +858,7 @@ defmodule Aiur.CoreTest do
 
     Application.put_env(:aiur, :github_client_module, RetryPollFailingGitHubClient)
     Application.put_env(:aiur, :retry_poll_failure_test_pid, self())
+    System.put_env("GITHUB_TOKEN", "retry-poll-test-token")
 
     on_exit(fn ->
       if previous_github_client do
@@ -870,6 +872,8 @@ defmodule Aiur.CoreTest do
       else
         Application.delete_env(:aiur, :retry_poll_failure_test_pid)
       end
+
+      restore_env("GITHUB_TOKEN", previous_github_token)
     end)
 
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
