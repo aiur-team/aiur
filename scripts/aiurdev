@@ -332,7 +332,8 @@ if [ -n "$agent_workspace_marker" ] && { [ "$test_single" -eq 1 ] || [ "$test3_m
   echo "❌ manual --test runs are blocked inside agent workspaces" >&2
   echo "   workspace marker: $agent_workspace_marker" >&2
   echo "   This path resets pinned GitHub sandbox tickets and can mutate the live dogfood backlog." >&2
-  echo "   Run scripts/aiurdev --test from the operator repo root or use a dedicated isolated harness." >&2
+  echo "   Agents must stop here: do not retry from a copied /tmp harness, clone, or alternate checkout." >&2
+  echo "   Operator-root manual test runs remain allowed outside agent turns." >&2
   exit 64
 fi
 

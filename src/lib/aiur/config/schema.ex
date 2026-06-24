@@ -85,6 +85,7 @@ defmodule Aiur.Config.Schema do
 
     embedded_schema do
       field(:kind, :string)
+      field(:base_branch, :string)
       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
 
       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
@@ -96,7 +97,7 @@ defmodule Aiur.Config.Schema do
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:kind, :active_states, :terminal_states], empty_values: [])
+      |> cast(attrs, [:kind, :base_branch, :active_states, :terminal_states], empty_values: [])
       |> cast_embed(:github, with: &Github.changeset/2)
       |> cast_embed(:linear, with: &Linear.changeset/2)
     end

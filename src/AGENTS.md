@@ -56,6 +56,11 @@ observed the intended rendered output. HTTP API calls and `tmux
 capture-pane` snapshots from outside the live session are not
 substitutes.
 
+Agent issue workspaces are blocked from running that manual-test path
+directly. If the guard blocks `--test` / `--test3`, stop and report the
+blocked manual verification; do not retry by copying the repo to `/tmp`,
+cloning another checkout, or changing wrapper tmux names.
+
 ## Required Rules
 
 - Public functions (`def`) in `lib/` must have an adjacent `@spec`.
