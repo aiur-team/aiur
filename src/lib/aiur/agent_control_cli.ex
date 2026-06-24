@@ -2,6 +2,8 @@ defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
   alias Aiur.{AgentChat, Orchestrator}
+  alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
+  import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
 
@@ -262,7 +264,7 @@ defmodule Aiur.AgentControlCLI do
         "(#{state})"
 
       _ ->
-        [Map.get(agent, :last_codex_event), Map.get(agent, :last_codex_message)]
+        activity_values(agent)
         |> Enum.map(&activity_string/1)
         |> Enum.find("", &(&1 != ""))
         |> case do
@@ -272,8 +274,47 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  defp activity_values(agent) do
+    message = Map.get(agent, :last_codex_message)
+    event = Map.get(agent, :last_codex_event)
+
+    if structured_activity?(message) do
+      [message, event]
+    else
+      [event, message]
+    end
+  end
+
+  defp structured_activity?(%{message: message}) when is_map(message), do: structured_activity?(message)
+
+  defp structured_activity?(message) when is_map(message) do
+    message
+    |> activity_payload()
+    |> map_value(["method", :method])
+    |> is_binary()
+  end
+
+  defp structured_activity?(_value), do: false
+
   defp activity_string(value) when is_binary(value), do: String.trim(value)
   defp activity_string(nil), do: ""
+
+  defp activity_string(%{message: message}) when is_map(message) do
+    activity_string(message)
+  end
+
+  defp activity_string(message) when is_map(message) do
+    payload = activity_payload(message)
+
+    case map_value(payload, ["method", :method]) do
+      method when is_binary(method) ->
+        method |> CodexEventHumanizer.humanize_method(payload) |> String.trim()
+
+      _ ->
+        message |> inspect(limit: 5, printable_limit: 120) |> String.trim()
+    end
+  end
+
   defp activity_string(value), do: value |> to_string() |> String.trim()
 
   defp truncate(text, max) do
@@ -357,6 +398,13 @@ defmodule Aiur.AgentControlCLI do
 
   defp numeric_identifier?(identifier) when is_binary(identifier), do: Regex.match?(~r/^\d+$/, identifier)
   defp numeric_identifier?(_identifier), do: false
+
+  defp activity_payload(message) do
+    case map_value(message, ["payload", :payload]) do
+      payload when is_map(payload) -> payload
+      _ -> message
+    end
+  end
 
   defp result_verb(result), do: Map.fetch!(%{resumed: "resumed", started: "started"}, result)
 

@@ -432,7 +432,7 @@ run_session() {
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
-    rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
+    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
     exit 1
   fi
 
@@ -441,20 +441,27 @@ run_session() {
   # chat panes it opens. Best-effort — a missing title just shows the default.
   "$tmux_bin" -L "$socket" -f "$conf" select-pane -t "$session" -T "AIUR Agents" 2>/dev/null || true
 
-  # Grace window: surface a boot crash instead of attaching to nothing.
-  local tick
-  for ((tick = 0; tick < 30; tick++)); do
-    if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
-      echo "❌ aiur exited during startup; captured output:" >&2
-      tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
-      [ "$mode" = "foreground" ] && return 1
-      rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
-      exit 1
+  # Grace window: surface a boot crash instead of attaching to nothing. For
+  # headless background runs, also prove the control plane can answer before
+  # claiming startup succeeded; control commands depend on that RPC path.
+  local require_control=0
+  [ "$mode" = "background" ] && require_control=1
+  if ! wait_for_session_startup "$tmux_bin" "$socket" "$conf" "$session" "$startup_capture" "$require_control"; then
+    if [ "$mode" = "background" ]; then
+      "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
+      kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
     fi
-    sleep 0.1
-  done
+    [ "$mode" = "foreground" ] && return 1
+    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+    exit 1
+  fi
 
   if [ "$mode" = "background" ]; then
+    local background_watchdog_pid
+    background_watchdog_pid="$(start_beam_death_watchdog \
+      "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1)"
+    disown "$background_watchdog_pid" 2>/dev/null || true
     echo "aiur started in the background (tmux session ${session}). Attach with: aiur" >&2
     rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
     return 0
@@ -464,10 +471,10 @@ run_session() {
   # (:emfile) mid-run, agent windows keep the orphaned session alive so the
   # `tmux attach` below never returns and the EXIT trap never fires — the
   # watchdog is the external reaper that survives the dead BEAM, kill-servers
-  # the session, and unblocks the attach. It polls the same release-BEAM pattern
-  # session_cleanup uses, so it never depends on capturing a single live pid.
+  # the session, and unblocks the attach. It polls the node name rather than a
+  # captured pid, so another Aiur instance from the same release cannot hold it open.
   _session_watchdog_pid="$(start_beam_death_watchdog \
-    "$release_dir/.*erts.*beam.smp" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
+    "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
@@ -587,17 +594,17 @@ reap_aiur_agents() {
 # session, which returns the foreground `tmux attach` so the EXIT trap
 # (session_cleanup) runs its idempotent reap too.
 #
-#   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s
+#   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s  $5 initial_seen
 # Prints the watchdog's own pid so the caller can kill it on a clean teardown.
 start_beam_death_watchdog() {
-  local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}"
+  local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}" initial_seen="${5:-0}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
   (
-    seen=0
+    seen="$initial_seen"
     while :; do
-      if pgrep -f "$beam_pattern" >/dev/null 2>&1; then
+      if pgrep -f -- "$beam_pattern" >/dev/null 2>&1; then
         seen=1
       elif [ "$seen" = 1 ]; then
         break
@@ -607,6 +614,58 @@ start_beam_death_watchdog() {
     reap_aiur_agents "$socket" "$pidfile"
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
+}
+
+probe_control_liveness() {
+  local expression output status
+  expression='case Process.whereis(Aiur.Orchestrator) do pid when is_pid(pid) -> case Aiur.Orchestrator.status(Aiur.Orchestrator, 100) do statuses when is_list(statuses) -> IO.puts("__AIUR_CONTROL_READY__"); _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end; _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end'
+
+  set +e
+  output="$("$release_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ] && [[ "$output" == *"__AIUR_CONTROL_READY__"* ]]; then
+    printf 'up'
+  else
+    printf 'down'
+  fi
+}
+
+wait_for_session_startup() {
+  local tmux_bin="$1" socket="$2" conf="$3" session="$4" startup_capture="$5" require_control="$6"
+  local max_ticks="${AIUR_TMUX_GRACE_TICKS:-30}" tick control_state
+  if [ "$require_control" = "1" ]; then
+    max_ticks="${AIUR_NODE_GRACE_TICKS:-100}"
+  fi
+
+  for ((tick = 0; tick < max_ticks; tick++)); do
+    if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+      echo "❌ aiur exited during startup; captured output:" >&2
+      tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
+      return 1
+    fi
+
+    if [ "$require_control" != "1" ]; then
+      sleep 0.1
+      continue
+    fi
+
+    control_state="$(probe_control_liveness)"
+    if [ "$control_state" = "up" ]; then
+      return 0
+    fi
+
+    sleep 0.1
+  done
+
+  if [ "$require_control" = "1" ]; then
+    echo "❌ aiur control plane did not become ready at ${RELEASE_NODE:-unknown} during startup; captured output:" >&2
+    tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
+    return 1
+  fi
+
+  return 0
 }
 
 # Foreground teardown: kill the session + BEAM and reap opencode sessions on exit.
@@ -638,22 +697,8 @@ session_cleanup() {
   # when tmux is absent, so it is not gated on $_session_tmux.
   reap_aiur_agents "$_session_socket" "$_session_pidfile"
 
-  local beam_pids pid waited=0
-  beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"
-  if [ -n "$beam_pids" ]; then
-    for pid in $beam_pids; do kill -TERM "$pid" 2>/dev/null || true; done
-    while [ $waited -lt 30 ]; do
-      beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"
-      [ -z "$beam_pids" ] && break
-      sleep 0.1
-      waited=$((waited + 1))
-    done
-    beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"
-    for pid in $beam_pids; do kill -KILL "$pid" 2>/dev/null || true; done
-  fi
-
-  # Belt-and-suspenders: reap any BEAM still holding our node name, even one
-  # launched from a different release dir than this run.
+  # Reap only this instance's BEAM. Multiple keyed instances can share the same
+  # release dir, so release-path pgrep would terminate sibling workflows.
   [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}"
 
   # Reap the epmd our BEAM spawned for distribution so it doesn't linger after
@@ -971,9 +1016,11 @@ sweep_stale_tmp_artifacts() {
     [ -d "$d" ] || continue
     seen=0
     local root
-    for root in "${roots[@]}"; do
-      [ "$root" = "$d" ] && { seen=1; break; }
-    done
+    if [ "${#roots[@]}" -gt 0 ]; then
+      for root in "${roots[@]}"; do
+        [ "$root" = "$d" ] && { seen=1; break; }
+      done
+    fi
     [ "$seen" -eq 1 ] || roots+=("$d")
   done
   [ "${#roots[@]}" -gt 0 ] || return 0
@@ -1019,7 +1066,7 @@ sweep_stale_tmp_artifacts() {
   return 0
 }
 
-# Stop the running session: kill the tmux session + the release BEAM, then sweep.
+# Stop the running session: kill this instance's tmux + BEAM, then sweep.
 cmd_stop() {
   resolve_release
   aiur_resolve_identity
@@ -1032,22 +1079,8 @@ cmd_stop() {
     "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
   fi
 
-  local beam_pids pid waited=0
-  beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
-  if [ -n "$beam_pids" ]; then
-    for pid in $beam_pids; do kill -TERM "$pid" 2>/dev/null || true; done
-    while [ $waited -lt 30 ]; do
-      beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
-      [ -z "$beam_pids" ] && break
-      sleep 0.1
-      waited=$((waited + 1))
-    done
-    beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
-    for pid in $beam_pids; do kill -KILL "$pid" 2>/dev/null || true; done
-  fi
-
   # Reap any BEAM holding our node name regardless of which release dir launched
-  # it — orphans from a dev build or a prior install share the unified name.
+  # it. Do not sweep by release dir: sibling instances share dev releases.
   kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
 
   # The BEAM (alive until the TERM above) reaped its own headless agents through
