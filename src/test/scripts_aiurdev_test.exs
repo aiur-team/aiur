@@ -265,35 +265,45 @@ defmodule ScriptsAiurdevTest do
     refute File.exists?(log), "stale control commands should not invoke mix release"
   end
 
-  test "control commands rebuild an incomplete release" do
-    root = fake_repo()
-    mise = fake_mise()
-    log = Path.join(root, "release.log")
-    src = Path.join(root, "src")
-    release_vsn_dir = Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3"])
+  test "control commands rebuild when any ready-release artifact is missing" do
+    for {missing, remove_artifact} <- [
+          {"start_clean.boot",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3", "start_clean.boot"]))
+           end},
+          {"vm.args",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3", "vm.args"]))
+           end},
+          {"sys.config",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3", "sys.config"]))
+           end},
+          {"epmd",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "erts-16.4", "bin", "epmd"]))
+           end}
+        ] do
+      root = fake_repo()
+      mise = fake_mise()
+      log = Path.join(root, "release.log")
+      src = Path.join(root, "src")
 
-    File.mkdir_p!(Path.join(src, "bin"))
-    File.mkdir_p!(Path.join([src, "_build", "dev", "rel", "aiur", "bin"]))
-    File.mkdir_p!(release_vsn_dir)
-    File.write!(Path.join([src, "bin", "aiur"]), "#!/usr/bin/env bash\n")
-    File.write!(Path.join([src, "_build", "dev", "rel", "aiur", "bin", "aiur"]), "#!/usr/bin/env bash\n")
-    File.write!(Path.join(release_vsn_dir, "elixir"), "#!/usr/bin/env bash\n")
-    File.chmod!(Path.join([src, "bin", "aiur"]), 0o755)
-    File.chmod!(Path.join([src, "_build", "dev", "rel", "aiur", "bin", "aiur"]), 0o755)
-    File.chmod!(Path.join(release_vsn_dir, "elixir"), 0o755)
-    File.write!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "start_erl.data"]), "16.4 0.0.3")
+      seed_ready_release(root)
+      remove_artifact.(src)
 
-    {out, 0} =
-      run_shim(["agents"], [
-        {"AIUR_REPO_ROOT", root},
-        {"AIUR_MISE_BIN", mise},
-        {"AIUR_FAKE_MISE_RELEASE_LOG", log},
-        {"TMUX", nil}
-      ])
+      {out, 0} =
+        run_shim(["agents"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
 
-    assert out =~ "rebuilding"
-    assert out =~ "ENGINE_ARGS: agents"
-    assert File.exists?(log), "incomplete release should rebuild before control RPC"
+      assert out =~ "rebuilding", "#{missing} should make release_ready fail"
+      assert out =~ "ENGINE_ARGS: agents"
+      assert File.exists?(log), "#{missing} should rebuild before control RPC"
+    end
   end
 
   test "stale-source run paths still rebuild a ready release" do
