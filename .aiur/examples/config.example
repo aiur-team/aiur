@@ -14,6 +14,7 @@ agent:
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
+  # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
   routing: {{ROUTING}}                   # complexity:<N> label -> backend (or backend:model, e.g. claude:sonnet)
   claude:
     command: aiur-claude
