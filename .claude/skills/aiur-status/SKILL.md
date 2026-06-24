@@ -16,28 +16,45 @@ same aiur agent-status playbook.
 
 ### 1. Gather recent log tails
 
-Run the gather script (resolves `workspace.root` from `.aiur/config`, falling
-back to a legacy `.aiurconfig`; finds workspaces whose `logs/agent.md` changed
-recently, and prints a tail of each):
+Run the gather script. It scans **both** the `workspace.root` from `.aiur/config`
+(legacy `.aiurconfig` fallback) **and** the canonical live-instance tree at
+`~/.aiur/workspaces/<owner>/<repo>/<id>/logs/agent.md`, dedupes across them,
+probes daemon health, and prints a tail of each recently-active agent:
 
 ```bash
 bash .claude/skills/aiur-status/scripts/tail-agents.sh
 ```
+
+Scanning both roots is the fix for #489: a `--bg` run materializes workspaces
+under `~/.aiur/workspaces`, **not** the source repo's configured
+`workspace.root`, so a single-root scan reported a false "no active agents"
+while a run was live. Never trust the static config root alone.
 
 Knobs (env vars), only if asked:
 - `AIUR_ACTIVE_WINDOW_MIN` (default 15) — how recent counts as "active".
 - `AIUR_TAIL_LINES` (default 45) — log lines per agent.
 - `AIUR_INCLUDE_STALE=1` — also include agents idle beyond the window.
 
-Each block looks like:
+The first block is always the **daemon-health header**, then one block per agent:
 ```
-===== AGENT 341 | last activity 2m ago | session yes =====
+===== DAEMON node yes | last activity 2m ago | roots /Users/me/.aiur/workspaces =====
+
+===== AGENT 341 | last activity 2m ago | session yes | root /Users/me/.aiur/workspaces =====
 ## 2026-06-21T14:22:31Z item/started
 ```text
 {"method":"item/started","params":{"item":{"type":"commandExecution","command":"mix test test/aiur/orchestrator_test.exs"}}}
 ```
 ...
 ```
+
+Read the `DAEMON` header first:
+- `node no` with a recent `last activity` (or an explicit `daemon down:` line) ⇒
+  the BEAM is gone but agents were just running. Render a **red** daemon row
+  (`🔴 daemon down · last activity Nm ago`) — this is exactly the case #489
+  required us to stop silently swallowing. Do **not** report "no active agents"
+  when the daemon-down line is present.
+- A `warning: … mismatch …` line ⇒ the `.aiur/config` `workspace.root` is stale
+  and unused; surface it as the `⚠️ Needs you` line so the operator fixes config.
 
 ### 2. Read each agent's tail and classify
 
@@ -76,6 +93,7 @@ Output **only** a status table, **sized to the operator's terminal width** so ev
 - Header line above the table: `**aiur <HH:MM> · <one-glance roll-up>**` (e.g. `9 running · 1 review`).
 - Only if something needs the operator, ONE line below: `⚠️ Needs you: #<id> (<why>)`. Otherwise add nothing.
 - Don't invent progress the log doesn't show; ambiguous tail ⇒ `unclear`. No active agents ⇒ say so in one line, don't print an empty table.
+- **Daemon row.** When the `DAEMON` header reports `node no` with recent activity (or a `daemon down:` line), prepend a `🔴 daemon down · last activity Nm ago` row to the table — never collapse a downed-but-recently-active node to "no active agents".
 
 ## Monitoring cadence (default)
 
@@ -96,4 +114,8 @@ For a single one-shot snapshot instead of the loop, say so explicitly when invok
 - Source of truth is each workspace's `logs/agent.md` (the same log the dashboard
   renders). The script never attaches to tmux or the running node, so it's safe
   to run anytime alongside a live aiur.
+- The script scans the config `workspace.root` **and** `~/.aiur/workspaces`
+  (deduped), because a live `--bg` instance writes to the latter while the
+  source repo's config still points at its own default. Daemon liveness is a
+  `pgrep` for the `rel/aiur` BEAM plus tmux sessions; both are read-only probes.
 - Agent id == ticket id == workspace directory name.
