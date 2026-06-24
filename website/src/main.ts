@@ -42,10 +42,15 @@ for (const tab of tabs) {
 }
 
 const copyBtn = document.getElementById("copyBtn");
+const installWrap = document.getElementById("installWrap");
+const nextSteps = document.getElementById("nextSteps");
 copyBtn?.addEventListener("click", () => {
   void navigator.clipboard?.writeText(command);
   copyBtn.classList.add("copied");
   setTimeout(() => copyBtn.classList.remove("copied"), 1300);
+  installWrap?.classList.add("show-next");
+  nextSteps?.setAttribute("aria-hidden", "false");
+  document.getElementById("scrollcue")?.classList.add("gone");
 });
 
 initTerminal();

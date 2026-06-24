@@ -220,6 +220,35 @@
   .install .copy svg { width: 15px; height: 15px; }
   .install .copy.copied { color: var(--accent); }
 
+  /* post-install commands — revealed + animated open on copy */
+  .next-steps {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.34s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .install-wrap.show-next .next-steps { grid-template-rows: 1fr; }
+  .install-wrap.show-next .install { border-bottom: 1px solid var(--pill-bd); }
+  .next-inner { overflow: hidden; }
+  .next-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 14px 9px 18px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: var(--muted);
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  .next-row .prompt { color: var(--accent); }
+  .install-wrap.show-next .next-row { opacity: 1; transform: none; }
+  .install-wrap.show-next .next-row:nth-child(2) { transition-delay: 0.08s; }
+  @media (prefers-reduced-motion: reduce) {
+    .next-steps { transition: none; }
+    .next-row { transition: none; }
+  }
+
   .scrollcue {
     position: fixed;
     /* sit in the gap above the terminal peek (which occupies the bottom
