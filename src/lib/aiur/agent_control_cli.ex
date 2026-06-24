@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, Orchestrator}
+  alias Aiur.{AgentChat, Config, Orchestrator}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -11,7 +11,10 @@ defmodule Aiur.AgentControlCLI do
   def status do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
-        print_status_table(statuses)
+        statuses
+        |> Enum.filter(&visible_status_row?/1)
+        |> print_status_table()
+
         exit_marker(0)
 
       error ->
@@ -244,6 +247,52 @@ defmodule Aiur.AgentControlCLI do
       ])
     end)
   end
+
+  defp visible_status_row?(%{work_state: :deactivated}), do: false
+  defp visible_status_row?(%{work_state: "deactivated"}), do: false
+
+  defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}) do
+    active_tracker_state?(tracker_state) and not terminal_tracker_state?(tracker_state)
+  end
+
+  defp visible_status_row?(%{tracker_state: tracker_state}) do
+    not terminal_tracker_state?(tracker_state)
+  end
+
+  defp visible_status_row?(_status), do: true
+
+  defp active_tracker_state?(tracker_state) when is_binary(tracker_state) do
+    tracker_state
+    |> normalized_tracker_state()
+    |> then(&MapSet.member?(active_tracker_states(), &1))
+  end
+
+  defp active_tracker_state?(_tracker_state), do: false
+
+  defp terminal_tracker_state?(tracker_state) when is_binary(tracker_state) do
+    tracker_state
+    |> normalized_tracker_state()
+    |> then(&MapSet.member?(terminal_tracker_states(), &1))
+  end
+
+  defp terminal_tracker_state?(_tracker_state), do: false
+
+  defp active_tracker_states do
+    Config.settings!().tracker.active_states
+    |> Enum.map(&normalized_tracker_state/1)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp terminal_tracker_states do
+    Config.settings!().tracker.terminal_states
+    |> Enum.map(&normalized_tracker_state/1)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp normalized_tracker_state(state) when is_binary(state), do: String.downcase(String.trim(state))
+  defp normalized_tracker_state(_state), do: ""
 
   @agents_header "ISSUE  STATE      RUNTIME  ACTIVITY"
 

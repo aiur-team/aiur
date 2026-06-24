@@ -2549,6 +2549,7 @@ defmodule Aiur.Orchestrator do
       issue_id: issue_id,
       identifier: identifier,
       state: if(work_state == :paused, do: :paused, else: :running),
+      work_state: work_state,
       tracker_state: Map.get(issue || %{}, :state),
       tag: issue_tag(issue),
       title: Map.get(issue || %{}, :title),

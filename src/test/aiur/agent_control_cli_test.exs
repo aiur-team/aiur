@@ -80,6 +80,60 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status hides closed cached issues and deactivated runtime entries", %{orchestrator: pid} do
+    active = %Issue{id: "issue-active", identifier: "repo#44", state: "In Progress", title: "Active"}
+
+    closed_stale_label = %Issue{
+      id: "issue-closed-stale-label",
+      identifier: "repo#523",
+      state: "Closed",
+      title: "Closed stale active label",
+      labels: ["agent:human-review"]
+    }
+
+    closed_unlabeled = %Issue{
+      id: "issue-closed-unlabeled",
+      identifier: "repo#524",
+      state: nil,
+      title: "Closed with active label removed"
+    }
+
+    deactivated =
+      "issue-deactivated"
+      |> running_entry("repo#491", :deactivated)
+      |> put_in([:issue, Access.key(:title)], "Deactivated")
+
+    closed_running =
+      "issue-closed-running"
+      |> running_entry("repo#492", :working)
+      |> update_in([:issue], &%{&1 | state: "Closed", title: "Closed running"})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{
+            "issue-active" => active,
+            "issue-closed-stale-label" => closed_stale_label,
+            "issue-closed-unlabeled" => closed_unlabeled
+          },
+          running: %{
+            "issue-active" => running_entry("issue-active", "repo#44", :working),
+            "issue-deactivated" => deactivated,
+            "issue-closed-running" => closed_running
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#44    running Issue repo#44"
+    refute output =~ "#491"
+    refute output =~ "#492"
+    refute output =~ "#523"
+    refute output =~ "#524"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
   test "all targets report empty successful selections" do
     pause_output = capture_io(fn -> AgentControlCLI.pause(:all) end)
     resume_output = capture_io(fn -> AgentControlCLI.resume(:all) end)
