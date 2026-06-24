@@ -229,6 +229,14 @@
   .install-wrap.show-next .next-steps { grid-template-rows: 1fr; }
   .install-wrap.show-next .install { border-bottom: 1px solid var(--pill-bd); }
   .next-inner { overflow: hidden; }
+  .next-hint {
+    text-align: center;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--muted) 62%, transparent);
+    padding: 10px 14px 3px;
+  }
   .next-row {
     display: flex;
     align-items: center;
@@ -237,16 +245,19 @@
     font-family: "JetBrains Mono", monospace;
     font-size: 14px;
     color: var(--muted);
+  }
+  .next-row .prompt { color: var(--accent); }
+  .next-inner > * {
     opacity: 0;
     transform: translateY(-4px);
     transition: opacity 0.3s ease, transform 0.3s ease;
   }
-  .next-row .prompt { color: var(--accent); }
-  .install-wrap.show-next .next-row { opacity: 1; transform: none; }
-  .install-wrap.show-next .next-row:nth-child(2) { transition-delay: 0.08s; }
+  .install-wrap.show-next .next-inner > * { opacity: 1; transform: none; }
+  .install-wrap.show-next .next-inner > :nth-child(2) { transition-delay: 0.06s; }
+  .install-wrap.show-next .next-inner > :nth-child(3) { transition-delay: 0.12s; }
   @media (prefers-reduced-motion: reduce) {
     .next-steps { transition: none; }
-    .next-row { transition: none; }
+    .next-inner > * { transition: none; }
   }
 
   .scrollcue {
