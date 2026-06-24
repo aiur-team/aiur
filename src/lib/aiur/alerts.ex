@@ -431,8 +431,7 @@ defmodule Aiur.Alerts do
     if test_env_without_player_override?(opts) do
       :ok
     else
-      player = Keyword.get(opts, :player, &default_player/1)
-      player.(sound)
+      sound_player(opts).(sound)
       :ok
     end
   rescue
@@ -443,6 +442,13 @@ defmodule Aiur.Alerts do
 
   defp test_env_without_player_override?(opts) when is_list(opts) do
     Application.get_env(:aiur, :env) == :test and not Keyword.has_key?(opts, :player)
+  end
+
+  defp sound_player(opts) do
+    case Keyword.fetch(opts, :player) do
+      {:ok, player} -> player
+      :error -> Application.get_env(:aiur, :alert_sound_player, &default_player/1)
+    end
   end
 
   # Public (but undocumented) so tests can exercise the URL / missing-
