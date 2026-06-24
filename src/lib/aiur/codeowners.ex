@@ -462,7 +462,14 @@ defmodule Aiur.Codeowners do
   defp normalize_login("@" <> login), do: String.downcase(login)
   defp normalize_login(login) when is_binary(login), do: String.downcase(login)
 
-  defp comment_author(comment) do
+  @doc """
+  Extracts a comment's author login from the various shapes GitHub and
+  the firehose use (`user.login`, `author.login`, or a bare author).
+  Public so callers replaying comments (e.g. `Aiur.GitHub.ResumeBackfill`)
+  can stamp author trust consistently.
+  """
+  @spec comment_author(map()) :: String.t() | nil
+  def comment_author(comment) do
     get_in(comment, [:author, :login]) ||
       get_in(comment, ["author", "login"]) ||
       get_in(comment, [:user, :login]) ||

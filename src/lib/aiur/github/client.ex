@@ -269,6 +269,30 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @doc """
+  Returns the number of the open pull request whose head branch is
+  `branch` (e.g. `"aiur/485"`), or `{:ok, nil}` when none is open.
+  Used by the resume path to discover a ticket's linked PR so existing
+  PR discussion/review comments can be backfilled into the agent's
+  context (see `Aiur.GitHub.ResumeBackfill`).
+  """
+  @spec fetch_open_pull_request_number_for_branch(String.t(), keyword()) ::
+          {:ok, pos_integer() | nil} | {:error, term()}
+  def fetch_open_pull_request_number_for_branch(branch, opts \\ []) when is_binary(branch) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      head = "#{owner}:#{branch}"
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls?head=#{URI.encode(head)}&state=open&per_page=1"
+
+      case fetch_json_list(request_fun, token, url) do
+        {:ok, [%{"number" => number} | _]} when is_integer(number) -> {:ok, number}
+        {:ok, _} -> {:ok, nil}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number, opts \\ []) do

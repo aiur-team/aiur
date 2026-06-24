@@ -24,6 +24,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{DebugLog, Publisher, SubscriptionStore, Topic}
   alias Aiur.GitHub.IssueDependencies
+  alias Aiur.GitHub.ResumeBackfill
   alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
 
   @type worker_host :: String.t() | nil
@@ -84,6 +85,7 @@ defmodule Aiur.AgentRunner do
         try do
           with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
             :ok = maybe_attach_universal_subscriptions(issue)
+            :ok = maybe_backfill_offline_pr_comments(issue)
             :ok = maybe_enqueue_bootstrap_digest(issue)
             run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
           end
@@ -158,6 +160,20 @@ defmodule Aiur.AgentRunner do
   end
 
   defp maybe_attach_universal_subscriptions(_issue), do: :ok
+
+  # Once subscriptions are attached, replay any PR comments posted while
+  # this agent was offline. The firehose only surfaces events created
+  # after operator boot, so a comment posted before the agent resumed
+  # would otherwise be missed (issue #485). ResumeBackfill discovers the
+  # ticket's linked PR and publishes its existing comments on the same
+  # topics the agent just subscribed to; the Exchange delivers them like
+  # live comments, and the shared dedup key prevents the firehose from
+  # re-delivering them. Best-effort: failures are logged, never fatal.
+  defp maybe_backfill_offline_pr_comments(%Issue{identifier: identifier}) when is_binary(identifier) do
+    ResumeBackfill.backfill_pr_comments(identifier)
+  end
+
+  defp maybe_backfill_offline_pr_comments(_issue), do: :ok
 
   # First-pass base-branch resolver: read from workflow config
   # (`tracker.base_branch` if set) and fall back to `"main"`. A richer
