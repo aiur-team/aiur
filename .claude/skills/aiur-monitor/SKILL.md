@@ -1,6 +1,6 @@
 ---
-name: aiur-status
-description: "Tail the logs of all active aiur agents and report each one's current status as a concise table. Use when aiur is running and you want a quick overview of in-flight agents — e.g. 'iarc status', 'aiur status', 'how are the agents doing', 'agent status', 'tail the agents', 'what are the agents working on'."
+name: aiur-monitor
+description: "Use when you want to view the status of a running aiur session's agents — tails each active agent's log and emits a one-glance status table. For checking in on aiur, whether a CLI-viewable session you're watching or a background run; to LAUNCH aiur itself use the aiur-run skill instead. Triggers: 'aiur status', 'aiur monitor', 'how are the agents doing', 'what are the agents working on', 'tail the agents', 'iarc status'."
 ---
 
 # Agent Status
@@ -22,7 +22,7 @@ Run the gather script. It scans **both** the `workspace.root` from `.aiur/config
 probes daemon health, and prints a tail of each recently-active agent:
 
 ```bash
-bash .claude/skills/aiur-status/scripts/tail-agents.sh
+bash .claude/skills/aiur-monitor/scripts/tail-agents.sh
 ```
 
 Scanning both roots is the fix for #489: a `--bg` run materializes workspaces
@@ -101,7 +101,7 @@ Default to **live monitoring on a 2-minute interval** — emit a fresh per-agent
 status table every 2 minutes while aiur is running, so the operator gets a steady
 heartbeat without asking. Drive it with the loop skill:
 
-    /loop 2m /aiur-status
+    /loop 2m /aiur-monitor
 
 Each tick runs steps 1–3 (gather → classify → emit). Keep looping until every
 agent reaches a terminal state (✅/❌, or the script reports no active agents) or
@@ -109,10 +109,52 @@ the operator stops it. If this skill is **already** running inside a `/loop`, do
 NOT start a nested loop — just emit the table and let the existing loop re-invoke.
 For a single one-shot snapshot instead of the loop, say so explicitly when invoking.
 
+## Alert relay
+
+aiur emits ALERTs (and plays a sound) as it runs, but the operator just hears a
+random chime with no context. On **each monitor tick**, after the status table,
+also run the alert tailer and relay anything operator-actionable so they get the
+"why" the instant they hear it:
+
+```bash
+bash .claude/skills/aiur-monitor/scripts/tail-alerts.sh
+```
+
+It scans the same roots as `tail-agents.sh` (config `workspace.root` +
+`~/.aiur/workspaces`, deduped, recency-windowed) but reads each active agent's
+`logs/agent.ndjson`, pulls `.event == "alert"` lines, and emits one structured
+line per alert (newest last) after a `DAEMON` header:
+
+```
+{"ticket":"43","agent":"43","reason":"Agent paused","name":"ticket.43.agent.paused","needs_attention":true}
+```
+
+`needs_attention` is computed in shell (no model) — true when the topic `name`
+contains, on a segment boundary, any of: `human-review`, `input_required`,
+`paused`, `thrash`, `retry_exhausted`, `tokens_exhausted`. (`unpaused` is the
+all-clear and is deliberately **not** flagged.)
+
+For any **NEW** `needs_attention:true` alert, relay it to the operator via
+**PushNotification**, formatted:
+
+```
+#<ticket> · <agent> · <reason> — needs you
+```
+
+so they get the context the instant the sound plays. Rules:
+- **De-dup** — track relayed alerts (e.g. by `name` + `reason` per agent) and
+  never push the same one twice across ticks.
+- Informational alerts (`needs_attention:false`) are **not** pushed — they're
+  available if the operator asks ("what was that sound?"), but don't notify.
+- Same knobs as `tail-agents.sh`: `AIUR_ACTIVE_WINDOW_MIN`, plus
+  `AIUR_INCLUDE_STALE=1` to sweep a finished run and `AIUR_ALERT_TAIL=N` to cap
+  alerts per agent.
+
 ## Notes
 
 - Source of truth is each workspace's `logs/agent.md` (the same log the dashboard
-  renders). The script never attaches to tmux or the running node, so it's safe
+  renders) and `logs/agent.ndjson` (the structured stream the alert relay reads).
+  The scripts never attach to tmux or the running node, so they're safe
   to run anytime alongside a live aiur.
 - The script scans the config `workspace.root` **and** `~/.aiur/workspaces`
   (deduped), because a live `--bg` instance writes to the latter while the

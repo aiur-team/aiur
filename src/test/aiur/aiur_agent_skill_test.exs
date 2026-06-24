@@ -66,7 +66,7 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "Codex discovers aiur run and status skills through canonical Claude skills" do
-    for skill <- ~w(aiur-run aiur-status) do
+    for skill <- ~w(aiur-run aiur-monitor) do
       claude_skill = Path.join(@repo_root, ".claude/skills/#{skill}")
       codex_skill = Path.join(@repo_root, ".codex/skills/#{skill}")
 
@@ -81,13 +81,13 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "aiur run and status skill descriptions cover iarc and aiur triggers" do
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
-    status_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-status/SKILL.md"))
+    status_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
 
     assert String.contains?(run_skill, "run IAR")
     assert String.contains?(run_skill, "run aiur")
     assert String.contains?(run_skill, "iarc run")
     assert String.contains?(status_skill, "iarc status")
-    assert String.contains?(status_skill, "agent status")
+    assert String.contains?(status_skill, "aiur status")
     assert String.contains?(status_skill, "tail-agents.sh")
 
     for skill <- [run_skill, status_skill] do

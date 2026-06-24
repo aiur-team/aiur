@@ -6,7 +6,7 @@ description: "Launch and babysit a background (--bg) aiur dogfood run end-to-end
 # Run aiur in --bg mode
 
 Operator playbook for running a background aiur run myself: launch it detached, keep it
-healthy, and drive the controls. Pairs with the `aiur-status` skill — that one owns the
+healthy, and drive the controls. Pairs with the `aiur-monitor` skill — that one owns the
 per-agent status read; this one owns launch + lifecycle.
 
 `iarc` is an operator alias for `aiur` in this repo. Treat `/iarc run` as this
@@ -50,7 +50,8 @@ rebuilds when stale.
 
 ## 3. Launch (detached, logged)
 
-Run it backgrounded and keep the log:
+Run it backgrounded and **always pass `--debug`** — the verbose logs under `~/.aiur/logs` are how
+you monitor agents and diagnose snags (firehose/token failures, workspace-hook errors, stalls):
 
 ```
 aiurdev --bg --debug    # --debug = AIUR_DEBUG=1 (verbose); logs land under ~/.aiur/logs
@@ -72,7 +73,8 @@ Confirm it actually worked:
 
 ## 5. Monitor (loop ~2 min)
 
-- **Agents** — `/aiur-status` (loop it: `/loop 2m /aiur-status`).
+- **Agents** — `/aiur-monitor` (loop it: `/loop 2m /aiur-monitor`).
+- **Alerts** — relay operator-actionable alerts via `aiur-monitor`'s alert-relay (`tail-alerts.sh` → PushNotification).
 - **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
   concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
   `max_concurrent_agents` and relaunch.
@@ -100,4 +102,4 @@ issues found as `agent:todo` (preferred) or self-fix via the CE loop when not ag
 - **#438** — control rpc masks real errors as "no running node." Verify with `status`.
 - **#449** — `--bg` boots UI-only work (panes, dashboard, chat backfill) and lacks a
   `--max-agents` flag + a built-in status command. Until then, set agents via config and use
-  `/aiur-status`.
+  `/aiur-monitor`.

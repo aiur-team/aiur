@@ -1,6 +1,6 @@
-defmodule Aiur.AiurStatusSkillTest do
+defmodule Aiur.AiurMonitorSkillTest do
   @moduledoc """
-  Guards #489: the `/aiur-status` gather script must discover the live aiur
+  Guards #489: the `/aiur-monitor` gather script must discover the live aiur
   instance's actual workspaces under `~/.aiur/workspaces/<owner>/<repo>/<id>/`,
   not just the source repo's configured `workspace.root`. Before this fix the
   script tailed only the stale config root and reported "no active agents" while
@@ -13,12 +13,12 @@ defmodule Aiur.AiurStatusSkillTest do
 
   # test/aiur/ -> test/ -> src/ -> repo root
   @repo_root Path.expand("../../..", __DIR__)
-  @script Path.join(@repo_root, ".claude/skills/aiur-status/scripts/tail-agents.sh")
+  @script Path.join(@repo_root, ".claude/skills/aiur-monitor/scripts/tail-agents.sh")
 
   setup do
     # Isolated fake HOME so `~/.aiur/workspaces` and `~/.aiur/logs` resolve into
     # a scratch tree we control, never the operator's real one.
-    home = Path.join(System.tmp_dir!(), "aiur-status-#{System.unique_integer([:positive])}")
+    home = Path.join(System.tmp_dir!(), "aiur-monitor-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(home) end)
     {:ok, home: home}
   end
