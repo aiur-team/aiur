@@ -10,7 +10,7 @@ defmodule Aiur.GitHub.Client do
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
-    fetch_issues_by_states(Config.settings!().tracker.active_states, opts)
+    fetch_issues_by_states(Config.active_states(), opts)
   end
 
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
