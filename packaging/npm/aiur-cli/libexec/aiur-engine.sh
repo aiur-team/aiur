@@ -483,11 +483,11 @@ run_session() {
   # chat panes it opens. Best-effort — a missing title just shows the default.
   "$tmux_bin" -L "$socket" -f "$conf" select-pane -t "$session" -T "AIUR Agents" 2>/dev/null || true
 
-  # Grace window: surface a boot crash instead of attaching to nothing. For
-  # headless background runs, also prove the control plane can answer before
-  # claiming startup succeeded; control commands depend on that RPC path.
-  local require_control=0
-  [ "$mode" = "background" ] && require_control=1
+  # Grace window: surface a boot crash instead of attaching to nothing. Prove
+  # the control plane can answer before declaring startup usable: background
+  # control commands depend on that RPC path, and foreground automation must not
+  # treat a pre-TUI application crash as a successful `tmux attach`.
+  local require_control=1
   if ! wait_for_session_startup "$tmux_bin" "$socket" "$conf" "$session" "$startup_capture" "$require_control"; then
     if [ "$mode" = "background" ]; then
       "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true

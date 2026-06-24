@@ -425,6 +425,86 @@ defmodule AiurEngineTest do
     refute out =~ "LEFT:"
   end
 
+  test "foreground startup failure before control readiness exits nonzero and preserves output" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Path.join(System.tmp_dir!(), "aiur-fg-fail-#{System.unique_integer([:positive])}")
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    tmux_state = Path.join(tmp, "tmux-session")
+    File.mkdir_p!(tmp)
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*)
+          touch "#{tmux_state}"
+          echo "Failed to start Aiur with workflow test-config" >> "#{Path.join(tmp, "startup")}"
+          exit 0
+          ;;
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *" attach "*) echo "ATTACH:$*" >> "#{events}"; exit 0 ;;
+        *" kill-session "*) echo "KILL_SESSION:$*" >> "#{events}"; rm -f "#{tmux_state}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+      File.rm(events)
+    end)
+
+    script = """
+    export TMPDIR="$TMP_ROOT"
+    export XDG_RUNTIME_DIR="$TMP_ROOT"
+    mktemp() {
+      case "$1" in
+        */aiur-argv.*) path="$TMP_ROOT/argv" ;;
+        */aiur-startup.*) path="$TMP_ROOT/startup" ;;
+        */aiur-pane.*) path="$TMP_ROOT/launcher" ;;
+        */aiur-attach.*) path="$TMP_ROOT/attach" ;;
+        *) command mktemp "$@"; return ;;
+      esac
+      : > "$path"
+      printf '%s\\n' "$path"
+    }
+    sleep() { :; }
+    probe_control_liveness() { printf down; }
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    set +e
+    ( run_session foreground )
+    code=$?
+    set -e
+    echo "CODE=$code"
+    cat "$EVENTS"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_NODE_GRACE_TICKS", "2"},
+        {"EVENTS", events},
+        {"PATH", path},
+        {"TMP_ROOT", tmp}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ ~r/aiur control plane did not become ready at aiur-enginetest-\d+@127\.0\.0\.1 during startup/
+    assert out =~ "Failed to start Aiur with workflow test-config"
+    assert out =~ "KILL_SESSION:"
+    assert out =~ "REAP:aiur-"
+    assert out =~ "KILL_BEAM:-name aiur-"
+    refute out =~ "ATTACH:"
+  end
+
   test "seeded BEAM watchdog reaps immediately when the node disappears" do
     events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
     File.write!(events, "")
