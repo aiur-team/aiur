@@ -142,6 +142,75 @@ while [ "$n" -gt 0 ]; do server_dead && break; sleep 0.1; n=$((n - 1)); done
 server_dead || fail "aiur tmux server survived BEAM death"
 echo "  ok: watchdog reaped panes + headless agent and collapsed the server"
 
+echo "=== Test 3: background BEAM-death leaves a durable crash record (#488) ==="
+
+STATE_DIR="/tmp/aiur-reaptest.$$.state"
+mkdir -p "$STATE_DIR"
+RUN_LOG_DIR="/tmp/aiur-reaptest.$$.runlog"
+mkdir -p "$RUN_LOG_DIR/log"
+printf 'boot line one\nboot line two\n' >"$RUN_LOG_DIR/log/boot.out.log"
+MARKER="$STATE_DIR/node.last-crash"
+SENTINEL="$STATE_DIR/node.stopping"
+
+PIDFILE3="/tmp/aiur-reaptest.$$.3"
+: >"$PIDFILE3"
+bash -c 'sleep 600 & exec -a aiur-fake-claude sleep 600' & AGENT3=$!
+disown 2>/dev/null
+SPAWNED+=("$AGENT3")
+sleep 0.2
+printf 'pid %s claude\n' "$AGENT3" >>"$PIDFILE3"
+
+# Crash path: no stop sentinel → the watchdog must record the crash AND reap.
+bash -c 'exec -a aiur-fake-beam3.smp sleep 600' & FAKE_BEAM3=$!
+disown 2>/dev/null
+SPAWNED+=("$FAKE_BEAM3")
+WD3="$(start_beam_death_watchdog "aiur-fake-beam3.smp" "" "$PIDFILE3" 0.2 0 \
+  "fake-node@127.0.0.1" "$RUN_LOG_DIR" "$SENTINEL" "$MARKER")"
+SPAWNED+=("$WD3")
+
+# Let the watchdog latch onto the live BEAM before we kill it.
+sleep 0.5
+kill "$FAKE_BEAM3" 2>/dev/null # simulate the unexpected crash
+wait_gone "$AGENT3" || fail "agent survived crash (watchdog did not reap)"
+n=50
+while [ "$n" -gt 0 ]; do [ -f "$MARKER" ] && break; sleep 0.1; n=$((n - 1)); done
+[ -f "$MARKER" ] || fail "crash marker was not written on unexpected exit"
+grep -q "exited unexpectedly" "$MARKER" || fail "crash marker missing headline"
+grep -q "node: fake-node@127.0.0.1" "$MARKER" || fail "crash marker missing node identity"
+grep -q "run_log_dir: $RUN_LOG_DIR" "$MARKER" || fail "crash marker missing run log dir"
+grep -q "boot line two" "$MARKER" || fail "crash marker missing boot.out.log tail"
+[ -f "$RUN_LOG_DIR/log/aiur.crash" ] || fail "crash record not written next to aiur.log"
+echo "  ok: crash record written to marker + run log dir, agent reaped"
+
+echo "=== Test 4: a clean stop writes NO crash record (#488) ==="
+
+rm -f "$MARKER"
+PIDFILE4="/tmp/aiur-reaptest.$$.4"
+: >"$PIDFILE4"
+bash -c 'sleep 600 & exec -a aiur-fake-claude sleep 600' & AGENT4=$!
+disown 2>/dev/null
+SPAWNED+=("$AGENT4")
+sleep 0.2
+printf 'pid %s claude\n' "$AGENT4" >>"$PIDFILE4"
+
+bash -c 'exec -a aiur-fake-beam4.smp sleep 600' & FAKE_BEAM4=$!
+disown 2>/dev/null
+SPAWNED+=("$FAKE_BEAM4")
+WD4="$(start_beam_death_watchdog "aiur-fake-beam4.smp" "" "$PIDFILE4" 0.2 0 \
+  "fake-node@127.0.0.1" "$RUN_LOG_DIR" "$SENTINEL" "$MARKER")"
+SPAWNED+=("$WD4")
+
+sleep 0.5
+# Intentional stop: drop the sentinel first, then kill the BEAM.
+: >"$SENTINEL"
+kill "$FAKE_BEAM4" 2>/dev/null
+wait_gone "$AGENT4" || fail "agent survived clean stop (watchdog did not reap)"
+# Give the watchdog room to (not) write a marker and to consume the sentinel.
+sleep 0.6
+[ -f "$MARKER" ] && fail "crash marker written on a clean stop (false positive)"
+[ -f "$SENTINEL" ] && fail "stop sentinel was not consumed by the watchdog"
+echo "  ok: clean stop reaped agent, consumed sentinel, recorded no crash"
+
 echo ""
 echo "PASS"
 exit 0
