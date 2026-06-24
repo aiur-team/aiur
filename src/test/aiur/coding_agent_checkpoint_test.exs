@@ -64,6 +64,66 @@ defmodule Aiur.CodingAgentCheckpointTest do
     end
   end
 
+  test "Codex adapter interrupts for a current-issue deliver-now queue update" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-codex-checkpoint-current-#{System.unique_integer([:positive])}")
+
+    try do
+      workspace = Path.join(Config.workspace_root(), "MT-CP-CODEX-CURRENT")
+      trace_file = Path.join(test_root, "codex.trace")
+      binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+      File.mkdir_p!(test_root)
+      File.write!(binary, codex_checkpoint_script())
+      File.chmod!(binary, 0o755)
+
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn ->
+        System.delete_env("SYMP_TEST_CODEX_TRACE")
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_kind: "codex",
+        command: "#{binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-checkpoint-codex-current",
+        identifier: "MT-CP-CODEX-CURRENT",
+        title: "Checkpoint current issue",
+        description: "interrupt for current issue delivery",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-CP-CODEX-CURRENT",
+        labels: []
+      }
+
+      assert {:ok, session} = CodexAgent.start_session(workspace)
+
+      try do
+        callback = one_shot_follow_up_callback(self(), "focus on auth first", issue.identifier)
+
+        assert {:ok, _turn_session} =
+                 CodexAgent.run_turn(
+                   session,
+                   "initial prompt",
+                   issue,
+                   on_safe_checkpoint: callback
+                 )
+
+        assert_receive {:delivered, %{turn_id: "turn-followup"}}
+        refute_receive {:delivery_failed, _reason}
+
+        assert_stable_turn_texts(trace_file, ["initial prompt", "focus on auth first"])
+        assert_traced_method(trace_file, "turn/interrupt")
+      after
+        CodexAgent.stop_session(session)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "Claude adapter starts a queued follow-up turn from a safe checkpoint" do
     test_root = Path.join(System.tmp_dir!(), "aiur-claude-checkpoint-#{System.unique_integer([:positive])}")
 
@@ -116,6 +176,66 @@ defmodule Aiur.CodingAgentCheckpointTest do
 
         assert_stable_turn_texts(trace_file, ["initial prompt", "follow up in claude"])
         refute_traced_method(trace_file, "turn/interrupt")
+      after
+        ClaudeAgent.stop_session(session)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "Claude adapter interrupts for a current-issue deliver-now queue update" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-claude-checkpoint-current-#{System.unique_integer([:positive])}")
+
+    try do
+      workspace = Path.join(Config.workspace_root(), "MT-CP-CLAUDE-CURRENT")
+      trace_file = Path.join(test_root, "claude.trace")
+      binary = Path.join(test_root, "fake-claude")
+
+      File.mkdir_p!(workspace)
+      File.mkdir_p!(test_root)
+      File.write!(binary, claude_checkpoint_script())
+      File.chmod!(binary, 0o755)
+
+      System.put_env("SYMP_TEST_CLAUDE_TRACE", trace_file)
+
+      on_exit(fn ->
+        System.delete_env("SYMP_TEST_CLAUDE_TRACE")
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_kind: "claude",
+        command: "#{binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-checkpoint-claude-current",
+        identifier: "MT-CP-CLAUDE-CURRENT",
+        title: "Claude checkpoint current issue",
+        description: "interrupt for current issue delivery",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-CP-CLAUDE-CURRENT",
+        labels: []
+      }
+
+      assert {:ok, session} = ClaudeAgent.start_session(workspace)
+
+      try do
+        callback = one_shot_follow_up_callback(self(), "follow up in claude", issue.identifier)
+
+        assert {:ok, _turn_session} =
+                 ClaudeAgent.run_turn(
+                   session,
+                   "initial prompt",
+                   issue,
+                   on_safe_checkpoint: callback
+                 )
+
+        assert_receive {:delivered, %{turn_id: "turn-followup"}}
+        refute_receive {:delivery_failed, _reason}
+
+        assert_stable_turn_texts(trace_file, ["initial prompt", "follow up in claude"])
+        assert_traced_method(trace_file, "turn/interrupt")
       after
         ClaudeAgent.stop_session(session)
       end
@@ -178,6 +298,21 @@ defmodule Aiur.CodingAgentCheckpointTest do
 
   defp refute_traced_method(trace_file, method) do
     refute method in traced_methods(trace_file)
+  end
+
+  defp assert_traced_method(trace_file, method, attempts \\ 20)
+
+  defp assert_traced_method(trace_file, method, 0) do
+    assert method in traced_methods(trace_file)
+  end
+
+  defp assert_traced_method(trace_file, method, attempts) do
+    if method in traced_methods(trace_file) do
+      :ok
+    else
+      Process.sleep(10)
+      assert_traced_method(trace_file, method, attempts - 1)
+    end
   end
 
   defp traced_methods(trace_file) do
