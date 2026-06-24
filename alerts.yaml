@@ -38,6 +38,18 @@ alerts:
       - "~/alerts/templar-state-your-will.wav"
       - "~/alerts/templar-i-am-ready.wav"
       - "~/alerts/archon-power-overwhelming.wav"
+      - "~/alerts/zealot/zealot-defend1.wav"
+      - "~/alerts/zealot/zealot-defend2.wav"
+      - "~/alerts/zealot/zealot-entaro-adun.wav"
+      - "~/alerts/zealot/zealot-all-for-the-empire.wav"
+      - "~/alerts/zealot/zealot-my-life-for-aiur.wav"
+      - "~/alerts/zealot/zealot-what-thou-cause.wav"
+      - "~/alerts/zealot/zealot-me-sa-chu.wav"
+      - "~/alerts/zealot/zealot-geehous.wav"
+      - "~/alerts/zealot/zealot-gaugurah.wav"
+      - "~/alerts/zealot/zealot-blasuserm.wav"
+      - "~/alerts/zealot/zealot-honor-guide-me.wav"
+      - "~/alerts/zealot/zealot-for-adun.wav"
   "ticket.*.issue.label.added.agent.in-progress":
     message: Task picked up
   "ticket.*.issue.label.added.agent.human-review":
@@ -45,6 +57,11 @@ alerts:
     sound:
       - "~/alerts/advisor-under-attack.wav"
       - "~/alerts/advisor-warriors-engaged-enemy.wav"
+      - "~/alerts/zealot/zealot-attack.wav"
+      - "~/alerts/zealot/zealot-doomed-to-all-who-threaten-the-home-world.wav"
+      - "~/alerts/zealot/zealot-i-long-for-combat.wav"
+      - "~/alerts/zealot/zealot-death.wav"
+      - "~/alerts/zealot/zealot-death-too.wav"
   "ticket.*.issue.label.added.agent.rework":
     message: Sent back for changes
 

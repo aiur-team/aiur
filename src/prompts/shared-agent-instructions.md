@@ -183,7 +183,7 @@ Keep the current PR focused on the originally-scoped change.
 
 ### Complexity routing
 
-When a GitHub issue has one of `complexity:1` through `complexity:5` as a label, use it as the portable baseline signal for model choice, agent choice, and Compound Engineering skill flow. **Treat the label as a starting hypothesis, and the skills below as suggestions, not mandates.** The issue creator wrote the label before reading the code — once you've read the issue, the linked context, and the actual implementation surface, you almost always have more information than they did. If your read of the work disagrees with the label, adjust freely: drop steps that are overhead for what you're actually shipping, add steps the label undersold. Document the disagreement in the PR routing note so the next reader sees why.
+When a GitHub issue has one of `complexity:1` through `complexity:5` as a label, use it as the portable baseline signal for model choice, agent choice, and Compound Engineering skill flow. **Treat the label as a starting hypothesis, and the skills below as suggestions, not mandates.** The issue creator wrote the label before reading the code — once you've read the issue, the linked context, and the actual implementation surface, you almost always have more information than they did. If your read of the work disagrees with the label, adjust freely: drop steps that are overhead for what you're actually shipping, add steps the label undersold.
 
 If the issue has no complexity label, treat it as `complexity:3` until evidence says otherwise. Existing workflows without complexity labels should continue normally; do not block or fail just because the label is absent.
 
@@ -231,25 +231,22 @@ New architecture, multi-system change, security/auth, data-integrity, anything w
 - Strongly suggested: request adversarial review on the diff by naming the relevant persona explicitly — `ce-security-reviewer`, `ce-data-migration-expert`, `ce-architecture-strategist`, `ce-adversarial-reviewer`. Default checks alone are usually not enough at this tier.
 - Land in small, reviewable commits; never one mega-PR.
 
-### Complexity routing note in PR descriptions
+### PR description shape
 
-Every PR description must include a `### Complexity routing` block that answers four things in a few lines:
+Keep PR descriptions concise. Assume reviewers have the issue, workpad, and prior discussion for full problem context.
 
-1. **Signal** — the complexity label on the issue (or `untagged → treated as complexity:3`).
-2. **Skills used** — the skill/agent/model path you actually ran.
-3. **Rationale** — why those choices fit *this* issue, not just the label.
-4. **Adjustment** — whether you followed the recommended path or moved up/down, and why.
-
-Example:
+Use this shape:
 
 ```markdown
-### Complexity routing
+Closes #N
 
-- Signal: `complexity:3`
-- Skills used: `ce-plan` → `ce-work` → `ce-code-review`
-- Rationale: Two files, one subsystem, but the new code path touches the
-  SessionWriter callback chain — used Claude instead of Codex so the
-  failure-mode analysis stayed sharp.
-- Adjustment: Stayed on the complexity:3 recommended path; the SessionWriter
-  touch was inside scope and didn't warrant escalating to 4.
+# Problem
+
+One short paragraph or 2-3 bullets describing the issue being fixed.
+
+# Solution
+
+3-6 bullets covering the meaningful implementation and validation.
 ```
+
+Do not include complexity-routing explanations, model names, AI tool names, or long process narratives in PR descriptions. Mention validation only as concrete checks that passed or known checks that still need attention.

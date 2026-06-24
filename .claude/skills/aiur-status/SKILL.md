@@ -77,18 +77,18 @@ command with output deltas, it's 🟢/🧪 (still running), not ✅.
 
 ### 3. Emit the table
 
-Output **only** a status table, **sized to the operator's terminal width** so every agent stays on **exactly one line** (never wrap). Wider terminal ⇒ more columns / more detail; narrower ⇒ fewer. Always one row per agent.
+Output **only** a status table — one row per agent, never wrapped. Use this layout:
 
-**Find the width.** `tput cols` (fallback `$COLUMNS`). If that returns a non-tty default (`80`/`0`) or is unavailable — common when the skill runs from an agent's piped shell — use the width the operator gave you for this session; if none, assume `120`. Then pick the widest column set that fits, and **truncate any overflowing cell with `…`** so no row wraps.
+```
+**aiur <HH:MM> · <one-glance roll-up>**
 
-| Width | Columns |
-|---|---|
-| `< 90` | `\| Agent \| Doing \|` |
-| `90–129` | `\| Agent \| Ticket \| Doing \|` |
-| `≥ 130` | `\| Agent \| Ticket \| Cx \| Doing \|` (Doing can run longer — still one line) |
+| Agent | Ticket | Cx | Doing |
+|---|---|---|---|
+| <emoji> #<id> | <slug> | <1–5> | <concrete clause> |
+```
 
 - **Agent** = `<emoji> #<id>` — the emoji *is* the status (🟢 working · 🧪 verifying · 🔀 landing · ⏳ awaiting · 🚧 blocked · ❌ failed · ✅ done · 💤 idle); no separate status word/column.
-- **Ticket** = short slug (truncate with `…`). **Cx** = complexity 1–5. **Doing** = concrete clause, longer when there's width ("typecheck + lint", "editing Velodrome CL encoder", "opened PR #382"), never "the agent is working".
+- **Ticket** = slug · **Cx** = complexity 1–5 · **Doing** = a concrete clause ("typecheck + lint", "editing Velodrome CL encoder", "opened PR #382"), never "the agent is working". Truncate any long cell with `…` so each row stays a single line.
 - Order most-advanced / newest activity first.
 - Header line above the table: `**aiur <HH:MM> · <one-glance roll-up>**` (e.g. `9 running · 1 review`).
 - Only if something needs the operator, ONE line below: `⚠️ Needs you: #<id> (<why>)`. Otherwise add nothing.
