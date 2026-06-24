@@ -144,8 +144,27 @@ defmodule AiurEngineTest do
     source #{@engine}
     set +e
     bash -c 'exec -a "beam.smp #{marker} extra" sleep 10' >/dev/null 2>&1 &
-    for _ in $(seq 1 20); do pgrep -f -- '#{marker}' >/dev/null && break; sleep 0.1; done
-    kill_beams_matching '#{marker}'
+    seen=0
+    for _ in $(seq 1 20); do
+      pgrep_out="$(pgrep -f -- '#{marker}' 2>&1)"
+      pgrep_status=$?
+      case "$pgrep_status" in
+        0) seen=1; break ;;
+        1)
+          if [ -n "$pgrep_out" ]; then
+            printf 'PGREP_ERROR: %s\\n' "$pgrep_out"
+            break
+          fi
+          ;;
+        *) printf 'PGREP_ERROR: %s\\n' "$pgrep_out"; break ;;
+      esac
+      sleep 0.1
+    done
+    if [ "$seen" -ne 1 ]; then
+      echo SETUP_FAILED
+    else
+      kill_beams_matching '#{marker}'
+    fi
     pgrep_out="$(pgrep -f -- '#{marker}' 2>&1)"
     pgrep_status=$?
     case "$pgrep_status" in
@@ -166,8 +185,9 @@ defmodule AiurEngineTest do
     on_exit(fn -> File.rm(path) end)
 
     {out, _} = System.cmd("bash", [path], stderr_to_stdout: true)
-    assert out =~ "REAPED"
     refute out =~ "PGREP_ERROR"
+    refute out =~ "SETUP_FAILED"
+    assert out =~ "REAPED"
   end
 
   test "workspace cwd sweep reaps only descendants of a non-shallow root" do
