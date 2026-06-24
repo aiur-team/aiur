@@ -44,23 +44,48 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- distribution identity (per-instance: keyed by the aiur project root) -----
 
-# The aiur project root (dir holding the active config). AIUR_REPO_ROOT (set by
-# the dev shim) wins; otherwise walk up from $PWD. Empty when run outside a project.
+# The aiur project root used to key this instance. AIUR_REPO_ROOT (set by the dev
+# shim) wins. Otherwise walk up from $PWD to the first dir holding a REPO-LOCAL
+# config — but the walk STOPS at $HOME: the global config at ~/.aiur/config (legacy
+# ~/.aiurconfig) is not a repo root, and treating it as one would collapse every
+# project under $HOME onto one key (#443). When no repo-local config is found, the
+# BEAM serves this run via the global config (mirroring its discovery order in
+# src/lib/aiur/workflow.ex) — or via none — and in both cases the project being
+# served is the cwd, so we key by realpath($PWD). That gives each global-config
+# project a distinct identity instead of an empty key (legacy aiur-$USER@…) or $HOME.
+#
+# Caveat: a global-config run's key is cwd-derived (there is no repo root to
+# converge on), so control commands (status/pause/stop) must be run from the SAME
+# directory the run was launched from. A repo with a repo-local .aiur/config keeps
+# the walk-up, so its control commands still resolve from any subdir.
 aiur_project_root() {
   if [ -n "${AIUR_REPO_ROOT:-}" ]; then printf '%s' "$AIUR_REPO_ROOT"; return; fi
-  local d="$PWD"
-  while [ -n "$d" ] && [ "$d" != "/" ]; do
+
+  # Canonicalize $PWD and $HOME so the home-boundary test below holds even when
+  # either is reached through a symlink.
+  local pwd_real home_real
+  pwd_real="$(pwd -P 2>/dev/null || printf '%s' "$PWD")"
+  # ${HOME:-} (not bare $HOME) so an unset HOME under `set -u` can't abort the
+  # script here; an empty home_real simply disables the boundary (walk to /).
+  home_real="$(cd "${HOME:-}" 2>/dev/null && pwd -P || printf '%s' "${HOME:-}")"
+
+  local d="$pwd_real"
+  while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$home_real" ]; do
     if [ -f "$d/.aiur/config" ] || [ -f "$d/.aiurconfig" ]; then
       printf '%s' "$d"
       return
     fi
     d="$(dirname "$d")"
   done
+
+  printf '%s' "$pwd_real"
 }
 
 # Short, stable, node-name-legal (lowercase hex) key for the project root, so two
 # aiur instances for the same user get distinct node/session/socket names and can't
-# reap each other. Empty when no project resolves (names fall back to the legacy form).
+# reap each other. Any real cwd now resolves a key (global-config runs key by
+# realpath($PWD), #443); only a degenerate unreadable cwd yields empty, falling back
+# to the legacy un-keyed name.
 aiur_instance_key() {
   local root
   root="$(aiur_project_root)"
