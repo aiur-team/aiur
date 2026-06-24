@@ -161,6 +161,44 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "before_run rejects git metadata outside the issue workspace" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-external-gitdir-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "BAD-1")
+      external_git_dir = Path.join(test_root, "external.git")
+
+      File.mkdir_p!(workspace)
+
+      assert {_output, 0} =
+               System.cmd(
+                 "git",
+                 ["init", "--quiet", "-b", "main", "--separate-git-dir", external_git_dir, workspace],
+                 stderr_to_stdout: true
+               )
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root
+      )
+
+      assert {:error, reason} = Workspace.run_before_run_hook(workspace, "BAD-1")
+
+      assert {:workspace_git_metadata_unwritable, ^workspace, {:git_dir_outside_workspace, rejected_git_dir}} =
+               reason
+
+      assert {:ok, canonical_external_git_dir} = Aiur.PathSafety.canonicalize(external_git_dir)
+      assert rejected_git_dir == canonical_external_git_dir
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "materialize_from_base creates the workspace's parent dir when missing (repo-namespaced layout)" do
     test_root =
       Path.join(
