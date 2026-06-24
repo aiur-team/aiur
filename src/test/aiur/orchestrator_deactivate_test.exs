@@ -1089,10 +1089,24 @@ defmodule Aiur.OrchestratorDeactivateTest do
         refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 100
         assert get_in(after_comment.running[issue_id], [:control, :status]) == :deactivated
 
+        {:noreply, after_review_comment} =
+          Orchestrator.handle_info(
+            {:event,
+             %{
+               topic: "ticket.#{issue_identifier}.pr.review_comment",
+               author_trusted?: true,
+               comment: %{body: "[codex] Review passed for commit abc123"}
+             }},
+            after_comment
+          )
+
+        refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 100
+        assert get_in(after_review_comment.running[issue_id], [:control, :status]) == :deactivated
+
         {:noreply, after_merge} =
           Orchestrator.handle_info(
             {:event, %{topic: "ticket.#{issue_identifier}.pr.merged"}},
-            after_comment
+            after_review_comment
           )
 
         assert_receive {:memory_tracker_state_update, ^issue_id, "done"}

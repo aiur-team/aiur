@@ -624,9 +624,44 @@ defmodule Aiur.GitHub.ClientTest do
       assert_receive {:github_request, %{method: :delete, url: human_review_url}}
       assert_receive {:github_request, %{method: :delete, url: rework_url}}
       refute_receive {:github_request, %{method: :post}}, 100
+      refute_receive {:github_request, %{method: :patch}}, 100
 
       assert human_review_url =~ "sym:human-review" or human_review_url =~ "sym%3Ahuman-review"
       assert rework_url =~ "sym:rework" or rework_url =~ "sym%3Arework"
+    end
+
+    test "closed issue active-label cleanup reports delete failures" do
+      test_pid = self()
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+
+        case req.method do
+          :get ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "closed",
+                 "labels" => [%{"name" => "sym:human-review"}]
+               }
+             }}
+
+          :delete ->
+            {:ok, %{status: 500}}
+
+          _ ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert {:error, {:github_api_status, 500}} =
+               Client.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :delete}}
+      refute_receive {:github_request, %{method: :post}}, 100
+      refute_receive {:github_request, %{method: :patch}}, 100
     end
   end
 

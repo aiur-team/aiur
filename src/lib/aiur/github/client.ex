@@ -750,15 +750,84 @@ defmodule Aiur.GitHub.Client do
        ) do
     new_label = "#{prefix}:#{normalize_state(state_name)}"
 
+    update_context = %{
+      request_fun: request_fun,
+      token: token,
+      issue_url: issue_url,
+      owner: owner,
+      repo: repo,
+      issue_number: issue_number,
+      prefix: prefix
+    }
+
     case request_fun.(%{method: :get, url: issue_url, token: token}) do
       {:ok, %{status: 200, body: issue_body}} ->
-        if closed_issue?(issue_body) and active_target_state?(state_name) do
-          remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix)
-        else
-          swap_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, new_label)
-          maybe_close_issue(request_fun, token, issue_url, state_name)
-        end
+        apply_issue_state_update(update_context, issue_body, state_name, new_label)
 
+      {:ok, %{status: status}} ->
+        {:error, {:github_api_status, status}}
+
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
+    end
+  end
+
+  defp apply_issue_state_update(context, issue_body, state_name, new_label) do
+    if closed_issue?(issue_body) and active_target_state?(state_name) do
+      remove_state_labels(
+        context.request_fun,
+        context.token,
+        context.owner,
+        context.repo,
+        context.issue_number,
+        issue_body,
+        context.prefix
+      )
+    else
+      swap_and_maybe_close_issue(context, issue_body, state_name, new_label)
+    end
+  end
+
+  defp swap_and_maybe_close_issue(context, issue_body, state_name, new_label) do
+    with :ok <-
+           swap_labels(
+             context.request_fun,
+             context.token,
+             context.owner,
+             context.repo,
+             context.issue_number,
+             issue_body,
+             context.prefix,
+             new_label
+           ) do
+      maybe_close_issue(context.request_fun, context.token, context.issue_url, state_name)
+    end
+  end
+
+  defp swap_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, new_label) do
+    with :ok <- remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix) do
+      add_issue_label(request_fun, token, owner, repo, issue_number, new_label)
+    end
+  end
+
+  defp remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix) do
+    issue_body
+    |> Map.get("labels", [])
+    |> Enum.map(&Map.get(&1, "name", ""))
+    |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
+    |> Enum.reduce_while(:ok, fn label, :ok ->
+      case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
+    url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+
+    case request_fun.(%{method: :delete, url: url, token: token}) do
+      {:ok, %{status: status}} when status in [200, 204, 404] ->
         :ok
 
       {:ok, %{status: status}} ->
@@ -769,29 +838,35 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
-  defp swap_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, new_label) do
-    remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix)
+  defp add_issue_label(request_fun, token, owner, repo, issue_number, label) do
+    url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
 
-    add_url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
-    request_fun.(%{method: :post, url: add_url, token: token, body: %{"labels" => [new_label]}})
-  end
+    case request_fun.(%{method: :post, url: url, token: token, body: %{"labels" => [label]}}) do
+      {:ok, %{status: status}} when status in [200, 201] ->
+        :ok
 
-  defp remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix) do
-    issue_body
-    |> Map.get("labels", [])
-    |> Enum.map(&Map.get(&1, "name", ""))
-    |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
-    |> Enum.each(fn label ->
-      url =
-        "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+      {:ok, %{status: status}} ->
+        {:error, {:github_api_status, status}}
 
-      request_fun.(%{method: :delete, url: url, token: token})
-    end)
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
+    end
   end
 
   defp maybe_close_issue(request_fun, token, issue_url, state_name) do
-    if normalize_state(state_name) in ["done", "cancelled"] do
-      request_fun.(%{method: :patch, url: issue_url, token: token, body: %{"state" => "closed"}})
+    if normalize_state(state_name) in ["done", "cancelled", "canceled"] do
+      case request_fun.(%{method: :patch, url: issue_url, token: token, body: %{"state" => "closed"}}) do
+        {:ok, %{status: status}} when status in [200, 201] ->
+          :ok
+
+        {:ok, %{status: status}} ->
+          {:error, {:github_api_status, status}}
+
+        {:error, reason} ->
+          {:error, {:github_api_request, reason}}
+      end
+    else
+      :ok
     end
   end
 

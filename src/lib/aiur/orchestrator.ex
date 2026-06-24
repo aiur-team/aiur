@@ -852,8 +852,6 @@ defmodule Aiur.Orchestrator do
     |> review_pass_comment?()
   end
 
-  defp benign_review_pass_comment?(_event), do: false
-
   defp comment_body(event) do
     comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
 
