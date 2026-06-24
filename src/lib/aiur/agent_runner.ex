@@ -1112,6 +1112,16 @@ defmodule Aiur.AgentRunner do
         send_control_state(codex_update_recipient, issue, :paused)
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
+      {:error, {:turn_start_failed, reason}} when reason in [:response_timeout, :turn_timeout] ->
+        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+
+        Logger.info(
+          "Queued item delivery lost completion race for #{issue_context(issue)} " <>
+            "request_id=#{item.id} reason=#{inspect(reason)} decision=requeue_after_parent_turn_completed"
+        )
+
+        :ok
+
       {:error, reason} = error ->
         :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
 

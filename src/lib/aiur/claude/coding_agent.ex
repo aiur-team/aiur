@@ -121,9 +121,9 @@ defmodule Aiur.Claude.CodingAgent do
         end
 
       {:error, reason} ->
-        Logger.error("Claude session failed for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.warning("Claude turn start failed for #{issue_context(issue)}: #{inspect(reason)}")
         emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
-        {:error, reason}
+        {:error, {:turn_start_failed, reason}}
     end
   end
 

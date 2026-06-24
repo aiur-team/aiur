@@ -16,6 +16,7 @@ defmodule Aiur.CoreTest do
     end
 
     def fetch_issues_by_states(_states), do: {:ok, []}
+    def fetch_issues_by_states(_states, _opts), do: {:ok, []}
   end
 
   defp stop_test_orchestrator(pid) when is_pid(pid) do
@@ -2123,7 +2124,7 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "agent runner requeues checkpoint operator message when parent turn completes before delivery acknowledgement" do
+  test "agent runner requeues drained operator message when parent turn completes before delivery acknowledgement" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2168,18 +2169,12 @@ defmodule Aiur.CoreTest do
             case "$turn_start_count" in
               1)
                 printf '{"id":%s,"result":{"turn":{"id":"turn-main"}}}\\n' "$request_id"
-                printf '%s\\n' '{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"done"}}}'
                 printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
                 ;;
               2)
                 # Simulate the completion-boundary race: the app-server accepts
-                # bytes for the stale checkpoint follow-up but never acknowledges
-                # this turn/start request after the parent turn completed.
-                ;;
-              3)
-                printf '{"id":%s,"result":{"turn":{"id":"turn-requeued"}}}\\n' "$request_id"
-                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-                exit 0
+                # bytes for the drained follow-up but never acknowledges this
+                # turn/start request after the parent turn completed.
                 ;;
             esac
             ;;
@@ -2248,15 +2243,18 @@ defmodule Aiur.CoreTest do
           |> Enum.map_join("\n", &Map.get(&1, "text", ""))
         end)
 
-      assert length(turn_texts) == 3
+      assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "finish with this guardrail"
-      assert Enum.at(turn_texts, 2) == "finish with this guardrail"
-      assert :empty == Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-254")
+
+      assert {:ok, %{category: :operator_message, body: %{text: "finish with this guardrail"}}} =
+               Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-254")
+
       assert :sys.get_state(orchestrator_pid).retry_attempts == %{}
       assert log =~ "Queued item delivery lost completion race"
       assert log =~ "issue_id=issue-checkpoint-completion-race"
       assert log =~ "request_id="
+      assert log =~ "reason=:response_timeout"
       assert log =~ "decision=requeue_after_parent_turn_completed"
       refute log =~ "Agent run failed"
     after

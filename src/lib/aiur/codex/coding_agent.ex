@@ -164,9 +164,9 @@ defmodule Aiur.Codex.CodingAgent do
         end
 
       {:error, reason} ->
-        Logger.error("Codex session failed for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.warning("Codex turn start failed for #{issue_context(issue)}: #{inspect(reason)}")
         emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
-        {:error, reason}
+        {:error, {:turn_start_failed, reason}}
     end
   end
 
