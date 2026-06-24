@@ -240,6 +240,27 @@ defmodule Aiur.GitHub.Client do
   end
 
   @doc """
+  Fetches the open pull request whose head branch is the canonical Aiur
+  branch for `issue_number` (`<owner>:aiur/<issue_number>`).
+  """
+  @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil} | {:error, term()}
+  def fetch_open_pull_request_for_branch(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "head" => "#{owner}:aiur/#{issue_number}", "per_page" => "10"})
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls?#{query}"
+
+      case fetch_json_list(request_fun, token, url) do
+        {:ok, [first | _]} -> {:ok, first}
+        {:ok, []} -> {:ok, nil}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  @doc """
   Fetches a pull request's head branch ref (e.g. `"aiur/7"`) by number.
   Used by `Aiur.Events.GithubFirehose` to resolve a PR-conversation
   comment (which GitHub fires as an `IssueCommentEvent` keyed by the PR's

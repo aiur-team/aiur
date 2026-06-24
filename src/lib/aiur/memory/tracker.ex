@@ -61,6 +61,15 @@ defmodule Aiur.Memory.Tracker do
     :ok
   end
 
+  @spec fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]}
+  def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
+
+  @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]}
+  def fetch_classified_pr_review_comments(_pr_number), do: {:ok, []}
+
+  @spec fetch_open_pull_request_for_branch(String.t() | integer()) :: {:ok, nil}
+  def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
+
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     send_event({:memory_tracker_state_update, issue_id, state_name})
