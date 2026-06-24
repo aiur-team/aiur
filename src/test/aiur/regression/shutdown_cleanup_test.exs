@@ -30,16 +30,19 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              """
     end
 
-    test "SIGTERMs then SIGKILLs the release BEAM this run owns" do
+    test "SIGTERMs then SIGKILLs only the BEAM node this run owns" do
       cleanup = cleanup_block()
 
-      assert cleanup =~ ~r/pgrep -f "\$_session_release\/\.\*erts\.\*beam\.smp"/,
-             "session_cleanup MUST resolve the BEAM by this run's release dir"
+      refute cleanup =~ ~r/pgrep -f "\$_session_release\/\.\*erts\.\*beam\.smp"/,
+             "session_cleanup must not reap by shared release dir"
 
-      assert cleanup =~ ~r/kill -TERM/,
+      assert cleanup =~ ~r/kill_beams_matching "-name \$\{_session_node\}"/,
+             "session_cleanup MUST resolve the BEAM by this run's node name"
+
+      assert File.read!(@engine) =~ ~r/kill -TERM/,
              "session_cleanup MUST SIGTERM the BEAM so OTP supervisors run shutdown callbacks"
 
-      assert cleanup =~ ~r/kill -KILL/,
+      assert File.read!(@engine) =~ ~r/kill -KILL/,
              "session_cleanup MUST SIGKILL stragglers after the grace period — a wedged BEAM leaks port 4000 forever"
     end
 
@@ -48,8 +51,8 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              """
              session_cleanup MUST also reap by node name. Under the unified identity a
              BEAM launched from a different release dir (dev _build vs installed) holds
-             the same node name, so a release-path pgrep alone leaves it stranded and the
-             next launch fails with "name seems to be in use".
+             the same node name, so cleanup still needs a node-name reap even after
+             release-path pgrep was removed.
              """
     end
 

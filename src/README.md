@@ -134,7 +134,7 @@ on your `PATH`:
 |---|---|
 | `aiurdev` | Start the workflow in the foreground with a local-only bind |
 | `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
-| `aiurdev --bg` | Start in a detached tmux session (background) |
+| `aiurdev --bg` | Start in a detached tmux session after the control RPC is ready |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |

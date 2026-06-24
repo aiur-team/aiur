@@ -172,6 +172,23 @@ defmodule AiurEngineTest do
 
   defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
 
+  defp run_sourced_engine(script, env) do
+    System.cmd("bash", ["-c", "set -euo pipefail\nsource \"$AIUR_ENGINE\"\n#{script}"],
+      env: [{"AIUR_ENGINE", @engine} | env],
+      stderr_to_stdout: true
+    )
+  end
+
+  defp fake_tmux_script(body) do
+    dir = Path.join(System.tmp_dir!(), "aiur-fake-tmux-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "tmux")
+    File.write!(path, "#!/usr/bin/env bash\n#{body}\n")
+    File.chmod!(path, 0o755)
+    on_exit(fn -> File.rm_rf(dir) end)
+    path
+  end
+
   test "pause without targets exits 64 with guidance" do
     {out, code} = run_engine_real(["pause"], [{"AIUR_RELEASE_DIR", fake_release()}])
     assert code == 64
@@ -193,6 +210,315 @@ defmodule AiurEngineTest do
     rel = fake_release()
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
     assert out =~ "Aiur.AgentControlCLI.status()"
+  end
+
+  test "background startup waits until the control plane is ready" do
+    tmux = fake_tmux_script("exit 0")
+    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
+    counter = Path.join(System.tmp_dir!(), "aiur-control-probes-#{System.unique_integer([:positive])}")
+    File.write!(capture, "")
+    File.write!(counter, "0")
+
+    on_exit(fn ->
+      File.rm(capture)
+      File.rm(counter)
+    end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() {
+      calls="$(cat "$COUNTER")"
+      calls=$((calls + 1))
+      printf '%s' "$calls" > "$COUNTER"
+      if [ "$calls" -lt 3 ]; then printf down; else printf up; fi
+    }
+    wait_for_session_startup "$FAKE_TMUX" sock conf session "$CAPTURE" 1
+    echo "CALLS=$(cat "$COUNTER")"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"FAKE_TMUX", tmux},
+        {"CAPTURE", capture},
+        {"COUNTER", counter},
+        {"AIUR_NODE_GRACE_TICKS", "5"}
+      ])
+
+    assert out =~ "CALLS=3"
+  end
+
+  test "background startup fails when the node never registers" do
+    tmux = fake_tmux_script("exit 0")
+    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
+    File.write!(capture, "node boot log\n")
+    on_exit(fn -> File.rm(capture) end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() { printf down; }
+    set +e
+    wait_for_session_startup "$FAKE_TMUX" sock conf session "$CAPTURE" 1
+    code=$?
+    set -e
+    echo "CODE=$code"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"FAKE_TMUX", tmux},
+        {"CAPTURE", capture},
+        {"AIUR_NODE_GRACE_TICKS", "2"},
+        {"RELEASE_NODE", "aiur-test@127.0.0.1"}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "aiur control plane did not become ready at aiur-test@127.0.0.1 during startup"
+    assert out =~ "node boot log"
+  end
+
+  test "startup wait reports tmux exits with captured output" do
+    tmux = fake_tmux_script(~s|case " $* " in *" has-session "*) exit 1 ;; *) exit 0 ;; esac|)
+    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
+    File.write!(capture, "boot failed\n")
+    on_exit(fn -> File.rm(capture) end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() { printf up; }
+    set +e
+    wait_for_session_startup "$FAKE_TMUX" sock conf session "$CAPTURE" 1
+    code=$?
+    set -e
+    echo "CODE=$code"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"FAKE_TMUX", tmux},
+        {"CAPTURE", capture},
+        {"AIUR_NODE_GRACE_TICKS", "2"}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "aiur exited during startup"
+    assert out =~ "boot failed"
+  end
+
+  test "background startup failure cleans generated tempfiles and reaps session" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Path.join(System.tmp_dir!(), "aiur-bg-fail-#{System.unique_integer([:positive])}")
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    tmux_state = Path.join(tmp, "tmux-session")
+    File.mkdir_p!(tmp)
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*) touch "#{tmux_state}"; exit 0 ;;
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *" kill-session "*) echo "KILL_SESSION:$*" >> "#{events}"; rm -f "#{tmux_state}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+      File.rm(events)
+    end)
+
+    script = """
+    export TMPDIR="$TMP_ROOT"
+    export XDG_RUNTIME_DIR="$TMP_ROOT"
+    mktemp() {
+      case "$1" in
+        */aiur-argv.*) path="$TMP_ROOT/argv" ;;
+        */aiur-startup.*) path="$TMP_ROOT/startup" ;;
+        */aiur-pane.*) path="$TMP_ROOT/launcher" ;;
+        *) command mktemp "$@" ;;
+      esac
+      : > "$path"
+      printf '%s\\n' "$path"
+    }
+    sleep() { :; }
+    probe_control_liveness() { printf down; }
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    expected_session="$TMP_ROOT/aiur-$$-sessions"
+    expected_agents="$TMP_ROOT/aiur-$$-agents"
+    set +e
+    ( run_session background )
+    code=$?
+    set -e
+    echo "CODE=$code"
+    for path in "$TMP_ROOT/argv" "$TMP_ROOT/startup" "$TMP_ROOT/launcher" "$expected_session" "$expected_agents"; do
+      if [ -e "$path" ]; then echo "LEFT:${path##*/}"; else echo "REMOVED:${path##*/}"; fi
+    done
+    cat "$EVENTS"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_NODE_GRACE_TICKS", "2"},
+        {"EVENTS", events},
+        {"PATH", path},
+        {"TMP_ROOT", tmp}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "KILL_SESSION:"
+    assert out =~ "REAP:aiur-"
+    assert out =~ "KILL_BEAM:-name aiur-"
+    assert out =~ "REMOVED:argv"
+    assert out =~ "REMOVED:startup"
+    assert out =~ "REMOVED:launcher"
+    assert out =~ "REMOVED:aiur-"
+    refute out =~ "LEFT:"
+  end
+
+  test "seeded BEAM watchdog reaps immediately when the node disappears" do
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    File.write!(events, "")
+    on_exit(fn -> File.rm(events) end)
+
+    script = """
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    pattern="aiur-watchdog-${$}-absent"
+    first_pid="$(start_beam_death_watchdog "$pattern" sock pidfile 0.05 1)"
+    for _ in $(seq 1 20); do
+      [ -s "$EVENTS" ] && break
+      sleep 0.05
+    done
+    kill "$first_pid" 2>/dev/null || true
+    echo "SEEDED=$(cat "$EVENTS")"
+
+    : > "$EVENTS"
+    second_pid="$(start_beam_death_watchdog "$pattern" sock pidfile 0.05 0)"
+    sleep 0.15
+    if [ -s "$EVENTS" ]; then echo "DEFAULT_REAPED"; else echo "DEFAULT_WAITED"; fi
+    kill "$second_pid" 2>/dev/null || true
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"EVENTS", events}])
+
+    assert out =~ "SEEDED=REAP:sock pidfile"
+    assert out =~ "DEFAULT_WAITED"
+    refute out =~ "DEFAULT_REAPED"
+  end
+
+  test "background run arms the detached BEAM watchdog before success" do
+    rel = fake_release()
+    state = tmp_state()
+    tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*) touch "#{tmux_state}"; exit 0 ;;
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(tmux_state)
+      File.rm(events)
+    end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() {
+      echo PROBE >> "$EVENTS"
+      printf up
+    }
+    start_beam_death_watchdog() {
+      echo "WATCHDOG:$*" >> "$EVENTS"
+      printf '424242\\n'
+    }
+    disown() { echo "DISOWN:$*" >> "$EVENTS"; }
+    run_session background
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_NODE_GRACE_TICKS", "2"},
+        {"EVENTS", events},
+        {"PATH", path}
+      ])
+
+    assert out =~ "aiur started in the background"
+    events_log = File.read!(events)
+    assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
+    assert events_log =~ " 1 1\n"
+    assert events_log =~ "DISOWN:424242"
+  end
+
+  test "stop does not terminate sibling instances from the same release dir" do
+    rel = fake_release()
+    File.mkdir_p!(Path.join([rel, "erts-16.4", "bin"]))
+
+    state = tmp_state()
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+
+    sibling_marker =
+      "#{Path.join([rel, "erts-16.4", "bin", "beam.smp"])} -name aiur-sibling-#{System.unique_integer([:positive])}@127.0.0.1"
+
+    File.write!(events, "")
+    tmux = fake_tmux_script("exit 0")
+
+    on_exit(fn ->
+      System.cmd("pkill", ["-f", sibling_marker], stderr_to_stdout: true)
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(events)
+    end)
+
+    script = """
+    bash -c 'exec -a "$SIBLING_MARKER" sleep 20' >/dev/null 2>&1 &
+    sibling_pid=$!
+    for _ in $(seq 1 20); do
+      pgrep -f -- "$SIBLING_MARKER" >/dev/null && break
+      sleep 0.05
+    done
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    reap_aiur_agents() { :; }
+    cmd_stop
+    if kill -0 "$sibling_pid" 2>/dev/null; then echo "SIBLING_ALIVE"; else echo "SIBLING_DEAD"; fi
+    kill "$sibling_pid" 2>/dev/null || true
+    cat "$EVENTS"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"EVENTS", events},
+        {"PATH", path},
+        {"SIBLING_MARKER", sibling_marker},
+        {"USER", "tester"}
+      ])
+
+    assert out =~ "SIBLING_ALIVE"
+    refute out =~ "SIBLING_DEAD"
+    assert out =~ "KILL_BEAM:-name aiur-"
   end
 
   test "message RPCs the message expression with base64-encoded text" do
