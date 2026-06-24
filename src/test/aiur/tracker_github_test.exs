@@ -8,7 +8,8 @@ defmodule Aiur.GitHub.TrackerTest do
     alias Aiur.Issue
 
     def fetch_candidate_issues, do: {:ok, [%Issue{id: "1", identifier: "o/r#1", title: "Test"}]}
-    def fetch_issues_by_states(states), do: {:ok, Enum.map(states, fn _ -> %Issue{id: "1"} end)}
+    def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
+    def fetch_issues_by_states(states, _opts), do: {:ok, Enum.map(states, fn _ -> %Issue{id: "1"} end)}
     def fetch_issue_states_by_ids(ids), do: {:ok, Enum.map(ids, fn id -> %Issue{id: id} end)}
     def create_comment(_id, _body), do: :ok
     def update_issue_state(_id, _state), do: :ok

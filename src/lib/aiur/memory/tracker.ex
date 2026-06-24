@@ -34,6 +34,11 @@ defmodule Aiur.Memory.Tracker do
 
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names) do
+    fetch_issues_by_states(state_names, [])
+  end
+
+  @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_issues_by_states(state_names, _opts) do
     normalized_states =
       state_names
       |> Enum.map(&normalize_state/1)

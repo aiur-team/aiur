@@ -15,7 +15,9 @@ defmodule Aiur.ExtensionsTest do
       {:ok, [:candidate]}
     end
 
-    def fetch_issues_by_states(states) do
+    def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
+
+    def fetch_issues_by_states(states, _opts) do
       send(self(), {:fetch_issues_by_states_called, states})
       {:ok, states}
     end

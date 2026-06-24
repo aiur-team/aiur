@@ -122,8 +122,8 @@ defmodule Aiur.Linear.Client do
     end
   end
 
-  @spec fetch_issues_by_states([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issues_by_states(state_names) when is_list(state_names) do
+  @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_issues_by_states(state_names, opts \\ []) when is_list(state_names) do
     normalized_states = Enum.map(state_names, &to_string/1) |> Enum.uniq()
 
     if normalized_states == [] do
@@ -140,7 +140,7 @@ defmodule Aiur.Linear.Client do
           {:error, :missing_linear_project_slug}
 
         true ->
-          do_fetch_by_states(project_slug, normalized_states, nil)
+          do_fetch_by_states(project_slug, normalized_states, nil, opts)
       end
     end
   end
@@ -165,13 +165,15 @@ defmodule Aiur.Linear.Client do
       when is_binary(query) and is_map(variables) and is_list(opts) do
     payload = build_graphql_payload(query, variables, Keyword.get(opts, :operation_name))
     request_fun = Keyword.get(opts, :request_fun, &post_graphql_request/2)
+    log_errors? = Keyword.get(opts, :log_errors?, true)
 
     with {:ok, headers} <- graphql_headers(),
          {:ok, %{status: 200, body: body}} <- request_fun.(payload, headers) do
       {:ok, body}
     else
       {:ok, response} ->
-        Logger.error(
+        maybe_log_graphql_error(
+          log_errors?,
           "Linear GraphQL request failed status=#{response.status}" <>
             linear_error_context(payload, response)
         )
@@ -179,10 +181,13 @@ defmodule Aiur.Linear.Client do
         {:error, {:linear_api_status, response.status}}
 
       {:error, reason} ->
-        Logger.error("Linear GraphQL request failed: #{inspect(reason)}")
+        maybe_log_graphql_error(log_errors?, "Linear GraphQL request failed: #{inspect(reason)}")
         {:error, {:linear_api_request, reason}}
     end
   end
+
+  defp maybe_log_graphql_error(true, message), do: Logger.error(message)
+  defp maybe_log_graphql_error(false, _message), do: :ok
 
   @doc false
   @spec normalize_issue_for_test(map()) :: Issue.t() | nil
@@ -236,25 +241,29 @@ defmodule Aiur.Linear.Client do
     end
   end
 
-  defp do_fetch_by_states(project_slug, state_names, assignee_filter) do
-    do_fetch_by_states_page(project_slug, state_names, assignee_filter, nil, [])
+  defp do_fetch_by_states(project_slug, state_names, assignee_filter, opts \\ []) do
+    do_fetch_by_states_page(project_slug, state_names, assignee_filter, nil, [], opts)
   end
 
-  defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do
+  defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues, opts) do
     with {:ok, body} <-
-           graphql(@query, %{
-             projectSlug: project_slug,
-             stateNames: state_names,
-             first: @issue_page_size,
-             relationFirst: @issue_page_size,
-             after: after_cursor
-           }),
+           graphql(
+             @query,
+             %{
+               projectSlug: project_slug,
+               stateNames: state_names,
+               first: @issue_page_size,
+               relationFirst: @issue_page_size,
+               after: after_cursor
+             },
+             opts
+           ),
          {:ok, issues, page_info} <- decode_linear_page_response(body, assignee_filter) do
       updated_acc = prepend_page_issues(issues, acc_issues)
 
       case next_page_cursor(page_info) do
         {:ok, next_cursor} ->
-          do_fetch_by_states_page(project_slug, state_names, assignee_filter, next_cursor, updated_acc)
+          do_fetch_by_states_page(project_slug, state_names, assignee_filter, next_cursor, updated_acc, opts)
 
         :done ->
           {:ok, finalize_paginated_issues(updated_acc)}

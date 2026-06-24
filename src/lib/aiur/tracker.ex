@@ -7,6 +7,7 @@ defmodule Aiur.Tracker do
 
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
+  @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   @callback fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
@@ -27,6 +28,11 @@ defmodule Aiur.Tracker do
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states) do
     adapter().fetch_issues_by_states(states)
+  end
+
+  @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
+  def fetch_issues_by_states(states, opts) do
+    adapter().fetch_issues_by_states(states, opts)
   end
 
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
