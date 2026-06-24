@@ -56,8 +56,12 @@ defmodule Aiur.GitHub.Client do
     * `{:error, reason}` on transport or 4xx/5xx errors
 
   `poll_interval` is in seconds, defaulting to 60 when GitHub omits the
-  header. Page 1 only (cap 30 items) — see plan U8 rationale: events
-  are dense enough that page 2 would already be stale before we fetch.
+  header.
+
+  Options:
+
+    * `:page` — GitHub events page to fetch, defaulting to 1
+    * `:per_page` — events per page, defaulting to 30
   """
   @spec fetch_repo_events(keyword()) ::
           {:ok,
@@ -69,8 +73,11 @@ defmodule Aiur.GitHub.Client do
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       etag = Keyword.get(opts, :etag)
+      page = Keyword.get(opts, :page, 1)
+      per_page = Keyword.get(opts, :per_page, 30)
 
-      url = "#{@base_url}/repos/#{owner}/#{repo}/events?per_page=30"
+      query = URI.encode_query(%{"page" => page, "per_page" => per_page})
+      url = "#{@base_url}/repos/#{owner}/#{repo}/events?#{query}"
 
       case request_fun.(%{
              method: :get,
