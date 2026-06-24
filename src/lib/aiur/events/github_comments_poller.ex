@@ -226,6 +226,4 @@ defmodule Aiur.Events.GithubCommentsPoller do
       _ -> nil
     end
   end
-
-  defp parse_integer(_value), do: nil
 end
