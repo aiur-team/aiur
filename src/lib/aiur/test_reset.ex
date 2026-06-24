@@ -286,8 +286,27 @@ defmodule Aiur.TestReset do
   # is a no-op once the theme is in place and active. Respects any
   # custom theme the user has selected (won't overwrite).
   defp ensure_opencode_theme do
-    :ok = Aiur.OpencodeTheme.ensure_active()
-    ok("opencode theme `aiur` active (dim blockquotes)")
+    case Aiur.OpencodeTheme.ensure_active() do
+      {:ok, :active} ->
+        ok("opencode theme `aiur` active (dim blockquotes)")
+
+      {:ok, :custom_theme_preserved} ->
+        warn("opencode theme setup skipped (custom theme preserved)")
+
+      {:skipped, failures} ->
+        warn("opencode theme setup skipped (optional; #{theme_failure_summary(failures)})")
+    end
+  end
+
+  defp theme_failure_summary(failures) do
+    failures
+    |> Enum.map_join("; ", fn
+      {:themes_dir, path, reason} -> "themes dir #{path}: #{inspect(reason)}"
+      {:theme_copy, path, reason} -> "theme file #{path}: #{inspect(reason)}"
+      {:kv_read, path, reason} -> "state file #{path}: #{inspect(reason)}"
+      {:kv_dir, path, reason} -> "state dir #{path}: #{inspect(reason)}"
+      {:kv_write, path, reason} -> "state file #{path}: #{inspect(reason)}"
+    end)
   end
 
   defp print_plan(tickets) do

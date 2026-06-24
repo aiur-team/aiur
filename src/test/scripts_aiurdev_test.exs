@@ -26,6 +26,8 @@ defmodule ScriptsAiurdevTest do
         "    echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "    echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "    echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
+        "    echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
+        "    echo \"XDG_STATE_HOME: ${XDG_STATE_HOME:-}\"\n" <>
         "    echo \"XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}\"\n" <>
         "    echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n" <>
         "  } >> \"$AIUR_ENGINE_TRACE\"\n" <>
@@ -36,6 +38,8 @@ defmodule ScriptsAiurdevTest do
         "echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
+        "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
+        "echo \"XDG_STATE_HOME: ${XDG_STATE_HOME:-}\"\n" <>
         "echo \"XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}\"\n" <>
         "echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n"
     )
@@ -73,6 +77,8 @@ defmodule ScriptsAiurdevTest do
       echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
       echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
       echo "MISE_AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}"
+      echo "MISE_XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}"
+      echo "MISE_XDG_STATE_HOME: ${XDG_STATE_HOME:-}"
       echo "MISE_XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}"
       echo "MISE_AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}"
       if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--" ] && [ "${3:-}" = "mix" ]; then
@@ -320,6 +326,14 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "agent IR sandbox: #{sandbox_root}"
     assert out =~ "MISE_AIUR_AGENT_IR_SANDBOX: 1"
     assert out =~ "MISE_AIUR_BG_STATE_DIR: #{sandbox_root}/state"
+
+    assert out =~
+             "MISE: exec -- env XDG_CONFIG_HOME=#{sandbox_root}/config XDG_STATE_HOME=#{sandbox_root}/state mix aiur.test.reset"
+
+    assert out =~ "MISE_XDG_CONFIG_HOME: "
+    refute out =~ "MISE_XDG_CONFIG_HOME: #{sandbox_root}/config"
+    assert out =~ "MISE_XDG_STATE_HOME: "
+    refute out =~ "MISE_XDG_STATE_HOME: #{sandbox_root}/state"
     assert out =~ "MISE_XDG_RUNTIME_DIR: #{sandbox_root}/runtime"
     assert out =~ "MISE_AIUR_LOGS_ROOT: #{sandbox_root}/logs/"
     assert out =~ ~r/MISE_AIUR_OPENCODE_BRIDGE_PORT: 4[0-9]{4}|5[0-4][0-9]{3}/
@@ -329,6 +343,8 @@ defmodule ScriptsAiurdevTest do
     assert trace_out =~ "ENGINE_ARGS: --port 0"
     assert trace_out =~ "AIUR_BG_STATE_DIR: #{sandbox_root}/state"
     assert trace_out =~ "AIUR_LOGS_ROOT: #{sandbox_root}/logs/"
+    assert trace_out =~ "XDG_CONFIG_HOME: #{sandbox_root}/config"
+    assert trace_out =~ "XDG_STATE_HOME: #{sandbox_root}/state"
     refute trace_out =~ "#{home}/.aiur/logs"
   end
 

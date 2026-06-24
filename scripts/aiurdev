@@ -193,6 +193,8 @@ enable_agent_ir_sandbox() {
   export AIUR_BG_STATE_DIR="$state_dir"
   export AIUR_COOKIE_FILE="$state_dir/cookie"
   export AIUR_PROFILES_FILE="$config_dir/aiur.profiles"
+  export AIUR_AGENT_IR_XDG_CONFIG_HOME="$config_dir"
+  export AIUR_AGENT_IR_XDG_STATE_HOME="$state_dir"
   export XDG_RUNTIME_DIR="$runtime_dir"
   export AIUR_LOGS_ROOT="$logs_parent/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
@@ -203,6 +205,13 @@ enable_agent_ir_sandbox() {
 
   echo "🧪 agent IR sandbox: $sandbox_root" >&2
   echo "   workspace marker: $marker" >&2
+}
+
+apply_agent_ir_xdg_env() {
+  if [ "${AIUR_AGENT_IR_SANDBOX:-}" = "1" ]; then
+    export XDG_CONFIG_HOME="${AIUR_AGENT_IR_XDG_CONFIG_HOME:?}"
+    export XDG_STATE_HOME="${AIUR_AGENT_IR_XDG_STATE_HOME:?}"
+  fi
 }
 
 # aiur spawns its own tmux on a dedicated socket and does not nest cleanly.
@@ -307,6 +316,7 @@ if [ "$clear_mode" -eq 1 ]; then
 fi
 
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+  reset_cmd=(mix aiur.test.reset)
   require_mise
   echo "🛑 stopping any running aiur" >&2
   "$engine" stop >/dev/null 2>&1 || true
@@ -314,7 +324,10 @@ if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   reset_args=("--confirm" "--force")
   [ "$test_single" -eq 1 ] && reset_args+=("--single")
   [ "$allow_remote" -eq 1 ] && reset_args+=("--allow-remote")
-  if ! (cd "$elixir_dir" && "$mise_bin" exec -- mix aiur.test.reset "${reset_args[@]}"); then
+  if [ "${AIUR_AGENT_IR_SANDBOX:-}" = "1" ]; then
+    reset_cmd=(env "XDG_CONFIG_HOME=${AIUR_AGENT_IR_XDG_CONFIG_HOME:?}" "XDG_STATE_HOME=${AIUR_AGENT_IR_XDG_STATE_HOME:?}" "${reset_cmd[@]}")
+  fi
+  if ! (cd "$elixir_dir" && "$mise_bin" exec -- "${reset_cmd[@]}" "${reset_args[@]}"); then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
     exit 1
   fi
@@ -360,6 +373,7 @@ if [ "$test3_mode" -eq 1 ]; then
 fi
 
 export AIUR_RELEASE_DIR="$release_dir"
+apply_agent_ir_xdg_env
 if [ "${#passthrough[@]}" -gt 0 ]; then
   exec "$engine" "${passthrough[@]}"
 else
