@@ -501,7 +501,9 @@ defmodule AiurEngineTest do
     assert out =~ "aiur started in the background"
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
-    assert events_log =~ " 1 1\n"
+    # Seeded watchdog (interval 1, initial_seen 1) now also carries the crash-record
+    # args: node, run log dir, stop sentinel, and last-crash marker.
+    assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash\n/
     assert events_log =~ "DISOWN:424242"
   end
 

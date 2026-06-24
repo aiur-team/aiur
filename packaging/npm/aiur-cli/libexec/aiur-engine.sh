@@ -372,8 +372,26 @@ run_session() {
   export AIUR_AGENT_TMPFILE="${session_root}/aiur-${$}-agents"
   : >"$AIUR_AGENT_TMPFILE"
 
+  # Background runs persist under a known run log dir so (a) the BEAM-death
+  # watchdog, which outlives the BEAM, can drop a crash record next to aiur.log,
+  # and (b) the post-start boot capture is not lost to /tmp when the launcher
+  # removes its startup tempfile. Minting it here and exporting it makes the
+  # shell and the BEAM (Aiur.LogFile honors AIUR_LOGS_ROOT) agree on one dir.
+  if [ "$mode" = "background" ] && [ -z "${AIUR_LOGS_ROOT:-}" ]; then
+    AIUR_LOGS_ROOT="$(printf '%s/%s-%s' "$HOME/.aiur/logs" "$(date -u +%Y%m%dT%H%M%SZ)" "$$")"
+    export AIUR_LOGS_ROOT
+  fi
+
+  # Capture sink for BEAM startup (and, in background mode, the whole run's
+  # boot stdout/stderr). Foreground uses a throwaway tempfile; background points
+  # at a durable file in the run log dir. The dir/file is created lazily just
+  # before launch (below) so an idempotent early-return start leaves no empty dir.
   local startup_capture
-  startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.XXXXXX")"
+  if [ "$mode" = "background" ] && [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+    startup_capture="$AIUR_LOGS_ROOT/log/boot.out.log"
+  else
+    startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.XXXXXX")"
+  fi
 
   # Inner pane script: tmux's server may pre-exist and not inherit our env, so
   # re-export every var the BEAM needs. tee preserves a startup capture.
@@ -445,6 +463,12 @@ run_session() {
     fi
   fi
 
+  # Create the capture sink now (after the idempotent early-return checks above,
+  # so a no-op "already running" start never mints an empty run log dir). The
+  # launcher's `tee -a` needs the file's parent to exist when the pane runs.
+  mkdir -p "$(dirname "$startup_capture")" 2>/dev/null || true
+  : >"$startup_capture" 2>/dev/null || true
+
   if ! "$tmux_bin" -L "$socket" -f "$conf" new-session -d -s "$session" \
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
@@ -475,12 +499,20 @@ run_session() {
   fi
 
   if [ "$mode" = "background" ]; then
+    # Fresh run: drop any stale crash/stop state from a prior dead instance so
+    # `status` doesn't report a phantom orphan and the watchdog starts clean.
+    rm -f "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" 2>/dev/null || true
+
     local background_watchdog_pid
     background_watchdog_pid="$(start_beam_death_watchdog \
-      "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1)"
+      "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1 \
+      "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
+      "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)")"
     disown "$background_watchdog_pid" 2>/dev/null || true
     echo "aiur started in the background (tmux session ${session}). Attach with: aiur" >&2
-    rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
+    # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
+    # transient argv file is no longer needed.
+    rm -f "$argv_file" 2>/dev/null || true
     return 0
   fi
 
@@ -601,6 +633,62 @@ reap_aiur_agents() {
   for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
 }
 
+# Stable, per-instance state paths the background BEAM-death machinery shares
+# across `run`, `stop`, and `status`. Keyed by the (instance-keyed) release node
+# rather than the tmux socket so `status` — which resolves the node but not the
+# socket — agrees on the same files. AIUR_BG_STATE_DIR and AIUR_RELEASE_NODE are
+# resolved by aiur_resolve_identity, which every one of those paths calls first.
+aiur_state_slug() {
+  printf '%s' "${AIUR_RELEASE_NODE:-aiur}" | tr -c 'A-Za-z0-9._-' '_'
+}
+
+# Marker `status` reads to tell "daemon crashed, agents may be orphaned" apart
+# from "nothing was ever running". Written by the watchdog on an unexpected exit,
+# cleared on a clean stop and on the next successful background start.
+aiur_crash_marker_path() {
+  printf '%s/%s.last-crash' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
+}
+
+# Sentinel `stop` drops before killing the BEAM so the watchdog knows the exit
+# was intentional and does not record a false crash.
+aiur_stop_sentinel_path() {
+  printf '%s/%s.stopping' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
+}
+
+# Write a durable record that the background BEAM exited unexpectedly. Two sinks:
+# the run log dir (full record next to aiur.log, for forensics) and the stable
+# per-instance marker (for `status` to surface). Best-effort throughout — this
+# runs in the disowned watchdog after the BEAM is already gone, so it must never
+# fail loudly or block the reap that follows.
+record_beam_crash() {
+  local node="$1" run_log_dir="$2" marker="$3"
+  local ts boot_tail=""
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+  if [ -n "$run_log_dir" ] && [ -r "$run_log_dir/log/boot.out.log" ]; then
+    boot_tail="$(tail -n 20 "$run_log_dir/log/boot.out.log" 2>/dev/null || true)"
+  fi
+
+  local body
+  body="$(
+    printf 'aiur background BEAM exited unexpectedly\n'
+    printf 'timestamp: %s\n' "${ts:-unknown}"
+    printf 'node: %s\n' "${node:-unknown}"
+    printf 'run_log_dir: %s\n' "${run_log_dir:-unknown}"
+    printf 'detected_by: background BEAM-death watchdog (no clean stop sentinel)\n'
+    if [ -n "$boot_tail" ]; then
+      printf -- '--- last 20 lines of boot.out.log ---\n%s\n' "$boot_tail"
+    fi
+  )"
+
+  if [ -n "$run_log_dir" ]; then
+    mkdir -p "$run_log_dir/log" 2>/dev/null || true
+    printf '%s\n' "$body" >>"$run_log_dir/log/aiur.crash" 2>/dev/null || true
+  fi
+  if [ -n "$marker" ]; then
+    printf '%s\n' "$body" >"$marker" 2>/dev/null || true
+  fi
+}
+
 # Background watchdog that survives the BEAM. Polls for the release BEAM by
 # command pattern and, once it has SEEN the BEAM and then the BEAM disappears
 # (orderly halt OR :emfile-style crash), reaps every agent. Polling the pattern
@@ -612,9 +700,13 @@ reap_aiur_agents() {
 # (session_cleanup) runs its idempotent reap too.
 #
 #   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s  $5 initial_seen
+#   $6 node  $7 run_log_dir  $8 stop_sentinel  $9 crash_marker
+# Args 6-9 arm crash recording (background mode). Omit them (foreground) and the
+# watchdog only reaps — a foreground BEAM death is already visible at the UI.
 # Prints the watchdog's own pid so the caller can kill it on a clean teardown.
 start_beam_death_watchdog() {
   local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}" initial_seen="${5:-0}"
+  local node="${6:-}" run_log_dir="${7:-}" stop_sentinel="${8:-}" crash_marker="${9:-}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
@@ -628,6 +720,14 @@ start_beam_death_watchdog() {
       fi
       sleep "$interval"
     done
+    # The BEAM we had seen is gone. A clean `aiur stop` drops the sentinel first;
+    # its presence means an intentional exit (consume it, no crash record).
+    # Anything else is an unexpected exit worth a durable record before reaping.
+    if [ -n "$stop_sentinel" ] && [ -f "$stop_sentinel" ]; then
+      rm -f "$stop_sentinel" 2>/dev/null || true
+    elif [ -n "$crash_marker" ] || [ -n "$run_log_dir" ]; then
+      record_beam_crash "$node" "$run_log_dir" "$crash_marker"
+    fi
     reap_aiur_agents "$socket" "$pidfile"
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
@@ -816,7 +916,15 @@ run_control_rpc() {
     # down — in both of those cases surface the actual rpc output, never mask it.
     case "$(probe_node_liveness)" in
       down)
-        echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+        local crash_marker
+        crash_marker="$(aiur_crash_marker_path)"
+        if [ -f "$crash_marker" ]; then
+          echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
+          sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
+          echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
+        else
+          echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+        fi
         ;;
       up)
         [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1092,6 +1200,16 @@ cmd_stop() {
   tmux_bin="$(command -v tmux || true)"
   local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
   local socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
+
+  # Tell the background BEAM-death watchdog this exit is intentional before we
+  # kill the BEAM, so it consumes the sentinel instead of recording a crash. The
+  # watchdog removes the sentinel when it fires; a fresh start also clears it.
+  # Clear any prior crash marker too — `status` should report a clean stop, not
+  # a stale orphan from an earlier dead run.
+  mkdir -p "$AIUR_BG_STATE_DIR" 2>/dev/null || true
+  : >"$(aiur_stop_sentinel_path)" 2>/dev/null || true
+  rm -f "$(aiur_crash_marker_path)" 2>/dev/null || true
+
   if [ -n "$tmux_bin" ]; then
     "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
   fi
