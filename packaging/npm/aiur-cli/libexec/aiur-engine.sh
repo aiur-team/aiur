@@ -950,7 +950,11 @@ run_control_rpc() {
     esac
   done <<<"$output"
 
-  [ "$saw_marker" -eq 1 ] || return 1
+  if [ "$saw_marker" -ne 1 ]; then
+    echo "aiur: control rpc to ${RELEASE_NODE} returned no exit marker; command output may be incomplete" >&2
+    return 1
+  fi
+
   return "$exit_code"
 }
 
