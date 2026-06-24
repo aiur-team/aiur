@@ -428,6 +428,80 @@ defmodule Aiur.Events.GithubFirehoseTest do
       refute_receive {:event, %{topic: "ticket.66.issue.commented"}}, 200
     end
 
+    test "does not backfill when the previous event watermark is still on page 1" do
+      :ok = Exchange.subscribe("ticket.66.issue.commented")
+
+      page_1 =
+        [
+          issue_comment_event("new-1", 66, 778, "fresh ping"),
+          ignored_event("last-seen")
+        ] ++ ignored_events("page-1-filler", 28)
+
+      parent = self()
+
+      stub = fn req ->
+        page = request_page(req)
+        send(parent, {:events_page_requested, page})
+
+        assert page == "1"
+        {:ok, %{status: 200, headers: [{"ETag", ~s("e7")}], body: page_1}}
+      end
+
+      assert {:ok, %{count: 1, last_event_id: "new-1"}} =
+               GithubFirehose.poll(request_fun: stub, last_event_id: "last-seen")
+
+      assert_receive {:event, %{topic: "ticket.66.issue.commented"}}, 500
+      assert_receive {:events_page_requested, "1"}
+      refute_receive {:events_page_requested, "2"}, 100
+    end
+
+    test "backfills saturated pages until a PR issue comment before the watermark is delivered" do
+      :ok = Exchange.subscribe("ticket.37.issue.commented")
+
+      page_1 = ignored_events("burst", 30)
+
+      page_2 = [
+        pr_issue_comment_event("page-2-comment", 52, 4_784_938_941, "please revisit"),
+        ignored_event("last-seen"),
+        issue_comment_event("older-than-watermark", 37, 999, "too old")
+      ]
+
+      parent = self()
+
+      stub = fn req ->
+        page = request_page(req)
+        send(parent, {:events_page_requested, page})
+
+        body =
+          case page do
+            "1" -> page_1
+            "2" -> page_2
+          end
+
+        {:ok, %{status: 200, headers: [{"ETag", ~s("e8")}], body: body}}
+      end
+
+      pr_lookup = fn 52 -> {:ok, "aiur/37"} end
+
+      assert {:ok, %{count: 1, last_event_id: "burst-1"}} =
+               GithubFirehose.poll(
+                 request_fun: stub,
+                 pr_lookup_fun: pr_lookup,
+                 last_event_id: "last-seen"
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.37.issue.commented",
+                        comment: %{"id" => 4_784_938_941, "body" => "please revisit"}
+                      }},
+                     500
+
+      refute_receive {:event, %{comment: %{"id" => 999}}}, 100
+      assert_receive {:events_page_requested, "1"}
+      assert_receive {:events_page_requested, "2"}
+    end
+
     test "drops events for untracked tickets when tracked_fn rejects" do
       :ok = Exchange.subscribe("ticket.99.#")
       Publisher.set_tracked_fn(fn n -> n != "99" end)
@@ -497,5 +571,52 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert {:error, {:github_api_request, :timeout}} =
                GithubFirehose.poll(etag: ~s("e7"), request_fun: stub)
     end
+  end
+
+  defp request_page(%{url: url}) do
+    url
+    |> URI.parse()
+    |> Map.fetch!(:query)
+    |> URI.decode_query()
+    |> Map.fetch!("page")
+  end
+
+  defp ignored_events(prefix, count) do
+    Enum.map(1..count, &ignored_event("#{prefix}-#{&1}"))
+  end
+
+  defp ignored_event(id) do
+    %{
+      "id" => id,
+      "type" => "IssuesEvent",
+      "actor" => %{"login" => "noise"},
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{}
+    }
+  end
+
+  defp issue_comment_event(id, issue_number, comment_id, body) do
+    %{
+      "id" => id,
+      "type" => "IssueCommentEvent",
+      "actor" => %{"login" => "reviewer"},
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "issue" => %{"number" => issue_number},
+        "comment" => %{"id" => comment_id, "body" => body}
+      }
+    }
+  end
+
+  defp pr_issue_comment_event(id, pr_number, comment_id, body) do
+    put_in(
+      issue_comment_event(id, pr_number, comment_id, body),
+      [
+        "payload",
+        "issue",
+        "pull_request"
+      ],
+      %{"url" => "x"}
+    )
   end
 end

@@ -44,6 +44,9 @@ defmodule Aiur.Events.GithubFirehose do
   alias Aiur.Events.{Publisher, Sanitizer}
   alias Aiur.GitHub.Client
 
+  @repo_events_per_page 30
+  @max_event_pages 5
+
   @doc """
   Polls one tick. Returns `{:ok, %{etag: ...}}` regardless of whether
   events fired — the etag is captured for the next call. On API failure
@@ -52,33 +55,94 @@ defmodule Aiur.Events.GithubFirehose do
 
   Options:
     * `:etag` — previously-captured ETag for `If-None-Match`
+    * `:last_event_id` — newest GitHub event id observed on the previous poll
     * `:request_fun` — passed through to `Client.fetch_repo_events/1`
       (test injection)
     * `:repo` — `"owner/repo"` string used for `dedup_key`
   """
   @spec poll(keyword()) :: {:ok, map()} | {:error, term()}
   def poll(opts \\ []) do
+    last_event_id = Keyword.get(opts, :last_event_id)
+
     client_opts =
-      [etag: Keyword.get(opts, :etag)]
+      [etag: Keyword.get(opts, :etag), page: 1, per_page: @repo_events_per_page]
       |> maybe_put(:request_fun, Keyword.get(opts, :request_fun))
 
     case Client.fetch_repo_events(client_opts) do
       {:ok, {:not_modified, etag, _poll_interval}} ->
-        {:ok, %{etag: etag, count: 0}}
+        {:ok, %{etag: etag, last_event_id: last_event_id, count: 0}}
 
       {:ok, {:events, events, etag, _poll_interval}} ->
+        {:ok, pages} = fetch_backfill_pages(events, last_event_id, opts)
+        events_to_publish = events_since_watermark(pages, last_event_id)
+
         count =
-          events
+          events_to_publish
           |> Enum.map(&publish_one(&1, opts))
           |> Enum.count(&match?({:ok, _, _}, &1))
 
-        {:ok, %{etag: etag, count: count}}
+        {:ok, %{etag: etag, last_event_id: newest_event_id(events) || last_event_id, count: count}}
 
       {:error, reason} ->
         Logger.warning("GithubFirehose poll failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
+
+  defp fetch_backfill_pages(first_page, nil, _opts), do: {:ok, [first_page]}
+
+  defp fetch_backfill_pages(first_page, last_event_id, opts) do
+    if saturated_page?(first_page) and not event_id_present?(first_page, last_event_id) do
+      fetch_backfill_pages([first_page], 2, last_event_id, opts)
+    else
+      {:ok, [first_page]}
+    end
+  end
+
+  defp fetch_backfill_pages(pages, page, last_event_id, opts) when page <= @max_event_pages do
+    client_opts =
+      [page: page, per_page: @repo_events_per_page]
+      |> maybe_put(:request_fun, Keyword.get(opts, :request_fun))
+
+    case Client.fetch_repo_events(client_opts) do
+      {:ok, {:events, events, _etag, _poll_interval}} ->
+        pages = [events | pages]
+
+        if saturated_page?(events) and not event_id_present?(events, last_event_id) do
+          fetch_backfill_pages(pages, page + 1, last_event_id, opts)
+        else
+          {:ok, Enum.reverse(pages)}
+        end
+
+      {:ok, {:not_modified, _etag, _poll_interval}} ->
+        {:ok, Enum.reverse(pages)}
+
+      {:error, reason} ->
+        Logger.warning("GithubFirehose backfill page=#{page} failed: #{inspect(reason)}")
+        {:ok, Enum.reverse(pages)}
+    end
+  end
+
+  defp fetch_backfill_pages(pages, _page, _last_event_id, _opts), do: {:ok, Enum.reverse(pages)}
+
+  defp saturated_page?(events), do: length(events) >= @repo_events_per_page
+
+  defp event_id_present?(events, event_id) when is_binary(event_id) do
+    Enum.any?(events, &(Map.get(&1, "id") == event_id))
+  end
+
+  defp event_id_present?(_events, _event_id), do: false
+
+  defp events_since_watermark(pages, nil), do: List.first(pages) || []
+
+  defp events_since_watermark(pages, last_event_id) do
+    pages
+    |> Enum.flat_map(& &1)
+    |> Enum.take_while(&(Map.get(&1, "id") != last_event_id))
+  end
+
+  defp newest_event_id([%{"id" => id} | _]) when is_binary(id), do: id
+  defp newest_event_id(_events), do: nil
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)

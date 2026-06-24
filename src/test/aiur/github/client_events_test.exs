@@ -39,6 +39,20 @@ defmodule Aiur.GitHub.ClientEventsTest do
                Client.fetch_repo_events(request_fun: stub)
     end
 
+    test "passes page and per_page query parameters" do
+      stub = fn req ->
+        uri = URI.parse(req.url)
+
+        assert uri.path == "/repos/owner/repo/events"
+        assert URI.decode_query(uri.query) == %{"page" => "2", "per_page" => "10"}
+
+        {:ok, %{status: 200, headers: [], body: []}}
+      end
+
+      assert {:ok, {:events, [], nil, 60}} =
+               Client.fetch_repo_events(request_fun: stub, page: 2, per_page: 10)
+    end
+
     test "304 returns not_modified with cached etag + poll interval" do
       stub = fn %{etag: etag} ->
         assert etag == ~s("abc")
