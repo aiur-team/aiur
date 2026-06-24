@@ -422,8 +422,6 @@ defmodule Aiur.Claude.RemoteControl do
   # path's SIGKILL deadline, leaving survivors. Concurrency bounds wall-clock to
   # roughly one grace period regardless of count. `on_timeout: :kill_task` keeps
   # one wedged kill from stalling shutdown — best-effort, like the rest of cleanup.
-  defp reap_all([], _kill_fun), do: :ok
-
   defp reap_all(pids, kill_fun) do
     pids
     |> Task.async_stream(kill_fun,
