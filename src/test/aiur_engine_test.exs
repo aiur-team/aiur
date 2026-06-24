@@ -511,13 +511,19 @@ defmodule AiurEngineTest do
     assert events_log =~ "DISOWN:424242"
   end
 
-  test "stop does not terminate sibling instances from the same release dir" do
+  test "stop targets only its own node name, sparing siblings from the same release dir" do
     rel = fake_release()
     File.mkdir_p!(Path.join([rel, "erts-16.4", "bin"]))
 
     state = tmp_state()
     events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
 
+    # This run's identity, pinned so we can assert stop targets EXACTLY it.
+    node = "aiur-self-#{System.unique_integer([:positive])}@127.0.0.1"
+
+    # A sibling sharing the SAME release dir but a DIFFERENT node name. A
+    # release-dir-wide `beam.smp` reap (the bug) would kill it; node-name
+    # cleanup must spare it.
     sibling_marker =
       "#{Path.join([rel, "erts-16.4", "bin", "beam.smp"])} -name aiur-sibling-#{System.unique_integer([:positive])}@127.0.0.1"
 
@@ -553,6 +559,7 @@ defmodule AiurEngineTest do
     {out, 0} =
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_RELEASE_NODE", node},
         {"AIUR_BG_STATE_DIR", state},
         {"EVENTS", events},
         {"PATH", path},
@@ -562,7 +569,20 @@ defmodule AiurEngineTest do
 
     assert out =~ "SIBLING_ALIVE"
     refute out =~ "SIBLING_DEAD"
-    assert out =~ "KILL_BEAM:-name aiur-"
+    # The reap targets EXACTLY this run's node, not the shared release dir.
+    assert out =~ "KILL_BEAM:-name #{node}"
+  end
+
+  test "cmd_stop reaps by node name, never by a release-dir-wide BEAM pattern" do
+    # Guards against a regression to the old release-dir reap, where
+    # `pgrep -f "$release_dir/.*erts.*beam.smp"` swept every sibling BEAM
+    # launched from a shared dev release. The reap must key on the node name.
+    {body, 0} =
+      System.cmd("bash", ["-c", "source \"$AIUR_ENGINE\" 2>/dev/null; declare -f cmd_stop"], env: [{"AIUR_ENGINE", @engine}])
+
+    assert body =~ ~s|kill_beams_matching "-name ${AIUR_RELEASE_NODE}"|
+    refute body =~ "beam.smp"
+    refute body =~ "release_dir"
   end
 
   test "message RPCs the message expression with base64-encoded text" do
