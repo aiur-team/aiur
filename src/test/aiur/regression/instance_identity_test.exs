@@ -9,6 +9,14 @@ defmodule Aiur.Regression.InstanceIdentityTest do
   project root, so two instances launched from different roots get distinct
   identities and coexist. The engine resolution is shared by launch AND the control
   commands, so `status`/`pause`/`stop` derive the same identity as the launch.
+
+  #443 extends this to global-config users (no repo-local `.aiur/config`): the
+  walk-up stops at `$HOME` (the global `~/.aiur/config` is never a repo root) and
+  falls back to `realpath($PWD)`, so each such project gets a distinct identity
+  instead of colliding on an empty key or `$HOME`. The cwd-derived key has no repo
+  root to converge on, so for a global-config run control commands must be invoked
+  from the same directory the run was launched from (repo-local runs keep the
+  walk-up and resolve from any subdir).
   """
 
   use ExUnit.Case, async: true
@@ -68,11 +76,14 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       # used to fall back to an empty key → the shared legacy node
       # `aiur-$USER@127.0.0.1`, so two such projects collided and reaped each other.
       # The project the BEAM serves is $PWD, so each now gets a distinct,
-      # realpath-derived key. (tmp dirs live outside $HOME, so this is the
-      # not-under-$HOME variant.)
+      # realpath-derived key. HOME is pinned to a sibling temp dir that holds no
+      # config and is not an ancestor of the projects, so this genuinely exercises
+      # the not-under-$HOME variant regardless of the runner's real $HOME/TMPDIR.
       base = Path.join(System.tmp_dir!(), "aiur-noconfig-#{System.unique_integer([:positive])}")
+      home = Path.join(base, "home")
       proj_a = Path.join(base, "alpha")
       proj_b = Path.join(base, "beta")
+      File.mkdir_p!(home)
       File.mkdir_p!(proj_a)
       File.mkdir_p!(proj_b)
       on_exit(fn -> File.rm_rf!(base) end)
@@ -81,6 +92,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
         {out, 0} =
           System.cmd("bash", [@engine, "__identity"],
             env: [
+              {"HOME", home},
               {"AIUR_REPO_ROOT", ""},
               {"AIUR_INSTANCE_KEY", nil},
               {"AIUR_RELEASE_NODE", nil},
@@ -110,6 +122,9 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       refute a["AIUR_RELEASE_NODE"] == "aiur-tester@127.0.0.1"
       # Two distinct no-config projects never share an identity (the #443 collision).
       refute a["AIUR_INSTANCE_KEY"] == b["AIUR_INSTANCE_KEY"]
+      # Stable across invocations from the same cwd — the control-command criterion
+      # for global-config runs (status/pause/stop must resolve the launch identity).
+      assert id.(proj_a)["AIUR_INSTANCE_KEY"] == a["AIUR_INSTANCE_KEY"]
     end
 
     test "projects under $HOME with only a global ~/.aiur/config get distinct keys, not $HOME's (#443)" do

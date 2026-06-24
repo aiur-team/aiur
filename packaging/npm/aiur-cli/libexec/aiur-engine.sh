@@ -65,7 +65,9 @@ aiur_project_root() {
   # either is reached through a symlink.
   local pwd_real home_real
   pwd_real="$(pwd -P 2>/dev/null || printf '%s' "$PWD")"
-  home_real="$(cd "$HOME" 2>/dev/null && pwd -P || printf '%s' "${HOME:-}")"
+  # ${HOME:-} (not bare $HOME) so an unset HOME under `set -u` can't abort the
+  # script here; an empty home_real simply disables the boundary (walk to /).
+  home_real="$(cd "${HOME:-}" 2>/dev/null && pwd -P || printf '%s' "${HOME:-}")"
 
   local d="$pwd_real"
   while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$home_real" ]; do
