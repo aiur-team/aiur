@@ -1453,12 +1453,25 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
   end
 
-  test "agent.max_load_average defaults to disabled, casts integers, rejects non-positive" do
-    # The CPU load gate (#465) is opt-in: an absent key must yield nil (no
-    # throttling, byte-for-byte back-compat), an explicit value must round-trip
-    # as a float, a YAML-written integer must cast (not error), and a
-    # non-positive threshold must be rejected (it would stall all dispatch).
+  test "agent.max_load_average defaults to protected, casts integers, preserves explicit disable" do
+    # The CPU load gate (#465) is default-on: an absent key must yield the
+    # conservative per-scheduler threshold, an explicit YAML null must still
+    # disable the gate, an explicit value must round-trip as a float, a
+    # YAML-written integer must cast (not error), and a non-positive threshold
+    # must be rejected (it would stall all dispatch).
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.max_load_average == 1.5
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: nil}})
+
+    assert settings.agent.max_load_average == nil
+
+    # Real YAML loads arrive string-keyed; the explicit null must survive
+    # drop_nil_values on that production shape too, not just the atom-keyed map.
+    assert {:ok, settings} =
+             Schema.parse(%{"tracker" => %{"kind" => "memory"}, "agent" => %{"max_load_average" => nil}})
+
     assert settings.agent.max_load_average == nil
 
     assert {:ok, settings} =

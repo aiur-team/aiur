@@ -947,7 +947,7 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   # Reads the host 1-min load only when the gate is enabled (threshold > 0), so
-  # the disabled default never touches /proc. Exposed for unit-testing the
+  # explicit-disable configs never touch /proc. Exposed for unit-testing the
   # short-circuit; the pure hold/dispatch decision is load_gate/3.
   @spec read_load(number() | nil) :: float() | :unavailable
   def read_load(threshold) when is_number(threshold) and threshold > 0, do: SystemLoad.avg1()
