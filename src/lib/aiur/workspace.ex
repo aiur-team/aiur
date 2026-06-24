@@ -114,14 +114,47 @@ defmodule Aiur.Workspace do
     File.mkdir_p!(Path.dirname(workspace))
 
     with {_out, 0} <- copy_tree(base, workspace),
-         {_out2, 0} <-
-           System.cmd("git", ["-C", workspace, "checkout", "-B", branch_for(workspace)], stderr_to_stdout: true) do
+         :ok <- checkout_fresh_branch(workspace) do
       :ok
     else
       other ->
         Logger.warning("prewarm materialize failed (#{inspect(other)}); falling back to cold clone")
         File.rm_rf!(workspace)
         {:error, other}
+    end
+  end
+
+  # Branch the agent's `aiur/<id>` off the LIVE `origin/<base>` tip rather than the
+  # warm base's copied HEAD. The warm base only refetches on a timer/dispatch gate
+  # (#567), so without this a materialized workspace can silently start from stale
+  # main. Fetch the base's own tracking branch and branch off its origin tip; if
+  # there's no usable remote (tests, offline, detached HEAD), fall back to the
+  # copied HEAD — today's behavior — so materialize still succeeds.
+  defp checkout_fresh_branch(workspace) do
+    args =
+      ["-C", workspace, "checkout", "-B", branch_for(workspace)] ++ fresh_base_start_point(workspace)
+
+    case System.cmd("git", args, stderr_to_stdout: true) do
+      {_out, 0} -> :ok
+      other -> {:error, other}
+    end
+  end
+
+  # `["origin/<base>"]` when the base's tracking branch could be refetched, else `[]`.
+  defp fresh_base_start_point(workspace) do
+    with base when is_binary(base) <- current_branch(workspace),
+         {_out, 0} <-
+           System.cmd("git", ["-C", workspace, "fetch", "origin", base, "--quiet"], stderr_to_stdout: true) do
+      ["origin/" <> base]
+    else
+      _ -> []
+    end
+  end
+
+  defp current_branch(workspace) do
+    case System.cmd("git", ["-C", workspace, "symbolic-ref", "--quiet", "--short", "HEAD"], stderr_to_stdout: true) do
+      {out, 0} -> String.trim(out)
+      _ -> nil
     end
   end
 

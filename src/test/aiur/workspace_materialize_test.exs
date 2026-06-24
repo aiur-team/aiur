@@ -61,6 +61,45 @@ defmodule Aiur.WorkspaceMaterializeTest do
              Workspace.materialize_from_base(Path.join(tmp, "nope"), Path.join(tmp, "ws"))
   end
 
+  test "branches off the live origin tip, not the stale warm-base HEAD (#567)", %{tmp: tmp} do
+    # A bare origin advances to v2 AFTER the warm base was cloned at v1, mirroring
+    # the staleness window where a merge lands but the warm base hasn't refetched.
+    origin = Path.join(tmp, "origin.git")
+    git!(["init", "--quiet", "--bare", "-b", "main", origin])
+
+    seed = Path.join(tmp, "seed")
+    git!(["clone", "--quiet", origin, seed])
+    git!(["-C", seed, "config", "user.email", "t@example.com"])
+    git!(["-C", seed, "config", "user.name", "T"])
+    File.write!(Path.join(seed, "README.md"), "v1\n")
+    git!(["-C", seed, "add", "."])
+    git!(["-C", seed, "commit", "--quiet", "-m", "v1"])
+    git!(["-C", seed, "push", "--quiet", "origin", "main"])
+
+    # Warm base = clone of origin pinned at v1, with gitignored warm _build.
+    base = Path.join(tmp, "freshbase")
+    git!(["clone", "--quiet", origin, base])
+    File.mkdir_p!(Path.join(base, "_build"))
+    File.write!(Path.join(base, "_build/sentinel"), "warm\n")
+
+    # origin advances to v2 — the merge the stale base never fetched.
+    File.write!(Path.join(seed, "README.md"), "v2\n")
+    git!(["-C", seed, "commit", "--quiet", "-am", "v2"])
+    git!(["-C", seed, "push", "--quiet", "origin", "main"])
+    v2 = String.trim(git!(["-C", seed, "rev-parse", "HEAD"]))
+
+    workspace = Path.join(tmp, "777")
+    assert :ok = Workspace.materialize_from_base(base, workspace)
+
+    assert branch(workspace) == "aiur/777"
+
+    assert String.trim(git!(["-C", workspace, "rev-parse", "HEAD"])) == v2,
+           "workspace branched off the stale base HEAD instead of live origin/main (#567)"
+
+    assert File.read!(Path.join(workspace, "README.md")) == "v2\n"
+    assert File.exists?(Path.join(workspace, "_build/sentinel")), "warm _build was not carried"
+  end
+
   defp git!(args) do
     {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
     out
