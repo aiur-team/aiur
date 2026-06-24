@@ -153,6 +153,101 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
   end
 
+  describe "stale manual-smoke cleanup" do
+    test "startup warns, stop reaps, and cleanup-stale is a command" do
+      source = File.read!(@engine)
+      stop = cmd_stop_block()
+
+      assert source =~ "preflight_stale_manual_smoke",
+             "run_session must report stale same-user manual-smoke leftovers before launching"
+
+      assert stop =~ "reap_stale_manual_smoke",
+             "aiur stop must reap stale manual-smoke BEAMs/wrappers after stopping the current instance"
+
+      assert source =~ ~r/cleanup-stale\)/,
+             "the engine must expose aiur cleanup-stale for operator-initiated stale cleanup"
+    end
+
+    test "inventory reports node names and workspace roots without cookie material" do
+      source = File.read!(@engine)
+
+      assert source =~ "stale_manual_smoke_beam_inventory",
+             "cleanup needs a BEAM inventory rather than one-off pgrep calls"
+
+      assert source =~ "node=${node} workspace=${workspace_root}",
+             "operator output must include node names and workspace roots"
+
+      refute source =~ ~r/report_stale_manual_smoke.+COOKIE/s,
+             "stale cleanup reports must not print cookies or token material"
+    end
+
+    test "stale BEAM cleanup is scoped to same-user issue workspaces and TERM before KILL" do
+      source = File.read!(@engine)
+
+      assert source =~ "*/aiur-workspaces/*",
+             "broad stale cleanup must be scoped to issue/manual-smoke workspaces"
+
+      assert source =~ ~r/kill -TERM "\$pid".+kill -KILL "\$pid"/s,
+             "stale BEAM cleanup must try TERM before force kill"
+    end
+
+    test "aborted manual-smoke BEAM is reaped by node and workspace identity" do
+      log = Path.join(System.tmp_dir!(), "aiur-stale-cleanup-#{System.unique_integer([:positive])}.log")
+      on_exit(fn -> File.rm(log) end)
+
+      script = """
+      source #{shell_escape(@engine)}
+      USER=tester
+      export USER
+
+      command() {
+        if [ "${1:-}" = "-v" ] && [ "${2:-}" = "tmux" ]; then
+          printf 'tmux\\n'
+          return 0
+        fi
+        builtin command "$@"
+      }
+
+      tmux() {
+        return 1
+      }
+
+      pgrep() {
+        if [ "${1:-}" = "-f" ]; then
+          case "${*: -1}" in
+            *beam*) printf '111\\n' ;;
+          esac
+          return 0
+        fi
+        return 1
+      }
+
+      ps() {
+        case "$*" in
+          *"-p 111 -o user="*) printf 'tester\\n' ;;
+          *"-p 111 -o command="*) printf '/Users/kevin/code/aiur-workspaces/its-everdred/aiur/552/src/_build/dev/rel/aiur/releases/0.0.3/elixir --name aiur-tester-abc123def0@127.0.0.1 --boot-var RELEASE_LIB /Users/kevin/code/aiur-workspaces/its-everdred/aiur/552/src/_build/dev/rel/aiur/lib\\n' ;;
+          *) return 1 ;;
+        esac
+      }
+
+      sleep() { return 0; }
+
+      kill() {
+        printf 'KILL:%s\\n' "$*" >> #{shell_escape(log)}
+        return 0
+      }
+
+      reap_stale_manual_smoke >/dev/null 2>&1
+      """
+
+      {_, 0} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+
+      kill_log = File.read!(log)
+      assert kill_log =~ "KILL:-TERM 111"
+      assert kill_log =~ "KILL:-KILL 111"
+    end
+  end
+
   # Pull the session_cleanup body out of the engine for source asserts.
   defp cleanup_block do
     [_, block] =
@@ -166,5 +261,9 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
       Regex.run(~r/cmd_stop\(\) \{(.+?)\n\}\n\n# --- dispatch/us, File.read!(@engine), capture: :all)
 
     block
+  end
+
+  defp shell_escape(value) when is_binary(value) do
+    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 end

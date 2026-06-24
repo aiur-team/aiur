@@ -227,6 +227,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
        aiur message <id> <text>  send operator text to a running agent
+       aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
 }
@@ -354,6 +355,8 @@ run_session() {
   local conf
   conf="$(resolve_tmux_conf)"
   [ -f "$conf" ] || die "tmux conf not found at $conf"
+
+  preflight_stale_manual_smoke
 
   mkdir -p "$AIUR_BG_STATE_DIR"
   printf '%s\n' "$session" >"$AIUR_BG_STATE_DIR/state"
@@ -579,6 +582,213 @@ kill_beams_matching() {
   done
   pids="$(pgrep -f -- "$pattern" 2>/dev/null || true)"
   for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
+}
+
+pid_owner() {
+  ps -p "$1" -o user= 2>/dev/null | awk '{print $1}'
+}
+
+pid_command() {
+  ps -p "$1" -o command= 2>/dev/null || true
+}
+
+pid_ppid() {
+  ps -p "$1" -o ppid= 2>/dev/null | awk '{print $1}'
+}
+
+kill_pid_with_escalation() {
+  local pid="$1" waited=0
+  [ -n "$pid" ] || return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  while [ "$waited" -lt 20 ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+}
+
+aiur_node_from_command() {
+  local cmd="$1" node
+  node="$(printf '%s\n' "$cmd" | sed -n "s/.*--name[[:space:]]\\(aiur-${USER}[-A-Za-z0-9_]*@127\\.0\\.0\\.1\\).*/\\1/p" | head -n 1)"
+  [ -n "$node" ] && printf '%s\n' "$node"
+}
+
+aiur_release_root_from_command() {
+  local cmd="$1"
+  if [[ "$cmd" =~ --boot-var[[:space:]]+RELEASE_LIB[[:space:]]+([^[:space:]]+)/lib ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "$cmd" =~ ([^[:space:]]*/src/_build/dev/rel/aiur)/releases/ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "$cmd" =~ ([^[:space:]]*/release)/releases/ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+workspace_root_from_aiur_release_root() {
+  local release_root="${1%/}"
+  case "$release_root" in
+    */src/_build/dev/rel/aiur)
+      printf '%s\n' "${release_root%/src/_build/dev/rel/aiur}"
+      ;;
+    *)
+      printf '%s\n' "$release_root"
+      ;;
+  esac
+}
+
+aiur_node_tmux_session_alive() {
+  local node="$1" short tmux_bin
+  short="${node%@*}"
+  tmux_bin="$(command -v tmux || true)"
+  [ -n "$tmux_bin" ] || return 1
+  "$tmux_bin" -L "$short" has-session -t "${short}-default" 2>/dev/null
+}
+
+stale_manual_smoke_beam_inventory() {
+  local pid cmd node release_root workspace_root owner
+  aiur_resolve_identity
+
+  for pid in $(pgrep -f -- "beam\\.smp.*--name aiur-${USER}.*@127\\.0\\.0\\.1" 2>/dev/null || true); do
+    [ -n "$pid" ] || continue
+    owner="$(pid_owner "$pid")"
+    [ "$owner" = "$USER" ] || continue
+
+    cmd="$(pid_command "$pid")"
+    node="$(aiur_node_from_command "$cmd")"
+    [ -n "$node" ] || continue
+
+    release_root="$(aiur_release_root_from_command "$cmd" || true)"
+    [ -n "$release_root" ] || continue
+    workspace_root="$(workspace_root_from_aiur_release_root "$release_root")"
+
+    # Scope this broad cleanup to stale issue/manual-smoke workspaces. The
+    # current instance cleanup path handles the active daemon's own node.
+    case "$workspace_root" in
+      */aiur-workspaces/*) ;;
+      *) continue ;;
+    esac
+
+    # A matching live aiur tmux session means this node may still be in use.
+    aiur_node_tmux_session_alive "$node" && continue
+
+    printf '%s\t%s\t%s\t%s\n' "$pid" "$node" "$workspace_root" "$release_root"
+  done
+}
+
+manual_smoke_wrapper_tmux_sockets() {
+  local tmux_bin sockdir path name panes
+  tmux_bin="$(command -v tmux || true)"
+  [ -n "$tmux_bin" ] || return 0
+  sockdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+  [ -d "$sockdir" ] || return 0
+
+  for path in "$sockdir"/*; do
+    [ -S "$path" ] || continue
+    name="${path##*/}"
+    case "$name" in
+      codex-driver-* | codex-aiur* | codex-[0-9]* | claude-driver*) ;;
+      *) continue ;;
+    esac
+    panes="$("$tmux_bin" -L "$name" list-panes -a -F '#{pane_pid} #{pane_current_command} #{pane_current_path} #{pane_start_command}' 2>/dev/null || true)"
+    [ -n "$panes" ] || continue
+    case "$panes" in
+      *aiurdev\ --test* | */aiur-workspaces/* | *"sleep 3600"*) printf '%s\n' "$name" ;;
+    esac
+  done
+}
+
+orphaned_opencode_attach_inventory() {
+  local pid owner ppid cmd
+  for pid in $(pgrep -f -- "opencode attach http://127\\.0\\.0\\.1:" 2>/dev/null || true); do
+    owner="$(pid_owner "$pid")"
+    [ "$owner" = "$USER" ] || continue
+    ppid="$(pid_ppid "$pid")"
+    [ "$ppid" = "1" ] || continue
+    cmd="$(pid_command "$pid")"
+    case "$cmd" in
+      *"opencode attach http://127.0.0.1:"*) printf '%s\t%s\n' "$pid" "$cmd" ;;
+    esac
+  done
+}
+
+report_stale_manual_smoke() {
+  local found=0 pid node workspace_root release_root socket cmd
+
+  while IFS=$'\t' read -r pid node workspace_root release_root; do
+    [ -n "$pid" ] || continue
+    if [ "$found" -eq 0 ]; then
+      echo "aiur: stale manual-smoke leftovers detected:" >&2
+      found=1
+    fi
+    echo "  BEAM pid=${pid} node=${node} workspace=${workspace_root} release=${release_root}" >&2
+  done < <(stale_manual_smoke_beam_inventory)
+
+  while IFS= read -r socket; do
+    [ -n "$socket" ] || continue
+    if [ "$found" -eq 0 ]; then
+      echo "aiur: stale manual-smoke leftovers detected:" >&2
+      found=1
+    fi
+    echo "  wrapper tmux socket=${socket}" >&2
+  done < <(manual_smoke_wrapper_tmux_sockets)
+
+  while IFS=$'\t' read -r pid cmd; do
+    [ -n "$pid" ] || continue
+    if [ "$found" -eq 0 ]; then
+      echo "aiur: stale manual-smoke leftovers detected:" >&2
+      found=1
+    fi
+    echo "  orphan opencode attach pid=${pid}" >&2
+  done < <(orphaned_opencode_attach_inventory)
+
+  if [ "$found" -eq 1 ]; then
+    echo "aiur: run 'aiur cleanup-stale' to TERM/KILL only these same-user Aiur leftovers." >&2
+  fi
+
+  return "$found"
+}
+
+preflight_stale_manual_smoke() {
+  report_stale_manual_smoke >/dev/null || true
+}
+
+reap_stale_manual_smoke() {
+  local pid node workspace_root release_root socket cmd tmux_bin reaped=0
+
+  while IFS=$'\t' read -r pid node workspace_root release_root; do
+    [ -n "$pid" ] || continue
+    echo "aiur: reaping stale BEAM pid=${pid} node=${node} workspace=${workspace_root}" >&2
+    kill_pid_with_escalation "$pid"
+    reaped=$((reaped + 1))
+  done < <(stale_manual_smoke_beam_inventory)
+
+  tmux_bin="$(command -v tmux || true)"
+  if [ -n "$tmux_bin" ]; then
+    while IFS= read -r socket; do
+      [ -n "$socket" ] || continue
+      echo "aiur: reaping stale wrapper tmux socket=${socket}" >&2
+      "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
+      reaped=$((reaped + 1))
+    done < <(manual_smoke_wrapper_tmux_sockets)
+  fi
+
+  while IFS=$'\t' read -r pid cmd; do
+    [ -n "$pid" ] || continue
+    echo "aiur: reaping orphan opencode attach pid=${pid}" >&2
+    kill_pid_with_escalation "$pid"
+    reaped=$((reaped + 1))
+  done < <(orphaned_opencode_attach_inventory)
+
+  if [ "$reaped" -eq 0 ]; then
+    echo "aiur: no stale manual-smoke leftovers found" >&2
+  fi
 }
 
 # Echo $1 and every descendant pid, depth-first. Mac-safe (`pgrep -P`, no
@@ -1192,6 +1402,27 @@ cmd_agents() {
   run_control_rpc "Aiur.AgentControlCLI.agents()"
 }
 
+cmd_cleanup_stale() {
+  local dry_run=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --dry-run) dry_run=1 ;;
+      *)
+        echo "aiur: cleanup-stale only accepts --dry-run" >&2
+        exit 64
+        ;;
+    esac
+  done
+
+  aiur_resolve_identity
+  if [ "$dry_run" -eq 1 ]; then
+    report_stale_manual_smoke || true
+  else
+    report_stale_manual_smoke || true
+    reap_stale_manual_smoke
+  fi
+}
+
 # `aiur set <key> <value>` — runtime config overrides without editing
 # `.aiur/config`. Currently: `aiur set max-agents N`.
 cmd_set() {
@@ -1391,6 +1622,7 @@ cmd_stop() {
     rm -f "$agentfile" 2>/dev/null || true
   done
 
+  reap_stale_manual_smoke
   sweep_dead_tmux_sockets
   sweep_stale_tmp_artifacts
 }
@@ -1439,6 +1671,10 @@ aiur_engine_main() {
     message)
       shift
       cmd_message "$@"
+      ;;
+    cleanup-stale)
+      shift
+      cmd_cleanup_stale "$@"
       ;;
     stop)
       cmd_stop

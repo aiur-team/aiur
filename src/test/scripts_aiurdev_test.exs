@@ -259,6 +259,7 @@ defmodule ScriptsAiurdevTest do
           {["pause", "--all"], "ENGINE_ARGS: pause --all"},
           {["resume", "539"], "ENGINE_ARGS: resume 539"},
           {["stop"], "ENGINE_ARGS: stop"},
+          {["cleanup-stale"], "ENGINE_ARGS: cleanup-stale"},
           {["message", "539", "hello"], "ENGINE_ARGS: message 539 hello"}
         ] do
       {out, 0} =
