@@ -409,6 +409,23 @@ run_session() {
     install_foreground_traps
   fi
 
+  # Background starts are intentionally idempotent. A prior live node should not
+  # fall through to tmux's opaque "duplicate session" failure, and a stale tmux
+  # session whose BEAM/control plane is gone should be reclaimed before retry.
+  if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    if [ "$(probe_control_liveness)" = "up" ]; then
+      echo "aiur is already running in the background (tmux session ${session})." >&2
+      echo "Use: aiur status   # inspect agents" >&2
+      echo "Use: aiur stop     # stop it before starting a fresh session" >&2
+      rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+      return 0
+    fi
+
+    echo "aiur found stale tmux session ${session}; cleaning it up before restart" >&2
+    reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
+    kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+  fi
+
   # An orphaned BEAM (its tmux session gone) can still hold THIS instance's node
   # name. With no live session on our (instance-keyed) socket, reap the name-holder
   # so the launch isn't blocked by "name seems to be in use". The keyed name means

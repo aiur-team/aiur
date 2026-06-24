@@ -273,6 +273,100 @@ function setupRealLauncher() {
   return { launcher, releaseDir };
 }
 
+function setupBackgroundLauncher() {
+  const { launcher, releaseDir } = setupRealLauncher();
+  mkdirSync(path.join(root, "share"), { recursive: true });
+  writeFileSync(path.join(root, "share", "aiur.tmux.conf"), "# test conf\n");
+
+  const binAiur = path.join(releaseDir, "bin", "aiur");
+  mkdirSync(path.dirname(binAiur), { recursive: true });
+  writeFileSync(
+    binAiur,
+    [
+      "#!/usr/bin/env bash",
+      'echo "BIN_AIUR:$*" >>"$AIUR_TEST_OUT"',
+      'if [ "$1" = "rpc" ]; then',
+      '  if [ -f "${AIUR_FAKE_CONTROL_STATE:?}" ] && grep -q ready "$AIUR_FAKE_CONTROL_STATE"; then',
+      '    echo "__AIUR_CONTROL_READY__"',
+      "    exit 0",
+      "  fi",
+      '  echo "__AIUR_CONTROL_NOT_READY__"',
+      "  exit 1",
+      "fi",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(binAiur, 0o755);
+
+  const fakeBin = path.join(root, "fakebin");
+  mkdirSync(fakeBin, { recursive: true });
+  const fakeTmux = path.join(fakeBin, "tmux");
+  writeFileSync(
+    fakeTmux,
+    [
+      "#!/usr/bin/env bash",
+      'echo "TMUX:$*" >>"$AIUR_TEST_OUT"',
+      'state="${AIUR_FAKE_TMUX_STATE:?}"',
+      "args=()",
+      'while [ "$#" -gt 0 ]; do',
+      '  case "$1" in',
+      "    -L|-f|-t|-s|-x|-y|-T) shift 2 ;;",
+      "    -d) shift ;;",
+      '    *) args+=("$1"); shift ;;',
+      "  esac",
+      "done",
+      'cmd="${args[0]:-}"',
+      'case "$cmd" in',
+      "  has-session)",
+      '    [ -f "$state" ] && exit 0 || exit 1',
+      "    ;;",
+      "  new-session)",
+      '    touch "$state"',
+      '    echo ready >"${AIUR_FAKE_CONTROL_STATE:?}"',
+      "    exit 0",
+      "    ;;",
+      "  kill-session|kill-server)",
+      '    rm -f "$state"',
+      "    exit 0",
+      "    ;;",
+      "  select-pane)",
+      "    exit 0",
+      "    ;;",
+      "esac",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(fakeTmux, 0o755);
+
+  return { launcher, releaseDir, fakeBin, tmuxState: path.join(root, "tmux-session") };
+}
+
+function runBackgroundLauncher({ existingSession = false, controlReady = true } = {}) {
+  const { launcher, releaseDir, fakeBin, tmuxState } = setupBackgroundLauncher();
+  if (existingSession) writeFileSync(tmuxState, "present\n");
+  const controlState = path.join(root, "control-state");
+  writeFileSync(controlState, controlReady ? "ready\n" : "down\n");
+
+  const result = spawnSync(launcher, ["--bg"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      AIUR_FAKE_TMUX_STATE: tmuxState,
+      AIUR_FAKE_CONTROL_STATE: controlState,
+      AIUR_BG_STATE_DIR: path.join(root, "state"),
+      AIUR_COOKIE_FILE: path.join(root, "state", "cookie"),
+      XDG_RUNTIME_DIR: root,
+      PATH: `${fakeBin}:/usr/bin:/bin`,
+    },
+  });
+
+  return { result, tmuxState };
+}
+
 test("launcher routes init to a distribution-free foreground exec", () => {
   const { launcher, releaseDir } = setupRealLauncher();
 
@@ -291,6 +385,46 @@ test("launcher routes init to a distribution-free foreground exec", () => {
   expect(capture).not.toContain("--cookie");
   // Argv crossed into the BEAM via the argv file.
   expect(capture).toContain("ARGV_FILE:init");
+});
+
+test("background start is idempotent when the existing tmux session has a live control plane", () => {
+  const { result } = runBackgroundLauncher({ existingSession: true, controlReady: true });
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("already running in the background");
+  expect(result.stderr).toContain("aiur status");
+  expect(result.stderr).toContain("aiur stop");
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("TMUX:-L");
+  expect(capture).toContain("has-session");
+  expect(capture).toContain("BIN_AIUR:rpc");
+  expect(capture).not.toContain("new-session");
+});
+
+test("background start reclaims stale tmux session state before creating a new session", () => {
+  const { result } = runBackgroundLauncher({ existingSession: true, controlReady: false });
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("found stale tmux session");
+  expect(result.stderr).toContain("aiur started in the background");
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("has-session");
+  expect(capture).toContain("kill-server");
+  expect(capture).toContain("new-session");
+});
+
+test("background start still creates a fresh session when no tmux session exists", () => {
+  const { result } = runBackgroundLauncher({ existingSession: false, controlReady: true });
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("aiur started in the background");
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("has-session");
+  expect(capture).toContain("new-session");
+  expect(capture).not.toContain("found stale tmux session");
 });
 
 // --- Control RPC error reporting -------------------------------------------
