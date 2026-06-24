@@ -131,6 +131,7 @@ defmodule Aiur.TestSupport do
           tracker_label_prefix: nil,
           max_vertical_panes: 3,
           agent_kind: "codex",
+          agent_routing: %{},
           poll_interval_seconds: 30,
           workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
           worker_ssh_hosts: [],
@@ -170,6 +171,7 @@ defmodule Aiur.TestSupport do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     agent_kind = Keyword.get(config, :agent_kind)
+    agent_routing = Keyword.get(config, :agent_routing)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
     poll_interval_seconds = Keyword.get(config, :poll_interval_seconds)
     workspace_root = Keyword.get(config, :workspace_root)
@@ -234,6 +236,7 @@ defmodule Aiur.TestSupport do
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
+        "  routing: #{yaml_value(agent_routing)}",
         "  turn_timeout_ms: #{yaml_value(Keyword.get(config, :agent_turn_timeout_ms))}",
         "  stall_timeout_ms: #{yaml_value(Keyword.get(config, :agent_stall_timeout_ms))}",
         agent_backend_yaml(agent_kind, config)

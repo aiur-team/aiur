@@ -165,6 +165,13 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.safe_checkpoints("claude-repl") == []
     end
 
+    test "effort vocabulary comes from the registry" do
+      assert CodingAgent.efforts("codex") == ["low", "medium", "high"]
+      assert CodingAgent.efforts("claude") == []
+      assert CodingAgent.efforts("claude-repl") == ["low", "medium", "high", "xhigh", "max"]
+      assert CodingAgent.efforts("opencode") == []
+    end
+
     test "immediate_delivery? is true only for the REPL backend" do
       assert CodingAgent.immediate_delivery?("claude-repl")
       refute CodingAgent.immediate_delivery?("claude")
@@ -302,7 +309,7 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
-  describe "codex_command/1 model splice" do
+  describe "codex_command/2 model and effort splice" do
     test "nil model leaves the configured command unchanged" do
       assert CodexAgent.codex_command_for_test(nil) == CodexConfig.command()
     end
@@ -311,6 +318,22 @@ defmodule Aiur.CodingAgentTest do
       command = CodexAgent.codex_command_for_test("gpt-5.5")
       assert command == CodexConfig.command() <> " --config 'model=\"gpt-5.5\"'"
       assert String.ends_with?(command, "--config 'model=\"gpt-5.5\"'")
+    end
+
+    test "an effort override is appended after model so it beats command defaults" do
+      command = CodexAgent.codex_command_for_test("gpt-5.5", "high")
+
+      assert command ==
+               CodexConfig.command() <>
+                 " --config 'model=\"gpt-5.5\"' --config 'model_reasoning_effort=\"high\"'"
+    end
+
+    test "config values are shell escaped as single arguments" do
+      command = CodexAgent.codex_command_for_test("gpt'5.5", "high")
+
+      assert command ==
+               CodexConfig.command() <>
+                 " --config 'model=\"gpt'\"'\"'5.5\"' --config 'model_reasoning_effort=\"high\"'"
     end
   end
 

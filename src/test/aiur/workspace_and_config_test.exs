@@ -1,7 +1,9 @@
 defmodule Aiur.WorkspaceAndConfigTest do
   use Aiur.TestSupport
+  alias Aiur.CodingAgent
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Codex, StringOrMap}
+  alias Aiur.Issue
   alias Aiur.Linear.Client
   alias Ecto.Changeset
 
@@ -1320,18 +1322,43 @@ defmodule Aiur.WorkspaceAndConfigTest do
              _ -> false
            end)
 
-    # backend:model routing values: the backend part must be known, the
-    # model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
+    # backend:model:effort routing values: the backend part must be known,
+    # the model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
     assert Schema.split_routing_value("claude") == {"claude", nil}
     assert Schema.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
+    assert Schema.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
+    assert Schema.split_routing_value("claude::high") == {"claude", nil}
     assert Schema.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+    assert Schema.routing_effort("claude:sonnet:high") == "high"
+    assert Schema.routing_effort("claude:sonnet:high+remote") == "high"
+    assert Schema.routing_effort("claude-repl::xhigh") == "xhigh"
+    assert Schema.routing_effort("claude:sonnet") == nil
 
     with_model =
       {%{}, %{routing: :map}}
-      |> Changeset.cast(%{routing: %{4 => "claude:sonnet", 5 => "codex"}}, [:routing])
+      |> Changeset.cast(%{routing: %{3 => "claude:sonnet:high+remote", 4 => "claude-repl:sonnet:max", 5 => "codex::high"}}, [
+        :routing
+      ])
       |> Schema.validate_agent_routing(:routing)
 
     assert with_model.errors == []
+
+    bad_effort =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.5:max"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert Enum.count(bad_effort.errors) == 2
+
+    assert Enum.any?(bad_effort.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "high" for backend "claude")
+             _ -> false
+           end)
+
+    assert Enum.any?(bad_effort.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "max" for backend "codex")
+             _ -> false
+           end)
 
     bad_model_backend =
       {%{}, %{routing: :map}}
@@ -1373,6 +1400,29 @@ defmodule Aiur.WorkspaceAndConfigTest do
              {:routing, {msg, []}} -> msg =~ "remote-capable backend"
              _ -> false
            end)
+  end
+
+  test "agent routing resolves backend model and effort per complexity" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "codex",
+      agent_routing: %{4 => "claude-repl:sonnet:max", 5 => "codex::high"}
+    )
+
+    claude_issue = %Issue{labels: ["complexity:4"]}
+    codex_issue = %Issue{labels: ["complexity:5"]}
+
+    assert CodingAgent.backend_for(claude_issue) == "claude-repl"
+    assert CodingAgent.model_for(claude_issue) == "sonnet"
+    assert CodingAgent.effort_for(claude_issue) == "max"
+
+    assert CodingAgent.backend_for(codex_issue) == "codex"
+    assert CodingAgent.model_for(codex_issue) == nil
+    assert CodingAgent.effort_for(codex_issue) == "high"
+
+    override_issue = %Issue{labels: ["complexity:4", "model:codex-gpt-5.5"]}
+    assert CodingAgent.backend_for(override_issue) == "codex"
+    assert CodingAgent.model_for(override_issue) == "gpt-5.5"
+    assert CodingAgent.effort_for(override_issue) == nil
   end
 
   test "remote_control opt-in defaults OFF and parses an explicit true" do

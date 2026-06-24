@@ -35,6 +35,7 @@ defmodule Aiur.Claude.ReplAgentTest do
         ReplAgent.start_session(ws,
           tmux: tmux,
           model: "claude-opus-4-8",
+          effort: "max",
           rc_name: "aiur-repl-test",
           window_name: "aiur-repl-test",
           projects_dir: "/nonexistent-projects-dir"
@@ -46,6 +47,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.starts_with?(cmd, "new-window -d -n aiur-repl-test")
     assert String.contains?(cmd, "exec claude")
     assert String.contains?(cmd, "--model 'claude-opus-4-8'")
+    assert String.contains?(cmd, "--effort 'max'")
     refute String.contains?(cmd, "--remote-control")
     respond(tmux, "%99\n")
 

@@ -54,9 +54,16 @@ defmodule Aiur.CodingAgent do
 
   @doc """
   Registry of supported coding-agent backends. Each entry carries the
-  modules, delivery-policy defaults, and the model variants worth
-  seeding as `model:<backend>-<variant>` override labels for that
-  backend. Adding a backend means adding one entry here.
+  modules, delivery-policy defaults, the model variants worth seeding as
+  `model:<backend>-<variant>` override labels, and the backend's valid
+  reasoning-`efforts` (used by per-complexity routing). Adding a backend
+  means adding one entry here.
+
+  Effort sets are backend-native and verified against the installed CLIs:
+  codex maps to `model_reasoning_effort`; the interactive Claude REPL maps
+  to `claude --effort`. The headless `claude` backend runs through
+  `aiur-claude`, whose current app-server wrapper does not expose an effort
+  option, so it intentionally has no effort vocabulary.
   """
   @spec backends() :: %{backend() => map()}
   def backends do
@@ -67,7 +74,8 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         remote_control: false,
-        models: ["gpt-5.5", "gpt-5.4", "gpt-5.5-mini", "gpt-5.4-mini"]
+        models: ["gpt-5.5", "gpt-5.4", "gpt-5.5-mini", "gpt-5.4-mini"],
+        efforts: ["low", "medium", "high"]
       },
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
@@ -75,7 +83,8 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification],
         remote_control: true,
-        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        efforts: []
       },
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
@@ -90,7 +99,8 @@ defmodule Aiur.CodingAgent do
         safe_checkpoints: [],
         immediate_delivery: true,
         remote_control: true,
-        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"]
+        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        efforts: ["low", "medium", "high", "xhigh", "max"]
       }
     }
   end
@@ -98,6 +108,20 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc """
+  The valid reasoning-effort values for a backend, derived from the
+  registry. Unknown backends have no efforts. Used by per-complexity
+  routing validation (`Aiur.Config.Schema.validate_agent_routing/2`) and
+  the `aiur init` wizard to offer backend-appropriate options.
+  """
+  @spec efforts(backend()) :: [String.t()]
+  def efforts(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :efforts, [])
+      :error -> []
+    end
+  end
 
   @doc """
   Canonical `model:*` override labels worth auto-creating in a repo: a
@@ -147,6 +171,24 @@ defmodule Aiur.CodingAgent do
   @spec model_for(Issue.t()) :: String.t() | nil
   def model_for(%Issue{} = issue) do
     override_model(issue) || routing_model(issue)
+  end
+
+  @doc """
+  Per-complexity reasoning effort for an issue, read from the
+  `agent.routing` value's effort segment (`backend:model:effort`), or `nil`
+  when none is pinned. Effort has no `model:` label form (config-only, no
+  new labels), so a `model:<backend>` override label — which pins
+  backend/model explicitly and bypasses routing — also suppresses routing
+  effort, keeping the effort consistent with the resolved backend/model.
+  """
+  @spec effort_for(Issue.t()) :: String.t() | nil
+  def effort_for(%Issue{} = issue) do
+    with nil <- override_backend(issue),
+         value when is_binary(value) <- routing_value(issue) do
+      Schema.routing_effort(value)
+    else
+      _ -> nil
+    end
   end
 
   defp override_model(%Issue{} = issue) do
