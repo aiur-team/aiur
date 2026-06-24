@@ -166,7 +166,7 @@ defmodule Aiur.OrchestratorStatusTest do
            ] = Orchestrator.status(orchestrator_name, 1_000)
   end
 
-  test "status excludes deactivated and closed cached issues" do
+  test "status keeps cached and deactivated rows for control commands" do
     orchestrator_name = Module.concat(__MODULE__, :AgentStatusClosedOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -210,8 +210,13 @@ defmodule Aiur.OrchestratorStatusTest do
       }
     end)
 
-    assert [%{identifier: "repo#44", state: :running, title: "Active"}] =
-             Orchestrator.status(orchestrator_name, 1_000)
+    assert [
+             %{identifier: "repo#44", state: :running, title: "Active", work_state: :working},
+             %{identifier: "repo#491", state: :running, title: "Deactivated", work_state: :deactivated},
+             %{identifier: "repo#492", state: :running, title: "Closed running", tracker_state: "Closed"},
+             %{identifier: "repo#523", state: :idle, title: "Closed stale active label", tracker_state: "Closed"},
+             %{identifier: "repo#524", state: :idle, title: "Closed with active label removed", tracker_state: nil}
+           ] = Orchestrator.status(orchestrator_name, 1_000)
   end
 
   test "pause then resume round trip updates status around worker control messages" do

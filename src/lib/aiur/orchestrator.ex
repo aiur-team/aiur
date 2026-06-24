@@ -2464,23 +2464,18 @@ defmodule Aiur.Orchestrator do
 
   defp agent_statuses(%State{} = state) do
     now = DateTime.utc_now()
-    active_states = active_state_set()
-    terminal_states = terminal_state_set()
 
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-    (running_statuses(state, now, terminal_states) ++
-       idle_statuses(state, running_by_identifier, active_states, terminal_states))
+    (running_statuses(state, now) ++ idle_statuses(state, running_by_identifier))
     |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
   end
 
-  defp running_statuses(%State{} = state, %DateTime{} = now, terminal_states) do
-    state.running
-    |> Enum.reject(fn {_issue_id, entry} ->
-      deactivated_running_entry?(entry) or terminal_status_issue?(Map.get(entry, :issue), terminal_states)
+  defp running_statuses(%State{} = state, %DateTime{} = now) do
+    Enum.map(state.running, fn {issue_id, entry} ->
+      running_status(state, issue_id, entry, now)
     end)
-    |> Enum.map(fn {issue_id, entry} -> running_status(state, issue_id, entry, now) end)
   end
 
   defp running_status(%State{} = state, issue_id, entry, now) do
@@ -2492,6 +2487,7 @@ defmodule Aiur.Orchestrator do
       issue_id: issue_id,
       identifier: identifier,
       state: if(work_state == :paused, do: :paused, else: :running),
+      work_state: work_state,
       tracker_state: Map.get(issue || %{}, :state),
       tag: issue_tag(issue),
       title: Map.get(issue || %{}, :title),
@@ -2504,25 +2500,12 @@ defmodule Aiur.Orchestrator do
     }
   end
 
-  defp idle_statuses(%State{} = state, running_by_identifier, active_states, terminal_states) do
+  defp idle_statuses(%State{} = state, running_by_identifier) do
     state.last_polled_issues
     |> Map.values()
-    |> Enum.filter(&active_status_issue?(&1, active_states, terminal_states))
     |> Enum.reject(&running_issue?(&1, running_by_identifier))
     |> Enum.map(&idle_status(state, &1))
   end
-
-  defp active_status_issue?(%Issue{state: state_name}, active_states, terminal_states) do
-    active_issue_state?(state_name, active_states) and not terminal_issue_state?(state_name, terminal_states)
-  end
-
-  defp active_status_issue?(_issue, _active_states, _terminal_states), do: false
-
-  defp terminal_status_issue?(%Issue{state: state_name}, terminal_states) do
-    terminal_issue_state?(state_name, terminal_states)
-  end
-
-  defp terminal_status_issue?(_issue, _terminal_states), do: false
 
   defp running_issue?(issue, running_by_identifier) do
     identifier = Map.get(issue, :identifier)
