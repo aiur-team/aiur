@@ -1,6 +1,6 @@
 ---
 name: aiur-status
-description: "Tail the logs of all active aiur agents and report each one's current status as a concise table. Use when aiur is running and you want a quick overview of in-flight agents — e.g. 'how are the agents doing', 'agent status', 'tail the agents', 'what are the agents working on'."
+description: "Tail the logs of all active aiur agents and report each one's current status as a concise table. Use when aiur is running and you want a quick overview of in-flight agents — e.g. 'iarc status', 'aiur status', 'how are the agents doing', 'agent status', 'tail the agents', 'what are the agents working on'."
 ---
 
 # Agent Status
@@ -8,6 +8,9 @@ description: "Tail the logs of all active aiur agents and report each one's curr
 Produce a one-glance status table for every **active** aiur agent by tailing its
 per-agent log. One row per agent: what it is, what state it's in, and a concise
 phrasing of what it's doing right now.
+
+`iarc` is an operator alias for `aiur` in this repo. Treat `/iarc status` as this
+same aiur agent-status playbook.
 
 ## Procedure
 

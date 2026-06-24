@@ -64,4 +64,35 @@ defmodule Aiur.AiurAgentSkillTest do
       assert File.exists?(Path.join(@claude_skill, doc)), "missing skill reference doc #{doc}"
     end
   end
+
+  test "Codex discovers aiur run and status skills through canonical Claude skills" do
+    for skill <- ~w(aiur-run aiur-status) do
+      claude_skill = Path.join(@repo_root, ".claude/skills/#{skill}")
+      codex_skill = Path.join(@repo_root, ".codex/skills/#{skill}")
+
+      assert File.dir?(claude_skill)
+      assert File.exists?(Path.join(claude_skill, "SKILL.md"))
+      assert {:ok, %File.Stat{type: :symlink}} = File.lstat(codex_skill)
+
+      assert File.read!(Path.join(codex_skill, "SKILL.md")) ==
+               File.read!(Path.join(claude_skill, "SKILL.md"))
+    end
+  end
+
+  test "aiur run and status skill descriptions cover iarc and aiur triggers" do
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    status_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-status/SKILL.md"))
+
+    assert String.contains?(run_skill, "run IAR")
+    assert String.contains?(run_skill, "run aiur")
+    assert String.contains?(run_skill, "iarc run")
+    assert String.contains?(status_skill, "iarc status")
+    assert String.contains?(status_skill, "agent status")
+    assert String.contains?(status_skill, "tail-agents.sh")
+
+    for skill <- [run_skill, status_skill] do
+      assert String.contains?(skill, "iarc")
+      assert String.contains?(skill, "alias for `aiur`")
+    end
+  end
 end
