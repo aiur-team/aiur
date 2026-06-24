@@ -214,6 +214,10 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "--single"
     # --test is consumed by the shim, never handed to the engine/release.
     refute out =~ "ENGINE_ARGS: --test"
+    # Operator runs outside an agent workspace keep the real home-log clear and
+    # never enter the agent IR sandbox branch.
+    refute File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    refute out =~ "agent IR sandbox"
   end
 
   test "agent workspace --test uses local IR sandbox before reset, clear, and stop" do
@@ -242,7 +246,7 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "MISE_AIUR_BG_STATE_DIR: #{sandbox_root}/state"
     assert out =~ "MISE_XDG_RUNTIME_DIR: #{sandbox_root}/runtime"
     assert out =~ "MISE_AIUR_LOGS_ROOT: #{sandbox_root}/logs/"
-    assert out =~ "MISE_AIUR_OPENCODE_BRIDGE_PORT: "
+    assert out =~ ~r/MISE_AIUR_OPENCODE_BRIDGE_PORT: 4[0-9]{4}|5[0-4][0-9]{3}/
     assert out =~ "ENGINE_ARGS: --port 0"
     assert out =~ "AIUR_AGENT_IR_SANDBOX: 1"
     assert trace_out =~ "ENGINE_ARGS: stop"
@@ -250,6 +254,48 @@ defmodule ScriptsAiurdevTest do
     assert trace_out =~ "AIUR_BG_STATE_DIR: #{sandbox_root}/state"
     assert trace_out =~ "AIUR_LOGS_ROOT: #{sandbox_root}/logs/"
     refute trace_out =~ "#{home}/.aiur/logs"
+  end
+
+  test "agent workspace --test honors a caller-supplied port instead of forcing --port 0" do
+    root = fake_agent_repo(335)
+    home = sandbox_home()
+    mise = fake_mise()
+    trace = engine_trace(root)
+
+    {out, 0} =
+      run_shim(["--test", "--port", "7000"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"HOME", home},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_AGENT_WORKSPACE", root}
+      ])
+
+    assert out =~ "ENGINE_ARGS: --port 7000"
+    refute out =~ "--port 0"
+  end
+
+  test "--port with no value is rejected before any side effect" do
+    root = fake_agent_repo(336)
+    home = sandbox_home()
+    mise = fake_mise()
+
+    {out, code} =
+      run_shim(["--test", "--port"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"HOME", home},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_AGENT_WORKSPACE", root}
+      ])
+
+    assert code == 64
+    assert out =~ "--port requires a value"
+    refute out =~ "mix aiur.test.reset"
+    assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
   end
 
   test "agent workspace detection falls back to AIUR_REPO_ROOT path without env marker" do

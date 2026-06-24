@@ -194,6 +194,11 @@ for arg in "$@"; do
   esac
 done
 
+if [ "$expect_port_value" -eq 1 ]; then
+  echo "❌ --port requires a value (e.g. --port 0 or --port=4000)" >&2
+  exit 64
+fi
+
 if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   echo "❌ --clear requires --debug (e.g. aiurdev --debug --clear)" >&2
   exit 64
