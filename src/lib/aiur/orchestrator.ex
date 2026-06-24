@@ -1015,6 +1015,13 @@ defmodule Aiur.Orchestrator do
   end
 
   defp poll_github_comments(%State{} = state, opts \\ []) do
+    case Config.tracker_kind() do
+      "github" -> do_poll_github_comments(state, opts)
+      _ -> state
+    end
+  end
+
+  defp do_poll_github_comments(%State{} = state, opts) do
     targets = github_comment_poll_targets(state)
 
     poll_opts =

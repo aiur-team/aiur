@@ -32,12 +32,12 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp do_poll(targets, since, opts) do
     repo = Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
 
-    {count, newest_seen_at, successes, errors} =
+    {count, newest_seen_at, _successes, errors} =
       Enum.reduce(targets, {0, nil, 0, []}, fn target, acc ->
         poll_target(target, since, repo, opts, acc)
       end)
 
-    if successes == 0 and errors != [] do
+    if errors != [] do
       {:error, Enum.reverse(errors)}
     else
       {:ok, %{since: advance_since(since, newest_seen_at), count: count}}

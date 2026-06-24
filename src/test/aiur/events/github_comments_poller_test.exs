@@ -165,6 +165,42 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
+  test "returns an error instead of advancing cursor when any watched endpoint fails" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 4004,
+                 "body" => "issue comment still publishes",
+                 "updated_at" => "2026-06-24T12:03:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls?") ->
+          {:error, :timeout}
+      end
+    end
+
+    assert {:error, [{"42", {:pr_review_comments, {:github_api_request, :timeout}}}]} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    stop_codeowners(codeowners)
+  end
+
   defp ensure_codeowners!(contents) do
     case Process.whereis(CodeOwners) do
       pid when is_pid(pid) ->
