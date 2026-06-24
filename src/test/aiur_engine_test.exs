@@ -511,6 +511,53 @@ defmodule AiurEngineTest do
     assert events_log =~ "DISOWN:424242"
   end
 
+  test "foreground attach filters tmux server-exited noise without process substitution" do
+    rel = fake_release()
+    state = tmp_state()
+    tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*) touch "#{tmux_state}"; exit 0 ;;
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *" attach "*) echo "[server exited]" >&2; echo "real attach error" >&2; exit 7 ;;
+        *" kill-session "*) rm -f "#{tmux_state}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(tmux_state)
+    end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() { printf up; }
+    start_beam_death_watchdog() { printf '424242\\n'; }
+    set +e
+    ( run_session foreground )
+    code=$?
+    set -e
+    echo "CODE=$code"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"PATH", path}
+      ])
+
+    assert out =~ "CODE=7"
+    assert out =~ "real attach error"
+    refute out =~ "[server exited]"
+  end
+
   test "stop targets only its own node name, sparing siblings from the same release dir" do
     rel = fake_release()
     File.mkdir_p!(Path.join([rel, "erts-16.4", "bin"]))
