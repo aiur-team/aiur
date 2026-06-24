@@ -323,16 +323,21 @@ if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   exit 64
 fi
 
+agent_workspace_marker=""
 if marker="$(in_agent_workspace_tree)"; then
-  pin_bridge_port=0
-  if { [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; }; then
-    pin_bridge_port=1
-  fi
+  agent_workspace_marker="$marker"
+fi
 
-  enable_agent_ir_sandbox "$marker" "$pin_bridge_port"
-  if { [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; } && [ "$has_port" -eq 0 ]; then
-    passthrough+=(--port 0)
-  fi
+if [ -n "$agent_workspace_marker" ] && { [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; }; then
+  echo "❌ manual --test runs are blocked inside agent workspaces" >&2
+  echo "   workspace marker: $agent_workspace_marker" >&2
+  echo "   This path resets pinned GitHub sandbox tickets and can mutate the live dogfood backlog." >&2
+  echo "   Run scripts/aiurdev --test from the operator repo root or use a dedicated isolated harness." >&2
+  exit 64
+fi
+
+if [ -n "$agent_workspace_marker" ]; then
+  enable_agent_ir_sandbox "$agent_workspace_marker" 0
 fi
 
 if pure_control_command "${passthrough[0]:-}"; then
