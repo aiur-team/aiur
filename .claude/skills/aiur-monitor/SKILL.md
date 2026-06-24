@@ -91,7 +91,7 @@ Output **only** a status table — one row per agent, never wrapped. Use this la
 - **Ticket** = slug · **Cx** = complexity 1–5 · **Doing** = a concrete clause ("typecheck + lint", "editing Velodrome CL encoder", "opened PR #382"), never "the agent is working". Truncate any long cell with `…` so each row stays a single line.
 - Order most-advanced / newest activity first.
 - Header line above the table: `**aiur <HH:MM> · <one-glance roll-up>**` (e.g. `9 running · 1 review`).
-- Only if something needs the operator, ONE line below: `⚠️ Needs you: #<id> (<why>)`. Otherwise add nothing.
+- **The `⚠️ Needs you` line is conditional and load-bearing** — its presence means "act now," its absence means all-clear. Add ONE line below the table, `⚠️ Needs you: #<id> (<why>)`, ONLY when the operator must actually DO something: review/merge a PR, unblock or answer an agent, or act on a stability problem. **Never emit it as a placeholder or reassurance** — do NOT write `Needs you: nothing` / `none` / `nothing blocking` / `all clear`. When nothing requires the operator, OMIT the line entirely. If the content you're about to put after "Needs you:" is reassurance rather than a request, delete the whole line.
 - Don't invent progress the log doesn't show; ambiguous tail ⇒ `unclear`. No active agents ⇒ say so in one line, don't print an empty table.
 - **Daemon row.** When the `DAEMON` header reports `node no` with recent activity (or a `daemon down:` line), prepend a `🔴 daemon down · last activity Nm ago` row to the table — never collapse a downed-but-recently-active node to "no active agents".
 
