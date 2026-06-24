@@ -284,6 +284,98 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.7.issue.commented"}}, 500
     end
 
+    test "PullRequestReviewCommentEvent re-keys to the ticket id via the PR head ref" do
+      # Regression for #485: PR #49 can belong to ticket #35. The agent
+      # subscribes to ticket.35.pr.review_comment, so publishing under
+      # ticket.49 would silently miss the comment.
+      :ok = Exchange.subscribe("ticket.35.pr.review_comment")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e9")}],
+           body: [
+             %{
+               "type" => "PullRequestReviewCommentEvent",
+               "actor" => %{"login" => "reviewer"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "pull_request" => %{
+                   "number" => 49,
+                   "head" => %{"ref" => "aiur/35"}
+                 },
+                 "comment" => %{"id" => 4_783_049_689, "body" => "Codex review result"}
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.35.pr.review_comment",
+                        issue_number: "35",
+                        comment: %{"id" => 4_783_049_689}
+                      }},
+                     500
+    end
+
+    test "PullRequestReviewCommentEvent falls back to the PR number when head resolution fails" do
+      :ok = Exchange.subscribe("ticket.49.pr.review_comment")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e10")}],
+           body: [
+             %{
+               "type" => "PullRequestReviewCommentEvent",
+               "actor" => %{"login" => "reviewer"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "pull_request" => %{"number" => 49, "head" => %{"ref" => "feature/not-aiur"}},
+                 "comment" => %{"id" => 123, "body" => "fallback"}
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+      assert_receive {:event, %{topic: "ticket.49.pr.review_comment"}}, 500
+    end
+
+    test "pr.review_comment bypasses the tracked filter for an untracked/deactivated ticket" do
+      Publisher.set_tracked_fn(fn n -> to_string(n) != "35" end)
+      :ok = Exchange.subscribe("ticket.35.pr.review_comment")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e11")}],
+           body: [
+             %{
+               "type" => "PullRequestReviewCommentEvent",
+               "actor" => %{"login" => "reviewer"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "pull_request" => %{"number" => 49, "head" => %{"ref" => "aiur/35"}},
+                 "comment" => %{"id" => 124, "body" => "reactivate"}
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+      assert_receive {:event, %{topic: "ticket.35.pr.review_comment"}}, 500
+    end
+
     # Regression: the Events API returns the same historical event on
     # every poll within its ~24h window. Without dedup, a single
     # `pr.opened` becomes one `📤 opened a PR` row per poll cycle.

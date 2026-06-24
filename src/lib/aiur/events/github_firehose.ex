@@ -272,13 +272,16 @@ defmodule Aiur.Events.GithubFirehose do
     comment_id = Map.get(comment, "id")
 
     if is_integer(number) do
+      ticket_id = resolve_pr_ticket_id(pr, number, opts)
+
       publish_opts = [
         actor: actor,
-        issue_number: number,
+        issue_number: ticket_id,
+        bypass_contamination: true,
         dedup_key: comment_dedup_key(repo_name, "pr_review_comment", number, comment_id)
       ]
 
-      {"ticket.#{number}.pr.review_comment", %{issue_number: number, comment: comment}, publish_opts}
+      {"ticket.#{ticket_id}.pr.review_comment", %{issue_number: ticket_id, comment: comment}, publish_opts}
     end
   end
 
@@ -292,16 +295,26 @@ defmodule Aiur.Events.GithubFirehose do
   # issue comment's number already IS the ticket id.
   defp resolve_comment_ticket_id(issue, number, opts) do
     if is_map(Map.get(issue, "pull_request")) do
-      lookup = Keyword.get(opts, :pr_lookup_fun, &Client.fetch_pull_request_head_ref/1)
-
-      with {:ok, head_ref} when is_binary(head_ref) <- lookup.(number),
-           {:ticket, id, _topic} <- ref_to_topic("refs/heads/" <> head_ref) do
-        id
-      else
-        _ -> number
-      end
+      resolve_pr_ticket_id(%{}, number, opts)
     else
       number
+    end
+  end
+
+  defp resolve_pr_ticket_id(pr, number, opts) do
+    with head_ref when is_binary(head_ref) and head_ref != "" <- get_in(pr, ["head", "ref"]),
+         {:ticket, id, _topic} <- ref_to_topic("refs/heads/" <> head_ref) do
+      id
+    else
+      _ ->
+        lookup = Keyword.get(opts, :pr_lookup_fun, &Client.fetch_pull_request_head_ref/1)
+
+        with {:ok, head_ref} when is_binary(head_ref) <- lookup.(number),
+             {:ticket, id, _topic} <- ref_to_topic("refs/heads/" <> head_ref) do
+          id
+        else
+          _ -> number
+        end
     end
   end
 

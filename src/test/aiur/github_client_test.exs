@@ -223,6 +223,27 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_open_pull_request_for_branch/2" do
+    test "returns the first open PR for the canonical aiur branch" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/repos/owner/repo/pulls?"
+        assert url =~ "state=open"
+        assert url =~ "head=owner%3Aaiur%2F35"
+
+        {:ok, %{status: 200, body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+      end
+
+      assert {:ok, %{"number" => 49}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+    end
+
+    test "returns nil when the branch has no open PR" do
+      request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: []}} end
+
+      assert {:ok, nil} = Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
+    end
+  end
+
   describe "fetch_classified_pr_review_comments/2" do
     test "labels CODEOWNER review comments authoritative" do
       repo_root = codeowners_repo!("* @owner")
