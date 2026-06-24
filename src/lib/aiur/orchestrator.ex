@@ -718,7 +718,9 @@ defmodule Aiur.Orchestrator do
   defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
     Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
-    case resume_paused_issue(state, entry) do
+    # operator?: false — an automated blocker resume must preserve a
+    # duration-capped agent's cumulative overrun (no fresh budget).
+    case resume_paused_issue(state, entry, false) do
       {{:ok, :resumed}, next_state} ->
         next_state
 
@@ -1405,9 +1407,10 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
-  @spec resume_paused_issue_for_test(State.t(), map()) :: {term(), State.t()}
-  def resume_paused_issue_for_test(%State{} = state, running_entry) when is_map(running_entry) do
-    resume_paused_issue(state, running_entry)
+  @spec resume_paused_issue_for_test(State.t(), map(), boolean()) :: {term(), State.t()}
+  def resume_paused_issue_for_test(%State{} = state, running_entry, operator? \\ true)
+      when is_map(running_entry) and is_boolean(operator?) do
+    resume_paused_issue(state, running_entry, operator?)
   end
 
   @doc false
@@ -1774,7 +1777,9 @@ defmodule Aiur.Orchestrator do
         blocker_identifier = Map.get(hint, :blocker_identifier)
         topic = Map.get(hint, :topic)
 
-        case resume_paused_issue(state, entry) do
+        # operator?: false — same automated path as `attempt_auto_resume`,
+        # just deferred until a slot opened; preserve the duration overrun.
+        case resume_paused_issue(state, entry, false) do
           {{:ok, :resumed}, next_state} ->
             Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
@@ -1884,6 +1889,18 @@ defmodule Aiur.Orchestrator do
 
   defp restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
     cond do
+      # Runaway safety net: a duration-capped pause asked the worker to
+      # park cooperatively at its next turn boundary, but a truly wedged
+      # agent (single never-ending codex turn) never reaches one, so it
+      # keeps streaming past the pause. Such an entry would otherwise sit
+      # `:paused` forever — the duration cap can never re-fire (paused
+      # entries are excluded) and the operator's resume never comes. Once
+      # it has been wedged past the grace window, force-terminate it. This
+      # is the only place a duration cap escalates to a kill; a cooperative
+      # park stops the codex stream and is left alone.
+      wedged_overcap_entry?(running_entry, now, timeout_ms) ->
+        terminate_wedged_overcap_entry(state, issue_id, running_entry, now)
+
       # Paused agents are INTENTIONALLY idle — the agent emitted
       # pause.request because it declared a blocker and has nothing to
       # do until the blocker emits. The stall watchdog must not
@@ -1905,6 +1922,41 @@ defmodule Aiur.Orchestrator do
       true ->
         maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
     end
+  end
+
+  # True when a duration-capped paused entry is WEDGED rather than parked:
+  # it kept streaming codex after the cooperative `{:pause_agent}` was sent
+  # (so `last_codex_timestamp` is newer than `paused_at`) and has stayed
+  # that way longer than the grace window (`timeout_ms`, the stall budget).
+  # A cooperatively-parked agent stops streaming at its turn boundary, so
+  # its `last_codex_timestamp` does not advance past `paused_at` — those
+  # are left to the operator/blocker resume, never killed here.
+  @doc false
+  @spec wedged_overcap_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
+  def wedged_overcap_entry?(running_entry, now, timeout_ms) when is_map(running_entry) do
+    with true <- paused_running_entry?(running_entry),
+         :max_agent_duration <- Map.get(running_entry, :paused_reason),
+         %DateTime{} = paused_at <- Map.get(running_entry, :paused_at),
+         %DateTime{} = last_codex <- Map.get(running_entry, :last_codex_timestamp) do
+      # Streamed after we asked it to park -> never honored the park.
+      still_streaming? = DateTime.compare(last_codex, paused_at) == :gt
+      grace_elapsed? = DateTime.diff(now, paused_at, :millisecond) > timeout_ms
+
+      still_streaming? and grace_elapsed?
+    else
+      _ -> false
+    end
+  end
+
+  def wedged_overcap_entry?(_running_entry, _now, _timeout_ms), do: false
+
+  defp terminate_wedged_overcap_entry(state, issue_id, running_entry, now) do
+    identifier = Map.get(running_entry, :identifier, issue_id)
+    wedged_for_ms = DateTime.diff(now, Map.get(running_entry, :paused_at), :millisecond)
+
+    Logger.warning("Wedged over-cap agent escalated to terminate: issue_id=#{issue_id} issue_identifier=#{identifier} wedged_ms=#{wedged_for_ms}; never parked after max_agent_duration pause")
+
+    terminate_running_issue(state, issue_id, false)
   end
 
   defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
@@ -1944,8 +1996,6 @@ defmodule Aiur.Orchestrator do
   defp last_activity_timestamp(running_entry) when is_map(running_entry) do
     Map.get(running_entry, :last_codex_timestamp) || Map.get(running_entry, :started_at)
   end
-
-  defp last_activity_timestamp(_running_entry), do: nil
 
   defp terminate_task(pid) when is_pid(pid) do
     case Task.Supervisor.terminate_child(Aiur.TaskSupervisor, pid) do
@@ -4724,7 +4774,14 @@ defmodule Aiur.Orchestrator do
     {{:ok, :reactivated}, do_dispatch_issue(state, issue, nil, worker_host)}
   end
 
-  defp resume_paused_issue(%State{} = state, running_entry) do
+  # `operator?` distinguishes a deliberate operator resume (label flip,
+  # chat reply) from an automated/blocker auto-resume. It only matters
+  # for a duration-capped pause: an operator resume is "check in, keep
+  # going" and earns a fresh budget; an automated resume must PRESERVE
+  # the cumulative overrun so a runaway is still bounded (see
+  # `reset_duration_clock_if_capped/4`). Defaults to operator so the
+  # operator-facing callers stay unchanged.
+  defp resume_paused_issue(%State{} = state, running_entry, operator? \\ true) do
     cond do
       # The paused agent already holds a slot, so the limit only blocks
       # resume if the *active* count is already at the cap (which can
@@ -4739,11 +4796,11 @@ defmodule Aiur.Orchestrator do
         {{:error, :max_concurrent_agents_reached}, state}
 
       true ->
-        send_resume_control_message(state, running_entry)
+        send_resume_control_message(state, running_entry, operator?)
     end
   end
 
-  defp send_resume_control_message(%State{} = state, running_entry) do
+  defp send_resume_control_message(%State{} = state, running_entry, operator?) do
     case send_running_control_message(state, Map.get(running_entry, :identifier), fn request_id ->
            {:resume_agent, request_id}
          end) do
@@ -4761,13 +4818,20 @@ defmodule Aiur.Orchestrator do
         # any codex notification could refresh the field.
         state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
         # A duration-capped pause froze the entry after its *active*
-        # runtime already exceeded `max_agent_duration`. A plain thaw only
-        # excludes the paused interval, so `running_seconds` would still be
-        # over the cap and the next reconcile tick would re-pause the
-        # just-resumed agent in a loop. Resetting `started_at` to NOW hands
-        # the operator a fresh duration budget — the resume is a deliberate
-        # "check in, keep going" — and clears the reason.
-        state = update_in(state.running, &reset_duration_clock_if_capped(&1, issue_id, now))
+        # runtime already exceeded `max_agent_duration`. An OPERATOR resume
+        # is a deliberate "check in, keep going," so reset `started_at` to
+        # NOW for a fresh budget (a plain thaw only excludes the paused
+        # interval, leaving `running_seconds` over the cap, which the next
+        # reconcile tick would re-pause in a loop). An AUTOMATED/blocker
+        # auto-resume must NOT reset the clock — otherwise a duration-capped
+        # agent that declared a blocker would get a fresh full budget on
+        # every blocker push and a true runaway would never be bounded; the
+        # preserved overrun re-trips the cap on the next tick. Either way we
+        # drop the `:max_agent_duration` reason since the entry is now
+        # working (the cap re-stamps it fresh if it overruns again).
+        state =
+          update_in(state.running, &reset_duration_clock_if_capped(&1, issue_id, now, operator?))
+
         # An operator-driven resume is a deliberate restart, so clear any
         # thrash budget the entry accrued before it paused — otherwise a
         # long-paused blockee could resume already over its window.
@@ -4795,17 +4859,28 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Resume-side reset for a duration-capped pause: restart the duration
-  # baseline so the resumed agent gets a full fresh budget, and drop the
-  # `paused_reason` marker so a later manual pause is attributed
-  # correctly. A no-op for manually/blocker-paused entries (no marker).
-  defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now)
+  # Resume-side handling for a duration-capped pause. Always drops the
+  # `paused_reason` marker so a later manual pause is attributed correctly
+  # and so the overrun check re-stamps it fresh if the agent overruns again.
+  #
+  # `operator?: true` ALSO restarts the duration baseline (`started_at` ->
+  # now) so an operator resume hands the agent a full fresh budget.
+  #
+  # `operator?: false` PRESERVES `started_at` (the cumulative overrun) so an
+  # automated/blocker auto-resume cannot silently reset the budget: the
+  # entry resumes already over the cap and the next overrun tick re-pauses
+  # it, which is the runaway safety net — a wedged duration-capped agent
+  # that keeps getting auto-resumed on blocker pushes stays bounded instead
+  # of running forever.
+  #
+  # A no-op for manually/blocker-paused entries (no marker).
+  defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now, operator?)
        when is_map(running) do
     case Map.get(running, issue_id) do
       %{paused_reason: :max_agent_duration} = entry ->
         updated =
           entry
-          |> Map.put(:started_at, now)
+          |> maybe_reset_started_at(now, operator?)
           |> Map.delete(:paused_reason)
 
         Map.put(running, issue_id, updated)
@@ -4814,6 +4889,9 @@ defmodule Aiur.Orchestrator do
         running
     end
   end
+
+  defp maybe_reset_started_at(entry, now, true), do: Map.put(entry, :started_at, now)
+  defp maybe_reset_started_at(entry, _now, false), do: entry
 
   # --- Agent liveness from claude hooks -------------------------------------
   #
@@ -4887,6 +4965,17 @@ defmodule Aiur.Orchestrator do
     do: shift_started_at_by_pause(entry, now)
 
   defp shift_started_at_by_pause_if(entry, _previous, _now), do: entry
+
+  # A duration-capped pause is owned by `reset_duration_clock_if_capped/4`
+  # (operator resume -> fresh budget, automated resume -> preserve overrun),
+  # so the thaw must only un-freeze the pause clock (clear `paused_at`) and
+  # must NOT credit the paused interval back into `started_at`. Crediting it
+  # would advance `started_at` toward now and silently reset the overrun on
+  # an automated resume — the exact #420 leak. Other pauses keep the normal
+  # "exclude the paused interval" shift.
+  defp shift_started_at_by_pause(%{paused_reason: :max_agent_duration} = entry, %DateTime{}) do
+    Map.put(entry, :paused_at, nil)
+  end
 
   defp shift_started_at_by_pause(%{paused_at: %DateTime{} = paused_at} = entry, %DateTime{} = now) do
     paused_for = max(0, DateTime.diff(now, paused_at, :second))
