@@ -4,15 +4,33 @@ defmodule Aiur.Opencode.BridgeSupervisor do
   use Supervisor
   require Logger
 
+  alias Aiur.Opencode.BridgePort
   alias Aiur.Opencode.Config
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
+  @doc false
+  @spec resolve_bridge_port!(String.t(), {Config.bridge_port_source(), non_neg_integer()}) :: non_neg_integer()
+  def resolve_bridge_port!(host, {source, requested_port}) do
+    case BridgePort.resolve(host, {source, requested_port}) do
+      {:ok, selected_port} ->
+        if source == :default and selected_port != requested_port do
+          Application.put_env(:aiur, :opencode_bridge_port_override, selected_port)
+        end
+
+        selected_port
+
+      {:error, message} ->
+        Logger.error(message)
+        raise message
+    end
+  end
+
   @impl true
   def init(_opts) do
     host = Config.bridge_host()
-    port = bridge_port()
+    port = bridge_port!(host)
 
     Logger.warning("opencode_bridge starting host=#{host} port=#{port}")
 
@@ -46,10 +64,7 @@ defmodule Aiur.Opencode.BridgeSupervisor do
     end
   end
 
-  defp bridge_port do
-    case Application.fetch_env(:aiur, :opencode_bridge_port_override) do
-      {:ok, port} -> port
-      :error -> Config.bridge_port()
-    end
+  defp bridge_port!(host) do
+    resolve_bridge_port!(host, Config.bridge_port_with_source())
   end
 end
