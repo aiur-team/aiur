@@ -28,8 +28,7 @@ defmodule Aiur.GitHub.Client do
         :ok
 
       {:error, diagnostic} ->
-        {:error,
-         {:github_auth_preflight_failed, enrich_auth_diagnostic(diagnostic, gh_auth_status_fun)}}
+        {:error, {:github_auth_preflight_failed, enrich_auth_diagnostic(diagnostic, gh_auth_status_fun)}}
     end
   end
 
@@ -548,19 +547,16 @@ defmodule Aiur.GitHub.Client do
          rate_limit_remaining: 0,
          rate_limit_reset: reset
        }),
-       do:
-         "GitHub returned HTTP #{status} and the REST rate limit is exhausted#{reset_suffix(reset)}"
+       do: "GitHub returned HTTP #{status} and the REST rate limit is exhausted#{reset_suffix(reset)}"
 
   defp human_auth_reason(%{reason: :rate_limited, status: status}),
     do: "GitHub returned HTTP #{status} with a rate-limit response"
 
   defp human_auth_reason(%{reason: :forbidden, status: status}),
-    do:
-      "GitHub returned HTTP #{status}, which usually means missing repository permissions or a secondary rate limit"
+    do: "GitHub returned HTTP #{status}, which usually means missing repository permissions or a secondary rate limit"
 
   defp human_auth_reason(%{reason: :repo_not_accessible, status: status}),
-    do:
-      "GitHub returned HTTP #{status}, so the token cannot access the configured repository or github.repo is wrong"
+    do: "GitHub returned HTTP #{status}, so the token cannot access the configured repository or github.repo is wrong"
 
   defp human_auth_reason(%{reason: :request_failed, request_error: error}),
     do: "the request failed before GitHub returned a status (#{error})"
@@ -572,8 +568,7 @@ defmodule Aiur.GitHub.Client do
   defp reset_suffix(reset), do: " until #{reset}"
 
   defp human_gh_keyring_status(:available),
-    do:
-      "`gh` keyring auth appears usable when GITHUB_TOKEN is removed, but Aiur will not use it while GITHUB_TOKEN is set."
+    do: "`gh` keyring auth appears usable when GITHUB_TOKEN is removed, but Aiur will not use it while GITHUB_TOKEN is set."
 
   defp human_gh_keyring_status(:unavailable),
     do: "`gh` keyring auth was not usable when checked without GITHUB_TOKEN."

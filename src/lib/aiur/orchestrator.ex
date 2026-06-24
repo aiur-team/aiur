@@ -466,9 +466,7 @@ defmodule Aiur.Orchestrator do
         state =
           case reason do
             :normal ->
-              Logger.info(
-                "Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check"
-              )
+              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
 
               state
               |> complete_issue(issue_id)
@@ -480,9 +478,7 @@ defmodule Aiur.Orchestrator do
               })
 
             _ ->
-              Logger.warning(
-                "Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry"
-              )
+              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
 
               next_attempt = next_retry_attempt_from_running(running_entry)
 
@@ -494,9 +490,7 @@ defmodule Aiur.Orchestrator do
               })
           end
 
-        Logger.info(
-          "Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}"
-        )
+        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
         notify_dashboard(state)
         {:noreply, state}
@@ -661,25 +655,19 @@ defmodule Aiur.Orchestrator do
   # the cap is blocking the resume, and stamp a hint on the entry so a
   # future reconcile tick (when a slot opens up) can drain the queue.
   defp attempt_auto_resume(state, entry, identifier, blocker_identifier, topic) do
-    Logger.info(
-      "Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}"
-    )
+    Logger.info("Auto-resume on blocker push: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
     case resume_paused_issue(state, entry) do
       {{:ok, :resumed}, next_state} ->
         next_state
 
       {{:error, :max_concurrent_agents_reached}, next_state} ->
-        Logger.warning(
-          "Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint"
-        )
+        Logger.warning("Auto-resume deferred (cap full): blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}; entry remains paused with pending_auto_resume hint")
 
         stamp_pending_auto_resume(next_state, identifier, blocker_identifier, topic)
 
       {{:error, reason}, next_state} ->
-        Logger.warning(
-          "Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}"
-        )
+        Logger.warning("Auto-resume failed: blockee=#{identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
 
         next_state
     end
@@ -726,9 +714,7 @@ defmodule Aiur.Orchestrator do
     end
   catch
     :exit, reason ->
-      Logger.warning(
-        "subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}"
-      )
+      Logger.warning("subscribed_to_topic? store call failed: identifier=#{identifier} topic=#{topic} reason=#{inspect(reason)}")
 
       false
   end
@@ -755,9 +741,7 @@ defmodule Aiur.Orchestrator do
     if old_status == new_status do
       state
     else
-      Logger.info(
-        "Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}"
-      )
+      Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
 
       now = DateTime.utc_now()
 
@@ -793,16 +777,12 @@ defmodule Aiur.Orchestrator do
         state
 
       {:skip, reason} ->
-        Logger.info(
-          "#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}"
-        )
+        Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
         state
 
       {:error, reason} ->
-        Logger.warning(
-          "#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}"
-        )
+        Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
         state
     end
@@ -829,9 +809,7 @@ defmodule Aiur.Orchestrator do
       {:error, reason} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
-        Logger.warning(
-          "#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}"
-        )
+        Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
 
         state
     end
@@ -866,9 +844,7 @@ defmodule Aiur.Orchestrator do
         state
 
       {:error, reason} ->
-        Logger.warning(
-          "#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}"
-        )
+        Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
 
         state
     end
@@ -1115,8 +1091,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_log_base_error({:error, reason}),
-    do:
-      Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
+    do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
 
   defp maybe_log_base_error(_phase), do: :ok
 
@@ -1164,9 +1139,7 @@ defmodule Aiur.Orchestrator do
           |> reconcile_missing_running_issue_ids(running_ids, issues)
 
         {:error, reason} ->
-          Logger.debug(
-            "Failed to refresh running issue states: #{inspect(reason)}; keeping active workers"
-          )
+          Logger.debug("Failed to refresh running issue states: #{inspect(reason)}; keeping active workers")
 
           state
       end
@@ -1360,16 +1333,12 @@ defmodule Aiur.Orchestrator do
   defp reconcile_issue_state(%Issue{} = issue, state, active_states, terminal_states) do
     cond do
       terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info(
-          "Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent"
-        )
+        Logger.info("Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
 
         terminate_running_issue(state, issue.id, true)
 
       !issue_routable_to_worker?(issue) ->
-        Logger.info(
-          "Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent"
-        )
+        Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
 
         terminate_running_issue(state, issue.id, false)
 
@@ -1380,9 +1349,7 @@ defmodule Aiur.Orchestrator do
         deactivate_running_issue(state, issue.id)
 
       true ->
-        Logger.info(
-          "Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent"
-        )
+        Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
 
         terminate_running_issue(state, issue.id, false)
     end
@@ -1469,14 +1436,10 @@ defmodule Aiur.Orchestrator do
   defp log_missing_running_issue(%State{} = state, issue_id) when is_binary(issue_id) do
     case Map.get(state.running, issue_id) do
       %{identifier: identifier} ->
-        Logger.info(
-          "Issue no longer visible during running-state refresh: issue_id=#{issue_id} issue_identifier=#{identifier}; stopping active agent"
-        )
+        Logger.info("Issue no longer visible during running-state refresh: issue_id=#{issue_id} issue_identifier=#{identifier}; stopping active agent")
 
       _ ->
-        Logger.info(
-          "Issue no longer visible during running-state refresh: issue_id=#{issue_id}; stopping active agent"
-        )
+        Logger.info("Issue no longer visible during running-state refresh: issue_id=#{issue_id}; stopping active agent")
     end
   end
 
@@ -1559,9 +1522,7 @@ defmodule Aiur.Orchestrator do
         state
 
       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
-        Logger.info(
-          "Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot"
-        )
+        Logger.info("Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot")
 
         # Close any open chat-completion SSE streams for this identifier
         # BEFORE killing the task. `terminate_task/1` brutally kills the
@@ -1639,9 +1600,7 @@ defmodule Aiur.Orchestrator do
 
         case resume_paused_issue(state, entry) do
           {{:ok, :resumed}, next_state} ->
-            Logger.info(
-              "Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}"
-            )
+            Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
 
             clear_pending_auto_resume(next_state, entry)
 
@@ -1717,9 +1676,7 @@ defmodule Aiur.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       seconds = running_seconds(Map.get(running_entry, :started_at), now)
 
-      Logger.warning(
-        "Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent"
-      )
+      Logger.warning("Issue exceeded max_agent_duration: issue_id=#{issue_id} issue_identifier=#{identifier} running_seconds=#{seconds} cap_seconds=#{max_seconds}; pausing agent")
 
       _ = send_pause_control_message(state, identifier)
 
@@ -1781,9 +1738,7 @@ defmodule Aiur.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       session_id = running_entry_session_id(running_entry)
 
-      Logger.warning(
-        "Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff"
-      )
+      Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
 
       next_attempt = next_retry_attempt_from_running(running_entry)
 
@@ -2002,12 +1957,10 @@ defmodule Aiur.Orchestrator do
     do: "Dependency on #{blocker[:identifier] || blocker[:id]} was removed"
 
   defp blocker_event_summary(_issue, blocker, :blocker_became_terminal),
-    do:
-      "Blocker #{blocker[:identifier] || blocker[:id]} reached terminal state #{blocker[:state]}"
+    do: "Blocker #{blocker[:identifier] || blocker[:id]} reached terminal state #{blocker[:state]}"
 
   defp blocker_event_summary(_issue, blocker, :blocker_became_non_terminal),
-    do:
-      "Blocker #{blocker[:identifier] || blocker[:id]} returned to non-terminal state #{blocker[:state]}"
+    do: "Blocker #{blocker[:identifier] || blocker[:id]} returned to non-terminal state #{blocker[:state]}"
 
   defp dependency_event_dedupe_key(issue, blocker, update_kind) do
     [
@@ -2095,8 +2048,7 @@ defmodule Aiur.Orchestrator do
   defp sort_issues_for_dispatch(issues) when is_list(issues) do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
-        {priority_rank(issue.priority), issue_created_at_sort_key(issue),
-         issue.identifier || issue.id || ""}
+        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 
       _ ->
         {priority_rank(nil), issue_created_at_sort_key(nil), ""}
@@ -2279,23 +2231,17 @@ defmodule Aiur.Orchestrator do
         do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host)
 
       {:skip, :missing} ->
-        Logger.info(
-          "Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}"
-        )
+        Logger.info("Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}")
 
         state
 
       {:skip, %Issue{} = refreshed_issue} ->
-        Logger.info(
-          "Skipping stale dispatch after issue refresh: #{issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}"
-        )
+        Logger.info("Skipping stale dispatch after issue refresh: #{issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}")
 
         state
 
       {:error, reason} ->
-        Logger.warning(
-          "Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}"
-        )
+        Logger.warning("Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
 
         state
     end
@@ -2316,9 +2262,7 @@ defmodule Aiur.Orchestrator do
 
     case select_worker_host(state, preferred_worker_host) do
       :no_worker_capacity ->
-        Logger.debug(
-          "No SSH worker slots available for #{issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}"
-        )
+        Logger.debug("No SSH worker slots available for #{issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
 
         state
 
@@ -2363,9 +2307,7 @@ defmodule Aiur.Orchestrator do
   defp trip_thrash_breaker(%State{} = state, issue) do
     count = get_in(state.codex_thrash_budget, [issue.id, :count]) || 0
 
-    Logger.warning(
-      "Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch"
-    )
+    Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
 
     Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
       issue: issue.identifier
@@ -2389,9 +2331,7 @@ defmodule Aiur.Orchestrator do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 
-        Logger.info(
-          "Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}"
-        )
+        Logger.info("Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
 
         running =
           Map.put(state.running, issue.id, %{
@@ -2499,9 +2439,7 @@ defmodule Aiur.Orchestrator do
 
       error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 
-      Logger.warning(
-        "Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}"
-      )
+      Logger.warning("Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}")
 
       %{
         state
@@ -2535,8 +2473,7 @@ defmodule Aiur.Orchestrator do
           workspace_path: Map.get(retry_entry, :workspace_path)
         }
 
-        {:ok, attempt, metadata,
-         %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
+        {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
 
       _ ->
         :missing
@@ -2553,9 +2490,7 @@ defmodule Aiur.Orchestrator do
             |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
 
           {:error, reason} ->
-            Logger.warning(
-              "Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}"
-            )
+            Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}")
 
             {:noreply,
              schedule_issue_retry(
@@ -2569,9 +2504,7 @@ defmodule Aiur.Orchestrator do
       {:error, reason, state} ->
         formatted = format_retry_preflight_error(reason)
 
-        Logger.warning(
-          "Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}"
-        )
+        Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
 
         {:noreply,
          schedule_issue_retry(
@@ -2593,9 +2526,7 @@ defmodule Aiur.Orchestrator do
 
     cond do
       terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info(
-          "Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace"
-        )
+        Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
 
         cleanup_issue_workspace(issue.identifier, metadata[:worker_host])
         {:noreply, release_issue_claim(state, issue_id)}
@@ -2604,9 +2535,7 @@ defmodule Aiur.Orchestrator do
         handle_active_retry(state, issue, attempt, metadata)
 
       true ->
-        Logger.debug(
-          "Issue left active states, removing claim issue_id=#{issue_id} issue_identifier=#{issue.identifier}"
-        )
+        Logger.debug("Issue left active states, removing claim issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
 
         {:noreply, release_issue_claim(state, issue_id)}
     end
@@ -2631,9 +2560,7 @@ defmodule Aiur.Orchestrator do
         cleanup_terminal_workspaces_after_preflight(state)
 
       {:error, reason, state} ->
-        Logger.warning(
-          "Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}"
-        )
+        Logger.warning("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
 
         state
     end
@@ -2646,9 +2573,7 @@ defmodule Aiur.Orchestrator do
         state
 
       {:error, reason} ->
-        Logger.warning(
-          "Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}"
-        )
+        Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
 
         state
     end
@@ -3658,8 +3583,7 @@ defmodule Aiur.Orchestrator do
           last_codex_event: metadata.last_codex_event,
           work_state: get_in(metadata, [:control, :status]) || :working,
           queue_depth: capabilities.queue_depth,
-          pending_operator_messages:
-            pending_operator_messages_for_issue(state, metadata.identifier),
+          pending_operator_messages: pending_operator_messages_for_issue(state, metadata.identifier),
           control: capabilities,
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
@@ -3791,8 +3715,7 @@ defmodule Aiur.Orchestrator do
 
   def handle_call({:ensure_remote_control_trust, workspace}, _from, state)
       when is_binary(workspace) do
-    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()),
-     state}
+    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
   end
 
   def handle_call(:max_concurrent_agents, _from, state) do
@@ -4227,8 +4150,7 @@ defmodule Aiur.Orchestrator do
     if Process.alive?(pid) do
       send(
         pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id,
-         item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true}
+        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true}
       )
     end
 
@@ -4452,9 +4374,7 @@ defmodule Aiur.Orchestrator do
     state = %{state | running: Map.put(state.running, issue_id, new_entry)}
     state = refresh_tracked_set(state)
 
-    Logger.info(
-      "Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task"
-    )
+    Logger.info("Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task")
 
     # Reactivation is a deliberate operator restart; clear the thrash
     # budget so the fresh task starts with a full window.
@@ -4800,9 +4720,7 @@ defmodule Aiur.Orchestrator do
             do_promote_to_remote(state, running_entry, issue)
 
           {:error, reason} ->
-            Logger.error(
-              "Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}"
-            )
+            Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
 
             {{:error, {:rc_trust_failed, reason}}, state}
         end
@@ -4817,16 +4735,12 @@ defmodule Aiur.Orchestrator do
         relabeled = add_issue_label(issue, label)
         state = teardown_for_redispatch(state, running_entry)
 
-        Logger.info(
-          "Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}"
-        )
+        Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
 
         {{:ok, :on}, do_dispatch_issue(state, relabeled, nil, nil)}
 
       {:error, reason} ->
-        Logger.error(
-          "Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}"
-        )
+        Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
 
         {{:error, {:rc_label_failed, reason}}, state}
     end
@@ -4853,16 +4767,12 @@ defmodule Aiur.Orchestrator do
             relabeled = remove_issue_label(issue, label)
             state = teardown_for_redispatch(state, running_entry)
 
-            Logger.info(
-              "Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}"
-            )
+            Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
 
             {{:ok, :off}, do_dispatch_issue(state, relabeled, nil, nil)}
 
           {:error, reason} ->
-            Logger.error(
-              "Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}"
-            )
+            Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
 
             {{:error, {:rc_label_failed, reason}}, state}
         end

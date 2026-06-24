@@ -14,8 +14,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
           token_source: "GITHUB_TOKEN",
           status: 401,
           gh_keyring_status: :available,
-          message:
-            "GitHub auth preflight failed for GITHUB_TOKEN while validating owner/repo issues access. Aiur uses GITHUB_TOKEN and it takes precedence over `gh` keyring auth."
+          message: "GitHub auth preflight failed for GITHUB_TOKEN while validating owner/repo issues access. Aiur uses GITHUB_TOKEN and it takes precedence over `gh` keyring auth."
         }}}
     end
 
