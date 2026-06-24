@@ -1209,9 +1209,11 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
-  @spec retry_dispatch_slots_available_for_test(Issue.t(), State.t()) :: boolean()
-  def retry_dispatch_slots_available_for_test(%Issue{} = issue, %State{} = state) do
-    dispatch_slots_available?(issue, state)
+  @spec retry_dispatch_ready_for_test(Issue.t(), State.t(), String.t() | nil) :: boolean()
+  def retry_dispatch_ready_for_test(%Issue{} = issue, %State{} = state, worker_host \\ nil) do
+    retry_candidate_issue?(issue, terminal_state_set()) and
+      dispatch_slots_available?(issue, state) and
+      worker_slots_available?(state, worker_host)
   end
 
   @doc false

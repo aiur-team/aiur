@@ -811,8 +811,10 @@ defmodule Aiur.CoreTest do
     assert due_at_ms >= before_retry_ms + 1_000
     assert due_at_ms <= observed_at_ms + 1_000
 
+    busy_state = %{state | running: %{"issue-busy" => other_running_entry}}
     freed_state = %{state | running: %{}}
-    assert Orchestrator.retry_dispatch_slots_available_for_test(issue, freed_state)
+    refute Orchestrator.retry_dispatch_ready_for_test(issue, busy_state)
+    assert Orchestrator.retry_dispatch_ready_for_test(issue, freed_state)
   end
 
   test "stale retry timer messages do not consume newer retry entries" do
