@@ -134,7 +134,7 @@ on your `PATH`:
 |---|---|
 | `aiurdev` | Start the workflow in the foreground with a local-only bind |
 | `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
-| `aiurdev --bg` | Start in a detached tmux session after the control RPC is ready |
+| `aiurdev --bg` | Start a headless BEAM in one detached tmux lifetime session after the control RPC is ready |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
@@ -159,6 +159,14 @@ already-paused agent is a no-op and exits successfully.
 
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.
+
+Background mode is headless at the application layer: it skips the interactive
+agent-list pane, chat/prewarm panes, and dashboard unless the dashboard is
+explicitly opted in with a positive port. The launcher still uses one detached
+tmux session to own the BEAM lifetime and cleanup watchdog. If that session is
+already live, `aiurdev --bg` exits successfully with an "already running" hint;
+if the tmux session is stale and the control RPC is down, the launcher cleans it
+up before starting a fresh background run.
 
 Use `--port <N>` before the config path to override the dashboard/workflow port
 for one invocation:
@@ -191,9 +199,12 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master
   switch; `use_os_default_sounds: true` plays built-in macOS/Linux system sounds out of the
   box (macOS via `afplay`, Linux via `paplay`/`canberra-gtk-play`/`aplay`); `sound_dir`
-  points at a folder of custom clips that overrides the defaults; `alerts_file` overrides the
-  topic→sound mapping (defaults to `alerts.yaml` at the repo root). Playback is fully gated by
-  `enabled` and is a no-op when no player binary or sound file is available.
+  points at a folder of custom clips that overrides the defaults; `alerts_file` points at the
+  topic→sound map. `aiur init` scaffolds an editable `.aiur/alerts` and sets `alerts_file: alerts`
+  (a relative value resolves next to `.aiur/config`); an absolute or `~/` path points elsewhere,
+  and when the file is unset or missing aiur falls back to the bundled `alerts.yaml` at the repo
+  root (legacy installs keep working). Playback is fully gated by `enabled` and is a no-op when no
+  player binary or sound file is available.
 
 ## Testing
 

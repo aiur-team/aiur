@@ -92,6 +92,20 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
                """
       end
     end
+
+    test "foreground attach stderr filtering avoids process substitution" do
+      source = File.read!(@engine)
+
+      refute source =~ ~S|2> >(grep -v -F "[server exited]" >&2)|,
+             """
+             Foreground attach must not use process substitution for stderr filtering.
+             The non-TTY wrapper manual-test path can reject /dev/fd/* opens, aborting
+             the real CLI before the TUI appears.
+             """
+
+      assert source =~ ~r/attach -t "\$session" 2>"\$attach_stderr"/,
+             "foreground attach should buffer stderr in a tempfile before filtering"
+    end
   end
 
   describe "engine workspace cwd sweep" do
@@ -127,13 +141,13 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     test "watchdog receives the workspace root file and sweeps after BEAM death" do
       source = File.read!(@engine)
 
-      assert source =~ ~s(workspace_root_file="${6:-}"),
+      assert source =~ ~s(workspace_root_file="${10:-}"),
              "watchdog must accept the workspace-root handoff file path"
 
       assert source =~ ~r/reap_aiur_agents "\$socket" "\$pidfile"\n\s+reap_workspace_cwd_from_file "\$workspace_root_file"/,
              "watchdog must run the cwd sweep after pidfile agent reap"
 
-      assert source =~ ~r/start_beam_death_watchdog \\\n\s+"-name \$\{AIUR_RELEASE_NODE\}" "\$socket" "\$AIUR_AGENT_TMPFILE" 1 1 "\$AIUR_WORKSPACE_ROOT_FILE"/,
+      assert source =~ ~r/start_beam_death_watchdog \\\n\s+"-name \$\{AIUR_RELEASE_NODE\}" "\$socket" "\$AIUR_AGENT_TMPFILE" 1 1 \\\n\s+"\$AIUR_RELEASE_NODE" "\$\{AIUR_LOGS_ROOT:-\}" \\\n\s+"\$\(aiur_stop_sentinel_path\)" "\$\(aiur_crash_marker_path\)" "\$AIUR_WORKSPACE_ROOT_FILE"/,
              "background watchdog must receive AIUR_WORKSPACE_ROOT_FILE"
     end
   end

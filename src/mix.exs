@@ -4,7 +4,7 @@ defmodule Aiur.MixProject do
   def project do
     [
       app: :aiur,
-      version: "0.0.2",
+      version: "0.0.3",
       elixir: "~> 1.19",
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,

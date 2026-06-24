@@ -285,9 +285,13 @@ defmodule Aiur.Config.Schema do
       # Safety net: hard-kill an agent that has been actively running this
       # many minutes (paused/blocked time excluded). 0 disables.
       field(:max_agent_duration_minutes, :integer, default: 60)
-      # Per-scheduler 1-min load ceiling for the dispatch load gate (#465). nil
-      # disables it (default); new dispatch holds while load > value * cores.
-      field(:max_load_average, :float)
+      # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
+      # Enabled by default so high-concurrency runs have protection without
+      # extra operator knowledge; explicit YAML null disables it.
+      field(:max_load_average, :float, default: 1.5)
+      # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
+      # load-generator guard; positive integers cap known generators per agent.
+      field(:synthetic_load_process_cap, :integer)
 
       embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
       embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -311,7 +315,8 @@ defmodule Aiur.Config.Schema do
           :turn_timeout_ms,
           :stall_timeout_ms,
           :max_agent_duration_minutes,
-          :max_load_average
+          :max_load_average,
+          :synthetic_load_process_cap
         ],
         empty_values: []
       )
@@ -323,6 +328,7 @@ defmodule Aiur.Config.Schema do
       |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
       |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
       |> validate_number(:max_load_average, greater_than: 0)
+      |> validate_number(:synthetic_load_process_cap, greater_than_or_equal_to: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
       |> update_change(:routing, &Schema.normalize_agent_routing/1)
@@ -421,7 +427,10 @@ defmodule Aiur.Config.Schema do
       # filenames; in OS-default mode a `<category>.<ext>` file here wins over the
       # OS sound.
       field(:sound_dir, :string)
-      # Optional custom topic→sound YAML; defaults to the repo `alerts.yaml`.
+      # Optional topic→sound map. `aiur init` scaffolds `.aiur/alerts` and points
+      # here with `alerts_file: alerts` (a relative value resolves next to the
+      # config dir; see `Aiur.Workflow`). Absolute / `~/` paths are honoured
+      # as-is. When unset or missing, the bundled repo `alerts.yaml` is used.
       field(:alerts_file, :string)
     end
 
@@ -622,36 +631,89 @@ defmodule Aiur.Config.Schema do
 
     validate_change(changeset, field, fn ^field, routing ->
       Enum.flat_map(routing, fn {level, value} ->
-        cond do
-          not is_integer(level) or level <= 0 ->
-            [{field, "complexity levels must be positive integers"}]
-
-          not is_binary(value) or routing_backend(value) not in known ->
-            [
-              {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
-            ]
-
-          routing_remote_flag?(value) and not Aiur.CodingAgent.remote_control?(routing_backend(value)) ->
-            [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
-
-          true ->
-            []
-        end
+        routing_errors(field, known, level, value)
       end)
     end)
   end
 
+  defp routing_errors(field, known, level, value) do
+    cond do
+      not is_integer(level) or level <= 0 ->
+        [{field, "complexity levels must be positive integers"}]
+
+      not is_binary(value) or routing_backend(value) not in known ->
+        [{field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}]
+
+      routing_remote_flag?(value) and not Aiur.CodingAgent.remote_control?(routing_backend(value)) ->
+        [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
+
+      not valid_routing_effort?(value) ->
+        invalid_routing_effort_error(field, value)
+
+      true ->
+        []
+    end
+  end
+
+  defp invalid_routing_effort_error(field, value) do
+    backend = routing_effort_backend(value)
+
+    [
+      {field,
+       "invalid effort #{inspect(routing_effort(value))} for backend #{inspect(backend)}; " <>
+         "valid efforts: #{inspect(Aiur.CodingAgent.efforts(backend))}"}
+    ]
+  end
+
+  # A routing value's optional effort segment must be in the backend's valid
+  # set. No effort segment is always fine (the backend's own default applies).
+  # The backend is already known here (an earlier cond branch rejects unknown
+  # backends), so `efforts/1` returns its real set. `claude+remote` dispatches
+  # through the interactive REPL transport, so validate its effort against that
+  # transport rather than the headless app-server wrapper.
+  defp valid_routing_effort?(value) do
+    case routing_effort(value) do
+      nil -> true
+      effort -> effort in Aiur.CodingAgent.efforts(routing_effort_backend(value))
+    end
+  end
+
+  defp routing_effort_backend(value) do
+    case {routing_backend(value), routing_remote_flag?(value)} do
+      {"claude", true} -> "claude-repl"
+      {backend, _remote?} -> backend
+    end
+  end
+
   @doc """
   Splits a routing value into its backend and optional model. A routing
-  value is `"<backend>"` or `"<backend>:<model>"` (e.g. `"claude:sonnet"`),
-  optionally with a trailing `+remote` flag (`"claude:haiku+remote"`) that
-  is stripped here and surfaced separately by `routing_remote_flag?/1`.
+  value is `"<backend>"`, `"<backend>:<model>"` (e.g. `"claude:sonnet"`), or
+  `"<backend>:<model>:<effort>"` (e.g. `"codex:gpt-5.5:high"`), optionally
+  with a trailing `+remote` flag (`"claude:haiku+remote"`) that is stripped
+  here and surfaced separately by `routing_remote_flag?/1`. The optional
+  trailing effort segment is dropped here and surfaced by `routing_effort/1`;
+  an effort-only value omits the model (`"codex::high"`).
   """
   @spec split_routing_value(String.t()) :: {String.t(), String.t() | nil}
   def split_routing_value(value) when is_binary(value) do
-    case value |> strip_remote_flag() |> String.split(":", parts: 2) do
-      [backend, model] when model != "" -> {backend, model}
+    case value |> strip_remote_flag() |> String.split(":", parts: 3) do
+      [backend, model | _] when model != "" -> {backend, model}
       [backend | _] -> {backend, nil}
+    end
+  end
+
+  @doc """
+  The optional per-complexity effort carried by a routing value's third
+  `:`-separated segment (`"<backend>:<model>:<effort>"` or the model-less
+  `"<backend>::<effort>"`), or `nil` when no effort is pinned. The valid
+  set is backend-aware (see `Aiur.CodingAgent.efforts/1`) and enforced by
+  `validate_agent_routing/2`.
+  """
+  @spec routing_effort(String.t()) :: String.t() | nil
+  def routing_effort(value) when is_binary(value) do
+    case value |> strip_remote_flag() |> String.split(":", parts: 3) do
+      [_backend, _model, effort] when effort != "" -> effort
+      _ -> nil
     end
   end
 
@@ -768,17 +830,35 @@ defmodule Aiur.Config.Schema do
   defp normalize_key(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_key(value), do: to_string(value)
 
-  defp drop_nil_values(value) when is_map(value) do
+  defp drop_nil_values(value), do: drop_nil_values(value, [])
+
+  defp drop_nil_values(value, path) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, nested}, acc ->
-      case drop_nil_values(nested) do
-        nil -> acc
-        normalized -> Map.put(acc, key, normalized)
+      child_path = path ++ [key]
+
+      case drop_nil_values(nested, child_path) do
+        nil ->
+          put_preserved_nil(acc, key, child_path)
+
+        normalized ->
+          Map.put(acc, key, normalized)
       end
     end)
   end
 
-  defp drop_nil_values(value) when is_list(value), do: Enum.map(value, &drop_nil_values/1)
-  defp drop_nil_values(value), do: value
+  defp drop_nil_values(value, path) when is_list(value), do: Enum.map(value, &drop_nil_values(&1, path))
+  defp drop_nil_values(value, _path), do: value
+
+  defp put_preserved_nil(acc, key, path) do
+    if preserve_nil_path?(path), do: Map.put(acc, key, nil), else: acc
+  end
+
+  # max_load_average defaults to 1.5 (gate on), so an explicit YAML null is the
+  # only way to disable the gate. Without this, drop_nil_values/2 would strip the
+  # null before the changeset, letting the default silently re-enable the gate.
+  # Keep this path aligned with the Agent schema field's location.
+  defp preserve_nil_path?(["agent", "max_load_average"]), do: true
+  defp preserve_nil_path?(_path), do: false
 
   defp resolve_secret_setting(nil, fallback), do: normalize_secret_value(fallback)
 

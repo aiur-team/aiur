@@ -81,6 +81,16 @@ defmodule Aiur.Init do
   @external_resource @aiurhooks_example_path
   @aiurhooks_example_template File.read!(@aiurhooks_example_path)
 
+  # The scaffolded config references the alert sound map via `alerts_file: alerts`,
+  # so init also writes an extensionless `.aiur/alerts` (from
+  # `.aiur/examples/alerts.example`) next to the config — matching the `.aiur/`
+  # convention where config-like files have no extension. Embedded at compile time
+  # so the wizard works from a release with no runtime file dependency.
+  @alerts_file_name "alerts"
+  @alerts_example_path Path.expand("../../../.aiur/examples/alerts.example", __DIR__)
+  @external_resource @alerts_example_path
+  @alerts_example_template File.read!(@alerts_example_path)
+
   @type io :: %{
           puts: (IO.chardata() -> :ok),
           input: (String.t(), String.t() | nil, String.t() | nil -> String.t() | nil),
@@ -103,6 +113,7 @@ defmodule Aiur.Init do
           append_config: (Path.t(), iodata() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
+          ensure_alerts: (Path.t() -> {:created | :exists, Path.t()}),
           ensure_prewarm_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
           add_gitignore_entry: (String.t() -> {:added | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
@@ -287,6 +298,7 @@ defmodule Aiur.Init do
         io.puts.(["Created: ", dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         ensure_aiurhooks(io, deps, path)
+        ensure_alerts(io, deps, path)
         ensure_prewarm_file(io, deps, path, prewarm)
         setup_env(io, deps, tracker)
         maybe_offer_gitignore(io, deps, location)
@@ -560,32 +572,57 @@ defmodule Aiur.Init do
   end
 
   # Optional per-complexity-tag routing. With the gate accepted, each story-point
-  # tag (1-5) picks a default model; declining routes every tag to the primary
-  # agent's default model. Remote mode is not chosen here — it is applied per
-  # ticket via the model:remote tag (explained when tags are listed).
+  # tag (1-5) picks backend, model, then backend-native effort. Declining routes
+  # every tag to the primary agent's default backend/model/effort. Remote mode is
+  # not chosen here — it is applied per ticket via the model:remote tag
+  # (explained when tags are listed).
   defp prompt_routing(io, agents) do
     primary = primary_kind(agents)
 
     io.puts.("Aiur supports story point complexity tags to optimize agent effort per ticket.")
 
-    if io.confirm.("Would you like to select models for 5 complexity tags?", false) do
-      options = routing_options(agents)
-      io.puts.("Select default model for issues with the following story points (1-5):")
-      Map.new(1..5, fn level -> {level, value_of(io.select.("complexity:#{level}", options, primary))} end)
+    if io.confirm.("Would you like to select models and effort for 5 complexity tags?", false) do
+      io.puts.("Select backend, model, and effort for issues with the following story points (1-5):")
+      Map.new(1..5, fn level -> {level, prompt_routing_level(io, agents, level, primary)} end)
     else
       Map.new(1..5, fn level -> {level, primary} end)
     end
   end
 
-  # The bare-backend option runs the backend's own default model; the
-  # "(default model)" help is greyed by dim_help/1 and stripped to the bare
-  # value by value_of/1.
-  defp routing_options(agents) do
-    Enum.flat_map(agents, fn kind ->
-      models = CodingAgent.backends() |> Map.get(kind, %{}) |> Map.get(:models, [])
-      ["#{kind} (default model)" | Enum.map(models, &"#{kind}:#{&1}")]
-    end)
+  defp prompt_routing_level(io, agents, level, primary) do
+    backend = io.select.("complexity:#{level} backend", agents, primary) |> value_of()
+    model = prompt_routing_model(io, backend, level)
+    effort = prompt_routing_effort(io, backend, level)
+
+    routing_value(backend, model, effort)
   end
+
+  defp prompt_routing_model(io, backend, level) do
+    models = CodingAgent.backends() |> Map.get(backend, %{}) |> Map.get(:models, [])
+
+    case io.select.("complexity:#{level} #{backend} model", ["default model" | models], "default model") |> value_of() do
+      "default model" -> nil
+      model -> model
+    end
+  end
+
+  defp prompt_routing_effort(io, backend, level) do
+    case CodingAgent.efforts(backend) do
+      [] ->
+        nil
+
+      efforts ->
+        case io.select.("complexity:#{level} #{backend} effort", ["default effort" | efforts], "default effort") |> value_of() do
+          "default effort" -> nil
+          effort -> effort
+        end
+    end
+  end
+
+  defp routing_value(backend, nil, nil), do: backend
+  defp routing_value(backend, model, nil), do: "#{backend}:#{model}"
+  defp routing_value(backend, nil, effort), do: "#{backend}::#{effort}"
+  defp routing_value(backend, model, effort), do: "#{backend}:#{model}:#{effort}"
 
   # Only bypassPermissions works for autonomous agents; the interactive modes
   # would hang waiting for approvals, so they are offered but redirected.
@@ -774,13 +811,24 @@ defmodule Aiur.Init do
 
   # --- Alert sound opt-in ---
 
-  # A final opt-in for cross-platform alert sounds. "Yes" enables playback and
-  # the built-in macOS/Linux OS-default sound set; "no" writes the section
-  # disabled. Sounds are machine-level, so this is offered for global configs
-  # too (unlike prewarm, which is per-repo).
+  # A final opt-in for cross-platform alert sounds. The first question is the
+  # on/off master switch; on "yes" a second question lets the operator pick the
+  # built-in macOS/Linux OS-default set or the fully customizable topic→sound map
+  # — pointing them at the `.aiur/alerts` file init scaffolds so the customization
+  # surface is discoverable, not just the on/off setting. Either way init writes
+  # `.aiur/alerts`; the map is only consulted when OS-default sounds are off.
+  # Sounds are machine-level, so this is offered for global configs too (unlike
+  # prewarm, which is per-repo).
   defp prompt_alerts(io) do
     if io.confirm.("Add sound effects for alerts (e.g. an agent is stuck or needs your input)?", false) do
-      %{enabled: true, use_os_default_sounds: true}
+      io.puts.([
+        "aiur scaffolds an editable ",
+        dim(".aiur/alerts"),
+        " map so you can set a custom sound per event."
+      ])
+
+      use_os = io.confirm.("Use the built-in OS default sounds? (No = play the custom .aiur/alerts mapping)", true)
+      %{enabled: true, use_os_default_sounds: use_os}
     else
       %{enabled: false, use_os_default_sounds: false}
     end
@@ -865,6 +913,16 @@ defmodule Aiur.Init do
   # an existing one — the dev may have tuned it for their toolchain.
   defp ensure_aiurhooks(io, deps, target) do
     case deps.ensure_aiurhooks.(target) do
+      {:created, path} -> io.puts.(["Created: ", dim(path)])
+      {:exists, _path} -> :ok
+    end
+  end
+
+  # The scaffolded config references the alert sound map via `alerts_file: alerts`,
+  # so make sure `.aiur/alerts` exists (created from alerts.example). Never clobber
+  # an existing one — the operator may have tuned the topic→sound map.
+  defp ensure_alerts(io, deps, target) do
+    case deps.ensure_alerts.(target) do
       {:created, path} -> io.puts.(["Created: ", dim(path)])
       {:exists, _path} -> :ok
     end
@@ -1233,6 +1291,7 @@ defmodule Aiur.Init do
       append_config: &append_config_section/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
+      ensure_alerts: &write_alerts_file/1,
       ensure_prewarm_file: &write_prewarm_file/2,
       add_gitignore_entry: &add_gitignore_entry/1,
       ensure_env: &ensure_env/1,
@@ -1304,6 +1363,17 @@ defmodule Aiur.Init do
       {:exists, path}
     else
       File.write!(path, @aiurhooks_example_template)
+      {:created, path}
+    end
+  end
+
+  defp write_alerts_file(target) do
+    path = Path.join(Path.dirname(target), @alerts_file_name)
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      File.write!(path, @alerts_example_template)
       {:created, path}
     end
   end
@@ -1488,6 +1558,10 @@ defmodule Aiur.Init do
   @doc "Raw .aiurhooks template that `aiur init` scaffolds."
   @spec aiurhooks_template() :: String.t()
   def aiurhooks_template, do: @aiurhooks_example_template
+
+  @doc "Raw alert sound map template that `aiur init` scaffolds as `.aiur/alerts`."
+  @spec alerts_template() :: String.t()
+  def alerts_template, do: @alerts_example_template
 
   @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
   @spec prompt_file_template() :: String.t()

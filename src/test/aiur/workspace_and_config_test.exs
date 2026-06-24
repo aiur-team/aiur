@@ -1,7 +1,9 @@
 defmodule Aiur.WorkspaceAndConfigTest do
   use Aiur.TestSupport
+  alias Aiur.CodingAgent
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Codex, StringOrMap}
+  alias Aiur.Issue
   alias Aiur.Linear.Client
   alias Ecto.Changeset
 
@@ -1320,18 +1322,43 @@ defmodule Aiur.WorkspaceAndConfigTest do
              _ -> false
            end)
 
-    # backend:model routing values: the backend part must be known, the
-    # model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
+    # backend:model:effort routing values: the backend part must be known,
+    # the model suffix is free-form (e.g. complexity:5 -> claude:sonnet).
     assert Schema.split_routing_value("claude") == {"claude", nil}
     assert Schema.split_routing_value("claude:sonnet") == {"claude", "sonnet"}
+    assert Schema.split_routing_value("claude:sonnet:high") == {"claude", "sonnet"}
+    assert Schema.split_routing_value("claude::high") == {"claude", nil}
     assert Schema.split_routing_value("codex:gpt-5.5") == {"codex", "gpt-5.5"}
+    assert Schema.routing_effort("claude:sonnet:high") == "high"
+    assert Schema.routing_effort("claude:sonnet:high+remote") == "high"
+    assert Schema.routing_effort("claude-repl::xhigh") == "xhigh"
+    assert Schema.routing_effort("claude:sonnet") == nil
 
     with_model =
       {%{}, %{routing: :map}}
-      |> Changeset.cast(%{routing: %{4 => "claude:sonnet", 5 => "codex"}}, [:routing])
+      |> Changeset.cast(%{routing: %{3 => "claude:sonnet:high+remote", 4 => "claude-repl:sonnet:max", 5 => "codex::high"}}, [
+        :routing
+      ])
       |> Schema.validate_agent_routing(:routing)
 
     assert with_model.errors == []
+
+    bad_effort =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.5:max"}}, [:routing])
+      |> Schema.validate_agent_routing(:routing)
+
+    assert Enum.count(bad_effort.errors) == 2
+
+    assert Enum.any?(bad_effort.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "high" for backend "claude")
+             _ -> false
+           end)
+
+    assert Enum.any?(bad_effort.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(invalid effort "max" for backend "codex")
+             _ -> false
+           end)
 
     bad_model_backend =
       {%{}, %{routing: :map}}
@@ -1375,6 +1402,29 @@ defmodule Aiur.WorkspaceAndConfigTest do
            end)
   end
 
+  test "agent routing resolves backend model and effort per complexity" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "codex",
+      agent_routing: %{4 => "claude-repl:sonnet:max", 5 => "codex::high"}
+    )
+
+    claude_issue = %Issue{labels: ["complexity:4"]}
+    codex_issue = %Issue{labels: ["complexity:5"]}
+
+    assert CodingAgent.backend_for(claude_issue) == "claude-repl"
+    assert CodingAgent.model_for(claude_issue) == "sonnet"
+    assert CodingAgent.effort_for(claude_issue) == "max"
+
+    assert CodingAgent.backend_for(codex_issue) == "codex"
+    assert CodingAgent.model_for(codex_issue) == nil
+    assert CodingAgent.effort_for(codex_issue) == "high"
+
+    override_issue = %Issue{labels: ["complexity:4", "model:codex-gpt-5.5"]}
+    assert CodingAgent.backend_for(override_issue) == "codex"
+    assert CodingAgent.model_for(override_issue) == "gpt-5.5"
+    assert CodingAgent.effort_for(override_issue) == nil
+  end
+
   test "remote_control opt-in defaults OFF and parses an explicit true" do
     # Setting #2 is orthogonal to :kind; the default is the single flip
     # point for always-remote, so a fresh parse must land on false.
@@ -1403,12 +1453,25 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, max_log_history_mb: 0})
   end
 
-  test "agent.max_load_average defaults to disabled, casts integers, rejects non-positive" do
-    # The CPU load gate (#465) is opt-in: an absent key must yield nil (no
-    # throttling, byte-for-byte back-compat), an explicit value must round-trip
-    # as a float, a YAML-written integer must cast (not error), and a
-    # non-positive threshold must be rejected (it would stall all dispatch).
+  test "agent.max_load_average defaults to protected, casts integers, preserves explicit disable" do
+    # The CPU load gate (#465) is default-on: an absent key must yield the
+    # conservative per-scheduler threshold, an explicit YAML null must still
+    # disable the gate, an explicit value must round-trip as a float, a
+    # YAML-written integer must cast (not error), and a non-positive threshold
+    # must be rejected (it would stall all dispatch).
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.max_load_average == 1.5
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: nil}})
+
+    assert settings.agent.max_load_average == nil
+
+    # Real YAML loads arrive string-keyed; the explicit null must survive
+    # drop_nil_values on that production shape too, not just the atom-keyed map.
+    assert {:ok, settings} =
+             Schema.parse(%{"tracker" => %{"kind" => "memory"}, "agent" => %{"max_load_average" => nil}})
+
     assert settings.agent.max_load_average == nil
 
     assert {:ok, settings} =
@@ -1423,6 +1486,27 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 0}})
+  end
+
+  test "agent.synthetic_load_process_cap defaults to derived nil and validates non-negative" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.synthetic_load_process_cap == nil
+
+    assert Aiur.Config.default_synthetic_load_process_cap(12) == 3
+    assert Aiur.Config.default_synthetic_load_process_cap(2) == 1
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: 0}})
+
+    assert settings.agent.synthetic_load_process_cap == 0
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: 5}})
+
+    assert settings.agent.synthetic_load_process_cap == 5
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: -1}})
   end
 
   test "prewarm defaults to disabled and validates poll_seconds" do

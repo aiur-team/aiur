@@ -74,6 +74,65 @@ ensure_built() {
   fi
 }
 
+in_agent_workspace_tree() {
+  local marker="${AIUR_AGENT_WORKSPACE:-}"
+  if [ -n "$marker" ]; then
+    printf '%s\n' "$marker"
+    return 0
+  fi
+
+  case "$repo_root" in
+    */aiur-workspaces/*)
+      printf '%s\n' "$repo_root"
+      return 0
+      ;;
+  esac
+
+  case "$PWD" in
+    */aiur-workspaces/*)
+      printf '%s\n' "$PWD"
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+agent_ir_port() {
+  local seed="$1" checksum
+  checksum="$(printf '%s' "$seed" | cksum | awk '{print $1}')"
+  printf '%s\n' "$((45000 + (checksum % 10000)))"
+}
+
+enable_agent_ir_sandbox() {
+  local marker="$1"
+  local sandbox_root="${AIUR_AGENT_IR_ROOT:-$marker/.aiur-agent-ir}"
+  local logs_parent="$sandbox_root/logs"
+  local state_dir="$sandbox_root/state"
+  local runtime_dir="$sandbox_root/runtime"
+  local config_dir="$sandbox_root/config"
+  local bridge_port
+
+  mkdir -p "$logs_parent" "$state_dir" "$runtime_dir" "$config_dir"
+
+  export AIUR_AGENT_IR_SANDBOX=1
+  export AIUR_AGENT_IR_ROOT="$sandbox_root"
+  export AIUR_AGENT_IR_LOGS_PARENT="$logs_parent"
+  export AIUR_BG_STATE_DIR="$state_dir"
+  export AIUR_COOKIE_FILE="$state_dir/cookie"
+  export AIUR_PROFILES_FILE="$config_dir/aiur.profiles"
+  export XDG_RUNTIME_DIR="$runtime_dir"
+  export AIUR_LOGS_ROOT="$logs_parent/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+  if [ -z "${AIUR_OPENCODE_BRIDGE_PORT:-}" ]; then
+    bridge_port="$(agent_ir_port "$marker")"
+    export AIUR_OPENCODE_BRIDGE_PORT="$bridge_port"
+  fi
+
+  echo "🧪 agent IR sandbox: $sandbox_root" >&2
+  echo "   workspace marker: $marker" >&2
+}
+
 # aiur spawns its own tmux on a dedicated socket and does not nest cleanly.
 if [ -n "${TMUX:-}" ]; then
   echo "❌ already inside a tmux session (\$TMUX is set)" >&2
@@ -98,8 +157,6 @@ if [ "${1:-}" = "build" ]; then
   exit 0
 fi
 
-ensure_built
-
 # --- dev test/debug harness (dev-only; never lives in the shared engine) -------
 # These flags don't exist in the product CLI. The shim consumes them, turns them
 # into a GitHub sandbox reset + AIUR_DEBUG, then hands the rest to the engine for
@@ -114,26 +171,56 @@ clear_mode=0
 test_single=0
 test3_mode=0
 allow_remote=0
+has_port=0
+expect_port_value=0
 passthrough=()
 for arg in "$@"; do
+  if [ "$expect_port_value" -eq 1 ]; then
+    passthrough+=("$arg")
+    expect_port_value=0
+    continue
+  fi
+
   case "$arg" in
     --debug) debug_mode=1 ;;
     --clear) clear_mode=1 ;;
     --allow-remote) allow_remote=1 ;;
     --force) passthrough+=("$arg") ;; # forward to the engine (e.g. `init --force`)
+    --port) has_port=1; passthrough+=("$arg"); expect_port_value=1 ;;
+    --port=*) has_port=1; passthrough+=("$arg") ;;
     --test) test_single=1 debug_mode=1 clear_mode=1 ;;
     --test3) test3_mode=1 debug_mode=1 clear_mode=1 allow_remote=1 ;;
     *) passthrough+=("$arg") ;;
   esac
 done
 
+if [ "$expect_port_value" -eq 1 ]; then
+  echo "❌ --port requires a value (e.g. --port 0 or --port=4000)" >&2
+  exit 64
+fi
+
 if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
   echo "❌ --clear requires --debug (e.g. aiurdev --debug --clear)" >&2
   exit 64
 fi
 
+if marker="$(in_agent_workspace_tree)"; then
+  enable_agent_ir_sandbox "$marker"
+  if { [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; } && [ "$has_port" -eq 0 ]; then
+    passthrough+=(--port 0)
+  fi
+fi
+
+ensure_built
+
 [ "$debug_mode" -eq 1 ] && export AIUR_DEBUG=1
-[ "$clear_mode" -eq 1 ] && rm -rf "$HOME/.aiur/logs/"* 2>/dev/null || true
+if [ "$clear_mode" -eq 1 ]; then
+  if [ -n "${AIUR_AGENT_IR_LOGS_PARENT:-}" ]; then
+    rm -rf "$AIUR_AGENT_IR_LOGS_PARENT/"* 2>/dev/null || true
+  else
+    rm -rf "$HOME/.aiur/logs/"* 2>/dev/null || true
+  fi
+fi
 
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   require_mise

@@ -1,24 +1,39 @@
-# Aiur alert definitions, keyed by event-topic glob patterns.
+# Aiur alert sound mapping, scaffolded by `aiur init` as `.aiur/alerts`.
 #
-# Matching rules (see lib/aiur/events/topic.ex):
+# This is the editable topic→sound map. It is only consulted when
+# `alerts.use_os_default_sounds: false` in `.aiur/config`; with OS-default
+# sounds on, the built-in macOS/Linux system sounds are used instead and this
+# file is left for reference (and for the per-category overrides documented
+# below). Playback is gated by `alerts.enabled` either way.
+#
+# ---------------------------------------------------------------------------
+# Sound filenames
+# ---------------------------------------------------------------------------
+# Each entry's `sound:` is a list; one clip is picked at random per event.
+# A value is resolved as:
+#   - `~/foo.wav` or `/abs/foo.wav` — used as-is (the `~/alerts/*.wav` defaults
+#     below assume you dropped clips in `~/alerts`).
+#   - `http(s)://…`                 — played as a URL.
+#   - a bare `name.wav`             — resolved inside `alerts.sound_dir` from
+#                                     `.aiur/config` (so you can point a whole
+#                                     folder of custom clips at the map at once).
+#
+# ---------------------------------------------------------------------------
+# OS-default mode (`use_os_default_sounds: true`)
+# ---------------------------------------------------------------------------
+# Topics are bucketed into coarse categories (needs_input / stuck / done /
+# default) and mapped to a built-in OS system sound. To override a single
+# category, drop a `<category>.<ext>` file (e.g. `stuck.oga`) into
+# `alerts.sound_dir`; it wins over the OS default for that category.
+#
+# ---------------------------------------------------------------------------
+# Topic / glob matching (see lib/aiur/events/topic.ex)
+# ---------------------------------------------------------------------------
 #   - `*` matches exactly one topic segment
 #   - `#` matches zero or more segments
 #   - When multiple patterns match the same topic, the one with the most
 #     literal segments wins (specificity sort, descending). Ties broken
 #     lexicographically by pattern string.
-#
-# Authoritative-event-wins:
-#   - The `chat.send` entry was dropped in Ticket B (was already removed
-#     as noise in orchestrator.ex prior).
-#   - `task.merging` was dropped; the merge sound now fires on the
-#     GitHub-authoritative `ticket.*.pr.merged` event instead of the
-#     orchestrator's `task.*` label-flip path.
-#   - `task.done` was dropped; close sound now fires on the
-#     GitHub-authoritative `ticket.*.issue.state.changed` event with
-#     state: closed.
-#   - `task.cancelled` and `task.canceled` were consolidated into a
-#     single entry matching `state_reason: :not_planned` on
-#     `ticket.*.issue.state.changed`.
 
 alerts:
   # ---------- Ticket lifecycle (label-driven) -----------------------------
@@ -38,18 +53,6 @@ alerts:
       - "~/alerts/templar-state-your-will.wav"
       - "~/alerts/templar-i-am-ready.wav"
       - "~/alerts/archon-power-overwhelming.wav"
-      - "~/alerts/zealot/zealot-defend1.wav"
-      - "~/alerts/zealot/zealot-defend2.wav"
-      - "~/alerts/zealot/zealot-entaro-adun.wav"
-      - "~/alerts/zealot/zealot-all-for-the-empire.wav"
-      - "~/alerts/zealot/zealot-my-life-for-aiur.wav"
-      - "~/alerts/zealot/zealot-what-thou-cause.wav"
-      - "~/alerts/zealot/zealot-me-sa-chu.wav"
-      - "~/alerts/zealot/zealot-geehous.wav"
-      - "~/alerts/zealot/zealot-gaugurah.wav"
-      - "~/alerts/zealot/zealot-blasuserm.wav"
-      - "~/alerts/zealot/zealot-honor-guide-me.wav"
-      - "~/alerts/zealot/zealot-for-adun.wav"
   "ticket.*.issue.label.added.agent.in-progress":
     message: Task picked up
   "ticket.*.issue.label.added.agent.human-review":
@@ -57,11 +60,6 @@ alerts:
     sound:
       - "~/alerts/advisor-under-attack.wav"
       - "~/alerts/advisor-warriors-engaged-enemy.wav"
-      - "~/alerts/zealot/zealot-attack.wav"
-      - "~/alerts/zealot/zealot-doomed-to-all-who-threaten-the-home-world.wav"
-      - "~/alerts/zealot/zealot-i-long-for-combat.wav"
-      - "~/alerts/zealot/zealot-death.wav"
-      - "~/alerts/zealot/zealot-death-too.wav"
   "ticket.*.issue.label.added.agent.rework":
     message: Sent back for changes
 

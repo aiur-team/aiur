@@ -105,6 +105,22 @@ defmodule Aiur.ProcessReaper do
   end
 
   @doc """
+  Read registered process/pane entries for non-mutating runtime observers.
+
+  Returns an empty list when the reaper is unavailable so callers such as
+  `Aiur.AgentResourceGuard` fail open instead of crashing the supervision tree.
+  """
+  @spec entries() :: [{ref(), kind(), map()}]
+  def entries, do: entries(__MODULE__)
+
+  @spec entries(GenServer.server()) :: [{ref(), kind(), map()}]
+  def entries(server) do
+    GenServer.call(server, :entries, 5_000)
+  catch
+    :exit, _ -> []
+  end
+
+  @doc """
   Kill every registered entry of the given kinds and remove them. Options:
 
     * `:drain` — flip into draining mode (default false). Only shutdown
@@ -172,6 +188,15 @@ defmodule Aiur.ProcessReaper do
 
   def handle_call({:unregister, ref}, _from, state) do
     {:reply, :ok, %{state | entries: Map.delete(state.entries, ref)}}
+  end
+
+  def handle_call(:entries, _from, state) do
+    entries =
+      Enum.map(state.entries, fn {ref, {kind, meta}} ->
+        {ref, kind, meta}
+      end)
+
+    {:reply, entries, state}
   end
 
   def handle_call({:reap, kinds, opts}, _from, state) do

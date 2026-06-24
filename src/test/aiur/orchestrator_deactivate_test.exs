@@ -9,6 +9,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
 
+  defmodule ErrorLinearClient do
+    def fetch_issue_states_by_ids(_issue_ids), do: {:error, :tracker_down}
+  end
+
   describe "reconcile with nil / non-binary issue state (crash regression)" do
     # Live crash signature (from production logs):
     #   ** (FunctionClauseError) no function clause matching in
@@ -767,7 +771,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "reactivates a :deactivated entry on ticket.<N>.issue.commented" do
+    test "reactivates a :deactivated entry on ticket.<N>.issue.commented when refreshed state is active" do
       test_root =
         Path.join(
           System.tmp_dir!(),
@@ -778,15 +782,28 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # The firehose resolves PR-conversation comments back to the ticket
       # id before publishing, so the topic number is the agent identifier.
       issue_identifier = "7"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
 
       try do
         write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
           workspace_root: test_root,
           tracker_active_states: ["todo", "in-progress", "rework", "merging"],
           tracker_terminal_states: ["done", "cancelled", "canceled"]
         )
 
         File.mkdir_p!(test_root)
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{
+            id: issue_id,
+            identifier: issue_identifier,
+            state: "in-progress",
+            title: "Rework requested",
+            description: "",
+            labels: []
+          }
+        ])
 
         state = %Orchestrator.State{
           running: %{
@@ -812,8 +829,291 @@ defmodule Aiur.OrchestratorDeactivateTest do
           )
 
         entry = Map.fetch!(next.running, issue_id)
+        assert entry.issue.state == "in-progress"
         refute get_in(entry, [:control, :status]) == :deactivated
       after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "reactivates a :deactivated entry on ticket.<N>.pr.review_comment when refreshed state is active" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-pr-review-comment-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-pr-review-comment-1"
+      issue_identifier = "44"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{
+            id: issue_id,
+            identifier: issue_identifier,
+            state: "in-progress",
+            title: "Review comment requested rework",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        {:noreply, next} =
+          Orchestrator.handle_info(
+            {:event, %{topic: "ticket.#{issue_identifier}.pr.review_comment"}},
+            state
+          )
+
+        entry = Map.fetch!(next.running, issue_id)
+        assert entry.issue.state == "in-progress"
+        refute get_in(entry, [:control, :status]) == :deactivated
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "does not reactivate a human-review entry on ticket.<N>.issue.commented" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-issue-commented-human-review-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-issue-commented-hr"
+      issue_identifier = "43"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{
+            id: issue_id,
+            identifier: issue_identifier,
+            state: "human-review",
+            title: "Ready for human review",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        {:noreply, next} =
+          Orchestrator.handle_info(
+            {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+            state
+          )
+
+        entry = Map.fetch!(next.running, issue_id)
+        assert get_in(entry, [:control, :status]) == :deactivated
+        assert entry.pid == nil
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "does not reactivate when refreshed issue is missing" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-issue-commented-missing-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-issue-commented-missing"
+      issue_identifier = "45"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :memory_tracker_issues, [])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        parent = self()
+
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            send(
+              parent,
+              Orchestrator.handle_info(
+                {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+                state
+              )
+            )
+          end)
+
+        assert_receive {:noreply, next}
+        entry = Map.fetch!(next.running, issue_id)
+        assert get_in(entry, [:control, :status]) == :deactivated
+        assert entry.pid == nil
+        assert log =~ "issue_id=#{issue_id} issue_identifier=#{issue_identifier}"
+        assert log =~ "reason=:missing"
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "does not reactivate when tracker refresh fails" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-issue-commented-refresh-error-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "issue-issue-commented-refresh-error"
+      issue_identifier = "46"
+      previous_linear_client = Application.get_env(:aiur, :linear_client_module)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "linear",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        Application.put_env(:aiur, :linear_client_module, ErrorLinearClient)
+        File.mkdir_p!(test_root)
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        parent = self()
+
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            send(
+              parent,
+              Orchestrator.handle_info(
+                {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+                state
+              )
+            )
+          end)
+
+        assert_receive {:noreply, next}
+        entry = Map.fetch!(next.running, issue_id)
+        assert get_in(entry, [:control, :status]) == :deactivated
+        assert entry.pid == nil
+        assert log =~ "issue_id=#{issue_id} issue_identifier=#{issue_identifier}"
+        assert log =~ "reason=:tracker_down"
+      after
+        if previous_linear_client do
+          Application.put_env(:aiur, :linear_client_module, previous_linear_client)
+        else
+          Application.delete_env(:aiur, :linear_client_module)
+        end
+
         File.rm_rf(test_root)
       end
     end

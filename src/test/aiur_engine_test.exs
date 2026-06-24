@@ -442,12 +442,13 @@ defmodule AiurEngineTest do
     kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
     expected_session="$TMP_ROOT/aiur-$$-sessions"
     expected_agents="$TMP_ROOT/aiur-$$-agents"
+    expected_workspace_root="$TMP_ROOT/aiur-$$-workspace-root"
     set +e
     ( run_session background )
     code=$?
     set -e
     echo "CODE=$code"
-    for path in "$TMP_ROOT/argv" "$TMP_ROOT/startup" "$TMP_ROOT/launcher" "$expected_session" "$expected_agents"; do
+    for path in "$TMP_ROOT/argv" "$TMP_ROOT/startup" "$TMP_ROOT/launcher" "$expected_session" "$expected_agents" "$expected_workspace_root"; do
       if [ -e "$path" ]; then echo "LEFT:${path##*/}"; else echo "REMOVED:${path##*/}"; fi
     done
     cat "$EVENTS"
@@ -556,7 +557,7 @@ defmodule AiurEngineTest do
     assert out =~ "aiur started in the background"
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
-    assert events_log =~ ~r/ 1 1 \S+-workspace-root\n/
+    assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root\n/
     assert events_log =~ "DISOWN:424242"
   end
 

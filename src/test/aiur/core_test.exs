@@ -423,7 +423,7 @@ defmodule Aiur.CoreTest do
         workspace_root: test_root,
         tracker_active_states: ["Todo", "In Progress", "In Review"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"],
-        poll_interval_ms: 30_000
+        poll_interval_seconds: 30
       )
 
       Application.put_env(:aiur, :memory_tracker_issues, [])
@@ -948,8 +948,9 @@ defmodule Aiur.CoreTest do
     assert prompt =~ "brainstorm.start"
     assert prompt =~ "### Complexity routing"
     assert prompt =~ "label-based complexity is the default"
-    assert prompt =~ "Complexity routing note in PR descriptions"
-    assert prompt =~ "untagged"
+    assert prompt =~ "### PR description shape"
+    assert prompt =~ "Do not include complexity-routing explanations"
+    assert prompt =~ "If the issue has no complexity label"
     assert prompt =~ "### Whose comments to act on"
     assert prompt =~ "use CODEOWNERS as the authority signal"
     assert prompt =~ "Agent comments on their own issue or PR are never authoritative"

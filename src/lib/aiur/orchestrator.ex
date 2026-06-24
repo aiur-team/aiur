@@ -754,13 +754,55 @@ defmodule Aiur.Orchestrator do
 
   defp reactivate_if_deactivated(state, running_entry, issue_number, source) do
     if deactivated_running_entry?(running_entry) do
-      Logger.info("#{source} reactivating: identifier=#{issue_number}")
-
-      {_reply, next_state} = reactivate_issue(state, running_entry)
-      next_state
+      revalidate_comment_reactivation(state, running_entry, issue_number, source)
     else
       state
     end
+  end
+
+  defp revalidate_comment_reactivation(state, running_entry, issue_number, source) do
+    context = comment_reactivation_context(running_entry, issue_number)
+
+    case fetch_current_reactivation_issue(running_entry) do
+      {:ok, %Issue{} = refreshed_issue} ->
+        reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
+
+      {:skip, reason} ->
+        Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+        state
+
+      {:error, reason} ->
+        Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp fetch_current_reactivation_issue(%{issue: %Issue{id: issue_id} = issue})
+       when is_binary(issue_id) do
+    case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
+      {:ok, %Issue{} = refreshed_issue} -> {:ok, refreshed_issue}
+      {:skip, %Issue{} = refreshed_issue} -> {:skip, refreshed_issue.state}
+      {:skip, :missing} -> {:skip, :missing}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_current_reactivation_issue(_running_entry), do: {:skip, :missing_issue_id}
+
+  defp reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source) do
+    issue_id = refreshed_issue.id
+    refreshed_entry = Map.put(running_entry, :issue, refreshed_issue)
+    state = %{state | running: Map.put(state.running, issue_id, refreshed_entry)}
+
+    Logger.info("#{source} reactivating: issue_id=#{issue_id} issue_identifier=#{issue_number}")
+
+    {_reply, next_state} = reactivate_issue(state, refreshed_entry)
+    next_state
+  end
+
+  defp comment_reactivation_context(running_entry, issue_number) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    "issue_id=#{issue_id} issue_identifier=#{issue_number}"
   end
 
   defp event_digest_summary(event) when is_map(event) do
@@ -905,7 +947,7 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   # Reads the host 1-min load only when the gate is enabled (threshold > 0), so
-  # the disabled default never touches /proc. Exposed for unit-testing the
+  # explicit-disable configs never touch /proc. Exposed for unit-testing the
   # short-circuit; the pure hold/dispatch decision is load_gate/3.
   @spec read_load(number() | nil) :: float() | :unavailable
   def read_load(threshold) when is_number(threshold) and threshold > 0, do: SystemLoad.avg1()

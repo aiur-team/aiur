@@ -485,6 +485,59 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "formats structured codex activity when the event itself is a map", %{orchestrator: pid} do
+      activity = %{
+        event: :notification,
+        message: %{
+          "method" => "item/started",
+          "params" => %{"item" => %{"type" => "reasoning", "content" => [], "summary" => []}}
+        },
+        timestamp: DateTime.utc_now()
+      }
+
+      active =
+        "issue-46"
+        |> running_entry("repo#46", :working)
+        |> Map.merge(%{
+          codex_app_server_pid: nil,
+          last_codex_timestamp: DateTime.utc_now(),
+          last_codex_event: activity,
+          last_codex_message: nil
+        })
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-46" => active}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "#46"
+      assert output =~ "item started: reasoning"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "inspects unexpected non-string activity without crashing", %{orchestrator: pid} do
+      active =
+        "issue-47"
+        |> running_entry("repo#47", :working)
+        |> Map.merge(%{
+          codex_app_server_pid: nil,
+          last_codex_timestamp: DateTime.utc_now(),
+          last_codex_event: {:unexpected, %{payload: make_ref()}},
+          last_codex_message: nil
+        })
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-47" => active}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "#47"
+      assert output =~ "{:unexpected,"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
     test "reports a clear error when the orchestrator is unavailable", %{orchestrator: pid} do
       Process.unregister(Orchestrator)
 

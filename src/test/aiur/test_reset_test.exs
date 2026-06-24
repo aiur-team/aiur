@@ -7,9 +7,61 @@ defmodule Aiur.TestResetTest do
     tmp_dir = Path.join(System.tmp_dir!(), "aiur_test_reset_#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp_dir)
 
-    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    previous_agent_workspace = System.get_env("AIUR_AGENT_WORKSPACE")
+    previous_agent_ir_sandbox = System.get_env("AIUR_AGENT_IR_SANDBOX")
+    System.delete_env("AIUR_AGENT_WORKSPACE")
+    System.delete_env("AIUR_AGENT_IR_SANDBOX")
+
+    on_exit(fn ->
+      File.rm_rf!(tmp_dir)
+      restore_system_env("AIUR_AGENT_WORKSPACE", previous_agent_workspace)
+      restore_system_env("AIUR_AGENT_IR_SANDBOX", previous_agent_ir_sandbox)
+    end)
 
     %{tmp_dir: tmp_dir}
+  end
+
+  defp with_env(overrides, fun) do
+    previous = Map.new(overrides, fn {key, _value} -> {key, System.get_env(key)} end)
+
+    Enum.each(overrides, fn
+      {key, nil} -> System.delete_env(key)
+      {key, value} -> System.put_env(key, value)
+    end)
+
+    try do
+      fun.()
+    after
+      Enum.each(previous, fn
+        {key, nil} -> System.delete_env(key)
+        {key, value} -> System.put_env(key, value)
+      end)
+    end
+  end
+
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
+
+  defp write_reset_fixture!(tmp, tickets \\ [101, 102, 103]) do
+    File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
+
+    {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
+    {_, 0} = System.cmd("git", ["config", "user.email", "t@example.com"], cd: tmp)
+    {_, 0} = System.cmd("git", ["config", "user.name", "Test"], cd: tmp)
+
+    for name <- [
+          "event_flow_demo.ex",
+          "event_flow_unrelated_1.ex",
+          "event_flow_unrelated_2.ex",
+          "event_flow_unrelated_3.ex"
+        ] do
+      File.write!(Path.join([tmp, "src/lib/aiur/sandbox", name]), "defmodule X do\nend\n")
+    end
+
+    File.write!(Path.join(tmp, ".aiur-test-tickets.json"), Jason.encode!(%{"tickets" => tickets}))
+
+    {_, 0} = System.cmd("git", ["add", "."], cd: tmp)
+    {_, 0} = System.cmd("git", ["commit", "-m", "baseline"], cd: tmp)
   end
 
   describe "guards" do
@@ -66,6 +118,63 @@ defmodule Aiur.TestResetTest do
       after
         File.cd!(original_cwd)
         File.rm_rf!(tmp)
+      end
+    end
+
+    test "ABORT: direct reset from agent workspace env marker remains blocked", %{tmp_dir: tmp_dir} do
+      write_reset_fixture!(tmp_dir)
+
+      with_env(
+        [
+          {"AIUR_AGENT_WORKSPACE", "/tmp/aiur-workspaces/repo/334"},
+          {"AIUR_AGENT_IR_SANDBOX", nil}
+        ],
+        fn ->
+          assert {:error, :agent_workspace_blocked} =
+                   TestReset.run(%{repo_root: tmp_dir, confirm: false, allow_remote: true})
+        end
+      )
+    end
+
+    test "agent IR sandbox marker allows reset guard to proceed", %{tmp_dir: tmp_dir} do
+      write_reset_fixture!(tmp_dir)
+
+      with_env(
+        [
+          {"AIUR_AGENT_WORKSPACE", "/tmp/aiur-workspaces/repo/334"},
+          {"AIUR_AGENT_IR_SANDBOX", "1"}
+        ],
+        fn ->
+          assert :ok = TestReset.run(%{repo_root: tmp_dir, confirm: false, allow_remote: true})
+        end
+      )
+    end
+
+    test "ABORT: direct reset from aiur-workspaces repo path remains blocked" do
+      tmp =
+        Path.join([
+          System.tmp_dir!(),
+          "aiur-workspaces",
+          "repo",
+          "direct-reset-#{System.unique_integer([:positive])}"
+        ])
+
+      File.mkdir_p!(tmp)
+      write_reset_fixture!(tmp)
+
+      try do
+        with_env(
+          [
+            {"AIUR_AGENT_WORKSPACE", nil},
+            {"AIUR_AGENT_IR_SANDBOX", nil}
+          ],
+          fn ->
+            assert {:error, :agent_workspace_blocked} =
+                     TestReset.run(%{repo_root: tmp, confirm: false, allow_remote: true})
+          end
+        )
+      after
+        File.rm_rf!(Path.join(System.tmp_dir!(), "aiur-workspaces"))
       end
     end
   end

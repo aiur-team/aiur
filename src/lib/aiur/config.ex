@@ -267,12 +267,36 @@ defmodule Aiur.Config do
     settings!().agent.max_agent_duration_minutes
   end
 
-  # Per-scheduler 1-min load ceiling for the dispatch load gate (#465). nil
-  # disables the gate (the default); the orchestrator holds new dispatch while
-  # the load average exceeds this value times System.schedulers_online/0 (BEAM
-  # online schedulers, ~= cores unless +S-limited). A typical value is ~1.5; a
-  # value well under 1.0 can hold dispatch on any busy box — watch for the
-  # `aiur_perf load_hold` log if a run never dispatches.
+  @doc """
+  Maximum known synthetic load-generator descendants allowed per agent process
+  tree. `nil` in config derives from available schedulers; `0` disables the
+  guard for operators that prefer manual containment.
+  """
+  @spec synthetic_load_process_cap() :: non_neg_integer()
+  def synthetic_load_process_cap do
+    case settings!().agent.synthetic_load_process_cap do
+      cap when is_integer(cap) and cap >= 0 -> cap
+      _ -> default_synthetic_load_process_cap()
+    end
+  end
+
+  @spec default_synthetic_load_process_cap() :: pos_integer()
+  @spec default_synthetic_load_process_cap(integer()) :: pos_integer()
+  def default_synthetic_load_process_cap(schedulers \\ System.schedulers_online())
+
+  def default_synthetic_load_process_cap(schedulers) when is_integer(schedulers) and schedulers > 0 do
+    max(1, div(schedulers, 4))
+  end
+
+  def default_synthetic_load_process_cap(_schedulers), do: 1
+
+  # Per-scheduler 1-min load ceiling for the dispatch load gate (#465). Defaults
+  # to 1.5 so high-concurrency runs are protected out of the box; explicit YAML
+  # null disables the gate. The orchestrator holds new dispatch while the load
+  # average exceeds this value times System.schedulers_online/0 (BEAM online
+  # schedulers, ~= cores unless +S-limited). A value well under 1.0 can hold
+  # dispatch on any busy box — watch for the `aiur_perf load_hold` log if a run
+  # never dispatches.
   @spec max_load_average() :: float() | nil
   def max_load_average do
     settings!().agent.max_load_average

@@ -49,6 +49,7 @@ defmodule Aiur.ApplicationTest do
     @always [
       Aiur.Orchestrator,
       Aiur.ProcessReaper,
+      Aiur.AgentResourceGuard,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry

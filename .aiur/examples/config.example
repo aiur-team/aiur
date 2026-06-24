@@ -14,7 +14,8 @@ agent:
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
-  routing: {{ROUTING}}                   # complexity:<N> label -> backend (or backend:model, e.g. claude:sonnet)
+  # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
+  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.5:high
   claude:
     command: aiur-claude
     permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
@@ -31,6 +32,7 @@ agent:
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 300000             # watchdog for a silent agent
+  # max_load_average: 1.5                # per-scheduler load gate; set null to disable
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
@@ -60,7 +62,7 @@ alerts:
   enabled: {{ALERTS_ENABLED}}                  # master switch for alert sound playback (macOS + Linux)
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
-  # alerts_file: ~/my-alerts.yaml              # custom topic→sound mapping; use an absolute or ~/ path (a missing file falls back to the bundled alerts.yaml)
+  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the bundled alerts.yaml
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins

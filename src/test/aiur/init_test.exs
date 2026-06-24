@@ -94,6 +94,16 @@ defmodule Aiur.InitTest do
             {:created, path}
           end
         end,
+        ensure_alerts: fn t ->
+          path = Path.join(Path.dirname(t), "alerts")
+
+          if File.regular?(path) do
+            {:exists, path}
+          else
+            File.write!(path, "alerts: {}\n")
+            {:created, path}
+          end
+        end,
         ensure_prewarm_file: fn t, cmd ->
           path = Path.join(Path.dirname(t), "prewarm")
           File.write!(path, cmd <> "\n")
@@ -308,6 +318,35 @@ defmodule Aiur.InitTest do
       config = File.read!(target)
       assert config =~ ~r/alerts:\n\s+enabled: false/
       assert config =~ "use_os_default_sounds: false"
+    end
+
+    test "declining OS defaults selects the custom .aiur/alerts mapping", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            "Use the built-in OS default sounds? (No = play the custom .aiur/alerts mapping)" => false
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      config = File.read!(target)
+      assert config =~ ~r/alerts:\n\s+enabled: true/
+      assert config =~ "use_os_default_sounds: false"
+    end
+
+    test "scaffolds an extensionless .aiur/alerts next to the config", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      # The generated config points at the sibling map by relative name, and the
+      # map file is scaffolded next to the config (no extension).
+      assert File.read!(target) =~ ~r/^\s*alerts_file: alerts\s*(#.*)?$/m
+      assert File.regular?(Path.join(Path.dirname(target), "alerts"))
     end
   end
 
@@ -1013,11 +1052,14 @@ defmodule Aiur.InitTest do
       answers =
         github_answers(%{
           multiselect: %{"Which agents to support" => ["claude", "codex"]},
-          confirm: %{"Would you like to select models for 5 complexity tags?" => true},
+          confirm: %{"Would you like to select models and effort for 5 complexity tags?" => true},
           select: %{
-            "complexity:1" => "claude:haiku",
-            "complexity:2" => "codex",
-            "complexity:5" => "claude:sonnet"
+            "complexity:1 backend" => "claude",
+            "complexity:1 claude model" => "haiku",
+            "complexity:2 backend" => "codex",
+            "complexity:2 codex effort" => "high",
+            "complexity:5 backend" => "claude",
+            "complexity:5 claude model" => "sonnet"
           }
         })
 
@@ -1025,7 +1067,7 @@ defmodule Aiur.InitTest do
 
       routing = written_config(target)["agent"]["routing"]
       assert routing[1] == "claude:haiku"
-      assert routing[2] == "codex"
+      assert routing[2] == "codex::high"
       assert routing[5] == "claude:sonnet"
       # unscripted tags fall to the primary default; no remote prompt is asked.
       assert routing[3] == "claude"
@@ -1037,13 +1079,44 @@ defmodule Aiur.InitTest do
     test "declining the gate routes every tag to the primary default", %{dir: dir, target: target} do
       answers =
         github_answers(%{
-          confirm: %{"Would you like to select models for 5 complexity tags?" => false}
+          confirm: %{"Would you like to select models and effort for 5 complexity tags?" => false}
         })
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       routing = written_config(target)["agent"]["routing"]
       assert routing |> Map.values() |> Enum.uniq() == ["claude"]
+    end
+
+    test "routing effort choices are scoped to the selected backend", %{dir: dir, target: target} do
+      parent = self()
+
+      answers =
+        github_answers(%{
+          multiselect: %{"Which agents to support" => ["claude", "codex"]},
+          confirm: %{"Would you like to select models and effort for 5 complexity tags?" => true},
+          select: %{
+            "complexity:1 backend" => "claude",
+            "complexity:2 backend" => "codex"
+          }
+        })
+
+      base = io(parent, answers)
+
+      capturing = %{
+        base
+        | select: fn label, opts, default ->
+            send(parent, {:select_opts, label, opts})
+            Map.get(Map.get(answers, :select, %{}), label, default)
+          end
+      }
+
+      assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
+
+      refute_received {:select_opts, "complexity:1 claude effort", _claude_efforts}
+
+      assert_received {:select_opts, "complexity:2 codex effort", codex_efforts}
+      assert codex_efforts == ["default effort", "low", "medium", "high"]
     end
 
     test "interactive permission modes redirect to bypassPermissions", %{dir: dir, target: target} do
