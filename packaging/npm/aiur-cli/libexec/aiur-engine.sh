@@ -527,8 +527,18 @@ run_session() {
     "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
-  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
-  return $?
+  # Capture stderr in a tempfile instead of process substitution: some sandboxed
+  # pseudo-terminals reject /dev/fd/N redirections even though tmux itself works.
+  local attach_err attach_status
+  attach_err="$(mktemp "${TMPDIR:-/tmp}/aiur-attach.XXXXXX")"
+  if "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2>"$attach_err"; then
+    attach_status=0
+  else
+    attach_status=$?
+  fi
+  grep -v -F "[server exited]" "$attach_err" >&2 || true
+  rm -f "$attach_err"
+  return "$attach_status"
 }
 
 resolve_tmux_conf() {
@@ -950,7 +960,11 @@ run_control_rpc() {
     esac
   done <<<"$output"
 
-  [ "$saw_marker" -eq 1 ] || return 1
+  if [ "$saw_marker" -ne 1 ]; then
+    echo "aiur: control rpc to ${RELEASE_NODE} returned no exit marker; command output may be incomplete" >&2
+    return 1
+  fi
+
   return "$exit_code"
 }
 

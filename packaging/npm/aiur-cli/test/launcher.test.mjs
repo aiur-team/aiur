@@ -449,10 +449,16 @@ function setupControlRpc() {
       "#!/usr/bin/env bash",
       // Only the `rpc <expr>` form is modelled — the one run_control_rpc uses.
       'if [ "$1" = "rpc" ]; then',
+      '  expr="${*:2}"',
+      '  echo "RPC_EXPR:$expr" >>"$AIUR_TEST_OUT"',
       '  case "${AIUR_FAKE_RPC_MODE:-ok}" in',
       // Transport succeeds; the control CLI prints output + the exit marker.
       '    ok) echo ":ok"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
+      '    set_success) echo "aiur: max-agents set to 3 (2 active)"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
+      '    set_below_active) echo "aiur: failed to set max-agents (below active agent count)" >&2; echo "__AIUR_CONTROL_EXIT__:1"; exit 0 ;;',
       '    appfail) echo "__AIUR_CONTROL_EXIT__:7"; exit 0 ;;',
+      '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
+      '    missing_marker_empty) exit 0 ;;',
       // Transport fails the way Elixir --rpc-eval does for an unreachable node.
       '    noconnection) echo "--rpc-eval : RPC failed with reason :noconnection" >&2; exit 1 ;;',
       "  esac",
@@ -487,8 +493,8 @@ function setupControlRpc() {
   return { launcher, releaseDir };
 }
 
-function runControl(launcher, releaseDir, env) {
-  return spawnSync(launcher, ["pause", "--all"], {
+function runControl(launcher, releaseDir, env, args = ["pause", "--all"]) {
+  return spawnSync(launcher, args, {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -558,6 +564,85 @@ test("control rpc propagates the control CLI exit code on a successful rpc", () 
   expect(result.status).toBe(7);
   expect(result.stderr).not.toContain("no running aiur node");
   expect(result.stderr).not.toContain("rpc to");
+});
+
+test("set max-agents succeeds through the control rpc path", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "set_success",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    },
+    ["set", "max-agents", "3"],
+  );
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("aiur: max-agents set to 3 (2 active)");
+  expect(result.stderr).toBe("");
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("Aiur.AgentControlCLI.set_max_agents(3)");
+});
+
+test("set max-agents propagates below-active rejection output", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "set_below_active",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    },
+    ["set", "max-agents", "1"],
+  );
+
+  expect(result.status).toBe(1);
+  expect(result.stdout).toContain("below active agent count");
+  expect(result.stderr).not.toContain("no running aiur node");
+  expect(result.stderr).not.toContain("rpc to");
+});
+
+test("set max-agents rejects invalid values before rpc", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "set_success",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    },
+    ["set", "max-agents", "0"],
+  );
+
+  expect(result.status).toBe(64);
+  expect(result.stderr).toContain("expects a positive integer");
+  expect(existsSync(captureFile)).toBe(false);
+});
+
+test("control rpc reports output when the exit marker is missing", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "missing_marker",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+  });
+
+  expect(result.status).toBe(1);
+  expect(result.stdout).toContain("remote diagnostic");
+  expect(result.stderr).toContain("returned no exit marker");
+});
+
+test("control rpc is not silent when the exit marker and output are missing", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "missing_marker_empty",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+  });
+
+  expect(result.status).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("returned no exit marker");
 });
 
 // --- Update notifier -------------------------------------------------------

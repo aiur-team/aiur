@@ -72,14 +72,41 @@ defmodule ScriptsAiurdevTest do
 
     File.write!(
       path,
-      "#!/usr/bin/env bash\n" <>
-        "echo \"MISE: $*\"\n" <>
-        "echo \"MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
-        "echo \"MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
-        "echo \"MISE_AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
-        "echo \"MISE_XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}\"\n" <>
-        "echo \"MISE_AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n" <>
-        "exit 0\n"
+      ~S"""
+      #!/usr/bin/env bash
+      echo "MISE: $*"
+      echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
+      echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
+      echo "MISE_AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}"
+      echo "MISE_XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}"
+      echo "MISE_AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}"
+      if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--" ] && [ "${3:-}" = "mix" ]; then
+        case "${4:-}" in
+          deps.get|compile)
+            mkdir -p deps _build
+            ;;
+          release)
+            if [ -n "${AIUR_FAKE_MISE_RELEASE_LOG:-}" ]; then
+              echo "release start $$" >> "$AIUR_FAKE_MISE_RELEASE_LOG"
+            fi
+            if [ -n "${AIUR_FAKE_MISE_RELEASE_SLEEP:-}" ]; then
+              sleep "$AIUR_FAKE_MISE_RELEASE_SLEEP"
+            fi
+            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/releases/0.0.3
+            echo '#!/usr/bin/env bash' > bin/aiur
+            echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/bin/aiur
+            chmod +x bin/aiur _build/dev/rel/aiur/bin/aiur
+            echo '16.4 0.0.3' > _build/dev/rel/aiur/releases/start_erl.data
+            if [ "${AIUR_FAKE_MISE_FAIL_RELEASE:-}" = "1" ]; then
+              exit 9
+            fi
+            echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/releases/0.0.3/elixir
+            chmod +x _build/dev/rel/aiur/releases/0.0.3/elixir
+            ;;
+        esac
+      fi
+      exit 0
+      """
     )
 
     File.chmod!(path, 0o755)
@@ -100,7 +127,8 @@ defmodule ScriptsAiurdevTest do
     base_env = [
       {"AIUR_AGENT_WORKSPACE", nil},
       {"AIUR_AGENT_IR_SANDBOX", nil},
-      {"AIUR_AGENT_IR_ROOT", nil}
+      {"AIUR_AGENT_IR_ROOT", nil},
+      {"AIUR_OPENCODE_BRIDGE_PORT", nil}
     ]
 
     System.cmd("bash", [@script | args],
@@ -143,6 +171,54 @@ defmodule ScriptsAiurdevTest do
 
     refute out =~ "rebuilding"
     refute out =~ "force-rebuild"
+  end
+
+  test "concurrent stale rebuilds serialize and reuse the completed release" do
+    root = fake_repo()
+    mise = fake_mise()
+    log = Path.join(root, "release.log")
+
+    env = [
+      {"AIUR_REPO_ROOT", root},
+      {"AIUR_MISE_BIN", mise},
+      {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+      {"AIUR_FAKE_MISE_RELEASE_SLEEP", "0.5"},
+      {"TMUX", nil}
+    ]
+
+    tasks =
+      for _ <- 1..2 do
+        Task.async(fn -> run_shim(["status"], env) end)
+      end
+
+    results = Enum.map(tasks, &Task.await(&1, 10_000))
+
+    assert Enum.all?(results, fn {_out, code} -> code == 0 end)
+
+    release_starts =
+      log
+      |> File.read!()
+      |> String.split("\n", trim: true)
+
+    assert length(release_starts) == 1
+    assert File.exists?(Path.join([root, "src", "_build", "dev", "rel", "aiur", "releases", "0.0.3", "elixir"]))
+  end
+
+  test "failed rebuild removes the incomplete release and exits nonzero" do
+    root = fake_repo()
+    mise = fake_mise()
+
+    {out, code} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_FAIL_RELEASE", "1"},
+        {"TMUX", nil}
+      ])
+
+    assert code == 9
+    assert out =~ "aiur release rebuild failed"
+    refute File.exists?(Path.join([root, "src", "_build", "dev", "rel", "aiur"]))
   end
 
   test "--debug sets AIUR_DEBUG and is consumed, not forwarded to the engine" do
@@ -262,6 +338,30 @@ defmodule ScriptsAiurdevTest do
     refute trace_out =~ "#{home}/.aiur/logs"
   end
 
+  test "agent workspace non-test launch leaves bridge port to runtime selection" do
+    root = fake_agent_repo(337)
+    trace = engine_trace(root)
+
+    {out, 0} =
+      run_shim(["--bg", "--debug"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"AIUR_AGENT_WORKSPACE", root}
+      ])
+
+    trace_out = File.read!(trace)
+
+    assert out =~ "agent IR sandbox: #{Path.join(root, ".aiur-agent-ir")}"
+    assert out =~ "AIUR_AGENT_IR_SANDBOX: 1"
+    assert out =~ "AIUR_OPENCODE_BRIDGE_PORT: "
+    refute out =~ ~r/AIUR_OPENCODE_BRIDGE_PORT: \d+/
+    assert trace_out =~ "ENGINE_ARGS: --bg"
+    assert trace_out =~ "AIUR_OPENCODE_BRIDGE_PORT: "
+    refute trace_out =~ ~r/AIUR_OPENCODE_BRIDGE_PORT: \d+/
+  end
+
   test "agent workspace --test honors a caller-supplied port instead of forcing --port 0" do
     root = fake_agent_repo(335)
     home = sandbox_home()
@@ -337,6 +437,8 @@ defmodule ScriptsAiurdevTest do
     File.mkdir_p!(pwd)
 
     try do
+      expected_pwd = File.cd!(pwd, &File.cwd!/0)
+
       {out, 0} =
         run_shim(
           ["--test"],
@@ -351,13 +453,11 @@ defmodule ScriptsAiurdevTest do
           cd: pwd
         )
 
-      {real_pwd, 0} = System.cmd("pwd", ["-P"], cd: pwd)
-      real_pwd = String.trim(real_pwd)
-      real_sandbox_root = Path.join(real_pwd, ".aiur-agent-ir")
+      sandbox_root = Path.join(expected_pwd, ".aiur-agent-ir")
 
-      assert out =~ "workspace marker: #{real_pwd}"
-      assert out =~ "agent IR sandbox: #{real_sandbox_root}"
-      assert out =~ "MISE_AIUR_BG_STATE_DIR: #{real_sandbox_root}/state"
+      assert out =~ "workspace marker: #{expected_pwd}"
+      assert out =~ "agent IR sandbox: #{sandbox_root}"
+      assert out =~ "MISE_AIUR_BG_STATE_DIR: #{sandbox_root}/state"
       assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     after
       File.rm_rf(Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482"]))
