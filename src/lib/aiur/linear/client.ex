@@ -165,15 +165,16 @@ defmodule Aiur.Linear.Client do
       when is_binary(query) and is_map(variables) and is_list(opts) do
     payload = build_graphql_payload(query, variables, Keyword.get(opts, :operation_name))
     request_fun = Keyword.get(opts, :request_fun, &post_graphql_request/2)
-    log_errors? = Keyword.get(opts, :log_errors?, true)
+    quiet_auth_errors? = Keyword.get(opts, :quiet_auth_errors?, false)
 
     with {:ok, headers} <- graphql_headers(),
          {:ok, %{status: 200, body: body}} <- request_fun.(payload, headers) do
       {:ok, body}
     else
       {:ok, response} ->
-        maybe_log_graphql_error(
-          log_errors?,
+        maybe_log_graphql_status_error(
+          response.status,
+          quiet_auth_errors?,
           "Linear GraphQL request failed status=#{response.status}" <>
             linear_error_context(payload, response)
         )
@@ -181,13 +182,16 @@ defmodule Aiur.Linear.Client do
         {:error, {:linear_api_status, response.status}}
 
       {:error, reason} ->
-        maybe_log_graphql_error(log_errors?, "Linear GraphQL request failed: #{inspect(reason)}")
+        maybe_log_graphql_request_error(reason, quiet_auth_errors?, "Linear GraphQL request failed: #{inspect(reason)}")
         {:error, {:linear_api_request, reason}}
     end
   end
 
-  defp maybe_log_graphql_error(true, message), do: Logger.error(message)
-  defp maybe_log_graphql_error(false, _message), do: :ok
+  defp maybe_log_graphql_status_error(401, true, _message), do: :ok
+  defp maybe_log_graphql_status_error(_status, _quiet_auth_errors?, message), do: Logger.error(message)
+
+  defp maybe_log_graphql_request_error(:missing_linear_api_token, true, _message), do: :ok
+  defp maybe_log_graphql_request_error(_reason, _quiet_auth_errors?, message), do: Logger.error(message)
 
   @doc false
   @spec normalize_issue_for_test(map()) :: Issue.t() | nil

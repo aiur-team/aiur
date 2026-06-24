@@ -2766,28 +2766,17 @@ defmodule Aiur.Orchestrator do
   end
 
   defp ensure_terminal_workspace_cleanup_preflight(%State{} = state) do
-    settings = Config.settings!()
+    case ensure_tracker_preflight(state) do
+      {:error, reason, state} when reason in [:missing_linear_api_token, :missing_linear_project_slug] ->
+        {:skip, reason, state}
 
-    case settings.tracker.kind do
-      "linear" ->
-        cond do
-          not is_binary(settings.tracker.linear.api_key) ->
-            {:skip, :missing_linear_api_token, state}
-
-          not is_binary(settings.tracker.linear.project_slug) ->
-            {:skip, :missing_linear_project_slug, state}
-
-          true ->
-            {:ok, state}
-        end
-
-      _ ->
-        ensure_tracker_preflight(state)
+      result ->
+        result
     end
   end
 
   defp cleanup_terminal_workspaces_after_preflight(%State{} = state) do
-    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states, log_errors?: false) do
+    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states, quiet_auth_errors?: true) do
       {:ok, issues} ->
         Enum.each(issues, &cleanup_terminal_issue_workspace/1)
         state

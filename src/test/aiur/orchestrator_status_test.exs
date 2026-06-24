@@ -23,6 +23,27 @@ defmodule Aiur.OrchestratorStatusTest do
     end
   end
 
+  defmodule StartupCleanupGitHubClient do
+    def preflight_auth, do: :ok
+    def fetch_candidate_issues, do: {:ok, []}
+
+    def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
+
+    def fetch_issues_by_states(states, opts) do
+      notify({:github_startup_cleanup_fetch_issues_by_states, states, opts})
+      {:ok, []}
+    end
+
+    def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+
+    defp notify(message) do
+      case Application.get_env(:aiur, :startup_cleanup_test_pid) do
+        pid when is_pid(pid) -> send(pid, message)
+        _ -> :ok
+      end
+    end
+  end
+
   defp normalize(event), do: CodexCodingAgent.normalize_event(event)
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
@@ -99,6 +120,37 @@ defmodule Aiur.OrchestratorStatusTest do
     end
   end
 
+  test "startup terminal cleanup preserves full config preflight after Linear auth is present" do
+    previous_linear_client = Application.get_env(:aiur, :linear_client_module)
+    previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "linear",
+        tracker_api_token: "token",
+        tracker_project_slug: "project",
+        agent_kind: "bogus",
+        poll_interval_seconds: 60
+      )
+
+      Application.put_env(:aiur, :linear_client_module, StartupCleanupLinearClient)
+      Application.put_env(:aiur, :startup_cleanup_test_pid, self())
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert %Orchestrator.State{} =
+                   Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+        end)
+
+      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
+      assert log =~ "Skipping startup terminal workspace cleanup: {:unsupported_agent_kind, \"bogus\"}"
+      assert log =~ "[warning]"
+    after
+      restore_application_env(:linear_client_module, previous_linear_client)
+      restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+    end
+  end
+
   test "startup terminal cleanup suppresses Linear auth failure logs" do
     previous_linear_client = Application.get_env(:aiur, :linear_client_module)
     previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
@@ -121,7 +173,7 @@ defmodule Aiur.OrchestratorStatusTest do
         end)
 
       assert_received {:startup_cleanup_fetch_issues_by_states, opts}
-      assert Keyword.fetch!(opts, :log_errors?) == false
+      assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
       assert log =~ "Skipping startup terminal workspace cleanup; failed to fetch terminal issues: {:linear_api_status, 401}"
       refute log =~ "Linear GraphQL request failed"
       refute log =~ "[warning]"
@@ -129,6 +181,48 @@ defmodule Aiur.OrchestratorStatusTest do
     after
       restore_application_env(:linear_client_module, previous_linear_client)
       restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+    end
+  end
+
+  test "GitHub startup terminal cleanup does not depend on Linear auth" do
+    previous_github_client = Application.get_env(:aiur, :github_client_module)
+    previous_linear_client = Application.get_env(:aiur, :linear_client_module)
+    previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+
+    try do
+      System.put_env("GITHUB_TOKEN", "gh-test-token")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_terminal_states: ["done"],
+        poll_interval_seconds: 60
+      )
+
+      Application.put_env(:aiur, :github_client_module, StartupCleanupGitHubClient)
+      Application.put_env(:aiur, :linear_client_module, StartupCleanupLinearClient)
+      Application.put_env(:aiur, :startup_cleanup_test_pid, self())
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert %Orchestrator.State{} =
+                   Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+        end)
+
+      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
+      assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
+      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
+      refute log =~ "missing_linear_api_token"
+      refute log =~ "Linear GraphQL request failed"
+      refute log =~ "[warning]"
+      refute log =~ "[error]"
+    after
+      restore_application_env(:github_client_module, previous_github_client)
+      restore_application_env(:linear_client_module, previous_linear_client)
+      restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+      restore_env("GITHUB_TOKEN", previous_github_token)
     end
   end
 
