@@ -74,6 +74,7 @@ Confirm it actually worked:
 ## 5. Monitor (loop ~2 min)
 
 - **Agents** — `/aiur-monitor` (loop it: `/loop 2m /aiur-monitor`).
+- **Alerts** — relay operator-actionable alerts via `aiur-monitor`'s alert-relay (`tail-alerts.sh` → PushNotification).
 - **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
   concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
   `max_concurrent_agents` and relaunch.
