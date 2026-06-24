@@ -199,9 +199,12 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master
   switch; `use_os_default_sounds: true` plays built-in macOS/Linux system sounds out of the
   box (macOS via `afplay`, Linux via `paplay`/`canberra-gtk-play`/`aplay`); `sound_dir`
-  points at a folder of custom clips that overrides the defaults; `alerts_file` overrides the
-  topic→sound mapping (defaults to `alerts.yaml` at the repo root). Playback is fully gated by
-  `enabled` and is a no-op when no player binary or sound file is available.
+  points at a folder of custom clips that overrides the defaults; `alerts_file` points at the
+  topic→sound map. `aiur init` scaffolds an editable `.aiur/alerts` and sets `alerts_file: alerts`
+  (a relative value resolves next to `.aiur/config`); an absolute or `~/` path points elsewhere,
+  and when the file is unset or missing aiur falls back to the bundled `alerts.yaml` at the repo
+  root (legacy installs keep working). Playback is fully gated by `enabled` and is a no-op when no
+  player binary or sound file is available.
 
 ## Testing
 

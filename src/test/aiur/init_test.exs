@@ -94,6 +94,16 @@ defmodule Aiur.InitTest do
             {:created, path}
           end
         end,
+        ensure_alerts: fn t ->
+          path = Path.join(Path.dirname(t), "alerts")
+
+          if File.regular?(path) do
+            {:exists, path}
+          else
+            File.write!(path, "alerts: {}\n")
+            {:created, path}
+          end
+        end,
         ensure_prewarm_file: fn t, cmd ->
           path = Path.join(Path.dirname(t), "prewarm")
           File.write!(path, cmd <> "\n")
@@ -308,6 +318,35 @@ defmodule Aiur.InitTest do
       config = File.read!(target)
       assert config =~ ~r/alerts:\n\s+enabled: false/
       assert config =~ "use_os_default_sounds: false"
+    end
+
+    test "declining OS defaults selects the custom .aiur/alerts mapping", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            "Use the built-in OS default sounds? (No = play the custom .aiur/alerts mapping)" => false
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      config = File.read!(target)
+      assert config =~ ~r/alerts:\n\s+enabled: true/
+      assert config =~ "use_os_default_sounds: false"
+    end
+
+    test "scaffolds an extensionless .aiur/alerts next to the config", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      # The generated config points at the sibling map by relative name, and the
+      # map file is scaffolded next to the config (no extension).
+      assert File.read!(target) =~ ~r/^\s*alerts_file: alerts\s*(#.*)?$/m
+      assert File.regular?(Path.join(Path.dirname(target), "alerts"))
     end
   end
 
