@@ -54,8 +54,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
         assert_receive {:delivered, %{turn_id: "turn-followup"}}
         refute_receive {:delivery_failed, _reason}
 
-        turn_texts = traced_turn_texts(trace_file)
-        assert turn_texts == ["initial prompt", "focus on auth first"]
+        assert_turn_texts(trace_file, ["initial prompt", "focus on auth first"])
       after
         CodexAgent.stop_session(session)
       end
@@ -114,8 +113,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
         assert_receive {:delivered, %{turn_id: "turn-followup"}}
         refute_receive {:delivery_failed, _reason}
 
-        turn_texts = traced_turn_texts(trace_file)
-        assert turn_texts == ["initial prompt", "follow up in claude"]
+        assert_turn_texts(trace_file, ["initial prompt", "follow up in claude"])
       after
         ClaudeAgent.stop_session(session)
       end
@@ -142,6 +140,21 @@ defmodule Aiur.CodingAgentCheckpointTest do
     on_success = fn payload -> send(test_pid, {:delivered, payload}) end
     on_failure = fn reason -> send(test_pid, {:delivery_failed, reason}) end
     {:deliver_text, text, on_success, on_failure}
+  end
+
+  defp assert_turn_texts(trace_file, expected, attempts \\ 20)
+
+  defp assert_turn_texts(trace_file, expected, 0) do
+    assert traced_turn_texts(trace_file) == expected
+  end
+
+  defp assert_turn_texts(trace_file, expected, attempts) do
+    if traced_turn_texts(trace_file) == expected do
+      :ok
+    else
+      Process.sleep(10)
+      assert_turn_texts(trace_file, expected, attempts - 1)
+    end
   end
 
   defp traced_turn_texts(trace_file) do
