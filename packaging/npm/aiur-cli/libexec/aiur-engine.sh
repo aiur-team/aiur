@@ -585,7 +585,7 @@ kill_beams_matching() {
 }
 
 pid_owner() {
-  ps -p "$1" -o user= 2>/dev/null | awk '{print $1}'
+  ps -p "$1" -o user= 2>/dev/null | awk '{print $1}' || true
 }
 
 pid_command() {
@@ -593,7 +593,19 @@ pid_command() {
 }
 
 pid_ppid() {
-  ps -p "$1" -o ppid= 2>/dev/null | awk '{print $1}'
+  ps -p "$1" -o ppid= 2>/dev/null | awk '{print $1}' || true
+}
+
+pid_cwd() {
+  local pid="$1" cwd
+  if [ -e "/proc/$pid/cwd" ]; then
+    readlink "/proc/$pid/cwd" 2>/dev/null || true
+    return 0
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true)"
+    [ -n "$cwd" ] && printf '%s\n' "$cwd"
+  fi
 }
 
 kill_pid_with_escalation() {
@@ -683,7 +695,7 @@ stale_manual_smoke_beam_inventory() {
 }
 
 manual_smoke_wrapper_tmux_sockets() {
-  local tmux_bin sockdir path name panes
+  local tmux_bin sockdir path name panes current pane_path start manual_context all_sleep
   tmux_bin="$(command -v tmux || true)"
   [ -n "$tmux_bin" ] || return 0
   sockdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
@@ -696,30 +708,41 @@ manual_smoke_wrapper_tmux_sockets() {
       codex-driver-* | codex-aiur* | codex-[0-9]* | claude-driver*) ;;
       *) continue ;;
     esac
-    panes="$("$tmux_bin" -L "$name" list-panes -a -F '#{pane_pid} #{pane_current_command} #{pane_current_path} #{pane_start_command}' 2>/dev/null || true)"
+    panes="$("$tmux_bin" -L "$name" list-panes -a -F '#{pane_current_command}	#{pane_current_path}	#{pane_start_command}' 2>/dev/null || true)"
     [ -n "$panes" ] || continue
-    case "$panes" in
-      *aiurdev\ --test* | */aiur-workspaces/* | *"sleep 3600"*) printf '%s\n' "$name" ;;
-    esac
+    manual_context=0
+    all_sleep=1
+    while IFS=$'\t' read -r current pane_path start; do
+      case "$start" in
+        *aiurdev\ --test* | *scripts/aiurdev\ --test*) manual_context=1 ;;
+      esac
+      [ "$current" = "sleep" ] || all_sleep=0
+    done <<<"$panes"
+    [ "$manual_context" -eq 1 ] && [ "$all_sleep" -eq 1 ] && printf '%s\n' "$name"
   done
 }
 
 orphaned_opencode_attach_inventory() {
-  local pid owner ppid cmd
+  local pid owner ppid cmd cwd
   for pid in $(pgrep -f -- "opencode attach http://127\\.0\\.0\\.1:" 2>/dev/null || true); do
     owner="$(pid_owner "$pid")"
     [ "$owner" = "$USER" ] || continue
     ppid="$(pid_ppid "$pid")"
     [ "$ppid" = "1" ] || continue
+    cwd="$(pid_cwd "$pid")"
+    case "$cwd" in
+      */aiur-workspaces/*) ;;
+      *) continue ;;
+    esac
     cmd="$(pid_command "$pid")"
     case "$cmd" in
-      *"opencode attach http://127.0.0.1:"*) printf '%s\t%s\n' "$pid" "$cmd" ;;
+      *"opencode attach http://127.0.0.1:"*) printf '%s\t%s\t%s\n' "$pid" "$cwd" "$cmd" ;;
     esac
   done
 }
 
 report_stale_manual_smoke() {
-  local found=0 pid node workspace_root release_root socket cmd
+  local found=0 pid node workspace_root release_root socket cwd cmd
 
   while IFS=$'\t' read -r pid node workspace_root release_root; do
     [ -n "$pid" ] || continue
@@ -739,13 +762,13 @@ report_stale_manual_smoke() {
     echo "  wrapper tmux socket=${socket}" >&2
   done < <(manual_smoke_wrapper_tmux_sockets)
 
-  while IFS=$'\t' read -r pid cmd; do
+  while IFS=$'\t' read -r pid cwd cmd; do
     [ -n "$pid" ] || continue
     if [ "$found" -eq 0 ]; then
       echo "aiur: stale manual-smoke leftovers detected:" >&2
       found=1
     fi
-    echo "  orphan opencode attach pid=${pid}" >&2
+    echo "  orphan opencode attach pid=${pid} workspace=${cwd}" >&2
   done < <(orphaned_opencode_attach_inventory)
 
   if [ "$found" -eq 1 ]; then
@@ -760,7 +783,8 @@ preflight_stale_manual_smoke() {
 }
 
 reap_stale_manual_smoke() {
-  local pid node workspace_root release_root socket cmd tmux_bin reaped=0
+  local include_wrappers="${1:-0}"
+  local pid node workspace_root release_root socket cwd cmd tmux_bin reaped=0
 
   while IFS=$'\t' read -r pid node workspace_root release_root; do
     [ -n "$pid" ] || continue
@@ -770,7 +794,7 @@ reap_stale_manual_smoke() {
   done < <(stale_manual_smoke_beam_inventory)
 
   tmux_bin="$(command -v tmux || true)"
-  if [ -n "$tmux_bin" ]; then
+  if [ "$include_wrappers" = "1" ] && [ -n "$tmux_bin" ]; then
     while IFS= read -r socket; do
       [ -n "$socket" ] || continue
       echo "aiur: reaping stale wrapper tmux socket=${socket}" >&2
@@ -779,7 +803,7 @@ reap_stale_manual_smoke() {
     done < <(manual_smoke_wrapper_tmux_sockets)
   fi
 
-  while IFS=$'\t' read -r pid cmd; do
+  while IFS=$'\t' read -r pid cwd cmd; do
     [ -n "$pid" ] || continue
     echo "aiur: reaping orphan opencode attach pid=${pid}" >&2
     kill_pid_with_escalation "$pid"
@@ -1419,7 +1443,7 @@ cmd_cleanup_stale() {
     report_stale_manual_smoke || true
   else
     report_stale_manual_smoke || true
-    reap_stale_manual_smoke
+    reap_stale_manual_smoke 1
   fi
 }
 
@@ -1622,7 +1646,7 @@ cmd_stop() {
     rm -f "$agentfile" 2>/dev/null || true
   done
 
-  reap_stale_manual_smoke
+  reap_stale_manual_smoke 0
   sweep_dead_tmux_sockets
   sweep_stale_tmp_artifacts
 }
