@@ -391,7 +391,9 @@ defmodule Aiur.TestResetTest do
 
       assert output =~ "sandbox ticket(s) must be open before reset: [99]"
       refute output =~ "~c"
-      assert File.read!(gh_trace) =~ "issue edit 99 --remove-label agent:todo"
+      trace = File.read!(gh_trace)
+      assert trace =~ "issue edit 99 --remove-label agent:todo"
+      refute trace =~ "--add-label"
     end
   end
 
