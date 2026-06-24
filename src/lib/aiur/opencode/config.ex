@@ -36,9 +36,24 @@ defmodule Aiur.Opencode.Config do
 
   @spec bridge_port() :: non_neg_integer()
   def bridge_port do
-    case Application.get_env(:aiur, :opencode_bridge_port_override) || section_value("bridge_port") do
+    case Application.get_env(:aiur, :opencode_bridge_port_override) ||
+           env_bridge_port() ||
+           section_value("bridge_port") do
       value when is_integer(value) and value >= 0 -> value
       _ -> @default_bridge_port
+    end
+  end
+
+  defp env_bridge_port do
+    case System.get_env("AIUR_OPENCODE_BRIDGE_PORT") do
+      value when is_binary(value) ->
+        case Integer.parse(String.trim(value)) do
+          {port, ""} when port >= 0 and port < 65_536 -> port
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 

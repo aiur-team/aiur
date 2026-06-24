@@ -7,13 +7,16 @@ defmodule Aiur.Opencode.ConfigTest do
     setup do
       previous_host_override = Application.get_env(:aiur, :opencode_bridge_host_override)
       previous_port_override = Application.get_env(:aiur, :opencode_bridge_port_override)
+      previous_env_port = System.get_env("AIUR_OPENCODE_BRIDGE_PORT")
 
       Application.delete_env(:aiur, :opencode_bridge_host_override)
       Application.delete_env(:aiur, :opencode_bridge_port_override)
+      System.delete_env("AIUR_OPENCODE_BRIDGE_PORT")
 
       on_exit(fn ->
         restore_app_env(:opencode_bridge_host_override, previous_host_override)
         restore_app_env(:opencode_bridge_port_override, previous_port_override)
+        restore_system_env("AIUR_OPENCODE_BRIDGE_PORT", previous_env_port)
       end)
     end
 
@@ -59,6 +62,20 @@ defmodule Aiur.Opencode.ConfigTest do
       assert Config.bridge_host() == "127.0.0.1"
     end
 
+    test "AIUR_OPENCODE_BRIDGE_PORT overrides workflow config for agent-local launches" do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), opencode_bridge_port: 5000)
+      System.put_env("AIUR_OPENCODE_BRIDGE_PORT", "45678")
+
+      assert Config.bridge_port() == 45_678
+    end
+
+    test "invalid AIUR_OPENCODE_BRIDGE_PORT falls back to workflow config" do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), opencode_bridge_port: 5000)
+      System.put_env("AIUR_OPENCODE_BRIDGE_PORT", "not-a-port")
+
+      assert Config.bridge_port() == 5000
+    end
+
     test "blank command falls back to default" do
       write_workflow_file!(Aiur.Workflow.workflow_file_path(), opencode_command: "")
 
@@ -87,4 +104,6 @@ defmodule Aiur.Opencode.ConfigTest do
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
 end
