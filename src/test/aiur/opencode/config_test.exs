@@ -21,11 +21,15 @@ defmodule Aiur.Opencode.ConfigTest do
     end
 
     test "uses defaults when opencode section is omitted" do
-      write_workflow_file!(Aiur.Workflow.workflow_file_path(), opencode_command: nil)
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        opencode_command: nil,
+        opencode_bridge_port: nil
+      )
 
       assert Config.command() == "opencode"
       assert Config.bridge_host() == "127.0.0.1"
       assert Config.bridge_port() == 4097
+      assert Config.bridge_port_with_source() == {:default, 4097}
       assert Config.model_prefix() == "aiur"
       assert Config.serve_args() == []
       # Regression: an omitted opencode section must not crash prewarm_disabled?
@@ -44,6 +48,7 @@ defmodule Aiur.Opencode.ConfigTest do
 
       assert Config.command() == "/tmp/opencode"
       assert Config.bridge_port() == 5000
+      assert Config.bridge_port_with_source() == {:workflow, 5000}
       assert Config.bridge_host() == "127.0.0.2"
       assert Config.serve_args() == ["--log-level", "debug"]
       assert Config.model_prefix() == "custom"
@@ -59,6 +64,7 @@ defmodule Aiur.Opencode.ConfigTest do
       Application.put_env(:aiur, :opencode_bridge_host_override, "127.0.0.1")
 
       assert Config.bridge_port() == 0
+      assert Config.bridge_port_with_source() == {:app_override, 0}
       assert Config.bridge_host() == "127.0.0.1"
     end
 
@@ -67,6 +73,7 @@ defmodule Aiur.Opencode.ConfigTest do
       System.put_env("AIUR_OPENCODE_BRIDGE_PORT", "45678")
 
       assert Config.bridge_port() == 45_678
+      assert Config.bridge_port_with_source() == {:env, 45_678}
     end
 
     test "invalid AIUR_OPENCODE_BRIDGE_PORT falls back to workflow config" do
