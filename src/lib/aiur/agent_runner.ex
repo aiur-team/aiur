@@ -1457,7 +1457,7 @@ defmodule Aiur.AgentRunner do
 
     text = render_urgent_events_digest(item)
 
-    {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(orchestrator, item.id, reason) end}
+    {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end}
   end
 
   # Reuse the renderer infrastructure but with the urgent="true" attribute.
@@ -1491,19 +1491,25 @@ defmodule Aiur.AgentRunner do
 
     {:deliver_text, queue_item_text(item), fn _payload -> :ok end,
      fn reason ->
-       handle_checkpoint_delivery_failure(orchestrator, item.id, reason)
+       handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
      end}
   end
 
-  defp handle_checkpoint_delivery_failure(orchestrator, item_id, {:turn_interrupted, _payload}) do
+  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, :parent_turn_completed) do
+    Logger.info("Queued item delivery lost completion race for #{issue_context(issue)} request_id=#{item_id} decision=requeue_after_parent_turn_completed")
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
-  defp handle_checkpoint_delivery_failure(orchestrator, item_id, {:turn_cancelled, _payload}) do
+  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, {:turn_interrupted, _payload}) do
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
-  defp handle_checkpoint_delivery_failure(orchestrator, item_id, reason) do
+  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, {:turn_cancelled, _payload}) do
+    Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
+  end
+
+  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, reason) do
+    Logger.info("Queued item delivery failed for #{issue_context(issue)} request_id=#{item_id} decision=mark_failed reason=#{inspect(reason)}")
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
   end
 

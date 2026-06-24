@@ -771,10 +771,16 @@ defmodule Aiur.Codex.CodingAgent do
   defp continue_after_turn_completion(state) do
     next_state = %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
 
-    if next_state.outstanding_turns == 0 and map_size(next_state.pending_operator_requests) == 0 do
-      {:ok, :turn_completed}
-    else
-      {:continue, next_state}
+    cond do
+      next_state.outstanding_turns == 0 and map_size(next_state.pending_operator_requests) == 0 ->
+        {:ok, :turn_completed}
+
+      next_state.outstanding_turns == 0 ->
+        fail_pending_operator_requests(next_state.pending_operator_requests, :parent_turn_completed)
+        {:ok, :turn_completed}
+
+      true ->
+        {:continue, next_state}
     end
   end
 
