@@ -155,6 +155,39 @@ defmodule AiurEngineTest do
     assert out =~ "REAPED"
   end
 
+  test "workspace cwd sweep reaps only descendants of a non-shallow root" do
+    if File.dir?("/proc") do
+      root = Path.join(System.tmp_dir!(), "aiur-cwd-reap-#{System.unique_integer([:positive])}")
+      inside = Path.join(root, "repo/468")
+      outside = Path.join(System.tmp_dir!(), "aiur-cwd-spared-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(inside)
+      File.mkdir_p!(outside)
+
+      inside_pid = spawn_sleeper(inside)
+      outside_pid = spawn_sleeper(outside)
+
+      on_exit(fn ->
+        kill_pid(inside_pid)
+        kill_pid(outside_pid)
+        File.rm_rf(root)
+        File.rm_rf(outside)
+      end)
+
+      {out, 0} =
+        run_sourced_engine(
+          """
+          AIUR_WORKSPACE_REAP_SWEEPS=2 reap_workspace_cwd_agents "$ROOT"
+          AIUR_WORKSPACE_REAP_SWEEPS=2 reap_workspace_cwd_agents /tmp
+          """,
+          [{"ROOT", root}]
+        )
+
+      assert out =~ "refusing shallow workspace cwd sweep root: /tmp"
+      assert wait_dead(inside_pid), "expected the workspace-rooted process to be reaped"
+      assert os_pid_alive?(outside_pid), "expected the out-of-root process to survive"
+    end
+  end
+
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
     dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -201,6 +234,28 @@ defmodule AiurEngineTest do
   end
 
   defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+  defp spawn_sleeper(cwd) do
+    port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])
+    {:os_pid, os_pid} = Port.info(port, :os_pid)
+    os_pid
+  end
+
+  defp os_pid_alive?(pid), do: match?({_, 0}, System.cmd("kill", ["-0", to_string(pid)], stderr_to_stdout: true))
+
+  defp wait_dead(pid, attempts \\ 50)
+  defp wait_dead(pid, 0), do: not os_pid_alive?(pid)
+
+  defp wait_dead(pid, attempts) do
+    if os_pid_alive?(pid) do
+      Process.sleep(50)
+      wait_dead(pid, attempts - 1)
+    else
+      true
+    end
+  end
+
+  defp kill_pid(pid), do: System.cmd("kill", ["-KILL", to_string(pid)], stderr_to_stdout: true)
 
   defp run_sourced_engine(script, env) do
     # The engine's launch/stop paths reap any BEAM holding their node name
@@ -252,6 +307,47 @@ defmodule AiurEngineTest do
     rel = fake_release()
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
     assert out =~ "Aiur.AgentControlCLI.status()"
+  end
+
+  test "down control RPC with crash marker reports orphaned-agent guidance" do
+    state = tmp_state()
+    rpc = Path.join(System.tmp_dir!(), "aiur-rpc-fail-#{System.unique_integer([:positive])}")
+
+    File.write!(rpc, "#!/usr/bin/env bash\necho transport failed >&2\nexit 42\n")
+    File.chmod!(rpc, 0o755)
+
+    on_exit(fn ->
+      File.rm(rpc)
+      File.rm_rf(state)
+    end)
+
+    script = """
+    resolve_release() { :; }
+    prepare_distribution() { :; }
+    probe_node_liveness() { printf down; }
+    release_bin="$RPC"
+    mkdir -p "$AIUR_BG_STATE_DIR"
+    echo "crash details" >"$(aiur_crash_marker_path)"
+    if run_control_rpc "Aiur.AgentControlCLI.status()"; then
+      code=0
+    else
+      code=$?
+    fi
+    echo "CODE=$code"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_BG_STATE_DIR", state},
+        {"RELEASE_NODE", "aiur-crashed@127.0.0.1"},
+        {"RPC", rpc}
+      ])
+
+    assert out =~ "background daemon at aiur-crashed@127.0.0.1 is DOWN after an unexpected exit"
+    assert out =~ "crash details"
+    assert out =~ "run 'aiur stop' to reap any orphaned agents"
+    assert out =~ "CODE=1"
+    refute out =~ "start aiur and try again"
   end
 
   test "background startup waits until the control plane is ready" do
@@ -391,12 +487,13 @@ defmodule AiurEngineTest do
     kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
     expected_session="$TMP_ROOT/aiur-$$-sessions"
     expected_agents="$TMP_ROOT/aiur-$$-agents"
+    expected_workspace_root="$TMP_ROOT/aiur-$$-workspace-root"
     set +e
     ( run_session background )
     code=$?
     set -e
     echo "CODE=$code"
-    for path in "$TMP_ROOT/argv" "$TMP_ROOT/startup" "$TMP_ROOT/launcher" "$expected_session" "$expected_agents"; do
+    for path in "$TMP_ROOT/argv" "$TMP_ROOT/startup" "$TMP_ROOT/launcher" "$expected_session" "$expected_agents" "$expected_workspace_root"; do
       if [ -e "$path" ]; then echo "LEFT:${path##*/}"; else echo "REMOVED:${path##*/}"; fi
     done
     cat "$EVENTS"
@@ -505,9 +602,7 @@ defmodule AiurEngineTest do
     assert out =~ "aiur started in the background"
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
-    # Seeded watchdog (interval 1, initial_seen 1) now also carries the crash-record
-    # args: node, run log dir, stop sentinel, and last-crash marker.
-    assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash\n/
+    assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root\n/
     assert events_log =~ "DISOWN:424242"
   end
 
@@ -558,19 +653,13 @@ defmodule AiurEngineTest do
     refute out =~ "[server exited]"
   end
 
-  test "stop targets only its own node name, sparing siblings from the same release dir" do
+  test "stop does not terminate sibling instances from the same release dir" do
     rel = fake_release()
     File.mkdir_p!(Path.join([rel, "erts-16.4", "bin"]))
 
     state = tmp_state()
     events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
 
-    # This run's identity, pinned so we can assert stop targets EXACTLY it.
-    node = "aiur-self-#{System.unique_integer([:positive])}@127.0.0.1"
-
-    # A sibling sharing the SAME release dir but a DIFFERENT node name. A
-    # release-dir-wide `beam.smp` reap (the bug) would kill it; node-name
-    # cleanup must spare it.
     sibling_marker =
       "#{Path.join([rel, "erts-16.4", "bin", "beam.smp"])} -name aiur-sibling-#{System.unique_integer([:positive])}@127.0.0.1"
 
@@ -606,7 +695,6 @@ defmodule AiurEngineTest do
     {out, 0} =
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
-        {"AIUR_RELEASE_NODE", node},
         {"AIUR_BG_STATE_DIR", state},
         {"EVENTS", events},
         {"PATH", path},
@@ -616,20 +704,64 @@ defmodule AiurEngineTest do
 
     assert out =~ "SIBLING_ALIVE"
     refute out =~ "SIBLING_DEAD"
-    # The reap targets EXACTLY this run's node, not the shared release dir.
-    assert out =~ "KILL_BEAM:-name #{node}"
+    assert out =~ "KILL_BEAM:-name aiur-"
   end
 
-  test "cmd_stop reaps by node name, never by a release-dir-wide BEAM pattern" do
-    # Guards against a regression to the old release-dir reap, where
-    # `pgrep -f "$release_dir/.*erts.*beam.smp"` swept every sibling BEAM
-    # launched from a shared dev release. The reap must key on the node name.
-    {body, 0} =
-      System.cmd("bash", ["-c", "source \"$AIUR_ENGINE\" 2>/dev/null; declare -f cmd_stop"], env: [{"AIUR_ENGINE", @engine}])
+  test "cmd_stop marks a clean stop before killing the BEAM and cwd sweep" do
+    state = tmp_state()
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(System.tmp_dir!(), "aiur-workspaces-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace_root)
 
-    assert body =~ ~s|kill_beams_matching "-name ${AIUR_RELEASE_NODE}"|
-    refute body =~ "beam.smp"
-    refute body =~ "release_dir"
+    tmux = fake_tmux_script("exit 0")
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm_rf(workspace_root)
+      File.rm(events)
+    end)
+
+    script = """
+    resolve_release() { :; }
+    aiur_resolve_identity() {
+      : "${AIUR_SESSION_PREFIX:=aiur}"
+      : "${AIUR_RELEASE_NODE:=aiur-enginetest@127.0.0.1}"
+    }
+    current_workspace_root() { printf '%s\\n' "$WORKSPACE_ROOT"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    reap_aiur_agents() { :; }
+    kill_beams_matching() {
+      echo "KILL_BEAM:$*" >> "$EVENTS"
+      [ -f "$(aiur_stop_sentinel_path)" ] && echo "SENTINEL_PRESENT_BEFORE_KILL" >> "$EVENTS"
+      [ ! -f "$(aiur_crash_marker_path)" ] && echo "CRASH_MARKER_CLEARED_BEFORE_KILL" >> "$EVENTS"
+    }
+    reap_workspace_cwd_agents() { echo "CWD_REAP:$1" >> "$EVENTS"; }
+    mkdir -p "$AIUR_BG_STATE_DIR"
+    echo stale >"$(aiur_crash_marker_path)"
+    cmd_stop
+    cat "$EVENTS"
+    [ -f "$(aiur_stop_sentinel_path)" ] && echo "SENTINEL_LEFT_FOR_WATCHDOG"
+    [ -e "$(aiur_crash_marker_path)" ] && echo "CRASH_MARKER_STILL_PRESENT" || echo "CRASH_MARKER_REMOVED"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_BG_STATE_DIR", state},
+        {"EVENTS", events},
+        {"PATH", path},
+        {"WORKSPACE_ROOT", workspace_root},
+        {"USER", "tester"}
+      ])
+
+    assert out =~ "SENTINEL_PRESENT_BEFORE_KILL"
+    assert out =~ "CRASH_MARKER_CLEARED_BEFORE_KILL"
+    assert out =~ "CWD_REAP:#{workspace_root}"
+    assert out =~ "SENTINEL_LEFT_FOR_WATCHDOG"
+    assert out =~ "CRASH_MARKER_REMOVED"
+    refute out =~ "CRASH_MARKER_STILL_PRESENT"
   end
 
   test "message RPCs the message expression with base64-encoded text" do

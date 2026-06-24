@@ -34,6 +34,8 @@ defmodule Aiur.Shutdown do
   """
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
+    safely(fn -> record_workspace_root() end, "record_workspace_root")
+
     # Kind-ordered: agent trees/panes die first (so nothing writes during
     # session deletion), serves die last (delete_all needs them alive for
     # its HTTP deletes). drain: true — anything registered after this sweep
@@ -45,6 +47,54 @@ defmodule Aiur.Shutdown do
     safely(fn -> reap_workspace_agents() end, "reap_workspace_agents")
     safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")
     :ok
+  end
+
+  @doc """
+  Record the configured workspace root for the launcher-side shutdown backstop.
+
+  The bash engine cannot safely re-derive full Aiur config after the BEAM exits,
+  so the running application writes the resolved root into a per-run tempfile.
+  The write is atomic (temp file + rename) so a BEAM killed mid-write can never
+  hand the launcher a truncated root that still passes its shallow-root guard.
+  Best-effort: shutdown must continue if this file is absent or unwritable.
+  """
+  @spec record_workspace_root() :: :ok
+  def record_workspace_root do
+    case System.get_env("AIUR_WORKSPACE_ROOT_FILE") do
+      path when is_binary(path) and path != "" ->
+        case atomic_write(path, Config.workspace_root()) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("aiur_shutdown phase=record_workspace_root error=#{inspect(reason)}")
+        end
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  catch
+    kind, reason ->
+      Logger.warning("aiur_shutdown phase=record_workspace_root caught=#{inspect({kind, reason})}")
+      :ok
+  end
+
+  # Write via a sibling temp file + rename so the launcher never reads a
+  # half-written root. rename(2) within a directory is atomic, so the reader
+  # sees either the previous contents or the complete new root, never a prefix.
+  defp atomic_write(path, contents) do
+    tmp = path <> ".tmp"
+
+    with :ok <- File.write(tmp, contents),
+         :ok <- File.rename(tmp, path) do
+      :ok
+    else
+      {:error, reason} ->
+        File.rm(tmp)
+        {:error, reason}
+    end
   end
 
   # Kill the whole agent tree the backends reparented to init — coding agents,
