@@ -723,7 +723,10 @@ defmodule AiurEngineTest do
 
     script = """
     resolve_release() { :; }
-    aiur_resolve_identity() { :; }
+    aiur_resolve_identity() {
+      : "${AIUR_SESSION_PREFIX:=aiur}"
+      : "${AIUR_RELEASE_NODE:=aiur-enginetest@127.0.0.1}"
+    }
     current_workspace_root() { printf '%s\\n' "$WORKSPACE_ROOT"; }
     sweep_dead_tmux_sockets() { :; }
     sweep_stale_tmp_artifacts() { :; }
