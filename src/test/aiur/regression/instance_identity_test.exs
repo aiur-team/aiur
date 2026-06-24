@@ -63,25 +63,103 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       assert identity("/proj/alpha")["AIUR_INSTANCE_KEY"] =~ ~r/\A[0-9a-f]{1,12}\z/
     end
 
-    test "no project resolves to the legacy un-keyed identity (backward compat)" do
-      tmp = Path.join(System.tmp_dir!(), "aiur-noproj-#{System.unique_integer([:positive])}")
-      File.mkdir_p!(tmp)
-      on_exit(fn -> File.rm_rf!(tmp) end)
+    test "no repo-local config keys by realpath($PWD), never the legacy empty key (#443)" do
+      # #443 (bug case 1): a run with no repo-local `.aiur/config` anywhere up-tree
+      # used to fall back to an empty key → the shared legacy node
+      # `aiur-$USER@127.0.0.1`, so two such projects collided and reaped each other.
+      # The project the BEAM serves is $PWD, so each now gets a distinct,
+      # realpath-derived key. (tmp dirs live outside $HOME, so this is the
+      # not-under-$HOME variant.)
+      base = Path.join(System.tmp_dir!(), "aiur-noconfig-#{System.unique_integer([:positive])}")
+      proj_a = Path.join(base, "alpha")
+      proj_b = Path.join(base, "beta")
+      File.mkdir_p!(proj_a)
+      File.mkdir_p!(proj_b)
+      on_exit(fn -> File.rm_rf!(base) end)
 
-      {out, 0} =
-        System.cmd("bash", [@engine, "__identity"],
-          env: [
-            {"AIUR_REPO_ROOT", ""},
-            {"AIUR_INSTANCE_KEY", nil},
-            {"AIUR_RELEASE_NODE", nil},
-            {"USER", "tester"}
-          ],
-          cd: tmp,
-          stderr_to_stdout: true
-        )
+      id = fn cd ->
+        {out, 0} =
+          System.cmd("bash", [@engine, "__identity"],
+            env: [
+              {"AIUR_REPO_ROOT", ""},
+              {"AIUR_INSTANCE_KEY", nil},
+              {"AIUR_RELEASE_NODE", nil},
+              {"USER", "tester"}
+            ],
+            cd: cd,
+            stderr_to_stdout: true
+          )
 
-      assert out =~ "AIUR_INSTANCE_KEY=\n"
-      assert out =~ "AIUR_RELEASE_NODE=aiur-tester@127.0.0.1"
+        out
+        |> String.split("\n", trim: true)
+        |> Enum.flat_map(fn line ->
+          case String.split(line, "=", parts: 2) do
+            [k, v] -> [{k, v}]
+            _ -> []
+          end
+        end)
+        |> Map.new()
+      end
+
+      a = id.(proj_a)
+      b = id.(proj_b)
+
+      # A real, node-name-legal key — not the empty/legacy fallback.
+      assert a["AIUR_INSTANCE_KEY"] =~ ~r/\A[0-9a-f]{1,12}\z/
+      assert a["AIUR_RELEASE_NODE"] =~ ~r/\Aaiur-tester-[0-9a-f]{1,12}@127\.0\.0\.1\z/
+      refute a["AIUR_RELEASE_NODE"] == "aiur-tester@127.0.0.1"
+      # Two distinct no-config projects never share an identity (the #443 collision).
+      refute a["AIUR_INSTANCE_KEY"] == b["AIUR_INSTANCE_KEY"]
+    end
+
+    test "projects under $HOME with only a global ~/.aiur/config get distinct keys, not $HOME's (#443)" do
+      # #443 (bug case 2): the global config lives at ~/.aiur/config. The walk-up
+      # must NOT treat it as a repo root, or every project under $HOME collapses
+      # onto hash($HOME) and they reap each other. A fake $HOME holds the global
+      # config; two projects beneath it must derive distinct, non-$HOME keys.
+      home = Path.join(System.tmp_dir!(), "aiur-home-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.write!(Path.join([home, ".aiur", "config"]), "")
+      proj_a = Path.join([home, "projects", "alpha"])
+      proj_b = Path.join([home, "projects", "beta"])
+      File.mkdir_p!(proj_a)
+      File.mkdir_p!(proj_b)
+      on_exit(fn -> File.rm_rf!(home) end)
+
+      key = fn cd ->
+        {out, 0} =
+          System.cmd("bash", [@engine, "__identity"],
+            env: [
+              {"HOME", home},
+              {"AIUR_REPO_ROOT", ""},
+              {"AIUR_INSTANCE_KEY", nil},
+              {"AIUR_RELEASE_NODE", nil},
+              {"USER", "tester"}
+            ],
+            cd: cd,
+            stderr_to_stdout: true
+          )
+
+        out
+        |> String.split("\n", trim: true)
+        |> Enum.find_value(fn line ->
+          case String.split(line, "=", parts: 2) do
+            ["AIUR_INSTANCE_KEY", v] -> v
+            _ -> nil
+          end
+        end)
+      end
+
+      ka = key.(proj_a)
+      kb = key.(proj_b)
+      khome = key.(home)
+
+      for k <- [ka, kb, khome], do: assert(k =~ ~r/\A[0-9a-f]{1,12}\z/)
+      # The walk-up stops at $HOME, so no two projects collapse together and none
+      # collapses onto $HOME's own key.
+      refute ka == kb
+      refute ka == khome
+      refute kb == khome
     end
 
     test "walk-up from cwd: a subdir and the project root derive the same key; a sibling root differs" do
