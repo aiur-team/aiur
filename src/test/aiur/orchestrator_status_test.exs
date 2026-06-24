@@ -166,6 +166,54 @@ defmodule Aiur.OrchestratorStatusTest do
            ] = Orchestrator.status(orchestrator_name, 1_000)
   end
 
+  test "status excludes deactivated and closed cached issues" do
+    orchestrator_name = Module.concat(__MODULE__, :AgentStatusClosedOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    deactivated =
+      "issue-deactivated"
+      |> running_entry("repo#491", :deactivated, self(), nil, "Deactivated")
+
+    closed_running =
+      "issue-closed-running"
+      |> running_entry("repo#492", :working, self(), nil, "Closed running")
+      |> update_in([:issue], &%{&1 | state: "Closed"})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{
+            "issue-active" => %Issue{id: "issue-active", identifier: "repo#44", state: "In Progress", title: "Active"},
+            "issue-closed-stale-label" => %Issue{
+              id: "issue-closed-stale-label",
+              identifier: "repo#523",
+              state: "Closed",
+              title: "Closed stale active label",
+              labels: ["agent:human-review"]
+            },
+            "issue-unlabeled" => %Issue{
+              id: "issue-unlabeled",
+              identifier: "repo#524",
+              state: nil,
+              title: "Closed with active label removed"
+            }
+          },
+          running: %{
+            "issue-active" => running_entry("issue-active", "repo#44", :working, self(), nil, "Active"),
+            "issue-deactivated" => deactivated,
+            "issue-closed-running" => closed_running
+          }
+      }
+    end)
+
+    assert [%{identifier: "repo#44", state: :running, title: "Active"}] =
+             Orchestrator.status(orchestrator_name, 1_000)
+  end
+
   test "pause then resume round trip updates status around worker control messages" do
     # Null the Linear token so the orchestrator's startup poll fails *instantly*
     # with {:error, :missing_linear_api_token} — no real api.linear.app call to

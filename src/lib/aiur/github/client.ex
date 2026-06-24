@@ -521,7 +521,7 @@ defmodule Aiur.GitHub.Client do
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
-      state: extract_state(label_names, prefix),
+      state: extract_state(gh_issue, label_names, prefix),
       branch_name: nil,
       url: gh_issue["html_url"],
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
@@ -532,7 +532,9 @@ defmodule Aiur.GitHub.Client do
     }
   end
 
-  defp extract_state(label_names, prefix) do
+  defp extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"
+
+  defp extract_state(_gh_issue, label_names, prefix) do
     prefix_colon = "#{prefix}:"
 
     Enum.find_value(label_names, fn name ->

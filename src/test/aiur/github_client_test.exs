@@ -254,6 +254,35 @@ defmodule Aiur.GitHub.ClientTest do
       assert issue.state == "in-progress"
     end
 
+    test "closed issues ignore stale active labels" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/repos/owner/repo/issues/491"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "number" => 491,
+             "state" => "closed",
+             "title" => "Merged issue",
+             "body" => "desc",
+             "html_url" => "https://github.com/owner/repo/issues/491",
+             "labels" => [%{"name" => "sym:rework"}],
+             "assignee" => nil,
+             "created_at" => "2025-01-01T00:00:00Z",
+             "updated_at" => "2025-01-01T00:00:00Z"
+           }
+         }}
+      end
+
+      assert {:ok, [issue]} =
+               Client.fetch_issue_states_by_ids(["491"], request_fun: request_fun)
+
+      assert issue.id == "491"
+      assert issue.state == "Closed"
+      assert "sym:rework" in issue.labels
+    end
+
     test "skips 404 issues" do
       request_fun = fn _ ->
         {:ok, %{status: 404}}
