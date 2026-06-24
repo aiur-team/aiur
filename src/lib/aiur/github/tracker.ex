@@ -31,6 +31,28 @@ defmodule Aiur.GitHub.Tracker do
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()
 
+  @spec auth_preflight() :: :ok | {:error, term()}
+  def auth_preflight do
+    client = client_module()
+
+    cond do
+      function_exported?(client, :preflight_auth, 0) -> client.preflight_auth()
+      function_exported?(client, :preflight_auth, 1) -> client.preflight_auth([])
+      true -> :ok
+    end
+  end
+
+  @spec auth_token_fingerprint() :: String.t() | nil
+  def auth_token_fingerprint do
+    client = client_module()
+
+    if function_exported?(client, :auth_token_fingerprint, 0) do
+      client.auth_token_fingerprint()
+    else
+      Client.auth_token_fingerprint()
+    end
+  end
+
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states), do: client_module().fetch_issues_by_states(states)
 

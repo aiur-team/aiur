@@ -26,6 +26,8 @@ defmodule Aiur.Orchestrator do
 
   alias Aiur.Claude.{RemoteControl, ReplAgent}
   alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
+  alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
   alias AiurWeb.ObservabilityPubSub
 
@@ -68,6 +70,7 @@ defmodule Aiur.Orchestrator do
             agent_rate_limits: map() | nil,
             codex_totals: map() | nil,
             codex_rate_limits: map() | nil,
+            github_auth_preflight: map() | nil,
             events_etag: String.t() | nil,
             events_last_id: String.t() | nil
           }
@@ -93,6 +96,7 @@ defmodule Aiur.Orchestrator do
       agent_rate_limits: nil,
       codex_totals: nil,
       codex_rate_limits: nil,
+      github_auth_preflight: nil,
       events_etag: nil,
       events_last_id: nil
     ]
@@ -129,7 +133,7 @@ defmodule Aiur.Orchestrator do
       agent_rate_limits: nil
     }
 
-    run_terminal_workspace_cleanup()
+    state = run_terminal_workspace_cleanup(state)
     cleanup_stray_remote_control_servers()
     init_tracked_set_table()
     install_event_tracked_fn()
@@ -887,76 +891,137 @@ defmodule Aiur.Orchestrator do
   end
 
   defp maybe_dispatch(%State{} = state) do
-    state = reconcile_running_issues(state)
+    state = reconcile_running_lifecycle(state)
+
+    case ensure_tracker_preflight(state) do
+      {:ok, state} ->
+        state
+        |> do_maybe_dispatch()
+
+      {:error, reason, state} ->
+        log_tracker_preflight_error(reason)
+        state
+    end
+  end
+
+  defp do_maybe_dispatch(%State{} = state) do
+    state = refresh_running_issue_states(state)
     state = refresh_tracked_set(state)
     state = poll_github_firehose(state)
 
-    with :ok <- Config.validate!(),
-         {:ok, issues} <- Tracker.fetch_candidate_issues() do
-      state =
-        state
-        |> sync_polled_issue_state(issues)
-        |> sync_todo_capacity_alert(issues)
+    case Tracker.fetch_candidate_issues() do
+      {:ok, issues} ->
+        state =
+          state
+          |> sync_polled_issue_state(issues)
+          |> sync_todo_capacity_alert(issues)
 
-      # The poll just refreshed `last_polled_issues`, so push a fresh
-      # summary out to any open agent-list pane immediately — without
-      # this, the pane only sees new candidate tickets after the next
-      # dispatch or completion event.
-      notify_dashboard(state)
+        # The poll just refreshed `last_polled_issues`, so push a fresh
+        # summary out to any open agent-list pane immediately — without
+        # this, the pane only sees new candidate tickets after the next
+        # dispatch or completion event.
+        notify_dashboard(state)
 
-      state = dispatch_or_hold(state, issues)
+        state = dispatch_or_hold(state, issues)
 
-      %{state | initial_dispatch_cycle: false}
-    else
-      {:error, :missing_linear_api_token} ->
-        Logger.error("Linear API token missing in .aiurconfig")
-        state
-
-      {:error, :missing_linear_project_slug} ->
-        Logger.error("Linear project slug missing in .aiurconfig")
-        state
-
-      {:error, :missing_tracker_kind} ->
-        Logger.error("Tracker kind missing in .aiurconfig")
-
-        state
-
-      {:error, {:unsupported_tracker_kind, kind}} ->
-        Logger.error("Unsupported tracker kind in .aiurconfig: #{inspect(kind)}")
-
-        state
-
-      {:error, {:invalid_workflow_config, message}} ->
-        Logger.error("Invalid .aiurconfig config: #{message}")
-        state
-
-      {:error, {:missing_workflow_file, path, reason}} ->
-        Logger.error("Missing .aiurconfig at #{path}: #{inspect(reason)}")
-        state
-
-      {:error, {:missing_prompt_file, path, reason}} ->
-        Logger.error("Missing prompt_file at #{path}: #{inspect(reason)}")
-        state
-
-      {:error, :workflow_front_matter_not_a_map} ->
-        Logger.error("Failed to parse .aiurconfig: top-level YAML must be a map")
-        state
-
-      {:error, {:workflow_parse_error, reason}} ->
-        Logger.error("Failed to parse .aiurconfig: #{inspect(reason)}")
-        state
-
-      {:error, {:missing_hooks_file, path, reason}} ->
-        Logger.error("Missing hooks_file at #{path}: #{inspect(reason)}")
-        state
-
-      {:error, {:invalid_hooks_file, path, reason}} ->
-        Logger.error("Invalid hooks_file at #{path}: #{inspect(reason)}")
-        state
+        %{state | initial_dispatch_cycle: false}
 
       {:error, reason} ->
-        Logger.error("Failed to fetch from Linear: #{inspect(reason)}")
+        log_tracker_fetch_error(reason)
         state
+    end
+  end
+
+  defp ensure_tracker_preflight(%State{} = state) do
+    case Config.validate!() do
+      :ok ->
+        case Config.tracker_kind() do
+          "github" -> ensure_github_auth_preflight(state)
+          _ -> {:ok, state}
+        end
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp ensure_github_auth_preflight(%State{} = state) do
+    token_fingerprint = GitHubTracker.auth_token_fingerprint()
+
+    if github_auth_preflight_current?(state.github_auth_preflight, token_fingerprint) do
+      {:ok, state}
+    else
+      case GitHubTracker.auth_preflight() do
+        :ok ->
+          {:ok,
+           %{
+             state
+             | github_auth_preflight: %{
+                 token_fingerprint: token_fingerprint,
+                 checked_at: DateTime.utc_now()
+               }
+           }}
+
+        {:error, reason} ->
+          {:error, reason, %{state | github_auth_preflight: nil}}
+      end
+    end
+  end
+
+  defp github_auth_preflight_current?(%{token_fingerprint: fingerprint}, fingerprint)
+       when is_binary(fingerprint),
+       do: true
+
+  defp github_auth_preflight_current?(_cached, _fingerprint), do: false
+
+  defp log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do
+    Logger.error(GitHubClient.format_auth_preflight_error(reason))
+  end
+
+  defp log_tracker_preflight_error(:missing_linear_api_token),
+    do: Logger.error("Linear API token missing in .aiurconfig")
+
+  defp log_tracker_preflight_error(:missing_linear_project_slug),
+    do: Logger.error("Linear project slug missing in .aiurconfig")
+
+  defp log_tracker_preflight_error(:missing_tracker_kind),
+    do: Logger.error("Tracker kind missing in .aiurconfig")
+
+  defp log_tracker_preflight_error({:unsupported_tracker_kind, kind}),
+    do: Logger.error("Unsupported tracker kind in .aiurconfig: #{inspect(kind)}")
+
+  defp log_tracker_preflight_error({:invalid_workflow_config, message}),
+    do: Logger.error("Invalid .aiurconfig config: #{message}")
+
+  defp log_tracker_preflight_error({:missing_workflow_file, path, reason}),
+    do: Logger.error("Missing .aiurconfig at #{path}: #{inspect(reason)}")
+
+  defp log_tracker_preflight_error({:missing_prompt_file, path, reason}),
+    do: Logger.error("Missing prompt_file at #{path}: #{inspect(reason)}")
+
+  defp log_tracker_preflight_error(:workflow_front_matter_not_a_map),
+    do: Logger.error("Failed to parse .aiurconfig: top-level YAML must be a map")
+
+  defp log_tracker_preflight_error({:workflow_parse_error, reason}),
+    do: Logger.error("Failed to parse .aiurconfig: #{inspect(reason)}")
+
+  defp log_tracker_preflight_error({:missing_hooks_file, path, reason}),
+    do: Logger.error("Missing hooks_file at #{path}: #{inspect(reason)}")
+
+  defp log_tracker_preflight_error({:invalid_hooks_file, path, reason}),
+    do: Logger.error("Invalid hooks_file at #{path}: #{inspect(reason)}")
+
+  defp log_tracker_preflight_error(reason),
+    do: Logger.error("Tracker preflight failed for #{tracker_log_label()}: #{inspect(reason)}")
+
+  defp log_tracker_fetch_error(reason) do
+    Logger.error("Failed to fetch from #{tracker_log_label()}: #{inspect(reason)}")
+  end
+
+  defp tracker_log_label do
+    case Config.settings() do
+      {:ok, settings} -> settings.tracker.kind || "tracker"
+      _ -> "tracker"
     end
   end
 
@@ -1054,10 +1119,13 @@ defmodule Aiur.Orchestrator do
   def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
 
-  defp reconcile_running_issues(%State{} = state) do
+  defp reconcile_running_lifecycle(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
     state = reconcile_overrunning_agents(state)
-    state = reconcile_pending_auto_resumes(state)
+    reconcile_pending_auto_resumes(state)
+  end
+
+  defp refresh_running_issue_states(%State{} = state) do
     running_ids = Map.keys(state.running)
 
     if running_ids == [] do
@@ -2362,24 +2430,45 @@ defmodule Aiur.Orchestrator do
   end
 
   defp handle_retry_issue(%State{} = state, issue_id, attempt, metadata) do
-    case Tracker.fetch_candidate_issues() do
-      {:ok, issues} ->
-        issues
-        |> find_issue_by_id(issue_id)
-        |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
+    case ensure_tracker_preflight(state) do
+      {:ok, state} ->
+        case Tracker.fetch_candidate_issues() do
+          {:ok, issues} ->
+            issues
+            |> find_issue_by_id(issue_id)
+            |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
 
-      {:error, reason} ->
-        Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}")
+          {:error, reason} ->
+            Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}")
+
+            {:noreply,
+             schedule_issue_retry(
+               state,
+               issue_id,
+               attempt + 1,
+               Map.merge(metadata, %{error: "retry poll failed: #{inspect(reason)}"})
+             )}
+        end
+
+      {:error, reason, state} ->
+        formatted = format_retry_preflight_error(reason)
+
+        Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
 
         {:noreply,
          schedule_issue_retry(
            state,
            issue_id,
            attempt + 1,
-           Map.merge(metadata, %{error: "retry poll failed: #{inspect(reason)}"})
+           Map.merge(metadata, %{error: "retry poll skipped: #{formatted}"})
          )}
     end
   end
+
+  defp format_retry_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason),
+    do: GitHubClient.format_auth_preflight_error(reason)
+
+  defp format_retry_preflight_error(reason), do: inspect(reason)
 
   defp handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata) do
     terminal_states = terminal_state_set()
@@ -2414,22 +2503,33 @@ defmodule Aiur.Orchestrator do
 
   defp cleanup_issue_workspace(_identifier, _worker_host), do: :ok
 
-  defp run_terminal_workspace_cleanup do
+  defp run_terminal_workspace_cleanup(%State{} = state) do
+    case ensure_tracker_preflight(state) do
+      {:ok, state} ->
+        cleanup_terminal_workspaces_after_preflight(state)
+
+      {:error, reason, state} ->
+        Logger.warning("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
+        state
+    end
+  end
+
+  defp cleanup_terminal_workspaces_after_preflight(%State{} = state) do
     case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states) do
       {:ok, issues} ->
-        issues
-        |> Enum.each(fn
-          %Issue{identifier: identifier} when is_binary(identifier) ->
-            cleanup_issue_workspace(identifier)
-
-          _ ->
-            :ok
-        end)
+        Enum.each(issues, &cleanup_terminal_issue_workspace/1)
+        state
 
       {:error, reason} ->
         Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+        state
     end
   end
+
+  defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier}) when is_binary(identifier),
+    do: cleanup_issue_workspace(identifier)
+
+  defp cleanup_terminal_issue_workspace(_issue), do: :ok
 
   defp notify_dashboard(state) do
     state

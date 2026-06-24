@@ -187,6 +187,106 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "preflight_auth/1" do
+    test "checks rate limit, repository, and issues endpoints with the active token" do
+      parent = self()
+
+      request_fun = fn %{method: :get, url: url, token: token} ->
+        assert token == "test-gh-token"
+        send(parent, {:preflight_url, url})
+        {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "42"}], body: %{}}}
+      end
+
+      assert :ok =
+               Client.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end
+               )
+
+      assert_received {:preflight_url, "https://api.github.com/rate_limit"}
+      assert_received {:preflight_url, "https://api.github.com/repos/owner/repo"}
+      assert_received {:preflight_url, "https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"}
+    end
+
+    test "reports invalid GITHUB_TOKEN without leaking token material" do
+      request_fun = fn %{url: url} ->
+        if url =~ "/rate_limit" do
+          {:ok, %{status: 401, headers: [], body: %{"message" => "Bad credentials"}}}
+        else
+          flunk("preflight should stop after the failed endpoint")
+        end
+      end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               Client.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :available} end
+               )
+
+      assert diagnostic.reason == :invalid_or_expired_token
+      assert diagnostic.endpoint == :rate_limit
+      assert diagnostic.status == 401
+      assert diagnostic.gh_keyring_status == :available
+      assert diagnostic.message =~ "GITHUB_TOKEN"
+      assert diagnostic.message =~ "takes precedence over `gh` keyring auth"
+      assert diagnostic.message =~ "gh` keyring auth appears usable"
+      refute diagnostic.message =~ "test-gh-token"
+    end
+
+    test "fails when the REST core rate limit is exhausted" do
+      reset = DateTime.utc_now() |> DateTime.add(60, :second) |> DateTime.to_unix()
+
+      request_fun = fn %{url: url} ->
+        assert url =~ "/rate_limit"
+
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"x-ratelimit-remaining", "0"}, {"x-ratelimit-reset", Integer.to_string(reset)}],
+           body: %{"resources" => %{"core" => %{"remaining" => 0}}}
+         }}
+      end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               Client.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :unavailable} end
+               )
+
+      assert diagnostic.reason == :rate_limited
+      assert diagnostic.rate_limit_remaining == 0
+      assert diagnostic.message =~ "rate limit is exhausted"
+      assert diagnostic.message =~ "GITHUB_TOKEN"
+    end
+
+    test "distinguishes endpoint-specific forbidden responses" do
+      request_fun = fn %{url: url} ->
+        cond do
+          url =~ "/rate_limit" ->
+            {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "42"}], body: %{}}}
+
+          url =~ "/repos/owner/repo/issues" ->
+            {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "42"}], body: %{"message" => "Resource not accessible by personal access token"}}}
+
+          url =~ "/repos/owner/repo" ->
+            {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "42"}], body: %{}}}
+        end
+      end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               Client.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end
+               )
+
+      assert diagnostic.reason == :forbidden
+      assert diagnostic.endpoint == :issues
+      assert diagnostic.rate_limit_remaining == 42
+      assert diagnostic.message =~ "missing repository permissions"
+      assert diagnostic.message =~ "repos/owner/repo/issues?per_page=1"
+    end
+  end
+
   describe "fetch_issues_by_states/2" do
     test "returns empty list for empty states" do
       assert {:ok, []} = Client.fetch_issues_by_states([])
