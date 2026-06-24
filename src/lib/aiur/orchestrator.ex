@@ -427,13 +427,13 @@ defmodule Aiur.Orchestrator do
   # `:working` / `:paused` entries are left alone (the live agent is
   # already in the loop and will see the comment via its own per-ticket
   # subscription).
-  def handle_info({:event, %{topic: topic} = _event}, state) when is_binary(topic) do
+  def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
     case classify_event_topic(topic) do
       {:pr_review_comment, identifier} ->
-        {:noreply, maybe_reactivate_on_comment(state, identifier, "PR review comment")}
+        {:noreply, maybe_reactivate_on_comment(state, identifier, "PR review comment", event)}
 
       {:issue_commented, identifier} ->
-        {:noreply, maybe_reactivate_on_comment(state, identifier, "issue comment")}
+        {:noreply, maybe_reactivate_on_comment(state, identifier, "issue comment", event)}
 
       {:pause_request, identifier} ->
         {:noreply, maybe_pause_on_request(state, identifier)}
@@ -538,13 +538,13 @@ defmodule Aiur.Orchestrator do
   defp tag_topic(tag, {:ok, identifier}), do: {tag, identifier}
   defp tag_topic(_tag, :nomatch), do: :nomatch
 
-  defp maybe_reactivate_on_comment(%State{} = state, issue_number, source) do
+  defp maybe_reactivate_on_comment(%State{} = state, issue_number, source, event) do
     case find_running_by_identifier(state.running, issue_number) do
       running_entry when is_map(running_entry) ->
-        reactivate_if_deactivated(state, running_entry, issue_number, source)
+        reactivate_if_deactivated(state, running_entry, issue_number, source, event)
 
       _ ->
-        state
+        maybe_transition_idle_issue_to_rework(state, issue_number, source, event)
     end
   end
 
@@ -755,13 +755,64 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp reactivate_if_deactivated(state, running_entry, issue_number, source) do
+  defp reactivate_if_deactivated(state, running_entry, issue_number, source, event) do
     if deactivated_running_entry?(running_entry) do
-      revalidate_comment_reactivation(state, running_entry, issue_number, source)
+      transition_and_revalidate_comment_reactivation(state, running_entry, issue_number, source, event)
     else
       state
     end
   end
+
+  defp maybe_transition_idle_issue_to_rework(state, issue_number, source, event) do
+    case transition_comment_issue_to_rework(issue_number, source, event) do
+      :ok ->
+        state
+
+      {:skip, reason} ->
+        Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        state
+
+      {:error, reason} ->
+        Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp transition_and_revalidate_comment_reactivation(state, running_entry, issue_number, source, event) do
+    issue_key = rework_issue_key(running_entry, issue_number)
+
+    case transition_comment_issue_to_rework(issue_key, source, event) do
+      :ok ->
+        revalidate_comment_reactivation(state, running_entry, issue_number, source)
+
+      {:skip, reason} ->
+        context = comment_reactivation_context(running_entry, issue_number)
+        Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+        state
+
+      {:error, reason} ->
+        context = comment_reactivation_context(running_entry, issue_number)
+        Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp transition_comment_issue_to_rework(issue_number, _source, event) do
+    if trusted_comment_event?(event) do
+      Tracker.update_issue_state(to_string(issue_number), "rework")
+    else
+      {:skip, :untrusted_author}
+    end
+  end
+
+  defp trusted_comment_event?(event) when is_map(event) do
+    Map.get(event, :author_trusted?) == true or Map.get(event, "author_trusted?") == true
+  end
+
+  defp rework_issue_key(%{issue: %Issue{id: issue_id}}, _issue_number) when is_binary(issue_id),
+    do: issue_id
+
+  defp rework_issue_key(_running_entry, issue_number), do: issue_number
 
   defp revalidate_comment_reactivation(state, running_entry, issue_number, source) do
     context = comment_reactivation_context(running_entry, issue_number)
@@ -818,8 +869,13 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp poll_github_firehose(%State{} = state) do
-    case GithubFirehose.poll(etag: state.events_etag, last_event_id: state.events_last_id) do
+  defp poll_github_firehose(%State{} = state, opts \\ []) do
+    poll_opts =
+      opts
+      |> Keyword.put_new(:etag, state.events_etag)
+      |> Keyword.put_new(:last_event_id, state.events_last_id)
+
+    case GithubFirehose.poll(poll_opts) do
       {:ok, %{etag: etag, last_event_id: last_event_id, count: count}} ->
         if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
         %{state | events_etag: etag, events_last_id: last_event_id}
@@ -1054,6 +1110,12 @@ defmodule Aiur.Orchestrator do
   @spec parse_issue_commented_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_issue_commented_topic_for_test(topic) when is_binary(topic) do
     parse_issue_commented_topic(topic)
+  end
+
+  @doc false
+  @spec poll_github_firehose_for_test(State.t(), keyword()) :: State.t()
+  def poll_github_firehose_for_test(%State{} = state, opts) when is_list(opts) do
+    poll_github_firehose(state, opts)
   end
 
   @doc false

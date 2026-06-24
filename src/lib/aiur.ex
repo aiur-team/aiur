@@ -106,6 +106,7 @@ defmodule Aiur.Application do
       Aiur.Events.IdGenerator,
       Aiur.Events.Exchange,
       Aiur.Events.Publisher,
+      Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
       Aiur.OperatorWaitLog,

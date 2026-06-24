@@ -11,6 +11,40 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   defmodule ErrorLinearClient do
     def fetch_issue_states_by_ids(_issue_ids), do: {:error, :tracker_down}
+
+    def graphql(query, %{"issueId" => _issue_id, "stateName" => "rework"})
+        when is_binary(query) do
+      {:ok,
+       %{
+         "data" => %{
+           "issue" => %{
+             "team" => %{"states" => %{"nodes" => [%{"id" => "state-rework"}]}}
+           }
+         }
+       }}
+    end
+
+    def graphql(query, %{issueId: _issue_id, stateName: "rework"})
+        when is_binary(query) do
+      {:ok,
+       %{
+         "data" => %{
+           "issue" => %{
+             "team" => %{"states" => %{"nodes" => [%{"id" => "state-rework"}]}}
+           }
+         }
+       }}
+    end
+
+    def graphql(query, %{"issueId" => _issue_id, "stateId" => "state-rework"})
+        when is_binary(query) do
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+    end
+
+    def graphql(query, %{issueId: _issue_id, stateId: "state-rework"})
+        when is_binary(query) do
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+    end
   end
 
   describe "reconcile with nil / non-binary issue state (crash regression)" do
@@ -783,6 +817,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # id before publishing, so the topic number is the agent identifier.
       issue_identifier = "7"
       previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
 
       try do
         write_workflow_file!(Workflow.workflow_file_path(),
@@ -793,12 +828,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
         File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
 
         Application.put_env(:aiur, :memory_tracker_issues, [
           %Issue{
             id: issue_id,
             identifier: issue_identifier,
-            state: "in-progress",
+            state: "rework",
             title: "Rework requested",
             description: "",
             labels: []
@@ -824,18 +860,26 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         {:noreply, next} =
           Orchestrator.handle_info(
-            {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+            {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
             state
           )
 
+        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+
         entry = Map.fetch!(next.running, issue_id)
-        assert entry.issue.state == "in-progress"
+        assert entry.issue.state == "rework"
         refute get_in(entry, [:control, :status]) == :deactivated
       after
         if previous_memory_issues do
           Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
         else
           Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
         end
 
         File.rm_rf(test_root)
@@ -852,6 +896,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       issue_id = "issue-pr-review-comment-1"
       issue_identifier = "44"
       previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
 
       try do
         write_workflow_file!(Workflow.workflow_file_path(),
@@ -862,12 +907,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
         File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
 
         Application.put_env(:aiur, :memory_tracker_issues, [
           %Issue{
             id: issue_id,
             identifier: issue_identifier,
-            state: "in-progress",
+            state: "rework",
             title: "Review comment requested rework",
             description: "",
             labels: []
@@ -893,18 +939,26 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         {:noreply, next} =
           Orchestrator.handle_info(
-            {:event, %{topic: "ticket.#{issue_identifier}.pr.review_comment"}},
+            {:event, %{topic: "ticket.#{issue_identifier}.pr.review_comment", author_trusted?: true}},
             state
           )
 
+        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+
         entry = Map.fetch!(next.running, issue_id)
-        assert entry.issue.state == "in-progress"
+        assert entry.issue.state == "rework"
         refute get_in(entry, [:control, :status]) == :deactivated
       after
         if previous_memory_issues do
           Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
         else
           Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
         end
 
         File.rm_rf(test_root)
@@ -1026,7 +1080,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             send(
               parent,
               Orchestrator.handle_info(
-                {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+                {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
                 state
               )
             )
@@ -1095,7 +1149,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             send(
               parent,
               Orchestrator.handle_info(
-                {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
+                {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
                 state
               )
             )
@@ -1118,63 +1172,86 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "leaves an unmatched ticket number untouched" do
+    test "trusted comment for an idle issue transitions it to rework for the next poll" do
       issue_id = "issue-issue-commented-2"
       issue_identifier = "7"
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
 
-      state = %Orchestrator.State{
-        running: %{
-          issue_id => %{
-            pid: nil,
-            ref: nil,
-            identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
-            started_at: DateTime.utc_now(),
-            control: %{status: :deactivated}
-          }
-        },
-        claimed: MapSet.new([issue_id]),
-        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-        retry_attempts: %{},
-        max_concurrent_agents: 6
-      }
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
 
-      # A comment whose topic number matches no running entry is a no-op.
-      assert {:noreply, ^state} =
-               Orchestrator.handle_info(
-                 {:event, %{topic: "ticket.999.issue.commented"}},
-                 state
-               )
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+        state = %Orchestrator.State{
+          running: %{},
+          claimed: MapSet.new(),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        assert {:noreply, ^state} =
+                 Orchestrator.handle_info(
+                   {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
+                   state
+                 )
+
+        assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+        refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 50
+      after
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
+        end
+      end
     end
 
     test "leaves a :working entry untouched (no re-dispatch on comment)" do
       issue_id = "issue-issue-commented-3"
       issue_identifier = "7"
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
 
-      state = %Orchestrator.State{
-        running: %{
-          issue_id => %{
-            pid: nil,
-            ref: nil,
-            identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
-            started_at: DateTime.utc_now(),
-            control: %{status: :working}
-          }
-        },
-        claimed: MapSet.new([issue_id]),
-        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-        retry_attempts: %{},
-        max_concurrent_agents: 6
-      }
+      try do
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
 
-      # A live (:working) agent already sees the comment via its own
-      # subscription; the orchestrator must not re-dispatch it.
-      assert {:noreply, ^state} =
-               Orchestrator.handle_info(
-                 {:event, %{topic: "ticket.#{issue_identifier}.issue.commented"}},
-                 state
-               )
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        # A live (:working) agent already sees the comment via its own
+        # subscription; the orchestrator must not re-dispatch or relabel it.
+        assert {:noreply, ^state} =
+                 Orchestrator.handle_info(
+                   {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
+                   state
+                 )
+
+        refute_receive {:memory_tracker_state_update, _, _}, 50
+      after
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
+        end
+      end
     end
   end
 
