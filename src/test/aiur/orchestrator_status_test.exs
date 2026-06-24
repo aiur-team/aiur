@@ -31,7 +31,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     def fetch_issues_by_states(states, opts) do
       notify({:github_startup_cleanup_fetch_issues_by_states, states, opts})
-      {:ok, []}
+      {:ok, Application.get_env(:aiur, :startup_cleanup_issues, [])}
     end
 
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
@@ -215,6 +215,58 @@ defmodule Aiur.OrchestratorStatusTest do
       restore_application_env(:linear_client_module, previous_linear_client)
       restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
       restore_env("GITHUB_TOKEN", previous_github_token)
+    end
+  end
+
+  test "startup todo cleanup removes stale todo workspaces before dispatch" do
+    previous_github_client = Application.get_env(:aiur, :github_client_module)
+    previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
+    previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-todo-cleanup-#{System.unique_integer([:positive])}")
+
+    try do
+      System.put_env("GITHUB_TOKEN", "gh-test-token")
+
+      todo_workspace = Path.join([workspace_root, "owner", "repo", "586"])
+      in_progress_workspace = Path.join([workspace_root, "owner", "repo", "587"])
+      File.mkdir_p!(todo_workspace)
+      File.mkdir_p!(in_progress_workspace)
+      File.write!(Path.join(todo_workspace, "dirty.txt"), "leftover")
+      File.write!(Path.join(in_progress_workspace, "dirty.txt"), "keep")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress"],
+        tracker_terminal_states: ["done"],
+        workspace_root: workspace_root,
+        poll_interval_seconds: 60
+      )
+
+      Application.put_env(:aiur, :github_client_module, StartupCleanupGitHubClient)
+      Application.put_env(:aiur, :startup_cleanup_test_pid, self())
+
+      Application.put_env(:aiur, :startup_cleanup_issues, [
+        %Issue{id: "issue-586", identifier: "586", title: "Todo", state: "todo"},
+        %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"}
+      ])
+
+      assert %Orchestrator.State{} =
+               Orchestrator.run_startup_todo_workspace_cleanup_for_test(%Orchestrator.State{})
+
+      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["todo"], opts}
+      assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
+      refute File.exists?(todo_workspace)
+      assert File.exists?(in_progress_workspace)
+      assert File.read!(Path.join(in_progress_workspace, "dirty.txt")) == "keep"
+    after
+      restore_application_env(:github_client_module, previous_github_client)
+      restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+      restore_application_env(:startup_cleanup_issues, previous_issues)
+      restore_env("GITHUB_TOKEN", previous_github_token)
+      File.rm_rf(workspace_root)
     end
   end
 

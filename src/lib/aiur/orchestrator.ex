@@ -135,6 +135,7 @@ defmodule Aiur.Orchestrator do
     }
 
     state = run_terminal_workspace_cleanup(state)
+    state = run_startup_todo_workspace_cleanup(state)
     cleanup_stray_remote_control_servers()
     init_tracked_set_table()
     install_event_tracked_fn()
@@ -1302,6 +1303,12 @@ defmodule Aiur.Orchestrator do
   @spec run_terminal_workspace_cleanup_for_test(State.t()) :: State.t()
   def run_terminal_workspace_cleanup_for_test(%State{} = state) do
     run_terminal_workspace_cleanup(state)
+  end
+
+  @doc false
+  @spec run_startup_todo_workspace_cleanup_for_test(State.t()) :: State.t()
+  def run_startup_todo_workspace_cleanup_for_test(%State{} = state) do
+    run_startup_todo_workspace_cleanup(state)
   end
 
   @doc false
@@ -2787,6 +2794,51 @@ defmodule Aiur.Orchestrator do
   end
 
   defp cleanup_issue_workspace(_identifier, _worker_host), do: :ok
+
+  defp run_startup_todo_workspace_cleanup(%State{} = state) do
+    case ensure_terminal_workspace_cleanup_preflight(state) do
+      {:ok, state} ->
+        cleanup_todo_workspaces_after_preflight(state)
+
+      {:skip, reason, state} ->
+        Logger.debug("Skipping startup todo workspace cleanup: #{format_retry_preflight_error(reason)}")
+        state
+
+      {:error, reason, state} ->
+        Logger.warning("Skipping startup todo workspace cleanup: #{format_retry_preflight_error(reason)}")
+        state
+    end
+  end
+
+  defp cleanup_todo_workspaces_after_preflight(%State{} = state) do
+    case Tracker.fetch_issues_by_states(configured_todo_states(), quiet_auth_errors?: true) do
+      {:ok, issues} ->
+        issues
+        |> Enum.filter(&todo_issue_for_startup_cleanup?/1)
+        |> Enum.each(&cleanup_terminal_issue_workspace/1)
+
+        state
+
+      {:error, reason} ->
+        Logger.debug("Skipping startup todo workspace cleanup; failed to fetch todo issues: #{inspect(reason)}")
+        state
+    end
+  end
+
+  defp configured_todo_states do
+    Config.settings!().tracker.active_states
+    |> Enum.filter(&(state_slug(&1) == "todo"))
+    |> case do
+      [] -> ["todo"]
+      states -> states
+    end
+  end
+
+  defp todo_issue_for_startup_cleanup?(%Issue{state: state}) do
+    state_slug(state) == "todo"
+  end
+
+  defp todo_issue_for_startup_cleanup?(_issue), do: false
 
   defp run_terminal_workspace_cleanup(%State{} = state) do
     case ensure_terminal_workspace_cleanup_preflight(state) do

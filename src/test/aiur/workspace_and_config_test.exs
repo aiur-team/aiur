@@ -305,6 +305,34 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "before_run recreates dirty leftover workspaces when retry still carries todo label" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-stale-leftover-retry-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-RETRY-1")
+
+      issue = %Issue{
+        id: "issue-stale-retry-1",
+        identifier: "STALE-RETRY-1",
+        title: "Recover stale retry workspace",
+        state: "in-progress",
+        labels: ["agent:todo"]
+      }
+
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+
+      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "before_run still protects dirty in-progress resume workspaces" do
     test_root =
       Path.join(
