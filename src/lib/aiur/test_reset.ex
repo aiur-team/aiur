@@ -55,6 +55,8 @@ defmodule Aiur.TestReset do
           optional(:repo_root) => Path.t()
         }
 
+  @type gh_runner :: ([String.t()] -> {String.t(), non_neg_integer()})
+
   @spec run(map() | keyword()) :: :ok | {:error, term()}
   def run(opts \\ %{}) do
     opts = normalize_opts(opts)
@@ -258,27 +260,185 @@ defmodule Aiur.TestReset do
 
   defp maybe_execute(tickets, %{confirm: true} = opts) do
     say("🧪 aiur resetting sandbox (#{length(tickets)} ticket(s))")
-    results = Enum.map(tickets, &reset_one(&1, opts))
-    restore_baseline(opts)
-    ensure_opencode_theme()
 
-    case unlabeled_tickets(results) do
-      [] ->
-        say("✅ sandbox reset complete")
-        :ok
+    with {:ok, open_tickets} <- prepare_reset_tickets(tickets) do
+      results = Enum.map(open_tickets, &reset_one(&1, opts))
+      restore_baseline(opts)
+      ensure_opencode_theme()
 
-      failed_ids ->
-        abort(
-          "could not label #{inspect(failed_ids)} as agent:todo after retries — " <>
-            "refusing to launch a run that can't dispatch these tickets"
-        )
+      case unlabeled_tickets(results) do
+        [] ->
+          say("✅ sandbox reset complete")
+          :ok
 
-        {:error, {:labels_unset, failed_ids}}
+        failed_ids ->
+          abort(
+            "could not label #{inspect(failed_ids, charlists: :as_lists)} as agent:todo after retries — " <>
+              "refusing to launch a run that can't dispatch these tickets"
+          )
+
+          {:error, {:labels_unset, failed_ids}}
+      end
     end
   end
 
   defp unlabeled_tickets(results) do
     for {:error, {:label_reset_failed, id, _}} <- results, do: id
+  end
+
+  defp prepare_reset_tickets(tickets) do
+    runner = fn argv -> System.cmd("gh", argv, stderr_to_stdout: true) end
+
+    {open_tickets, blocked_tickets} =
+      Enum.reduce(tickets, {[], []}, fn id, {open, blocked} ->
+        case prepare_reset_ticket(id, runner) do
+          :open ->
+            {[id | open], blocked}
+
+          {:closed, _labels} ->
+            {open, [id | blocked]}
+
+          {:error, reason} ->
+            warn("##{id} state check failed: #{reason}")
+            {open, [id | blocked]}
+        end
+      end)
+
+    case blocked_tickets do
+      [] ->
+        {:ok, Enum.reverse(open_tickets)}
+
+      ids ->
+        blocked = Enum.reverse(ids)
+
+        abort(
+          "sandbox ticket(s) must be open before reset: #{inspect(blocked, charlists: :as_lists)}. " <>
+            "Reopen them or update #{@tickets_file}; closed tickets were skipped and " <>
+            "any detected automation labels were removed."
+        )
+
+        {:error, {:tickets_not_open, blocked}}
+    end
+  end
+
+  @doc """
+  Verifies a pinned sandbox ticket is open before normal reset work.
+
+  Closed tickets are skipped from reset and any observed `agent:*` or
+  `model:*` labels are removed so stale automation state is not left on
+  closed issues. `runner` is injected for tests and has the same argv
+  shape as `System.cmd("gh", argv, ...)`.
+  """
+  @spec prepare_reset_ticket(integer() | String.t(), gh_runner()) ::
+          :open | {:closed, [String.t()]} | {:error, String.t()}
+  def prepare_reset_ticket(id, runner) do
+    case fetch_issue_metadata(id, runner) do
+      {:ok, %{state: state, labels: labels}} ->
+        cond do
+          open_issue_state?(state) ->
+            :open
+
+          closed_issue_state?(state) ->
+            clear_closed_ticket_automation_labels(id, labels, runner)
+
+          true ->
+            {:error, "unexpected GitHub issue state #{inspect(state)}"}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec issue_metadata_command_args(integer() | String.t()) :: [String.t()]
+  def issue_metadata_command_args(id) do
+    ["issue", "view", to_string(id), "--json", "state,labels"]
+  end
+
+  @spec automation_label_cleanup_command_args(integer() | String.t(), [String.t()]) ::
+          [String.t()] | nil
+  def automation_label_cleanup_command_args(id, labels) do
+    case automation_labels(labels) do
+      [] -> nil
+      automation -> ["issue", "edit", to_string(id), "--remove-label", Enum.join(automation, ",")]
+    end
+  end
+
+  @spec automation_labels([term()]) :: [String.t()]
+  def automation_labels(labels) when is_list(labels) do
+    labels
+    |> Enum.flat_map(fn label ->
+      case label_name(label) do
+        "agent:" <> _ = name -> [name]
+        "model:" <> _ = name -> [name]
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  def automation_labels(_), do: []
+
+  defp fetch_issue_metadata(id, runner) do
+    case runner.(issue_metadata_command_args(id)) do
+      {output, 0} ->
+        decode_issue_metadata(output)
+
+      {output, _code} ->
+        {:error, String.trim(to_string(output))}
+    end
+  end
+
+  defp decode_issue_metadata(output) do
+    case Jason.decode(output) do
+      {:ok, %{"state" => state} = data} ->
+        labels = Map.get(data, "labels", []) |> Enum.flat_map(&metadata_label_name/1)
+        {:ok, %{state: state, labels: labels}}
+
+      {:ok, _} ->
+        {:error, "could not parse GitHub issue metadata"}
+
+      {:error, _reason} ->
+        {:error, "could not parse GitHub issue metadata"}
+    end
+  end
+
+  defp metadata_label_name(%{"name" => name}) when is_binary(name), do: [name]
+  defp metadata_label_name(name) when is_binary(name), do: [name]
+  defp metadata_label_name(_), do: []
+
+  defp label_name(%{"name" => name}) when is_binary(name), do: name
+  defp label_name(name) when is_binary(name), do: name
+  defp label_name(_), do: nil
+
+  defp open_issue_state?(state), do: normalize_issue_state(state) == "open"
+  defp closed_issue_state?(state), do: normalize_issue_state(state) == "closed"
+
+  defp normalize_issue_state(state) do
+    state
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp clear_closed_ticket_automation_labels(id, labels, runner) do
+    case automation_label_cleanup_command_args(id, labels) do
+      nil ->
+        warn("##{id} closed ticket skipped; no automation labels found")
+        {:closed, []}
+
+      argv ->
+        automation = automation_labels(labels)
+
+        case runner.(argv) do
+          {_, 0} ->
+            warn("##{id} closed ticket skipped; removed automation labels: #{Enum.join(automation, ",")}")
+            {:closed, automation}
+
+          {output, _code} ->
+            {:error, "closed ticket automation label cleanup failed: #{String.trim(to_string(output))}"}
+        end
+    end
   end
 
   # Install + activate the aiur opencode theme so command/tool
@@ -300,7 +460,8 @@ defmodule Aiur.TestReset do
     say("  - Delete remote branch aiur/<id>")
     say("  - Close any open PR from aiur/<id>")
     say("  - Delete agent-workpad comments (`## Agent Workpad` bodies) on the issue")
-    say("  - Strip every agent:* label, re-add agent:todo")
+    say("  - If open: strip every agent:* label, re-add agent:todo")
+    say("  - If closed: remove detected agent:*/model:* labels and abort before launch")
     say("\nAlways:")
     say("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "))
     say("  - Preserve <repo>.event_id (IdGenerator counter)")
@@ -551,7 +712,7 @@ defmodule Aiur.TestReset do
 
     case apply_label_reset(remove_argv, add_argv, runner, @label_reset_attempts, @label_reset_backoff_ms) do
       :ok ->
-        ok("##{id} labels → agent:todo")
+        ok("##{id} labels prepared on open ticket → agent:todo")
         :ok
 
       {:error, output} ->
@@ -569,7 +730,6 @@ defmodule Aiur.TestReset do
   retry/abort contract can be tested without shelling out to real `gh`).
   IO-free by design: callers handle logging.
   """
-  @type gh_runner :: ([String.t()] -> {String.t(), non_neg_integer()})
 
   @spec apply_label_reset([String.t()], [String.t()], gh_runner(), pos_integer(), non_neg_integer()) ::
           :ok | {:error, String.t()}
