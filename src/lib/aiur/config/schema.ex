@@ -627,36 +627,89 @@ defmodule Aiur.Config.Schema do
 
     validate_change(changeset, field, fn ^field, routing ->
       Enum.flat_map(routing, fn {level, value} ->
-        cond do
-          not is_integer(level) or level <= 0 ->
-            [{field, "complexity levels must be positive integers"}]
-
-          not is_binary(value) or routing_backend(value) not in known ->
-            [
-              {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
-            ]
-
-          routing_remote_flag?(value) and not Aiur.CodingAgent.remote_control?(routing_backend(value)) ->
-            [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
-
-          true ->
-            []
-        end
+        routing_errors(field, known, level, value)
       end)
     end)
   end
 
+  defp routing_errors(field, known, level, value) do
+    cond do
+      not is_integer(level) or level <= 0 ->
+        [{field, "complexity levels must be positive integers"}]
+
+      not is_binary(value) or routing_backend(value) not in known ->
+        [{field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}]
+
+      routing_remote_flag?(value) and not Aiur.CodingAgent.remote_control?(routing_backend(value)) ->
+        [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
+
+      not valid_routing_effort?(value) ->
+        invalid_routing_effort_error(field, value)
+
+      true ->
+        []
+    end
+  end
+
+  defp invalid_routing_effort_error(field, value) do
+    backend = routing_effort_backend(value)
+
+    [
+      {field,
+       "invalid effort #{inspect(routing_effort(value))} for backend #{inspect(backend)}; " <>
+         "valid efforts: #{inspect(Aiur.CodingAgent.efforts(backend))}"}
+    ]
+  end
+
+  # A routing value's optional effort segment must be in the backend's valid
+  # set. No effort segment is always fine (the backend's own default applies).
+  # The backend is already known here (an earlier cond branch rejects unknown
+  # backends), so `efforts/1` returns its real set. `claude+remote` dispatches
+  # through the interactive REPL transport, so validate its effort against that
+  # transport rather than the headless app-server wrapper.
+  defp valid_routing_effort?(value) do
+    case routing_effort(value) do
+      nil -> true
+      effort -> effort in Aiur.CodingAgent.efforts(routing_effort_backend(value))
+    end
+  end
+
+  defp routing_effort_backend(value) do
+    case {routing_backend(value), routing_remote_flag?(value)} do
+      {"claude", true} -> "claude-repl"
+      {backend, _remote?} -> backend
+    end
+  end
+
   @doc """
   Splits a routing value into its backend and optional model. A routing
-  value is `"<backend>"` or `"<backend>:<model>"` (e.g. `"claude:sonnet"`),
-  optionally with a trailing `+remote` flag (`"claude:haiku+remote"`) that
-  is stripped here and surfaced separately by `routing_remote_flag?/1`.
+  value is `"<backend>"`, `"<backend>:<model>"` (e.g. `"claude:sonnet"`), or
+  `"<backend>:<model>:<effort>"` (e.g. `"codex:gpt-5.5:high"`), optionally
+  with a trailing `+remote` flag (`"claude:haiku+remote"`) that is stripped
+  here and surfaced separately by `routing_remote_flag?/1`. The optional
+  trailing effort segment is dropped here and surfaced by `routing_effort/1`;
+  an effort-only value omits the model (`"codex::high"`).
   """
   @spec split_routing_value(String.t()) :: {String.t(), String.t() | nil}
   def split_routing_value(value) when is_binary(value) do
-    case value |> strip_remote_flag() |> String.split(":", parts: 2) do
-      [backend, model] when model != "" -> {backend, model}
+    case value |> strip_remote_flag() |> String.split(":", parts: 3) do
+      [backend, model | _] when model != "" -> {backend, model}
       [backend | _] -> {backend, nil}
+    end
+  end
+
+  @doc """
+  The optional per-complexity effort carried by a routing value's third
+  `:`-separated segment (`"<backend>:<model>:<effort>"` or the model-less
+  `"<backend>::<effort>"`), or `nil` when no effort is pinned. The valid
+  set is backend-aware (see `Aiur.CodingAgent.efforts/1`) and enforced by
+  `validate_agent_routing/2`.
+  """
+  @spec routing_effort(String.t()) :: String.t() | nil
+  def routing_effort(value) when is_binary(value) do
+    case value |> strip_remote_flag() |> String.split(":", parts: 3) do
+      [_backend, _model, effort] when effort != "" -> effort
+      _ -> nil
     end
   end
 

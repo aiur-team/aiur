@@ -562,6 +562,7 @@ defmodule Aiur.AgentRunner do
 
     backend = CodingAgent.backend_for(issue)
     model = CodingAgent.model_for(issue)
+    effort = CodingAgent.effort_for(issue)
 
     rc? =
       (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
@@ -569,7 +570,7 @@ defmodule Aiur.AgentRunner do
 
     session_backend = remote_session_backend(backend, rc?)
 
-    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} remote_control=#{rc?}")
+    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
 
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
@@ -579,6 +580,7 @@ defmodule Aiur.AgentRunner do
       [
         backend: session_backend,
         model: model,
+        effort: effort,
         worker_host: worker_host,
         remote_control: rc?,
         identifier: issue.identifier
