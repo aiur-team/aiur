@@ -9,6 +9,7 @@ import {
   rmSync,
   chmodSync,
   copyFileSync,
+  realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import http from "node:http";
@@ -23,6 +24,7 @@ const HOST_TRIPLE = {
   "linux arm64": "linux-arm64",
   "linux x64": "linux-x64",
 }[`${process.platform} ${process.arch}`];
+const NODE_EXEC = spawnSync("which", ["node"], { encoding: "utf8" }).stdout.trim() || "node";
 
 let root;
 let captureFile;
@@ -99,6 +101,7 @@ function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = fals
     AIUR_SKIP_OPENCODE_INSTALL: "1",
     ...env,
   };
+  delete fullEnv.AIUR_RELEASE_DIR;
   // Use a child wrapper to override platform/arch for a foreign host, or to fake
   // a TTY on stderr (spawnSync pipes stderr, so the update notice is otherwise
   // suppressed by the launcher's interactive gate).
@@ -107,15 +110,15 @@ function runShim({ args = [], fakeBin, platform, arch, env = {}, forceTTY = fals
       ? [
           "-e",
           `if(${JSON.stringify(forceTTY)})Object.defineProperty(process.stderr,"isTTY",{value:true,configurable:true});` +
-            `if(${JSON.stringify(!!platform)})process.platform=${JSON.stringify(platform)};` +
-            `if(${JSON.stringify(!!arch)})process.arch=${JSON.stringify(arch)};` +
+            `if(${JSON.stringify(!!platform)})Object.defineProperty(process,"platform",{value:${JSON.stringify(platform)}});` +
+            `if(${JSON.stringify(!!arch)})Object.defineProperty(process,"arch",{value:${JSON.stringify(arch)}});` +
             `process.argv=[process.argv[0],${JSON.stringify(path.join(root, "bin", "aiur.js"))},${args
               .map((a) => JSON.stringify(a))
               .join(",")}];` +
             `require(${JSON.stringify(path.join(root, "bin", "aiur.js"))});`,
         ]
       : [path.join(root, "bin", "aiur.js"), ...args];
-  return spawnSync(process.execPath, nodeArgs, { encoding: "utf8", env: fullEnv });
+  return spawnSync(NODE_EXEC, nodeArgs, { encoding: "utf8", env: fullEnv });
 }
 
 beforeEach(() => {
@@ -134,8 +137,10 @@ test("happy path: resolves platform package and execs launcher with args + env",
   expect(result.status).toBe(0);
   const capture = require("node:fs").readFileSync(captureFile, "utf8");
   expect(capture).toContain("ARGS:--host 127.0.0.1 WORKFLOW.md");
-  expect(capture).toContain(`RELEASE_DIR:${path.join(root, "node_modules", `aiur-cli-${HOST_TRIPLE}`, "release")}`);
-  expect(capture).toContain(`TMUX_CONF:${path.join(root, "share", "aiur.tmux.conf")}`);
+  expect(capture).toContain(
+    `RELEASE_DIR:${realpathSync(path.join(root, "node_modules", `aiur-cli-${HOST_TRIPLE}`, "release"))}`,
+  );
+  expect(capture).toContain(`TMUX_CONF:${realpathSync(path.join(root, "share", "aiur.tmux.conf"))}`);
 });
 
 test("unknown platform triple fails without execing the launcher", () => {
@@ -455,7 +460,7 @@ function setupControlRpc() {
       // Transport succeeds; the control CLI prints output + the exit marker.
       '    ok) echo ":ok"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
       '    set_success) echo "aiur: max-agents set to 3 (2 active)"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
-      '    set_below_active) echo "aiur: failed to set max-agents (below active agent count)" >&2; echo "__AIUR_CONTROL_EXIT__:1"; exit 0 ;;',
+      '    set_draining) echo "aiur: max-agents set to 1 (2 active, draining)"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
       '    appfail) echo "__AIUR_CONTROL_EXIT__:7"; exit 0 ;;',
       '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
       '    missing_marker_empty) exit 0 ;;',
@@ -586,20 +591,20 @@ test("set max-agents succeeds through the control rpc path", () => {
   expect(capture).toContain("Aiur.AgentControlCLI.set_max_agents(3)");
 });
 
-test("set max-agents propagates below-active rejection output", () => {
+test("set max-agents reports below-active caps as draining", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(
     launcher,
     releaseDir,
     {
-      AIUR_FAKE_RPC_MODE: "set_below_active",
+      AIUR_FAKE_RPC_MODE: "set_draining",
       AIUR_FAKE_EPMD_REGISTERED: "1",
     },
     ["set", "max-agents", "1"],
   );
 
-  expect(result.status).toBe(1);
-  expect(result.stdout).toContain("below active agent count");
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("aiur: max-agents set to 1 (2 active, draining)");
   expect(result.stderr).not.toContain("no running aiur node");
   expect(result.stderr).not.toContain("rpc to");
 });

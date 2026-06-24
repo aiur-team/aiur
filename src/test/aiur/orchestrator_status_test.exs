@@ -104,15 +104,16 @@ defmodule Aiur.OrchestratorStatusTest do
              paused: 1,
              configured: 10,
              max: 2,
-             session_override?: true
+             session_override?: true,
+             draining?: false
            } = Orchestrator.max_concurrent_agents(orchestrator_name)
 
-    assert {:ok, %{max: 1, active: 1, paused: 1, session_override?: true}} =
+    assert {:ok, %{max: 1, active: 1, paused: 1, session_override?: true, draining?: false}} =
              Orchestrator.adjust_max_concurrent_agents(orchestrator_name, -1)
   end
 
-  test "session max cannot be decreased below current active agents" do
-    orchestrator_name = Module.concat(__MODULE__, :SessionMaxBelowActiveOrchestrator)
+  test "session max can be decreased below current active agents to drain" do
+    orchestrator_name = Module.concat(__MODULE__, :SessionMaxDrainOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
@@ -130,10 +131,11 @@ defmodule Aiur.OrchestratorStatusTest do
       }
     end)
 
-    assert {:error, :below_active_count} =
+    assert {:ok, %{max: 1, active: 2, draining?: true}} =
              Orchestrator.adjust_max_concurrent_agents(orchestrator_name, -1)
 
-    assert %{max: 2, active: 2} = Orchestrator.max_concurrent_agents(orchestrator_name)
+    assert %{max: 1, active: 2, draining?: true} =
+             Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
   test "status returns running paused and idle agents" do

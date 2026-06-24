@@ -61,14 +61,14 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       name = Module.concat(__MODULE__, :SetCap)
       start_orchestrator(name)
 
-      assert {:ok, %{max: 5, session_override?: true}} =
+      assert {:ok, %{max: 5, session_override?: true, draining?: false}} =
                Orchestrator.set_max_concurrent_agents(name, 5)
 
       assert %{max: 5} = Orchestrator.max_concurrent_agents(name)
     end
 
-    test "rejects a cap below the active agent count without changing state" do
-      name = Module.concat(__MODULE__, :BelowActive)
+    test "allows a cap below active count and reports drain state" do
+      name = Module.concat(__MODULE__, :BelowActiveDrain)
       pid = start_orchestrator(name)
 
       :sys.replace_state(pid, fn state ->
@@ -77,13 +77,48 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
           | session_max_concurrent_agents: 3,
             running: %{
               "i1" => running_entry("i1", "repo#1", :working),
-              "i2" => running_entry("i2", "repo#2", :working)
+              "i2" => running_entry("i2", "repo#2", :working),
+              "i3" => running_entry("i3", "repo#3", :working),
+              "i4" => running_entry("i4", "repo#4", :working)
             }
         }
       end)
 
-      assert {:error, :below_active_count} = Orchestrator.set_max_concurrent_agents(name, 1)
-      assert %{max: 3} = Orchestrator.max_concurrent_agents(name)
+      assert {:ok, %{active: 4, max: 3, draining?: true}} =
+               Orchestrator.set_max_concurrent_agents(name, 3)
+
+      assert %{active: 4, max: 3, draining?: true} = Orchestrator.max_concurrent_agents(name)
+    end
+
+    test "drained cap blocks queued dispatch until active drops below max" do
+      running = %{
+        "i1" => running_entry("i1", "repo#1", :working),
+        "i2" => running_entry("i2", "repo#2", :working),
+        "i3" => running_entry("i3", "repo#3", :working),
+        "i4" => running_entry("i4", "repo#4", :working)
+      }
+
+      candidate = %Issue{
+        id: "i5",
+        identifier: "repo#5",
+        state: "todo",
+        title: "queued work"
+      }
+
+      state = %Orchestrator.State{
+        max_concurrent_agents: 4,
+        session_max_concurrent_agents: 3,
+        running: running,
+        claimed: MapSet.new(Map.keys(running))
+      }
+
+      refute Orchestrator.should_dispatch_issue_for_test(candidate, state)
+
+      one_finished = %{state | running: Map.delete(running, "i4")}
+      refute Orchestrator.should_dispatch_issue_for_test(candidate, one_finished)
+
+      below_cap = %{state | running: running |> Map.delete("i4") |> Map.delete("i3")}
+      assert Orchestrator.should_dispatch_issue_for_test(candidate, below_cap)
     end
 
     test "returns :unavailable when the orchestrator is not running" do

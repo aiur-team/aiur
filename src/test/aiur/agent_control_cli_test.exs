@@ -566,7 +566,7 @@ defmodule Aiur.AgentControlCLITest do
       assert %{max: 3, session_override?: true} = Orchestrator.max_concurrent_agents(pid)
     end
 
-    test "rejects a cap below the active agent count", %{orchestrator: pid} do
+    test "allows a cap below the active agent count and reports draining", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state ->
         %{
           state
@@ -577,13 +577,10 @@ defmodule Aiur.AgentControlCLITest do
         }
       end)
 
-      stderr =
-        capture_io(:stderr, fn ->
-          output = capture_io(fn -> AgentControlCLI.set_max_agents(1) end)
-          assert output =~ "__AIUR_CONTROL_EXIT__:1"
-        end)
+      output = capture_io(fn -> AgentControlCLI.set_max_agents(1) end)
 
-      assert stderr =~ "below active agent count"
+      assert output =~ "aiur: max-agents set to 1 (2 active, draining)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
     test "rejects a non-positive cap without touching the orchestrator" do

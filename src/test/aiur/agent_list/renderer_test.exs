@@ -75,6 +75,26 @@ defmodule Aiur.AgentList.RendererTest do
     assert out =~ "claude (2/5)"
   end
 
+  test "marks the max display as draining when active exceeds max" do
+    out =
+      render(
+        base_state(%{
+          summaries: [
+            %{identifier: "MT-1", status: :running, alert_count: 0},
+            %{identifier: "MT-2", status: :running, alert_count: 0},
+            %{identifier: "MT-3", status: :running, alert_count: 0},
+            %{identifier: "MT-4", status: :running, alert_count: 0}
+          ],
+          agent_kind: "codex",
+          agent_count: 4,
+          max_agents: 3
+        })
+      )
+      |> visible()
+
+    assert out =~ "codex (4/3 drain)"
+  end
+
   test "focused max display highlights editable value and shows arrow affordances" do
     out =
       render(
