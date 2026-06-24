@@ -180,6 +180,82 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert DateTime.diff(DateTime.utc_now(), resumed.started_at, :second) > 150
     end
 
+    # Regression for #420: the duration cap is the runaway safety net. An
+    # AUTOMATED resume (blocker auto-resume) must not hand a fresh budget,
+    # or a duration-capped agent that declared a blocker would reset its
+    # clock on every blocker push and never be bounded. Only an OPERATOR
+    # "check in, keep going" earns a fresh window.
+    test "an automated (blocker) resume PRESERVES the cumulative overrun and does NOT reset the clock" do
+      issue_id = "issue-auto-resume-overcap"
+      identifier = "AUTO-RESUME"
+      # Active runtime already 2h over a 60s cap when it was paused.
+      old = DateTime.add(DateTime.utc_now(), -7_200, :second)
+
+      entry =
+        issue_id
+        |> working_entry(identifier, old, self())
+        |> Map.merge(%{
+          control: %{status: :paused},
+          paused_reason: :max_agent_duration,
+          paused_at: old
+        })
+
+      state = state_with(%{issue_id => entry})
+
+      # operator?: false == the blocker / pending-auto-resume path.
+      assert {{:ok, :resumed}, next} =
+               Orchestrator.resume_paused_issue_for_test(state, state.running[issue_id], false)
+
+      assert_receive {:resume_agent, request_id} when is_integer(request_id)
+
+      resumed = next.running[issue_id]
+      assert get_in(resumed, [:control, :status]) == :working
+      # The reason marker is dropped (entry is working again) so the cap can
+      # re-stamp it fresh, but the duration baseline is UNCHANGED — the agent
+      # resumes already over the cap.
+      refute Map.has_key?(resumed, :paused_reason)
+      assert resumed.started_at == old
+
+      # Safety net proof: the very next overrun check at the same cap must
+      # RE-PAUSE this still-over-budget agent instead of letting it run free.
+      rechecked = Orchestrator.apply_overrun_check_for_test(next, 60)
+      assert get_in(rechecked.running, [issue_id, :control, :status]) == :paused
+      assert rechecked.running[issue_id].paused_reason == :max_agent_duration
+    end
+
+    # Counterpart to the automated case: an explicit operator resume IS a
+    # deliberate restart, so the duration clock resets to a full window and
+    # the next overrun check leaves the agent working.
+    test "an operator resume of a duration-capped agent DOES reset the clock to a fresh budget" do
+      issue_id = "issue-operator-resume-overcap"
+      identifier = "OP-RESUME"
+      old = DateTime.add(DateTime.utc_now(), -7_200, :second)
+
+      entry =
+        issue_id
+        |> working_entry(identifier, old, self())
+        |> Map.merge(%{
+          control: %{status: :paused},
+          paused_reason: :max_agent_duration,
+          paused_at: old
+        })
+
+      state = state_with(%{issue_id => entry})
+
+      # Default operator?: true == label-flip / chat resume.
+      assert {{:ok, :resumed}, next} =
+               Orchestrator.resume_paused_issue_for_test(state, state.running[issue_id])
+
+      resumed = next.running[issue_id]
+      assert get_in(resumed, [:control, :status]) == :working
+      refute Map.has_key?(resumed, :paused_reason)
+      assert DateTime.diff(DateTime.utc_now(), resumed.started_at, :second) < 5
+
+      # Fresh budget: the next overrun check at the same cap leaves it working.
+      rechecked = Orchestrator.apply_overrun_check_for_test(next, 60)
+      assert get_in(rechecked.running, [issue_id, :control, :status]) == :working
+    end
+
     test "resume is refused at the concurrency cap and leaves the duration pause intact" do
       paused_id = "issue-dur-capped"
       active_id = "issue-active-holder"
@@ -212,6 +288,115 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert get_in(paused, [:control, :status]) == :paused
       assert paused.paused_reason == :max_agent_duration
       assert paused.started_at == old
+    end
+  end
+
+  # Regression for #420 problem 1: a duration-capped pause asks the worker
+  # to park cooperatively. A truly wedged agent (one never-ending codex
+  # turn) never reaches a turn boundary, so it keeps streaming and never
+  # parks. Such an entry must NOT sit `:paused` forever — the duration cap
+  # can never re-fire on a paused entry and no operator resume is coming —
+  # so the stall watchdog escalates it to a terminate after the grace
+  # window. Without this a real runaway is the very thing that melts the box.
+  describe "wedged over-cap agent escalation (the runaway safety net)" do
+    # Unlinked worker pid: the escalation path force-terminates the task, so
+    # an unlinked spawn lets that kill land without tearing down the test
+    # process (mirrors the working-stall-restart tests).
+    defp duration_paused_entry(issue_id, identifier, paused_at, last_codex) do
+      worker_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      issue_id
+      |> working_entry(identifier, paused_at, worker_pid)
+      |> Map.merge(%{
+        control: %{status: :paused},
+        paused_reason: :max_agent_duration,
+        paused_at: paused_at,
+        last_codex_timestamp: last_codex
+      })
+    end
+
+    test "a wedged over-cap agent is force-terminated after the grace window" do
+      issue_id = "issue-wedged-overcap"
+      identifier = "WEDGED"
+      grace_ms = 60_000
+
+      # Paused for the cap 5 minutes ago, but the codex stream kept ticking
+      # AFTER the pause (1 minute ago) — the agent never honored the park.
+      paused_at = DateTime.add(DateTime.utc_now(), -300, :second)
+      last_codex = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      state = state_with(%{issue_id => duration_paused_entry(issue_id, identifier, paused_at, last_codex)})
+
+      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+
+      # The wedged runaway is gone — terminated, not skipped indefinitely.
+      refute Map.has_key?(next.running, issue_id)
+    end
+
+    test "a cooperatively-parked over-cap agent is left alone (not killed)" do
+      issue_id = "issue-parked-overcap"
+      identifier = "PARKED"
+      grace_ms = 60_000
+
+      # Paused for the cap 5 minutes ago and the codex stream stopped AT the
+      # pause boundary (no activity after paused_at) — it parked correctly.
+      paused_at = DateTime.add(DateTime.utc_now(), -300, :second)
+      last_codex = DateTime.add(paused_at, -5, :second)
+
+      state = state_with(%{issue_id => duration_paused_entry(issue_id, identifier, paused_at, last_codex)})
+
+      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+
+      # A correctly-parked agent keeps its slot/workpad for the operator or
+      # blocker resume — escalation must not throw it away.
+      assert Map.has_key?(next.running, issue_id)
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+    end
+
+    test "a still-streaming over-cap agent inside the grace window is spared" do
+      issue_id = "issue-grace-overcap"
+      identifier = "GRACE"
+      grace_ms = 60_000
+
+      # Paused 10s ago, still streaming — but inside the grace window, so the
+      # watchdog gives it a chance to reach its turn boundary and park.
+      paused_at = DateTime.add(DateTime.utc_now(), -10, :second)
+      last_codex = DateTime.add(DateTime.utc_now(), -2, :second)
+
+      state = state_with(%{issue_id => duration_paused_entry(issue_id, identifier, paused_at, last_codex)})
+
+      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+
+      assert Map.has_key?(next.running, issue_id)
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+    end
+
+    test "a manual/blocker pause (no duration reason) is never escalated" do
+      issue_id = "issue-manual-pause-streaming"
+      identifier = "MANUAL"
+      grace_ms = 60_000
+
+      paused_at = DateTime.add(DateTime.utc_now(), -300, :second)
+      last_codex = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      # Same wedged shape, but a manual/blocker pause (no :max_agent_duration
+      # reason). The escalation is a duration-cap-only safety net; an
+      # operator/blocker pause is deliberate idleness and must be preserved.
+      entry =
+        issue_id
+        |> working_entry(identifier, paused_at, self())
+        |> Map.merge(%{
+          control: %{status: :paused},
+          paused_at: paused_at,
+          last_codex_timestamp: last_codex
+        })
+
+      state = state_with(%{issue_id => entry})
+
+      next = Orchestrator.apply_stall_check_for_test(state, grace_ms)
+
+      assert Map.has_key?(next.running, issue_id)
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
     end
   end
 end
