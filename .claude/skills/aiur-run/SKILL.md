@@ -71,9 +71,21 @@ Confirm it actually worked:
   build. If agents are each cold-cloning/building → prewarm is broken; stop and fix before
   10 concurrent builds melt the box.
 
-## 5. Monitor (loop ~2 min)
+## 5. Monitor — REQUIRED: start the 5-minute cadence immediately on launch
 
-- **Agents** — `/aiur-monitor` (loop it: `/loop 2m /aiur-monitor`).
+**REQUIRED SUB-SKILL: `aiur-monitor`.** Launch is not "done" when the BEAM is up — it's done
+when the status cadence is running. Immediately after a verified launch (step 4 confirms
+prewarm), you **MUST** hand off to `aiur-monitor` and start its **5-minute auto-cadence**:
+emit a fresh formatted status table every 5 minutes (the `/loop 5m` interval; "approximately"
+is not license to stretch it to 10+), automatically, until the run reaches a terminal state or
+the operator says stop. This is not optional and the operator should **NEVER** have to ask for
+the next update — see `aiur-monitor`'s "Monitoring cadence" for the required rule, the table
+format, and the alert relay. (5 min is the operator default; adjustable only if the operator asks.)
+
+- **Agents** — start the cadence now by arming the loop: `/loop 5m /aiur-monitor`. There is no
+  self-ticking fallback — if you do not arm `/loop`, no further updates will fire, which is the
+  failure this step exists to prevent. Don't skip a tick when nothing changed — post the table
+  anyway, noting steady-state.
 - **Alerts** — relay operator-actionable alerts via `aiur-monitor`'s alert-relay (`tail-alerts.sh` → PushNotification).
 - **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
   concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
@@ -102,4 +114,4 @@ issues found as `agent:todo` (preferred) or self-fix via the CE loop when not ag
 - **#438** — control rpc masks real errors as "no running node." Verify with `status`.
 - **#449** — `--bg` boots UI-only work (panes, dashboard, chat backfill) and lacks a
   `--max-agents` flag + a built-in status command. Until then, set agents via config and use
-  `/aiur-monitor`.
+  `aiur-monitor`.
