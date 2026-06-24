@@ -69,7 +69,10 @@ sources change.
 
 Install [opencode](https://opencode.ai) separately for CLI chat panes. Aiur starts
 `opencode serve` lazily per pane and routes its OpenAI-compatible provider calls
-back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`.
+back through Aiur on `opencode.bridge_host` / `opencode.bridge_port`. When
+`opencode.bridge_port` and `AIUR_OPENCODE_BRIDGE_PORT` are unset, Aiur uses
+`4097` if available and otherwise selects a nearby free local port; explicit
+config or env ports are honored as pins.
 
 ## Setup wizard (`aiur init`)
 

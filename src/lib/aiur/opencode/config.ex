@@ -10,6 +10,8 @@ defmodule Aiur.Opencode.Config do
   @default_bridge_port 4097
   @default_model_prefix "aiur"
 
+  @type bridge_port_source :: :app_override | :env | :workflow | :default
+
   @spec command() :: String.t()
   def command do
     case section_value("command") do
@@ -36,11 +38,28 @@ defmodule Aiur.Opencode.Config do
 
   @spec bridge_port() :: non_neg_integer()
   def bridge_port do
-    case Application.get_env(:aiur, :opencode_bridge_port_override) ||
-           env_bridge_port() ||
-           section_value("bridge_port") do
-      value when is_integer(value) and value >= 0 -> value
-      _ -> @default_bridge_port
+    {_source, port} = bridge_port_with_source()
+    port
+  end
+
+  @spec bridge_port_with_source() :: {bridge_port_source(), non_neg_integer()}
+  def bridge_port_with_source do
+    app_port = Application.get_env(:aiur, :opencode_bridge_port_override)
+    env_port = env_bridge_port()
+    workflow_port = raw_bridge_port()
+
+    cond do
+      valid_port?(app_port) ->
+        {:app_override, app_port}
+
+      valid_port?(env_port) ->
+        {:env, env_port}
+
+      valid_port?(workflow_port) ->
+        {:workflow, workflow_port}
+
+      true ->
+        {:default, @default_bridge_port}
     end
   end
 
@@ -49,6 +68,24 @@ defmodule Aiur.Opencode.Config do
       value when is_binary(value) ->
         case Integer.parse(String.trim(value)) do
           {port, ""} when port >= 0 and port < 65_536 -> port
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp valid_port?(port), do: is_integer(port) and port >= 0 and port < 65_536
+
+  defp raw_bridge_port do
+    case raw_section_value("bridge_port") do
+      value when is_integer(value) ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(String.trim(value)) do
+          {port, ""} -> port
           _ -> nil
         end
 
@@ -164,5 +201,14 @@ defmodule Aiur.Opencode.Config do
     |> Map.get(String.to_existing_atom(key))
   rescue
     ArgumentError -> nil
+  end
+
+  defp raw_section_value(key) do
+    with {:ok, %{config: %{} = config}} <- Aiur.Workflow.current(),
+         %{} = opencode <- Map.get(config, "opencode") do
+      Map.get(opencode, key)
+    else
+      _ -> nil
+    end
   end
 end
