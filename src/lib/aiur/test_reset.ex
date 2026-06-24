@@ -65,32 +65,27 @@ defmodule Aiur.TestReset do
     end
   end
 
-  # Refuse to run from inside an agent workspace. The script-level
-  # guard in `scripts/aiurdev` is necessary but not sufficient: each
-  # agent's workspace ships with its own copy of `scripts/aiurdev` from
-  # whatever sha was cloned at workspace creation time. If that
-  # snapshot predates the script guard, an agent that types
-  # `./scripts/aiurdev --test` from inside its workspace would still
-  # reach `mix aiur.test.reset`. Catching the recursive call here
-  # gives us defense at the only layer the agent's workspace cannot
-  # roll back through. Two signals — the env marker set by
-  # Aiur.AgentEnvironment, and the workspace-path pattern — match
-  # the script's guard so this is the same physical block, just
-  # repeated one level deeper.
+  # Refuse direct reset calls from inside an agent workspace unless the current
+  # process came through `scripts/aiurdev`'s agent-IR sandbox path. The shim sets
+  # AIUR_AGENT_IR_SANDBOX only after redirecting state, logs, runtime pidfiles,
+  # and ports away from the operator instance. Keeping this guard here protects
+  # older workspace checkouts and manual `mix aiur.test.reset` calls.
   defp guard_not_running_in_agent_workspace(opts) do
     cond do
+      System.get_env("AIUR_AGENT_IR_SANDBOX") == "1" ->
+        :ok
+
       (marker = System.get_env("AIUR_AGENT_WORKSPACE")) && marker != "" ->
         say("❌ refusing to run mix aiur.test.reset from inside an agent workspace")
         say("   AIUR_AGENT_WORKSPACE=#{marker}")
-        say("   Agents must verify by exercising the code directly (mix run, mix test, etc.),")
-        say("   not by running test.reset. Doing so would wipe the operator's sandbox tickets")
-        say("   and kill the in-flight run.")
+        say("   Re-run through scripts/aiurdev --test/--test3 so the agent IR sandbox")
+        say("   is established before reset, stop, or log cleanup.")
         {:error, :agent_workspace_blocked}
 
       opts.repo_root && String.contains?(opts.repo_root, "/aiur-workspaces/") ->
         say("❌ refusing to run mix aiur.test.reset from inside an agent workspace tree")
         say("   repo_root=#{opts.repo_root}")
-        say("   Agents must verify by exercising the code directly, not by running test.reset.")
+        say("   Re-run through scripts/aiurdev --test/--test3 so the agent IR sandbox is active.")
         {:error, :agent_workspace_blocked}
 
       true ->
