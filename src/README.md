@@ -145,6 +145,12 @@ on your `PATH`:
 | `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
 | `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
+Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`,
+and `stop`) reuse the existing dev release when it is complete, even if sources
+are newer. They control the already-running node, so a stale-source rebuild would
+not update that session. Run/start paths and explicit `aiurdev build` still
+rebuild when needed.
+
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
 
