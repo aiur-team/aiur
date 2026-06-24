@@ -109,7 +109,8 @@ defmodule Aiur.Workflow do
     case yaml_to_map(content) do
       {:ok, config} ->
         with {:ok, config} <- resolve_hooks(config, path),
-             {:ok, config} <- resolve_prewarm(config, path) do
+             {:ok, config} <- resolve_prewarm(config, path),
+             {:ok, config} <- resolve_alerts(config, path) do
           resolve_prompt(config, path)
         else
           {:error, reason} -> {:error, reason}
@@ -180,6 +181,30 @@ defmodule Aiur.Workflow do
       _ -> {:ok, config}
     end
   end
+
+  # An optional `alerts.alerts_file:` key points at a sibling topic→sound mapping
+  # file (convention `.aiur/alerts`). A *relative* value is anchored to the config
+  # dir — mirroring `hooks_file`/`prompt_file` — so `alerts_file: alerts` resolves
+  # next to the config regardless of the daemon's cwd. Absolute and `~/` paths are
+  # left untouched (expanded later by `Aiur.Alerts`); an absent or empty value is
+  # left as-is so the bundled `alerts.yaml` fallback still applies. The pointed-at
+  # file is read lazily at emit time, so a missing file is not an error here.
+  defp resolve_alerts(config, path) do
+    with %{} = alerts <- Map.get(config, "alerts"),
+         rel when is_binary(rel) and rel != "" <- Map.get(alerts, "alerts_file"),
+         true <- relative_alerts_file?(rel) do
+      resolved = Path.expand(rel, Path.dirname(path))
+      {:ok, put_in(config, ["alerts", "alerts_file"], resolved)}
+    else
+      _ -> {:ok, config}
+    end
+  end
+
+  # Absolute and `~/`-prefixed paths are honoured verbatim by `Aiur.Alerts`, so
+  # only a relative value needs config-dir anchoring.
+  defp relative_alerts_file?("/" <> _), do: false
+  defp relative_alerts_file?("~/" <> _), do: false
+  defp relative_alerts_file?(_rel), do: true
 
   defp resolve_prompt(config, path) do
     case Map.get(config, "prompt_file") do

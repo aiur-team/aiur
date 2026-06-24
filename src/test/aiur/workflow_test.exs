@@ -199,6 +199,47 @@ defmodule Aiur.WorkflowTest do
     end
   end
 
+  describe "alerts_file resolution" do
+    test "a relative alerts_file resolves to an absolute path next to the config dir, not cwd", %{dir: dir} do
+      aiur = Path.join(dir, ".aiur")
+      File.mkdir_p!(aiur)
+      path = Path.join(aiur, "config")
+      File.write!(path, "tracker:\n  kind: memory\nalerts:\n  enabled: true\n  alerts_file: alerts\n")
+
+      elsewhere = Path.join(dir, "elsewhere")
+      File.mkdir_p!(elsewhere)
+
+      File.cd!(elsewhere, fn ->
+        assert {:ok, loaded} = Workflow.load(path)
+        assert loaded.config["alerts"]["alerts_file"] == Path.join(aiur, "alerts")
+      end)
+    end
+
+    test "an absolute alerts_file is left untouched", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nalerts:\n  alerts_file: /etc/aiur/alerts.yaml\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["alerts"]["alerts_file"] == "/etc/aiur/alerts.yaml"
+    end
+
+    test "a ~/ alerts_file is left untouched for later expansion", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nalerts:\n  alerts_file: ~/my-alerts.yaml\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["alerts"]["alerts_file"] == "~/my-alerts.yaml"
+    end
+
+    test "an absent alerts_file leaves the alerts block unchanged", %{dir: dir} do
+      path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\nalerts:\n  enabled: true\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      refute Map.has_key?(loaded.config["alerts"], "alerts_file")
+    end
+  end
+
   describe "prewarm base_build_file resolution" do
     test "base_build_file loads the sibling script into prewarm.base_build", %{dir: dir} do
       File.write!(Path.join(dir, "prewarm"), "mix deps.get && mix compile\n")

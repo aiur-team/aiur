@@ -219,8 +219,9 @@ defmodule Aiur.Alerts do
 
   # A configured `alerts_file` is only honoured when it actually exists, so a
   # typo'd or missing custom path falls back to the bundled `alerts.yaml` rather
-  # than silently dropping every alert sound. Relative paths resolve against the
-  # daemon's cwd — prefer an absolute or `~/`-prefixed path (see config.example).
+  # than silently dropping every alert sound. Relative paths are pre-resolved
+  # against the config dir at load time (see `Aiur.Workflow`), so by here the
+  # value is already absolute or a `~/`-prefixed path expanded below.
   defp configured_alerts_file do
     case alert_settings().alerts_file do
       file when is_binary(file) and file != "" ->

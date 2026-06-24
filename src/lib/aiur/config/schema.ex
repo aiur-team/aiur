@@ -426,7 +426,10 @@ defmodule Aiur.Config.Schema do
       # filenames; in OS-default mode a `<category>.<ext>` file here wins over the
       # OS sound.
       field(:sound_dir, :string)
-      # Optional custom topic→sound YAML; defaults to the repo `alerts.yaml`.
+      # Optional topic→sound map. `aiur init` scaffolds `.aiur/alerts` and points
+      # here with `alerts_file: alerts` (a relative value resolves next to the
+      # config dir; see `Aiur.Workflow`). Absolute / `~/` paths are honoured
+      # as-is. When unset or missing, the bundled repo `alerts.yaml` is used.
       field(:alerts_file, :string)
     end
 

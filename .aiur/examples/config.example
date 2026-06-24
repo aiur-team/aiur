@@ -61,7 +61,7 @@ alerts:
   enabled: {{ALERTS_ENABLED}}                  # master switch for alert sound playback (macOS + Linux)
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
-  # alerts_file: ~/my-alerts.yaml              # custom topic→sound mapping; use an absolute or ~/ path (a missing file falls back to the bundled alerts.yaml)
+  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the bundled alerts.yaml
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
