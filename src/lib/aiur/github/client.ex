@@ -4,26 +4,13 @@ defmodule Aiur.GitHub.Client do
   """
 
   require Logger
-  alias Aiur.{Codeowners, GitHub, Issue}
+  alias Aiur.{Codeowners, Config, GitHub, Issue}
 
   @base_url "https://api.github.com"
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
-    with {:ok, {owner, repo}} <- parse_repo(),
-         {:ok, token} <- require_token() do
-      prefix = GitHub.Config.label_prefix()
-      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-
-      fetch_issues_for_each_label(
-        ["#{prefix}:todo", "#{prefix}:in-progress"],
-        request_fun,
-        token,
-        owner,
-        repo,
-        prefix
-      )
-    end
+    fetch_issues_by_states(Config.settings!().tracker.active_states, opts)
   end
 
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
