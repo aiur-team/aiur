@@ -105,7 +105,9 @@
 
   .stage {
     position: relative;
-    z-index: 3;
+    /* above the terminal peek (z-index 5) so the install box's drop-down
+       panel can overlay it cleanly when the next-steps reveal opens */
+    z-index: 6;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -161,8 +163,11 @@
     text-align: center;
   }
 
-  /* tabs + command joined into one panel: wrapper owns the border/pill */
-  .install-wrap {
+  /* anchor only — holds the in-flow box + the absolutely-dropped next-steps so
+     the reveal never changes layout height (hero stays centered, no drift) */
+  .install-wrap { position: relative; }
+  /* tabs + command joined into one panel: box owns the border/pill */
+  .install-box {
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -171,6 +176,11 @@
     border-radius: 11px;
     overflow: hidden;
     backdrop-filter: blur(3px);
+    transition: border-radius 0.2s ease;
+  }
+  .install-wrap.show-next .install-box {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
   }
   .pm-tabs {
     display: flex;
@@ -220,15 +230,28 @@
   .install .copy svg { width: 15px; height: 15px; }
   .install .copy.copied { color: var(--accent); }
 
-  /* post-install commands — revealed + animated open on copy */
+  /* post-install commands — drop below the box without affecting layout.
+     absolute + top:100% so the hero never re-centers when it opens. */
   .next-steps {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: -1px; /* merge the panel's top border with the box's bottom */
+    z-index: 2;
     display: grid;
     grid-template-rows: 0fr;
     transition: grid-template-rows 0.34s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .install-wrap.show-next .next-steps { grid-template-rows: 1fr; }
-  .install-wrap.show-next .install { border-bottom: 1px solid var(--pill-bd); }
   .next-inner { overflow: hidden; }
+  .next-panel {
+    border: 1px solid var(--pill-bd);
+    border-radius: 0 0 11px 11px;
+    /* opaque (matches the box's frosted tint) so it fully covers the
+       terminal peek it drops over, rather than letting it bleed through */
+    background: color-mix(in srgb, var(--fg) 3%, var(--bg));
+  }
   .next-hint {
     text-align: center;
     font-family: "JetBrains Mono", monospace;
@@ -247,17 +270,17 @@
     color: var(--muted);
   }
   .next-row .prompt { color: var(--accent); }
-  .next-inner > * {
+  .next-panel > * {
     opacity: 0;
     transform: translateY(-4px);
     transition: opacity 0.3s ease, transform 0.3s ease;
   }
-  .install-wrap.show-next .next-inner > * { opacity: 1; transform: none; }
-  .install-wrap.show-next .next-inner > :nth-child(2) { transition-delay: 0.06s; }
-  .install-wrap.show-next .next-inner > :nth-child(3) { transition-delay: 0.12s; }
+  .install-wrap.show-next .next-panel > * { opacity: 1; transform: none; }
+  .install-wrap.show-next .next-panel > :nth-child(2) { transition-delay: 0.06s; }
+  .install-wrap.show-next .next-panel > :nth-child(3) { transition-delay: 0.12s; }
   @media (prefers-reduced-motion: reduce) {
     .next-steps { transition: none; }
-    .next-inner > * { transition: none; }
+    .next-panel > * { transition: none; }
   }
 
   .scrollcue {

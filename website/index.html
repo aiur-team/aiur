@@ -35,27 +35,31 @@
       <div class="sub">
         <p class="tagline keepout">AI Unit Runtime for Executors</p>
         <div class="install-wrap keepout" id="installWrap">
-          <div class="pm-tabs" role="tablist" aria-label="Package manager">
-            <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="npm">npm</button>
-            <button class="pm-tab" role="tab" aria-selected="false" data-pm="bun">bun</button>
-            <button class="pm-tab" role="tab" aria-selected="false" data-pm="pnpm">pnpm</button>
-            <button class="pm-tab" role="tab" aria-selected="false" data-pm="yarn">yarn</button>
-          </div>
-          <div class="install">
-            <span class="prompt">$</span>
-            <span class="cmd" id="installCmd">npm i -g aiur-cli</span>
-            <button class="copy" id="copyBtn" aria-label="Copy install command">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="11" height="11" rx="2.2"></rect>
-                <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-              </svg>
-            </button>
+          <div class="install-box">
+            <div class="pm-tabs" role="tablist" aria-label="Package manager">
+              <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="npm">npm</button>
+              <button class="pm-tab" role="tab" aria-selected="false" data-pm="bun">bun</button>
+              <button class="pm-tab" role="tab" aria-selected="false" data-pm="pnpm">pnpm</button>
+              <button class="pm-tab" role="tab" aria-selected="false" data-pm="yarn">yarn</button>
+            </div>
+            <div class="install">
+              <span class="prompt">$</span>
+              <span class="cmd" id="installCmd">npm i -g aiur-cli</span>
+              <button class="copy" id="copyBtn" aria-label="Copy install command">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="11" height="11" rx="2.2"></rect>
+                  <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="next-steps" id="nextSteps" aria-hidden="true">
             <div class="next-inner">
-              <div class="next-hint">in any project repo:</div>
-              <div class="next-row"><span class="prompt">$</span><span class="cmd">aiur init</span></div>
-              <div class="next-row"><span class="prompt">$</span><span class="cmd">aiur</span></div>
+              <div class="next-panel">
+                <div class="next-hint">in any project repo:</div>
+                <div class="next-row"><span class="prompt">$</span><span class="cmd">aiur init</span></div>
+                <div class="next-row"><span class="prompt">$</span><span class="cmd">aiur</span></div>
+              </div>
             </div>
           </div>
         </div>
