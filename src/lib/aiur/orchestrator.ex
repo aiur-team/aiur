@@ -2377,7 +2377,7 @@ defmodule Aiur.Orchestrator do
     AgentPubSub.broadcast_poll_state(%{
       checking?: state.poll_check_in_progress == true,
       next_poll_due_at_ms: state.next_poll_due_at_ms,
-      max_concurrent_agents: state.max_concurrent_agents
+      max_concurrent_agents: max_concurrent_agent_limit(state)
     })
 
     ObservabilityPubSub.broadcast_update()
@@ -2737,17 +2737,13 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  # Shared body for the adjust/set cap handlers: refuse to drop the cap below
-  # the count of currently-active agents (never strand running work), else
-  # apply the new session override and notify the dashboard.
+  # Shared body for the adjust/set cap handlers. Lowering below the active
+  # count is allowed: existing work keeps running, while available_slots/1
+  # blocks new dispatch until active+paused drops below the new cap.
   defp apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
-    if next < active_running_count(state.running) do
-      {:reply, {:error, :below_active_count}, state}
-    else
-      state = %{state | session_max_concurrent_agents: next}
-      notify_dashboard(state)
-      {:reply, {:ok, max_concurrent_agent_status(state)}, state}
-    end
+    state = %{state | session_max_concurrent_agents: next}
+    notify_dashboard(state)
+    {:reply, {:ok, max_concurrent_agent_status(state)}, state}
   end
 
   defp max_concurrent_agent_limit(%State{} = state) do
@@ -2764,12 +2760,16 @@ defmodule Aiur.Orchestrator do
   end
 
   defp max_concurrent_agent_status(%State{} = state) do
+    active = active_running_count(state.running)
+    max = max_concurrent_agent_limit(state)
+
     %{
-      active: active_running_count(state.running),
+      active: active,
       paused: paused_running_count(state.running),
       configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
-      max: max_concurrent_agent_limit(state),
-      session_override?: is_integer(state.session_max_concurrent_agents)
+      max: max,
+      session_override?: is_integer(state.session_max_concurrent_agents),
+      draining?: active > max
     }
   end
 
@@ -2949,8 +2949,9 @@ defmodule Aiur.Orchestrator do
   @doc """
   Set the concurrent-agent cap to an absolute value at runtime (the
   `aiur set max-agents N` control), without editing `.aiur/config`.
-  Rejected with `{:error, :below_active_count}` when `n` is below the
-  number of currently-active agents — we never strand running work.
+  May be set below the number of currently-active agents. Existing work
+  keeps running, and new dispatch is held until active agents drain below
+  the new cap.
 
   Session-scoped like `adjust_max_concurrent_agents/1`: it lives in
   orchestrator state, so a `--max-agents` launch override (or the config
