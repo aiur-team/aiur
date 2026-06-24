@@ -8,6 +8,38 @@ defmodule Aiur.GitHub.Client do
 
   @base_url "https://api.github.com"
 
+  @spec preflight_auth(keyword()) :: :ok | {:error, term()}
+  def preflight_auth(opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      gh_auth_status_fun = Keyword.get(opts, :gh_auth_status_fun, &default_gh_auth_status_fun/0)
+
+      owner
+      |> preflight_checks(repo)
+      |> run_preflight_checks(request_fun, token, owner, repo)
+      |> finalize_preflight_result(gh_auth_status_fun)
+    end
+  end
+
+  defp finalize_preflight_result(result, gh_auth_status_fun) do
+    case result do
+      :ok ->
+        :ok
+
+      {:error, diagnostic} ->
+        {:error, {:github_auth_preflight_failed, enrich_auth_diagnostic(diagnostic, gh_auth_status_fun)}}
+    end
+  end
+
+  @spec format_auth_preflight_error(term()) :: String.t()
+  def format_auth_preflight_error({:github_auth_preflight_failed, diagnostic})
+      when is_map(diagnostic) do
+    Map.get(diagnostic, :message) || Map.get(diagnostic, "message") || inspect(diagnostic)
+  end
+
+  def format_auth_preflight_error(reason), do: inspect(reason)
+
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
     fetch_issues_by_states(Config.active_states(), opts)
@@ -18,13 +50,15 @@ defmodule Aiur.GitHub.Client do
     if state_names == [], do: {:ok, []}, else: do_fetch_issues_by_states(state_names, opts)
   end
 
-  @spec fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
+          {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []) when is_list(issue_ids) do
     if issue_ids == [], do: {:ok, []}, else: do_fetch_issue_states_by_ids(issue_ids, opts)
   end
 
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
-  def create_comment(issue_number, body, opts \\ []) when is_binary(issue_number) and is_binary(body) do
+  def create_comment(issue_number, body, opts \\ [])
+      when is_binary(issue_number) and is_binary(body) do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
@@ -256,7 +290,14 @@ defmodule Aiur.GitHub.Client do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      query = URI.encode_query(%{"state" => "open", "head" => "#{owner}:aiur/#{issue_number}", "per_page" => "10"})
+
+      query =
+        URI.encode_query(%{
+          "state" => "open",
+          "head" => "#{owner}:aiur/#{issue_number}",
+          "per_page" => "10"
+        })
+
       url = "#{@base_url}/repos/#{owner}/#{repo}/pulls?#{query}"
 
       case fetch_json_list(request_fun, token, url) do
@@ -317,8 +358,11 @@ defmodule Aiur.GitHub.Client do
       context = Codeowners.repo_ownership(opts)
 
       case fetch_json_list(request_fun, token, url) do
-        {:ok, comments} -> {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
-        {:error, _reason} = error -> error
+        {:ok, comments} ->
+          {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
+
+        {:error, _reason} = error ->
+          error
       end
     end
   end
@@ -332,7 +376,16 @@ defmodule Aiur.GitHub.Client do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       issue_url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
-      do_update_issue_state(request_fun, token, issue_url, owner, repo, issue_number, prefix, state_name)
+      do_update_issue_state(
+        request_fun,
+        token,
+        issue_url,
+        owner,
+        repo,
+        issue_number,
+        prefix,
+        state_name
+      )
     end
   end
 
@@ -358,7 +411,9 @@ defmodule Aiur.GitHub.Client do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
 
       case request_fun.(%{method: :delete, url: url, token: token}) do
         # 404 = label already absent; treat as success so the toggle is idempotent.
@@ -371,11 +426,221 @@ defmodule Aiur.GitHub.Client do
 
   # -- Private helpers --------------------------------------------------------
 
+  defp preflight_checks(owner, repo) do
+    [
+      %{endpoint: :rate_limit, url: "#{@base_url}/rate_limit"},
+      %{endpoint: :repository, url: "#{@base_url}/repos/#{owner}/#{repo}"},
+      %{
+        endpoint: :issues,
+        url: "#{@base_url}/repos/#{owner}/#{repo}/issues?state=open&per_page=1"
+      }
+    ]
+  end
+
+  defp run_preflight_checks(checks, request_fun, token, owner, repo) do
+    Enum.reduce_while(checks, :ok, fn check, :ok ->
+      case run_preflight_check(check, request_fun, token, owner, repo) do
+        :ok -> {:cont, :ok}
+        {:error, diagnostic} -> {:halt, {:error, diagnostic}}
+      end
+    end)
+  end
+
+  defp run_preflight_check(%{endpoint: endpoint, url: url}, request_fun, token, owner, repo) do
+    request = %{method: :get, url: url, token: token, preflight?: true}
+
+    case request_fun.(request) do
+      {:ok, %{status: status} = response} when status in 200..299 ->
+        if rate_limited_response?(response, endpoint) do
+          {:error, auth_diagnostic(:rate_limited, endpoint, status, response, owner, repo)}
+        else
+          :ok
+        end
+
+      {:ok, %{status: status} = response} ->
+        {:error,
+         auth_diagnostic(
+           auth_failure_reason(status, response),
+           endpoint,
+           status,
+           response,
+           owner,
+           repo
+         )}
+
+      {:error, reason} ->
+        {:error,
+         %{
+           reason: :request_failed,
+           endpoint: endpoint,
+           repo: "#{owner}/#{repo}",
+           token_source: "GITHUB_TOKEN",
+           request_error: inspect(reason)
+         }}
+    end
+  end
+
+  defp auth_diagnostic(reason, endpoint, status, response, owner, repo) do
+    %{
+      reason: reason,
+      endpoint: endpoint,
+      repo: "#{owner}/#{repo}",
+      token_source: "GITHUB_TOKEN",
+      status: status,
+      rate_limit_remaining: rate_limit_remaining(response),
+      rate_limit_reset: rate_limit_reset(response)
+    }
+  end
+
+  defp auth_failure_reason(401, _response), do: :invalid_or_expired_token
+  defp auth_failure_reason(404, _response), do: :repo_not_accessible
+
+  defp auth_failure_reason(403, response) do
+    if rate_limited_response?(response, :unknown), do: :rate_limited, else: :forbidden
+  end
+
+  defp auth_failure_reason(_status, _response), do: :http_status
+
+  defp enrich_auth_diagnostic(diagnostic, gh_auth_status_fun) do
+    gh_status = safe_gh_auth_status(gh_auth_status_fun)
+
+    diagnostic
+    |> Map.put(:gh_keyring_status, gh_status)
+    |> Map.put(:message, diagnostic_message(diagnostic, gh_status))
+  end
+
+  defp safe_gh_auth_status(fun) when is_function(fun, 0) do
+    case fun.() do
+      {:ok, status} -> status
+      status when status in [:available, :unavailable, :not_installed] -> status
+      _ -> :unknown
+    end
+  rescue
+    _ -> :unknown
+  catch
+    _, _ -> :unknown
+  end
+
+  defp diagnostic_message(diagnostic, gh_status) do
+    repo = diagnostic.repo
+    endpoint = diagnostic.endpoint
+    source = diagnostic.token_source
+    reason = human_auth_reason(diagnostic)
+    keyring = human_gh_keyring_status(gh_status)
+
+    [
+      "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
+      "Aiur uses GITHUB_TOKEN for GitHub tracker/API calls, and that environment token takes precedence over `gh` keyring auth.",
+      keyring,
+      "Recovery: refresh or unset GITHUB_TOKEN in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
+    ]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" ")
+  end
+
+  defp human_auth_reason(%{reason: :invalid_or_expired_token, status: status}),
+    do: "GitHub returned HTTP #{status}, which usually means the token is invalid or expired"
+
+  defp human_auth_reason(%{
+         reason: :rate_limited,
+         status: status,
+         rate_limit_remaining: 0,
+         rate_limit_reset: reset
+       }),
+       do: "GitHub returned HTTP #{status} and the REST rate limit is exhausted#{reset_suffix(reset)}"
+
+  defp human_auth_reason(%{reason: :rate_limited, status: status}),
+    do: "GitHub returned HTTP #{status} with a rate-limit response"
+
+  defp human_auth_reason(%{reason: :forbidden, status: status}),
+    do: "GitHub returned HTTP #{status}, which usually means missing repository permissions or a secondary rate limit"
+
+  defp human_auth_reason(%{reason: :repo_not_accessible, status: status}),
+    do: "GitHub returned HTTP #{status}, so the token cannot access the configured repository or github.repo is wrong"
+
+  defp human_auth_reason(%{reason: :request_failed, request_error: error}),
+    do: "the request failed before GitHub returned a status (#{error})"
+
+  defp human_auth_reason(%{status: status}), do: "GitHub returned HTTP #{status}"
+  defp human_auth_reason(_diagnostic), do: "GitHub auth check failed"
+
+  defp reset_suffix(nil), do: ""
+  defp reset_suffix(reset), do: " until #{reset}"
+
+  defp human_gh_keyring_status(:available),
+    do: "`gh` keyring auth appears usable when GITHUB_TOKEN is removed, but Aiur will not use it while GITHUB_TOKEN is set."
+
+  defp human_gh_keyring_status(:unavailable),
+    do: "`gh` keyring auth was not usable when checked without GITHUB_TOKEN."
+
+  defp human_gh_keyring_status(:not_installed),
+    do: "`gh` is not installed or not on PATH, so only GITHUB_TOKEN can be validated."
+
+  defp human_gh_keyring_status(_), do: "`gh` keyring auth status could not be determined."
+
+  defp rate_limited_response?(response, endpoint) do
+    rate_limit_remaining(response) == 0 or
+      (endpoint == :rate_limit and rate_limit_body_remaining(response) == 0) or
+      rate_limit_message?(Map.get(response, :body))
+  end
+
+  defp rate_limit_remaining(%{headers: headers}) do
+    case header(headers, "x-ratelimit-remaining") do
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {n, _} -> n
+          _ -> nil
+        end
+
+      value when is_integer(value) ->
+        value
+
+      _ ->
+        nil
+    end
+  end
+
+  defp rate_limit_remaining(_response), do: nil
+
+  defp rate_limit_reset(%{headers: headers}) do
+    with value when is_binary(value) <- header(headers, "x-ratelimit-reset"),
+         {unix, _} <- Integer.parse(value),
+         {:ok, dt} <- DateTime.from_unix(unix) do
+      DateTime.to_iso8601(dt)
+    else
+      _ -> nil
+    end
+  end
+
+  defp rate_limit_reset(_response), do: nil
+
+  defp rate_limit_body_remaining(%{
+         body: %{"resources" => %{"core" => %{"remaining" => remaining}}}
+       })
+       when is_integer(remaining),
+       do: remaining
+
+  defp rate_limit_body_remaining(%{body: %{"rate" => %{"remaining" => remaining}}})
+       when is_integer(remaining),
+       do: remaining
+
+  defp rate_limit_body_remaining(_response), do: nil
+
+  defp rate_limit_message?(%{"message" => message}) when is_binary(message) do
+    message
+    |> String.downcase()
+    |> String.contains?("rate limit")
+  end
+
+  defp rate_limit_message?(_body), do: false
+
   # GitHub labels query is AND (all labels must match), so we fetch each label
   # separately and deduplicate by issue id.
   defp fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
     Enum.reduce_while(labels, {:ok, %{}}, fn label, {:ok, acc} ->
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
+
       reduce_label_issues(request_fun, url, token, owner, repo, prefix, acc)
     end)
     |> case do
@@ -473,7 +738,16 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
-  defp do_update_issue_state(request_fun, token, issue_url, owner, repo, issue_number, prefix, state_name) do
+  defp do_update_issue_state(
+         request_fun,
+         token,
+         issue_url,
+         owner,
+         repo,
+         issue_number,
+         prefix,
+         state_name
+       ) do
     new_label = "#{prefix}:#{normalize_state(state_name)}"
 
     case request_fun.(%{method: :get, url: issue_url, token: token}) do
@@ -496,7 +770,9 @@ defmodule Aiur.GitHub.Client do
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
     |> Enum.each(fn label ->
-      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+      url =
+        "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+
       request_fun.(%{method: :delete, url: url, token: token})
     end)
 
@@ -626,6 +902,24 @@ defmodule Aiur.GitHub.Client do
 
   defp default_request_fun(%{method: :delete, url: url, token: token} = req) do
     Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000])
+  end
+
+  defp default_gh_auth_status_fun do
+    case System.find_executable("gh") do
+      nil ->
+        {:ok, :not_installed}
+
+      gh ->
+        case System.cmd(gh, ["auth", "status"],
+               env: [{"GITHUB_TOKEN", nil}],
+               stderr_to_stdout: true
+             ) do
+          {_output, 0} -> {:ok, :available}
+          {_output, _status} -> {:ok, :unavailable}
+        end
+    end
+  rescue
+    _ -> {:ok, :unknown}
   end
 
   defp github_headers(token, %{api_version: version}) when is_binary(version) do

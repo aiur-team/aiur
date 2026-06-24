@@ -808,8 +808,7 @@ defmodule Aiur.CoreTest do
            } = state.retry_attempts[issue_id]
 
     assert is_reference(state.retry_attempts[issue_id].retry_token)
-    assert due_at_ms >= before_retry_ms + 1_000
-    assert due_at_ms <= observed_at_ms + 1_000
+    assert_due_in_range(due_at_ms, before_retry_ms, 1_000, observed_at_ms - before_retry_ms + 1_000)
 
     busy_state = %{state | running: %{"issue-busy" => other_running_entry}}
     freed_state = %{state | running: %{}}

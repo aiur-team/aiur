@@ -34,13 +34,32 @@ export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 **Symptoms & Diagnosis:**
 
-If the token is missing or has insufficient permissions, Aiur will start but produce repeated errors during polling:
+Before polling or dispatching agent work, Aiur validates the exact `GITHUB_TOKEN`
+value inherited by the daemon against the GitHub endpoint classes it needs
+(`rate_limit`, repository access, and issue listing). If the token is invalid,
+expired, missing repository access, or rate-limited enough to block tracker
+operations, Aiur logs an actionable preflight error and skips GitHub polling for
+that tick instead of launching agents that will fail later.
+
+`GITHUB_TOKEN` takes precedence over `gh` keyring auth. A working `gh auth status`
+in your shell does not help Aiur if the daemon inherited a stale or exhausted
+`GITHUB_TOKEN` from `.env` or the launch environment.
+
+If the token is missing or has insufficient permissions, Aiur reports errors such
+as:
 
 ```
 error: GitHub token missing - set GITHUB_TOKEN env var
 ```
 
-Or if the token exists but lacks required permissions:
+Or, when preflight detects a bad inherited token:
+
+```
+GitHub auth preflight failed for GITHUB_TOKEN while validating owner/repo issues access: ...
+Aiur uses GITHUB_TOKEN for GitHub tracker/API calls, and that environment token takes precedence over `gh` keyring auth.
+```
+
+Older or downstream failures may still look like:
 
 ```
 error: GitHub API request failed status=403
@@ -49,6 +68,22 @@ error: GitHub API request failed status=404
 
 - `403`: Insufficient token permissions. Check the required scopes listed above.
 - `404`: No access to the repository, or the `github.repo` config value is incorrect.
+
+**Recovery:**
+
+1. Fix `.env` or the shell used to launch Aiur so `GITHUB_TOKEN` points to the
+   intended token, or unset `GITHUB_TOKEN` before launching if you are diagnosing
+   keyring behavior.
+2. Restart Aiur. A running daemon keeps the environment it started with.
+3. Verify without printing token material:
+
+   ```bash
+   gh api rate_limit
+   gh api repos/OWNER/REPO/issues?per_page=1
+   ```
+
+If those commands succeed only after unsetting `GITHUB_TOKEN`, the keyring login
+is usable but the environment token is shadowing it.
 
 ### Linear API Key (`LINEAR_API_KEY`)
 

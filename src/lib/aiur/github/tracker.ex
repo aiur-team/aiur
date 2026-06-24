@@ -31,23 +31,37 @@ defmodule Aiur.GitHub.Tracker do
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()
 
+  @spec auth_preflight() :: :ok | {:error, term()}
+  def auth_preflight do
+    client = client_module()
+
+    cond do
+      function_exported?(client, :preflight_auth, 0) -> client.preflight_auth()
+      function_exported?(client, :preflight_auth, 1) -> client.preflight_auth([])
+      true -> :ok
+    end
+  end
+
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states), do: client_module().fetch_issues_by_states(states)
 
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
-  def fetch_issue_states_by_ids(issue_ids), do: client_module().fetch_issue_states_by_ids(issue_ids)
+  def fetch_issue_states_by_ids(issue_ids),
+    do: client_module().fetch_issue_states_by_ids(issue_ids)
 
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
     client_module().create_comment(issue_id, body)
   end
 
-  @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  @spec fetch_classified_pr_review_comments(String.t() | integer()) ::
+          {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number) do
     client_module().fetch_classified_pr_review_comments(pr_number)
   end
 
-  @spec fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  @spec fetch_classified_issue_comments(String.t() | integer()) ::
+          {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_id) do
     client_module().fetch_classified_issue_comments(issue_id)
   end
