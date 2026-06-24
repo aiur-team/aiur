@@ -328,11 +328,8 @@ defmodule Aiur.Workspace do
   defp normalize_issue_state(_value), do: ""
 
   defp recreate_workspace(workspace, nil) do
-    case create_or_materialize(workspace) do
-      {:ok, ^workspace, _created?} -> :ok
-      {:ok, _other_workspace, _created?} -> :ok
-      {:error, _reason} = error -> error
-    end
+    {:ok, _workspace, _created?} = create_or_materialize(workspace)
+    :ok
   end
 
   defp recreate_workspace(workspace, worker_host) when is_binary(worker_host) do
