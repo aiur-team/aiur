@@ -51,6 +51,32 @@ defmodule AiurEngineTest do
     assert id["AIUR_RELEASE_NODE"] =~ ~r/\Aaiur-tester-[0-9a-f]{1,12}@127\.0\.0\.1\z/
   end
 
+  test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
+    # The engine's launch/stop paths reap any BEAM holding their node name
+    # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). When `mix test` sources
+    # the engine on the same host/project as a live aiur, an un-isolated run
+    # resolves the SAME node name and reaps the operator's BEAM mid-run. Guard:
+    # sourced-engine runs must resolve a unique node, never the host's real one.
+    {real, 0} =
+      System.cmd(@engine, ["__identity"], env: [{"AIUR_ENGINE", @engine}], stderr_to_stdout: true)
+
+    real_node =
+      real
+      |> String.split("\n", trim: true)
+      |> Enum.find_value(fn line ->
+        case String.split(line, "=", parts: 2) do
+          ["AIUR_RELEASE_NODE", v] -> v
+          _ -> nil
+        end
+      end)
+
+    {sourced, 0} =
+      run_sourced_engine(~s|aiur_resolve_identity; printf '%s' "$AIUR_RELEASE_NODE"|, [])
+
+    refute sourced == real_node
+    assert sourced =~ ~r/\Aaiur-enginetest-\d+@127\.0\.0\.1\z/
+  end
+
   # A minimal stub release: start_erl.data + a fake `elixir` that echoes its args
   # so dispatch/boot-shape can be asserted without a real BEAM.
   defp fake_release do
@@ -173,6 +199,18 @@ defmodule AiurEngineTest do
   defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
 
   defp run_sourced_engine(script, env) do
+    # The engine's launch/stop paths reap any BEAM holding their node name
+    # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). Sourced from `mix test`
+    # on a host running a live aiur, an un-isolated run resolves the SAME node
+    # name and reaps the operator's BEAM. Pin a unique, non-existent node unless
+    # the caller set one, so these reaps can never match a real process.
+    env =
+      if List.keymember?(env, "AIUR_RELEASE_NODE", 0) do
+        env
+      else
+        [{"AIUR_RELEASE_NODE", "aiur-enginetest-#{System.unique_integer([:positive])}@127.0.0.1"} | env]
+      end
+
     System.cmd("bash", ["-c", "set -euo pipefail\nsource \"$AIUR_ENGINE\"\n#{script}"],
       env: [{"AIUR_ENGINE", @engine} | env],
       stderr_to_stdout: true
