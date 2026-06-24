@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator do
   }
 
   alias Aiur.Claude.{RemoteControl, ReplAgent}
-  alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
+  alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubFirehose, Publisher, SubscriptionStore}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
@@ -72,7 +72,8 @@ defmodule Aiur.Orchestrator do
             codex_totals: map() | nil,
             codex_rate_limits: map() | nil,
             events_etag: String.t() | nil,
-            events_last_id: String.t() | nil
+            events_last_id: String.t() | nil,
+            github_comments_since: String.t() | nil
           }
 
     defstruct [
@@ -97,7 +98,8 @@ defmodule Aiur.Orchestrator do
       codex_totals: nil,
       codex_rate_limits: nil,
       events_etag: nil,
-      events_last_id: nil
+      events_last_id: nil,
+      github_comments_since: nil
     ]
   end
 
@@ -1012,6 +1014,35 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  defp poll_github_comments(%State{} = state, opts \\ []) do
+    targets = github_comment_poll_targets(state)
+
+    poll_opts =
+      opts
+      |> Keyword.put_new(:since, state.github_comments_since)
+
+    case GithubCommentsPoller.poll(targets, poll_opts) do
+      {:ok, %{since: since, count: count}} ->
+        if count > 0,
+          do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
+
+        %{state | github_comments_since: since}
+
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller skipped; reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp github_comment_poll_targets(%State{} = state) do
+    state.running
+    |> Map.values()
+    |> Enum.map(&Map.get(&1, :identifier))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&to_string/1)
+    |> Enum.uniq()
+  end
+
   defp maybe_dispatch(%State{} = state) do
     state = reconcile_running_lifecycle(state)
 
@@ -1030,6 +1061,7 @@ defmodule Aiur.Orchestrator do
     state = refresh_running_issue_states(state)
     state = refresh_tracked_set(state)
     state = poll_github_firehose(state)
+    state = poll_github_comments(state)
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->

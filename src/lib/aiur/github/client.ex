@@ -274,7 +274,8 @@ defmodule Aiur.GitHub.Client do
     with {:ok, {owner, repo}} <- parse_repo(),
          {:ok, token} <- require_token() do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?per_page=100"
+      query = comment_query(opts)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?#{query}"
 
       fetch_json_list(request_fun, token, url)
     end
@@ -305,6 +306,22 @@ defmodule Aiur.GitHub.Client do
         {:ok, []} -> {:ok, nil}
         {:error, _reason} = error -> error
       end
+    end
+  end
+
+  @doc """
+  Fetches raw issue conversation comments for one issue or PR conversation.
+  """
+  @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_issue_comments(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = comment_query(opts)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
+
+      fetch_json_list(request_fun, token, url)
     end
   end
 
@@ -737,6 +754,15 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_request, reason}}
     end
   end
+
+  defp comment_query(opts) do
+    %{"per_page" => Keyword.get(opts, :per_page, 100), "page" => Keyword.get(opts, :page, 1)}
+    |> maybe_put_query("since", Keyword.get(opts, :since))
+    |> URI.encode_query()
+  end
+
+  defp maybe_put_query(query, _key, nil), do: query
+  defp maybe_put_query(query, key, value), do: Map.put(query, key, value)
 
   defp do_update_issue_state(
          request_fun,
