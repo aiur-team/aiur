@@ -41,7 +41,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
       assert {:ok, session} = CodexAgent.start_session(workspace)
 
       try do
-        callback = one_shot_follow_up_callback(self(), "focus on auth first")
+        callback = one_shot_follow_up_callback(self(), "focus on auth first", "MT-UNRELATED-CODEX")
 
         assert {:ok, _turn_session} =
                  CodexAgent.run_turn(
@@ -54,7 +54,8 @@ defmodule Aiur.CodingAgentCheckpointTest do
         assert_receive {:delivered, %{turn_id: "turn-followup"}}
         refute_receive {:delivery_failed, _reason}
 
-        assert_turn_texts(trace_file, ["initial prompt", "focus on auth first"])
+        assert_stable_turn_texts(trace_file, ["initial prompt", "focus on auth first"])
+        refute_traced_method(trace_file, "turn/interrupt")
       after
         CodexAgent.stop_session(session)
       end
@@ -100,7 +101,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
       assert {:ok, session} = ClaudeAgent.start_session(workspace)
 
       try do
-        callback = one_shot_follow_up_callback(self(), "follow up in claude")
+        callback = one_shot_follow_up_callback(self(), "follow up in claude", "MT-UNRELATED-CLAUDE")
 
         assert {:ok, _turn_session} =
                  ClaudeAgent.run_turn(
@@ -113,7 +114,8 @@ defmodule Aiur.CodingAgentCheckpointTest do
         assert_receive {:delivered, %{turn_id: "turn-followup"}}
         refute_receive {:delivery_failed, _reason}
 
-        assert_turn_texts(trace_file, ["initial prompt", "follow up in claude"])
+        assert_stable_turn_texts(trace_file, ["initial prompt", "follow up in claude"])
+        refute_traced_method(trace_file, "turn/interrupt")
       after
         ClaudeAgent.stop_session(session)
       end
@@ -122,7 +124,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
     end
   end
 
-  defp one_shot_follow_up_callback(test_pid, text) do
+  defp one_shot_follow_up_callback(test_pid, text, unrelated_issue_identifier) do
     fn checkpoint ->
       send(test_pid, {:checkpoint_seen, checkpoint})
 
@@ -130,6 +132,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
         :noop
       else
         Process.put({__MODULE__, :follow_up_sent}, true)
+        send(self(), {:agent_queue_updated, unrelated_issue_identifier, 999, true})
 
         deliver_text_result(test_pid, text)
       end
@@ -140,6 +143,12 @@ defmodule Aiur.CodingAgentCheckpointTest do
     on_success = fn payload -> send(test_pid, {:delivered, payload}) end
     on_failure = fn reason -> send(test_pid, {:delivery_failed, reason}) end
     {:deliver_text, text, on_success, on_failure}
+  end
+
+  defp assert_stable_turn_texts(trace_file, expected) do
+    assert_turn_texts(trace_file, expected)
+    Process.sleep(150)
+    assert traced_turn_texts(trace_file) == expected
   end
 
   defp assert_turn_texts(trace_file, expected, attempts \\ 20)
@@ -159,16 +168,32 @@ defmodule Aiur.CodingAgentCheckpointTest do
 
   defp traced_turn_texts(trace_file) do
     trace_file
-    |> File.read!()
-    |> String.split("\n", trim: true)
-    |> Enum.filter(&String.starts_with?(&1, "JSON:"))
-    |> Enum.map(&String.trim_leading(&1, "JSON:"))
-    |> Enum.map(&Jason.decode!/1)
+    |> traced_json_frames()
     |> Enum.filter(&(&1["method"] == "turn/start"))
     |> Enum.map(fn payload ->
       get_in(payload, ["params", "input"])
       |> Enum.map_join("\n", &Map.get(&1, "text", ""))
     end)
+  end
+
+  defp refute_traced_method(trace_file, method) do
+    refute method in traced_methods(trace_file)
+  end
+
+  defp traced_methods(trace_file) do
+    trace_file
+    |> traced_json_frames()
+    |> Enum.map(& &1["method"])
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp traced_json_frames(trace_file) do
+    trace_file
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+    |> Enum.map(&String.trim_leading(&1, "JSON:"))
+    |> Enum.map(&Jason.decode!/1)
   end
 
   defp codex_checkpoint_script do
@@ -199,7 +224,6 @@ defmodule Aiur.CodingAgentCheckpointTest do
             printf '{"id":%s,"result":{"turn":{"id":"turn-followup"}}}\\n' "$request_id"
             printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
             printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-            exit 0
           fi
           ;;
       esac
@@ -235,7 +259,6 @@ defmodule Aiur.CodingAgentCheckpointTest do
             printf '{"id":%s,"result":{"turn":{"id":"turn-followup"}}}\\n' "$request_id"
             printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
             printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-            exit 0
           fi
           ;;
       esac
