@@ -99,34 +99,36 @@ Output **only** a status table — one row per agent, never wrapped. Use this la
 
 This is a required behavior, not soft guidance. **WHILE an aiur run is live** (you launched it
 via `aiur-run`, or one is running in this repo) you **MUST** post the operator a fresh formatted
-status table (steps 1–3: gather → classify → emit) **every 5 minutes** (the `/loop 5m` interval;
-"approximately" is not license to stretch it to 10+), **automatically**, until the run reaches a
-terminal state or the operator says stop — you do not get to opt out of "watching"; a live run
-obligates the cadence. 5 minutes is the operator's default; it's adjustable only if the operator asks.
+status table (steps 1–3: gather → classify → emit) **every `<the operator's chosen interval>`**
+(established once by asking — via `aiur-run`'s launch ask / `aiur-loop`'s Step 0 — and **default
+5 minutes** if unset; the `/loop <chosen>m` interval; "approximately" is not license to stretch it
+past the chosen interval), **automatically**, until the run reaches a terminal state or the
+operator says stop — you do not get to opt out of "watching"; a live run obligates the cadence.
+5 minutes is the recommended default; the operator picks the value once and you never re-ask it.
 
-Drive it with the loop skill:
+Drive it with the loop skill (substitute the chosen interval; defaults to 5m):
 
-    /loop 5m /aiur-monitor
+    /loop <chosen>m /aiur-monitor    # e.g. /loop 5m /aiur-monitor for the default
 
-Rules — close every "wait to be asked" loophole:
+Rules — close every "wait to be asked" loophole (these apply to the chosen interval):
 - The operator should **NEVER** have to ask for the next update. The cadence is automatic;
   re-asking is the failure this rule exists to prevent.
 - **Don't skip a tick because "nothing changed."** Post the table anyway and note
   steady-state (e.g. roll-up "9 running · steady, no change since HH:MM"). A missing tick
   reads as "the agent stopped watching."
-- **Don't wait for a PR, an event, or a state change** to post. The 5-minute clock is the
+- **Don't wait for a PR, an event, or a state change** to post. The chosen-interval clock is the
   only trigger.
 - **Don't defer the tick because you're mid-task.** Reviewing a PR, curating tickets,
-  or fixing a bug does NOT pause the clock. The 5-minute table is posted regardless of
-  what else you're doing — interleave it, don't postpone it.
+  or fixing a bug does NOT pause the clock. The status table is posted on every interval tick
+  regardless of what else you're doing — interleave it, don't postpone it.
 - **Terminal / stop only.** Keep looping until the operator explicitly stops it OR the run
   has truly ended (daemon down AND no active agents on two consecutive ticks). A single
   "no active agents" read early in a run is warm-up/dispatch lag, NOT a terminal state —
   keep ticking.
 - If this skill is **already** running inside a `/loop`, do NOT start a nested loop — just
-  emit the table and let the existing loop re-invoke on the 5-minute tick.
+  emit the table and let the existing loop re-invoke on the next interval tick.
 - A single one-shot snapshot (no cadence) is allowed only when the operator explicitly asks
-  for one; otherwise the live-run default is the 5-minute auto-cadence above.
+  for one; otherwise the live-run default is the chosen-interval auto-cadence above (default 5 min).
 
 ## Alert relay
 

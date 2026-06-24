@@ -71,18 +71,27 @@ Confirm it actually worked:
   build. If agents are each cold-cloning/building → prewarm is broken; stop and fix before
   10 concurrent builds melt the box.
 
-## 5. Monitor — REQUIRED: start the 5-minute cadence immediately on launch
+## 5. Monitor — REQUIRED: ASK the cadence, then arm it immediately on launch
 
 **REQUIRED SUB-SKILL: `aiur-monitor`.** Launch is not "done" when the BEAM is up — it's done
-when the status cadence is running. Immediately after a verified launch (step 4 confirms
-prewarm), you **MUST** hand off to `aiur-monitor` and start its **5-minute auto-cadence**:
-emit a fresh formatted status table every 5 minutes (the `/loop 5m` interval; "approximately"
-is not license to stretch it to 10+), automatically, until the run reaches a terminal state or
-the operator says stop. This is not optional and the operator should **NEVER** have to ask for
-the next update — see `aiur-monitor`'s "Monitoring cadence" for the required rule, the table
-format, and the alert relay. (5 min is the operator default; adjustable only if the operator asks.)
+when the status cadence is running.
 
-- **Agents** — start the cadence now by arming the loop: `/loop 5m /aiur-monitor`. There is no
+**REQUIRED pre-flight/launch step — ASK the cadence once.** Before (or at) launch, **ASK the
+operator their preferred status-table update cadence** — use **AskUserQuestion**, offer 5 / 10 /
+15 min, and **default to 5 minutes** if they don't specify. **Record the chosen interval for the
+whole session**; that single answer drives the auto-cadence and you never re-ask it.
+
+Immediately after a verified launch (step 4 confirms prewarm), you **MUST** hand off to
+`aiur-monitor` and start its **auto-cadence at the operator's chosen interval**: emit a fresh
+formatted status table every `<chosen>` minutes (the `/loop <chosen>m` interval; "approximately"
+is not license to stretch it past the chosen interval), automatically, until the run reaches a
+terminal state or the operator says stop. This is not optional and the operator should **NEVER**
+have to ask for the next update — see `aiur-monitor`'s "Monitoring cadence" for the required rule,
+the table format, and the alert relay. (5 min is the recommended default; the operator picks the
+value once via the ask above.)
+
+- **Agents** — start the cadence now by arming the loop at the chosen interval:
+  `/loop <chosen>m /aiur-monitor` (e.g. `/loop 5m /aiur-monitor` for the default). There is no
   self-ticking fallback — if you do not arm `/loop`, no further updates will fire, which is the
   failure this step exists to prevent. Don't skip a tick when nothing changed — post the table
   anyway, noting steady-state.
