@@ -51,6 +51,10 @@ defmodule AiurEngineTest do
     assert id["AIUR_RELEASE_NODE"] =~ ~r/\Aaiur-tester-[0-9a-f]{1,12}@127\.0\.0\.1\z/
   end
 
+  test "tmux pane launcher preserves agent-local opencode bridge port override" do
+    assert File.read!(@engine) =~ "AIUR_OPENCODE_BRIDGE_PORT"
+  end
+
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
     # The engine's launch/stop paths reap any BEAM holding their node name
     # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). When `mix test` sources
