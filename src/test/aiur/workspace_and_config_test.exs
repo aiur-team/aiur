@@ -54,6 +54,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
       remote_repo = Path.join(test_root, "remote.git")
       workspace_root = Path.join(test_root, "workspaces")
       cache_root = Path.join(test_root, "cache")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-git-metadata.trace")
 
       File.mkdir_p!(source_repo)
       File.write!(Path.join(source_repo, "README.md"), "initial\n")
@@ -67,6 +69,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
         codex_turn_sandbox_policy: %{
           type: "workspaceWrite",
           writableRoots: [cache_root],
@@ -87,22 +90,72 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert cache_root in runtime_settings.turn_sandbox_policy["writableRoots"]
       assert canonical_workspace in runtime_settings.turn_sandbox_policy["writableRoots"]
 
-      assert {_output, 0} = System.cmd("git", ["-C", workspace, "fetch", "origin"])
-      assert File.exists?(Path.join([workspace, ".git", "FETCH_HEAD"]))
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
 
-      assert {_output, 0} = System.cmd("git", ["-C", workspace, "update-ref", "ORIG_HEAD", "HEAD"])
+      run_git_metadata_check() {
+        workspace="$(pwd -P)"
+
+        printf '%s' "$1" | grep -F '"sandboxPolicy"' >/dev/null || exit 20
+        printf '%s' "$1" | grep -F '"writableRoots"' >/dev/null || exit 20
+        printf '%s' "$1" | grep -F "$workspace" >/dev/null || exit 20
+
+        git fetch origin >> "$trace_file" 2>&1 || exit 21
+        test -f .git/FETCH_HEAD || exit 22
+        git update-ref ORIG_HEAD HEAD >> "$trace_file" 2>&1 || exit 23
+        test -f .git/ORIG_HEAD || exit 24
+
+        printf 'workspace git metadata is writable\\n' > agent-change.txt
+        git add agent-change.txt >> "$trace_file" 2>&1 || exit 25
+        git commit -m "agent change" >> "$trace_file" 2>&1 || exit 26
+        git push origin HEAD:refs/heads/aiur/GIT-1 >> "$trace_file" 2>&1 || exit 27
+      }
+
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-git-metadata"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            run_git_metadata_check "$line"
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-git-metadata"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      issue = %Issue{
+        id: "issue-git-metadata",
+        identifier: "GIT-1",
+        title: "Validate git metadata writes",
+        description: "Ensure Codex can write git metadata in the issue workspace",
+        state: "In Progress",
+        url: "https://example.org/issues/GIT-1",
+        labels: ["backend"]
+      }
+
+      assert {:ok, _result} = AppServer.run(workspace, "Verify git metadata writes", issue)
+      assert File.exists?(Path.join([workspace, ".git", "FETCH_HEAD"]))
       assert File.exists?(Path.join([workspace, ".git", "ORIG_HEAD"]))
 
-      File.write!(Path.join(workspace, "agent-change.txt"), "workspace git metadata is writable\n")
-
-      assert {_output, 0} = System.cmd("git", ["-C", workspace, "add", "agent-change.txt"])
-      assert {_output, 0} = System.cmd("git", ["-C", workspace, "commit", "-m", "agent change"])
-
       assert {_output, 0} =
-               System.cmd("git", ["-C", workspace, "push", "origin", "HEAD:refs/heads/aiur/GIT-1"])
-
-      assert {_output, 0} =
-               System.cmd("git", ["--git-dir", remote_repo, "rev-parse", "--verify", "refs/heads/aiur/GIT-1"])
+               System.cmd("git", [
+                 "--git-dir",
+                 remote_repo,
+                 "rev-parse",
+                 "--verify",
+                 "refs/heads/aiur/GIT-1"
+               ])
     after
       File.rm_rf(test_root)
     end
@@ -334,7 +387,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert File.read!(Path.join(second_workspace, "README.md")) == "changed\n"
       assert File.read!(Path.join(second_workspace, "local-progress.txt")) == "in progress\n"
       assert File.read!(Path.join([second_workspace, "deps", "cache.txt"])) == "cached deps\n"
-      assert File.read!(Path.join([second_workspace, "_build", "artifact.txt"])) == "compiled artifact\n"
+
+      assert File.read!(Path.join([second_workspace, "_build", "artifact.txt"])) ==
+               "compiled artifact\n"
+
       assert File.read!(Path.join([second_workspace, "tmp", "scratch.txt"])) == "remove me\n"
     after
       File.rm_rf(workspace_root)
@@ -511,7 +567,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     try do
       target_workspace = Path.join([workspace_root, "project", "S_1"])
-      untouched_workspace = Path.join([workspace_root, "project", "OTHER-#{System.unique_integer([:positive])}"])
+
+      untouched_workspace =
+        Path.join([workspace_root, "project", "OTHER-#{System.unique_integer([:positive])}"])
 
       File.mkdir_p!(target_workspace)
       File.mkdir_p!(untouched_workspace)
@@ -673,6 +731,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Enum.map(issues, & &1.id) == issue_ids
 
     assert_receive {:fetch_issue_states_page, query, %{ids: ^first_batch_ids, first: 50, relationFirst: 50}}
+
     assert query =~ "AiurLinearIssuesById"
 
     assert_receive {:fetch_issue_states_page, ^query, %{ids: ^second_batch_ids, first: 5, relationFirst: 50}}
@@ -928,7 +987,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
 
     assert skipped_issue.identifier == "MT-1005"
-    assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
+
+    assert skipped_issue.blocked_by == [
+             %{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}
+           ]
   end
 
   test "workspace remove returns error information for missing directory" do
@@ -1164,7 +1226,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     config = Config.settings!()
     assert config.agent.codex.approval_policy == "on-request"
     assert config.agent.codex.thread_sandbox == "workspace-write"
-    expected_explicit_roots = append_unique([explicit_workspace, explicit_cache], canonical_explicit_workspace)
+
+    expected_explicit_roots =
+      append_unique([explicit_workspace, explicit_cache], canonical_explicit_workspace)
 
     assert Config.codex_turn_sandbox_policy(explicit_workspace) == %{
              "type" => "workspaceWrite",
@@ -1215,6 +1279,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: "")
     assert :ok = Config.validate!()
     assert Config.settings!().agent.codex.approval_policy == ""
+    assert {:error, {:invalid_codex_approval_policy, ""}} = Config.codex_runtime_settings()
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: "")
     assert :ok = Config.validate!()
@@ -1238,6 +1303,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.agent.codex.thread_sandbox == "future-sandbox"
 
     assert :ok = Config.validate!()
+
+    assert {:error, {:invalid_codex_approval_policy, "future-policy"}} =
+             Config.codex_runtime_settings()
 
     assert Config.codex_turn_sandbox_policy() == %{
              "type" => "futureSandbox",
@@ -1404,16 +1472,27 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     with_model =
       {%{}, %{routing: :map}}
-      |> Changeset.cast(%{routing: %{3 => "claude:sonnet:high+remote", 4 => "claude-repl:sonnet:max", 5 => "codex::high"}}, [
-        :routing
-      ])
+      |> Changeset.cast(
+        %{
+          routing: %{
+            3 => "claude:sonnet:high+remote",
+            4 => "claude-repl:sonnet:max",
+            5 => "codex::high"
+          }
+        },
+        [
+          :routing
+        ]
+      )
       |> Schema.validate_agent_routing(:routing)
 
     assert with_model.errors == []
 
     bad_effort =
       {%{}, %{routing: :map}}
-      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.5:max"}}, [:routing])
+      |> Changeset.cast(%{routing: %{4 => "claude:sonnet:high", 5 => "codex:gpt-5.5:max"}}, [
+        :routing
+      ])
       |> Schema.validate_agent_routing(:routing)
 
     assert Enum.count(bad_effort.errors) == 2
@@ -1538,7 +1617,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
     # Real YAML loads arrive string-keyed; the explicit null must survive
     # drop_nil_values on that production shape too, not just the atom-keyed map.
     assert {:ok, settings} =
-             Schema.parse(%{"tracker" => %{"kind" => "memory"}, "agent" => %{"max_load_average" => nil}})
+             Schema.parse(%{
+               "tracker" => %{"kind" => "memory"},
+               "agent" => %{"max_load_average" => nil}
+             })
 
     assert settings.agent.max_load_average == nil
 
@@ -1656,10 +1738,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
   test "complexity prompts normalize string levels and reject bad levels/values" do
     assert Schema.normalize_complexity_prompts(nil) == %{}
 
-    assert Schema.normalize_complexity_prompts(%{"3" => "medium guidance", 5 => "be careful"}) == %{
-             3 => "medium guidance",
-             5 => "be careful"
-           }
+    assert Schema.normalize_complexity_prompts(%{"3" => "medium guidance", 5 => "be careful"}) ==
+             %{
+               3 => "medium guidance",
+               5 => "be careful"
+             }
 
     good =
       {%{}, %{complexity_prompts: :map}}
@@ -1894,13 +1977,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
             settings.agent
             | codex: %{
                 settings.agent.codex
-                | turn_sandbox_policy: %{"type" => "workspaceWrite", "writableRoots" => ["relative/path"]}
+                | turn_sandbox_policy: %{
+                    "type" => "workspaceWrite",
+                    "writableRoots" => ["relative/path"]
+                  }
               }
           }
       }
 
       assert {:ok, workspace_write_policy} =
-               Schema.resolve_runtime_turn_sandbox_policy(workspace_write_settings, issue_workspace)
+               Schema.resolve_runtime_turn_sandbox_policy(
+                 workspace_write_settings,
+                 issue_workspace
+               )
 
       assert {:ok, canonical_issue_workspace} = Aiur.PathSafety.canonicalize(issue_workspace)
 
@@ -1912,7 +2001,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
       remote_workspace = "/remote/workspaces/MT-101"
 
       assert {:ok, remote_workspace_write_policy} =
-               Schema.resolve_runtime_turn_sandbox_policy(workspace_write_settings, remote_workspace, remote: true)
+               Schema.resolve_runtime_turn_sandbox_policy(
+                 workspace_write_settings,
+                 remote_workspace,
+                 remote: true
+               )
 
       assert remote_workspace_write_policy == %{
                "type" => "workspaceWrite",
@@ -1923,7 +2016,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
         settings
         | agent: %{
             settings.agent
-            | codex: %{settings.agent.codex | turn_sandbox_policy: %{"type" => "readOnly", "networkAccess" => true}}
+            | codex: %{
+                settings.agent.codex
+                | turn_sandbox_policy: %{"type" => "readOnly", "networkAccess" => true}
+              }
           }
       }
 
@@ -1934,7 +2030,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
         settings
         | agent: %{
             settings.agent
-            | codex: %{settings.agent.codex | turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}}
+            | codex: %{
+                settings.agent.codex
+                | turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
+              }
           }
       }
 

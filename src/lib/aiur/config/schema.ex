@@ -5,7 +5,7 @@ defmodule Aiur.Config.Schema do
 
   import Ecto.Changeset
 
-  alias Aiur.PathSafety
+  alias Aiur.Config.CodexSandboxPolicy
 
   @primary_key false
 
@@ -86,6 +86,7 @@ defmodule Aiur.Config.Schema do
     embedded_schema do
       field(:kind, :string)
       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
+
       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
 
       embeds_one(:github, Github, on_replace: :update, defaults_to_struct: true)
@@ -554,33 +555,22 @@ defmodule Aiur.Config.Schema do
 
   @spec resolve_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil) :: map()
   def resolve_turn_sandbox_policy(settings, workspace \\ nil) do
-    case settings.agent.codex.turn_sandbox_policy do
-      %{} = policy ->
-        policy
-        |> maybe_add_workspace_writable_root(expand_configured_workspace(workspace))
-
-      _ ->
-        workspace
-        |> default_workspace_root(settings.workspace.root)
-        |> expand_local_workspace_root()
-        |> default_turn_sandbox_policy()
-    end
+    CodexSandboxPolicy.resolve(
+      settings.agent.codex.turn_sandbox_policy,
+      workspace,
+      settings.workspace.root
+    )
   end
 
   @spec resolve_runtime_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
   def resolve_runtime_turn_sandbox_policy(settings, workspace \\ nil, opts \\ []) do
-    case settings.agent.codex.turn_sandbox_policy do
-      %{} = policy ->
-        with {:ok, workspace_root} <- runtime_policy_workspace_root(workspace, opts) do
-          {:ok, maybe_add_workspace_writable_root(policy, workspace_root)}
-        end
-
-      _ ->
-        workspace
-        |> default_workspace_root(settings.workspace.root)
-        |> default_runtime_turn_sandbox_policy(opts)
-    end
+    CodexSandboxPolicy.resolve_runtime(
+      settings.agent.codex.turn_sandbox_policy,
+      workspace,
+      settings.workspace.root,
+      opts
+    )
   end
 
   @spec normalize_issue_state(String.t()) :: String.t()
@@ -645,7 +635,9 @@ defmodule Aiur.Config.Schema do
         [{field, "complexity levels must be positive integers"}]
 
       not is_binary(value) or routing_backend(value) not in known ->
-        [{field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}]
+        [
+          {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
+        ]
 
       routing_remote_flag?(value) and not Aiur.CodingAgent.remote_control?(routing_backend(value)) ->
         [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
@@ -796,15 +788,27 @@ defmodule Aiur.Config.Schema do
   defp finalize_settings(settings) do
     linear = %{
       settings.tracker.linear
-      | api_key: resolve_secret_setting(settings.tracker.linear.api_key, System.get_env("LINEAR_API_KEY")),
-        assignee: resolve_secret_setting(settings.tracker.linear.assignee, System.get_env("LINEAR_ASSIGNEE"))
+      | api_key:
+          resolve_secret_setting(
+            settings.tracker.linear.api_key,
+            System.get_env("LINEAR_API_KEY")
+          ),
+        assignee:
+          resolve_secret_setting(
+            settings.tracker.linear.assignee,
+            System.get_env("LINEAR_ASSIGNEE")
+          )
     }
 
     tracker = %{settings.tracker | linear: linear}
 
     workspace = %{
       settings.workspace
-      | root: resolve_path_value(settings.workspace.root, Path.join(System.tmp_dir!(), "aiur_workspaces"))
+      | root:
+          resolve_path_value(
+            settings.workspace.root,
+            Path.join(System.tmp_dir!(), "aiur_workspaces")
+          )
     }
 
     codex = %{
@@ -849,7 +853,9 @@ defmodule Aiur.Config.Schema do
     end)
   end
 
-  defp drop_nil_values(value, path) when is_list(value), do: Enum.map(value, &drop_nil_values(&1, path))
+  defp drop_nil_values(value, path) when is_list(value),
+    do: Enum.map(value, &drop_nil_values(&1, path))
+
   defp drop_nil_values(value, _path), do: value
 
   defp put_preserved_nil(acc, key, path) do
@@ -928,93 +934,6 @@ defmodule Aiur.Config.Schema do
   end
 
   defp normalize_secret_value(_value), do: nil
-
-  defp default_turn_sandbox_policy(workspace) do
-    %{
-      "type" => "workspaceWrite",
-      "writableRoots" => [workspace],
-      "readOnlyAccess" => %{"type" => "fullAccess"},
-      "networkAccess" => false,
-      "excludeTmpdirEnvVar" => false,
-      "excludeSlashTmp" => false
-    }
-  end
-
-  defp default_runtime_turn_sandbox_policy(workspace_root, opts) when is_binary(workspace_root) do
-    if Keyword.get(opts, :remote, false) do
-      {:ok, default_turn_sandbox_policy(workspace_root)}
-    else
-      with expanded_workspace_root <- expand_local_workspace_root(workspace_root),
-           {:ok, canonical_workspace_root} <- PathSafety.canonicalize(expanded_workspace_root) do
-        {:ok, default_turn_sandbox_policy(canonical_workspace_root)}
-      end
-    end
-  end
-
-  defp default_runtime_turn_sandbox_policy(workspace_root, _opts) do
-    {:error, {:unsafe_turn_sandbox_policy, {:invalid_workspace_root, workspace_root}}}
-  end
-
-  defp runtime_policy_workspace_root(workspace, opts) when is_binary(workspace) do
-    if String.trim(workspace) == "" do
-      {:ok, nil}
-    else
-      if Keyword.get(opts, :remote, false) do
-        {:ok, workspace}
-      else
-        workspace
-        |> expand_local_workspace_root()
-        |> PathSafety.canonicalize()
-      end
-    end
-  end
-
-  defp runtime_policy_workspace_root(_workspace, _opts), do: {:ok, nil}
-
-  defp expand_configured_workspace(workspace) when is_binary(workspace) do
-    if String.trim(workspace) == "" do
-      nil
-    else
-      expand_local_workspace_root(workspace)
-    end
-  end
-
-  defp expand_configured_workspace(_workspace), do: nil
-
-  defp maybe_add_workspace_writable_root(policy, nil), do: policy
-
-  defp maybe_add_workspace_writable_root(%{} = policy, workspace_root) when is_binary(workspace_root) do
-    case Map.get(policy, "type") || Map.get(policy, :type) do
-      "workspaceWrite" ->
-        writable_roots = Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || []
-        writable_roots = if is_list(writable_roots), do: writable_roots, else: []
-
-        Map.put(policy, "writableRoots", append_unique(writable_roots, workspace_root))
-
-      _ ->
-        policy
-    end
-  end
-
-  defp append_unique(values, value) do
-    if value in values, do: values, else: values ++ [value]
-  end
-
-  defp default_workspace_root(workspace, _fallback) when is_binary(workspace) and workspace != "",
-    do: workspace
-
-  defp default_workspace_root(nil, fallback), do: fallback
-  defp default_workspace_root("", fallback), do: fallback
-  defp default_workspace_root(workspace, _fallback), do: workspace
-
-  defp expand_local_workspace_root(workspace_root)
-       when is_binary(workspace_root) and workspace_root != "" do
-    Path.expand(workspace_root)
-  end
-
-  defp expand_local_workspace_root(_workspace_root) do
-    Path.expand(Path.join(System.tmp_dir!(), "aiur_workspaces"))
-  end
 
   defp format_errors(changeset) do
     changeset

@@ -21,8 +21,10 @@ defmodule Aiur.Config do
   {% endif %}
   """
 
+  @valid_codex_approval_policies ~w(untrusted on-failure on-request granular never)
+
   @type codex_runtime_settings :: %{
-          approval_policy: String.t() | map(),
+          approval_policy: String.t(),
           thread_sandbox: String.t(),
           turn_sandbox_policy: map()
         }
@@ -284,7 +286,8 @@ defmodule Aiur.Config do
   @spec default_synthetic_load_process_cap(integer()) :: pos_integer()
   def default_synthetic_load_process_cap(schedulers \\ System.schedulers_online())
 
-  def default_synthetic_load_process_cap(schedulers) when is_integer(schedulers) and schedulers > 0 do
+  def default_synthetic_load_process_cap(schedulers)
+      when is_integer(schedulers) and schedulers > 0 do
     max(1, div(schedulers, 4))
   end
 
@@ -372,18 +375,30 @@ defmodule Aiur.Config do
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
-    with {:ok, settings} <- settings() do
+    with {:ok, settings} <- settings(),
+         {:ok, approval_policy} <-
+           validate_codex_approval_policy(settings.agent.codex.approval_policy) do
       with {:ok, turn_sandbox_policy} <-
              Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
         {:ok,
          %{
-           approval_policy: settings.agent.codex.approval_policy,
+           approval_policy: approval_policy,
            thread_sandbox: settings.agent.codex.thread_sandbox,
            turn_sandbox_policy: turn_sandbox_policy
          }}
       end
     end
   end
+
+  defp validate_codex_approval_policy(value) when is_binary(value) do
+    case String.trim(value) do
+      trimmed when trimmed in @valid_codex_approval_policies -> {:ok, trimmed}
+      _ -> {:error, {:invalid_codex_approval_policy, value}}
+    end
+  end
+
+  defp validate_codex_approval_policy(value),
+    do: {:error, {:invalid_codex_approval_policy, value}}
 
   defp validate_semantics(settings) do
     with :ok <- validate_kinds_and_secrets(settings) do
