@@ -110,6 +110,16 @@ Drive it with the loop skill (substitute the chosen interval; defaults to 5m):
 
     /loop <chosen>m /aiur-monitor    # e.g. /loop 5m /aiur-monitor for the default
 
+**How to enforce the cadence — with an ARMED recurring timer, never with passive
+event-waiting.** Drive it via `/loop <chosen>m /aiur-monitor`. If you are NOT inside a `/loop`
+(e.g. you launched aiur via `aiur-run` and are orchestrating subagents directly), you **MUST** arm
+an explicit recurring wake yourself: a background ~`<chosen>`-minute timer that re-invokes you and
+that you **RE-ARM every tick** (or an equivalent scheduled wakeup). **Do NOT rely on
+subagent-completion, PR, CI, or watcher notifications to drive the cadence** — those have no time
+floor, so a long compile, a slow review, or a quiet stretch will silently skip updates. The
+interval clock runs independently of whatever else is in flight; a tick fires even mid-task (post
+the table, then continue).
+
 Rules — close every "wait to be asked" loophole (these apply to the chosen interval):
 - The operator should **NEVER** have to ask for the next update. The cadence is automatic;
   re-asking is the failure this rule exists to prevent.

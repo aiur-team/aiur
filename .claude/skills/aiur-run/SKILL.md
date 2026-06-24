@@ -74,7 +74,9 @@ Confirm it actually worked:
 ## 5. Monitor — REQUIRED: ASK the cadence, then arm it immediately on launch
 
 **REQUIRED SUB-SKILL: `aiur-monitor`.** Launch is not "done" when the BEAM is up — it's done
-when the status cadence is running.
+when the status cadence is running. **Arming the recurring timer is part of "launch is not done":
+an un-armed cadence (relying on event/completion notifications instead of an armed `/loop` or
+equivalent recurring wake) is a failed launch** — see `aiur-monitor`'s "How to enforce the cadence."
 
 **REQUIRED pre-flight/launch step — ASK the cadence once.** Before (or at) launch, **ASK the
 operator their preferred status-table update cadence** — use **AskUserQuestion**, offer 5 / 10 /
