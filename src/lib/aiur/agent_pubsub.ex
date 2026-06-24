@@ -44,6 +44,9 @@ defmodule Aiur.AgentPubSub do
   @spec subscribe_status() :: :ok | {:error, term()}
   def subscribe_status, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.status_topic())
 
+  @spec subscribe_agent_events() :: :ok | {:error, term()}
+  def subscribe_agent_events, do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.agent_events_topic())
+
   @spec subscribe_poll_state() :: :ok | {:error, term()}
   def subscribe_poll_state,
     do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.poll_state_topic())
@@ -74,6 +77,7 @@ defmodule Aiur.AgentPubSub do
   def broadcast_transcript(identifier, %{role: _, body: _, timestamp: _} = event)
       when is_binary(identifier) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:transcript_event, event})
+    do_broadcast(AgentEvents.agent_events_topic(), {:agent_event, identifier, {:transcript_event, event}})
     do_broadcast(agent_chat_active_topic(), {:agent_chat_active, identifier})
   end
 
@@ -110,6 +114,7 @@ defmodule Aiur.AgentPubSub do
   def broadcast_alert(identifier, %{name: _, message: _, timestamp: _} = event)
       when is_binary(identifier) do
     do_broadcast(AgentEvents.agent_topic(identifier), {:alert, event})
+    do_broadcast(AgentEvents.agent_events_topic(), {:agent_event, identifier, {:alert, event}})
   end
 
   @spec broadcast_running_change([AgentEvents.agent_summary()]) :: :ok
@@ -127,7 +132,9 @@ defmodule Aiur.AgentPubSub do
       when is_binary(identifier) and
              event_tag in [:turn_completed, :turn_failed, :turn_cancelled, :turn_input_required] and
              is_map(payload) do
-    do_broadcast(AgentEvents.agent_topic(identifier), {:turn_event, identifier, event_tag, payload})
+    message = {:turn_event, identifier, event_tag, payload}
+    do_broadcast(AgentEvents.agent_topic(identifier), message)
+    do_broadcast(AgentEvents.agent_events_topic(), {:agent_event, identifier, message})
   end
 
   @doc """
@@ -142,10 +149,10 @@ defmodule Aiur.AgentPubSub do
   @spec broadcast_aiur_turn_done(AgentEvents.agent_identifier(), String.t(), term()) :: :ok
   def broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
       when is_binary(identifier) and is_binary(aiur_turn_id) do
-    do_broadcast(
-      AgentEvents.agent_topic(identifier),
-      {:aiur_turn_done, identifier, aiur_turn_id, reason}
-    )
+    message = {:aiur_turn_done, identifier, aiur_turn_id, reason}
+
+    do_broadcast(AgentEvents.agent_topic(identifier), message)
+    do_broadcast(AgentEvents.agent_events_topic(), {:agent_event, identifier, message})
   end
 
   defp do_broadcast(topic, message) do

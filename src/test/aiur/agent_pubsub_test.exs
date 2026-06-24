@@ -86,6 +86,18 @@ defmodule Aiur.AgentPubSubTest do
 
       assert_receive {:status_changed, %{identifier: "MT-1", status: :paused}}
     end
+
+    test "agent event stream includes identifiers for transcript and alert events" do
+      :ok = AgentPubSub.subscribe_agent_events()
+      transcript = AgentEvents.transcript_event(:command, "mix test")
+      alert = AgentEvents.alert_event("phase.work.start", "working")
+
+      :ok = AgentPubSub.broadcast_transcript("MT-1", transcript)
+      :ok = AgentPubSub.broadcast_alert("MT-1", alert)
+
+      assert_receive {:agent_event, "MT-1", {:transcript_event, ^transcript}}
+      assert_receive {:agent_event, "MT-1", {:alert, ^alert}}
+    end
   end
 
   describe "broadcast when PubSub registry is absent" do

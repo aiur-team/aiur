@@ -66,6 +66,7 @@ defmodule Aiur.AgentEvents do
   @type alert_message :: {:alert, alert_event()}
   @type running_change_message :: {:running_changed, [agent_summary()]}
   @type status_change_message :: {:status_changed, %{identifier: agent_identifier(), status: atom()}}
+  @type agent_event_message :: {:agent_event, agent_identifier(), transcript_message() | alert_message() | tuple()}
 
   @typedoc "Any message that may be received on a Aiur agent topic."
   @type message ::
@@ -188,6 +189,9 @@ defmodule Aiur.AgentEvents do
 
   @spec status_topic() :: String.t()
   def status_topic, do: "agents:status"
+
+  @spec agent_events_topic() :: String.t()
+  def agent_events_topic, do: "agents:events"
 
   @spec poll_state_topic() :: String.t()
   def poll_state_topic, do: "orchestrator:poll_state"

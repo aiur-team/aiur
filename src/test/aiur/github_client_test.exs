@@ -187,6 +187,31 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "create_issue/4" do
+    test "posts a labeled issue to the configured repository" do
+      request_fun = fn %{method: :post, url: url, token: token, body: body} ->
+        assert token == "test-gh-token"
+        assert url == "https://api.github.com/repos/owner/repo/issues"
+
+        assert body == %{
+                 "title" => "Install rg",
+                 "body" => "Pattern observed",
+                 "labels" => ["enhancement", "agent-setup-optimization", "needs-triage"]
+               }
+
+        {:ok, %{status: 201, body: %{"html_url" => "https://github.com/owner/repo/issues/99"}}}
+      end
+
+      assert {:ok, %{"html_url" => "https://github.com/owner/repo/issues/99"}} =
+               Client.create_issue(
+                 "Install rg",
+                 "Pattern observed",
+                 ["enhancement", "agent-setup-optimization", "needs-triage"],
+                 request_fun: request_fun
+               )
+    end
+  end
+
   describe "fetch_issues_by_states/2" do
     test "returns empty list for empty states" do
       assert {:ok, []} = Client.fetch_issues_by_states([])

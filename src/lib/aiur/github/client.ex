@@ -44,6 +44,33 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @spec create_issue(String.t(), String.t(), [String.t()], keyword()) :: {:ok, map()} | {:error, term()}
+  def create_issue(title, body, labels \\ [], opts \\ [])
+      when is_binary(title) and is_binary(body) and is_list(labels) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues"
+
+      case request_fun.(%{
+             method: :post,
+             url: url,
+             token: token,
+             body: %{"title" => title, "body" => body, "labels" => labels}
+           }) do
+        {:ok, %{status: 201, body: issue}} when is_map(issue) ->
+          {:ok, issue}
+
+        {:ok, %{status: status}} ->
+          Logger.error("GitHub create_issue failed status=#{status}")
+          {:error, {:github_api_status, status}}
+
+        {:error, reason} ->
+          {:error, {:github_api_request, reason}}
+      end
+    end
+  end
+
   @doc """
   Fetches `/repos/{owner}/{repo}/events` (the GitHub firehose for the
   current repo). Honors `If-None-Match` via the optional `etag:` option,
