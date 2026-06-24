@@ -60,6 +60,15 @@ release_ready() {
   release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data" 2>/dev/null || true)"
   [ -n "$release_vsn" ] || return 1
   [ -x "$release_dir/releases/$release_vsn/elixir" ] || return 1
+  [ -r "$release_dir/releases/$release_vsn/start_clean.boot" ] || return 1
+  [ -r "$release_dir/releases/$release_vsn/vm.args" ] || return 1
+  [ -r "$release_dir/releases/$release_vsn/sys.config" ] || return 1
+
+  local epmd epmd_found=0
+  for epmd in "$release_dir"/erts-*/bin/epmd; do
+    [ -x "$epmd" ] && epmd_found=1 && break
+  done
+  [ "$epmd_found" -eq 1 ] || return 1
 }
 
 acquire_build_lock() {
@@ -149,9 +158,22 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    agents | status | set | pause | resume | stop) return 0 ;;
+    agents | status | set | pause | resume | stop | message) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+ensure_control_surface() {
+  local status=0
+
+  [ "${AIUR_SKIP_BUILD:-0}" = "1" ] && return 0
+
+  acquire_build_lock
+  if ! release_ready; then
+    ensure_built_locked || status=$?
+  fi
+  release_build_lock
+  return "$status"
 }
 
 in_agent_workspace_tree() {
@@ -304,7 +326,9 @@ if marker="$(in_agent_workspace_tree)"; then
   fi
 fi
 
-if ! pure_control_command "${passthrough[0]:-}" || ! release_ready; then
+if pure_control_command "${passthrough[0]:-}"; then
+  ensure_control_surface
+else
   ensure_built
 fi
 

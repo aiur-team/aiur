@@ -21,11 +21,14 @@ operational practices that aren't in the main README.
   prompt template. Checked in but **not** portable defaults. Used when you run
   `aiur` or `aiurdev` inside this repo.
 - `scripts/aiurdev` — the dev shim. It rebuilds the local Elixir release when
-  sources are newer than the binary, then execs the shared launcher engine
-  (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) with `AIUR_RELEASE_DIR`
-  pointed at `src/_build/dev/rel/aiur`. The npm-installed product command `aiur`
-  runs the *same* engine against the platform release — identical command
-  surface, one source of truth. `aiurdev` and `aiur` share a single
+  sources are newer than the binary before run/start paths. Pure control
+  commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `stop`) use
+  the existing release when it is complete, because they control the already
+  running node and a rebuild would not update it. The shim then execs the shared
+  launcher engine (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) with
+  `AIUR_RELEASE_DIR` pointed at `src/_build/dev/rel/aiur`. The npm-installed
+  product command `aiur` runs the *same* engine against the platform release —
+  identical command surface, one source of truth. `aiurdev` and `aiur` share a single
   distribution identity (node `aiur-$USER@127.0.0.1`, tmux socket `aiur-$USER`),
   so there is no second command surface to maintain. Run `npm run setup` (or
   `mise run setup`) to install the toolchain and symlink `aiurdev` onto your
