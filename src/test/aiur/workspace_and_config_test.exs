@@ -882,6 +882,45 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert log =~ "Variable \\\"$ids\\\" got invalid value"
   end
 
+  test "linear client can suppress auth-only graphql response logs" do
+    request_fun = fn _payload, _headers ->
+      {:ok,
+       %{
+         status: 401,
+         body: %{"errors" => [%{"message" => "Authentication required, not authenticated"}]}
+       }}
+    end
+
+    auth_log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, {:linear_api_status, 401}} =
+                 Client.graphql(
+                   "query Viewer { viewer { id } }",
+                   %{},
+                   request_fun: request_fun,
+                   quiet_auth_errors?: true
+                 )
+      end)
+
+    assert auth_log == ""
+
+    outage_log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, {:linear_api_status, 500}} =
+                 Client.graphql(
+                   "query Viewer { viewer { id } }",
+                   %{},
+                   request_fun: fn _payload, _headers ->
+                     {:ok, %{status: 500, body: %{"errors" => [%{"message" => "temporary outage"}]}}}
+                   end,
+                   quiet_auth_errors?: true
+                 )
+      end)
+
+    assert outage_log =~ "Linear GraphQL request failed status=500"
+    assert outage_log =~ "temporary outage"
+  end
+
   test "orchestrator sorts dispatch by priority then oldest created_at" do
     issue_same_priority_older = %Issue{
       id: "issue-old-high",

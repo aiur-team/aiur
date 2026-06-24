@@ -1260,6 +1260,12 @@ defmodule Aiur.Orchestrator do
   end
 
   @doc false
+  @spec run_terminal_workspace_cleanup_for_test(State.t()) :: State.t()
+  def run_terminal_workspace_cleanup_for_test(%State{} = state) do
+    run_terminal_workspace_cleanup(state)
+  end
+
+  @doc false
   @spec slot_status_for_test(State.t()) :: %{active: non_neg_integer(), paused: non_neg_integer()}
   def slot_status_for_test(%State{} = state) do
     %{
@@ -2744,9 +2750,13 @@ defmodule Aiur.Orchestrator do
   defp cleanup_issue_workspace(_identifier, _worker_host), do: :ok
 
   defp run_terminal_workspace_cleanup(%State{} = state) do
-    case ensure_tracker_preflight(state) do
+    case ensure_terminal_workspace_cleanup_preflight(state) do
       {:ok, state} ->
         cleanup_terminal_workspaces_after_preflight(state)
+
+      {:skip, reason, state} ->
+        Logger.debug("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
+        state
 
       {:error, reason, state} ->
         Logger.warning("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
@@ -2755,17 +2765,44 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  defp ensure_terminal_workspace_cleanup_preflight(%State{} = state) do
+    case ensure_tracker_preflight(state) do
+      {:error, reason, state} when reason in [:missing_linear_api_token, :missing_linear_project_slug] ->
+        {:skip, reason, state}
+
+      result ->
+        result
+    end
+  end
+
   defp cleanup_terminal_workspaces_after_preflight(%State{} = state) do
-    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states) do
+    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states, quiet_auth_errors?: true) do
       {:ok, issues} ->
         Enum.each(issues, &cleanup_terminal_issue_workspace/1)
         state
 
       {:error, reason} ->
-        Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+        log_terminal_workspace_cleanup_fetch_skip(reason)
 
         state
     end
+  end
+
+  defp log_terminal_workspace_cleanup_fetch_skip(reason)
+       when reason in [:missing_linear_api_token, :missing_linear_project_slug] do
+    Logger.debug("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+  end
+
+  defp log_terminal_workspace_cleanup_fetch_skip({:linear_api_status, 401} = reason) do
+    Logger.debug("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+  end
+
+  defp log_terminal_workspace_cleanup_fetch_skip({:linear_api_request, :missing_linear_api_token} = reason) do
+    Logger.debug("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+  end
+
+  defp log_terminal_workspace_cleanup_fetch_skip(reason) do
+    Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
   end
 
   defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier})
