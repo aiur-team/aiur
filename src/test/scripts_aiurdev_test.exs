@@ -69,6 +69,32 @@ defmodule ScriptsAiurdevTest do
     fake_repo(root)
   end
 
+  defp seed_ready_release(root) do
+    src = Path.join(root, "src")
+    release_vsn_dir = Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3"])
+    erts_bin_dir = Path.join([src, "_build", "dev", "rel", "aiur", "erts-16.4", "bin"])
+
+    File.mkdir_p!(Path.join(src, "bin"))
+    File.mkdir_p!(Path.join([src, "_build", "dev", "rel", "aiur", "bin"]))
+    File.mkdir_p!(release_vsn_dir)
+    File.mkdir_p!(erts_bin_dir)
+
+    for path <- [
+          Path.join([src, "bin", "aiur"]),
+          Path.join([src, "_build", "dev", "rel", "aiur", "bin", "aiur"]),
+          Path.join([release_vsn_dir, "elixir"]),
+          Path.join([erts_bin_dir, "epmd"])
+        ] do
+      File.write!(path, "#!/usr/bin/env bash\n")
+      File.chmod!(path, 0o755)
+    end
+
+    File.write!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "start_erl.data"]), "16.4 0.0.3")
+    File.write!(Path.join(release_vsn_dir, "start_clean.boot"), "")
+    File.write!(Path.join(release_vsn_dir, "vm.args"), "")
+    File.write!(Path.join(release_vsn_dir, "sys.config"), "")
+  end
+
   # A fake mise that records how it was invoked and succeeds, so `--test`'s
   # `mise exec -- mix aiur.test.reset` runs without a real toolchain.
   defp fake_mise do
@@ -98,11 +124,15 @@ defmodule ScriptsAiurdevTest do
             if [ -n "${AIUR_FAKE_MISE_RELEASE_SLEEP:-}" ]; then
               sleep "$AIUR_FAKE_MISE_RELEASE_SLEEP"
             fi
-            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/releases/0.0.3
+            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/releases/0.0.3 _build/dev/rel/aiur/erts-16.4/bin
             echo '#!/usr/bin/env bash' > bin/aiur
             echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/bin/aiur
-            chmod +x bin/aiur _build/dev/rel/aiur/bin/aiur
+            echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/erts-16.4/bin/epmd
+            chmod +x bin/aiur _build/dev/rel/aiur/bin/aiur _build/dev/rel/aiur/erts-16.4/bin/epmd
             echo '16.4 0.0.3' > _build/dev/rel/aiur/releases/start_erl.data
+            : > _build/dev/rel/aiur/releases/0.0.3/start_clean.boot
+            : > _build/dev/rel/aiur/releases/0.0.3/vm.args
+            : > _build/dev/rel/aiur/releases/0.0.3/sys.config
             if [ "${AIUR_FAKE_MISE_FAIL_RELEASE:-}" = "1" ]; then
               exit 9
             fi
@@ -208,6 +238,108 @@ defmodule ScriptsAiurdevTest do
 
     assert length(release_starts) == 1
     assert File.exists?(Path.join([root, "src", "_build", "dev", "rel", "aiur", "releases", "0.0.3", "elixir"]))
+  end
+
+  test "stale-source control commands reuse a ready release without rebuilding" do
+    root = fake_repo()
+    mise = fake_mise()
+    log = Path.join(root, "release.log")
+
+    seed_ready_release(root)
+    File.mkdir_p!(Path.join([root, "src", "lib"]))
+    newer = Path.join([root, "src", "lib", "newer.ex"])
+    File.write!(newer, "# stale after release\n")
+    File.touch!(Path.join([root, "src", "bin", "aiur"]), {{2020, 1, 1}, {0, 0, 0}})
+    File.touch!(newer, {{2030, 1, 1}, {0, 0, 0}})
+
+    for {args, expected} <- [
+          {["agents"], "ENGINE_ARGS: agents"},
+          {["status"], "ENGINE_ARGS: status"},
+          {["set", "max-agents", "3"], "ENGINE_ARGS: set max-agents 3"},
+          {["pause", "--all"], "ENGINE_ARGS: pause --all"},
+          {["resume", "539"], "ENGINE_ARGS: resume 539"},
+          {["stop"], "ENGINE_ARGS: stop"},
+          {["message", "539", "hello"], "ENGINE_ARGS: message 539 hello"}
+        ] do
+      {out, 0} =
+        run_shim(args, [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ expected
+      refute out =~ "rebuilding"
+    end
+
+    refute File.exists?(log), "stale control commands should not invoke mix release"
+  end
+
+  test "control commands rebuild when any ready-release artifact is missing" do
+    for {missing, remove_artifact} <- [
+          {"start_clean.boot",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3", "start_clean.boot"]))
+           end},
+          {"vm.args",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3", "vm.args"]))
+           end},
+          {"sys.config",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3", "sys.config"]))
+           end},
+          {"epmd",
+           fn src ->
+             File.rm!(Path.join([src, "_build", "dev", "rel", "aiur", "erts-16.4", "bin", "epmd"]))
+           end}
+        ] do
+      root = fake_repo()
+      mise = fake_mise()
+      log = Path.join(root, "release.log")
+      src = Path.join(root, "src")
+
+      seed_ready_release(root)
+      remove_artifact.(src)
+
+      {out, 0} =
+        run_shim(["agents"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ "rebuilding", "#{missing} should make release_ready fail"
+      assert out =~ "ENGINE_ARGS: agents"
+      assert File.exists?(log), "#{missing} should rebuild before control RPC"
+    end
+  end
+
+  test "stale-source run paths still rebuild a ready release" do
+    root = fake_repo()
+    mise = fake_mise()
+    log = Path.join(root, "release.log")
+
+    seed_ready_release(root)
+    File.mkdir_p!(Path.join([root, "src", "lib"]))
+    newer = Path.join([root, "src", "lib", "newer.ex"])
+    File.write!(newer, "# stale after release\n")
+    File.touch!(Path.join([root, "src", "bin", "aiur"]), {{2020, 1, 1}, {0, 0, 0}})
+    File.touch!(newer, {{2030, 1, 1}, {0, 0, 0}})
+
+    {out, 0} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "rebuilding"
+    assert out =~ "ENGINE_ARGS: --bg"
+    assert File.exists?(log), "run paths should still invoke mix release when sources are stale"
   end
 
   test "failed rebuild removes the incomplete release and exits nonzero" do
