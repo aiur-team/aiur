@@ -171,7 +171,8 @@ if [ -n "$config_root" ] && [ -n "$roots_with_agents" ]; then
 fi
 
 # --- Emit -------------------------------------------------------------------
-roots_list="$(printf '%s ' "${roots[@]:-}")"
+roots_list=""
+[ "${#roots[@]}" -gt 0 ] && roots_list="$(printf '%s ' "${roots[@]}")"
 [ -n "$roots_list" ] || roots_list="(none existed) "
 
 if [ "$latest_mtime" -gt 0 ]; then

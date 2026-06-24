@@ -42,28 +42,23 @@ defmodule Aiur.AiurStatusSkillTest do
     config
   end
 
-  # Runs the script with a fake HOME. `node_down?: true` shadows `pgrep`/`tmux`
-  # on PATH with stubs that report nothing running, exercising the daemon-down
-  # branch deterministically regardless of the host.
+  # Runs the script with a fake HOME. The daemon probes (`pgrep`/`tmux`) are
+  # ALWAYS shadowed on PATH so node liveness is fixture-driven, never read from
+  # the host running the suite — otherwise a real aiur BEAM on the CI box would
+  # leak in and make these tests non-hermetic. `node_down?: true` makes the
+  # stubs exit 1 (nothing running); the default exits 0 (node up).
   defp run(config, home, opts \\ []) do
-    env = [{"HOME", home}]
+    bin = Path.join(home, "bin")
+    File.mkdir_p!(bin)
+    exit_code = if opts[:node_down?], do: 1, else: 0
 
-    env =
-      if opts[:node_down?] do
-        bin = Path.join(home, "bin")
-        File.mkdir_p!(bin)
+    for name <- ~w(pgrep tmux) do
+      stub = Path.join(bin, name)
+      File.write!(stub, "#!/bin/sh\nexit #{exit_code}\n")
+      File.chmod!(stub, 0o755)
+    end
 
-        for name <- ~w(pgrep tmux) do
-          stub = Path.join(bin, name)
-          File.write!(stub, "#!/bin/sh\nexit 1\n")
-          File.chmod!(stub, 0o755)
-        end
-
-        [{"PATH", bin <> ":" <> System.get_env("PATH", "")} | env]
-      else
-        env
-      end
-
+    env = [{"HOME", home}, {"PATH", bin <> ":" <> System.get_env("PATH", "")}]
     {out, status} = System.cmd("bash", [@script, config], env: env, stderr_to_stdout: true)
     assert status == 0, "script exited #{status}:\n#{out}"
     out
