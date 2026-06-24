@@ -95,7 +95,8 @@ defmodule ScriptsAiurdevTest do
     base_env = [
       {"AIUR_AGENT_WORKSPACE", nil},
       {"AIUR_AGENT_IR_SANDBOX", nil},
-      {"AIUR_AGENT_IR_ROOT", nil}
+      {"AIUR_AGENT_IR_ROOT", nil},
+      {"AIUR_OPENCODE_BRIDGE_PORT", nil}
     ]
 
     System.cmd("bash", [@script | args],
@@ -254,6 +255,30 @@ defmodule ScriptsAiurdevTest do
     assert trace_out =~ "AIUR_BG_STATE_DIR: #{sandbox_root}/state"
     assert trace_out =~ "AIUR_LOGS_ROOT: #{sandbox_root}/logs/"
     refute trace_out =~ "#{home}/.aiur/logs"
+  end
+
+  test "agent workspace non-test launch leaves bridge port to runtime selection" do
+    root = fake_agent_repo(337)
+    trace = engine_trace(root)
+
+    {out, 0} =
+      run_shim(["--bg", "--debug"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"AIUR_AGENT_WORKSPACE", root}
+      ])
+
+    trace_out = File.read!(trace)
+
+    assert out =~ "agent IR sandbox: #{Path.join(root, ".aiur-agent-ir")}"
+    assert out =~ "AIUR_AGENT_IR_SANDBOX: 1"
+    assert out =~ "AIUR_OPENCODE_BRIDGE_PORT: "
+    refute out =~ ~r/AIUR_OPENCODE_BRIDGE_PORT: \d+/
+    assert trace_out =~ "ENGINE_ARGS: --bg"
+    assert trace_out =~ "AIUR_OPENCODE_BRIDGE_PORT: "
+    refute trace_out =~ ~r/AIUR_OPENCODE_BRIDGE_PORT: \d+/
   end
 
   test "agent workspace --test honors a caller-supplied port instead of forcing --port 0" do

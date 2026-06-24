@@ -106,6 +106,7 @@ agent_ir_port() {
 
 enable_agent_ir_sandbox() {
   local marker="$1"
+  local pin_bridge_port="${2:-0}"
   local sandbox_root="${AIUR_AGENT_IR_ROOT:-$marker/.aiur-agent-ir}"
   local logs_parent="$sandbox_root/logs"
   local state_dir="$sandbox_root/state"
@@ -124,7 +125,7 @@ enable_agent_ir_sandbox() {
   export XDG_RUNTIME_DIR="$runtime_dir"
   export AIUR_LOGS_ROOT="$logs_parent/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
-  if [ -z "${AIUR_OPENCODE_BRIDGE_PORT:-}" ]; then
+  if [ "$pin_bridge_port" -eq 1 ] && [ -z "${AIUR_OPENCODE_BRIDGE_PORT:-}" ]; then
     bridge_port="$(agent_ir_port "$marker")"
     export AIUR_OPENCODE_BRIDGE_PORT="$bridge_port"
   fi
@@ -205,7 +206,12 @@ if [ "$clear_mode" -eq 1 ] && [ "$debug_mode" -ne 1 ]; then
 fi
 
 if marker="$(in_agent_workspace_tree)"; then
-  enable_agent_ir_sandbox "$marker"
+  pin_bridge_port=0
+  if { [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; }; then
+    pin_bridge_port=1
+  fi
+
+  enable_agent_ir_sandbox "$marker" "$pin_bridge_port"
   if { [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; } && [ "$has_port" -eq 0 ]; then
     passthrough+=(--port 0)
   fi
