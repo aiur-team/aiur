@@ -145,6 +145,15 @@ ensure_built() {
   return "$status"
 }
 
+pure_control_command() {
+  local cmd="${1:-}"
+
+  case "$cmd" in
+    agents | status | set | pause | resume | stop) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 in_agent_workspace_tree() {
   local marker="${AIUR_AGENT_WORKSPACE:-}"
   if [ -n "$marker" ]; then
@@ -295,7 +304,9 @@ if marker="$(in_agent_workspace_tree)"; then
   fi
 fi
 
-ensure_built
+if ! pure_control_command "${passthrough[0]:-}" || ! release_ready; then
+  ensure_built
+fi
 
 [ "$debug_mode" -eq 1 ] && export AIUR_DEBUG=1
 if [ "$clear_mode" -eq 1 ]; then

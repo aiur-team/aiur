@@ -60,6 +60,26 @@ defmodule ScriptsAiurdevTest do
     fake_repo(root)
   end
 
+  defp seed_ready_release(root) do
+    src = Path.join(root, "src")
+    release_vsn_dir = Path.join([src, "_build", "dev", "rel", "aiur", "releases", "0.0.3"])
+
+    File.mkdir_p!(Path.join(src, "bin"))
+    File.mkdir_p!(Path.join([src, "_build", "dev", "rel", "aiur", "bin"]))
+    File.mkdir_p!(release_vsn_dir)
+
+    for path <- [
+          Path.join([src, "bin", "aiur"]),
+          Path.join([src, "_build", "dev", "rel", "aiur", "bin", "aiur"]),
+          Path.join([release_vsn_dir, "elixir"])
+        ] do
+      File.write!(path, "#!/usr/bin/env bash\n")
+      File.chmod!(path, 0o755)
+    end
+
+    File.write!(Path.join([src, "_build", "dev", "rel", "aiur", "releases", "start_erl.data"]), "16.4 0.0.3")
+  end
+
   # A fake mise that records how it was invoked and succeeds, so `--test`'s
   # `mise exec -- mix aiur.test.reset` runs without a real toolchain.
   defp fake_mise do
@@ -197,6 +217,38 @@ defmodule ScriptsAiurdevTest do
 
     assert length(release_starts) == 1
     assert File.exists?(Path.join([root, "src", "_build", "dev", "rel", "aiur", "releases", "0.0.3", "elixir"]))
+  end
+
+  test "stale-source control commands reuse a ready release without rebuilding" do
+    root = fake_repo()
+    mise = fake_mise()
+    log = Path.join(root, "release.log")
+
+    seed_ready_release(root)
+    File.mkdir_p!(Path.join([root, "src", "lib"]))
+    File.write!(Path.join([root, "src", "lib", "newer.ex"]), "# stale after release\n")
+
+    for {args, expected} <- [
+          {["agents"], "ENGINE_ARGS: agents"},
+          {["status"], "ENGINE_ARGS: status"},
+          {["set", "max-agents", "3"], "ENGINE_ARGS: set max-agents 3"},
+          {["pause", "--all"], "ENGINE_ARGS: pause --all"},
+          {["resume", "539"], "ENGINE_ARGS: resume 539"},
+          {["stop"], "ENGINE_ARGS: stop"}
+        ] do
+      {out, 0} =
+        run_shim(args, [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ expected
+      refute out =~ "rebuilding"
+    end
+
+    refute File.exists?(log), "stale control commands should not invoke mix release"
   end
 
   test "failed rebuild removes the incomplete release and exits nonzero" do
