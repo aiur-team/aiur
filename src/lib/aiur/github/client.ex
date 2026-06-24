@@ -752,8 +752,13 @@ defmodule Aiur.GitHub.Client do
 
     case request_fun.(%{method: :get, url: issue_url, token: token}) do
       {:ok, %{status: 200, body: issue_body}} ->
-        swap_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, new_label)
-        maybe_close_issue(request_fun, token, issue_url, state_name)
+        if closed_issue?(issue_body) and active_target_state?(state_name) do
+          remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix)
+        else
+          swap_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, new_label)
+          maybe_close_issue(request_fun, token, issue_url, state_name)
+        end
+
         :ok
 
       {:ok, %{status: status}} ->
@@ -765,6 +770,13 @@ defmodule Aiur.GitHub.Client do
   end
 
   defp swap_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, new_label) do
+    remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix)
+
+    add_url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
+    request_fun.(%{method: :post, url: add_url, token: token, body: %{"labels" => [new_label]}})
+  end
+
+  defp remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix) do
     issue_body
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
@@ -775,15 +787,19 @@ defmodule Aiur.GitHub.Client do
 
       request_fun.(%{method: :delete, url: url, token: token})
     end)
-
-    add_url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
-    request_fun.(%{method: :post, url: add_url, token: token, body: %{"labels" => [new_label]}})
   end
 
   defp maybe_close_issue(request_fun, token, issue_url, state_name) do
     if normalize_state(state_name) in ["done", "cancelled"] do
       request_fun.(%{method: :patch, url: issue_url, token: token, body: %{"state" => "closed"}})
     end
+  end
+
+  defp closed_issue?(%{"state" => "closed"}), do: true
+  defp closed_issue?(_issue_body), do: false
+
+  defp active_target_state?(state_name) do
+    normalize_state(state_name) not in ["done", "cancelled", "canceled"]
   end
 
   defp normalize_issue(gh_issue, _owner, _repo, prefix) when is_map(gh_issue) do

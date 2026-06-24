@@ -1034,6 +1034,87 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
+    test "review-pass PR comment stays human-review until successful merge marks issue done" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-review-pass-merge-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "560"
+      issue_identifier = "560"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
+        Application.put_env(:aiur, :memory_tracker_issues, [])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        {:noreply, after_comment} =
+          Orchestrator.handle_info(
+            {:event,
+             %{
+               topic: "ticket.#{issue_identifier}.issue.commented",
+               author_trusted?: true,
+               comment: %{body: "[codex] Review passed for commit abc123"}
+             }},
+            state
+          )
+
+        refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 100
+        assert get_in(after_comment.running[issue_id], [:control, :status]) == :deactivated
+
+        {:noreply, after_merge} =
+          Orchestrator.handle_info(
+            {:event, %{topic: "ticket.#{issue_identifier}.pr.merged"}},
+            after_comment
+          )
+
+        assert_receive {:memory_tracker_state_update, ^issue_id, "done"}
+        refute Map.has_key?(after_merge.running, issue_id)
+        refute MapSet.member?(after_merge.claimed, issue_id)
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
     test "does not reactivate when refreshed issue is missing" do
       test_root =
         Path.join(

@@ -125,6 +125,37 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.7.pr.merged"}}, 500
     end
 
+    test "merged PR events bypass the tracked filter for human-review tickets" do
+      Publisher.set_tracked_fn(fn n -> to_string(n) != "7" end)
+      :ok = Exchange.subscribe("ticket.7.pr.merged")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e3-merged-bypass")}],
+           body: [
+             %{
+               "type" => "PullRequestEvent",
+               "actor" => %{"login" => "carol"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "action" => "closed",
+                 "pull_request" => %{
+                   "number" => 559,
+                   "merged" => true,
+                   "head" => %{"ref" => "aiur/7", "sha" => "merge-bypass-sha"}
+                 }
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+      assert_receive {:event, %{topic: "ticket.7.pr.merged"}}, 500
+    end
+
     test "IssueCommentEvent publishes ticket.<id>.issue.commented" do
       :ok = Exchange.subscribe("ticket.42.issue.commented")
 

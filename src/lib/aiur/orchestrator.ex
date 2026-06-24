@@ -172,6 +172,8 @@ defmodule Aiur.Orchestrator do
   #     resolves PR-conversation comments back to the ticket id (via
   #     the PR's `aiur/<id>` head ref) before publishing, so the topic
   #     number matches the agent's identifier here.
+  #   * `ticket.*.pr.merged` — mark a merged PR's linked ticket terminal
+  #     and clean up any deactivated row left from human review.
   #   * `ticket.*.agent.pause.request` — when an agent emits
   #     pause.request it has decided to stop working. Flip its
   #     control status to `:paused` so `list_running_active_identifiers/0`
@@ -187,6 +189,7 @@ defmodule Aiur.Orchestrator do
     if Process.whereis(Exchange) do
       Exchange.subscribe("ticket.*.pr.review_comment")
       Exchange.subscribe("ticket.*.issue.commented")
+      Exchange.subscribe("ticket.*.pr.merged")
       Exchange.subscribe("ticket.*.agent.pause.request")
       Exchange.subscribe("ticket.*.branch.push")
     end
@@ -437,6 +440,9 @@ defmodule Aiur.Orchestrator do
       {:issue_commented, identifier} ->
         {:noreply, maybe_reactivate_on_comment(state, identifier, "issue comment", event)}
 
+      {:pr_merged, identifier} ->
+        {:noreply, mark_pr_merged_issue_done(state, identifier)}
+
       {:pause_request, identifier} ->
         {:noreply, maybe_pause_on_request(state, identifier)}
 
@@ -511,6 +517,13 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  defp parse_pr_merged_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.pr\.merged\z}, topic) do
+      [_, number] -> {:ok, number}
+      _ -> :nomatch
+    end
+  end
+
   defp parse_pause_request_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.agent\.pause\.request\z}, topic) do
       [_, identifier] -> {:ok, identifier}
@@ -532,6 +545,7 @@ defmodule Aiur.Orchestrator do
   defp classify_event_topic(topic) do
     with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
          :nomatch <- tag_topic(:issue_commented, parse_issue_commented_topic(topic)),
+         :nomatch <- tag_topic(:pr_merged, parse_pr_merged_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)) do
       tag_topic(:branch_push, parse_branch_push_topic(topic))
     end
@@ -816,15 +830,62 @@ defmodule Aiur.Orchestrator do
   end
 
   defp transition_comment_issue_to_rework(issue_number, _source, event) do
-    if trusted_comment_event?(event) do
-      Tracker.update_issue_state(to_string(issue_number), "rework")
-    else
-      {:skip, :untrusted_author}
+    cond do
+      not trusted_comment_event?(event) ->
+        {:skip, :untrusted_author}
+
+      benign_review_pass_comment?(event) ->
+        {:skip, :benign_review_pass_comment}
+
+      true ->
+        Tracker.update_issue_state(to_string(issue_number), "rework")
     end
   end
 
   defp trusted_comment_event?(event) when is_map(event) do
     Map.get(event, :author_trusted?) == true or Map.get(event, "author_trusted?") == true
+  end
+
+  defp benign_review_pass_comment?(event) when is_map(event) do
+    event
+    |> comment_body()
+    |> review_pass_comment?()
+  end
+
+  defp benign_review_pass_comment?(_event), do: false
+
+  defp comment_body(event) do
+    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
+
+    if is_map(comment) do
+      Map.get(comment, :body) || Map.get(comment, "body")
+    end
+  end
+
+  defp review_pass_comment?(body) when is_binary(body) do
+    body
+    |> String.trim()
+    |> String.downcase()
+    |> String.match?(~r/^\[codex\]\s+review\s+passed\b/)
+  end
+
+  defp review_pass_comment?(_body), do: false
+
+  defp mark_pr_merged_issue_done(%State{} = state, identifier) do
+    case Tracker.update_issue_state(to_string(identifier), "done") do
+      :ok ->
+        case find_running_by_identifier(state.running, identifier) do
+          %{issue: %Issue{id: issue_id}} ->
+            terminate_running_issue(state, issue_id, true)
+
+          _ ->
+            state
+        end
+
+      {:error, reason} ->
+        Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        state
+    end
   end
 
   defp rework_issue_key(%{issue: %Issue{id: issue_id}}, _issue_number) when is_binary(issue_id),
