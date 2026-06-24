@@ -30,7 +30,8 @@ defmodule Aiur.HttpServer do
         dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
 
         with {:ok, ip} <- parse_host(host),
-             :ok <- guard_credentials_for_non_loopback(ip, host) do
+             :ok <- guard_credentials_for_non_loopback(ip, host),
+             :ok <- guard_port_available(ip, port, host) do
           endpoint_opts = [
             server: true,
             http: [ip: ip, port: port],
@@ -50,6 +51,7 @@ defmodule Aiur.HttpServer do
           Endpoint.start_link()
         else
           :credentials_missing_for_non_loopback -> :ignore
+          :port_in_use -> :ignore
           other -> other
         end
 
@@ -94,6 +96,46 @@ defmodule Aiur.HttpServer do
         )
 
         :credentials_missing_for_non_loopback
+    end
+  end
+
+  # A fixed dashboard port that is already bound — e.g. a *second* aiur instance
+  # sharing the same `server.port` (this repo's config pins 4000) — makes
+  # Bandit's listener fail with `:eaddrinuse`. That failure surfaces as a
+  # crashed child, which `:one_for_one` retries until `max_restarts` is exhausted
+  # and the whole BEAM goes down on startup (#442). Probe the bind first and
+  # degrade to no-dashboard (`:ignore`) instead: the node keeps running agents,
+  # only this instance's dashboard is unavailable. The `Logger.warning` line is
+  # the operator's only signal, so it names the port + remediation.
+  #
+  # Port 0 is ephemeral (the OS assigns a free port), so it never collides —
+  # skip the probe. The probe mirrors Bandit's bind (`reuseaddr: true`) so a
+  # port merely lingering in TIME_WAIT is not misread as in-use. A tiny
+  # time-of-check/time-of-use window remains between the probe and the real
+  # bind; losing that race only reproduces the pre-#442 crash, which is no
+  # worse than today and astronomically unlikely in practice.
+  defp guard_port_available(_ip, 0, _host_input), do: :ok
+
+  defp guard_port_available(ip, port, host_input) do
+    case :gen_tcp.listen(port, ip: ip, reuseaddr: true) do
+      {:ok, socket} ->
+        :gen_tcp.close(socket)
+        :ok
+
+      {:error, :eaddrinuse} ->
+        Logger.warning(
+          "Aiur dashboard port #{port} is already in use on " <>
+            "#{inspect(host_input)} (#{format_ip(ip)}) — another aiur instance? " <>
+            "Dashboard disabled for this instance (agents still run). " <>
+            "Set a different `server.port` (or pass `--port`) to run a second dashboard."
+        )
+
+        :port_in_use
+
+      {:error, _other} ->
+        # Any other bind error (e.g. `:eaddrnotavail` for an unroutable host) is
+        # left to `Endpoint.start_link/0` to surface, preserving prior behavior.
+        :ok
     end
   end
 
