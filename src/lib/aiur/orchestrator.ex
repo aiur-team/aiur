@@ -1997,8 +1997,6 @@ defmodule Aiur.Orchestrator do
     Map.get(running_entry, :last_codex_timestamp) || Map.get(running_entry, :started_at)
   end
 
-  defp last_activity_timestamp(_running_entry), do: nil
-
   defp terminate_task(pid) when is_pid(pid) do
     case Task.Supervisor.terminate_child(Aiur.TaskSupervisor, pid) do
       :ok ->
