@@ -28,9 +28,10 @@ operational practices that aren't in the main README.
   launcher engine (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) with
   `AIUR_RELEASE_DIR` pointed at `src/_build/dev/rel/aiur`. The npm-installed
   product command `aiur` runs the *same* engine against the platform release —
-  identical command surface, one source of truth. `aiurdev` and `aiur` share a single
-  distribution identity (node `aiur-$USER@127.0.0.1`, tmux socket `aiur-$USER`),
-  so there is no second command surface to maintain. Run `npm run setup` (or
+  identical command surface, one source of truth. `aiurdev` and `aiur` share the
+  same instance-keyed distribution identity (node
+  `aiur-$USER[-KEY]@127.0.0.1`, tmux socket `aiur-$USER[-KEY]`), so there is no
+  second command surface to maintain. Run `npm run setup` (or
   `mise run setup`) to install the toolchain and symlink `aiurdev` onto your
   `PATH`.
 
@@ -146,10 +147,10 @@ When the user (or any doc) says "manually test", "run aiur and try it",
    TUI panes — not just the BEAM and not a one-off `mix run`.
 2. **Drive the TUI like a user would.** Press keys, open chat panes
    (Enter on an agent row), type messages into the chat input, navigate
-   between panes. From a non-TTY agent environment, use `tmux send-keys`
-   on the live `aiur-orangekid` socket — that **is** how a user
-   interacts; `setsid` is fine for spawning, but interaction must hit
-   the running tmux session, not a separate shell.
+   between panes. From a non-TTY environment, use `tmux send-keys`
+   on the actual socket/session printed by the launcher — that **is**
+   how a user interacts; `setsid` is fine for spawning, but interaction
+   must hit the running tmux session, not a separate shell.
 3. **Observe what a user actually sees.** Read the rendered chat-pane
    content via `tmux capture-pane -p -t <pane>`. Look for the intended
    UX content: real agent prose, `$ command` lines, `→ tool_call`
@@ -184,11 +185,20 @@ sufficient. Substituting HTTP or log proxies is never acceptable.
 
 ### Driving the TUI from a non-TTY agent environment
 
-When a coding agent (no real terminal) needs to drive aiur manually,
-use a wrapper tmux session as the agent's "fake terminal," then
-`send-keys` and `capture-pane` against aiur's own inner tmux socket.
-This pattern was validated live and is the canonical recipe — do not
-substitute HTTP, curl, mix scripts, or background-mode launches.
+When a non-TTY operator environment needs to drive aiur manually, use a
+wrapper tmux session as the "fake terminal," then `send-keys` and
+`capture-pane` against aiur's own inner tmux socket. This pattern was
+validated live and is the canonical recipe — do not substitute HTTP,
+curl, mix scripts, or background-mode launches.
+
+Agent issue workspaces are blocked from launching `scripts/aiurdev --test`
+or `--test3` directly. Those flags reset pinned GitHub sandbox tickets and
+can mutate the live dogfood backlog. If an agent sees the guard message
+`manual --test runs are blocked inside agent workspaces`, it must stop that
+verification path and report the blocker; it must not retry from `/tmp`, a
+copied harness, a fresh clone, or an alternate wrapper-tmux name. Run this
+recipe only from the operator repo root, then use the socket/session printed
+by that launched instance.
 
 1. **Spawn aiur inside a wrapper tmux on a separate socket.** The
    wrapper supplies the pty `scripts/aiurdev` needs for its internal
@@ -204,11 +214,18 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    The trailing `sleep 3600` keeps the wrapper pane alive after aiur
    exits so post-mortem captures still work.
 
-2. **Wait for aiur's inner tmux session to come up** (sandbox reset
-   + build + boot take ~30-60s):
+2. **Read the launched instance identity, then wait for its inner tmux
+   session to come up** (sandbox reset + build + boot take ~30-60s).
+   The launcher prints a line like `aiur foreground tmux socket
+   aiur-kevin-d686b464b0, session aiur-kevin-d686b464b0-default`:
 
    ```bash
-   until tmux -L aiur-orangekid has-session -t aiur-orangekid-default 2>/dev/null
+   until grep -q "aiur foreground tmux socket" /tmp/aiur-driver-startup.log
+   do sleep 1; done
+   AIUR_SOCKET="$(awk '/aiur foreground tmux socket/ {gsub(/,/, "", $5); print $5; exit}' /tmp/aiur-driver-startup.log)"
+   AIUR_SESSION="$(awk '/aiur foreground tmux socket/ {print $7; exit}' /tmp/aiur-driver-startup.log)"
+
+   until tmux -L "$AIUR_SOCKET" has-session -t "$AIUR_SESSION" 2>/dev/null
    do sleep 3; done
    ```
 
@@ -217,7 +234,7 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    pane `0.1`, active):
 
    ```bash
-   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.0 Enter
+   tmux -L "$AIUR_SOCKET" send-keys -t "$AIUR_SESSION:0.0" Enter
    ```
 
    **Precondition (validated 2026-05-29):** `Enter` only swaps in the
@@ -232,9 +249,9 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    ```bash
    # wait until at least one row has booted past the warm-up glyphs,
    # then capture 0.0 to see which row is selected (▶)
-   until tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.0 -p \
+   until tmux -L "$AIUR_SOCKET" capture-pane -t "$AIUR_SESSION:0.0" -p \
        | grep -vqE 'Warming up|Starting codex|Queueing agent'; do sleep 5; done
-   tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.0 -p -S -40
+   tmux -L "$AIUR_SOCKET" capture-pane -t "$AIUR_SESSION:0.0" -p -S -40
    ```
 
    The AgentList **re-sorts live** (running agents bubble to the top),
@@ -246,9 +263,9 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
    message text as a single argument, then `Enter` separately:
 
    ```bash
-   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.1 \
+   tmux -L "$AIUR_SOCKET" send-keys -t "$AIUR_SESSION:0.1" \
      "your operator message here"
-   tmux -L aiur-orangekid send-keys -t aiur-orangekid-default:0.1 Enter
+   tmux -L "$AIUR_SOCKET" send-keys -t "$AIUR_SESSION:0.1" Enter
    ```
 
    Verify it landed by `capture-pane -p` on `0.1` — you should see
@@ -261,7 +278,7 @@ substitute HTTP, curl, mix scripts, or background-mode launches.
 5. **Capture what the user sees** at any time:
 
    ```bash
-   tmux -L aiur-orangekid capture-pane -t aiur-orangekid-default:0.1 -p -S -200
+   tmux -L "$AIUR_SOCKET" capture-pane -t "$AIUR_SESSION:0.1" -p -S -200
    ```
 
 6. **Inner pane layout reference** (from `list-panes -a`):
@@ -285,9 +302,9 @@ Gotchas worth remembering:
   control plane as "already running" and cleans up stale tmux state before a
   restart. For manual testing that needs the interactive TUI (chat panes),
   use foreground `aiurdev --test` instead.
-- The wrapper-tmux socket name (e.g. `claude-driver`) is the agent's
-  choice and must NOT collide with `aiur-orangekid` (aiur's own
-  internal socket).
+- The wrapper-tmux socket name (e.g. `claude-driver`) is the operator's
+  choice and must NOT collide with the `AIUR_SOCKET` printed by the
+  launched instance.
 - `send-keys` accepts both literal strings and tmux key names
   (`Enter`, `Tab`, `Up`, etc.) — pass them as separate arguments.
 

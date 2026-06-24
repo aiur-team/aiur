@@ -439,13 +439,35 @@ defmodule ScriptsAiurdevTest do
     refute out =~ "agent IR sandbox"
   end
 
-  test "agent workspace --test uses local IR sandbox before reset, clear, and stop" do
+  test "--test3 resets the blocker sandbox then runs, stripping the flag" do
+    root = fake_repo()
+    home = sandbox_home()
+    mise = fake_mise()
+
+    {out, 0} =
+      run_shim(["--test3"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"HOME", home},
+        {"AIUR_MISE_BIN", mise}
+      ])
+
+    assert out =~ "mix aiur.test.reset"
+    assert out =~ "--allow-remote"
+    refute out =~ "--single"
+    refute out =~ "ENGINE_ARGS: --test3"
+    refute File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    refute out =~ "agent IR sandbox"
+  end
+
+  test "agent workspace --test is blocked before reset, clear, stop, or launch" do
     root = fake_agent_repo(334)
     home = sandbox_home()
     mise = fake_mise()
     trace = engine_trace(root)
 
-    {out, 0} =
+    {out, 64} =
       run_shim(["--test"], [
         {"AIUR_REPO_ROOT", root},
         {"AIUR_ENGINE_TRACE", trace},
@@ -457,33 +479,15 @@ defmodule ScriptsAiurdevTest do
         {"AIUR_OPENCODE_BRIDGE_PORT", nil}
       ])
 
-    sandbox_root = Path.join(root, ".aiur-agent-ir")
-    trace_out = File.read!(trace)
-
     assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
-    assert out =~ "agent IR sandbox: #{sandbox_root}"
-    assert out =~ "MISE_AIUR_AGENT_IR_SANDBOX: 1"
-    assert out =~ "MISE_AIUR_BG_STATE_DIR: #{sandbox_root}/state"
-
-    assert out =~
-             "MISE: exec -- env XDG_CONFIG_HOME=#{sandbox_root}/config XDG_STATE_HOME=#{sandbox_root}/state mix aiur.test.reset"
-
-    assert out =~ "MISE_XDG_CONFIG_HOME: "
-    refute out =~ "MISE_XDG_CONFIG_HOME: #{sandbox_root}/config"
-    assert out =~ "MISE_XDG_STATE_HOME: "
-    refute out =~ "MISE_XDG_STATE_HOME: #{sandbox_root}/state"
-    assert out =~ "MISE_XDG_RUNTIME_DIR: #{sandbox_root}/runtime"
-    assert out =~ "MISE_AIUR_LOGS_ROOT: #{sandbox_root}/logs/"
-    assert out =~ ~r/MISE_AIUR_OPENCODE_BRIDGE_PORT: 4[0-9]{4}|5[0-4][0-9]{3}/
-    assert out =~ "ENGINE_ARGS: --port 0"
-    assert out =~ "AIUR_AGENT_IR_SANDBOX: 1"
-    assert trace_out =~ "ENGINE_ARGS: stop"
-    assert trace_out =~ "ENGINE_ARGS: --port 0"
-    assert trace_out =~ "AIUR_BG_STATE_DIR: #{sandbox_root}/state"
-    assert trace_out =~ "AIUR_LOGS_ROOT: #{sandbox_root}/logs/"
-    assert trace_out =~ "XDG_CONFIG_HOME: #{sandbox_root}/config"
-    assert trace_out =~ "XDG_STATE_HOME: #{sandbox_root}/state"
-    refute trace_out =~ "#{home}/.aiur/logs"
+    assert out =~ "manual --test runs are blocked inside agent workspaces"
+    assert out =~ "workspace marker: #{root}"
+    assert out =~ "mutate the live dogfood backlog"
+    assert out =~ "do not retry from a copied /tmp harness, clone, or alternate checkout"
+    refute out =~ "agent IR sandbox"
+    refute out =~ "mix aiur.test.reset"
+    refute out =~ "ENGINE_ARGS:"
+    refute File.exists?(trace)
   end
 
   test "agent workspace non-test launch leaves bridge port to runtime selection" do
@@ -510,13 +514,13 @@ defmodule ScriptsAiurdevTest do
     refute trace_out =~ ~r/AIUR_OPENCODE_BRIDGE_PORT: \d+/
   end
 
-  test "agent workspace --test honors a caller-supplied port instead of forcing --port 0" do
+  test "agent workspace --test remains blocked with a caller-supplied port" do
     root = fake_agent_repo(335)
     home = sandbox_home()
     mise = fake_mise()
     trace = engine_trace(root)
 
-    {out, 0} =
+    {out, 64} =
       run_shim(["--test", "--port", "7000"], [
         {"AIUR_REPO_ROOT", root},
         {"AIUR_ENGINE_TRACE", trace},
@@ -527,8 +531,11 @@ defmodule ScriptsAiurdevTest do
         {"AIUR_AGENT_WORKSPACE", root}
       ])
 
-    assert out =~ "ENGINE_ARGS: --port 7000"
-    refute out =~ "--port 0"
+    assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    assert out =~ "manual --test runs are blocked inside agent workspaces"
+    refute out =~ "ENGINE_ARGS:"
+    refute out =~ "mix aiur.test.reset"
+    refute File.exists?(trace)
   end
 
   test "--port with no value is rejected before any side effect" do
@@ -552,13 +559,13 @@ defmodule ScriptsAiurdevTest do
     assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
   end
 
-  test "agent workspace detection falls back to AIUR_REPO_ROOT path without env marker" do
+  test "agent workspace --test3 detection falls back to AIUR_REPO_ROOT path without env marker" do
     root = fake_agent_repo(376)
     home = sandbox_home()
     mise = fake_mise()
     trace = engine_trace(root)
 
-    {out, 0} =
+    {out, 64} =
       run_shim(["--test3"], [
         {"AIUR_REPO_ROOT", root},
         {"AIUR_ENGINE_TRACE", trace},
@@ -571,12 +578,14 @@ defmodule ScriptsAiurdevTest do
 
     assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     assert out =~ "workspace marker: #{root}"
-    assert out =~ "MISE_AIUR_AGENT_IR_SANDBOX: 1"
-    assert File.read!(trace) =~ "ENGINE_ARGS: stop"
-    refute out =~ "ENGINE_ARGS: --test3"
+    assert out =~ "manual --test runs are blocked inside agent workspaces"
+    refute out =~ "MISE_AIUR_AGENT_IR_SANDBOX: 1"
+    refute out =~ "mix aiur.test.reset"
+    refute out =~ "ENGINE_ARGS:"
+    refute File.exists?(trace)
   end
 
-  test "agent workspace detection falls back to PWD and roots sandbox there" do
+  test "agent workspace non-test detection falls back to PWD and roots sandbox there" do
     root = fake_repo()
     pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482"])
     home = sandbox_home()
@@ -589,7 +598,7 @@ defmodule ScriptsAiurdevTest do
 
       {out, 0} =
         run_shim(
-          ["--test"],
+          ["--bg"],
           [
             {"AIUR_REPO_ROOT", root},
             {"AIUR_SKIP_BUILD", "1"},
@@ -605,10 +614,46 @@ defmodule ScriptsAiurdevTest do
 
       assert out =~ "workspace marker: #{expected_pwd}"
       assert out =~ "agent IR sandbox: #{sandbox_root}"
-      assert out =~ "MISE_AIUR_BG_STATE_DIR: #{sandbox_root}/state"
+      assert out =~ "AIUR_BG_STATE_DIR: #{sandbox_root}/state"
       assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     after
       File.rm_rf(Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482"]))
+    end
+  end
+
+  test "agent workspace --test detection falls back to PWD and blocks before sandboxing" do
+    root = fake_repo()
+    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "483"])
+    home = sandbox_home()
+    mise = fake_mise()
+
+    File.mkdir_p!(pwd)
+
+    try do
+      expected_pwd = File.cd!(pwd, &File.cwd!/0)
+
+      {out, 64} =
+        run_shim(
+          ["--test"],
+          [
+            {"AIUR_REPO_ROOT", root},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"TMUX", nil},
+            {"HOME", home},
+            {"AIUR_MISE_BIN", mise},
+            {"AIUR_AGENT_WORKSPACE", nil}
+          ],
+          cd: pwd
+        )
+
+      assert out =~ "workspace marker: #{expected_pwd}"
+      assert out =~ "manual --test runs are blocked inside agent workspaces"
+      refute out =~ "agent IR sandbox"
+      refute out =~ "mix aiur.test.reset"
+      refute out =~ "ENGINE_ARGS:"
+      assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+    after
+      File.rm_rf(Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "483"]))
     end
   end
 

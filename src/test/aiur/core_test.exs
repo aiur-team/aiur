@@ -3,6 +3,42 @@ defmodule Aiur.CoreTest do
 
   alias Aiur.Config.Schema
 
+  defmodule RetryPollFailingGitHubClient do
+    def preflight_auth, do: :ok
+
+    def fetch_candidate_issues do
+      case Application.get_env(:aiur, :retry_poll_failure_test_pid) do
+        pid when is_pid(pid) -> send(pid, :retry_poll_fetch_candidate_issues)
+        _ -> :ok
+      end
+
+      {:error, {:github_api_status, 403}}
+    end
+
+    def fetch_issues_by_states(_states), do: {:ok, []}
+  end
+
+  defp stop_test_orchestrator(pid) when is_pid(pid) do
+    if Process.alive?(pid), do: stop_live_test_orchestrator(pid)
+
+    :ok
+  end
+
+  defp stop_live_test_orchestrator(pid) do
+    stop_result =
+      try do
+        GenServer.stop(pid, :normal, 1_000)
+      catch
+        :exit, reason -> {:exit, reason}
+      end
+
+    case {stop_result, Process.alive?(pid)} do
+      {:ok, _} -> :ok
+      {{:exit, _reason}, false} -> :ok
+      {{:exit, reason}, true} -> exit(reason)
+    end
+  end
+
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
@@ -434,9 +470,7 @@ defmodule Aiur.CoreTest do
       on_exit(fn ->
         restore_app_env(:memory_tracker_issues, previous_memory_issues)
 
-        if Process.alive?(pid) do
-          Process.exit(pid, :normal)
-        end
+        stop_test_orchestrator(pid)
       end)
 
       Process.sleep(50)
@@ -577,9 +611,7 @@ defmodule Aiur.CoreTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
+      stop_test_orchestrator(pid)
     end)
 
     initial_state = :sys.get_state(pid)
@@ -618,9 +650,7 @@ defmodule Aiur.CoreTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
+      stop_test_orchestrator(pid)
     end)
 
     initial_state = :sys.get_state(pid)
@@ -659,9 +689,7 @@ defmodule Aiur.CoreTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
+      stop_test_orchestrator(pid)
     end)
 
     initial_state = :sys.get_state(pid)
@@ -706,9 +734,7 @@ defmodule Aiur.CoreTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
+      stop_test_orchestrator(pid)
     end)
 
     initial_state = :sys.get_state(pid)
@@ -756,9 +782,7 @@ defmodule Aiur.CoreTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
+      stop_test_orchestrator(pid)
     end)
 
     initial_state = :sys.get_state(pid)
@@ -816,15 +840,111 @@ defmodule Aiur.CoreTest do
     assert Orchestrator.retry_dispatch_ready_for_test(issue, freed_state)
   end
 
+  test "retry poll failures do not consume agent retry budget" do
+    issue_id = "issue-retry-poll-fail"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :RetryPollFailureOrchestrator)
+    previous_github_client = Application.get_env(:aiur, :github_client_module)
+    previous_test_pid = Application.get_env(:aiur, :retry_poll_failure_test_pid)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "its-everdred/aiur",
+      tracker_active_states: ["todo", "in-progress"],
+      tracker_terminal_states: ["done"],
+      max_retry_backoff_ms: 100
+    )
+
+    Application.put_env(:aiur, :github_client_module, RetryPollFailingGitHubClient)
+    Application.put_env(:aiur, :retry_poll_failure_test_pid, self())
+    System.put_env("GITHUB_TOKEN", "retry-poll-test-token")
+
+    on_exit(fn ->
+      if previous_github_client do
+        Application.put_env(:aiur, :github_client_module, previous_github_client)
+      else
+        Application.delete_env(:aiur, :github_client_module)
+      end
+
+      if previous_test_pid do
+        Application.put_env(:aiur, :retry_poll_failure_test_pid, previous_test_pid)
+      else
+        Application.delete_env(:aiur, :retry_poll_failure_test_pid)
+      end
+
+      restore_env("GITHUB_TOKEN", previous_github_token)
+    end)
+
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      stop_test_orchestrator(pid)
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-POLL",
+      issue: %Issue{id: issue_id, identifier: "MT-POLL", state: "in-progress"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :response_timeout})
+    Process.sleep(50)
+
+    assert %{attempt: 1, retry_token: retry_token, error: "agent exited: :response_timeout"} =
+             :sys.get_state(pid).retry_attempts[issue_id]
+
+    log =
+      capture_log(fn ->
+        send(pid, {:retry_issue, issue_id, retry_token})
+        Process.sleep(50)
+
+        assert %{attempt: 1, retry_poll_failures: 1, retry_token: retry_token} =
+                 :sys.get_state(pid).retry_attempts[issue_id]
+
+        send(pid, {:retry_issue, issue_id, retry_token})
+        Process.sleep(50)
+
+        assert %{attempt: 1, retry_poll_failures: 2, retry_token: retry_token} =
+                 :sys.get_state(pid).retry_attempts[issue_id]
+
+        send(pid, {:retry_issue, issue_id, retry_token})
+        Process.sleep(50)
+      end)
+
+    state = :sys.get_state(pid)
+
+    refute Map.has_key?(state.retry_attempts, issue_id),
+           "retry-poll exhaustion should clear the precondition retry entry"
+
+    refute MapSet.member?(state.claimed, issue_id),
+           "retry-poll exhaustion should release the claim for tracker-recovery pickup"
+
+    assert log =~ "Retry poll failed for issue_id=#{issue_id} issue_identifier=MT-POLL"
+    assert log =~ "retry_poll_failure=2/3 agent_attempt=1 tracker_error={:github_api_status, 403}"
+    assert log =~ "Retrying retry-poll precondition issue_id=#{issue_id} issue_identifier=MT-POLL"
+    assert log =~ "Retry poll exhausted for issue_id=#{issue_id} issue_identifier=MT-POLL agent_attempt=1"
+    assert log =~ "[alert] (#MT-POLL) orchestrator.retry_poll.exhausted"
+  end
+
   test "stale retry timer messages do not consume newer retry entries" do
     issue_id = "issue-stale-retry"
     orchestrator_name = Module.concat(__MODULE__, :StaleRetryOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
+      stop_test_orchestrator(pid)
     end)
 
     initial_state = :sys.get_state(pid)
@@ -1606,6 +1726,8 @@ defmodule Aiur.CoreTest do
       refute Enum.at(turn_texts, 1) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) =~ "Continuation guidance:"
       assert Enum.at(turn_texts, 1) =~ "continuation turn #2 of 3"
+      assert Enum.at(turn_texts, 1) =~ "If manual `scripts/aiurdev --test`"
+      assert Enum.at(turn_texts, 1) =~ "do not retry from `/tmp`"
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")
       File.rm_rf(test_root)

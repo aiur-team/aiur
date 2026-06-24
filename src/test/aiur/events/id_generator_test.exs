@@ -1,6 +1,8 @@
 defmodule Aiur.Events.IdGeneratorTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Events.IdGenerator
   alias Aiur.JsonStore
 
@@ -60,6 +62,35 @@ defmodule Aiur.Events.IdGeneratorTest do
 
       assert Enum.min(ids_round2) > Enum.max(ids_round1)
       assert MapSet.disjoint?(MapSet.new(ids_round1), MapSet.new(ids_round2))
+    end
+  end
+
+  describe "unwritable counter paths" do
+    test "stays alive and keeps issuing increasing IDs when boot reservation cannot persist", %{tmp_dir: tmp_dir} do
+      Process.flag(:trap_exit, true)
+
+      unwritable_dir = Path.join(tmp_dir, "unwritable")
+      File.mkdir_p!(unwritable_dir)
+      File.chmod!(unwritable_dir, 0o500)
+      path = Path.join(unwritable_dir, "event_id")
+
+      on_exit(fn -> File.chmod!(unwritable_dir, 0o700) end)
+
+      log =
+        capture_log(fn ->
+          {:ok, pid} = IdGenerator.start_link(name: nil, path: path, batch_size: 2)
+
+          ids = for _ <- 1..4, do: IdGenerator.next_id(pid)
+
+          assert ids == Enum.sort(ids)
+          assert Enum.uniq(ids) == ids
+          assert Process.alive?(pid)
+          GenServer.stop(pid)
+        end)
+
+      assert log =~ "IdGenerator counter persistence failed"
+      assert log =~ path
+      assert length(Regex.scan(~r/IdGenerator counter persistence failed/, log)) == 1
     end
   end
 

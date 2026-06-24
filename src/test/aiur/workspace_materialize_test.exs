@@ -35,6 +35,27 @@ defmodule Aiur.WorkspaceMaterializeTest do
     assert branch(workspace) == "aiur/123"
   end
 
+  test "materialized workspaces expose writable git metadata and repair stale locks", %{tmp: tmp, base: base} do
+    workspace = Path.join(tmp, "561")
+
+    assert :ok = Workspace.materialize_from_base(base, workspace)
+
+    stale_locks = [
+      Path.join([workspace, ".git", "index.lock"]),
+      Path.join([workspace, ".git", "FETCH_HEAD.lock"]),
+      Path.join([workspace, ".git", "ORIG_HEAD.lock"]),
+      Path.join([workspace, ".git", "refs", "remotes", "origin", "aiur", "561.lock"])
+    ]
+
+    Enum.each(stale_locks, fn lock ->
+      File.mkdir_p!(Path.dirname(lock))
+      File.write!(lock, "stale\n")
+    end)
+
+    assert :ok = Workspace.ensure_git_metadata_writable(workspace)
+    assert Enum.all?(stale_locks, &(not File.exists?(&1)))
+  end
+
   test "returns an error (cold-clone fallback) when the base is not copyable", %{tmp: tmp} do
     assert {:error, _} =
              Workspace.materialize_from_base(Path.join(tmp, "nope"), Path.join(tmp, "ws"))

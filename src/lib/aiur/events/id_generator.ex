@@ -80,7 +80,15 @@ defmodule Aiur.Events.IdGenerator do
   def init(opts) do
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
     path = Keyword.get(opts, :path, default_path())
-    {:ok, %{current: 0, reserved_through: 0, batch_size: batch_size, path: path}, {:continue, :load}}
+
+    {:ok,
+     %{
+       current: 0,
+       reserved_through: 0,
+       batch_size: batch_size,
+       path: path,
+       persist_warning_emitted: false
+     }, {:continue, :load}}
   end
 
   @impl true
@@ -161,8 +169,14 @@ defmodule Aiur.Events.IdGenerator do
   defp reserve_next_batch(state) do
     new_reserved = state.current + state.batch_size
     new_state = %{state | reserved_through: new_reserved}
-    :ok = persist(new_state)
-    new_state
+
+    case persist(new_state) do
+      :ok ->
+        %{new_state | persist_warning_emitted: false}
+
+      {:error, reason} ->
+        warn_persist_failed(new_state, reason)
+    end
   end
 
   defp persist(state) do
@@ -172,8 +186,19 @@ defmodule Aiur.Events.IdGenerator do
     })
   rescue
     error ->
-      Logger.warning("IdGenerator persist failed: #{Exception.message(error)}")
-      :error
+      {:error, Exception.message(error)}
+  end
+
+  defp warn_persist_failed(%{persist_warning_emitted: true} = state, _reason), do: state
+
+  defp warn_persist_failed(state, reason) do
+    Logger.warning(
+      "IdGenerator counter persistence failed for #{state.path}: #{reason}; " <>
+        "continuing with in-memory IDs only until the path is writable. " <>
+        "Restart-safe monotonicity is degraded for this counter path."
+    )
+
+    %{state | persist_warning_emitted: true}
   end
 
   defp default_path do

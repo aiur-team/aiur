@@ -222,12 +222,171 @@ defmodule Aiur.Workspace do
     issue_context = issue_context(issue_or_identifier)
     hooks = Config.settings!().hooks
 
-    case hooks.before_run do
-      nil ->
+    hook_result =
+      case hooks.before_run do
+        nil ->
+          :ok
+
+        command ->
+          run_hook(command, workspace, issue_context, "before_run", worker_host)
+      end
+
+    with :ok <- hook_result do
+      ensure_git_metadata_writable(workspace, worker_host)
+    end
+  end
+
+  @doc false
+  @spec ensure_git_metadata_writable(Path.t(), worker_host()) :: :ok | {:error, term()}
+  def ensure_git_metadata_writable(workspace, worker_host \\ nil)
+
+  def ensure_git_metadata_writable(workspace, nil) when is_binary(workspace) do
+    case local_git_metadata_probe_paths(workspace) do
+      {:ok, paths} ->
+        probe_lock_files(paths)
+
+      :not_git ->
         :ok
 
-      command ->
-        run_hook(command, workspace, issue_context, "before_run", worker_host)
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+    end
+  end
+
+  def ensure_git_metadata_writable(workspace, worker_host)
+      when is_binary(workspace) and is_binary(worker_host) do
+    script =
+      [
+        "set -eu",
+        remote_shell_assign("workspace", workspace),
+        "if ! git -C \"$workspace\" rev-parse --is-inside-work-tree >/dev/null 2>&1; then",
+        "  exit 0",
+        "fi",
+        "git_dir=\"$(git -C \"$workspace\" rev-parse --git-dir)\"",
+        "case \"$git_dir\" in",
+        "  /*) ;;",
+        "  *) git_dir=\"$workspace/$git_dir\" ;;",
+        "esac",
+        "workspace_real=\"$(cd \"$workspace\" && pwd -P)\"",
+        "git_dir_real=\"$(cd \"$git_dir\" && pwd -P)\"",
+        "case \"$git_dir_real/\" in",
+        "  \"$workspace_real\"/*) ;;",
+        "  *) echo \"git metadata outside workspace: $git_dir_real\" >&2; exit 31 ;;",
+        "esac",
+        "probe_lock() {",
+        "  lock_path=\"$1\"",
+        "  mkdir -p \"$(dirname \"$lock_path\")\"",
+        "  rm -f \"$lock_path\"",
+        "  ( set -C; : > \"$lock_path\" )",
+        "  rm -f \"$lock_path\"",
+        "}",
+        "issue_id=\"$(basename \"$workspace\")\"",
+        "probe_lock \"$git_dir_real/index.lock\"",
+        "probe_lock \"$git_dir_real/FETCH_HEAD.lock\"",
+        "probe_lock \"$git_dir_real/ORIG_HEAD.lock\"",
+        "probe_lock \"$git_dir_real/refs/remotes/origin/aiur/${issue_id}.lock\""
+      ]
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} ->
+        :ok
+
+      {:ok, {output, status}} ->
+        {:error, {:workspace_git_metadata_unwritable, workspace, worker_host, status, output}}
+
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, workspace, worker_host, reason}}
+    end
+  end
+
+  defp local_git_metadata_probe_paths(workspace) do
+    with {:ok, git_dir} <- local_git_metadata_dir(workspace),
+         :ok <- ensure_git_dir_inside_workspace(git_dir, workspace) do
+      {:ok, git_metadata_probe_paths(workspace, git_dir)}
+    end
+  end
+
+  defp probe_lock_files(paths) do
+    Enum.reduce_while(paths, :ok, fn path, :ok ->
+      case probe_lock_file(path) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp local_git_metadata_dir(workspace) do
+    case System.cmd("git", ["-C", workspace, "rev-parse", "--is-inside-work-tree"], stderr_to_stdout: true) do
+      {_output, 0} ->
+        case System.cmd("git", ["-C", workspace, "rev-parse", "--git-dir"], stderr_to_stdout: true) do
+          {git_dir, 0} ->
+            {:ok, expand_git_dir(workspace, String.trim(git_dir))}
+
+          {output, status} ->
+            {:error, {:git_dir_unavailable, status, String.trim(output)}}
+        end
+
+      _ ->
+        :not_git
+    end
+  end
+
+  defp expand_git_dir(workspace, git_dir) do
+    case Path.type(git_dir) do
+      :absolute -> Path.expand(git_dir)
+      _ -> Path.expand(git_dir, workspace)
+    end
+  end
+
+  defp ensure_git_dir_inside_workspace(git_dir, workspace) do
+    with {:ok, canonical_git_dir} <- PathSafety.canonicalize(git_dir),
+         {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace) do
+      workspace_prefix = canonical_workspace <> "/"
+
+      if String.starts_with?(canonical_git_dir <> "/", workspace_prefix) do
+        :ok
+      else
+        {:error, {:git_dir_outside_workspace, canonical_git_dir}}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp git_metadata_probe_paths(workspace, git_dir) do
+    issue_id = Path.basename(workspace)
+
+    [
+      Path.join(git_dir, "index.lock"),
+      Path.join(git_dir, "FETCH_HEAD.lock"),
+      Path.join(git_dir, "ORIG_HEAD.lock"),
+      Path.join([git_dir, "refs", "remotes", "origin", "aiur", "#{issue_id}.lock"])
+    ]
+  end
+
+  defp probe_lock_file(path) do
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- remove_stale_lock(path),
+         {:ok, io} <- File.open(path, [:write, :exclusive]) do
+      File.close(io)
+      File.rm(path)
+    else
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, path, reason}}
+    end
+  end
+
+  defp remove_stale_lock(path) do
+    case File.rm(path) do
+      :ok ->
+        :ok
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

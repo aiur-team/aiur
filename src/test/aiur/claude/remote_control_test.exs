@@ -424,20 +424,42 @@ defmodule Aiur.Claude.RemoteControlTest do
       outside_pid = spawn_sleeper(outside)
       on_exit(fn -> System.cmd("kill", ["-KILL", to_string(outside_pid)], stderr_to_stdout: true) end)
 
-      # protected_pids: [] so the test's own BEAM tree is not spared — the
-      # sleepers are BEAM children here, whereas in production the orphans have
-      # reparented to init. The BEAM itself is never a target: its cwd is the
-      # repo, not under `root`.
-      assert :ok = RemoteControl.reap_workspace_agents(root, protected_pids: [])
+      # Exercise the production self-protection path. This test runs inside the
+      # same BEAM as the rest of the suite, so disabling protected_pids risks
+      # killing supervised test infrastructure if procfs reports a transient
+      # cwd under the fixture root.
+      assert :ok = RemoteControl.reap_workspace_agents(root)
 
       assert os_pid_dead?(inside_pid), "expected the workspace-rooted process to be reaped"
       assert os_pid_alive?(outside_pid), "expected the out-of-root process to survive"
     end
 
     defp spawn_sleeper(cwd) do
-      port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])
-      {:os_pid, os_pid} = Port.info(port, :os_pid)
+      {output, 0} =
+        System.cmd("sh", ["-c", "cd \"$1\" || exit 1; sleep 300 >/dev/null 2>&1 & echo $!", "sh", cwd])
+
+      os_pid =
+        output
+        |> String.trim()
+        |> String.to_integer()
+
+      wait_for_proc_cwd(os_pid, cwd)
       os_pid
+    end
+
+    defp wait_for_proc_cwd(os_pid, cwd, attempts \\ 20)
+
+    defp wait_for_proc_cwd(_os_pid, _cwd, 0), do: :ok
+
+    defp wait_for_proc_cwd(os_pid, cwd, attempts) do
+      case File.read_link("/proc/#{os_pid}/cwd") do
+        {:ok, ^cwd} ->
+          :ok
+
+        _ ->
+          Process.sleep(10)
+          wait_for_proc_cwd(os_pid, cwd, attempts - 1)
+      end
     end
 
     defp os_pid_alive?(os_pid) do

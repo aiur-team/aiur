@@ -505,6 +505,10 @@ run_session() {
     exit 1
   fi
 
+  if [ "$mode" = "foreground" ]; then
+    echo "aiur foreground tmux socket ${socket}, session ${session}" >&2
+  fi
+
   if [ "$mode" = "background" ]; then
     # Fresh run: drop any stale crash/stop state from a prior dead instance so
     # `status` doesn't report a phantom orphan and the watchdog starts clean.
@@ -516,7 +520,7 @@ run_session() {
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
-    echo "aiur started in the background (tmux session ${session}). Attach with: aiur" >&2
+    echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
     # transient argv file is no longer needed.
     rm -f "$argv_file" 2>/dev/null || true

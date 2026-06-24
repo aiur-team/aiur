@@ -161,6 +161,122 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "before_run repairs stale git metadata locks before agent turns" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-git-locks-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      remote_repo = Path.join(test_root, "remote.git")
+      workspace_root = Path.join(test_root, "workspaces")
+
+      File.mkdir_p!(source_repo)
+      File.write!(Path.join(source_repo, "README.md"), "initial\n")
+      System.cmd("git", ["-C", source_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", source_repo, "add", "README.md"])
+      System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"])
+      System.cmd("git", ["clone", "--bare", source_repo, remote_repo])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: """
+        git clone #{remote_repo} .
+        issue_id="$(basename "$PWD")"
+        git checkout -b "aiur/${issue_id}" origin/main
+        git config user.name "Test User"
+        git config user.email "test@example.com"
+        """
+      )
+
+      assert {:ok, workspace} = Workspace.create_for_issue("LOCK-1")
+
+      stale_locks = [
+        Path.join([workspace, ".git", "index.lock"]),
+        Path.join([workspace, ".git", "FETCH_HEAD.lock"]),
+        Path.join([workspace, ".git", "ORIG_HEAD.lock"]),
+        Path.join([workspace, ".git", "refs", "remotes", "origin", "aiur", "LOCK-1.lock"])
+      ]
+
+      Enum.each(stale_locks, fn lock ->
+        File.mkdir_p!(Path.dirname(lock))
+        File.write!(lock, "stale\n")
+      end)
+
+      assert :ok = Workspace.run_before_run_hook(workspace, "LOCK-1")
+      assert Enum.all?(stale_locks, &(not File.exists?(&1)))
+
+      assert {_output, 0} = System.cmd("git", ["-C", workspace, "fetch", "origin"], stderr_to_stdout: true)
+
+      assert {_output, 0} =
+               System.cmd("git", ["-C", workspace, "merge", "--no-edit", "origin/main"], stderr_to_stdout: true)
+
+      assert {_output, 0} =
+               System.cmd("git", ["-C", workspace, "update-ref", "ORIG_HEAD", "HEAD"], stderr_to_stdout: true)
+
+      File.write!(Path.join(workspace, "agent-change.txt"), "metadata writable\n")
+      assert {_output, 0} = System.cmd("git", ["-C", workspace, "add", "agent-change.txt"])
+      assert {_output, 0} = System.cmd("git", ["-C", workspace, "commit", "-m", "agent change"])
+
+      assert {_output, 0} =
+               System.cmd("git", ["-C", workspace, "push", "origin", "HEAD:refs/heads/aiur/LOCK-1"], stderr_to_stdout: true)
+
+      assert {_output, 0} =
+               System.cmd("git", [
+                 "--git-dir",
+                 remote_repo,
+                 "rev-parse",
+                 "--verify",
+                 "refs/heads/aiur/LOCK-1"
+               ])
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "before_run rejects git metadata outside the issue workspace" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-external-gitdir-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "BAD-1")
+      external_git_dir = Path.join(test_root, "external.git")
+
+      File.mkdir_p!(workspace)
+
+      assert {_output, 0} =
+               System.cmd(
+                 "git",
+                 ["init", "--quiet", "-b", "main", "--separate-git-dir", external_git_dir, workspace],
+                 stderr_to_stdout: true
+               )
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root
+      )
+
+      assert {:error, reason} = Workspace.run_before_run_hook(workspace, "BAD-1")
+
+      assert {:workspace_git_metadata_unwritable, ^workspace, {:git_dir_outside_workspace, rejected_git_dir}} =
+               reason
+
+      assert {:ok, canonical_external_git_dir} = Aiur.PathSafety.canonicalize(external_git_dir)
+      assert rejected_git_dir == canonical_external_git_dir
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "materialize_from_base creates the workspace's parent dir when missing (repo-namespaced layout)" do
     test_root =
       Path.join(

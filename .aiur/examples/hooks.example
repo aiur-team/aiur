@@ -18,11 +18,21 @@ after_create: |
   git checkout -b "aiur/$(basename "$PWD")" origin/main
 
 # Re-establish the clone if the workspace is empty or half-initialized on resume.
+# Otherwise refresh a clean checkout from main before the next turn so agents do
+# not continue from stale runbooks or safety scripts after main advances.
 before_run: |
   if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
     git clone "$THIS_REPOSITORY_URL" .
     git checkout -b "aiur/$(basename "$PWD")" origin/main
+  else
+    git fetch origin main
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+      echo "Refusing to refresh workspace from origin/main because tracked changes are present." >&2
+      echo "Commit or resolve the workspace changes before resuming this agent." >&2
+      exit 65
+    fi
+    git merge --no-edit origin/main
   fi
 
 # Optional — run after each agent turn (e.g. format, quick checks):
