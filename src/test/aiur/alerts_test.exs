@@ -621,6 +621,86 @@ defmodule Aiur.AlertsTest do
       assert Application.get_env(:aiur, :env) == :test
     end
 
+    test "test env suppresses fallback sound playback while preserving alert emission" do
+      workspace_root =
+        Path.join(System.tmp_dir!(), "aiur-alert-test-silent-#{System.unique_integer([:positive])}")
+
+      workspace = Path.join([workspace_root, "project", "MT-ALERT-SILENT"])
+      File.mkdir_p!(workspace)
+      on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      test_pid = self()
+      previous_player = Application.get_env(:aiur, :alert_sound_player)
+
+      Application.put_env(:aiur, :alert_sound_player, fn sound ->
+        send(test_pid, {:fallback_player_called, sound})
+      end)
+
+      on_exit(fn ->
+        if previous_player do
+          Application.put_env(:aiur, :alert_sound_player, previous_player)
+        else
+          Application.delete_env(:aiur, :alert_sound_player)
+        end
+      end)
+
+      assert :ok =
+               Alerts.emit_system("ticket.MT-ALERT-SILENT.issue.state.changed",
+                 issue: "MT-ALERT-SILENT"
+               )
+
+      refute_receive {:fallback_player_called, _sound}, 100
+
+      assert Path.join(workspace, "logs/agent.ndjson")
+             |> File.read!()
+             |> String.contains?(~s("name":"ticket.MT-ALERT-SILENT.issue.state.changed"))
+    end
+
+    test "non-test env still invokes fallback sound playback" do
+      workspace_root =
+        Path.join(System.tmp_dir!(), "aiur-alert-runtime-sound-#{System.unique_integer([:positive])}")
+
+      workspace = Path.join([workspace_root, "project", "MT-ALERT-RUNTIME"])
+      File.mkdir_p!(workspace)
+      on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      test_pid = self()
+      previous_env = Application.get_env(:aiur, :env)
+      previous_player = Application.get_env(:aiur, :alert_sound_player)
+
+      Application.put_env(:aiur, :env, :prod)
+
+      Application.put_env(:aiur, :alert_sound_player, fn sound ->
+        send(test_pid, {:fallback_player_called, sound})
+      end)
+
+      on_exit(fn ->
+        if previous_env do
+          Application.put_env(:aiur, :env, previous_env)
+        else
+          Application.delete_env(:aiur, :env)
+        end
+
+        if previous_player do
+          Application.put_env(:aiur, :alert_sound_player, previous_player)
+        else
+          Application.delete_env(:aiur, :alert_sound_player)
+        end
+      end)
+
+      assert :ok =
+               Alerts.emit_system("ticket.MT-ALERT-RUNTIME.issue.state.changed",
+                 issue: "MT-ALERT-RUNTIME"
+               )
+
+      expected_sound = Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
+      assert_receive {:fallback_player_called, ^expected_sound}
+    end
+
     test "swallows a player function that raises and still emits" do
       # `maybe_play_sound`'s rescue branch logs at debug and returns :ok
       # so a crashing player can't break the alert emission flow.
