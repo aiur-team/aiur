@@ -409,6 +409,23 @@ run_session() {
     install_foreground_traps
   fi
 
+  # Background starts are intentionally idempotent. A prior live node should not
+  # fall through to tmux's opaque "duplicate session" failure, and a stale tmux
+  # session whose BEAM/control plane is gone should be reclaimed before retry.
+  if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    if [ "$(probe_control_liveness)" = "up" ]; then
+      echo "aiur is already running in the background (tmux session ${session})." >&2
+      echo "Use: aiur status   # inspect agents" >&2
+      echo "Use: aiur stop     # stop it before starting a fresh session" >&2
+      rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+      return 0
+    fi
+
+    echo "aiur found stale tmux session ${session}; cleaning it up before restart" >&2
+    reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
+    kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+  fi
+
   # An orphaned BEAM (its tmux session gone) can still hold THIS instance's node
   # name. With no live session on our (instance-keyed) socket, reap the name-holder
   # so the launch isn't blocked by "name seems to be in use". The keyed name means
@@ -432,7 +449,7 @@ run_session() {
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
-    rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
+    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
     exit 1
   fi
 
@@ -441,20 +458,27 @@ run_session() {
   # chat panes it opens. Best-effort — a missing title just shows the default.
   "$tmux_bin" -L "$socket" -f "$conf" select-pane -t "$session" -T "AIUR Agents" 2>/dev/null || true
 
-  # Grace window: surface a boot crash instead of attaching to nothing.
-  local tick
-  for ((tick = 0; tick < 30; tick++)); do
-    if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
-      echo "❌ aiur exited during startup; captured output:" >&2
-      tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
-      [ "$mode" = "foreground" ] && return 1
-      rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
-      exit 1
+  # Grace window: surface a boot crash instead of attaching to nothing. For
+  # headless background runs, also prove the control plane can answer before
+  # claiming startup succeeded; control commands depend on that RPC path.
+  local require_control=0
+  [ "$mode" = "background" ] && require_control=1
+  if ! wait_for_session_startup "$tmux_bin" "$socket" "$conf" "$session" "$startup_capture" "$require_control"; then
+    if [ "$mode" = "background" ]; then
+      "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
+      kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
     fi
-    sleep 0.1
-  done
+    [ "$mode" = "foreground" ] && return 1
+    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" 2>/dev/null || true
+    exit 1
+  fi
 
   if [ "$mode" = "background" ]; then
+    local background_watchdog_pid
+    background_watchdog_pid="$(start_beam_death_watchdog \
+      "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1)"
+    disown "$background_watchdog_pid" 2>/dev/null || true
     echo "aiur started in the background (tmux session ${session}). Attach with: aiur" >&2
     rm -f "$startup_capture" "$argv_file" 2>/dev/null || true
     return 0
@@ -464,10 +488,10 @@ run_session() {
   # (:emfile) mid-run, agent windows keep the orphaned session alive so the
   # `tmux attach` below never returns and the EXIT trap never fires — the
   # watchdog is the external reaper that survives the dead BEAM, kill-servers
-  # the session, and unblocks the attach. It polls the same release-BEAM pattern
-  # session_cleanup uses, so it never depends on capturing a single live pid.
+  # the session, and unblocks the attach. It polls the node name rather than a
+  # captured pid, so another Aiur instance from the same release cannot hold it open.
   _session_watchdog_pid="$(start_beam_death_watchdog \
-    "$release_dir/.*erts.*beam.smp" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
+    "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1)"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
   "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2> >(grep -v -F "[server exited]" >&2)
@@ -587,17 +611,17 @@ reap_aiur_agents() {
 # session, which returns the foreground `tmux attach` so the EXIT trap
 # (session_cleanup) runs its idempotent reap too.
 #
-#   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s
+#   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s  $5 initial_seen
 # Prints the watchdog's own pid so the caller can kill it on a clean teardown.
 start_beam_death_watchdog() {
-  local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}"
+  local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}" initial_seen="${5:-0}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
   (
-    seen=0
+    seen="$initial_seen"
     while :; do
-      if pgrep -f "$beam_pattern" >/dev/null 2>&1; then
+      if pgrep -f -- "$beam_pattern" >/dev/null 2>&1; then
         seen=1
       elif [ "$seen" = 1 ]; then
         break
@@ -607,6 +631,58 @@ start_beam_death_watchdog() {
     reap_aiur_agents "$socket" "$pidfile"
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
+}
+
+probe_control_liveness() {
+  local expression output status
+  expression='case Process.whereis(Aiur.Orchestrator) do pid when is_pid(pid) -> case Aiur.Orchestrator.status(Aiur.Orchestrator, 100) do statuses when is_list(statuses) -> IO.puts("__AIUR_CONTROL_READY__"); _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end; _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end'
+
+  set +e
+  output="$("$release_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ] && [[ "$output" == *"__AIUR_CONTROL_READY__"* ]]; then
+    printf 'up'
+  else
+    printf 'down'
+  fi
+}
+
+wait_for_session_startup() {
+  local tmux_bin="$1" socket="$2" conf="$3" session="$4" startup_capture="$5" require_control="$6"
+  local max_ticks="${AIUR_TMUX_GRACE_TICKS:-30}" tick control_state
+  if [ "$require_control" = "1" ]; then
+    max_ticks="${AIUR_NODE_GRACE_TICKS:-100}"
+  fi
+
+  for ((tick = 0; tick < max_ticks; tick++)); do
+    if ! "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+      echo "❌ aiur exited during startup; captured output:" >&2
+      tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
+      return 1
+    fi
+
+    if [ "$require_control" != "1" ]; then
+      sleep 0.1
+      continue
+    fi
+
+    control_state="$(probe_control_liveness)"
+    if [ "$control_state" = "up" ]; then
+      return 0
+    fi
+
+    sleep 0.1
+  done
+
+  if [ "$require_control" = "1" ]; then
+    echo "❌ aiur control plane did not become ready at ${RELEASE_NODE:-unknown} during startup; captured output:" >&2
+    tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
+    return 1
+  fi
+
+  return 0
 }
 
 # Foreground teardown: kill the session + BEAM and reap opencode sessions on exit.
@@ -638,22 +714,8 @@ session_cleanup() {
   # when tmux is absent, so it is not gated on $_session_tmux.
   reap_aiur_agents "$_session_socket" "$_session_pidfile"
 
-  local beam_pids pid waited=0
-  beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"
-  if [ -n "$beam_pids" ]; then
-    for pid in $beam_pids; do kill -TERM "$pid" 2>/dev/null || true; done
-    while [ $waited -lt 30 ]; do
-      beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"
-      [ -z "$beam_pids" ] && break
-      sleep 0.1
-      waited=$((waited + 1))
-    done
-    beam_pids="$(pgrep -f "$_session_release/.*erts.*beam.smp" 2>/dev/null || true)"
-    for pid in $beam_pids; do kill -KILL "$pid" 2>/dev/null || true; done
-  fi
-
-  # Belt-and-suspenders: reap any BEAM still holding our node name, even one
-  # launched from a different release dir than this run.
+  # Reap only this instance's BEAM. Multiple keyed instances can share the same
+  # release dir, so release-path pgrep would terminate sibling workflows.
   [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}"
 
   # Reap the epmd our BEAM spawned for distribution so it doesn't linger after
@@ -678,6 +740,11 @@ session_cleanup() {
   # Reap agent-driver sockets this run orphaned at close, not next launch.
   sweep_dead_tmux_sockets || true
 
+  # Reap stale aiur /tmp debris (per-run tempfiles, leaked test artifacts) so a
+  # tmpfs /tmp can't fill across runs. Age-gated + pid-safe; our own still-present
+  # tempfiles are spared (fresh + live pid) before the explicit rm below clears them.
+  sweep_stale_tmp_artifacts || true
+
   rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" 2>/dev/null || true
   return $code
 }
@@ -697,6 +764,32 @@ trim() {
   printf '%s' "$s"
 }
 
+# Classify our distribution node's liveness via epmd, which only advertises a
+# node while its BEAM holds the registration. Echoes exactly one word:
+#   up      — node is registered: it is alive, so an rpc failure is a real error
+#   down    — epmd answered and our node is absent: it genuinely is not running
+#   unknown — epmd could not be queried (binary missing, or daemon unreachable),
+#             so node state is indeterminate and callers must NOT assume "down"
+#             and mask the real error
+# Distinguishing `unknown` from `down` matters: a live node whose epmd we cannot
+# reach must still surface its real rpc error rather than the "start aiur" hint.
+# Relies on RELEASE_NODE + ERL_EPMD_ADDRESS (prepare_distribution) and
+# release_dir (resolve_release), so call it only after both have run.
+probe_node_liveness() {
+  local epmd names short="${RELEASE_NODE%@*}"
+  for epmd in "$release_dir"/erts-*/bin/epmd; do
+    [ -x "$epmd" ] || continue
+    names="$(ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}" "$epmd" -names 2>/dev/null)" \
+      || { printf 'unknown'; return; }
+    case "$names" in
+      *"name ${short} at port "*) printf 'up' ;;
+      *) printf 'down' ;;
+    esac
+    return
+  done
+  printf 'unknown'
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
@@ -713,7 +806,27 @@ run_control_rpc() {
   set -e
 
   if [ "$status" -ne 0 ]; then
-    echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+    # A non-zero exit here is the rpc transport failing — application-level
+    # outcomes ride the marker path below. `bin/aiur rpc` (Elixir --rpc-eval)
+    # reports a genuinely-down node and a live-but-unreachable one identically
+    # (`:noconnection`), and prints any exception raised inside the expression.
+    # So the reason string can't be trusted; classify via epmd instead. Only a
+    # node epmd confirms is down earns the friendly "start aiur" hint; an `up`
+    # node failed for a real reason, and an `unknown` probe must not be assumed
+    # down — in both of those cases surface the actual rpc output, never mask it.
+    case "$(probe_node_liveness)" in
+      down)
+        echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+        ;;
+      up)
+        [ -n "$output" ] && printf '%s\n' "$output" >&2
+        echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+        ;;
+      *)
+        [ -n "$output" ] && printf '%s\n' "$output" >&2
+        echo "aiur: rpc to ${RELEASE_NODE} failed (could not query epmd to confirm node state); see the error above" >&2
+        ;;
+    esac
     return 1
   fi
 
@@ -871,7 +984,106 @@ sweep_dead_tmux_sockets() {
   return 0
 }
 
-# Stop the running session: kill the tmux session + the release BEAM, then sweep.
+# Reap stale aiur /tmp debris so a tmpfs /tmp can't fill from accumulated per-run
+# tempfiles and leaked test artifacts. Runs alongside sweep_dead_tmux_sockets on
+# foreground teardown (session_cleanup) and on `aiur stop`. Bounded and safe:
+#
+#   * Only exact top-level Aiur artifact families under the temp roots the engine
+#     and BEAM write to. Arbitrary operator worktrees/checkouts like
+#     `/tmp/aiur-pr490` are not candidates.
+#   * Age-gated by AIUR_TMP_REAP_MINUTES (default 1440 = 24h). An entry is removed
+#     only when NOTHING in its subtree was modified within the window, so a live
+#     run's shared debug dir (aiur-rc / aiur-claude-hooks / aiur-debug) holding a
+#     fresh file is spared even when the dir's own mtime is stale. A non-numeric or
+#     0 value disables the sweep.
+#   * Ownership-gated: if anything in the tree is not owned by the effective user,
+#     the whole tree is spared.
+#   * A live run's `aiur-<pid>-sessions|-agents` bookkeeping is kept while its pid
+#     is alive, regardless of age.
+is_aiur_tmp_artifact_candidate() {
+  local base="$1" pid
+  case "$base" in
+    aiur-argv.* | aiur-startup.* | aiur-pane.* | aiur-launcher.* | aiur-capture.* | \
+      aiur-trap.*.log | aiur-tree.*.json | aiur-wrapper.pid | aiur-*-frames.bin | \
+      aiur-rc | aiur-claude-hooks | aiur-debug)
+      return 0
+      ;;
+    aiur-*-sessions | aiur-*-agents)
+      pid="${base#aiur-}"
+      pid="${pid%-*}"
+      [ -n "$pid" ] && [ -z "${pid//[0-9]/}" ]
+      return
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+sweep_stale_tmp_artifacts() {
+  local minutes="${AIUR_TMP_REAP_MINUTES:-1440}"
+  case "$minutes" in '' | *[!0-9]*) return 0 ;; esac
+  [ "$minutes" -gt 0 ] || return 0
+
+  # The dirs the engine + BEAM target: ${TMPDIR:-/tmp} (argv/startup/pane tempfiles
+  # plus the BEAM's System.tmp_dir debug dirs) and ${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}
+  # (the session/agent pidfiles' session_root). Deduped — a typical box scans one dir.
+  local roots=() d seen
+  for d in "${TMPDIR:-/tmp}" "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"; do
+    [ -d "$d" ] || continue
+    seen=0
+    local root
+    if [ "${#roots[@]}" -gt 0 ]; then
+      for root in "${roots[@]}"; do
+        [ "$root" = "$d" ] && { seen=1; break; }
+      done
+    fi
+    [ "$seen" -eq 1 ] || roots+=("$d")
+  done
+  [ "${#roots[@]}" -gt 0 ] || return 0
+
+  local removed=0 path base pid uid found
+  uid="$(id -u)"
+  for d in "${roots[@]}"; do
+    while IFS= read -r -d '' path; do
+      base="${path##*/}"
+      is_aiur_tmp_artifact_candidate "$base" || continue
+
+      # Spare mixed-ownership trees; cleanup should never cross user boundaries.
+      if ! found="$(find "$path" ! -user "$uid" -print -quit 2>/dev/null)"; then
+        continue
+      fi
+      if [ -n "$found" ]; then
+        continue
+      fi
+      # Spare anything modified within the window anywhere in its subtree.
+      if ! found="$(find "$path" -mmin "-$minutes" -print -quit 2>/dev/null)"; then
+        continue
+      fi
+      if [ -n "$found" ]; then
+        continue
+      fi
+      # Spare a live run's session/agent bookkeeping (name is aiur-<pid>-<kind>).
+      case "$base" in
+        aiur-*-sessions | aiur-*-agents)
+          pid="${base#aiur-}"
+          pid="${pid%-*}"
+          if [ -n "$pid" ] && [ -z "${pid//[0-9]/}" ] && kill -0 "$pid" 2>/dev/null; then
+            continue
+          fi
+          ;;
+      esac
+      if rm -rf -- "$path" 2>/dev/null; then
+        removed=$((removed + 1))
+      fi
+    done < <(find "$d" -maxdepth 1 -mindepth 1 -name 'aiur-*' -print0 2>/dev/null)
+  done
+
+  [ "$removed" -gt 0 ] && echo "🧹 swept $removed stale aiur tmp artifact(s)" >&2
+  return 0
+}
+
+# Stop the running session: kill this instance's tmux + BEAM, then sweep.
 cmd_stop() {
   resolve_release
   aiur_resolve_identity
@@ -884,22 +1096,8 @@ cmd_stop() {
     "$tmux_bin" -L "$socket" kill-session -t "$session" 2>/dev/null || true
   fi
 
-  local beam_pids pid waited=0
-  beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
-  if [ -n "$beam_pids" ]; then
-    for pid in $beam_pids; do kill -TERM "$pid" 2>/dev/null || true; done
-    while [ $waited -lt 30 ]; do
-      beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
-      [ -z "$beam_pids" ] && break
-      sleep 0.1
-      waited=$((waited + 1))
-    done
-    beam_pids="$(pgrep -f "$release_dir/.*erts.*beam.smp" 2>/dev/null || true)"
-    for pid in $beam_pids; do kill -KILL "$pid" 2>/dev/null || true; done
-  fi
-
   # Reap any BEAM holding our node name regardless of which release dir launched
-  # it — orphans from a dev build or a prior install share the unified name.
+  # it. Do not sweep by release dir: sibling instances share dev releases.
   kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
 
   # The BEAM (alive until the TERM above) reaped its own headless agents through
@@ -922,6 +1120,7 @@ cmd_stop() {
   done
 
   sweep_dead_tmux_sockets
+  sweep_stale_tmp_artifacts
 }
 
 # --- dispatch ----------------------------------------------------------------

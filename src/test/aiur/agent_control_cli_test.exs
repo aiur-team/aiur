@@ -414,6 +414,77 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "formats structured codex activity maps without crashing", %{orchestrator: pid} do
+      activity = %{
+        event: :notification,
+        message: %{
+          "method" => "account/rateLimits/updated",
+          "params" => %{
+            "rateLimits" => %{
+              "credits" => %{"hasCredits" => true, "unlimited" => false},
+              "limitId" => "codex",
+              "planType" => "business"
+            }
+          }
+        },
+        timestamp: DateTime.utc_now()
+      }
+
+      active =
+        "issue-44"
+        |> running_entry("repo#44", :working)
+        |> Map.merge(%{
+          codex_app_server_pid: nil,
+          last_codex_timestamp: DateTime.utc_now(),
+          last_codex_event: :notification,
+          last_codex_message: activity
+        })
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-44" => active}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "#44"
+      assert output =~ "rate limits updated"
+      refute output =~ ~r/#44\s+working\s+\S+\s+notification/
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "formats codex activity maps wrapped in payload fields", %{orchestrator: pid} do
+      activity = %{
+        event: :notification,
+        message: %{
+          payload: %{
+            "method" => "item/started",
+            "params" => %{"item" => %{"type" => "reasoning", "id" => "rs_1234567890abcdef"}}
+          }
+        },
+        timestamp: DateTime.utc_now()
+      }
+
+      active =
+        "issue-45"
+        |> running_entry("repo#45", :working)
+        |> Map.merge(%{
+          codex_app_server_pid: nil,
+          last_codex_timestamp: DateTime.utc_now(),
+          last_codex_event: :notification,
+          last_codex_message: activity
+        })
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-45" => active}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "#45"
+      assert output =~ "item started: reasoning"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
     test "reports a clear error when the orchestrator is unavailable", %{orchestrator: pid} do
       Process.unregister(Orchestrator)
 

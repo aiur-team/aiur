@@ -3,7 +3,10 @@ defmodule Aiur.Codex.CodingAgentTest do
 
   alias Aiur.Codex.CodingAgent
 
+  @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
+
   describe "stop_session/1 reaps the app-server process tree" do
+    @tag skip: @pgrep_skip_reason
     # The codex backend launches `bash -lc "codex ... app-server"`. bash forks
     # a `node` -> rust `codex` grandchild it does NOT exec into. Closing only
     # the port kills the bash wrapper and leaves that grandchild reparented to

@@ -1475,6 +1475,27 @@ defmodule Aiur.WorkspaceAndConfigTest do
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 0}})
   end
 
+  test "agent.synthetic_load_process_cap defaults to derived nil and validates non-negative" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.synthetic_load_process_cap == nil
+
+    assert Aiur.Config.default_synthetic_load_process_cap(12) == 3
+    assert Aiur.Config.default_synthetic_load_process_cap(2) == 1
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: 0}})
+
+    assert settings.agent.synthetic_load_process_cap == 0
+
+    assert {:ok, settings} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: 5}})
+
+    assert settings.agent.synthetic_load_process_cap == 5
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: -1}})
+  end
+
   test "prewarm defaults to disabled and validates poll_seconds" do
     # Pre-warm is opt-in: an absent block must yield disabled + no base_build +
     # no polling (byte-for-byte back-compat), an explicit block must round-trip,

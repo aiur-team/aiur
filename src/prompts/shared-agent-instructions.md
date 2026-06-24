@@ -112,6 +112,10 @@ Rules:
 
 Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for you, pointing at per-workspace directories. `mise trust` has already been run for the workspace's `mise.toml`. Run `mix` and `mise exec -- mix ...` directly — do not prefix commands with `HEX_HOME=/tmp/...` or `MISE_TRUSTED_CONFIG_PATHS=...`. Inventing your own paths bypasses the pre-warmed Hex cache and forces a re-fetch of every dependency.
 
+### Synthetic load repros
+
+Prefer deterministic flake reproduction over brute CPU load: seeded ordering, repeat-until-failure loops, and fault injection are better shared-run neighbors than load generators. If a repro truly needs synthetic load, cap generator workers to `max(1, cores / 4)`, stop them promptly, and never spawn a fixed high count such as `yes ... x16` on the shared host.
+
 ### Whose comments to act on
 
 When you read issue comments, PR review comments, workpad handoffs, or live

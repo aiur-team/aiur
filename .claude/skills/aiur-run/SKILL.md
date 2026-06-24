@@ -1,6 +1,6 @@
 ---
 name: aiur-run
-description: "Launch and babysit a background (--bg) aiur dogfood run end-to-end — pre-flight config + build + prewarm, launch detached, then monitor agents/CPU/FD/prewarm and drive pause/resume/stop. Use when asked to 'run aiur', 'launch aiurdev', 'start the dogfood loop', or kick agents off on the agent:todo backlog."
+description: "Launch and babysit a background (--bg) aiur dogfood run end-to-end — pre-flight config + build + prewarm, launch detached, then monitor agents/CPU/FD/prewarm and drive pause/resume/stop. Use when asked to 'run IAR', 'run aiur', 'iarc run', 'launch aiurdev', 'start the dogfood loop', or kick agents off on the agent:todo backlog."
 ---
 
 # Run aiur in --bg mode
@@ -8,6 +8,9 @@ description: "Launch and babysit a background (--bg) aiur dogfood run end-to-end
 Operator playbook for running a background aiur run myself: launch it detached, keep it
 healthy, and drive the controls. Pairs with the `aiur-status` skill — that one owns the
 per-agent status read; this one owns launch + lifecycle.
+
+`iarc` is an operator alias for `aiur` in this repo. Treat `/iarc run` as this
+same aiur background-run playbook.
 
 ## Mental model
 

@@ -49,12 +49,15 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env(workspace) when is_binary(workspace) do
     hex = Path.join(workspace, ".aiur-hex")
     mix = Path.join(workspace, ".aiur-mix")
-    mise = Path.join([workspace, "elixir", "mise.toml"])
 
     [
       {~c"HEX_HOME", String.to_charlist(hex)},
       {~c"MIX_HOME", String.to_charlist(mix)},
-      {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(mise)},
+      # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
+      # lives (most repos — including aiur — keep it at the root, not under
+      # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
+      # a file that does not exist and left the real config untrusted (#440).
+      {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
       # Marker so any nested invocation of `scripts/aiurdev` from inside
       # an agent's workspace can detect it is running under an agent
       # and refuse destructive commands (`--test`, `--test3`, `stop`).
@@ -76,9 +79,10 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env_export_prefix(workspace) when is_binary(workspace) do
     hex = Path.join(workspace, ".aiur-hex")
     mix = Path.join(workspace, ".aiur-mix")
-    mise = Path.join([workspace, "elixir", "mise.toml"])
 
-    "export HEX_HOME=#{shell_escape(hex)} MIX_HOME=#{shell_escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{shell_escape(mise)}"
+    # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
+    # the same root-level trust so mise-provided tools resolve in the workspace.
+    "export HEX_HOME=#{shell_escape(hex)} MIX_HOME=#{shell_escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{shell_escape(workspace)}"
   end
 
   def workspace_env_export_prefix(_), do: ""

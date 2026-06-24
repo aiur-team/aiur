@@ -706,7 +706,7 @@ defmodule Aiur.PaneManager do
   end
 
   defp drain_open_entry(state, {identifier, from, timer_ref}, rest) do
-    case SlotSupervisor.acquire_slot() do
+    case SlotSupervisor.acquire_slot_or_grow() do
       {slot_index, slot_pid} when is_integer(slot_index) ->
         _ = Process.cancel_timer(timer_ref)
         new_timers = Map.delete(state.open_queue_timers, identifier)
@@ -1074,7 +1074,7 @@ defmodule Aiur.PaneManager do
         # blipped.
         acquire_span = Aiur.Perf.span_begin(:acquire_slot, identifier: identifier)
 
-        case SlotSupervisor.acquire_slot() do
+        case SlotSupervisor.acquire_slot_or_grow() do
           {slot_index, slot_pid} when is_integer(slot_index) ->
             Aiur.Perf.span_end(acquire_span,
               result: :ok,
@@ -1223,13 +1223,15 @@ defmodule Aiur.PaneManager do
   defp drive_real_attach(pm, identifier, placeholder_pane_id) do
     span = Aiur.Perf.span_begin(:async_drive_attach, identifier: identifier)
 
-    case SlotSupervisor.acquire_slot() do
+    case SlotSupervisor.acquire_slot_or_grow() do
       {slot_index, slot_pid} when is_integer(slot_index) ->
         perform_select_for_placeholder(pm, span, identifier, placeholder_pane_id, slot_index, slot_pid)
 
       {:error, :no_ready_slot} ->
-        # Wait briefly for a slot to become ready (slot pre-warm may
-        # still be in flight). Poll up to 60 s.
+        # No ready slot yet — either the warm pool is still booting or
+        # `acquire_slot_or_grow` just started a fresh cold slot beyond
+        # the warm pool. Either way, poll until one becomes ready
+        # (~10 s for a cold start). Poll up to 60 s.
         wait_then_select_for_placeholder(pm, span, identifier, placeholder_pane_id)
     end
   end
@@ -1274,7 +1276,7 @@ defmodule Aiur.PaneManager do
   end
 
   defp do_wait_for_slot(deadline) do
-    case SlotSupervisor.acquire_slot() do
+    case SlotSupervisor.acquire_slot_or_grow() do
       {idx, pid} when is_integer(idx) ->
         {:ok, {idx, pid}}
 

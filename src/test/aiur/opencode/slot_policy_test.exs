@@ -76,4 +76,41 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       assert SlotPolicy.target_count(dead) == 0
     end
   end
+
+  describe "max_slots/0 decoupling from target_count" do
+    test "warm-pool target and the hard cap are independent" do
+      {:ok, pid} = SlotPolicy.start_link(target_count: 0, max_slots: 5)
+      Process.sleep(20)
+      # pre_warmed_sessions = 0 boots no warm panes...
+      assert SlotPolicy.target_count(pid) == 0
+      # ...but the pool may still grow on demand up to the hard cap.
+      assert SlotPolicy.max_slots(pid) == 5
+      GenServer.stop(pid)
+    end
+
+    test "returns a safe default on a dead pid" do
+      dead = spawn(fn -> :ok end)
+      Process.sleep(10)
+      assert SlotPolicy.max_slots(dead) == 0
+    end
+  end
+
+  describe "grow_slot/1 ceiling" do
+    test "refuses to grow past max_slots" do
+      # target_count == max_slots == 0: the pool is already at its cap,
+      # so no on-demand slot may start.
+      {:ok, pid} = SlotPolicy.start_link(target_count: 0, max_slots: 0)
+      Process.sleep(20)
+      assert SlotPolicy.grow_slot(pid) == {:error, :at_capacity}
+      assert SlotPolicy.highest_started(pid) == 0
+      GenServer.stop(pid)
+    end
+
+    test "tolerates a dead server pid" do
+      dead = spawn(fn -> :ok end)
+      Process.sleep(10)
+      refute Process.alive?(dead)
+      assert SlotPolicy.grow_slot(dead) == {:error, :unavailable}
+    end
+  end
 end

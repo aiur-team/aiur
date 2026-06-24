@@ -288,6 +288,9 @@ defmodule Aiur.Config.Schema do
       # Per-scheduler 1-min load ceiling for the dispatch load gate (#465). nil
       # disables it (default); new dispatch holds while load > value * cores.
       field(:max_load_average, :float)
+      # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
+      # load-generator guard; positive integers cap known generators per agent.
+      field(:synthetic_load_process_cap, :integer)
 
       embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
       embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -311,7 +314,8 @@ defmodule Aiur.Config.Schema do
           :turn_timeout_ms,
           :stall_timeout_ms,
           :max_agent_duration_minutes,
-          :max_load_average
+          :max_load_average,
+          :synthetic_load_process_cap
         ],
         empty_values: []
       )
@@ -323,6 +327,7 @@ defmodule Aiur.Config.Schema do
       |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
       |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
       |> validate_number(:max_load_average, greater_than: 0)
+      |> validate_number(:synthetic_load_process_cap, greater_than_or_equal_to: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
       |> update_change(:routing, &Schema.normalize_agent_routing/1)

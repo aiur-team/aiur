@@ -56,7 +56,7 @@ to the issues you want worked and run `aiur`.
 |---|---|
 | `aiur init` | Interactive setup wizard (scaffold `.aiurconfig`) |
 | `aiur` | Start the workflow in the foreground (local-only bind) |
-| `aiur --bg` | Start in a detached tmux session |
+| `aiur --bg` | Start a headless BEAM in one detached tmux lifetime session |
 | `aiur status` | Show active agents and their state |
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
 | `aiur stop` | Stop the running session |
@@ -69,6 +69,12 @@ to the issues you want worked and run `aiur`.
 - **Take the Wheel** — Drive at any moment via pre-warmed [Opencode](https://opencode.ai) sessions in configurable tmux panes.
 - **Smart Alerts** — Customize notifications and sounds when agents finish, stall, or need a decision.
 - **Live Dashboard** — Shareable web view of every agent, event, and progress bar.
+
+Background mode is headless inside Aiur: it skips the interactive agent-list
+pane, chat/prewarm panes, and dashboard unless you explicitly opt into a
+dashboard port. The launcher still keeps one detached tmux session as the BEAM
+lifetime holder. Re-running `aiur --bg` against a live session exits with an
+already-running hint; stale tmux state is cleaned up before restart.
 
 ---
 
