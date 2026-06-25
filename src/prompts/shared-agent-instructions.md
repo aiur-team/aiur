@@ -24,10 +24,15 @@ work ordering, so they're worth stating up front:
 - **Blocking another agent is your highest priority.** If another ticket is
   paused on a decision or stub from you (you've been declared a blocker via
   `aiur_declare_blocker`), drop unrelated work and resolve that first.
-- **Code around the blocker; don't stall your whole ticket on it.** Stub against
-  the agreed signature and keep working. The skill's `stub-then-fetch.md` has the
-  exact `unblocked` emit sequence (provisional vs. integrated) — follow it rather
-  than guessing the event timing from memory.
+- **Declare blockers, then keep independent work moving.** Treat
+  `aiur_declare_blocker(N)` as a subscription + dependency marker, not a stop
+  signal. Do not duplicate blocker-owned code, but keep doing safe ticket-local
+  preparation: tests, provider or caller scaffolding, config wiring, imports,
+  TODO integration points, and any other work that can be reconciled once the
+  blocker branch pushes. Only park the specific integration point that truly
+  needs blocker code. The skill's `stub-then-fetch.md` has the exact provisional
+  and integrated `unblocked` emit sequence — follow it rather than guessing the
+  event timing from memory.
 
 The bare `progress` / `progress.checkin` emits that drive the operator's
 agent-list bar are a separate, operator-facing protocol — see "Progress emits"

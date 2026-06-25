@@ -2,15 +2,21 @@
 
 The pattern for getting work done while waiting on another ticket.
 
+Declaring a blocker is not a reason to park the whole ticket. It records the
+dependency, subscribes you to blocker events, and marks only the integration
+point as blocked. Keep independent work moving unless the blocker makes the
+entire ticket impossible.
+
 ## When you're blocked on a function from ticket N
 
 1. **Declare the blocker.** `aiur_declare_blocker(N)` — this records the dependency on GitHub natively and auto-subscribes you to the useful subset of ticket N's events.
-2. **Write a stub.** Based on the agreed signature (in the brainstorm, plan, or the parent issue's description), write a minimal stub that returns plausible-but-wrong values. Don't ship the stub — keep it local.
-3. **Emit `unblocked`.** With `payload: {temporary_stub: true}` so subscribers know your "unblocked" is provisional:
+2. **Separate owned code from prep.** Do not reimplement ticket N's helper, API, schema, or shared module. Do keep writing caller-side scaffolding, config, tests, imports, TODO integration points, and any other code that can safely wait for the real branch.
+3. **Write a stub only when useful.** Based on the agreed signature (in the brainstorm, plan, or the parent issue's description), write a minimal stub that returns plausible-but-wrong values. Don't ship the stub — keep it local.
+4. **Emit `unblocked`.** With `payload: {temporary_stub: true}` so subscribers know your "unblocked" is provisional:
    ```jsonc
    { "name": "unblocked", "message": "Stubbing function_a; waiting on real impl from #N", "payload": { "temporary_stub": true, "stubbed_function": "function_a" } }
    ```
-4. **Keep working.** Use the stub as if it were real. Your other code (the part that depends on the stub) is now testable.
+5. **Keep working.** Use the stub as if it were real. Your other code (the part that depends on the stub) is now testable. If you cannot stub, keep doing the independent prep from step 2 and park only the blocked integration point.
 
 ## When the real implementation arrives
 
@@ -30,7 +36,7 @@ Some blockers can't be reasonably stubbed — schema migrations that need to lan
 
 1. Declare the blocker (`aiur_declare_blocker(N)`).
 2. Emit `blocked` with `payload: {stubbable: false, reason: "..."}`.
-3. Stop working on the dependent code. Pick up unrelated work (other unblocked tasks on your ticket).
+3. Stop working on the dependent code only. Pick up unrelated or preparatory work on the same ticket.
 4. When `ticket.N.agent.unblocked` arrives, return to the blocked work.
 
 ## What NOT to do
