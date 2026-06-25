@@ -10,7 +10,7 @@ defmodule Aiur.Codex.CodingAgent do
   require Logger
   alias Aiur.{AgentEnvironment, Config, PathSafety, SSH}
   alias Aiur.Claude.RemoteControl
-  alias Aiur.Codex.{DynamicTool, SkillBridge}
+  alias Aiur.Codex.DynamicTool
 
   @initialize_id 1
   @thread_start_id 2
@@ -55,7 +55,6 @@ defmodule Aiur.Codex.CodingAgent do
     resume_thread_id = Keyword.get(opts, :resume_thread_id)
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         :ok <- prepare_workspace_for_codex(expanded_workspace, worker_host),
          {:ok, port} <- start_port(expanded_workspace, worker_host, model, effort) do
       metadata = port_metadata(port, worker_host)
 
@@ -88,12 +87,6 @@ defmodule Aiur.Codex.CodingAgent do
       end
     end
   end
-
-  defp prepare_workspace_for_codex(workspace, nil) do
-    SkillBridge.materialize_shared_skills(workspace)
-  end
-
-  defp prepare_workspace_for_codex(_workspace, worker_host) when is_binary(worker_host), do: :ok
 
   @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_turn(

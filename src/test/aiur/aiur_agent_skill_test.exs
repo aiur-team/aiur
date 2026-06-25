@@ -13,7 +13,6 @@ defmodule Aiur.AiurAgentSkillTest do
   # test/aiur/ -> test/ -> src/ -> repo root
   @repo_root Path.expand("../../..", __DIR__)
   @claude_skill Path.join(@repo_root, ".claude/skills/aiur-agent")
-  @codex_skill Path.join(@repo_root, ".codex/skills/aiur-agent")
 
   # The reference docs SKILL.md routes the agent to. The pre-prompt now points at
   # the skill instead of inlining the vocabulary, so these must actually exist.
@@ -24,22 +23,43 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-monitor aiur-run using-aiur)
+  @claude_operator_only_skills ~w(aiur-loop release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
     assert File.dir?(@claude_skill)
     assert File.exists?(Path.join(@claude_skill, "SKILL.md"))
   end
 
-  test "Codex backend surface: skill resolves to the same canonical files" do
-    # A symlink (not a copy) keeps the single source of truth.
-    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(@codex_skill)
+  test "Codex backend surface: prompt-referenced skills resolve through symlinks" do
+    for skill <- ~w(aiur-agent using-aiur) do
+      assert_codex_skill_symlink_resolves_to_claude(skill)
+    end
+  end
 
-    # The SKILL.md is readable through the Codex path and identical to the
-    # canonical one — the agent gets the same skill on either backend.
-    codex_skill_md = Path.join(@codex_skill, "SKILL.md")
-    claude_skill_md = Path.join(@claude_skill, "SKILL.md")
-    assert File.exists?(codex_skill_md)
-    assert File.read!(codex_skill_md) == File.read!(claude_skill_md)
+  test "Codex backend surface: every Codex-exposed Aiur skill uses canonical Claude source" do
+    for skill <- @codex_exposed_aiur_skills do
+      assert_codex_skill_symlink_resolves_to_claude(skill)
+    end
+  end
+
+  test "Aiur Claude skills have explicit Codex exposure decisions" do
+    claude_skills =
+      @repo_root
+      |> Path.join(".claude/skills/*/SKILL.md")
+      |> Path.wildcard()
+      |> Enum.map(fn path -> path |> Path.dirname() |> Path.basename() end)
+      |> Enum.sort()
+
+    assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_operator_only_skills)
+
+    # These are operator workflows, not shared operating skills injected into
+    # Codex agents. Keeping them out of `.codex/skills` avoids advertising
+    # release/loop authority inside issue workers.
+    for skill <- @claude_operator_only_skills do
+      assert File.exists?(Path.join([@repo_root, ".claude", "skills", skill, "SKILL.md"]))
+      refute File.exists?(Path.join([@repo_root, ".codex", "skills", skill]))
+    end
   end
 
   test "the cross-ticket event vocabulary relocated into the skill" do
@@ -100,20 +120,6 @@ defmodule Aiur.AiurAgentSkillTest do
     assert taxonomy =~ "keep unrelated prep moving"
   end
 
-  test "Codex discovers aiur run and status skills through canonical Claude skills" do
-    for skill <- ~w(aiur-run aiur-monitor) do
-      claude_skill = Path.join(@repo_root, ".claude/skills/#{skill}")
-      codex_skill = Path.join(@repo_root, ".codex/skills/#{skill}")
-
-      assert File.dir?(claude_skill)
-      assert File.exists?(Path.join(claude_skill, "SKILL.md"))
-      assert {:ok, %File.Stat{type: :symlink}} = File.lstat(codex_skill)
-
-      assert File.read!(Path.join(codex_skill, "SKILL.md")) ==
-               File.read!(Path.join(claude_skill, "SKILL.md"))
-    end
-  end
-
   test "aiur run and status skill descriptions cover iarc and aiur triggers" do
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     status_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
@@ -129,6 +135,21 @@ defmodule Aiur.AiurAgentSkillTest do
       assert String.contains?(skill, "iarc")
       assert String.contains?(skill, "alias for `aiur`")
     end
+  end
+
+  defp assert_codex_skill_symlink_resolves_to_claude(skill) do
+    claude_skill = Path.join([@repo_root, ".claude", "skills", skill])
+    codex_skill = Path.join([@repo_root, ".codex", "skills", skill])
+
+    assert File.dir?(claude_skill)
+    assert File.exists?(Path.join(claude_skill, "SKILL.md"))
+    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(codex_skill)
+    assert {:ok, "../../.claude/skills/" <> ^skill} = File.read_link(codex_skill)
+
+    assert File.exists?(Path.join(codex_skill, "SKILL.md"))
+
+    assert File.read!(Path.join(codex_skill, "SKILL.md")) ==
+             File.read!(Path.join(claude_skill, "SKILL.md"))
   end
 
   defp one_line(text), do: String.replace(text, ~r/\s+/, " ")
