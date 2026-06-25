@@ -124,6 +124,111 @@ defmodule Aiur.CodingAgentCheckpointTest do
     end
   end
 
+  test "Codex adapter treats idle thread status as turn completion" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-codex-idle-status-#{System.unique_integer([:positive])}")
+
+    try do
+      workspace = Path.join(Config.workspace_root(), "MT-CODEX-IDLE")
+      trace_file = Path.join(test_root, "codex.trace")
+      binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+      File.mkdir_p!(test_root)
+      File.write!(binary, codex_idle_status_script())
+      File.chmod!(binary, 0o755)
+
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn ->
+        System.delete_env("SYMP_TEST_CODEX_TRACE")
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_kind: "codex",
+        command: "#{binary} app-server",
+        agent_turn_timeout_ms: 80
+      )
+
+      issue = %Issue{
+        id: "issue-codex-idle",
+        identifier: "MT-CODEX-IDLE",
+        title: "Idle status completion",
+        description: "complete when Codex reports the thread idle",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-CODEX-IDLE",
+        labels: []
+      }
+
+      assert {:ok, session} = CodexAgent.start_session(workspace)
+
+      try do
+        assert {:ok, _turn_session} = CodexAgent.run_turn(session, "initial prompt", issue)
+        assert_stable_turn_texts(trace_file, ["initial prompt"])
+      after
+        CodexAgent.stop_session(session)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "Codex adapter ignores idle thread status before a turn starts" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-codex-prestart-idle-#{System.unique_integer([:positive])}")
+
+    try do
+      workspace = Path.join(Config.workspace_root(), "MT-CODEX-PRESTART-IDLE")
+      trace_file = Path.join(test_root, "codex.trace")
+      binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+      File.mkdir_p!(test_root)
+      File.write!(binary, codex_prestart_idle_status_script())
+      File.chmod!(binary, 0o755)
+
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn ->
+        System.delete_env("SYMP_TEST_CODEX_TRACE")
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_kind: "codex",
+        command: "#{binary} app-server",
+        agent_turn_timeout_ms: 1_000
+      )
+
+      issue = %Issue{
+        id: "issue-codex-prestart-idle",
+        identifier: "MT-CODEX-PRESTART-IDLE",
+        title: "Pre-start idle status",
+        description: "ignore idle before the turn has started",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-CODEX-PRESTART-IDLE",
+        labels: []
+      }
+
+      test_pid = self()
+
+      on_message = fn message ->
+        if message.event == :notification do
+          send(test_pid, {:notification_method, get_in(message, [:payload, "method"])})
+        end
+      end
+
+      assert {:ok, session} = CodexAgent.start_session(workspace)
+
+      try do
+        assert {:ok, _turn_session} = CodexAgent.run_turn(session, "initial prompt", issue, on_message: on_message)
+        assert_received {:notification_method, "turn/started"}
+        assert_stable_turn_texts(trace_file, ["initial prompt"])
+      after
+        CodexAgent.stop_session(session)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "Claude adapter starts a queued follow-up turn from a safe checkpoint" do
     test_root = Path.join(System.tmp_dir!(), "aiur-claude-checkpoint-#{System.unique_integer([:positive])}")
 
@@ -360,6 +465,66 @@ defmodule Aiur.CodingAgentCheckpointTest do
             printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
             printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
           fi
+          ;;
+      esac
+    done
+    """
+  end
+
+  defp codex_idle_status_script do
+    """
+    #!/bin/sh
+    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-idle-status.trace}"
+
+    while IFS= read -r line; do
+      printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '%s\\n' '{"id":1,"result":{}}'
+          ;;
+        *'"method":"initialized"'*)
+          ;;
+        *'"method":"thread/start"'*)
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-idle-status"}}}'
+          ;;
+        *'"method":"turn/start"'*)
+          request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+          printf '{"id":%s,"result":{"turn":{"id":"turn-idle-status"}}}\\n' "$request_id"
+          printf '%s\\n' '{"method":"turn/started","params":{"turn":{"id":"turn-idle-status"}}}'
+          printf '%s\\n' '{"method":"item/completed","params":{"item":{"status":"completed"}}}'
+          printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+          ;;
+      esac
+    done
+    """
+  end
+
+  defp codex_prestart_idle_status_script do
+    """
+    #!/bin/sh
+    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-prestart-idle-status.trace}"
+
+    while IFS= read -r line; do
+      printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '%s\\n' '{"id":1,"result":{}}'
+          ;;
+        *'"method":"initialized"'*)
+          ;;
+        *'"method":"thread/start"'*)
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-prestart-idle-status"}}}'
+          ;;
+        *'"method":"turn/start"'*)
+          request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+          printf '{"id":%s,"result":{"turn":{"id":"turn-prestart-idle-status"}}}\\n' "$request_id"
+          printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+          sleep 0.1
+          printf '%s\\n' '{"method":"turn/started","params":{"turn":{"id":"turn-prestart-idle-status"}}}'
+          printf '%s\\n' '{"method":"item/completed","params":{"item":{"status":"completed"}}}'
+          printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
           ;;
       esac
     done

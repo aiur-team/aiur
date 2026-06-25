@@ -515,6 +515,7 @@ defmodule Aiur.Codex.CodingAgent do
       tool_executor: tool_executor,
       auto_approve_requests: auto_approve_requests,
       outstanding_turns: 1,
+      turn_started?: false,
       pending_operator_requests: %{},
       current_turn_id: turn_id,
       issue_identifier: issue_identifier,
@@ -778,6 +779,17 @@ defmodule Aiur.Codex.CodingAgent do
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
         {:error, {:turn_unretryable, codex_error_reason(payload, method)}}
 
+      turn_started_method?(method) ->
+        next_state =
+          session
+          |> maybe_process_safe_checkpoint(%{state | turn_started?: true}, checkpoint_for_method(method))
+
+        {:continue, next_state}
+
+      state.turn_started? and thread_idle_status?(method, payload) ->
+        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
+        continue_after_turn_completion(state)
+
       codex_error_method?(method) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
         {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
@@ -868,6 +880,13 @@ defmodule Aiur.Codex.CodingAgent do
         {:continue, next_state}
     end
   end
+
+  defp thread_idle_status?("thread/status/changed", %{"params" => %{"status" => %{"type" => "idle"}}}), do: true
+  defp thread_idle_status?("thread/status/changed", %{"status" => %{"type" => "idle"}}), do: true
+  defp thread_idle_status?(_method, _payload), do: false
+
+  defp turn_started_method?("turn/started"), do: true
+  defp turn_started_method?(_method), do: false
 
   defp continue_after_turn_interrupted(state, payload) do
     next_state = %{
