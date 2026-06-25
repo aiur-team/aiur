@@ -295,10 +295,10 @@ defmodule Aiur.Workspace do
       not stale_leftover_refresh_refusal?(reason) ->
         error
 
-      not todo_dispatch?(issue_context) ->
-        error
-
-      true ->
+      # A fresh todo dispatch that lands on a dirty *leftover* workspace
+      # (#577): the dirty content is not this agent's WIP, so recreate the
+      # workspace clean off origin/main and re-run before_run.
+      todo_dispatch?(issue_context) ->
         Logger.warning(
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}"
         )
@@ -307,6 +307,23 @@ defmodule Aiur.Workspace do
              :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
           finalize_before_run_workspace(workspace, issue_context, worker_host)
         end
+
+      # An in-flight / resumed agent (NOT a todo dispatch) whose "dirty"
+      # workspace is its legitimate uncommitted WIP (#653). A base-branch
+      # push (PR merge) or a resume-after-idle fires before_run, which
+      # refuses to refresh from origin/main while tracked changes are
+      # present (#569's guard). For a live agent that refusal must NOT be
+      # fatal: skip the origin/main refresh and let the agent keep working
+      # on its branch (it rebases/merges at PR time anyway). Returning :ok
+      # here is what prevents the `Agent run failed -> 3 retries ->
+      # retry_exhausted` chain that used to kill every other in-flight
+      # agent on each PR merge.
+      true ->
+        Logger.info(
+          "Skipping before_run origin/main refresh: agent has uncommitted WIP, continuing on its branch #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}"
+        )
+
+        finalize_before_run_workspace(workspace, issue_context, worker_host)
     end
   end
 
