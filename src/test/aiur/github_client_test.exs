@@ -214,6 +214,7 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert_received {:preflight_url, "https://api.github.com/rate_limit"}
       assert_received {:preflight_url, "https://api.github.com/repos/owner/repo"}
+
       assert_received {:preflight_url, "https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"}
     end
 
@@ -251,7 +252,10 @@ defmodule Aiur.GitHub.ClientTest do
         {:ok,
          %{
            status: 200,
-           headers: [{"x-ratelimit-remaining", "0"}, {"x-ratelimit-reset", Integer.to_string(reset)}],
+           headers: [
+             {"x-ratelimit-remaining", "0"},
+             {"x-ratelimit-reset", Integer.to_string(reset)}
+           ],
            body: %{"resources" => %{"core" => %{"remaining" => 0}}}
          }}
       end
@@ -275,7 +279,12 @@ defmodule Aiur.GitHub.ClientTest do
             {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "42"}], body: %{}}}
 
           url =~ "/repos/owner/repo/issues" ->
-            {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "42"}], body: %{"message" => "Resource not accessible by personal access token"}}}
+            {:ok,
+             %{
+               status: 403,
+               headers: [{"x-ratelimit-remaining", "42"}],
+               body: %{"message" => "Resource not accessible by personal access token"}
+             }}
 
           url =~ "/repos/owner/repo" ->
             {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "42"}], body: %{}}}
@@ -462,7 +471,8 @@ defmodule Aiur.GitHub.ClientTest do
     test "returns nil when the branch has no open PR" do
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: []}} end
 
-      assert {:ok, nil} = Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
+      assert {:ok, nil} =
+               Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
     end
   end
 
@@ -502,7 +512,12 @@ defmodule Aiur.GitHub.ClientTest do
     end
 
     test "falls back to authoritative comments when CODEOWNERS is missing" do
-      repo_root = Path.join(System.tmp_dir!(), "aiur-github-client-test-#{System.unique_integer([:positive])}")
+      repo_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-github-client-test-#{System.unique_integer([:positive])}"
+        )
+
       File.mkdir_p!(repo_root)
 
       request_fun = fn %{method: :get, url: url} ->
@@ -550,6 +565,7 @@ defmodule Aiur.GitHub.ClientTest do
                        "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
                        "nodes" => [
                          %{
+                           "id" => "PRRT_first",
                            "isResolved" => false,
                            "path" => "src/owned.ts",
                            "line" => 10,
@@ -560,6 +576,7 @@ defmodule Aiur.GitHub.ClientTest do
                            }
                          },
                          %{
+                           "id" => "PRRT_resolved",
                            "isResolved" => true,
                            "path" => "src/owned.ts",
                            "line" => 11,
@@ -570,6 +587,7 @@ defmodule Aiur.GitHub.ClientTest do
                            }
                          },
                          %{
+                           "id" => "PRRT_answered",
                            "isResolved" => false,
                            "path" => "src/owned.ts",
                            "line" => 12,
@@ -581,6 +599,7 @@ defmodule Aiur.GitHub.ClientTest do
                            }
                          },
                          %{
+                           "id" => "PRRT_untrusted",
                            "isResolved" => false,
                            "path" => "src/owned.ts",
                            "line" => 13,
@@ -591,6 +610,7 @@ defmodule Aiur.GitHub.ClientTest do
                            }
                          },
                          %{
+                           "id" => "PRRT_followup",
                            "isResolved" => false,
                            "path" => "src/owned.ts",
                            "line" => 14,
@@ -602,12 +622,17 @@ defmodule Aiur.GitHub.ClientTest do
                            }
                          },
                          %{
+                           "id" => "PRRT_no_code_changes",
                            "isResolved" => false,
                            "path" => "src/owned.ts",
                            "line" => 15,
                            "comments" => %{
                              "nodes" => [
-                               review_thread_comment(108, "owner", "wake test, no code changes needed")
+                               review_thread_comment(
+                                 108,
+                                 "owner",
+                                 "wake test, no code changes needed"
+                               )
                              ]
                            }
                          }
@@ -628,10 +653,212 @@ defmodule Aiur.GitHub.ClientTest do
                )
 
       assert Enum.map(comments, & &1["id"]) == [101, 107]
+      assert Enum.map(comments, & &1["review_thread_id"]) == ["PRRT_first", "PRRT_followup"]
       assert Enum.map(comments, & &1["body"]) == ["please fix this", "reviewer follow-up"]
       assert Enum.all?(comments, & &1.authoritative)
 
       File.rm_rf!(repo_root)
+    end
+  end
+
+  describe "reply_to_review_thread/3" do
+    test "posts a review thread reply and verifies it is the latest bot-authored comment" do
+      request_fun = fn
+        %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+          cond do
+            body["query"] =~ "addPullRequestReviewThreadReply" ->
+              assert body["variables"] == %{
+                       "threadId" => "PRRT_verified",
+                       "body" => "Verified this is already fixed."
+                     }
+
+              {:ok,
+               %{
+                 status: 200,
+                 body: %{
+                   "data" => %{
+                     "addPullRequestReviewThreadReply" => %{
+                       "comment" => review_thread_comment(202, "aiur-bot", "Verified this is already fixed.")
+                     }
+                   }
+                 }
+               }}
+
+            body["query"] =~ "query AiurReviewThread" ->
+              assert body["variables"] == %{"id" => "PRRT_verified"}
+
+              review_thread_node_response("PRRT_verified", [
+                review_thread_comment(201, "owner", "please verify"),
+                review_thread_comment(202, "aiur-bot", "Verified this is already fixed.")
+              ])
+          end
+      end
+
+      assert {:ok, result} =
+               Client.reply_to_review_thread("PRRT_verified", "Verified this is already fixed.",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+
+      assert result.verified
+      assert result.review_thread_id == "PRRT_verified"
+      assert get_in(result.verification, ["latest_comment", "user", "login"]) == "aiur-bot"
+    end
+
+    test "preserves GraphQL errors from the reply mutation" do
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        assert body["query"] =~ "addPullRequestReviewThreadReply"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{"errors" => [%{"message" => "Could not resolve to a node"}]}
+         }}
+      end
+
+      assert {:error, {:github_graphql_errors, [%{"message" => "Could not resolve to a node"}]}} =
+               Client.reply_to_review_thread("PRRT_missing", "reply",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 retry_delay_ms: 0
+               )
+    end
+
+    test "retries verification without posting duplicate replies" do
+      {:ok, counts} = Agent.start_link(fn -> %{mutation: 0, query: 0} end)
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(counts, &Map.update!(&1, :mutation, fn count -> count + 1 end))
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "addPullRequestReviewThreadReply" => %{
+                     "comment" => review_thread_comment(302, "aiur-bot", "Fixed on this branch.")
+                   }
+                 }
+               }
+             }}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            query_count =
+              Agent.get_and_update(counts, fn state ->
+                next = state.query + 1
+                {next, %{state | query: next}}
+              end)
+
+            comments =
+              if query_count == 1 do
+                [review_thread_comment(301, "owner", "still latest")]
+              else
+                [
+                  review_thread_comment(301, "owner", "still latest"),
+                  review_thread_comment(302, "aiur-bot", "Fixed on this branch.")
+                ]
+              end
+
+            review_thread_node_response("PRRT_retry", comments)
+        end
+      end
+
+      assert {:ok, %{attempt: 2}} =
+               Client.reply_to_review_thread("PRRT_retry", "Fixed on this branch.",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 attempts: 2,
+                 retry_delay_ms: 0
+               )
+
+      assert Agent.get(counts, & &1) == %{mutation: 1, query: 2}
+    end
+
+    test "falls back to the authenticated viewer login when bot_account is unset" do
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "addPullRequestReviewThreadReply" => %{
+                     "comment" => review_thread_comment(402, "its-everdred", "Verified by body.")
+                   }
+                 }
+               }
+             }}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_viewer", [
+              review_thread_comment(401, "its-everdred", "please verify"),
+              review_thread_comment(402, "its-everdred", "Verified by body.")
+            ])
+
+          body["query"] =~ "query AiurViewerLogin" ->
+            {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
+        end
+      end
+
+      assert {:ok, result} =
+               Client.reply_to_review_thread("PRRT_viewer", "Verified by body.",
+                 request_fun: request_fun,
+                 retry_delay_ms: 0
+               )
+
+      assert result.verified
+      assert get_in(result.verification, ["latest_comment", "user", "login"]) == "its-everdred"
+      assert get_in(result.verification, ["latest_comment", "body"]) == "Verified by body."
+    end
+
+    test "fails verification when the reviewer remains latest across all retries" do
+      {:ok, counts} = Agent.start_link(fn -> %{mutation: 0, query: 0} end)
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "addPullRequestReviewThreadReply" ->
+            Agent.update(counts, &Map.update!(&1, :mutation, fn count -> count + 1 end))
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "addPullRequestReviewThreadReply" => %{
+                     "comment" => review_thread_comment(502, "aiur-bot", "Fixed on this branch.")
+                   }
+                 }
+               }
+             }}
+
+          body["query"] =~ "query AiurReviewThread" ->
+            Agent.update(counts, &Map.update!(&1, :query, fn count -> count + 1 end))
+
+            review_thread_node_response("PRRT_stale", [
+              review_thread_comment(501, "owner", "still latest")
+            ])
+        end
+      end
+
+      assert {:error,
+              {:review_thread_reply_not_verified,
+               %{
+                 attempts: 3,
+                 review_thread_id: "PRRT_stale",
+                 reason: {:review_thread_latest_comment_author_mismatch, %{actual: "owner", expected: "aiur-bot"}}
+               }}} =
+               Client.reply_to_review_thread("PRRT_stale", "Fixed on this branch.",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 attempts: 3,
+                 retry_delay_ms: 0
+               )
+
+      assert Agent.get(counts, & &1) == %{mutation: 1, query: 3}
     end
   end
 
@@ -706,6 +933,163 @@ defmodule Aiur.GitHub.ClientTest do
       end
 
       assert :ok = Client.update_issue_state("42", "Done", request_fun: request_fun)
+    end
+
+    test "human-review readiness excludes replies by the authenticated viewer when bot_account is unset" do
+      repo_root = codeowners_repo!("* @its-everdred\n")
+      test_pid = self()
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+          req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
+            {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
+
+          req.method == :post and req.body["query"] =~ "AiurUnaddressedReviewThreads" ->
+            review_threads_page_response([
+              %{
+                "id" => "PRRT_self_reply",
+                "isResolved" => false,
+                "path" => "src/lib/aiur/github/client.ex",
+                "line" => 12,
+                "comments" => %{
+                  "nodes" => [
+                    review_thread_comment(601, "its-everdred", "Verified on this branch.")
+                  ]
+                }
+              }
+            ])
+        end
+      end
+
+      assert :ok =
+               Client.verify_human_review_ready("42",
+                 request_fun: request_fun,
+                 repo_root: repo_root,
+                 bot_account: nil
+               )
+
+      assert_receive {:github_request, %{method: :get, url: pulls_url}}
+      assert pulls_url =~ "/pulls?"
+      assert_receive {:github_request, %{method: :post, body: %{"query" => viewer_query}}}
+      assert viewer_query =~ "AiurViewerLogin"
+      assert_receive {:github_request, %{method: :post, body: %{"query" => threads_query}}}
+      assert threads_query =~ "AiurUnaddressedReviewThreads"
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "refuses human-review while authoritative review threads remain unverified" do
+      test_pid = self()
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+
+        cond do
+          req.method == :get and req.url =~ "/issues/42" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:in-progress"}]
+               }
+             }}
+
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+          req.method == :post and req.url == "https://api.github.com/graphql" ->
+            review_threads_page_response([
+              %{
+                "id" => "PRRT_blocking",
+                "isResolved" => false,
+                "path" => "src/lib/aiur/github/client.ex",
+                "line" => 12,
+                "comments" => %{
+                  "nodes" => [
+                    review_thread_comment(401, "its-everdred", "please verify this exact thread")
+                  ]
+                }
+              }
+            ])
+        end
+      end
+
+      assert {:error, {:unverified_review_threads, %{count: 1, pr_number: 77, review_thread_ids: ["PRRT_blocking"]}}} =
+               Client.update_issue_state("42", "human-review",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot"
+               )
+
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :get, url: pulls_url}}
+      assert pulls_url =~ "head=owner%3Aaiur%2F42" or pulls_url =~ "head=owner:aiur/42"
+      assert_receive {:github_request, %{method: :post, url: "https://api.github.com/graphql"}}
+      refute_receive {:github_request, %{method: :delete}}, 100
+
+      refute_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:human-review"]}}},
+                     100
+    end
+
+    test "allows human-review when the open PR has no unaddressed review threads" do
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:in-progress"}]
+               }
+             }}
+
+          {:get, 1} ->
+            assert req.url =~ "/pulls?"
+            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+          {:post, 2} ->
+            assert req.url == "https://api.github.com/graphql"
+            review_threads_page_response([])
+
+          {:delete, 3} ->
+            assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
+            {:ok, %{status: 200}}
+
+          {:get, 4} ->
+            assert req.url =~ "/issues/42"
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => []
+               }
+             }}
+
+          {:post, 5} ->
+            assert req.body == %{"labels" => ["sym:human-review"]}
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok =
+               Client.update_issue_state("42", "human-review",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot"
+               )
     end
 
     test "closed issues remove stale active labels without adding a new active label" do
@@ -918,7 +1302,12 @@ defmodule Aiur.GitHub.ClientTest do
   end
 
   defp codeowners_repo!(content) do
-    repo_root = Path.join(System.tmp_dir!(), "aiur-github-client-test-#{System.unique_integer([:positive])}")
+    repo_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-github-client-test-#{System.unique_integer([:positive])}"
+      )
+
     path = Path.join(repo_root, ".github/CODEOWNERS")
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, content)
@@ -927,6 +1316,7 @@ defmodule Aiur.GitHub.ClientTest do
 
   defp review_thread_comment(id, login, body) do
     %{
+      "id" => "PRRC_#{id}",
       "databaseId" => id,
       "body" => body,
       "createdAt" => "2026-06-25T04:13:21Z",
@@ -934,5 +1324,40 @@ defmodule Aiur.GitHub.ClientTest do
       "url" => "https://github.test/discussion_r#{id}",
       "author" => %{"login" => login}
     }
+  end
+
+  defp review_thread_node_response(thread_id, comments) do
+    {:ok,
+     %{
+       status: 200,
+       body: %{
+         "data" => %{
+           "node" => %{
+             "id" => thread_id,
+             "isResolved" => false,
+             "comments" => %{"nodes" => comments}
+           }
+         }
+       }
+     }}
+  end
+
+  defp review_threads_page_response(nodes) do
+    {:ok,
+     %{
+       status: 200,
+       body: %{
+         "data" => %{
+           "repository" => %{
+             "pullRequest" => %{
+               "reviewThreads" => %{
+                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                 "nodes" => nodes
+               }
+             }
+           }
+         }
+       }
+     }}
   end
 end

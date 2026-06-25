@@ -9,6 +9,56 @@ defmodule Aiur.GitHub.Client do
   @base_url "https://api.github.com"
   @graphql_url "#{@base_url}/graphql"
 
+  @reply_review_thread_mutation """
+  mutation AiurReplyReviewThread($threadId: ID!, $body: String!) {
+    addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
+      comment {
+        id
+        databaseId
+        body
+        createdAt
+        updatedAt
+        url
+        author {
+          login
+        }
+      }
+    }
+  }
+  """
+
+  @review_thread_query """
+  query AiurReviewThread($id: ID!) {
+    node(id: $id) {
+      ... on PullRequestReviewThread {
+        id
+        isResolved
+        comments(last: 20) {
+          nodes {
+            id
+            databaseId
+            body
+            createdAt
+            updatedAt
+            url
+            author {
+              login
+            }
+          }
+        }
+      }
+    }
+  }
+  """
+
+  @viewer_login_query """
+  query AiurViewerLogin {
+    viewer {
+      login
+    }
+  }
+  """
+
   @unaddressed_review_threads_query """
   query AiurUnaddressedReviewThreads($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
     repository(owner: $owner, name: $repo) {
@@ -19,6 +69,7 @@ defmodule Aiur.GitHub.Client do
             endCursor
           }
           nodes {
+            id
             isResolved
             path
             line
@@ -542,6 +593,35 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @spec reply_to_review_thread(String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reply_to_review_thread(review_thread_id, body, opts \\ []) do
+    with {:ok, thread_id} <- normalize_review_thread_id(review_thread_id),
+         {:ok, body} <- normalize_review_thread_reply_body(body),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      attempts = normalize_positive_integer(Keyword.get(opts, :attempts), 3)
+
+      do_reply_to_review_thread(request_fun, token, thread_id, body, attempts, opts, 1)
+    end
+  end
+
+  @spec verify_human_review_ready(String.t() | integer(), keyword()) :: :ok | {:error, term()}
+  def verify_human_review_ready(issue_number, opts \\ []) do
+    with {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+
+      context = %{
+        issue_number: to_string(issue_number),
+        request_fun: request_fun,
+        token: token,
+        opts: opts
+      }
+
+      verify_issue_review_threads_clear(context)
+    end
+  end
+
   @spec fetch_classified_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_number, opts \\ []) do
@@ -570,16 +650,18 @@ defmodule Aiur.GitHub.Client do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       issue_url = "#{@base_url}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
-      do_update_issue_state(
-        request_fun,
-        token,
-        issue_url,
-        owner,
-        repo,
-        issue_number,
-        prefix,
-        state_name
-      )
+      update_context = %{
+        request_fun: request_fun,
+        token: token,
+        issue_url: issue_url,
+        owner: owner,
+        repo: repo,
+        issue_number: issue_number,
+        prefix: prefix,
+        opts: opts
+      }
+
+      do_update_issue_state(update_context, state_name)
     end
   end
 
@@ -1015,6 +1097,284 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  defp do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt) do
+    case add_review_thread_reply(request_fun, token, thread_id, body) do
+      {:ok, mutation_body} ->
+        Logger.info("GitHub review thread reply mutation response: #{inspect(mutation_body)}")
+
+        build_review_thread_retry_context(
+          request_fun,
+          token,
+          thread_id,
+          body,
+          max_attempts,
+          opts,
+          mutation_body
+        )
+        |> verify_after_review_thread_reply(attempt)
+
+      {:error, reason} ->
+        Logger.warning("GitHub review thread reply mutation failed: #{inspect(reason)}")
+
+        if retryable_github_error?(reason) and attempt < max_attempts do
+          sleep_review_thread_retry(opts, attempt)
+
+          do_reply_to_review_thread(
+            request_fun,
+            token,
+            thread_id,
+            body,
+            max_attempts,
+            opts,
+            attempt + 1
+          )
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  defp retry_review_thread_reply(context, attempt, reason) do
+    if retryable_review_thread_verification_error?(reason) and attempt < context.max_attempts do
+      sleep_review_thread_retry(context.opts, attempt)
+
+      verify_after_review_thread_reply(context, attempt + 1)
+    else
+      {:error,
+       {:review_thread_reply_not_verified,
+        %{
+          review_thread_id: context.thread_id,
+          attempts: attempt,
+          reason: reason,
+          mutation_response: context.mutation_body
+        }}}
+    end
+  end
+
+  defp verify_after_review_thread_reply(context, attempt) do
+    case verify_review_thread_reply(
+           context.request_fun,
+           context.token,
+           context.thread_id,
+           context.body,
+           context.opts
+         ) do
+      {:ok, verification} ->
+        {:ok,
+         %{
+           verified: true,
+           review_thread_id: context.thread_id,
+           attempt: attempt,
+           mutation_response: context.mutation_body,
+           verification: verification
+         }}
+
+      {:error, reason} ->
+        retry_review_thread_reply(context, attempt, reason)
+    end
+  end
+
+  defp build_review_thread_retry_context(
+         request_fun,
+         token,
+         thread_id,
+         body,
+         max_attempts,
+         opts,
+         mutation_body
+       ) do
+    %{
+      request_fun: request_fun,
+      token: token,
+      thread_id: thread_id,
+      body: body,
+      max_attempts: max_attempts,
+      opts: opts,
+      mutation_body: mutation_body
+    }
+  end
+
+  defp add_review_thread_reply(request_fun, token, thread_id, body) do
+    github_graphql(request_fun, token, @reply_review_thread_mutation, %{
+      "threadId" => thread_id,
+      "body" => body
+    })
+  end
+
+  defp verify_review_thread_reply(request_fun, token, thread_id, body, opts) do
+    case fetch_review_thread(request_fun, token, thread_id) do
+      {:ok, thread_body} ->
+        Logger.info("GitHub review thread reply verification response: #{inspect(thread_body)}")
+
+        verify_latest_review_thread_comment(
+          thread_body,
+          thread_id,
+          body,
+          request_fun,
+          token,
+          opts
+        )
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_review_thread(request_fun, token, thread_id) do
+    github_graphql(request_fun, token, @review_thread_query, %{"id" => thread_id})
+  end
+
+  defp verify_latest_review_thread_comment(thread_body, thread_id, body, request_fun, token, opts) do
+    latest = thread_body |> review_thread_from_body() |> thread_comments() |> List.last()
+
+    with {:ok, bot_account} <- review_thread_bot_account(opts, request_fun, token) do
+      cond do
+        is_nil(latest) ->
+          {:error, :review_thread_latest_comment_missing}
+
+        get_in(latest, ["author", "login"]) != bot_account ->
+          latest_comment_author_mismatch(bot_account, latest)
+
+        Map.get(latest, "body") != body ->
+          latest_comment_body_mismatch(body, latest)
+
+        true ->
+          {:ok,
+           %{
+             "review_thread_id" => thread_id,
+             "latest_comment" => normalize_verified_thread_comment(latest)
+           }}
+      end
+    end
+  end
+
+  defp latest_comment_author_mismatch(bot_account, latest) do
+    detail = %{
+      expected: bot_account,
+      actual: get_in(latest, ["author", "login"])
+    }
+
+    {:error, {:review_thread_latest_comment_author_mismatch, detail}}
+  end
+
+  defp latest_comment_body_mismatch(body, latest) do
+    detail = %{
+      expected: body,
+      actual: Map.get(latest, "body")
+    }
+
+    {:error, {:review_thread_latest_comment_body_mismatch, detail}}
+  end
+
+  defp review_thread_from_body(body) when is_map(body) do
+    case get_in(body, ["data", "node"]) do
+      %{"id" => _id} = thread -> thread
+      _ -> %{}
+    end
+  end
+
+  defp normalize_verified_thread_comment(comment) when is_map(comment) do
+    %{
+      "id" => Map.get(comment, "databaseId") || Map.get(comment, "id"),
+      "node_id" => Map.get(comment, "id"),
+      "body" => Map.get(comment, "body") || "",
+      "created_at" => Map.get(comment, "createdAt"),
+      "updated_at" => Map.get(comment, "updatedAt") || Map.get(comment, "createdAt"),
+      "html_url" => Map.get(comment, "url"),
+      "user" => %{"login" => get_in(comment, ["author", "login"])}
+    }
+  end
+
+  defp review_thread_bot_account(opts, request_fun, token) do
+    case opts
+         |> Keyword.get_lazy(:bot_account, &GitHub.Config.bot_account/0)
+         |> normalize_optional_binary() do
+      bot_account when is_binary(bot_account) ->
+        {:ok, bot_account}
+
+      nil ->
+        fetch_authenticated_viewer_login(request_fun, token)
+    end
+  end
+
+  defp fetch_authenticated_viewer_login(request_fun, token) do
+    case github_graphql(request_fun, token, @viewer_login_query, %{}) do
+      {:ok, %{"data" => %{"viewer" => %{"login" => login}}}} ->
+        case normalize_optional_binary(login) do
+          nil -> {:error, :github_viewer_login_missing}
+          viewer_login -> {:ok, viewer_login}
+        end
+
+      {:ok, _body} ->
+        {:error, :github_viewer_login_missing}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp normalize_optional_binary(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_binary(_value), do: nil
+
+  defp retryable_review_thread_verification_error?({:github, kind, _detail})
+       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
+       do: true
+
+  defp retryable_review_thread_verification_error?({:review_thread_latest_comment_author_mismatch, _}),
+    do: true
+
+  defp retryable_review_thread_verification_error?({:review_thread_latest_comment_body_mismatch, _}),
+    do: true
+
+  defp retryable_review_thread_verification_error?(:review_thread_latest_comment_missing),
+    do: true
+
+  defp retryable_review_thread_verification_error?(_reason), do: false
+
+  defp retryable_github_error?({:github, kind, _detail})
+       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
+       do: true
+
+  defp retryable_github_error?(_reason), do: false
+
+  defp sleep_review_thread_retry(opts, attempt) do
+    delay_ms = normalize_non_negative_integer(Keyword.get(opts, :retry_delay_ms), 250) * attempt
+    sleep_fun = Keyword.get(opts, :sleep_fun, &Process.sleep/1)
+    sleep_fun.(delay_ms)
+  end
+
+  defp normalize_review_thread_id(id) when is_binary(id) do
+    case String.trim(id) do
+      "" -> {:error, :missing_review_thread_id}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp normalize_review_thread_id(_id), do: {:error, :missing_review_thread_id}
+
+  defp normalize_review_thread_reply_body(body) when is_binary(body) do
+    case String.trim(body) do
+      "" -> {:error, :missing_review_thread_reply_body}
+      _trimmed -> {:ok, body}
+    end
+  end
+
+  defp normalize_review_thread_reply_body(_body), do: {:error, :missing_review_thread_reply_body}
+
+  defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_positive_integer(_value, default), do: default
+
+  defp normalize_non_negative_integer(value, _default) when is_integer(value) and value >= 0,
+    do: value
+
+  defp normalize_non_negative_integer(_value, default), do: default
+
   defp github_graphql(request_fun, token, query, variables) do
     body = %{"query" => query, "variables" => variables}
 
@@ -1086,6 +1446,7 @@ defmodule Aiur.GitHub.Client do
 
     %{
       "id" => Map.get(comment, "databaseId"),
+      "review_thread_id" => Map.get(thread, "id"),
       "body" => Map.get(comment, "body") || "",
       "created_at" => Map.get(comment, "createdAt"),
       "updated_at" => Map.get(comment, "updatedAt") || Map.get(comment, "createdAt"),
@@ -1099,7 +1460,13 @@ defmodule Aiur.GitHub.Client do
   defp codeowners_classification_opts(opts) do
     agent_logins =
       [GitHub.Config.bot_account() | Keyword.get(opts, :agent_logins, [])]
-      |> Enum.reject(&is_nil/1)
+      |> List.flatten()
+      |> Enum.flat_map(fn value ->
+        case normalize_optional_binary(value) do
+          nil -> []
+          login -> [login]
+        end
+      end)
       |> Enum.uniq()
 
     Keyword.put(opts, :agent_logins, agent_logins)
@@ -1119,29 +1486,14 @@ defmodule Aiur.GitHub.Client do
     |> Kernel.not()
   end
 
-  defp do_update_issue_state(
-         request_fun,
-         token,
-         issue_url,
-         owner,
-         repo,
-         issue_number,
-         prefix,
-         state_name
-       ) do
-    new_label = "#{prefix}:#{normalize_state(state_name)}"
+  defp do_update_issue_state(update_context, state_name) do
+    new_label = "#{update_context.prefix}:#{normalize_state(state_name)}"
 
-    update_context = %{
-      request_fun: request_fun,
-      token: token,
-      issue_url: issue_url,
-      owner: owner,
-      repo: repo,
-      issue_number: issue_number,
-      prefix: prefix
-    }
-
-    case request_fun.(%{method: :get, url: issue_url, token: token}) do
+    case update_context.request_fun.(%{
+           method: :get,
+           url: update_context.issue_url,
+           token: update_context.token
+         }) do
       {:ok, %{status: 200, body: issue_body}} ->
         apply_issue_state_update(update_context, issue_body, state_name, new_label)
 
@@ -1154,20 +1506,79 @@ defmodule Aiur.GitHub.Client do
   end
 
   defp apply_issue_state_update(context, issue_body, state_name, new_label) do
-    if closed_issue?(issue_body) and active_target_state?(state_name) do
-      remove_active_state_labels(
-        context.request_fun,
-        context.token,
-        context.owner,
-        context.repo,
-        context.issue_number,
-        issue_body,
-        context.prefix
-      )
-    else
-      swap_and_maybe_close_issue(context, issue_body, state_name, new_label)
+    with :ok <- verify_human_review_review_threads_clear(context, state_name) do
+      if closed_issue?(issue_body) and active_target_state?(state_name) do
+        remove_active_state_labels(
+          context.request_fun,
+          context.token,
+          context.owner,
+          context.repo,
+          context.issue_number,
+          issue_body,
+          context.prefix
+        )
+      else
+        swap_and_maybe_close_issue(context, issue_body, state_name, new_label)
+      end
     end
   end
+
+  defp verify_human_review_review_threads_clear(context, state_name) do
+    if human_review_target_state?(state_name) do
+      verify_issue_review_threads_clear(context)
+    else
+      :ok
+    end
+  end
+
+  defp verify_issue_review_threads_clear(context) do
+    case fetch_open_pull_request_for_branch(context.issue_number,
+           request_fun: context.request_fun,
+           token: context.token
+         ) do
+      {:ok, %{"number" => pr_number}} when is_integer(pr_number) ->
+        with {:ok, agent_login} <-
+               review_thread_bot_account(context.opts, context.request_fun, context.token) do
+          verify_pr_review_threads_clear(context, pr_number, agent_login)
+        end
+
+      {:ok, nil} ->
+        :ok
+
+      {:ok, _pr} ->
+        :ok
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp verify_pr_review_threads_clear(context, pr_number, agent_login) do
+    case fetch_unaddressed_pr_review_thread_comments(pr_number,
+           request_fun: context.request_fun,
+           token: context.token,
+           agent_logins: [agent_login | Keyword.get(context.opts, :agent_logins, [])]
+         ) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, comments} ->
+        {:error,
+         {:unverified_review_threads,
+          %{
+            issue_number: context.issue_number,
+            pr_number: pr_number,
+            review_thread_ids: Enum.map(comments, &Map.get(&1, "review_thread_id")) |> Enum.reject(&is_nil/1),
+            comment_ids: Enum.map(comments, &Map.get(&1, "id")) |> Enum.reject(&is_nil/1),
+            count: length(comments)
+          }}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp human_review_target_state?(state_name), do: normalize_state(state_name) == "human-review"
 
   defp remove_active_state_labels(
          request_fun,

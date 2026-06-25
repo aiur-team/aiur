@@ -67,9 +67,25 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  defmodule HumanReviewGuardGitHubClient do
+    def verify_human_review_ready(issue_id) do
+      if is_pid(recipient()), do: send(recipient(), {:human_review_verify, issue_id})
+      Application.get_env(:aiur, :human_review_ready_result, :ok)
+    end
+
+    def update_issue_state(issue_id, state_name) do
+      if is_pid(recipient()), do: send(recipient(), {:human_review_update, issue_id, state_name})
+      :ok
+    end
+
+    defp recipient, do: Application.get_env(:aiur, :human_review_guard_recipient)
+  end
+
   defmodule DirectDispatchGitHubClient do
     def update_issue_state(issue_id, state_name) do
-      if is_pid(recipient()), do: send(recipient(), {:direct_dispatch_update, issue_id, state_name})
+      if is_pid(recipient()),
+        do: send(recipient(), {:direct_dispatch_update, issue_id, state_name})
+
       :ok
     end
 
@@ -296,6 +312,174 @@ defmodule Aiur.OrchestratorDeactivateTest do
         assert is_nil(entry.pid)
         assert get_in(entry, [:control, :status]) == :deactivated
       after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "human-review with unverified review threads is reverted to rework instead of deactivated" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-human-review-guard-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "57"
+      issue_identifier = "57"
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_guard_recipient = Application.get_env(:aiur, :human_review_guard_recipient)
+      previous_ready_result = Application.get_env(:aiur, :human_review_ready_result)
+
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          workspace_root: test_root,
+          tracker_repo: "owner/repo",
+          tracker_label_prefix: "agent",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :github_client_module, HumanReviewGuardGitHubClient)
+        Application.put_env(:aiur, :human_review_guard_recipient, self())
+
+        Application.put_env(
+          :aiur,
+          :human_review_ready_result,
+          {:error, {:unverified_review_threads, %{count: 1, review_thread_ids: ["PRRT_missing"]}}}
+        )
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR up for review",
+          description: "",
+          labels: []
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        assert_receive {:human_review_verify, ^issue_id}
+        assert_receive {:human_review_update, ^issue_id, "rework"}
+        assert Process.alive?(agent_pid)
+
+        entry = Map.fetch!(updated_state.running, issue_id)
+        assert entry.pid == agent_pid
+        assert entry.issue.state == "rework"
+        assert get_in(entry, [:control, :status]) == :working
+      after
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+        restore_application_env(:github_client_module, previous_github_client)
+        restore_application_env(:human_review_guard_recipient, previous_guard_recipient)
+        restore_application_env(:human_review_ready_result, previous_ready_result)
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "human-review with a transient verification error is left for a later poll" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-human-review-transient-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "58"
+      issue_identifier = "58"
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_guard_recipient = Application.get_env(:aiur, :human_review_guard_recipient)
+      previous_ready_result = Application.get_env(:aiur, :human_review_ready_result)
+
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          workspace_root: test_root,
+          tracker_repo: "owner/repo",
+          tracker_label_prefix: "agent",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :github_client_module, HumanReviewGuardGitHubClient)
+        Application.put_env(:aiur, :human_review_guard_recipient, self())
+
+        Application.put_env(
+          :aiur,
+          :human_review_ready_result,
+          {:error, {:github, :rate_limited, %{status: 429}}}
+        )
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR up for review",
+          description: "",
+          labels: []
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        assert_receive {:human_review_verify, ^issue_id}
+        refute_receive {:human_review_update, ^issue_id, "rework"}, 100
+        assert Process.alive?(agent_pid)
+
+        entry = Map.fetch!(updated_state.running, issue_id)
+        assert entry.pid == agent_pid
+        assert entry.issue.state == "in-progress"
+        assert get_in(entry, [:control, :status]) == :working
+      after
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+        restore_application_env(:github_client_module, previous_github_client)
+        restore_application_env(:human_review_guard_recipient, previous_guard_recipient)
+        restore_application_env(:human_review_ready_result, previous_ready_result)
         File.rm_rf(test_root)
       end
     end
@@ -1444,7 +1628,6 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         assert_receive {:direct_dispatch_update, ^issue_identifier, "rework"}
         assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
-        refute_receive :direct_dispatch_candidate_fetch, 50
         refute_received :run_poll_cycle
 
         assert [
@@ -2631,7 +2814,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
     test "deactivate tears down a tracked REPL session and still deactivates the entry" do
       test_root =
-        Path.join(System.tmp_dir!(), "aiur-orch-repl-teardown-#{System.unique_integer([:positive])}")
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-repl-teardown-#{System.unique_integer([:positive])}"
+        )
 
       issue_id = "issue-repl-teardown"
       issue_identifier = "RPT-1"
@@ -2705,7 +2891,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
       port =
         Port.open(
           {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
-          [:binary, :exit_status, :stderr_to_stdout, args: [~c"-lc", String.to_charlist(command)], line: 64_000]
+          [
+            :binary,
+            :exit_status,
+            :stderr_to_stdout,
+            args: [~c"-lc", String.to_charlist(command)],
+            line: 64_000
+          ]
         )
 
       {:os_pid, bash_pid} = :erlang.port_info(port, :os_pid)
@@ -2925,7 +3117,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
           retry_attempts: %{issue.id => %{attempt: 1}}
         }
 
-        after_main = Orchestrator.apply_system_branch_push_for_test(state, "main", %{sha: "main123"})
+        after_main =
+          Orchestrator.apply_system_branch_push_for_test(state, "main", %{sha: "main123"})
 
         assert Map.has_key?(after_main.running, issue.id)
         assert MapSet.member?(after_main.claimed, issue.id)

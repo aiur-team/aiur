@@ -55,6 +55,16 @@ defmodule Aiur.Events.GithubKeysTest do
 
       assert GithubKeys.comment_dedup_key("owner/repo", "issue_comment", "42", 1001) == nil
     end
+
+    test "builds review thread dedup keys from stable node ids" do
+      assert GithubKeys.review_thread_dedup_key("owner/repo", 61, "PRRT_kwDORkWEz86MGwBK") ==
+               {"owner/repo", "pr_review_thread:61", "PRRT_kwDORkWEz86MGwBK"}
+
+      assert GithubKeys.review_thread_dedup_key("owner/repo", 61, "") == nil
+
+      assert GithubKeys.review_thread_dedup_key("owner/repo", "61", "PRRT_kwDORkWEz86MGwBK") ==
+               nil
+    end
   end
 
   describe "boot cutoff" do

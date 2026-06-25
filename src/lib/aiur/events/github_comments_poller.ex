@@ -268,14 +268,24 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp publish_pr_review_comment(target, pr_number, comment, repo) when is_map(comment) do
     actor = get_in(comment, ["user", "login"])
+    dedup_key = pr_review_comment_dedup_key(repo, pr_number, comment)
 
     publish_comment(
       "ticket.#{target}.pr.review_comment",
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id"))
+      dedup_key: dedup_key
     )
+  end
+
+  defp pr_review_comment_dedup_key(repo, pr_number, %{"review_thread_id" => thread_id})
+       when is_binary(thread_id) and thread_id != "" do
+    GithubKeys.review_thread_dedup_key(repo, pr_number, thread_id)
+  end
+
+  defp pr_review_comment_dedup_key(repo, pr_number, comment) when is_map(comment) do
+    GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id"))
   end
 
   defp publish_comment(topic, payload, actor, publish_opts) do

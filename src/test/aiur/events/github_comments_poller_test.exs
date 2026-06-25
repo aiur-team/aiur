@@ -217,6 +217,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         String.contains?(url, "/graphql") ->
           review_threads_response([
             %{
+              "id" => "PRRT_old_unresolved",
               "isResolved" => false,
               "path" => "lib/app.ex",
               "line" => 12,
@@ -243,7 +244,10 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                       author_trusted?: true,
                       source: :github,
                       message: "old unresolved thread",
-                      comment: %{"body" => "old unresolved thread"}
+                      comment: %{
+                        "body" => "old unresolved thread",
+                        "review_thread_id" => "PRRT_old_unresolved"
+                      }
                     }},
                    500
 
