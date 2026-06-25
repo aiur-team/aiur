@@ -33,7 +33,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Events.Publisher
+  alias Aiur.Events.{GithubKeys, Publisher}
   alias Aiur.Git
   alias Aiur.GitHub.Connectivity
 
@@ -193,18 +193,32 @@ defmodule Aiur.Events.LsRemoteTicker do
   end
 
   defp publish_push(state, ref, sha, repo) do
-    case ref_to_topic(ref) do
+    case GithubKeys.ref_to_topic(ref) do
       {:ticket, id, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic} ticket=#{id}")
 
-        payload = %{ref: ref, sha: sha, actor: nil, commits: state.commits_fun.(repo, sha), repo: repo}
+        payload = %{
+          ref: ref,
+          sha: sha,
+          actor: nil,
+          commits: state.commits_fun.(repo, sha),
+          repo: repo
+        }
+
         publish_opts = build_publish_opts(repo, ref, sha, issue_number: id)
         do_publish(state, topic, payload, publish_opts)
 
       {:system, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
 
-        payload = %{ref: ref, sha: sha, actor: nil, commits: state.commits_fun.(repo, sha), repo: repo}
+        payload = %{
+          ref: ref,
+          sha: sha,
+          actor: nil,
+          commits: state.commits_fun.(repo, sha),
+          repo: repo
+        }
+
         do_publish(state, topic, payload, build_publish_opts(repo, ref, sha))
 
       nil ->
@@ -281,11 +295,8 @@ defmodule Aiur.Events.LsRemoteTicker do
   # contract clean.
   defp build_publish_opts(repo, ref, sha, extra \\ [])
 
-  defp build_publish_opts(repo, ref, sha, extra) when is_binary(repo) and repo != "" do
-    Keyword.put(extra, :dedup_key, {repo, ref, sha})
-  end
-
-  defp build_publish_opts(_repo, _ref, _sha, extra), do: extra
+  defp build_publish_opts(repo, ref, sha, extra),
+    do: GithubKeys.put_push_dedup_key(extra, repo, ref, sha)
 
   defp do_publish(%{publisher: nil}, topic, payload, opts) do
     Publisher.publish(topic, payload, opts)
@@ -294,30 +305,6 @@ defmodule Aiur.Events.LsRemoteTicker do
   defp do_publish(%{publisher: fun}, topic, payload, opts) when is_function(fun, 3) do
     fun.(topic, payload, opts)
   end
-
-  # Match exactly `refs/heads/aiur/<id>` where `<id>` is digits only.
-  # A wider pattern that also accepted `aiur/<id>-<slug>` would route
-  # unrelated dev branches like `aiur/99-test-fixture`,
-  # `aiur/99_v2`, or `aiur/99/sub` to ticket 99's auto-resume hook —
-  # pushes to those would falsely wake blockees waiting on the real
-  # ticket. The branch-name lock in the `using-aiur` skill's
-  # `dev-loop.md` keeps agents on the canonical name; if they invent a workaround
-  # the push is missed (the firehose still gets it) but the auto-
-  # resume path stays correct.
-  defp ref_to_topic(ref) when is_binary(ref) do
-    case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
-      [_, id] ->
-        {:ticket, id, "ticket.#{id}.branch.push"}
-
-      _ ->
-        case Regex.run(~r{\Arefs/heads/([^/]+)\z}, ref) do
-          [_, branch] -> {:system, "system.#{branch}.branch.push"}
-          _ -> nil
-        end
-    end
-  end
-
-  defp ref_to_topic(_), do: nil
 
   defp default_ls_remote(remote, refs) do
     Git.ls_remote(remote, refs)
