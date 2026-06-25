@@ -722,7 +722,10 @@ defmodule Aiur.Opencode.ChatCompletions do
   # next safe checkpoint (native CLI UX). Wait time is captured by
   # `Aiur.OperatorWaitLog`.
   defp send_operator(identifier, text, turn_id) do
-    case normalize_operator_text(text) do
+    normalized = normalize_operator_text(text)
+    log_operator_text(identifier, text, normalized)
+
+    case normalized do
       "" ->
         # Opencode wrapped a synthetic reminder with no operator content
         # (e.g. its own cwd-change / file-open scaffolding) — nothing for
@@ -737,23 +740,52 @@ defmodule Aiur.Opencode.ChatCompletions do
     end
   end
 
+  # Durable, greppable operator-path trace. The next live `--test3` repro
+  # greps `opencode_bridge operator_text` to pin delivery-vs-drop: the BUG
+  # signature is `wrapped=true dropped=true` (an operator message was present
+  # but normalize produced empty, so `send_operator/3` noops it and the agent
+  # never sees it). `wrapped=false dropped=true` is the benign scaffolding-only
+  # noop. Bytes (not raw text) keep the operator's content out of the logs.
+  defp log_operator_text(identifier, raw, normalized) do
+    Logger.info(
+      "opencode_bridge operator_text identifier=#{identifier} " <>
+        "in_bytes=#{byte_size(raw)} out_bytes=#{byte_size(normalized)} " <>
+        "wrapped=#{operator_wrapper?(raw)} dropped=#{normalized == "" and raw != ""}"
+    )
+  end
+
   # Opencode wraps operator-typed text in `<system-reminder>` envelopes before
-  # POSTing it to the bridge (confirmed verbatim in the opencode 1.15.6 binary).
-  # The mid-stream interjection form buries the message under "...Please address
-  # this message and continue with your tasks", which makes the agent keep
-  # working instead of answering it. Forward only the operator's genuine text —
-  # exactly what Claude's Remote Control channel delivers — so opencode input is
-  # consumed identically to RC.
-  @operator_wrapper_regex ~r/\A<system-reminder>\nThe user sent the following message:\n(?<msg>[\s\S]*?)\n\nPlease address this message and continue with your tasks\.\n<\/system-reminder>\s*\z/
+  # POSTing it to the bridge (confirmed verbatim in the opencode 1.15.6 binary:
+  # `["<system-reminder>","The user sent the following message:",text,"",
+  # "Please address this message and continue with your tasks.",
+  # "</system-reminder>"].join("\n")`, applied per user text part in place).
+  # The "...Please address this message and continue with your tasks" tail
+  # buries the message and makes the agent keep working instead of answering,
+  # so we forward only the operator's genuine text — exactly what Claude's
+  # Remote Control channel delivers — and opencode input is consumed like RC.
+  #
+  # The pattern is intentionally NOT `\A..\z`-anchored: opencode also emits its
+  # own `<system-reminder>` scaffolding (cwd/file/selection/goal) and can fold
+  # several queued messages into one batch, so a real payload carries the
+  # wrapper concatenated with — or surrounded by — other content. An anchored
+  # match missed those, fell through to the generic strip below, and that strip
+  # deleted the operator-bearing block too, yielding "" — a silent drop the
+  # agent could never answer (issue #332). Scanning every wrapper anywhere in
+  # the text recovers the operator's message regardless of what surrounds it.
+  @operator_wrapper_regex ~r/<system-reminder>\nThe user sent the following message:\n(?<msg>[\s\S]*?)\n\nPlease address this message and continue with your tasks\.\n<\/system-reminder>/
 
   @doc false
   @spec normalize_operator_text(String.t()) :: String.t()
   def normalize_operator_text(text) when is_binary(text) do
     cond do
-      caps = Regex.named_captures(@operator_wrapper_regex, text) ->
-        String.trim(caps["msg"])
+      msgs = scan_operator_messages(text) ->
+        # One or more genuine operator messages buried in opencode wrappers.
+        # Join multiple (a folded batch) the same way opencode separated them.
+        Enum.map_join(msgs, "\n", &String.trim/1)
 
       String.contains?(text, "<system-reminder>") ->
+        # No operator-bearing wrapper, only opencode scaffolding — strip it.
+        # Pure scaffolding normalizes to "" and `send_operator/3` noops it.
         text
         |> String.replace(~r/<system-reminder>[\s\S]*?<\/system-reminder>/, "")
         |> String.trim()
@@ -762,6 +794,17 @@ defmodule Aiur.Opencode.ChatCompletions do
         text
     end
   end
+
+  # Every operator message buried in an opencode mid-stream wrapper, in order.
+  # `nil` (not `[]`) when none match so the `cond` falls through cleanly.
+  defp scan_operator_messages(text) do
+    case Regex.scan(@operator_wrapper_regex, text, capture: ["msg"]) do
+      [] -> nil
+      matches -> Enum.map(matches, fn [msg] -> msg end)
+    end
+  end
+
+  defp operator_wrapper?(text), do: Regex.match?(@operator_wrapper_regex, text)
 
   defp emit_error_and_close(conn, completion_id, reason) do
     conn = chunk(conn, completion_id, "**system:** " <> inspect(reason), nil)
