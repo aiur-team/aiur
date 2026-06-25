@@ -111,4 +111,23 @@ defmodule Aiur.PromptBuilderTest do
     assert String.contains?(prompt, "Do not retry by copying the repo to")
     assert String.contains?(prompt, "Operator-root manual test runs are allowed")
   end
+
+  @tag config: @config
+  test "shared prompt points at the using-aiur operating-manual skill" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+
+    assert String.contains?(prompt, "using-aiur")
+  end
+
+  @tag config: @config
+  test "shared prompt no longer inlines the general operating manual" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+
+    # The label lifecycle, complexity routing, CODEOWNERS authority, PR shape,
+    # and milestone-alert names moved into the `using-aiur` skill (#370). Guard
+    # against a regression that re-inlines them into every per-turn prompt.
+    refute String.contains?(prompt, "### Complexity routing")
+    refute String.contains?(prompt, "### Whose comments to act on")
+    refute String.contains?(prompt, "### PR description shape")
+  end
 end

@@ -1153,21 +1153,23 @@ defmodule Aiur.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
+    # The shared prefix is slimmed to the always-visible / between-turn
+    # reflexes plus a pointer to the `using-aiur` operating-manual skill.
     assert prompt =~ "## Shared Agent Instructions"
-    assert prompt =~ "emit_alert"
-    assert prompt =~ "brainstorm.start"
-    assert prompt =~ "### Complexity routing"
-    assert prompt =~ "label-based complexity is the default"
-    assert prompt =~ "### PR description shape"
-    assert prompt =~ "Do not include complexity-routing explanations"
-    assert prompt =~ "If the issue has no complexity label"
-    assert prompt =~ "### Whose comments to act on"
-    assert prompt =~ "use CODEOWNERS as the authority signal"
-    assert prompt =~ "Agent comments on their own issue or PR are never authoritative"
+    assert prompt =~ "using-aiur"
+    assert prompt =~ "Progress emits"
+    assert prompt =~ "Operator check-ins"
 
-    Enum.each(1..5, fn level ->
-      assert prompt =~ "#### `complexity:#{level}`"
-    end)
+    # The general operating manual (complexity routing, CODEOWNERS authority,
+    # PR shape, milestone-alert names, the dev loop) now lives only in the
+    # `using-aiur` skill — it is no longer inlined into every per-turn prompt.
+    refute prompt =~ "### Complexity routing"
+    refute prompt =~ "#### `complexity:"
+    refute prompt =~ "label-based complexity is the default"
+    refute prompt =~ "### PR description shape"
+    refute prompt =~ "### Whose comments to act on"
+    refute prompt =~ "use CODEOWNERS as the authority signal"
+    refute prompt =~ "brainstorm.start"
 
     assert prompt =~ "Ticket MT-699"
   end

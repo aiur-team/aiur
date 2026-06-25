@@ -151,7 +151,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     tick(pid)
     assert_receive :polled, 500
 
-    # The branch-name lock in shared-agent-instructions.md keeps
+    # The branch-name lock in the using-aiur skill's dev-loop.md keeps
     # agents on canonical aiur/<id>. If they invent a workaround
     # branch (aiur/99-pr, aiur/99-test-fixture, aiur/99/sub) the
     # regex must NOT route those to ticket.99 — a dev push to a

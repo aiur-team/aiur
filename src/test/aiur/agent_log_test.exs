@@ -138,15 +138,13 @@ defmodule Aiur.AgentLogTest do
 
       Login fails on invalid email
 
-      ## Required Setup
+      ## Workspace setup
 
       Follow repository setup.
 
-      ## Workpad Template
+      ## How to operate
 
-      ### Validation
-
-      - [ ] ...
+      Load the using-aiur skill.
       """
 
       content =
@@ -160,9 +158,93 @@ defmodule Aiur.AgentLogTest do
       assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
       assert body =~ "Fix login bug"
       assert body =~ "Login fails on invalid email"
-      refute body =~ "Required Setup"
-      refute body =~ "Validation"
-      refute body =~ "- [ ]"
+      refute body =~ "Workspace setup"
+      refute body =~ "How to operate"
+      refute body =~ "using-aiur"
+    end
+
+    test "keeps an issue's own ## headings but stops at the workspace-setup section" do
+      # The reason the description terminator matches explicit template headers
+      # (`## Workspace setup`) rather than a bare `## `: an issue body routinely
+      # carries its own `## ` subheadings, and those must survive in the summary.
+      prompt = """
+      Issue:
+
+      Slim the pre-prompt
+
+      Description:
+
+      ## Problem
+
+      The pre-prompt is long.
+
+      ## Proposal
+
+      Move it into a skill.
+
+      ## Workspace setup
+
+      Follow repository setup.
+      """
+
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+          }
+        })
+
+      assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
+      assert body =~ "## Problem"
+      assert body =~ "## Proposal"
+      assert body =~ "Move it into a skill."
+      refute body =~ "Workspace setup"
+      refute body =~ "Follow repository setup."
+    end
+
+    test "stops at the legacy ## Workflow header used by the github-codex example template" do
+      # `src/examples/workflows/github-codex.prompt.md` still emits `## Workflow`
+      # after the description; its rendered prompts flow through this parser, so
+      # the terminator must keep stripping that section too.
+      prompt = """
+      Issue:
+
+      Fix login bug
+
+      Description:
+
+      Login fails on invalid email
+
+      ## Workflow
+
+      1. Read the issue and current labels.
+      """
+
+      content =
+        entry("notification", %{
+          "method" => "item/started",
+          "params" => %{
+            "item" => %{"type" => "userMessage", "content" => [%{"text" => prompt}]}
+          }
+        })
+
+      assert [%{role: "user", title: "Issue prompt", body: body}] = AgentLog.parse(content)
+      assert body =~ "Login fails on invalid email"
+      refute body =~ "Workflow"
+      refute body =~ "Read the issue and current labels"
+    end
+
+    test "the shipped prompt template still emits the ## Workspace setup terminator" do
+      # Guards the coupling between the `summarize_prompt/1` terminator and the
+      # template header: if `.aiur/prompt.md` renames the section, this fails
+      # loudly so the regex above is updated in lockstep.
+      template_path = Path.join([File.cwd!(), "..", ".aiur", "prompt.md"])
+
+      assert File.exists?(template_path),
+             "expected the shipped prompt template at #{template_path}"
+
+      assert File.read!(template_path) =~ "\n## Workspace setup\n"
     end
 
     test "falls back to raw summary for continuation prompts without issue sections" do
