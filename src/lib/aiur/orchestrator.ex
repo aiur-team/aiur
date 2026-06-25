@@ -42,6 +42,8 @@ defmodule Aiur.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
+  @comment_rework_retry_delay_ms 2_000
+  @comment_rework_max_attempts 5
   @max_retry_poll_failures 3
   # Slightly above the dashboard render interval so the `0s` in-progress
   # label can render before the poll finishes.
@@ -443,6 +445,11 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_issue, _issue_id}, state), do: {:noreply, state}
 
+  def handle_info({:retry_comment_rework, issue_number, source, event, attempt}, state)
+      when is_integer(attempt) do
+    {:noreply, maybe_reactivate_on_comment(state, issue_number, source, event, attempt)}
+  end
+
   # PR review-comment fan-out from `Aiur.Events.Exchange`. The publisher's
   # `bot_self_loop?` filter drops self-comments before they reach here,
   # so any event arriving is from an external actor (a human reviewer,
@@ -583,13 +590,13 @@ defmodule Aiur.Orchestrator do
   defp tag_topic(tag, {:ok, identifier}), do: {tag, identifier}
   defp tag_topic(_tag, :nomatch), do: :nomatch
 
-  defp maybe_reactivate_on_comment(%State{} = state, issue_number, source, event) do
+  defp maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
     case find_running_by_identifier(state.running, issue_number) do
       running_entry when is_map(running_entry) ->
         reactivate_if_deactivated(state, running_entry, issue_number, source, event)
 
       _ ->
-        maybe_transition_idle_issue_to_rework(state, issue_number, source, event)
+        maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
     end
   end
 
@@ -844,7 +851,7 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp maybe_transition_idle_issue_to_rework(state, issue_number, source, event) do
+  defp maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     case transition_comment_issue_to_rework(issue_number, source, event) do
       :ok ->
         seed_idle_comment_wake_event(state, issue_number, event)
@@ -857,8 +864,29 @@ defmodule Aiur.Orchestrator do
       {:error, reason} ->
         Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
-        state
+        schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
     end
+  end
+
+  defp schedule_comment_rework_retry(%State{} = state, issue_number, source, event, attempt, reason) do
+    max_attempts = comment_rework_max_attempts()
+
+    if attempt >= max_attempts do
+      Logger.warning("#{source} rework transition retry exhausted: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
+    else
+      next_attempt = attempt + 1
+      delay_ms = comment_rework_retry_delay_ms(attempt)
+
+      Process.send_after(
+        self(),
+        {:retry_comment_rework, issue_number, source, event, next_attempt},
+        delay_ms
+      )
+
+      Logger.info("#{source} rework transition retry scheduled: issue_identifier=#{issue_number} attempt=#{next_attempt}/#{max_attempts} delay_ms=#{delay_ms}")
+    end
+
+    state
   end
 
   defp seed_idle_comment_wake_event(%State{} = state, issue_number, event) do
@@ -934,6 +962,25 @@ defmodule Aiur.Orchestrator do
   end
 
   defp review_pass_comment?(_body), do: false
+
+  defp comment_rework_retry_delay_ms(attempt) when is_integer(attempt) do
+    power = (attempt - 1) |> max(0) |> min(4)
+    comment_rework_retry_base_delay_ms() * (1 <<< power)
+  end
+
+  defp comment_rework_retry_base_delay_ms do
+    case Application.get_env(:aiur, :comment_rework_retry_delay_ms) do
+      delay when is_integer(delay) and delay >= 0 -> delay
+      _ -> @comment_rework_retry_delay_ms
+    end
+  end
+
+  defp comment_rework_max_attempts do
+    case Application.get_env(:aiur, :comment_rework_max_attempts) do
+      attempts when is_integer(attempts) and attempts > 0 -> attempts
+      _ -> @comment_rework_max_attempts
+    end
+  end
 
   defp mark_pr_merged_issue_done(%State{} = state, identifier) do
     case Tracker.update_issue_state(to_string(identifier), "done") do

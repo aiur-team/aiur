@@ -48,6 +48,22 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  defmodule FlakyReworkGitHubClient do
+    def update_issue_state(issue_id, state_name) do
+      recipient = Application.get_env(:aiur, :flaky_rework_recipient)
+      pid = Application.fetch_env!(:aiur, :flaky_rework_agent)
+
+      if is_pid(recipient) do
+        send(recipient, {:flaky_rework_update, issue_id, state_name})
+      end
+
+      Agent.get_and_update(pid, fn
+        [result | rest] -> {result, rest}
+        [] -> {:ok, []}
+      end)
+    end
+  end
+
   describe "reconcile with nil / non-binary issue state (crash regression)" do
     # Live crash signature (from production logs):
     #   ** (FunctionClauseError) no function clause matching in
@@ -1333,6 +1349,93 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
+    test "trusted idle review comment retries a transient rework transition failure" do
+      issue_identifier = "58"
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_recipient = Application.get_env(:aiur, :flaky_rework_recipient)
+      previous_agent = Application.get_env(:aiur, :flaky_rework_agent)
+      previous_delay = Application.get_env(:aiur, :comment_rework_retry_delay_ms)
+      previous_max = Application.get_env(:aiur, :comment_rework_max_attempts)
+      {:ok, agent} = Agent.start_link(fn -> [{:error, {:github_api_status, 502}}, :ok] end)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          tracker_repo: "owner/repo",
+          tracker_label_prefix: "agent",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        Application.put_env(:aiur, :github_client_module, FlakyReworkGitHubClient)
+        Application.put_env(:aiur, :flaky_rework_recipient, self())
+        Application.put_env(:aiur, :flaky_rework_agent, agent)
+        Application.put_env(:aiur, :comment_rework_retry_delay_ms, 1)
+        Application.put_env(:aiur, :comment_rework_max_attempts, 3)
+
+        state = %Orchestrator.State{
+          running: %{},
+          claimed: MapSet.new(),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        event = %{
+          id: 3_473_356_579,
+          topic: "ticket.#{issue_identifier}.pr.review_comment",
+          source: :github,
+          author_trusted?: true,
+          message: "please acknowledge this inline review comment",
+          comment: %{
+            "body" => "please acknowledge this inline review comment",
+            "id" => 3_473_356_579
+          }
+        }
+
+        assert {:noreply, failed_state} = Orchestrator.handle_info({:event, event}, state)
+
+        assert_receive {:flaky_rework_update, ^issue_identifier, "rework"}
+        assert [] = AgentQueueStore.list_pending(failed_state.queue_store, issue_identifier)
+
+        assert_receive {:retry_comment_rework, ^issue_identifier, "PR review comment", ^event, 2},
+                       100
+
+        assert {:noreply, retry_state} =
+                 Orchestrator.handle_info(
+                   {:retry_comment_rework, issue_identifier, "PR review comment", event, 2},
+                   failed_state
+                 )
+
+        assert_receive {:flaky_rework_update, ^issue_identifier, "rework"}
+
+        assert [
+                 %{
+                   event_type: :events_digest,
+                   body: %{events: [^event]}
+                 }
+               ] = AgentQueueStore.list_pending(retry_state.queue_store, issue_identifier)
+
+        assert %{
+                 subscribed_to: subscribed_to
+               } = SubscriptionStore.snapshot(issue_identifier)
+
+        topics = Enum.map(subscribed_to, & &1["topic"])
+        assert "ticket.#{issue_identifier}.issue.commented" in topics
+        assert "ticket.#{issue_identifier}.pr.review_comment" in topics
+      after
+        :ok = SubscriptionStore.stop(issue_identifier)
+
+        restore_application_env(:github_client_module, previous_github_client)
+        restore_application_env(:flaky_rework_recipient, previous_recipient)
+        restore_application_env(:flaky_rework_agent, previous_agent)
+        restore_application_env(:comment_rework_retry_delay_ms, previous_delay)
+        restore_application_env(:comment_rework_max_attempts, previous_max)
+
+        if Process.alive?(agent), do: Agent.stop(agent)
+      end
+    end
+
     test "direct comment poll watches human-review issues without running entries" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
@@ -2515,4 +2618,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
   end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 end
