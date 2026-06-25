@@ -84,7 +84,7 @@ defmodule Aiur.GitHub.Connectivity do
   Returns how long to wait before the next attempt for a classified failure.
 
     * `:rate_limited` — `retry_after` (seconds) if present, else `poll_interval`,
-      else the capped exponential default — all in milliseconds.
+      else the capped exponential default — all in capped milliseconds.
     * `:dns` / `:timeout` / `:tls` / `:transport` / `:http` — capped exponential
       backoff that grows with `attempt`.
     * `:auth` — `:escalate` (don't retry an expired/invalid token).
@@ -95,10 +95,10 @@ defmodule Aiur.GitHub.Connectivity do
   def backoff_ms(:rate_limited, attempt, detail) do
     cond do
       is_integer(detail[:retry_after]) and detail[:retry_after] > 0 ->
-        detail[:retry_after] * 1_000
+        cap_backoff(detail[:retry_after] * 1_000)
 
       is_integer(detail[:poll_interval]) and detail[:poll_interval] > 0 ->
-        detail[:poll_interval] * 1_000
+        cap_backoff(detail[:poll_interval] * 1_000)
 
       true ->
         exponential(attempt)
@@ -107,8 +107,10 @@ defmodule Aiur.GitHub.Connectivity do
 
   def backoff_ms(_classification, attempt, _detail), do: exponential(attempt)
 
+  defp cap_backoff(delay_ms), do: min(delay_ms, @max_backoff_ms)
+
   defp exponential(attempt) when is_integer(attempt) and attempt >= 1 do
-    min(@base_backoff_ms * 2 ** (attempt - 1), @max_backoff_ms)
+    cap_backoff(@base_backoff_ms * 2 ** (attempt - 1))
   end
 
   defp exponential(_attempt), do: @base_backoff_ms
