@@ -106,6 +106,42 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
+  test "skips Agent Workpad issue comments" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 1002,
+                 "body" => "## Agent Workpad\n\n- [x] pushed branch",
+                 "updated_at" => "2026-06-24T12:00:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 0, since: "2026-06-24T11:59:59Z"}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    refute_receive {:event, _}, 100
+    stop_codeowners(codeowners)
+  end
+
   test "polls open PR review comments and publishes pr.review_comment under ticket id" do
     :ok = Exchange.subscribe("ticket.42.pr.review_comment")
     codeowners = ensure_codeowners!("* @its-everdred\n")
@@ -205,6 +241,48 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                     }},
                    500
 
+    stop_codeowners(codeowners)
+  end
+
+  test "skips Agent Workpad PR conversation comments" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 2503,
+                 "body" => "## Agent Workpad\n\n- [x] merged blocker",
+                 "updated_at" => "2026-06-24T12:02:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 0, since: "2026-06-24T12:01:59Z"}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    refute_receive {:event, _}, 100
     stop_codeowners(codeowners)
   end
 

@@ -10,7 +10,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   require Logger
 
-  alias Aiur.Events.{Publisher, Sanitizer}
+  alias Aiur.Events.{CommentFilter, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
 
   @pre_boot_buffer_seconds 60
@@ -70,6 +70,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
       {:ok, comments} ->
         count =
           comments
+          |> Enum.reject(&CommentFilter.agent_workpad?/1)
           |> Enum.map(&publish_issue_comment(target, &1, repo))
           |> Enum.count(&match?({:ok, _, _}, &1))
 
@@ -115,6 +116,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
       {:ok, comments} ->
         count =
           comments
+          |> Enum.reject(&CommentFilter.agent_workpad?/1)
           |> Enum.map(&publish_pr_issue_comment(target, pr_number, &1, repo))
           |> Enum.count(&match?({:ok, _, _}, &1))
 
