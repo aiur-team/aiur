@@ -37,6 +37,7 @@ defmodule Aiur.Orchestrator do
   # Slightly above the dashboard render interval so the `0s` in-progress
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
+  @human_review_state "human-review"
   @empty_agent_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -1025,8 +1026,17 @@ defmodule Aiur.Orchestrator do
   end
 
   defp do_poll_github_comments(%State{} = state, opts) do
-    targets = github_comment_poll_targets(state)
+    case github_comment_poll_targets(state, opts) do
+      {:ok, targets} ->
+        poll_github_comment_targets(state, targets, opts)
 
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp poll_github_comment_targets(%State{} = state, targets, opts) when is_list(targets) do
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
@@ -1044,12 +1054,55 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp github_comment_poll_targets(%State{} = state) do
+  defp github_comment_poll_targets(%State{} = state, opts) do
+    with {:ok, human_review_targets} <- human_review_comment_poll_targets(opts) do
+      targets =
+        state
+        |> running_comment_poll_targets()
+        |> Kernel.++(human_review_targets)
+        |> Enum.uniq()
+
+      {:ok, targets}
+    end
+  end
+
+  defp running_comment_poll_targets(%State{} = state) do
     state.running
     |> Map.values()
     |> Enum.map(&Map.get(&1, :identifier))
+    |> normalize_comment_targets()
+  end
+
+  defp human_review_comment_poll_targets(opts) do
+    fetcher = Keyword.get(opts, :review_issue_fetcher, &Tracker.fetch_issues_by_states/1)
+
+    case fetcher.([@human_review_state]) do
+      {:ok, issues} when is_list(issues) ->
+        targets =
+          issues
+          |> Enum.map(&comment_target_for_issue/1)
+          |> normalize_comment_targets()
+
+        {:ok, targets}
+
+      {:error, _reason} = error ->
+        error
+
+      other ->
+        {:error, {:unexpected_human_review_targets, other}}
+    end
+  end
+
+  defp comment_target_for_issue(%Issue{identifier: identifier}) when not is_nil(identifier), do: identifier
+  defp comment_target_for_issue(%Issue{id: id}) when not is_nil(id), do: id
+  defp comment_target_for_issue(_issue), do: nil
+
+  defp normalize_comment_targets(targets) when is_list(targets) do
+    targets
     |> Enum.reject(&is_nil/1)
     |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
 
@@ -1338,6 +1391,12 @@ defmodule Aiur.Orchestrator do
   @spec poll_github_firehose_for_test(State.t(), keyword()) :: State.t()
   def poll_github_firehose_for_test(%State{} = state, opts) when is_list(opts) do
     poll_github_firehose(state, opts)
+  end
+
+  @doc false
+  @spec poll_github_comments_for_test(State.t(), keyword()) :: State.t()
+  def poll_github_comments_for_test(%State{} = state, opts) when is_list(opts) do
+    poll_github_comments(state, opts)
   end
 
   @doc false
