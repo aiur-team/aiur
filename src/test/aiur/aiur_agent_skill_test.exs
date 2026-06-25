@@ -67,19 +67,36 @@ defmodule Aiur.AiurAgentSkillTest do
 
   test "blocker guidance keeps unblocked work moving" do
     shared_prompt = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
+    repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
     stub_doc = File.read!(Path.join(@claude_skill, "stub-then-fetch.md"))
+    emit_doc = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
     taxonomy = File.read!(Path.join(@claude_skill, "event-taxonomy.md"))
 
     shared_prompt = one_line(shared_prompt)
+    repo_prompt = one_line(repo_prompt)
     stub_doc = one_line(stub_doc)
+    emit_doc = one_line(emit_doc)
     taxonomy = one_line(taxonomy)
 
     assert shared_prompt =~ "not a stop signal"
     assert shared_prompt =~ "Only park the specific integration point"
+    assert shared_prompt =~ "inspect the pushed diff/exports"
+    assert shared_prompt =~ "remove any temporary stub"
+    assert shared_prompt =~ "open your PR against that branch"
 
     assert stub_doc =~ "not a reason to park the whole ticket"
     assert stub_doc =~ "Do not reimplement ticket N's helper"
+    assert stub_doc =~ "git fetch origin aiur/N"
+    assert stub_doc =~ "git diff --stat HEAD..origin/aiur/N"
+    assert stub_doc =~ "stack on it"
+    assert stub_doc =~ "If the branch push is irrelevant or unusable"
+    assert stub_doc =~ "Stubs are local-only scaffolding"
     assert stub_doc =~ "Stop working on the dependent code only"
+    assert emit_doc =~ "ticket.N.branch.push"
+    assert emit_doc =~ "fetch `origin/aiur/N`"
+    assert emit_doc =~ "inspect the pushed diff/exports"
+    assert repo_prompt =~ "fetch and diff `origin/aiur/N`"
+    assert repo_prompt =~ "remove temporary stubs before pushing"
     assert taxonomy =~ "keep unrelated prep moving"
   end
 
