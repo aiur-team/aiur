@@ -15,12 +15,12 @@ The `GITHUB_TOKEN` environment variable must be set.
 |-------|---------|
 | `repo` | Read/write access to issues, PRs, and labels in private repositories |
 | `issues:write` | Post issue comments, update labels, close issues |
-| `pull_requests:write` | Required if the agent creates PRs |
+| `pull_requests:write` | Create PRs and resolve pull request review threads |
 
 If using a **fine-grained personal access token**:
 - **Repository access**: Select the target repository
 - **Issues**: Read and write
-- **Pull requests**: Read and write (if PR creation is needed)
+- **Pull requests**: Read and write (if PR creation or review-thread resolution is needed)
 - **Contents**: Read (to read repository contents)
 
 If using a **classic personal access token**:
@@ -68,6 +68,30 @@ error: GitHub API request failed status=404
 
 - `403`: Insufficient token permissions. Check the required scopes listed above.
 - `404`: No access to the repository, or the `github.repo` config value is incorrect.
+
+Review-thread replies and review-thread resolution are separate GitHub GraphQL
+permissions in practice. A token can successfully post a reply with
+`addPullRequestReviewThreadReply` and still fail `resolveReviewThread` with:
+
+```
+Resource not accessible by personal access token
+```
+
+When that happens, Aiur reports `review_thread_resolution_not_permitted`. Use a
+token with pull-request write access for the target repository (fine-grained:
+**Pull requests: Read and write**; classic: `repo` for private repositories or
+`public_repo` for public repositories). The verified reply remains the durable
+record that the agent answered the review feedback; resolving the GitHub thread
+requires the stronger token permission above.
+
+Aiur also verifies the semantic trust boundary before resolving a review thread.
+`aiur_resolve_review_thread` re-fetches the thread, confirms the exact terminal
+agent reply is still the latest comment, and checks that the latest non-agent
+reviewer comment is authoritative for the thread path according to CODEOWNERS.
+If a newer reviewer reply appears, Aiur reports
+`review_thread_resolution_precondition_failed` and leaves the thread unresolved.
+If the reviewer is outside the CODEOWNERS trust boundary, Aiur reports
+`review_thread_resolution_not_authorized`.
 
 **Recovery:**
 

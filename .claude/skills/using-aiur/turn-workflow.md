@@ -44,6 +44,17 @@ review thread and confirm your reply is now the latest comment. If the reply is
 missing, retry or keep the issue in `agent:rework`; do not mark the feedback
 handled based only on an attempted reply command.
 
+For GitHub pull request review threads, use `aiur_reply_review_thread` for the
+reply and verification path. Only call `aiur_resolve_review_thread` after a
+terminal "done, no further change" reply has been verified, and pass that exact
+terminal reply body to the resolve tool so Aiur can re-fetch the thread and
+confirm the reply is still latest before mutating GitHub state. If resolution
+fails with `review_thread_resolution_not_permitted`,
+`review_thread_resolution_precondition_failed`, or
+`review_thread_resolution_not_authorized`, the reply is still the durable done or
+handoff signal; record the refusal in the workpad instead of retrying the same
+resolution call.
+
 Right-size the CE skill flow to the actual work — see `complexity-routing.md`
 for which skills to run at each `complexity:N` tier and `dev-loop.md` for the
 implement → test → build → lint → commit → push → PR loop.

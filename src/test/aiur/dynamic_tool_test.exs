@@ -3,7 +3,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
   alias Aiur.Codex.DynamicTool
 
-  test "tool_specs advertises the linear_graphql, review reply, and emit_alert contracts" do
+  test "tool_specs advertises the linear_graphql, review thread, and emit_alert contracts" do
     specs = DynamicTool.tool_specs()
 
     assert Enum.any?(specs, fn
@@ -40,6 +40,22 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Enum.any?(specs, fn
              %{
+               "description" => description,
+               "inputSchema" => %{
+                 "properties" => %{"review_thread_id" => _, "terminal_reply_body" => _},
+                 "required" => ["review_thread_id", "terminal_reply_body"],
+                 "type" => "object"
+               },
+               "name" => "aiur_resolve_review_thread"
+             } ->
+               description =~ "Resolve"
+
+             _ ->
+               false
+           end)
+
+    assert Enum.any?(specs, fn
+             %{
                "inputSchema" => %{
                  "properties" => %{"reason" => _, "needs_attention" => _, "severity" => _},
                  "required" => ["name", "message", "reason", "needs_attention"]
@@ -64,6 +80,7 @@ defmodule Aiur.Codex.DynamicToolTest do
                "supportedTools" => [
                  "linear_graphql",
                  "aiur_reply_review_thread",
+                 "aiur_resolve_review_thread",
                  "emit_alert",
                  "emit_event",
                  "aiur_subscribe",
@@ -147,6 +164,62 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Jason.decode!(response["output"])["error"]["reason"] ==
              "review_thread_reply_not_verified"
+  end
+
+  test "aiur_resolve_review_thread returns resolved payloads" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "aiur_resolve_review_thread",
+        %{
+          "review_thread_id" => "PRRT_done",
+          "terminal_reply_body" => "Done, no further changes."
+        },
+        review_thread_resolver: fn review_thread_id, opts ->
+          send(test_pid, {:resolve_review_thread_called, review_thread_id, opts})
+          {:ok, %{resolved: true, review_thread_id: review_thread_id}}
+        end
+      )
+
+    assert_received {:resolve_review_thread_called, "PRRT_done", [terminal_reply_body: "Done, no further changes."]}
+
+    assert response["success"] == true
+
+    assert Jason.decode!(response["output"]) == %{
+             "resolved" => true,
+             "review_thread_id" => "PRRT_done"
+           }
+  end
+
+  test "aiur_resolve_review_thread surfaces token permission failures explicitly" do
+    response =
+      DynamicTool.execute(
+        "aiur_resolve_review_thread",
+        %{
+          "review_thread_id" => "PRRT_denied",
+          "terminal_reply_body" => "Done, no further changes."
+        },
+        review_thread_resolver: fn _review_thread_id, _opts ->
+          {:error,
+           {:review_thread_resolution_not_permitted,
+            %{
+              review_thread_id: "PRRT_denied",
+              required_permission: "Pull requests: Read and write"
+            }}}
+        end
+      )
+
+    assert response["success"] == false
+
+    assert Jason.decode!(response["output"])["error"] == %{
+             "message" => "GitHub review thread resolution was not permitted by the configured token.",
+             "reason" => "review_thread_resolution_not_permitted",
+             "detail" => %{
+               "required_permission" => "Pull requests: Read and write",
+               "review_thread_id" => "PRRT_denied"
+             }
+           }
   end
 
   test "emit_alert invokes the provided emitter for custom scopes" do

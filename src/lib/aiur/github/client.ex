@@ -27,12 +27,25 @@ defmodule Aiur.GitHub.Client do
   }
   """
 
+  @resolve_review_thread_mutation """
+  mutation AiurResolveReviewThread($threadId: ID!) {
+    resolveReviewThread(input: {threadId: $threadId}) {
+      thread {
+        id
+        isResolved
+      }
+    }
+  }
+  """
+
   @review_thread_query """
   query AiurReviewThread($id: ID!) {
     node(id: $id) {
       ... on PullRequestReviewThread {
         id
         isResolved
+        path
+        line
         comments(last: 20) {
           nodes {
             id
@@ -603,6 +616,17 @@ defmodule Aiur.GitHub.Client do
       attempts = normalize_positive_integer(Keyword.get(opts, :attempts), 3)
 
       do_reply_to_review_thread(request_fun, token, thread_id, body, attempts, opts, 1)
+    end
+  end
+
+  @spec resolve_review_thread(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def resolve_review_thread(review_thread_id, opts \\ []) do
+    with {:ok, thread_id} <- normalize_review_thread_id(review_thread_id),
+         {:ok, terminal_reply_body} <-
+           normalize_review_thread_terminal_reply_body(Keyword.get(opts, :terminal_reply_body)),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      do_resolve_review_thread(request_fun, token, thread_id, terminal_reply_body, opts)
     end
   end
 
@@ -1201,6 +1225,196 @@ defmodule Aiur.GitHub.Client do
     })
   end
 
+  defp do_resolve_review_thread(request_fun, token, thread_id, terminal_reply_body, opts) do
+    with {:ok, verification} <-
+           verify_review_thread_resolution_ready(
+             request_fun,
+             token,
+             thread_id,
+             terminal_reply_body,
+             opts
+           ),
+         {:ok, body} <- resolve_review_thread_mutation(request_fun, token, thread_id) do
+      Logger.info("GitHub review thread resolve mutation response: #{inspect(body)}")
+      verify_resolved_review_thread(body, thread_id, verification)
+    end
+  end
+
+  defp resolve_review_thread_mutation(request_fun, token, thread_id) do
+    case github_graphql(request_fun, token, @resolve_review_thread_mutation, %{"threadId" => thread_id}) do
+      {:error, {:github_graphql_errors, errors}} ->
+        {:error, classify_review_thread_resolution_errors(thread_id, errors)}
+
+      result ->
+        result
+    end
+  end
+
+  defp verify_resolved_review_thread(body, thread_id, verification) when is_map(body) do
+    thread = get_in(body, ["data", "resolveReviewThread", "thread"]) || %{}
+
+    if Map.get(thread, "isResolved") == true do
+      {:ok,
+       %{
+         resolved: true,
+         review_thread_id: Map.get(thread, "id") || thread_id,
+         verification: verification,
+         mutation_response: body
+       }}
+    else
+      {:error,
+       {:review_thread_not_resolved,
+        %{
+          review_thread_id: thread_id,
+          mutation_response: body
+        }}}
+    end
+  end
+
+  defp classify_review_thread_resolution_errors(thread_id, errors) when is_list(errors) do
+    if Enum.any?(errors, &review_thread_resolution_permission_error?/1) do
+      {:review_thread_resolution_not_permitted,
+       %{
+         review_thread_id: thread_id,
+         errors: errors,
+         required_permission:
+           "Use a GitHub token that can write pull requests for this repository, such as a fine-grained token with Pull requests: Read and write or a classic token with repo/public_repo access."
+       }}
+    else
+      {:github_graphql_errors, errors}
+    end
+  end
+
+  defp review_thread_resolution_permission_error?(error) when is_map(error) do
+    typed_permission_error?(Map.get(error, "type")) or
+      typed_permission_error?(get_in(error, ["extensions", "code"])) or
+      known_pat_permission_message?(Map.get(error, "message"))
+  end
+
+  defp review_thread_resolution_permission_error?(_error), do: false
+
+  defp typed_permission_error?(value) when is_binary(value),
+    do: value in ["FORBIDDEN", "INSUFFICIENT_SCOPES"]
+
+  defp typed_permission_error?(_value), do: false
+
+  defp known_pat_permission_message?(message) when is_binary(message),
+    do: String.downcase(message) == "resource not accessible by personal access token"
+
+  defp known_pat_permission_message?(_message), do: false
+
+  defp verify_review_thread_resolution_ready(request_fun, token, thread_id, terminal_reply_body, opts) do
+    case fetch_review_thread(request_fun, token, thread_id) do
+      {:ok, thread_body} ->
+        Logger.info("GitHub review thread resolution verification response: #{inspect(thread_body)}")
+
+        verify_review_thread_resolution_latest_reply(
+          thread_body,
+          thread_id,
+          terminal_reply_body,
+          request_fun,
+          token,
+          opts
+        )
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp verify_review_thread_resolution_latest_reply(
+         thread_body,
+         thread_id,
+         terminal_reply_body,
+         request_fun,
+         token,
+         opts
+       ) do
+    thread = review_thread_from_body(thread_body)
+    latest = thread |> thread_comments() |> List.last()
+
+    with {:ok, bot_account} <- review_thread_bot_account(opts, request_fun, token) do
+      cond do
+        Map.get(thread, "isResolved") == true ->
+          {:error,
+           resolution_precondition_failed(thread_id, :already_resolved, %{
+             review_thread_id: thread_id
+           })}
+
+        is_nil(latest) ->
+          {:error,
+           resolution_precondition_failed(thread_id, :latest_comment_missing, %{
+             review_thread_id: thread_id
+           })}
+
+        get_in(latest, ["author", "login"]) != bot_account ->
+          {:error,
+           resolution_precondition_failed(thread_id, :latest_comment_author_mismatch, %{
+             expected: bot_account,
+             actual: get_in(latest, ["author", "login"]),
+             latest_comment: normalize_verified_thread_comment(latest)
+           })}
+
+        Map.get(latest, "body") != terminal_reply_body ->
+          {:error,
+           resolution_precondition_failed(thread_id, :latest_comment_body_mismatch, %{
+             expected: terminal_reply_body,
+             actual: Map.get(latest, "body"),
+             latest_comment: normalize_verified_thread_comment(latest)
+           })}
+
+        review_thread_authoritative_comment?(thread, opts) ->
+          {:ok,
+           %{
+             "review_thread_id" => thread_id,
+             "latest_comment" => normalize_verified_thread_comment(latest)
+           }}
+
+        true ->
+          {:error,
+           {:review_thread_resolution_not_authorized,
+            %{
+              review_thread_id: thread_id,
+              path: Map.get(thread, "path"),
+              required_boundary: "Only resolve review threads whose latest non-agent reviewer comment is authoritative for the thread path according to CODEOWNERS."
+            }}}
+      end
+    end
+  end
+
+  defp resolution_precondition_failed(thread_id, reason, detail) do
+    {:review_thread_resolution_precondition_failed,
+     detail
+     |> Map.put(:review_thread_id, thread_id)
+     |> Map.put(:reason, reason)}
+  end
+
+  defp review_thread_authoritative_comment?(thread, opts) when is_map(thread) do
+    opts = codeowners_classification_opts(opts)
+    context = thread |> normalize_thread_for_comment_context() |> thread_ownership_context(opts)
+
+    thread
+    |> thread_comments()
+    |> Enum.reverse()
+    |> Enum.find(fn comment ->
+      author = get_in(comment, ["author", "login"])
+      not agent_login?(author, opts)
+    end)
+    |> case do
+      nil ->
+        false
+
+      reviewer_comment ->
+        reviewer_comment
+        |> get_in(["author", "login"])
+        |> Codeowners.authoritative?(context)
+    end
+  end
+
+  defp normalize_thread_for_comment_context(thread) do
+    %{"path" => Map.get(thread, "path")}
+  end
+
   defp verify_review_thread_reply(request_fun, token, thread_id, body, opts) do
     case fetch_review_thread(request_fun, token, thread_id) do
       {:ok, thread_body} ->
@@ -1367,6 +1581,16 @@ defmodule Aiur.GitHub.Client do
 
   defp normalize_review_thread_reply_body(_body), do: {:error, :missing_review_thread_reply_body}
 
+  defp normalize_review_thread_terminal_reply_body(body) when is_binary(body) do
+    case String.trim(body) do
+      "" -> {:error, :missing_review_thread_terminal_reply_body}
+      _trimmed -> {:ok, body}
+    end
+  end
+
+  defp normalize_review_thread_terminal_reply_body(_body),
+    do: {:error, :missing_review_thread_terminal_reply_body}
+
   defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_integer(_value, default), do: default
 
@@ -1416,7 +1640,12 @@ defmodule Aiur.GitHub.Client do
     |> classify_thread_comment(thread, opts)
     |> case do
       %{authoritative: true} = comment ->
-        if actionable_review_thread_comment?(comment), do: [comment], else: []
+        [comment]
+
+      %{} = comment ->
+        if unresolved_agent_review_thread_reply?(comment, opts),
+          do: [mark_review_thread_resolution_required(comment)],
+          else: []
 
       _ ->
         []
@@ -1459,7 +1688,10 @@ defmodule Aiur.GitHub.Client do
 
   defp codeowners_classification_opts(opts) do
     agent_logins =
-      [GitHub.Config.bot_account() | Keyword.get(opts, :agent_logins, [])]
+      [
+        Keyword.get_lazy(opts, :bot_account, &GitHub.Config.bot_account/0)
+        | Keyword.get(opts, :agent_logins, [])
+      ]
       |> List.flatten()
       |> Enum.flat_map(fn value ->
         case normalize_optional_binary(value) do
@@ -1478,12 +1710,25 @@ defmodule Aiur.GitHub.Client do
 
   defp thread_ownership_context(_comment, opts), do: Codeowners.repo_ownership(opts)
 
-  defp actionable_review_thread_comment?(comment) when is_map(comment) do
+  defp unresolved_agent_review_thread_reply?(comment, opts) when is_map(comment) do
     comment
-    |> Map.get("body", "")
-    |> String.downcase()
-    |> String.contains?("no code changes")
-    |> Kernel.not()
+    |> get_in(["user", "login"])
+    |> agent_login?(opts)
+  end
+
+  defp agent_login?(login, opts) when is_binary(login) do
+    opts
+    |> codeowners_classification_opts()
+    |> Keyword.get(:agent_logins, [])
+    |> Enum.member?(login)
+  end
+
+  defp agent_login?(_login, _opts), do: false
+
+  defp mark_review_thread_resolution_required(comment) do
+    comment
+    |> Map.put(:authoritative, true)
+    |> Map.put("review_thread_resolution_required", true)
   end
 
   defp do_update_issue_state(update_context, state_name) do

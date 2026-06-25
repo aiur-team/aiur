@@ -652,10 +652,24 @@ defmodule Aiur.GitHub.ClientTest do
                  agent_logins: ["aiur-bot"]
                )
 
-      assert Enum.map(comments, & &1["id"]) == [101, 107]
-      assert Enum.map(comments, & &1["review_thread_id"]) == ["PRRT_first", "PRRT_followup"]
-      assert Enum.map(comments, & &1["body"]) == ["please fix this", "reviewer follow-up"]
+      assert Enum.map(comments, & &1["id"]) == [101, 104, 107, 108]
+
+      assert Enum.map(comments, & &1["review_thread_id"]) == [
+               "PRRT_first",
+               "PRRT_answered",
+               "PRRT_followup",
+               "PRRT_no_code_changes"
+             ]
+
+      assert Enum.map(comments, & &1["body"]) == [
+               "please fix this",
+               "addressed",
+               "reviewer follow-up",
+               "wake test, no code changes needed"
+             ]
+
       assert Enum.all?(comments, & &1.authoritative)
+      assert Enum.find(comments, &(&1["review_thread_id"] == "PRRT_answered"))["review_thread_resolution_required"]
 
       File.rm_rf!(repo_root)
     end
@@ -862,6 +876,223 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "resolve_review_thread/2" do
+    test "resolves a review thread with the GraphQL resolveReviewThread mutation" do
+      repo_root = codeowners_repo!("* @owner\n")
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_done", [
+              review_thread_comment(701, "owner", "please verify"),
+              review_thread_comment(702, "aiur-bot", "Done, no further changes.")
+            ])
+
+          body["query"] =~ "resolveReviewThread" ->
+            assert body["variables"] == %{"threadId" => "PRRT_done"}
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "resolveReviewThread" => %{
+                     "thread" => %{
+                       "id" => "PRRT_done",
+                       "isResolved" => true
+                     }
+                   }
+                 }
+               }
+             }}
+        end
+      end
+
+      assert {:ok, result} =
+               Client.resolve_review_thread("PRRT_done",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 terminal_reply_body: "Done, no further changes.",
+                 repo_root: repo_root
+               )
+
+      assert result.resolved
+      assert result.review_thread_id == "PRRT_done"
+      assert get_in(result.verification, ["latest_comment", "user", "login"]) == "aiur-bot"
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "classifies resolve permission failures with required token guidance" do
+      repo_root = codeowners_repo!("* @owner\n")
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_denied", [
+              review_thread_comment(801, "owner", "please verify"),
+              review_thread_comment(802, "aiur-bot", "Done, no further changes.")
+            ])
+
+          body["query"] =~ "resolveReviewThread" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "errors" => [
+                   %{"message" => "Resource not accessible by personal access token", "type" => "FORBIDDEN"}
+                 ]
+               }
+             }}
+        end
+      end
+
+      assert {:error,
+              {:review_thread_resolution_not_permitted,
+               %{
+                 review_thread_id: "PRRT_denied",
+                 errors: [%{"message" => "Resource not accessible by personal access token"}],
+                 required_permission: required_permission
+               }}} =
+               Client.resolve_review_thread("PRRT_denied",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 terminal_reply_body: "Done, no further changes.",
+                 repo_root: repo_root
+               )
+
+      assert required_permission =~ "Pull requests: Read and write"
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "does not classify unrelated GraphQL errors as token permission failures" do
+      repo_root = codeowners_repo!("* @owner\n")
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_error", [
+              review_thread_comment(811, "owner", "please verify"),
+              review_thread_comment(812, "aiur-bot", "Done, no further changes.")
+            ])
+
+          body["query"] =~ "resolveReviewThread" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"errors" => [%{"message" => "not permitted on an already resolved thread"}]}
+             }}
+        end
+      end
+
+      assert {:error, {:github_graphql_errors, [%{"message" => "not permitted on an already resolved thread"}]}} =
+               Client.resolve_review_thread("PRRT_error",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 terminal_reply_body: "Done, no further changes.",
+                 repo_root: repo_root
+               )
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "fails when the mutation does not report a resolved thread" do
+      repo_root = codeowners_repo!("* @owner\n")
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_still_open", [
+              review_thread_comment(901, "owner", "please verify"),
+              review_thread_comment(902, "aiur-bot", "Done, no further changes.")
+            ])
+
+          body["query"] =~ "resolveReviewThread" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "resolveReviewThread" => %{
+                     "thread" => %{
+                       "id" => "PRRT_still_open",
+                       "isResolved" => false
+                     }
+                   }
+                 }
+               }
+             }}
+        end
+      end
+
+      assert {:error, {:review_thread_not_resolved, %{review_thread_id: "PRRT_still_open"}}} =
+               Client.resolve_review_thread("PRRT_still_open",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 terminal_reply_body: "Done, no further changes.",
+                 repo_root: repo_root
+               )
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "refuses to resolve when the terminal reply is no longer the latest comment" do
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_followup", [
+              review_thread_comment(1001, "owner", "please verify"),
+              review_thread_comment(1002, "aiur-bot", "Done, no further changes."),
+              review_thread_comment(1003, "owner", "Actually, please also fix this.")
+            ])
+
+          body["query"] =~ "resolveReviewThread" ->
+            flunk("resolveReviewThread must not be called when a reviewer follow-up is latest")
+        end
+      end
+
+      assert {:error,
+              {:review_thread_resolution_precondition_failed,
+               %{
+                 reason: :latest_comment_author_mismatch,
+                 review_thread_id: "PRRT_followup"
+               }}} =
+               Client.resolve_review_thread("PRRT_followup",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 terminal_reply_body: "Done, no further changes."
+               )
+    end
+
+    test "refuses to resolve when the reviewer is outside the CODEOWNERS trust boundary" do
+      repo_root = codeowners_repo!("* @owner\n")
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "query AiurReviewThread" ->
+            review_thread_node_response("PRRT_nonowner", [
+              review_thread_comment(1101, "guest", "please verify"),
+              review_thread_comment(1102, "aiur-bot", "Done, no further changes.")
+            ])
+
+          body["query"] =~ "resolveReviewThread" ->
+            flunk("resolveReviewThread must not be called for non-authoritative reviewer threads")
+        end
+      end
+
+      assert {:error, {:review_thread_resolution_not_authorized, %{review_thread_id: "PRRT_nonowner", path: "src/lib/aiur/github/client.ex"}}} =
+               Client.resolve_review_thread("PRRT_nonowner",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 terminal_reply_body: "Done, no further changes.",
+                 repo_root: repo_root
+               )
+
+      File.rm_rf!(repo_root)
+    end
+  end
+
   describe "fetch_classified_issue_comments/2" do
     test "uses repo-wide CODEOWNERS for issue comments without PR paths" do
       repo_root = codeowners_repo!("docs/ @docs-owner\n")
@@ -935,7 +1166,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert :ok = Client.update_issue_state("42", "Done", request_fun: request_fun)
     end
 
-    test "human-review readiness excludes replies by the authenticated viewer when bot_account is unset" do
+    test "human-review readiness requires unresolved authenticated-viewer replies to be resolved" do
       repo_root = codeowners_repo!("* @its-everdred\n")
       test_pid = self()
 
@@ -966,7 +1197,7 @@ defmodule Aiur.GitHub.ClientTest do
         end
       end
 
-      assert :ok =
+      assert {:error, {:unverified_review_threads, %{count: 1, pr_number: 77, review_thread_ids: ["PRRT_self_reply"]}}} =
                Client.verify_human_review_ready("42",
                  request_fun: request_fun,
                  repo_root: repo_root,
@@ -979,6 +1210,44 @@ defmodule Aiur.GitHub.ClientTest do
       assert viewer_query =~ "AiurViewerLogin"
       assert_receive {:github_request, %{method: :post, body: %{"query" => threads_query}}}
       assert threads_query =~ "AiurUnaddressedReviewThreads"
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "human-review readiness allows authenticated-viewer replies when the thread is resolved" do
+      repo_root = codeowners_repo!("* @its-everdred\n")
+
+      request_fun = fn req ->
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+          req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
+            {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
+
+          req.method == :post and req.body["query"] =~ "AiurUnaddressedReviewThreads" ->
+            review_threads_page_response([
+              %{
+                "id" => "PRRT_self_reply",
+                "isResolved" => true,
+                "path" => "src/lib/aiur/github/client.ex",
+                "line" => 12,
+                "comments" => %{
+                  "nodes" => [
+                    review_thread_comment(601, "its-everdred", "Verified on this branch.")
+                  ]
+                }
+              }
+            ])
+        end
+      end
+
+      assert :ok =
+               Client.verify_human_review_ready("42",
+                 request_fun: request_fun,
+                 repo_root: repo_root,
+                 bot_account: nil
+               )
 
       File.rm_rf!(repo_root)
     end
@@ -1326,17 +1595,23 @@ defmodule Aiur.GitHub.ClientTest do
     }
   end
 
-  defp review_thread_node_response(thread_id, comments) do
+  defp review_thread_node_response(thread_id, comments, attrs \\ %{}) do
     {:ok,
      %{
        status: 200,
        body: %{
          "data" => %{
-           "node" => %{
-             "id" => thread_id,
-             "isResolved" => false,
-             "comments" => %{"nodes" => comments}
-           }
+           "node" =>
+             Map.merge(
+               %{
+                 "id" => thread_id,
+                 "isResolved" => false,
+                 "path" => "src/lib/aiur/github/client.ex",
+                 "line" => 12,
+                 "comments" => %{"nodes" => comments}
+               },
+               attrs
+             )
          }
        }
      }}

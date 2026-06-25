@@ -143,7 +143,9 @@ defmodule Aiur.Codex.DynamicTool do
   @reply_review_thread_description """
   Post a reply to an exact GitHub pull request review thread, then re-fetch
   that thread and verify the latest comment is the agent's reply. Returns
-  success only after the read-after-write postcondition passes.
+  success only after the read-after-write postcondition passes. This does not
+  resolve the thread; use aiur_resolve_review_thread only after a terminal
+  "done, no further change" reply has been verified.
   """
   @reply_review_thread_input_schema %{
     "type" => "object",
@@ -160,6 +162,30 @@ defmodule Aiur.Codex.DynamicTool do
       }
     }
   }
+  @resolve_review_thread_tool "aiur_resolve_review_thread"
+  @resolve_review_thread_description """
+  Resolve an exact GitHub pull request review thread after the agent has posted
+  and verified a terminal reply. The exact terminal reply body is required so
+  Aiur can re-fetch the thread and confirm that reply is still latest before
+  resolving. If GitHub rejects resolution because the token lacks permission,
+  the tool returns an explicit not-permitted failure; the verified reply remains
+  the durable done signal.
+  """
+  @resolve_review_thread_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["review_thread_id", "terminal_reply_body"],
+    "properties" => %{
+      "review_thread_id" => %{
+        "type" => "string",
+        "description" => "GitHub PullRequestReviewThread node id, e.g. PRRT_kwD..."
+      },
+      "terminal_reply_body" => %{
+        "type" => "string",
+        "description" => "Exact body of the already-verified terminal agent reply that should be latest before resolving."
+      }
+    }
+  }
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do
@@ -169,6 +195,9 @@ defmodule Aiur.Codex.DynamicTool do
 
       @reply_review_thread_tool ->
         execute_reply_review_thread(arguments, opts)
+
+      @resolve_review_thread_tool ->
+        execute_resolve_review_thread(arguments, opts)
 
       @emit_alert_tool ->
         execute_emit_alert(arguments, opts)
@@ -217,6 +246,11 @@ defmodule Aiur.Codex.DynamicTool do
         "name" => @reply_review_thread_tool,
         "description" => @reply_review_thread_description,
         "inputSchema" => @reply_review_thread_input_schema
+      },
+      %{
+        "name" => @resolve_review_thread_tool,
+        "description" => @resolve_review_thread_description,
+        "inputSchema" => @resolve_review_thread_input_schema
       },
       %{
         "name" => @emit_alert_tool,
@@ -473,6 +507,37 @@ defmodule Aiur.Codex.DynamicTool do
 
   defp normalize_reply_review_thread_arguments(_arguments),
     do: {:error, :invalid_review_thread_reply_arguments}
+
+  defp execute_resolve_review_thread(arguments, opts) do
+    review_thread_resolver =
+      Keyword.get(opts, :review_thread_resolver, &GitHubClient.resolve_review_thread/2)
+
+    with {:ok, review_thread_id, terminal_reply_body} <-
+           normalize_resolve_review_thread_arguments(arguments),
+         {:ok, response} <-
+           review_thread_resolver.(review_thread_id, terminal_reply_body: terminal_reply_body) do
+      dynamic_tool_response(true, encode_payload(response))
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+    end
+  end
+
+  defp normalize_resolve_review_thread_arguments(arguments) when is_map(arguments) do
+    with {:ok, review_thread_id} <-
+           normalize_dynamic_tool_string(arguments, "review_thread_id", :missing_review_thread_id),
+         {:ok, terminal_reply_body} <-
+           normalize_dynamic_tool_string(
+             arguments,
+             "terminal_reply_body",
+             :missing_review_thread_terminal_reply_body
+           ) do
+      {:ok, review_thread_id, terminal_reply_body}
+    end
+  end
+
+  defp normalize_resolve_review_thread_arguments(_arguments),
+    do: {:error, :invalid_review_thread_resolution_arguments}
 
   defp execute_emit_alert(arguments, opts) do
     alert_emitter = Keyword.get(opts, :alert_emitter)
@@ -731,8 +796,19 @@ defmodule Aiur.Codex.DynamicTool do
     }
   end
 
+  defp tool_error_payload(:invalid_review_thread_resolution_arguments) do
+    %{
+      "error" => %{
+        "message" => "`aiur_resolve_review_thread` expects an object with non-empty `review_thread_id` and `terminal_reply_body` strings."
+      }
+    }
+  end
+
   defp tool_error_payload(:missing_review_thread_id),
-    do: %{"error" => %{"message" => "`aiur_reply_review_thread.review_thread_id` is required."}}
+    do: %{"error" => %{"message" => "`review_thread_id` is required."}}
+
+  defp tool_error_payload(:missing_review_thread_terminal_reply_body),
+    do: %{"error" => %{"message" => "`terminal_reply_body` is required."}}
 
   defp tool_error_payload(:missing_review_thread_body),
     do: %{"error" => %{"message" => "`aiur_reply_review_thread.body` is required."}}
@@ -743,6 +819,56 @@ defmodule Aiur.Codex.DynamicTool do
         "message" => "GitHub review thread reply was not verified.",
         "reason" => "review_thread_reply_not_verified",
         "detail" => result_jsonable(detail)
+      }
+    }
+  end
+
+  defp tool_error_payload({:review_thread_resolution_not_permitted, detail}) do
+    %{
+      "error" => %{
+        "message" => "GitHub review thread resolution was not permitted by the configured token.",
+        "reason" => "review_thread_resolution_not_permitted",
+        "detail" => result_jsonable(detail)
+      }
+    }
+  end
+
+  defp tool_error_payload({:review_thread_not_resolved, detail}) do
+    %{
+      "error" => %{
+        "message" => "GitHub review thread resolution did not report a resolved thread.",
+        "reason" => "review_thread_not_resolved",
+        "detail" => result_jsonable(detail)
+      }
+    }
+  end
+
+  defp tool_error_payload({:review_thread_resolution_precondition_failed, detail}) do
+    %{
+      "error" => %{
+        "message" => "GitHub review thread resolution precondition failed.",
+        "reason" => "review_thread_resolution_precondition_failed",
+        "detail" => result_jsonable(detail)
+      }
+    }
+  end
+
+  defp tool_error_payload({:review_thread_resolution_not_authorized, detail}) do
+    %{
+      "error" => %{
+        "message" => "GitHub review thread resolution is outside the CODEOWNERS trust boundary.",
+        "reason" => "review_thread_resolution_not_authorized",
+        "detail" => result_jsonable(detail)
+      }
+    }
+  end
+
+  defp tool_error_payload({:github_graphql_errors, errors}) do
+    %{
+      "error" => %{
+        "message" => "GitHub GraphQL request failed.",
+        "reason" => "github_graphql_errors",
+        "errors" => result_jsonable(errors)
       }
     }
   end
