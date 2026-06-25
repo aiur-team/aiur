@@ -1599,6 +1599,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  }
                ]
              }}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
         end
       end
 
@@ -1683,6 +1686,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  }
                ]
              }}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
         end
       end
 
@@ -2748,4 +2754,23 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp empty_review_threads_response do
+    {:ok,
+     %{
+       status: 200,
+       body: %{
+         "data" => %{
+           "repository" => %{
+             "pullRequest" => %{
+               "reviewThreads" => %{
+                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                 "nodes" => []
+               }
+             }
+           }
+         }
+       }
+     }}
+  end
 end

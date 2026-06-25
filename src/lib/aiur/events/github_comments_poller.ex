@@ -92,10 +92,13 @@ defmodule Aiur.Events.GithubCommentsPoller do
       {review_count, review_newest, review_result} =
         poll_pr_review_comments(target, pr_number, since, repo, opts)
 
+      {thread_count, thread_result} =
+        poll_unaddressed_pr_review_threads(target, pr_number, repo, opts)
+
       {
-        conversation_count + review_count,
+        conversation_count + review_count + thread_count,
         max_datetime(conversation_newest, review_newest),
-        [conversation_result, review_result]
+        [conversation_result, review_result, thread_result]
       }
     else
       {:ok, nil} ->
@@ -143,6 +146,23 @@ defmodule Aiur.Events.GithubCommentsPoller do
         Logger.warning("GithubCommentsPoller PR review comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
 
         {0, nil, {:error, {:pr_review_comments, reason}}}
+    end
+  end
+
+  defp poll_unaddressed_pr_review_threads(target, pr_number, repo, opts) do
+    case Client.fetch_unaddressed_pr_review_thread_comments(pr_number, opts) do
+      {:ok, comments} ->
+        count =
+          comments
+          |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
+          |> Enum.count(&match?({:ok, _, _}, &1))
+
+        {count, :ok}
+
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller PR review threads failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+
+        {0, {:error, {:pr_review_threads, reason}}}
     end
   end
 
