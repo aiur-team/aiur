@@ -2,6 +2,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentPubSub
+  alias Aiur.AgentQueueStore
   alias Aiur.Events.{Exchange, SubscriptionStore}
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
@@ -1267,7 +1268,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "trusted comment for an idle issue transitions it to rework for the next poll" do
+    test "trusted comment for an idle issue transitions it to rework and queues the comment" do
       issue_id = "issue-issue-commented-2"
       issue_identifier = "7"
       previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
@@ -1289,15 +1290,41 @@ defmodule Aiur.OrchestratorDeactivateTest do
           max_concurrent_agents: 6
         }
 
-        assert {:noreply, ^state} =
+        event = %{
+          id: 123,
+          topic: "ticket.#{issue_identifier}.issue.commented",
+          source: :github,
+          author_trusted?: true,
+          message: "please fix the PR",
+          comment: %{"body" => "please fix the PR"}
+        }
+
+        assert {:noreply, next_state} =
                  Orchestrator.handle_info(
-                   {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
+                   {:event, event},
                    state
                  )
 
         assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
         refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 50
+
+        assert [
+                 %{
+                   event_type: :events_digest,
+                   body: %{events: [^event]}
+                 }
+               ] = AgentQueueStore.list_pending(next_state.queue_store, issue_identifier)
+
+        assert %{
+                 subscribed_to: subscribed_to
+               } = SubscriptionStore.snapshot(issue_identifier)
+
+        topics = Enum.map(subscribed_to, & &1["topic"])
+        assert "ticket.#{issue_identifier}.issue.commented" in topics
+        assert "ticket.#{issue_identifier}.pr.review_comment" in topics
       after
+        :ok = SubscriptionStore.stop(issue_identifier)
+
         if previous_memory_recipient do
           Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
         else

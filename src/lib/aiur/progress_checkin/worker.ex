@@ -11,11 +11,11 @@ defmodule Aiur.ProgressCheckin.Worker do
         %{...}
       )
 
-  Agents auto-subscribe to that topic in
-  `Aiur.AgentRunner.maybe_attach_universal_subscriptions/1`, so the
-  request lands in the existing subscription drain alongside firehose
-  events. It is **non-interruptive**: the request is read at the next
-  natural turn boundary, never interrupting an active tool call.
+  Agents auto-subscribe to that topic via
+  `Aiur.Events.UniversalSubscriptions`, so the request lands in the
+  existing subscription drain alongside firehose events. It is
+  **non-interruptive**: the request is read at the next natural turn
+  boundary, never interrupting an active tool call.
 
   The agent's reply is an emitted `progress.checkin` event, which the
   source-aware ratchet in `Aiur.AgentList.App.record_progress_sample/2`

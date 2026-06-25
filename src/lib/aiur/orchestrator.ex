@@ -25,7 +25,16 @@ defmodule Aiur.Orchestrator do
   }
 
   alias Aiur.Claude.{RemoteControl, ReplAgent}
-  alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubFirehose, Publisher, SubscriptionStore}
+
+  alias Aiur.Events.{
+    Exchange,
+    GithubCommentsPoller,
+    GithubFirehose,
+    Publisher,
+    SubscriptionStore,
+    UniversalSubscriptions
+  }
+
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
@@ -838,7 +847,7 @@ defmodule Aiur.Orchestrator do
   defp maybe_transition_idle_issue_to_rework(state, issue_number, source, event) do
     case transition_comment_issue_to_rework(issue_number, source, event) do
       :ok ->
-        state
+        seed_idle_comment_wake_event(state, issue_number, event)
 
       {:skip, reason} ->
         Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
@@ -850,6 +859,13 @@ defmodule Aiur.Orchestrator do
 
         state
     end
+  end
+
+  defp seed_idle_comment_wake_event(%State{} = state, issue_number, event) do
+    identifier = to_string(issue_number)
+
+    UniversalSubscriptions.attach(identifier)
+    enqueue_event_digest_item(state, identifier, [event], event)
   end
 
   defp transition_and_revalidate_comment_reactivation(
@@ -3934,29 +3950,7 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state) do
-    body = %{
-      summary: event_digest_summary(event),
-      events: [event]
-    }
-
-    running_entry = find_running_by_identifier(state.running, identifier)
-    delivery_opts = event_digest_delivery_opts(running_entry, event)
-
-    {queue_store, item} =
-      AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
-      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
-
-    next_state = %{state | queue_store: queue_store}
-
-    case running_entry do
-      nil ->
-        :ok
-
-      running_entry ->
-        notify_running_queue_update(running_entry, item)
-    end
-
-    {:reply, :ok, next_state}
+    {:reply, :ok, enqueue_event_digest_item(state, identifier, [event], event)}
   end
 
   # Bootstrap-digest batched enqueue: one queue item carries every
@@ -3966,29 +3960,7 @@ defmodule Aiur.Orchestrator do
   # other events_digest items that arrive between enqueue and drain.
   def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
       when is_binary(identifier) and is_list(events) do
-    body = %{
-      summary: event_digest_summary(%{events: events}),
-      events: events
-    }
-
-    running_entry = find_running_by_identifier(state.running, identifier)
-    delivery_opts = event_digest_delivery_opts(running_entry, events)
-
-    {queue_store, item} =
-      AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
-      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
-
-    next_state = %{state | queue_store: queue_store}
-
-    case running_entry do
-      nil ->
-        :ok
-
-      running_entry ->
-        notify_running_queue_update(running_entry, item)
-    end
-
-    {:reply, :ok, next_state}
+    {:reply, :ok, enqueue_event_digest_item(state, identifier, events, %{events: events})}
   end
 
   def handle_call(:poll_status, _from, state) do
@@ -4339,6 +4311,33 @@ defmodule Aiur.Orchestrator do
       AgentQueueStore.fail_delivered(state.queue_store, issue_identifier, reason)
 
     {:reply, :ok, %{state | queue_store: queue_store}}
+  end
+
+  defp enqueue_event_digest_item(%State{} = state, identifier, events, summary_source)
+       when is_binary(identifier) and is_list(events) do
+    body = %{
+      summary: event_digest_summary(summary_source),
+      events: events
+    }
+
+    running_entry = find_running_by_identifier(state.running, identifier)
+    delivery_opts = event_digest_delivery_opts(running_entry, events)
+
+    {queue_store, item} =
+      AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
+      |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
+
+    next_state = %{state | queue_store: queue_store}
+
+    case running_entry do
+      nil ->
+        :ok
+
+      running_entry ->
+        notify_running_queue_update(running_entry, item)
+    end
+
+    next_state
   end
 
   defp enqueue_operator_message(state, issue_identifier, body, payload) do
@@ -6080,7 +6079,10 @@ defmodule Aiur.Orchestrator do
     first_events = first.body |> Map.get(:events, []) |> List.wrap()
     next_events = next.body |> Map.get(:events, []) |> List.wrap()
 
-    sorted = Enum.sort_by(first_events ++ next_events, &event_sort_key/1)
+    sorted =
+      (first_events ++ next_events)
+      |> Enum.uniq_by(&event_dedupe_key/1)
+      |> Enum.sort_by(&event_sort_key/1)
 
     new_body =
       first.body
@@ -6093,6 +6095,25 @@ defmodule Aiur.Orchestrator do
   defp event_sort_key(%{id: id}) when is_integer(id), do: id
   defp event_sort_key(%{"id" => id}) when is_integer(id), do: id
   defp event_sort_key(_), do: 0
+
+  defp event_dedupe_key(event) when is_map(event) do
+    topic = event_topic(event)
+
+    case {comment_event_topic?(event), event_comment_id(event), event_sort_key(event)} do
+      {true, id, _} when is_integer(id) -> {topic, :comment, id}
+      {_, _, id} when is_integer(id) and id > 0 -> {topic, :event, id}
+      _ -> event
+    end
+  end
+
+  defp event_dedupe_key(event), do: event
+
+  defp event_topic(event) when is_map(event), do: Map.get(event, :topic) || Map.get(event, "topic")
+
+  defp event_comment_id(event) when is_map(event) do
+    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
+    Map.get(comment, :id) || Map.get(comment, "id")
+  end
 
   # Asymmetric auto-subscribe: when the orchestrator's poll observes a new blocker on
   # `issue.blocked_by`, asymmetrically auto-subscribe both sides:

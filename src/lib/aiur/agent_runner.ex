@@ -23,7 +23,7 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.Claude.DisplayTailer
   alias Aiur.Codex.DynamicTool
-  alias Aiur.Events.{DebugLog, IdGenerator, Publisher, Sanitizer, SubscriptionStore, Topic}
+  alias Aiur.Events.{DebugLog, IdGenerator, Publisher, Sanitizer, SubscriptionStore, Topic, UniversalSubscriptions}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
 
@@ -142,44 +142,10 @@ defmodule Aiur.AgentRunner do
   # `add_subscription/3` short-circuits on duplicate so this is idempotent
   # across restarts. Reasons: `base_branch:auto`, `own_comments:auto`.
   defp maybe_attach_universal_subscriptions(%Issue{identifier: identifier}) when is_binary(identifier) do
-    :ok = SubscriptionStore.attach(identifier)
-
-    base_branch = base_branch_name()
-
-    topics = [
-      {"system." <> base_branch <> ".branch.push", "base_branch:auto"},
-      # Topic names match what GithubFirehose actually publishes:
-      # `.issue.commented` (IssueCommentEvent) and `.pr.review_comment`
-      # (PullRequestReviewCommentEvent). Exchange routes by literal
-      # segment match, so the strings must align exactly.
-      {"ticket." <> identifier <> ".issue.commented", "own_comments:auto"},
-      {"ticket." <> identifier <> ".pr.review_comment", "own_comments:auto"},
-      # Operator-initiated 5-minute check-in published by
-      # Aiur.ProgressCheckin.Worker. Drained at the next turn boundary;
-      # agent replies by emitting `progress.checkin`.
-      {"ticket." <> identifier <> ".operator.progress_request", "progress_checkin:auto"}
-    ]
-
-    Enum.each(topics, fn {topic, reason} ->
-      _ = SubscriptionStore.add_subscription(identifier, topic, reason)
-    end)
-
-    :ok
+    UniversalSubscriptions.attach(identifier)
   end
 
   defp maybe_attach_universal_subscriptions(_issue), do: :ok
-
-  # First-pass base-branch resolver: read from workflow config
-  # (`tracker.base_branch` if set) and fall back to `"main"`. A richer
-  # resolver could call `gh repo view --json defaultBranchRef` once per
-  # orchestrator boot and cache the result; not load-bearing for the
-  # auto-sub path yet.
-  defp base_branch_name do
-    case Config.settings!() do
-      %{tracker: %{base_branch: name}} when is_binary(name) and name != "" -> name
-      _ -> "main"
-    end
-  end
 
   defp bootstrap_events(cursor, subscribed_to) do
     patterns = subscribed_to |> Enum.map(&Map.get(&1, "topic")) |> Enum.reject(&is_nil/1)

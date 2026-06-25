@@ -21,6 +21,15 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
     %{id: id, topic: "ticket.99.branch.push", message: "push ##{id}"}
   end
 
+  defp comment_event(event_id, comment_id) when is_integer(event_id) and is_integer(comment_id) do
+    %{
+      id: event_id,
+      topic: "ticket.99.issue.commented",
+      comment: %{"id" => comment_id, "body" => "please fix it"},
+      message: "please fix it"
+    }
+  end
+
   test "single events_digest item passes through unchanged" do
     store =
       AgentQueueStore.new()
@@ -58,6 +67,29 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
     {_store, item} = Orchestrator.coalesce_for_test(store, "99")
 
     assert Enum.map(item.body.events, & &1.id) == [1, 3, 7]
+  end
+
+  test "duplicate events are delivered once after coalescing" do
+    store =
+      AgentQueueStore.new()
+      |> enqueue_events_digest("99", event(1))
+      |> enqueue_events_digest("99", event(1))
+      |> enqueue_events_digest("99", event(2))
+
+    {_store, item} = Orchestrator.coalesce_for_test(store, "99")
+
+    assert Enum.map(item.body.events, & &1.id) == [1, 2]
+  end
+
+  test "comment events dedupe by comment id when event ids differ" do
+    store =
+      AgentQueueStore.new()
+      |> enqueue_events_digest("99", comment_event(42, 555))
+      |> enqueue_events_digest("99", comment_event(555, 555))
+
+    {_store, item} = Orchestrator.coalesce_for_test(store, "99")
+
+    assert [%{id: 42, comment: %{"id" => 555}}] = item.body.events
   end
 
   test "empty queue returns nil" do
