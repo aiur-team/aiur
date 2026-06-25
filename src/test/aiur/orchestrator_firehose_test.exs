@@ -2,6 +2,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Connectivity
   alias Aiur.Orchestrator
   alias Aiur.Workflow
 
@@ -65,7 +66,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
     stub = fn _req -> {:error, %Req.TransportError{reason: :nxdomain}} end
 
     state =
-      Enum.reduce(1..Aiur.GitHub.Connectivity.escalation_threshold(), %Orchestrator.State{}, fn _i, acc ->
+      Enum.reduce(1..Connectivity.escalation_threshold(), %Orchestrator.State{}, fn _i, acc ->
         Orchestrator.poll_github_firehose_for_test(acc, request_fun: stub)
       end)
 
