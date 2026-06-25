@@ -333,6 +333,45 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "before_run dirty refresh refusal uses exit 65 rather than output wording" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-stale-leftover-exit-code-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      {workspace, trace_file} =
+        bootstrap_dirty_refresh_workspace!(test_root, "STALE-65-ONLY",
+          refusal_output: "changed operator-facing refusal text"
+        )
+
+      issue = %Issue{
+        id: "issue-stale-65-only",
+        identifier: "STALE-65-ONLY",
+        title: "Recover stale workspace by exit code",
+        state: "todo",
+        labels: ["agent:todo"]
+      }
+
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+
+      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "checked-in before_run hook exposes exit 65 as the refresh refusal contract" do
+    hooks_path = Path.expand("../../../.aiur/hooks", __DIR__)
+    hooks = File.read!(hooks_path)
+
+    assert hooks =~ "exit 65"
+    refute hooks =~ "matched by Workspace.stale_leftover_refresh_refusal?"
+  end
+
   # Regression for #653. A base-branch push (a PR merge) — or a
   # resume-after-idle — fires before_run on a still-working agent. The agent
   # is mid-implementation with uncommitted tracked WIP, so before_run hits the
@@ -2552,11 +2591,12 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  defp bootstrap_dirty_refresh_workspace!(test_root, identifier) do
+  defp bootstrap_dirty_refresh_workspace!(test_root, identifier, opts \\ []) do
     source_repo = Path.join(test_root, "source")
     remote_repo = Path.join(test_root, "remote.git")
     workspace_root = Path.join(test_root, "workspaces")
     trace_file = Path.join(test_root, "before-run.trace")
+    refusal_output = Keyword.get(opts, :refusal_output)
 
     File.mkdir_p!(source_repo)
     File.write!(Path.join(source_repo, "README.md"), "initial\n")
@@ -2585,8 +2625,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
       else
         git fetch origin main
         if ! git diff --quiet -- . || ! git diff --cached --quiet -- .; then
-          echo "Refusing to refresh workspace from origin/main because tracked source changes are present." >&2
-          echo "Commit or resolve the workspace changes before resuming this agent." >&2
+          echo #{shell_quote(refusal_output || "Refusing to refresh workspace from origin/main because tracked source changes are present.")} >&2
+          echo #{shell_quote("Commit or resolve the workspace changes before resuming this agent.")} >&2
           exit 65
         fi
         git merge --no-edit origin/main
