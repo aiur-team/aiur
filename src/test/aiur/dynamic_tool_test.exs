@@ -24,7 +24,10 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Enum.any?(specs, fn
              %{
-               "inputSchema" => %{"required" => ["name", "message"]},
+               "inputSchema" => %{
+                 "properties" => %{"reason" => _, "needs_attention" => _, "severity" => _},
+                 "required" => ["name", "message", "reason", "needs_attention"]
+               },
                "name" => "emit_alert"
              } ->
                true
@@ -93,16 +96,76 @@ defmodule Aiur.Codex.DynamicToolTest do
         "emit_alert",
         %{
           "name" => "phase.work.start",
-          "message" => "Entered implementation"
+          "message" => "Entered implementation",
+          "reason" => "work phase started",
+          "needs_attention" => false
         },
-        alert_emitter: fn name, message ->
-          send(test_pid, {:alert_emitted, name, message})
+        alert_emitter: fn name, message, reason, needs_attention, severity ->
+          send(test_pid, {:alert_emitted, name, message, reason, needs_attention, severity})
           :ok
         end
       )
 
-    assert_received {:alert_emitted, "phase.work.start", "Entered implementation"}
+    assert_received {:alert_emitted, "phase.work.start", "Entered implementation", "work phase started", false, "info"}
     assert response["success"] == true
+  end
+
+  test "emit_alert accepts legacy payloads and defaults structured fields" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "emit_alert",
+        %{
+          "name" => "phase.plan.start",
+          "message" => "Planning"
+        },
+        alert_emitter: fn name, message, reason, needs_attention, severity ->
+          send(test_pid, {:alert_emitted, name, message, reason, needs_attention, severity})
+          :ok
+        end
+      )
+
+    assert_received {:alert_emitted, "phase.plan.start", "Planning", "Planning", false, "info"}
+    assert response["success"] == true
+  end
+
+  test "emit_alert supports legacy two-argument emitters" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "emit_alert",
+        %{
+          "name" => "phase.review.start",
+          "message" => "Reviewing",
+          "reason" => "self-review started",
+          "needs_attention" => false
+        },
+        alert_emitter: fn name, message ->
+          send(test_pid, {:legacy_alert_emitted, name, message})
+          :ok
+        end
+      )
+
+    assert_received {:legacy_alert_emitted, "phase.review.start", "Reviewing"}
+    assert response["success"] == true
+  end
+
+  test "emit_alert rejects explicit non-boolean needs_attention" do
+    response =
+      DynamicTool.execute(
+        "emit_alert",
+        %{
+          "name" => "phase.review.start",
+          "message" => "Reviewing",
+          "needs_attention" => "false"
+        },
+        alert_emitter: fn _name, _message, _reason, _needs_attention, _severity -> :ok end
+      )
+
+    assert response["success"] == false
+    assert Jason.decode!(response["output"])["error"]["message"] == "`emit_alert.needs_attention` must be true or false."
   end
 
   test "emit_alert rejects reserved system scopes" do
@@ -111,9 +174,12 @@ defmodule Aiur.Codex.DynamicToolTest do
         "emit_alert",
         %{
           "name" => "task.done",
-          "message" => "Completed"
+          "message" => "Completed",
+          "reason" => "attempted system scope",
+          "needs_attention" => true,
+          "severity" => "critical"
         },
-        alert_emitter: fn _name, _message -> {:error, :system_scope_reserved} end
+        alert_emitter: fn _name, _message, _reason, _needs_attention, _severity -> {:error, :system_scope_reserved} end
       )
 
     assert response["success"] == false

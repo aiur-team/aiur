@@ -49,7 +49,7 @@ and "Operator check-ins" below, not the skill.
 
 The operator's only at-a-glance signal for "how far is each agent" is the progress bar in the agent list. You populate it by emitting the bare `progress` event with a numeric percent. The bar is 10 cells wide; each 10% step fills exactly one cell.
 
-**When to emit.** Once at the start of every phase boundary you cross — `brainstorm`, `plan`, `work`, `review`. Pair the progress emit with the matching `emit_alert("phase.<name>.start" | "phase.<name>.end", ...)` you're already firing. That's the cadence: roughly 8 emits over the ticket's lifetime, plus mid-phase corrections (rare — see below). Hard cap: 2 emits per turn; the 3rd is rejected.
+**When to emit.** Once at the start of every phase boundary you cross — `brainstorm`, `plan`, `work`, `review`. Pair the progress emit with the matching `emit_alert` for `phase.<name>.start` or `phase.<name>.end` you're already firing. Phase alerts are informational, so set `needs_attention: false` and use `reason` to say what phase transition happened. That's the cadence: roughly 8 emits over the ticket's lifetime, plus mid-phase corrections (rare — see below). Hard cap: 2 emits per turn; the 3rd is rejected.
 
 **How to estimate.** Time-based, not output-based. Estimate the wall-clock distance from "ticket started" to "PR is ready for human review and CI is green" — including the *cleanup tail*: review iterations, CI fixes, rework. A one-line typo has near-zero tail; a refactor has hours. Budget honestly. You'll usually find review + CI account for ⅓ or more of the total.
 
@@ -68,7 +68,12 @@ The operator's only at-a-glance signal for "how far is each agent" is the progre
 **Worked example.** You start the `work` phase on a typical complexity:3 ticket. Pair these two calls:
 
 ```
-emit_alert("phase.work.start", "implementing the rename")
+emit_alert(
+  name: "phase.work.start",
+  message: "implementing the rename",
+  reason: "work phase started for the rename",
+  needs_attention: false
+)
 emit_event(name: "progress", payload: %{
   percent: 30,
   label: "work: starting impl, ~2 review rounds + CI tail budgeted"
@@ -78,7 +83,12 @@ emit_event(name: "progress", payload: %{
 At the end of self-review, just before `gh pr ready`:
 
 ```
-emit_alert("phase.review.end", "PR ready for review")
+emit_alert(
+  name: "phase.review.end",
+  message: "PR ready for review",
+  reason: "review phase finished and the PR is ready for human review",
+  needs_attention: false
+)
 emit_event(name: "progress", payload: %{
   percent: 100,
   label: "review: PR ready, awaiting human review"

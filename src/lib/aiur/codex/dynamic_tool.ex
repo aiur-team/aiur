@@ -7,16 +7,29 @@ defmodule Aiur.Codex.DynamicTool do
 
   @emit_alert_tool "emit_alert"
   @emit_alert_description """
-  Emit a custom Aiur alert with a scoped name and concise message.
+  Emit a custom Aiur alert with a scoped name, concise message, and
+  structured operator context.
   Reserved system scopes (`task.*`, `agent.*`, `chat.*`) are not allowed.
   """
   @emit_alert_input_schema %{
     "type" => "object",
     "additionalProperties" => false,
-    "required" => ["name", "message"],
+    "required" => ["name", "message", "reason", "needs_attention"],
     "properties" => %{
       "name" => %{"type" => "string", "description" => "Scoped alert name such as `phase.work.start`."},
-      "message" => %{"type" => "string", "description" => "Concise log-facing alert message."}
+      "message" => %{"type" => "string", "description" => "Concise log-facing alert message."},
+      "reason" => %{
+        "type" => "string",
+        "description" => "Human-readable reason or context the operator should relay."
+      },
+      "needs_attention" => %{
+        "type" => "boolean",
+        "description" => "True only when the operator should look or act now."
+      },
+      "severity" => %{
+        "type" => "string",
+        "description" => "Optional severity label such as info, warning, or critical."
+      }
     }
   }
   @emit_event_tool "emit_event"
@@ -392,12 +405,21 @@ defmodule Aiur.Codex.DynamicTool do
   defp execute_emit_alert(arguments, opts) do
     alert_emitter = Keyword.get(opts, :alert_emitter)
 
-    with {:ok, name, message} <- normalize_emit_alert_arguments(arguments),
-         true <- is_function(alert_emitter, 2) || {:error, :alert_emitter_unavailable},
-         :ok <- alert_emitter.(name, message) do
+    with {:ok, name, message, reason, needs_attention, severity} <- normalize_emit_alert_arguments(arguments),
+         :ok <- call_alert_emitter(alert_emitter, name, message, reason, needs_attention, severity) do
       dynamic_tool_response(
         true,
-        Jason.encode!(%{"ok" => true, "name" => name, "message" => message}, pretty: true)
+        Jason.encode!(
+          %{
+            "ok" => true,
+            "name" => name,
+            "message" => message,
+            "reason" => reason,
+            "needs_attention" => needs_attention,
+            "severity" => severity
+          },
+          pretty: true
+        )
       )
     else
       {:error, reason} ->
@@ -447,21 +469,17 @@ defmodule Aiur.Codex.DynamicTool do
 
   defp normalize_emit_alert_arguments(arguments) when is_map(arguments) do
     with {:ok, name} <- normalize_emit_alert_string(arguments, "name", :missing_alert_name),
-         {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_alert_message) do
-      {:ok, name, message}
+         {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_alert_message),
+         {:ok, reason} <- normalize_emit_alert_reason(arguments, message),
+         {:ok, needs_attention} <- normalize_emit_alert_needs_attention(arguments) do
+      {:ok, name, message, reason, needs_attention, normalize_emit_alert_severity(arguments, needs_attention)}
     end
   end
 
   defp normalize_emit_alert_arguments(_arguments), do: {:error, :invalid_alert_arguments}
 
   defp normalize_emit_alert_string(arguments, key, error_reason) do
-    value =
-      case key do
-        "name" -> Map.get(arguments, "name") || Map.get(arguments, :name)
-        "message" -> Map.get(arguments, "message") || Map.get(arguments, :message)
-      end
-
-    case value do
+    case emit_alert_value(arguments, key) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:error, error_reason}
@@ -471,6 +489,75 @@ defmodule Aiur.Codex.DynamicTool do
       _ ->
         {:error, error_reason}
     end
+  end
+
+  defp emit_alert_value(arguments, "name"), do: Map.get(arguments, "name") || Map.get(arguments, :name)
+  defp emit_alert_value(arguments, "message"), do: Map.get(arguments, "message") || Map.get(arguments, :message)
+  defp emit_alert_value(arguments, "reason"), do: Map.get(arguments, "reason") || Map.get(arguments, :reason)
+
+  defp normalize_emit_alert_reason(arguments, message) do
+    case emit_alert_value(arguments, "reason") do
+      nil -> {:ok, message}
+      _ -> normalize_emit_alert_string(arguments, "reason", :missing_alert_reason)
+    end
+  end
+
+  defp normalize_emit_alert_needs_attention(arguments) do
+    if emit_alert_has_key?(arguments, "needs_attention") do
+      normalize_emit_alert_boolean(arguments, "needs_attention", :missing_alert_needs_attention)
+    else
+      {:ok, false}
+    end
+  end
+
+  defp emit_alert_has_key?(arguments, key) do
+    Map.has_key?(arguments, key) or Map.has_key?(arguments, String.to_atom(key))
+  end
+
+  defp normalize_emit_alert_boolean(arguments, key, error_reason) do
+    value =
+      cond do
+        Map.has_key?(arguments, key) -> Map.get(arguments, key)
+        Map.has_key?(arguments, String.to_atom(key)) -> Map.get(arguments, String.to_atom(key))
+        true -> :missing
+      end
+
+    case value do
+      value when is_boolean(value) -> {:ok, value}
+      _ -> {:error, error_reason}
+    end
+  end
+
+  defp normalize_emit_alert_severity(arguments, needs_attention) do
+    value = Map.get(arguments, "severity") || Map.get(arguments, :severity)
+
+    case value do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> default_alert_severity(needs_attention)
+          severity -> severity
+        end
+
+      _ ->
+        default_alert_severity(needs_attention)
+    end
+  end
+
+  defp default_alert_severity(true), do: "warning"
+  defp default_alert_severity(false), do: "info"
+
+  defp call_alert_emitter(emitter, name, message, reason, needs_attention, severity)
+       when is_function(emitter, 5) do
+    emitter.(name, message, reason, needs_attention, severity)
+  end
+
+  defp call_alert_emitter(emitter, name, message, _reason, _needs_attention, _severity)
+       when is_function(emitter, 2) do
+    emitter.(name, message)
+  end
+
+  defp call_alert_emitter(_emitter, _name, _message, _reason, _needs_attention, _severity) do
+    {:error, :alert_emitter_unavailable}
   end
 
   defp normalize_query(arguments) do
@@ -546,13 +633,17 @@ defmodule Aiur.Codex.DynamicTool do
   defp tool_error_payload(:invalid_alert_arguments) do
     %{
       "error" => %{
-        "message" => "`emit_alert` expects an object with non-empty `name` and `message` strings."
+        "message" => "`emit_alert` expects an object with non-empty `name`, `message`, and `reason` strings plus a boolean `needs_attention`."
       }
     }
   end
 
   defp tool_error_payload(:missing_alert_name), do: %{"error" => %{"message" => "`emit_alert.name` is required."}}
   defp tool_error_payload(:missing_alert_message), do: %{"error" => %{"message" => "`emit_alert.message` is required."}}
+  defp tool_error_payload(:missing_alert_reason), do: %{"error" => %{"message" => "`emit_alert.reason` is required."}}
+
+  defp tool_error_payload(:missing_alert_needs_attention),
+    do: %{"error" => %{"message" => "`emit_alert.needs_attention` must be true or false."}}
 
   defp tool_error_payload(:system_scope_reserved) do
     %{

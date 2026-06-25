@@ -160,9 +160,12 @@ defmodule Aiur.Events.LsRemoteTicker do
     repo = state.repo || resolve_repo()
 
     Enum.each(alerts, fn alert ->
-      Alerts.emit_custom(
-        "system.github.connectivity_lost",
-        Connectivity.alert_message(alert, repo: repo)
+      message = Connectivity.alert_message(alert, repo: repo)
+
+      Alerts.emit_custom("system.github.connectivity_lost", message,
+        reason: message,
+        needs_attention: true,
+        severity: "warning"
       )
     end)
 

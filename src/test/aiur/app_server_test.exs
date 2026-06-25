@@ -443,11 +443,17 @@ defmodule Aiur.AppServerTest do
                            false
                        end) and
                          Enum.any?(tools, fn
-                           # The emit_alert tool only requires `name`
-                           # and `message`; `title` is not part of the
-                           # alert schema.
-                           %{"inputSchema" => %{"required" => ["name", "message"]}, "name" => "emit_alert"} -> true
-                           _ -> false
+                           %{
+                             "inputSchema" => %{
+                               "properties" => %{"reason" => _, "needs_attention" => _},
+                               "required" => ["name", "message", "reason", "needs_attention"]
+                             },
+                             "name" => "emit_alert"
+                           } ->
+                             true
+
+                           _ ->
+                             false
                          end)
 
                      _ ->

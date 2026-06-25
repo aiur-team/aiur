@@ -273,6 +273,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
+       aiur alerts [--needs-attention]  show structured alert feed
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
        aiur message <id> <text>  send operator text to a running agent
@@ -1618,6 +1619,27 @@ cmd_agents() {
   run_control_rpc "Aiur.AgentControlCLI.agents()"
 }
 
+# `aiur alerts` — newline-delimited structured alert feed from persisted
+# per-agent logs. `--needs-attention` filters to operator-actionable alerts.
+cmd_alerts() {
+  local needs_attention=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --needs-attention) needs_attention=1 ;;
+      *)
+        echo "aiur: alerts only accepts --needs-attention" >&2
+        exit 64
+        ;;
+    esac
+  done
+
+  if [ "$needs_attention" -eq 1 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.alerts(needs_attention: true)"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.alerts()"
+  fi
+}
+
 cmd_cleanup_stale() {
   local dry_run=0 arg
   for arg in "$@"; do
@@ -1895,6 +1917,10 @@ aiur_engine_main() {
     agents)
       shift
       cmd_agents "$@"
+      ;;
+    alerts)
+      shift
+      cmd_alerts "$@"
       ;;
     set)
       shift

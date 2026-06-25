@@ -2,12 +2,8 @@ defmodule Aiur.AiurAlertRelaySkillTest do
   @moduledoc """
   Guards the aiur-monitor alert-relay tailer (`tail-alerts.sh`): the operator
   hears an alert sound with no context, so this script pulls `event:alert` lines
-  out of each active agent's `logs/agent.ndjson` and emits one structured line
-  per alert with a SHELL-derived `needs_attention` verdict (no model).
-
-  The verdict is load-bearing: `agent.paused` must flag `needs_attention:true`,
-  but `agent.unpaused` (the all-clear) must NOT — a naive substring test would
-  wrongly flag it because `unpaused` ends in `paused`. These tests pin that.
+  out of each active agent's `logs/agent.ndjson` and emits one structured line per
+  alert using Aiur's emitted `needs_attention` verdict.
 
   The script is plain bash, so we drive it as a subprocess against a fixture
   HOME, the same hermetic pattern as aiur_monitor_skill_test.exs.
@@ -37,9 +33,9 @@ defmodule Aiur.AiurAlertRelaySkillTest do
     File.mkdir_p!(Path.dirname(ndjson))
 
     lines = [
-      ~s({"event":"alert","message":"Agent paused","name":"ticket.38.agent.paused"}),
-      ~s({"event":"alert","message":"Agent unpaused","name":"ticket.38.agent.unpaused"}),
-      ~s({"event":"alert","message":"planning the fix","name":"ticket.38.agent.phase.plan.start"}),
+      ~s({"event":"alert","message":"Agent paused","reason":"Operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"38","name":"ticket.38.agent.paused"}),
+      ~s({"event":"alert","message":"Agent unpaused","reason":"Agent resumed","severity":"info","needs_attention":false,"source_ticket_id":"38","name":"ticket.38.agent.unpaused"}),
+      ~s({"event":"alert","message":"planning the fix","reason":"plan phase started","severity":"info","needs_attention":false,"source_ticket_id":"38","name":"ticket.38.agent.phase.plan.start"}),
       # a non-alert event must be ignored entirely
       ~s({"event":"turn","name":"ticket.38.turn.started"})
     ]
@@ -93,21 +89,54 @@ defmodule Aiur.AiurAlertRelaySkillTest do
     # ticket parsed from the topic, agent from the workspace dir (same id here).
     assert paused["ticket"] == "38"
     assert paused["agent"] == "38"
-    # reason prefers the human-readable message.
-    assert paused["reason"] == "Agent paused"
+    # reason prefers the explicit emitted context.
+    assert paused["reason"] == "Operator paused the agent"
+    assert paused["severity"] == "warning"
+    assert paused["source_ticket_id"] == "38"
   end
 
-  test "needs_attention flags paused but NOT unpaused (the all-clear)", %{home: home} do
+  test "needs_attention uses emitted booleans rather than topic heuristics", %{home: home} do
     config = build_fixture(home)
     alerts = run(config, home) |> alert_lines()
 
     verdict = fn name -> Enum.find(alerts, &(&1["name"] == name))["needs_attention"] end
 
     assert verdict.("ticket.38.agent.paused") == true
-    # The regression this script's matcher guards: `unpaused` must be false.
     assert verdict.("ticket.38.agent.unpaused") == false
     # Informational phase alerts are never operator-actionable.
     assert verdict.("ticket.38.agent.phase.plan.start") == false
+  end
+
+  test "does not guess attention from legacy topic names when boolean is absent", %{home: home} do
+    config = build_fixture(home)
+    ndjson = Path.join(home, ".aiur/workspaces/its-applekid/actions/38/logs/agent.ndjson")
+
+    File.write!(ndjson, ~s({"event":"alert","message":"legacy paused","name":"ticket.38.agent.paused"}\n))
+
+    [alert] = run(config, home) |> alert_lines()
+    assert alert["needs_attention"] == false
+  end
+
+  test "escapes structured text fields as valid JSON", %{home: home} do
+    config = build_fixture(home)
+    ndjson = Path.join(home, ".aiur/workspaces/its-applekid/actions/38/logs/agent.ndjson")
+
+    File.write!(
+      ndjson,
+      Jason.encode!(%{
+        "event" => "alert",
+        "message" => "custom alert",
+        "reason" => "line\twith control \"chars\"",
+        "severity" => "warning",
+        "needs_attention" => true,
+        "source_ticket_id" => "38",
+        "topic" => "ticket.38.agent.custom"
+      }) <> "\n"
+    )
+
+    [alert] = run(config, home) |> alert_lines()
+    assert alert["reason"] == "line\twith control \"chars\""
+    assert alert["needs_attention"] == true
   end
 
   test "reports no active agents when nothing is recent", %{home: home} do

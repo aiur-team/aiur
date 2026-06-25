@@ -58,6 +58,7 @@ to the issues you want worked and run `aiur`.
 | `aiur` | Start the workflow in the foreground (local-only bind) |
 | `aiur --bg` | Start a headless BEAM in one detached tmux lifetime session |
 | `aiur status` | Show active agents and their state |
+| `aiur alerts [--needs-attention]` | Show structured alert feed JSON lines |
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
 | `aiur stop` | Stop the running session |
 

@@ -1963,7 +1963,7 @@ defmodule Aiur.AgentRunner do
       DynamicTool.execute(
         tool,
         arguments,
-        alert_emitter: fn name, message ->
+        alert_emitter: fn name, message, reason, needs_attention, severity ->
           # Agent-emitted alerts are always per-ticket — namespace under
           # `ticket.<id>.agent.<name>` so subscribers can bind by ticket
           # (and so the alert log lines a single ticket together).
@@ -1975,7 +1975,10 @@ defmodule Aiur.AgentRunner do
           Alerts.emit_custom(topic, message,
             issue: issue,
             workspace: workspace,
-            worker_host: worker_host
+            worker_host: worker_host,
+            reason: reason,
+            needs_attention: needs_attention,
+            severity: severity
           )
         end,
         event_publisher: fn name, message, payload ->
@@ -2107,7 +2110,10 @@ defmodule Aiur.AgentRunner do
         "ticket.#{issue.identifier}.agent.error.tokens_exhausted",
         issue: issue,
         workspace: workspace,
-        worker_host: worker_host
+        worker_host: worker_host,
+        reason: "Agent stopped because its token budget or context limit was exhausted.",
+        needs_attention: true,
+        severity: "warning"
       )
     end
 

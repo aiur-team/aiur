@@ -609,6 +609,32 @@ defmodule Aiur.AgentControlCLITest do
     end
   end
 
+  describe "alerts/1" do
+    test "prints persisted alerts as JSON lines with optional attention filtering" do
+      workspace_root =
+        Path.join(System.tmp_dir!(), "aiur-control-alerts-#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm_rf!(workspace_root) end)
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      log = Path.join(workspace_root, "repo/51/logs/agent.ndjson")
+      File.mkdir_p!(Path.dirname(log))
+
+      File.write!(log, """
+      {"event":"alert","timestamp":"2026-06-25T01:00:00Z","name":"ticket.51.agent.phase.work.start","message":"work","reason":"work phase started","needs_attention":false}
+      {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
+      """)
+
+      output = capture_io(fn -> AgentControlCLI.alerts(needs_attention: true, roots: [workspace_root]) end)
+
+      assert output =~ "\"topic\":\"ticket.51.agent.paused\""
+      assert output =~ "\"reason\":\"operator paused the agent\""
+      assert output =~ "\"needs_attention\":true"
+      refute output =~ "phase.work.start"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+  end
+
   describe "set_max_agents/1" do
     test "sets the cap and reports the new limit", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | session_max_concurrent_agents: nil} end)

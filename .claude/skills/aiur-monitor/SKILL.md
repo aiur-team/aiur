@@ -154,16 +154,13 @@ bash .claude/skills/aiur-monitor/scripts/tail-alerts.sh
 It scans the same roots as `tail-agents.sh` (config `workspace.root` +
 `~/.aiur/workspaces`, deduped, recency-windowed) but reads each active agent's
 `logs/agent.ndjson`, pulls `.event == "alert"` lines, and emits one structured
-line per alert (newest last) after a `DAEMON` header:
+line per alert (newest last) after a `DAEMON` header. `needs_attention`,
+`reason`, `severity`, `source_ticket_id`, and `topic` come from the structured
+alert event; the script does not infer attention from topic names:
 
 ```
-{"ticket":"43","agent":"43","reason":"Agent paused","name":"ticket.43.agent.paused","needs_attention":true}
+{"ticket":"43","source_ticket_id":"43","agent":"43","reason":"Agent paused","severity":"warning","topic":"ticket.43.agent.paused","name":"ticket.43.agent.paused","needs_attention":true}
 ```
-
-`needs_attention` is computed in shell (no model) — true when the topic `name`
-contains, on a segment boundary, any of: `human-review`, `input_required`,
-`paused`, `thrash`, `retry_exhausted`, `tokens_exhausted`. (`unpaused` is the
-all-clear and is deliberately **not** flagged.)
 
 For any **NEW** `needs_attention:true` alert, relay it to the operator via
 **PushNotification**, formatted:

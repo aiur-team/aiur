@@ -16,7 +16,15 @@ defmodule Aiur.AlertsBroadcastTest do
     assert :ok =
              Alerts.emit_custom("demo.heads_up", "look here", identifier: "MT-ALERT-BC")
 
-    assert_receive {:alert, %{name: "demo.heads_up", message: "look here"}}, 500
+    assert_receive {:alert,
+                    %{
+                      name: "demo.heads_up",
+                      message: "look here",
+                      reason: "look here",
+                      severity: "info",
+                      needs_attention: false
+                    }},
+                   500
   end
 
   test "alerts without an identifier do not broadcast on a per-agent topic" do
