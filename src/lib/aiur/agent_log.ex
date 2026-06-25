@@ -240,13 +240,15 @@ defmodule Aiur.AgentLog do
       Regex.run(~r/Issue:\n\n(.*?)(?:\n\nDescription:|\z)/s, text, capture: :all_but_first)
 
     # Terminate the description at the first template section that follows it.
-    # The slimmed prompt template (see `.aiur/prompt.md`) emits `## Workspace
-    # setup` right after the description (or after `Continuation context:` on a
-    # retry). Match those explicit headers — not a bare `## ` — so an issue's
-    # own `## ` headings inside the description aren't truncated.
+    # The slimmed prompt templates (`.aiur/prompt.md`, `.aiur/examples/
+    # prompt.md.example`) emit `## Workspace setup` right after the description
+    # (or after `Continuation context:` on a retry); the bundled github-codex
+    # example workflow (`src/examples/workflows/github-codex.prompt.md`) still
+    # emits `## Workflow`. Match those explicit headers — not a bare `## ` — so
+    # an issue's own `## ` headings inside the description aren't truncated.
     description =
       Regex.run(
-        ~r/Description:\n\n(.*?)(?:\n\n(?:Continuation context:|## Workspace setup)|\z)/s,
+        ~r/Description:\n\n(.*?)(?:\n\n(?:Continuation context:|## Workspace setup|## Workflow)|\z)/s,
         text,
         capture: :all_but_first
       )

@@ -47,9 +47,10 @@ not prefix commands with `HEX_HOME=/tmp/...` or `MISE_TRUSTED_CONFIG_PATHS=...`.
 Inventing your own paths bypasses the pre-warmed Hex cache and forces a re-fetch
 of every dependency.
 
-The per-turn prompt's workspace-setup notes carry the repo-specific build/test
-commands and the manual-test-guard rule; follow those for anything mix- or
-`scripts/`-specific.
+Your per-turn prompt carries the repo-specific build/test commands (in its
+workspace-setup notes) and the manual-test-guard rule (in the shared
+instructions' "Manual CLI verification" section); follow those for anything mix-
+or `scripts/`-specific.
 
 ## Synthetic load repros
 
