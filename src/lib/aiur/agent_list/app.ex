@@ -1486,6 +1486,7 @@ defmodule Aiur.AgentList.App do
       |> Map.put(:remote_control_hint, Map.get(state, :remote_control_hint))
       |> Map.put(:prewarm_active?, Map.get(state, :prewarm_active?, false))
       |> Map.put(:prewarm_phase, Map.get(state, :prewarm_phase))
+      |> Map.put(:truecolor?, truecolor_supported?())
 
     state.write_fun.(Renderer.render(render_state))
     :ok
@@ -1546,6 +1547,13 @@ defmodule Aiur.AgentList.App do
   catch
     :exit, _ -> nil
     _, _ -> nil
+  end
+
+  # 24-bit color support, detected from COLORTERM (set to "truecolor" or
+  # "24bit" by modern terminals). Drives the MODEL column's per-model colors:
+  # truecolor terminals get the exact website hexes, others the nearest ANSI.
+  defp truecolor_supported? do
+    System.get_env("COLORTERM") in ["truecolor", "24bit"]
   end
 
   defp terminal_geometry do

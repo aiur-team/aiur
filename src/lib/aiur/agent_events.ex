@@ -59,7 +59,8 @@ defmodule Aiur.AgentEvents do
           optional(:runtime_seconds) => non_neg_integer(),
           optional(:turn_count) => non_neg_integer(),
           optional(:work_state) => atom() | String.t(),
-          optional(:backend) => String.t()
+          optional(:backend) => String.t(),
+          optional(:model) => String.t()
         }
 
   @type transcript_message :: {:transcript_event, transcript_event()}
@@ -137,8 +138,9 @@ defmodule Aiur.AgentEvents do
   @doc """
   Build an `agent_summary` map and merge in the optional `extras`
   fields (`:tag`, `:title`, `:runtime_seconds`, `:turn_count`,
-  `:work_state`). Extras with `nil` values are filtered so callers can
-  unconditionally pass `Map.get(entry, :title)` without polluting the
+  `:work_state`, `:backend`, `:model`). Extras with `nil` values are
+  filtered so callers can unconditionally pass `Map.get(entry, :title)`
+  (or an unpinned `CodingAgent.model_for/1`) without polluting the
   summary.
   """
   @spec agent_summary(agent_identifier(), atom(), non_neg_integer(), map()) :: agent_summary()

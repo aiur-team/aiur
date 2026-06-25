@@ -2998,6 +2998,7 @@ defmodule Aiur.Orchestrator do
               work_state: get_in(entry, [:control, :status]) || :working,
               pause_reason: Map.get(entry, :paused_reason),
               backend: entry_backend(entry),
+              model: entry_model(entry),
               remote_control: remote_control_summary(entry)
             })
         end
@@ -3025,6 +3026,7 @@ defmodule Aiur.Orchestrator do
               work_state: get_in(entry, [:control, :status]) || :working,
               pause_reason: Map.get(entry, :paused_reason),
               backend: entry_backend(entry),
+              model: entry_model(entry),
               remote_control: remote_control_summary(entry)
             })
           ]
@@ -3041,6 +3043,17 @@ defmodule Aiur.Orchestrator do
   defp entry_backend(entry) do
     case Map.get(entry, :issue) do
       %Issue{} = issue -> CodingAgent.backend_for(issue)
+      _ -> nil
+    end
+  end
+
+  # Pinned model variant for a running entry (e.g. "opus-4-8", "gpt-5.5"),
+  # so the agent list can render the model column's version suffix. nil when
+  # the entry carries no issue or the model is unpinned (backend default);
+  # agent_summary drops the nil and the renderer falls back to the base name.
+  defp entry_model(entry) do
+    case Map.get(entry, :issue) do
+      %Issue{} = issue -> CodingAgent.model_for(issue)
       _ -> nil
     end
   end
