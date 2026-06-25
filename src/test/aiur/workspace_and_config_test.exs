@@ -333,7 +333,17 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "before_run still protects dirty in-progress resume workspaces" do
+  # Regression for #653. A base-branch push (a PR merge) — or a
+  # resume-after-idle — fires before_run on a still-working agent. The agent
+  # is mid-implementation with uncommitted tracked WIP, so before_run hits the
+  # #569 dirty guard and exits 65. Before this fix that exit propagated as an
+  # error, the agent run "failed", retried 3x, and gave up (retry_exhausted).
+  # That meant every PR merge in the dogfood loop killed every OTHER in-flight
+  # agent that had not yet committed. WHY this must hold: an in-flight agent's
+  # uncommitted work is its legitimate WIP — base movement must NOT kill it.
+  # The fix skips the origin/main refresh non-fatally and leaves the WIP intact
+  # so the agent keeps working on its branch (it rebases/merges at PR time).
+  test "before_run skips refresh and preserves WIP for dirty in-progress resume (does not retry-exhaust the agent)" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -351,11 +361,18 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:in-progress"]
       }
 
-      assert {:error, {:workspace_hook_failed, "before_run", 65, output}} =
-               Workspace.run_before_run_hook(workspace, issue)
+      # :ok (not {:error, ...}) is what keeps the agent alive: run_on_worker_host
+      # only proceeds to the turn loop when run_before_run_hook returns :ok, and
+      # an error here is what booked the retry-exhausting failure.
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
 
-      assert output =~ "Refusing to refresh workspace from origin/main"
+      # The agent's uncommitted WIP survives untouched — it was NOT recreated
+      # clean and the origin/main merge was skipped, not applied.
       assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+
+      # before_run ran exactly once: a live resume skips, it does not recreate
+      # the workspace (which would re-run before_run, recording a second trace
+      # line — that recreate path is reserved for fresh todo dispatches, #577).
       assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)

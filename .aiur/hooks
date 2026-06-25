@@ -41,8 +41,14 @@ before_run: |
     git fetch origin main
     if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||
        ! git diff --cached --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs'; then
+      # Tracked changes are present. Signal the refusal with exit 65 (the
+      # phrases below are matched by Workspace.stale_leftover_refresh_refusal?).
+      # The Elixir side decides what to do: a fresh todo dispatch recreates
+      # the stale leftover clean; a live/resumed agent's uncommitted WIP is
+      # left untouched and the origin/main refresh is skipped non-fatally so
+      # the agent keeps working (#653). Do NOT treat this as a hard failure.
       echo "Refusing to refresh workspace from origin/main because tracked source changes are present." >&2
-      echo "Commit or resolve the workspace changes before resuming this agent." >&2
+      echo "Leaving uncommitted work in place; skipping the origin/main refresh for this run." >&2
       exit 65
     fi
     git merge --no-edit origin/main
