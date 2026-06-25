@@ -14,32 +14,46 @@ defmodule Aiur.Events.GithubCommentsPoller do
   alias Aiur.GitHub.Client
 
   @type target :: String.t() | integer()
+  @default_max_concurrency 4
 
-  @spec poll([target()], keyword()) :: {:ok, map()} | {:error, term()}
+  @spec poll([target()], keyword()) :: {:ok, map()}
   def poll(targets, opts \\ []) when is_list(targets) do
     targets = normalize_targets(targets)
-    since = Keyword.get(opts, :since) || default_since(opts)
+    since_by_target = normalize_since(Keyword.get(opts, :since), targets, opts)
 
     if targets == [] do
-      {:ok, %{since: since, count: 0}}
+      {:ok, %{since: since_by_target, count: 0, errors: []}}
     else
-      do_poll(targets, since, opts)
+      do_poll(targets, since_by_target, opts)
     end
   end
 
-  defp do_poll(targets, since, opts) do
+  defp do_poll(targets, since_by_target, opts) do
     repo = Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
 
-    {count, newest_seen_at, _successes, errors} =
-      Enum.reduce(targets, {0, nil, 0, []}, fn target, acc ->
-        poll_target(target, since, repo, opts, acc)
+    results =
+      targets
+      |> Task.async_stream(
+        fn target -> poll_target(target, Map.fetch!(since_by_target, target), repo, opts) end,
+        max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
+        timeout: Keyword.get(opts, :timeout, :infinity)
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    next_since =
+      Map.new(results, fn %{target: target, since: since} ->
+        {target, since}
       end)
 
-    if errors != [] do
-      {:error, Enum.reverse(errors)}
-    else
-      {:ok, %{since: advance_since(since, newest_seen_at), count: count}}
-    end
+    errors =
+      results
+      |> Enum.flat_map(fn %{target: target, errors: errors} ->
+        Enum.map(errors, &{target, &1})
+      end)
+
+    count = Enum.reduce(results, 0, &(&1.count + &2))
+
+    {:ok, %{since: next_since, count: count, errors: errors}}
   end
 
   defp normalize_targets(targets) do
@@ -50,16 +64,35 @@ defmodule Aiur.Events.GithubCommentsPoller do
     |> Enum.uniq()
   end
 
-  defp poll_target(target, since, repo, opts, {count, newest_seen_at, successes, errors}) do
+  defp normalize_since(%{} = since_by_target, targets, opts) do
+    default = default_since(opts)
+
+    Map.new(targets, fn target ->
+      {target, Map.get(since_by_target, target, default)}
+    end)
+  end
+
+  defp normalize_since(since, targets, _opts) when is_binary(since) do
+    Map.new(targets, &{&1, since})
+  end
+
+  defp normalize_since(_since, targets, opts) do
+    default = default_since(opts)
+    Map.new(targets, &{&1, default})
+  end
+
+  defp poll_target(target, since, repo, opts) do
     {issue_count, issue_newest, issue_result} = poll_issue_comments(target, since, repo, opts)
     {pr_count, pr_newest, pr_results} = poll_pr_comments(target, since, repo, opts)
     results = [issue_result | pr_results]
+    errors = collect_errors(results)
+    newest_seen_at = max_datetime(issue_newest, pr_newest)
 
-    {
-      count + issue_count + pr_count,
-      max_datetime(newest_seen_at, max_datetime(issue_newest, pr_newest)),
-      successes + success_count(results),
-      collect_error(errors, target, results)
+    %{
+      target: target,
+      count: issue_count + pr_count,
+      since: if(errors == [], do: advance_since(since, newest_seen_at), else: since),
+      errors: errors
     }
   end
 
@@ -105,7 +138,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}")
 
-        {0, nil, [{:error, {:pr_review_comments, reason}}]}
+        {0, nil, [{:error, {:pr_lookup, reason}}]}
 
       nil ->
         {0, nil, [:ok]}
@@ -217,18 +250,13 @@ defmodule Aiur.Events.GithubCommentsPoller do
     Publisher.publish(topic, sanitized, publish_opts)
   end
 
-  defp success_count(:ok), do: 1
-  defp success_count({:error, _}), do: 0
-
-  defp success_count(results) when is_list(results),
-    do: Enum.map(results, &success_count/1) |> Enum.sum()
-
-  defp collect_error(errors, target, results) do
+  defp collect_errors(results) do
     results
-    |> Enum.reduce(errors, fn
-      {:error, reason}, acc -> [{target, reason} | acc]
+    |> Enum.reduce([], fn
+      {:error, reason}, acc -> [reason | acc]
       _ok, acc -> acc
     end)
+    |> Enum.reverse()
   end
 
   defp newest_comment_datetime(comments) when is_list(comments) do

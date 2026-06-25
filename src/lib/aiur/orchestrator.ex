@@ -50,6 +50,7 @@ defmodule Aiur.Orchestrator do
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
   @human_review_state "human-review"
+  @human_review_comment_targets_per_poll 25
   @empty_agent_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -86,7 +87,8 @@ defmodule Aiur.Orchestrator do
             codex_rate_limits: map() | nil,
             events_etag: String.t() | nil,
             events_last_id: String.t() | nil,
-            github_comments_since: String.t() | nil,
+            github_comments_since: String.t() | map() | nil,
+            github_comment_issue_updated_at: map(),
             github_connectivity: map(),
             github_poll_delays: map()
           }
@@ -115,6 +117,7 @@ defmodule Aiur.Orchestrator do
       events_etag: nil,
       events_last_id: nil,
       github_comments_since: nil,
+      github_comment_issue_updated_at: %{},
       github_connectivity: %{},
       github_poll_delays: %{}
     ]
@@ -1174,8 +1177,8 @@ defmodule Aiur.Orchestrator do
 
   defp do_poll_github_comments(%State{} = state, opts) do
     case github_comment_poll_targets(state, opts) do
-      {:ok, targets} ->
-        poll_github_comment_targets(state, targets, opts)
+      {:ok, targets, human_review_targets} ->
+        poll_github_comment_targets(state, targets, human_review_targets, opts)
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
@@ -1183,22 +1186,40 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, targets, opts) when is_list(targets) do
+  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _opts), do: state
+
+  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, opts)
+       when is_list(targets) do
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
 
     case GithubCommentsPoller.poll(targets, poll_opts) do
-      {:ok, %{since: since, count: count}} ->
+      {:ok, %{since: since, count: count, errors: errors}} ->
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
 
-        state = note_github_connectivity_success(state, :comments)
-        %{state | github_comments_since: since}
+        if errors != [] do
+          Logger.warning("GithubCommentsPoller partial failures; reason=#{inspect(errors)}")
+        end
 
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller skipped; reason=#{inspect(reason)}")
-        note_github_connectivity_failure(state, :comments, comments_poll_classification(reason))
+        state =
+          if all_comment_targets_failed?(targets, errors) do
+            note_github_connectivity_failure(state, :comments, comments_poll_classification(errors))
+          else
+            note_github_connectivity_success(state, :comments)
+          end
+
+        %{
+          state
+          | github_comments_since: merge_comment_cursors(state.github_comments_since, since),
+            github_comment_issue_updated_at:
+              remember_polled_human_review_targets(
+                state.github_comment_issue_updated_at,
+                human_review_targets,
+                errors
+              )
+        }
     end
   end
 
@@ -1207,6 +1228,22 @@ defmodule Aiur.Orchestrator do
   # out so the escalation policy sees the underlying connectivity class.
   defp comments_poll_classification([{_target, {_scope, taxonomy}} | _]), do: taxonomy
   defp comments_poll_classification(reason), do: reason
+
+  defp merge_comment_cursors(%{} = previous, %{} = next), do: Map.merge(previous, next)
+  defp merge_comment_cursors(_previous, next), do: next
+
+  defp all_comment_targets_failed?(_targets, []), do: false
+
+  defp all_comment_targets_failed?(targets, errors) do
+    failed_targets =
+      errors
+      |> Enum.map(fn {target, _reason} -> target end)
+      |> MapSet.new()
+
+    targets
+    |> MapSet.new()
+    |> MapSet.subset?(failed_targets)
+  end
 
   # Records a successful poll for `source`, clearing any failure streak so a
   # later break re-arms a fresh operator escalation.
@@ -1290,14 +1327,15 @@ defmodule Aiur.Orchestrator do
   end
 
   defp github_comment_poll_targets(%State{} = state, opts) do
-    with {:ok, human_review_targets} <- human_review_comment_poll_targets(opts) do
+    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts) do
+      running_targets = running_comment_poll_targets(state)
+
       targets =
-        state
-        |> running_comment_poll_targets()
-        |> Kernel.++(human_review_targets)
+        running_targets
+        |> Kernel.++(Enum.map(human_review_targets, & &1.target))
         |> Enum.uniq()
 
-      {:ok, targets}
+      {:ok, targets, human_review_targets}
     end
   end
 
@@ -1308,15 +1346,19 @@ defmodule Aiur.Orchestrator do
     |> normalize_comment_targets()
   end
 
-  defp human_review_comment_poll_targets(opts) do
+  defp human_review_comment_poll_targets(%State{} = state, opts) do
     fetcher = Keyword.get(opts, :review_issue_fetcher, &Tracker.fetch_issues_by_states/1)
 
     case fetcher.([@human_review_state]) do
       {:ok, issues} when is_list(issues) ->
         targets =
           issues
-          |> Enum.map(&comment_target_for_issue/1)
-          |> normalize_comment_targets()
+          |> Enum.map(&human_review_comment_target_for_issue/1)
+          |> Enum.reject(&is_nil/1)
+          |> dedupe_human_review_targets()
+          |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
+          |> Enum.sort_by(&human_review_comment_target_sort_key(state.github_comments_since, &1))
+          |> Enum.take(human_review_comment_target_limit(opts))
 
         {:ok, targets}
 
@@ -1333,6 +1375,62 @@ defmodule Aiur.Orchestrator do
 
   defp comment_target_for_issue(%Issue{id: id}) when not is_nil(id), do: id
   defp comment_target_for_issue(_issue), do: nil
+
+  defp human_review_comment_target_for_issue(%Issue{} = issue) do
+    case normalize_comment_targets([comment_target_for_issue(issue)]) do
+      [target] -> %{target: target, updated_at: issue_updated_at_key(issue.updated_at)}
+      [] -> nil
+    end
+  end
+
+  defp dedupe_human_review_targets(targets) do
+    targets
+    |> Enum.reduce(%{}, fn %{target: target} = entry, acc ->
+      Map.put_new(acc, target, entry)
+    end)
+    |> Map.values()
+  end
+
+  defp unchanged_human_review_comment_target?(
+         %State{github_comment_issue_updated_at: updated_at_by_target},
+         %{target: target, updated_at: updated_at}
+       )
+       when is_binary(updated_at) do
+    Map.get(updated_at_by_target, target) == updated_at
+  end
+
+  defp unchanged_human_review_comment_target?(_state, _target), do: false
+
+  defp human_review_comment_target_sort_key(cursors, %{target: target}) do
+    {comment_cursor_sort_key(cursors, target), target}
+  end
+
+  defp comment_cursor_sort_key(%{} = cursors, target), do: Map.get(cursors, target) || ""
+  defp comment_cursor_sort_key(cursor, _target) when is_binary(cursor), do: cursor
+  defp comment_cursor_sort_key(_cursor, _target), do: ""
+
+  defp human_review_comment_target_limit(opts) do
+    case Keyword.get(opts, :human_review_comment_target_limit, @human_review_comment_targets_per_poll) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> @human_review_comment_targets_per_poll
+    end
+  end
+
+  defp issue_updated_at_key(%DateTime{} = updated_at), do: DateTime.to_iso8601(updated_at)
+  defp issue_updated_at_key(updated_at) when is_binary(updated_at), do: updated_at
+  defp issue_updated_at_key(_updated_at), do: nil
+
+  defp remember_polled_human_review_targets(updated_at_by_target, human_review_targets, errors) do
+    failed_targets =
+      errors
+      |> Enum.map(fn {target, _reason} -> target end)
+      |> MapSet.new()
+
+    human_review_targets
+    |> Enum.reject(&(MapSet.member?(failed_targets, &1.target) or is_nil(&1.updated_at)))
+    |> Map.new(&{&1.target, &1.updated_at})
+    |> then(&Map.merge(updated_at_by_target || %{}, &1))
+  end
 
   defp normalize_comment_targets(targets) when is_list(targets) do
     targets
