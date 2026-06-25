@@ -43,6 +43,37 @@ defmodule Aiur.Codex.CodingAgentTest do
     end
   end
 
+  describe "thread-init frame (start vs resume)" do
+    @policies %{approval_policy: "never", thread_sandbox: "read-only"}
+
+    test "builds a thread/start frame with dynamicTools when not resuming" do
+      frame = CodingAgent.thread_init_frame_for_test(nil, "/ws", @policies)
+
+      assert frame["method"] == "thread/start"
+      assert frame["id"] == 2
+      assert frame["params"]["cwd"] == "/ws"
+      assert frame["params"]["approvalPolicy"] == "never"
+      assert frame["params"]["sandbox"] == "read-only"
+      # A fresh thread registers aiur's custom dynamic tools.
+      assert is_list(frame["params"]["dynamicTools"])
+    end
+
+    test "builds a thread/resume frame carrying the threadId when resuming" do
+      frame = CodingAgent.thread_init_frame_for_test("thr_123", "/ws", @policies)
+
+      assert frame["method"] == "thread/resume"
+      assert frame["id"] == 2
+      assert frame["params"]["threadId"] == "thr_123"
+      assert frame["params"]["cwd"] == "/ws"
+      assert frame["params"]["approvalPolicy"] == "never"
+      assert frame["params"]["sandbox"] == "read-only"
+      # The codex app-server's thread/resume has no dynamicTools param; the
+      # registration is restored from the persisted rollout, so we must not
+      # send one (it would be rejected as an unknown field).
+      refute Map.has_key?(frame["params"], "dynamicTools")
+    end
+  end
+
   defp wait_for_child(parent, budget_ms) do
     deadline = System.monotonic_time(:millisecond) + budget_ms
     do_wait_for_child(parent, deadline)

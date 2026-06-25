@@ -191,6 +191,21 @@ defmodule Aiur.CodingAgentTest do
       refute CodingAgent.remote_control?("codex")
     end
 
+    test "resumable? is true only for codex (app-server thread/resume across restarts)" do
+      # codex app-server exposes thread/resume against an on-disk rollout, so a
+      # killed-and-respawned session can rejoin its prior thread. The headless
+      # claude app-server only rehydrates an in-memory thread map (lost on
+      # restart) and the RC REPL's cloud-session lifecycle is out of scope, so
+      # both degrade to a clean start.
+      assert CodingAgent.resumable?("codex")
+      refute CodingAgent.resumable?("claude")
+      refute CodingAgent.resumable?("claude-repl")
+    end
+
+    test "resumable? is false for an unknown backend" do
+      refute CodingAgent.resumable?("opencode")
+    end
+
     test "remote_control? is false for an unknown backend" do
       refute CodingAgent.remote_control?("opencode")
     end

@@ -16,6 +16,7 @@ defmodule Aiur.AgentRunner do
     IssueLog,
     OperatorWaitLog,
     PromptBuilder,
+    SessionHandle,
     Tracker,
     Workspace
   }
@@ -576,6 +577,12 @@ defmodule Aiur.AgentRunner do
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
     end)
 
+    # Rejoin the prior agent thread across an aiur restart instead of cold-
+    # starting a fresh conversation that re-discovers the work (issue #378).
+    # Only a resumable, local backend with a persisted handle qualifies; any
+    # miss degrades silently to a clean start.
+    resume_thread_id = load_resume_thread_id(session_backend, worker_host, issue.identifier)
+
     session_opts =
       [
         backend: session_backend,
@@ -586,11 +593,20 @@ defmodule Aiur.AgentRunner do
         identifier: issue.identifier
       ]
       |> maybe_put_rc_name(rc?, issue)
+      |> maybe_put_resume_thread_id(resume_thread_id)
 
     with {:ok, session} <- start_agent_session(workspace, session_opts) do
+      # Persist the live session handle so the next aiur restart can resume it.
+      persist_session_handle(session, issue.identifier, worker_host)
+
       report_repl_session(codex_update_recipient, issue, session)
 
       display_tailer = maybe_start_display_tailer(session, issue, rc?)
+
+      # A resumed thread already carries the original task + full prior turn
+      # history, so its first turn must continue rather than replay the
+      # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
+      opts = Keyword.put(opts, :resumed, session_resumed?(session))
 
       try do
         do_run_codex_turns(
@@ -686,6 +702,74 @@ defmodule Aiur.AgentRunner do
   @spec remote_session_backend(String.t(), boolean()) :: String.t()
   def remote_session_backend("claude", true), do: "claude-repl"
   def remote_session_backend(backend, _rc?), do: backend
+
+  # Load the prior thread id to resume from, or nil for a clean start. Only a
+  # resumable backend (codex) running on the LOCAL worker can resume — the
+  # codex rollout lives in this host's ~/.codex, so a remote worker cannot
+  # reattach to it. Disk is only touched when a resume could apply.
+  defp load_resume_thread_id(backend, worker_host, identifier) do
+    if worker_host == nil and CodingAgent.resumable?(backend) do
+      resume_thread_id(backend, worker_host, SessionHandle.load(identifier, backend))
+    else
+      nil
+    end
+  end
+
+  # The thread id to resume, or nil for a clean start, given the resolved
+  # backend, the worker host, and the result of `SessionHandle.load/2`. Resume
+  # applies only to a resumable backend on the local worker with a valid
+  # handle; everything else (no handle, non-resumable backend, remote worker)
+  # cleanly starts fresh.
+  @doc false
+  @spec resume_thread_id(String.t(), worker_host(), {:ok, map()} | :none) :: String.t() | nil
+  def resume_thread_id(backend, nil, {:ok, %{thread_id: thread_id}}) when is_binary(thread_id) do
+    if CodingAgent.resumable?(backend), do: thread_id, else: nil
+  end
+
+  def resume_thread_id(_backend, _worker_host, _handle), do: nil
+
+  defp maybe_put_resume_thread_id(opts, nil), do: opts
+
+  defp maybe_put_resume_thread_id(opts, thread_id) when is_binary(thread_id),
+    do: Keyword.put(opts, :resume_thread_id, thread_id)
+
+  # Whether the adapter resumed a prior thread (vs a fresh/fallback clean
+  # start). Drives the first-turn prompt choice — a resumed thread continues
+  # rather than re-discovering the work.
+  @doc false
+  @spec session_resumed?(map()) :: boolean()
+  def session_resumed?(%{resumed: true}), do: true
+  def session_resumed?(_session), do: false
+
+  # Persist the live session handle so a future aiur restart can resume this
+  # thread. Skips anything that can't be resumed later (non-resumable backend,
+  # remote worker, no thread id) so we never leave a misleading handle.
+  defp persist_session_handle(session, identifier, worker_host) do
+    case session_handle_to_save(session, worker_host) do
+      {:ok, attrs} -> SessionHandle.save(identifier, attrs)
+      :skip -> :ok
+    end
+
+    :ok
+  end
+
+  # The handle attrs to persist for `session`, or `:skip` when this session can
+  # never be resumed later. Resume is local-only (the codex rollout is on this
+  # host) and backend-gated (only codex today), and a session with no thread id
+  # has nothing to rejoin.
+  @doc false
+  @spec session_handle_to_save(map(), worker_host()) :: {:ok, map()} | :skip
+  def session_handle_to_save(%{thread_id: thread_id} = session, nil) when is_binary(thread_id) do
+    backend = session_backend(session)
+
+    if CodingAgent.resumable?(backend) do
+      {:ok, %{backend: backend, thread_id: thread_id, model: Map.get(session, :model)}}
+    else
+      :skip
+    end
+  end
+
+  def session_handle_to_save(_session, _worker_host), do: :skip
 
   # Seed the workspace trust flag before an RC REPL spawns. RC refuses to
   # start in an untrusted directory; without this the REPL sticks on the
@@ -1531,7 +1615,13 @@ defmodule Aiur.AgentRunner do
   defp turn_of(nil), do: ""
   defp turn_of(max_turns), do: " of #{max_turns}"
 
-  defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)
+  defp build_turn_prompt(issue, opts, 1, _max_turns) do
+    if Keyword.get(opts, :resumed, false) do
+      resumed_turn_prompt()
+    else
+      PromptBuilder.build_prompt(issue, opts)
+    end
+  end
 
   defp build_turn_prompt(_issue, _opts, turn_number, max_turns) do
     """
@@ -1544,6 +1634,30 @@ defmodule Aiur.AgentRunner do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
     """
+  end
+
+  # First-turn prompt for a session resumed after an aiur restart. The codex
+  # thread was reattached, so the full original task + every prior turn is
+  # already intact in the conversation — replaying the cold-start prompt would
+  # make the agent re-discover work it has already done (the exact waste #378
+  # removes). This is semantically the same nudge as an in-process continuation
+  # turn, just across a restart boundary.
+  defp resumed_turn_prompt do
+    """
+    Continuation guidance (session resumed after an aiur restart):
+
+    - Aiur restarted and reattached this agent to its prior session, so the full original task instructions and every prior turn are already present in this thread.
+    - Do not restart from scratch and do not re-read the issue, labels, or workpad to rebuild context you already have — continue from where you left off.
+    - Reconcile against the current workspace and workpad state (a few things may have changed while aiur was down), then resume the remaining ticket work.
+    - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
+    - Do not end the turn while the issue stays active unless you are truly blocked.
+    """
+  end
+
+  @doc false
+  @spec build_turn_prompt_for_test(Issue.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
+  def build_turn_prompt_for_test(issue, opts, turn_number, max_turns) do
+    build_turn_prompt(issue, opts, turn_number, max_turns)
   end
 
   defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do

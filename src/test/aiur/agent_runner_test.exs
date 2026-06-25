@@ -241,6 +241,76 @@ defmodule Aiur.AgentRunnerTest do
     end
   end
 
+  describe "resume_thread_id/3 (when to rejoin a prior thread)" do
+    test "returns the persisted thread id for a resumable, local backend" do
+      assert AgentRunner.resume_thread_id("codex", nil, {:ok, %{thread_id: "thr_1"}}) == "thr_1"
+    end
+
+    test "is nil when there is no persisted handle (clean start)" do
+      assert AgentRunner.resume_thread_id("codex", nil, :none) == nil
+    end
+
+    test "is nil for a non-resumable backend even with a handle" do
+      # claude / claude-repl cannot resume across restarts today.
+      assert AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "thr_1"}}) == nil
+    end
+
+    test "is nil for a remote worker (codex rollouts are host-local)" do
+      assert AgentRunner.resume_thread_id("codex", "box-2", {:ok, %{thread_id: "thr_1"}}) == nil
+    end
+  end
+
+  describe "session_resumed?/1" do
+    test "true only when the adapter reports a resumed thread" do
+      assert AgentRunner.session_resumed?(%{resumed: true})
+      refute AgentRunner.session_resumed?(%{resumed: false})
+      # A fallback clean start (or a backend that never sets the flag) is not resumed.
+      refute AgentRunner.session_resumed?(%{})
+    end
+  end
+
+  describe "session_handle_to_save/2 (what to persist for next restart)" do
+    test "persists backend, thread_id, and model for a resumable local codex session" do
+      session = %{backend: "codex", thread_id: "thr_9", model: "gpt-5.5"}
+
+      assert {:ok, %{backend: "codex", thread_id: "thr_9", model: "gpt-5.5"}} =
+               AgentRunner.session_handle_to_save(session, nil)
+    end
+
+    test "skips a non-resumable backend (claude headless fallback)" do
+      assert :skip = AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "x"}, nil)
+    end
+
+    test "skips a remote-worker session (rollout is not on this host)" do
+      assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex", thread_id: "x"}, "box-2")
+    end
+
+    test "skips a session with no thread id" do
+      assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex"}, nil)
+    end
+  end
+
+  describe "build_turn_prompt_for_test/4 — resumed sessions continue instead of re-discovering" do
+    test "a resumed session's first turn uses continuation guidance, not the cold-start prompt" do
+      issue = %Aiur.Issue{id: "378", identifier: "378", title: "Resume sessions"}
+
+      prompt = AgentRunner.build_turn_prompt_for_test(issue, [resumed: true], 1, nil)
+
+      # The thread already carries the original task + history; the prompt must
+      # tell the agent to continue rather than restate/re-read everything.
+      assert prompt =~ ~r/resumed|restart/i
+      assert prompt =~ ~r/already (present|intact)|do not (restate|restart)/i
+      # It must NOT be the heavyweight cold-start prompt (which embeds the issue body).
+      refute prompt =~ issue.title
+    end
+
+    test "a non-resumed continuation turn keeps the normal continuation guidance" do
+      issue = %Aiur.Issue{id: "1", identifier: "1", title: "x"}
+      prompt = AgentRunner.build_turn_prompt_for_test(issue, [], 2, 10)
+      assert prompt =~ "continuation turn #2"
+    end
+  end
+
   describe "remote_session_backend/2" do
     test "a remote-on claude issue dispatches the claude-repl transport" do
       assert AgentRunner.remote_session_backend("claude", true) == "claude-repl"

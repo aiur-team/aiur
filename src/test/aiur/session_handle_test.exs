@@ -1,0 +1,95 @@
+defmodule Aiur.SessionHandleTest do
+  use ExUnit.Case, async: true
+
+  alias Aiur.SessionHandle
+
+  setup do
+    dir = Path.join(System.tmp_dir!(), "aiur_session_handle_test_#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(dir) end)
+    %{dir: dir}
+  end
+
+  describe "save/3 + load/3 round-trip" do
+    test "a saved handle loads back with the same backend, thread_id, and model", %{dir: dir} do
+      :ok =
+        SessionHandle.save(
+          "378",
+          %{backend: "codex", thread_id: "thr_abc", model: "gpt-5.5"},
+          dir: dir,
+          hostname: "box-1"
+        )
+
+      assert {:ok, handle} = SessionHandle.load("378", "codex", dir: dir, hostname: "box-1")
+      assert handle.thread_id == "thr_abc"
+      assert handle.backend == "codex"
+      assert handle.model == "gpt-5.5"
+      assert handle.hostname == "box-1"
+    end
+
+    test "a nil model round-trips as nil", %{dir: dir} do
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t1", model: nil}, dir: dir, hostname: "h")
+      assert {:ok, handle} = SessionHandle.load("9", "codex", dir: dir, hostname: "h")
+      assert handle.model == nil
+    end
+
+    test "a re-save overwrites the prior thread_id", %{dir: dir} do
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "old", model: nil}, dir: dir, hostname: "h")
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "new", model: nil}, dir: dir, hostname: "h")
+      assert {:ok, %{thread_id: "new"}} = SessionHandle.load("9", "codex", dir: dir, hostname: "h")
+    end
+
+    test "identifiers with path-unsafe characters are sanitized into one file", %{dir: dir} do
+      :ok = SessionHandle.save("feat/x", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      assert {:ok, %{thread_id: "t"}} = SessionHandle.load("feat/x", "codex", dir: dir, hostname: "h")
+    end
+  end
+
+  describe "load/3 degrades to :none (safe clean-start fallback)" do
+    test "a missing handle file is :none", %{dir: dir} do
+      assert :none == SessionHandle.load("absent", "codex", dir: dir, hostname: "h")
+    end
+
+    test "a backend mismatch is :none (never resume a different backend's thread)", %{dir: dir} do
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      assert :none == SessionHandle.load("9", "claude", dir: dir, hostname: "h")
+    end
+
+    test "a hostname mismatch is :none (codex rollouts are host-local)", %{dir: dir} do
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "box-1")
+      assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "box-2")
+    end
+
+    test "a corrupt (non-JSON) handle file is :none, not a crash", %{dir: dir} do
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      path = SessionHandle.path_for("9", dir: dir)
+      File.write!(path, "{not json")
+      assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "h")
+    end
+
+    test "an unknown schema_version is :none (forward-incompatible handle)", %{dir: dir} do
+      path = SessionHandle.path_for("9", dir: dir)
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, Jason.encode!(%{"schema_version" => 999, "backend" => "codex", "thread_id" => "t", "hostname" => "h"}))
+      assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "h")
+    end
+
+    test "a handle missing the thread_id is :none", %{dir: dir} do
+      path = SessionHandle.path_for("9", dir: dir)
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, Jason.encode!(%{"schema_version" => 1, "backend" => "codex", "hostname" => "h"}))
+      assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "h")
+    end
+  end
+
+  describe "clear/2" do
+    test "removes a saved handle so the next load is :none", %{dir: dir} do
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      :ok = SessionHandle.clear("9", dir: dir)
+      assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "h")
+    end
+
+    test "is idempotent on an absent handle", %{dir: dir} do
+      assert :ok == SessionHandle.clear("never-existed", dir: dir)
+    end
+  end
+end

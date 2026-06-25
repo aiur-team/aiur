@@ -27,6 +27,7 @@ defmodule Aiur.Codex.CodingAgent do
           thread_sandbox: String.t(),
           turn_sandbox_policy: map(),
           thread_id: String.t(),
+          resumed: boolean(),
           workspace: Path.t()
         }
 
@@ -51,6 +52,7 @@ defmodule Aiur.Codex.CodingAgent do
     worker_host = Keyword.get(opts, :worker_host)
     model = Keyword.get(opts, :model)
     effort = Keyword.get(opts, :effort)
+    resume_thread_id = Keyword.get(opts, :resume_thread_id)
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
          {:ok, port} <- start_port(expanded_workspace, worker_host, model, effort) do
@@ -62,7 +64,8 @@ defmodule Aiur.Codex.CodingAgent do
       Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]}, comm: reaper_comm)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
-           {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
+           {:ok, thread_id, resumed?} <-
+             do_start_session(port, expanded_workspace, session_policies, resume_thread_id) do
         {:ok,
          %{
            port: port,
@@ -72,6 +75,7 @@ defmodule Aiur.Codex.CodingAgent do
            thread_sandbox: session_policies.thread_sandbox,
            turn_sandbox_policy: session_policies.turn_sandbox_policy,
            thread_id: thread_id,
+           resumed: resumed?,
            workspace: expanded_workspace,
            worker_host: worker_host,
            model: model
@@ -357,15 +361,59 @@ defmodule Aiur.Codex.CodingAgent do
     Config.codex_runtime_settings(workspace, remote: true)
   end
 
-  defp do_start_session(port, workspace, session_policies) do
+  defp do_start_session(port, workspace, session_policies, resume_thread_id) do
     case send_initialize(port) do
-      :ok -> start_thread(port, workspace, session_policies)
+      :ok -> start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp start_thread(port, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}) do
-    send_message(port, %{
+  # No persisted handle to resume from: open a fresh thread.
+  defp start_or_resume_thread(port, workspace, session_policies, nil) do
+    with {:ok, thread_id} <- start_thread(port, workspace, session_policies) do
+      {:ok, thread_id, false}
+    end
+  end
+
+  # A prior thread was persisted: try `thread/resume` so the agent rejoins its
+  # existing conversation across the aiur restart. Resume must never strand an
+  # issue — if the rollout is gone/stale/unreadable (process died mid-write,
+  # ran on another host, codex evicted it), fall back to a clean `thread/start`
+  # rather than erroring (issue #378 acceptance: degrade gracefully).
+  defp start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
+       when is_binary(resume_thread_id) do
+    case resume_thread(port, workspace, session_policies, resume_thread_id) do
+      {:ok, thread_id} ->
+        Logger.info("Codex resumed prior thread thread_id=#{thread_id} (no cold start)")
+        {:ok, thread_id, true}
+
+      {:error, reason} ->
+        Logger.warning("Codex thread/resume failed for thread_id=#{resume_thread_id} (#{inspect(reason)}); falling back to a clean thread/start")
+        Aiur.Perf.event(:codex_resume_fallback, thread_id: resume_thread_id, reason: inspect(reason))
+
+        with {:ok, thread_id} <- start_thread(port, workspace, session_policies) do
+          {:ok, thread_id, false}
+        end
+    end
+  end
+
+  defp start_thread(port, workspace, session_policies) do
+    send_message(port, thread_init_frame(nil, workspace, session_policies))
+    parse_thread_response(await_response(port, @thread_start_id))
+  end
+
+  defp resume_thread(port, workspace, session_policies, resume_thread_id) do
+    send_message(port, thread_init_frame(resume_thread_id, workspace, session_policies))
+    parse_thread_response(await_response(port, @thread_start_id))
+  end
+
+  # `thread/start` and `thread/resume` share a request id and response shape
+  # (`%{"thread" => %{"id" => ...}}`). A fresh thread also registers aiur's
+  # dynamic tools; resume has no `dynamicTools` param — the codex app-server
+  # restores the registration from the persisted rollout — so we must not send
+  # one on resume.
+  defp thread_init_frame(nil, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}) do
+    %{
       "method" => "thread/start",
       "id" => @thread_start_id,
       "params" => %{
@@ -374,19 +422,26 @@ defmodule Aiur.Codex.CodingAgent do
         "cwd" => workspace,
         "dynamicTools" => DynamicTool.tool_specs()
       }
-    })
-
-    case await_response(port, @thread_start_id) do
-      {:ok, %{"thread" => thread_payload}} ->
-        case thread_payload do
-          %{"id" => thread_id} -> {:ok, thread_id}
-          _ -> {:error, {:invalid_thread_payload, thread_payload}}
-        end
-
-      other ->
-        other
-    end
+    }
   end
+
+  defp thread_init_frame(resume_thread_id, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox})
+       when is_binary(resume_thread_id) do
+    %{
+      "method" => "thread/resume",
+      "id" => @thread_start_id,
+      "params" => %{
+        "threadId" => resume_thread_id,
+        "approvalPolicy" => approval_policy,
+        "sandbox" => thread_sandbox,
+        "cwd" => workspace
+      }
+    }
+  end
+
+  defp parse_thread_response({:ok, %{"thread" => %{"id" => thread_id}}}), do: {:ok, thread_id}
+  defp parse_thread_response({:ok, %{"thread" => thread_payload}}), do: {:error, {:invalid_thread_payload, thread_payload}}
+  defp parse_thread_response(other), do: other
 
   defp start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
     send_message(port, %{
@@ -1727,6 +1782,12 @@ defmodule Aiur.Codex.CodingAgent do
   @doc false
   @spec codex_command_for_test(String.t() | nil, String.t() | nil) :: String.t()
   def codex_command_for_test(model, effort \\ nil), do: codex_command(model, effort)
+
+  @doc false
+  @spec thread_init_frame_for_test(String.t() | nil, Path.t(), map()) :: map()
+  def thread_init_frame_for_test(resume_thread_id, workspace, session_policies) do
+    thread_init_frame(resume_thread_id, workspace, session_policies)
+  end
 
   @doc false
   @spec unretryable_codex_error_for_test(map()) :: boolean()
