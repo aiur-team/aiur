@@ -49,6 +49,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule FlakyReworkGitHubClient do
+    def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+    def fetch_candidate_issues, do: {:ok, []}
+
     def update_issue_state(issue_id, state_name) do
       recipient = Application.get_env(:aiur, :flaky_rework_recipient)
       pid = Application.fetch_env!(:aiur, :flaky_rework_agent)
@@ -62,6 +65,31 @@ defmodule Aiur.OrchestratorDeactivateTest do
         [] -> {:ok, []}
       end)
     end
+  end
+
+  defmodule DirectDispatchGitHubClient do
+    def update_issue_state(issue_id, state_name) do
+      if is_pid(recipient()), do: send(recipient(), {:direct_dispatch_update, issue_id, state_name})
+      :ok
+    end
+
+    def fetch_issue_states_by_ids(issue_ids) do
+      send(recipient(), {:direct_dispatch_fetch, issue_ids})
+
+      issues =
+        :aiur
+        |> Application.fetch_env!(:direct_dispatch_issues)
+        |> Enum.filter(&(&1.id in issue_ids))
+
+      {:ok, issues}
+    end
+
+    def fetch_candidate_issues do
+      send(recipient(), :direct_dispatch_candidate_fetch)
+      {:ok, []}
+    end
+
+    defp recipient, do: Application.get_env(:aiur, :direct_dispatch_recipient)
   end
 
   describe "reconcile with nil / non-binary issue state (crash regression)" do
@@ -1284,7 +1312,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "trusted comment for an idle issue transitions it to rework and queues the comment" do
+    test "trusted comment for an idle issue queues the comment and schedules dispatch" do
       issue_id = "issue-issue-commented-2"
       issue_identifier = "7"
       previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
@@ -1338,6 +1366,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         topics = Enum.map(subscribed_to, & &1["topic"])
         assert "ticket.#{issue_identifier}.issue.commented" in topics
         assert "ticket.#{issue_identifier}.pr.review_comment" in topics
+        assert_receive :run_poll_cycle, 100
       after
         :ok = SubscriptionStore.stop(issue_identifier)
 
@@ -1346,6 +1375,103 @@ defmodule Aiur.OrchestratorDeactivateTest do
         else
           Application.delete_env(:aiur, :memory_tracker_recipient)
         end
+      end
+    end
+
+    test "trusted idle review comment fetches the reworked issue and dispatches immediately" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-direct-comment-dispatch-#{System.unique_integer([:positive])}"
+        )
+
+      issue_identifier = "58"
+      fake_codex = Path.join(test_root, "fake-codex")
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_direct_recipient = Application.get_env(:aiur, :direct_dispatch_recipient)
+      previous_direct_issues = Application.get_env(:aiur, :direct_dispatch_issues)
+
+      try do
+        File.mkdir_p!(test_root)
+        File.write!(fake_codex, "#!/bin/sh\nsleep 30\n")
+        File.chmod!(fake_codex, 0o755)
+
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          workspace_root: test_root,
+          tracker_repo: "owner/repo",
+          tracker_label_prefix: "agent",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"],
+          codex_command: "#{fake_codex} app-server"
+        )
+
+        Application.put_env(:aiur, :github_client_module, DirectDispatchGitHubClient)
+        Application.put_env(:aiur, :direct_dispatch_recipient, self())
+
+        Application.put_env(:aiur, :direct_dispatch_issues, [
+          %Issue{
+            id: issue_identifier,
+            identifier: issue_identifier,
+            state: "rework",
+            title: "Review comment requested rework",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{},
+          claimed: MapSet.new(),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        event = %{
+          id: 3_473_822_447,
+          topic: "ticket.#{issue_identifier}.pr.review_comment",
+          source: :github,
+          author_trusted?: true,
+          message: "please acknowledge this inline review comment",
+          comment: %{
+            "body" => "please acknowledge this inline review comment",
+            "id" => 3_473_822_447
+          }
+        }
+
+        assert {:noreply, next_state} = Orchestrator.handle_info({:event, event}, state)
+
+        assert_receive {:direct_dispatch_update, ^issue_identifier, "rework"}
+        assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
+        refute_receive :direct_dispatch_candidate_fetch, 50
+        refute_received :run_poll_cycle
+
+        assert [
+                 %{
+                   event_type: :events_digest,
+                   body: %{events: [^event]}
+                 }
+               ] = AgentQueueStore.list_pending(next_state.queue_store, issue_identifier)
+
+        assert %{^issue_identifier => entry} = next_state.running
+        assert entry.issue.state == "rework"
+        assert MapSet.member?(next_state.claimed, issue_identifier)
+
+        if is_pid(entry.pid) and Process.alive?(entry.pid) do
+          Process.exit(entry.pid, :kill)
+
+          receive do
+            {:DOWN, _ref, :process, pid, _reason} when pid == entry.pid -> :ok
+          after
+            100 -> :ok
+          end
+        end
+      after
+        restore_application_env(:github_client_module, previous_github_client)
+        restore_application_env(:direct_dispatch_recipient, previous_direct_recipient)
+        restore_application_env(:direct_dispatch_issues, previous_direct_issues)
+        File.rm_rf(test_root)
       end
     end
 
@@ -1423,6 +1549,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         topics = Enum.map(subscribed_to, & &1["topic"])
         assert "ticket.#{issue_identifier}.issue.commented" in topics
         assert "ticket.#{issue_identifier}.pr.review_comment" in topics
+        assert_receive :run_poll_cycle, 100
       after
         :ok = SubscriptionStore.stop(issue_identifier)
 

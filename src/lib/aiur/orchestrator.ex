@@ -893,7 +893,72 @@ defmodule Aiur.Orchestrator do
     identifier = to_string(issue_number)
 
     UniversalSubscriptions.attach(identifier)
-    enqueue_event_digest_item(state, identifier, [event], event)
+
+    state
+    |> enqueue_event_digest_item(identifier, [event], event)
+    |> dispatch_reworked_comment_issue(identifier)
+  end
+
+  defp dispatch_reworked_comment_issue(%State{} = state, identifier) when is_binary(identifier) do
+    case fetch_comment_dispatch_issue(identifier) do
+      {:ok, %Issue{} = issue} ->
+        dispatch_reworked_comment_issue(state, issue)
+
+      {:skip, reason} ->
+        Logger.info("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        schedule_poll_cycle_start()
+        state
+
+      {:error, reason} ->
+        Logger.warning("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        schedule_poll_cycle_start()
+        state
+    end
+  end
+
+  defp dispatch_reworked_comment_issue(%State{} = state, %Issue{} = issue) do
+    if should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set()) do
+      dispatch_issue(state, issue)
+    else
+      schedule_poll_cycle_start()
+      state
+    end
+  end
+
+  defp fetch_comment_dispatch_issue(identifier) do
+    case Tracker.fetch_issue_states_by_ids([identifier]) do
+      {:ok, [%Issue{} = issue | _]} ->
+        {:ok, issue}
+
+      {:ok, []} ->
+        fetch_comment_dispatch_issue_from_candidates(identifier)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_comment_dispatch_issue_from_candidates(identifier) do
+    case Tracker.fetch_candidate_issues() do
+      {:ok, issues} ->
+        case find_issue_by_identifier_or_id(issues, identifier) do
+          %Issue{} = issue -> {:ok, issue}
+          nil -> {:skip, :missing}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp find_issue_by_identifier_or_id(issues, identifier) when is_list(issues) do
+    Enum.find(issues, fn
+      %Issue{id: id, identifier: issue_identifier} ->
+        id == identifier or issue_identifier == identifier
+
+      _ ->
+        false
+    end)
   end
 
   defp transition_and_revalidate_comment_reactivation(
