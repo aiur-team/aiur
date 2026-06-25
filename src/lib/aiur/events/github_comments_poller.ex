@@ -10,10 +10,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   require Logger
 
-  alias Aiur.Events.{CommentFilter, Publisher, Sanitizer}
+  alias Aiur.Events.{CommentFilter, GithubKeys, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
-
-  @pre_boot_buffer_seconds 60
 
   @type target :: String.t() | integer()
 
@@ -175,7 +173,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id"))
+      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id"))
     )
   end
 
@@ -187,7 +185,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
+      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
     )
   end
 
@@ -199,7 +197,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id"))
+      dedup_key: GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id"))
     )
   end
 
@@ -221,7 +219,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp success_count(:ok), do: 1
   defp success_count({:error, _}), do: 0
-  defp success_count(results) when is_list(results), do: Enum.map(results, &success_count/1) |> Enum.sum()
+
+  defp success_count(results) when is_list(results),
+    do: Enum.map(results, &success_count/1) |> Enum.sum()
 
   defp collect_error(errors, target, results) do
     results
@@ -271,26 +271,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp default_since(opts) do
-    opts
-    |> boot_epoch_seconds()
-    |> Kernel.-(@pre_boot_buffer_seconds)
-    |> DateTime.from_unix!()
-    |> DateTime.to_iso8601()
+    GithubKeys.boot_cutoff_iso8601(opts)
   end
-
-  defp boot_epoch_seconds(opts) do
-    case Keyword.get(opts, :boot_time) do
-      ts when is_integer(ts) -> ts
-      _ -> Aiur.Boot.epoch_seconds()
-    end
-  end
-
-  defp comment_dedup_key(repo, kind, parent_number, comment_id)
-       when is_binary(repo) and is_binary(kind) and is_integer(parent_number) and
-              is_integer(comment_id),
-       do: {repo, "#{kind}:#{parent_number}", Integer.to_string(comment_id)}
-
-  defp comment_dedup_key(_, _, _, _), do: nil
 
   defp parse_integer(value) when is_integer(value), do: value
 
