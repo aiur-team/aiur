@@ -892,8 +892,6 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
-  defp review_threads_page(_body), do: {:error, :review_threads_missing}
-
   defp unaddressed_thread_comments(threads, opts) when is_list(threads) do
     threads
     |> Enum.flat_map(&unaddressed_thread_comment(&1, opts))
