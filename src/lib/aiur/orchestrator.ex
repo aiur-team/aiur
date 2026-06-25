@@ -3940,7 +3940,7 @@ defmodule Aiur.Orchestrator do
     }
 
     running_entry = find_running_by_identifier(state.running, identifier)
-    delivery_opts = event_digest_delivery_opts(running_entry)
+    delivery_opts = event_digest_delivery_opts(running_entry, event)
 
     {queue_store, item} =
       AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
@@ -3972,7 +3972,7 @@ defmodule Aiur.Orchestrator do
     }
 
     running_entry = find_running_by_identifier(state.running, identifier)
-    delivery_opts = event_digest_delivery_opts(running_entry)
+    delivery_opts = event_digest_delivery_opts(running_entry, events)
 
     {queue_store, item} =
       AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
@@ -4640,11 +4640,40 @@ defmodule Aiur.Orchestrator do
       item.delivery[:immediate] == true
   end
 
-  defp event_digest_delivery_opts(running_entry) do
-    if queue_wake_required?(running_entry) do
+  defp event_digest_delivery_opts(running_entry, event_or_events) do
+    if queue_wake_required?(running_entry) or trusted_comment_wake_required?(running_entry, event_or_events) do
       [source: :system, priority: :now, interrupt_requested: true]
     else
       [source: :system]
+    end
+  end
+
+  defp trusted_comment_wake_required?(running_entry, event_or_events) do
+    active_running_entry?(running_entry) and trusted_comment_event_digest?(event_or_events)
+  end
+
+  defp trusted_comment_event_digest?(events) when is_list(events) do
+    Enum.any?(events, &trusted_comment_event_digest?/1)
+  end
+
+  defp trusted_comment_event_digest?(event) when is_map(event) do
+    comment_event_topic?(event) and trusted_comment_event?(event) and
+      not benign_review_pass_comment?(event)
+  end
+
+  defp trusted_comment_event_digest?(_event), do: false
+
+  defp comment_event_topic?(event) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic")
+
+    if is_binary(topic) do
+      case classify_event_topic(topic) do
+        {:pr_review_comment, _identifier} -> true
+        {:issue_commented, _identifier} -> true
+        _ -> false
+      end
+    else
+      false
     end
   end
 

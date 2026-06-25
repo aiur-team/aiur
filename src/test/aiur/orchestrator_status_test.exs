@@ -1763,8 +1763,8 @@ defmodule Aiur.OrchestratorStatusTest do
             }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-IDLE-TURN")
   end
 
-  test "event digest keeps checkpoint delivery while a turn is active" do
-    orchestrator_name = Module.concat(__MODULE__, :ActiveEventDigestOrchestrator)
+  test "untrusted event digest keeps checkpoint delivery while a turn is active" do
+    orchestrator_name = Module.concat(__MODULE__, :UntrustedActiveEventDigestOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     parent = self()
 
@@ -1795,6 +1795,45 @@ defmodule Aiur.OrchestratorStatusTest do
               category: :coordination_event,
               delivery: %{interrupt_requested: false, priority: :later}
             }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-WORK")
+  end
+
+  test "trusted PR review comment wakes a running agent with an active turn" do
+    orchestrator_name = Module.concat(__MODULE__, :TrustedActiveReviewCommentOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      ActiveTurns.mark_closed("MT-WORK-REVIEW", "turn-active-review", :test_cleanup)
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+    :ok = ActiveTurns.put("MT-WORK-REVIEW", "turn-active-review")
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-working-review" => running_entry("issue-working-review", "MT-WORK-REVIEW", :working, worker_pid)}}
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-WORK-REVIEW",
+               %{
+                 topic: "ticket.MT-WORK-REVIEW.pr.review_comment",
+                 source: :github,
+                 author_trusted?: true,
+                 comment: %{body: "please fix"}
+               }
+             })
+
+    assert_receive {:agent_queue_updated, "MT-WORK-REVIEW", item_id, true}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: true, priority: :now}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-WORK-REVIEW")
   end
 
   test "operator message wakes a running agent with no active turn" do
