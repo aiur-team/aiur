@@ -239,6 +239,12 @@ defmodule Aiur.Orchestrator do
   @tracked_table __MODULE__.TrackedSet
 
   defp init_tracked_set_table do
+    ensure_tracked_set_table()
+    :ets.delete_all_objects(@tracked_table)
+    :ok
+  end
+
+  defp ensure_tracked_set_table do
     case :ets.whereis(@tracked_table) do
       :undefined ->
         :ets.new(@tracked_table, [
@@ -250,7 +256,7 @@ defmodule Aiur.Orchestrator do
         ])
 
       _ ->
-        :ets.delete_all_objects(@tracked_table)
+        @tracked_table
     end
 
     :ok
@@ -293,6 +299,7 @@ defmodule Aiur.Orchestrator do
       end)
       |> Enum.reject(&is_nil/1)
 
+    ensure_tracked_set_table()
     :ets.delete_all_objects(@tracked_table)
     Enum.each(needles, &:ets.insert(@tracked_table, {&1, true}))
     state
