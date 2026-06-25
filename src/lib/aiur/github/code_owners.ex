@@ -24,9 +24,11 @@ defmodule Aiur.GitHub.CodeOwners do
   own bot-account replies, and the orchestrator would lock itself out
   of the dependencies dance). To prevent that:
 
-    * `bot_account` (from `Aiur.GitHub.Config.bot_account/0`) is
-      **always** included regardless of CODEOWNERS contents.
-    * Missing or empty CODEOWNERS file → allowlist is `MapSet.new([bot_account])`
+    * `bot_account` (from `Aiur.GitHub.Config.bot_account/0`) and
+      `trusted_accounts` (from `Aiur.GitHub.Config.trusted_accounts/0`)
+      are **always** included regardless of CODEOWNERS contents.
+    * Missing or empty CODEOWNERS file → allowlist contains only the
+      explicitly configured trusted accounts.
       (and a critical warning is logged).
     * Failure to resolve a team/org → log + skip that token; do NOT
       raise (one broken entry should not block the rest).
@@ -146,7 +148,7 @@ defmodule Aiur.GitHub.CodeOwners do
   end
 
   defp do_refresh(state) do
-    bot_set = bot_set()
+    trusted_set = trusted_account_set()
     tokens = parse_codeowners(state.codeowners_path)
 
     resolved =
@@ -163,7 +165,7 @@ defmodule Aiur.GitHub.CodeOwners do
           resolve_tokens(tokens, state.request_fun)
       end
 
-    new_allowlist = MapSet.union(resolved, bot_set)
+    new_allowlist = MapSet.union(resolved, trusted_set)
 
     if MapSet.size(new_allowlist) == 0 do
       Logger.error("CodeOwners: allowlist would be empty (bot_account also unset); keeping previous allowlist")
@@ -174,11 +176,13 @@ defmodule Aiur.GitHub.CodeOwners do
     end
   end
 
-  defp bot_set do
-    case Config.bot_account() do
-      bot when is_binary(bot) -> MapSet.new([String.downcase(bot)])
-      _ -> MapSet.new()
-    end
+  defp trusted_account_set do
+    [Config.bot_account() | Config.trusted_accounts()]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&String.downcase/1)
+    |> MapSet.new()
   end
 
   defp default_codeowners_path do

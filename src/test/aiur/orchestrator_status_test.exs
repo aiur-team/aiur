@@ -2,6 +2,7 @@ defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
+  alias Aiur.Opencode.ActiveTurns
 
   defmodule StartupCleanupLinearClient do
     def fetch_candidate_issues, do: {:ok, []}
@@ -1569,8 +1570,10 @@ defmodule Aiur.OrchestratorStatusTest do
   test "orchestrator enqueues operator messages and pause requests for the running agent task" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    :ok = ActiveTurns.put("MT-CHAT", "turn-chat")
 
     on_exit(fn ->
+      ActiveTurns.mark_closed("MT-CHAT", "turn-chat", :test_cleanup)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
     end)
 
@@ -1649,6 +1652,180 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert {:error, :no_running_agent} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+  end
+
+  test "event digest wakes a sleeping agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :SleepingEventDigestOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-sleeping" => running_entry("issue-sleeping", "MT-SLEEP", :sleeping, worker_pid)}}
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-SLEEP",
+               %{
+                 topic: "ticket.MT-SLEEP.pr.review_comment",
+                 source: :github,
+                 author_trusted?: true,
+                 message: "please fix",
+                 comment: %{"body" => "please fix"}
+               }
+             })
+
+    assert_receive {:agent_queue_updated, "MT-SLEEP", item_id, true}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              body: %{events: [%{message: "please fix", comment: %{"body" => "please fix"}}]},
+              delivery: %{interrupt_requested: true, priority: :now}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-SLEEP")
+  end
+
+  test "event digest does not auto-wake a manually paused agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :PausedEventDigestOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, worker_pid)}}
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-PAUSED",
+               %{
+                 topic: "ticket.MT-PAUSED.pr.review_comment",
+                 source: :github,
+                 author_trusted?: true,
+                 message: "please fix",
+                 comment: %{"body" => "please fix"}
+               }
+             })
+
+    assert_receive {:agent_queue_updated, "MT-PAUSED", item_id, false}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: false, priority: :later}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-PAUSED")
+  end
+
+  test "event digest wakes a running agent with no active turn" do
+    orchestrator_name = Module.concat(__MODULE__, :IdleEventDigestOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-idle-turn" => running_entry("issue-idle-turn", "MT-IDLE-TURN", :working, worker_pid)}}
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-IDLE-TURN",
+               %{topic: "ticket.MT-IDLE-TURN.pr.review_comment", comment: %{body: "please fix"}}
+             })
+
+    assert_receive {:agent_queue_updated, "MT-IDLE-TURN", item_id, true}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: true, priority: :now}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-IDLE-TURN")
+  end
+
+  test "event digest keeps checkpoint delivery while a turn is active" do
+    orchestrator_name = Module.concat(__MODULE__, :ActiveEventDigestOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      ActiveTurns.mark_closed("MT-WORK", "turn-active", :test_cleanup)
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+    :ok = ActiveTurns.put("MT-WORK", "turn-active")
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-working" => running_entry("issue-working", "MT-WORK", :working, worker_pid)}}
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-WORK",
+               %{topic: "ticket.MT-WORK.pr.review_comment", comment: %{body: "please fix"}}
+             })
+
+    assert_receive {:agent_queue_updated, "MT-WORK", item_id, false}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: false, priority: :later}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-WORK")
+  end
+
+  test "operator message wakes a running agent with no active turn" do
+    orchestrator_name = Module.concat(__MODULE__, :SleepingOperatorMessageOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-sleeping-chat" => running_entry("issue-sleeping-chat", "MT-SLEEP-CHAT", :sleeping, worker_pid)}}
+    end)
+
+    assert {:ok, request_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-SLEEP-CHAT", %{
+               kind: :text,
+               body: "please address the review"
+             })
+
+    assert_receive {:agent_queue_updated, "MT-SLEEP-CHAT", ^request_id, true}
+
+    assert {:ok,
+            %{
+              id: ^request_id,
+              category: :operator_message,
+              delivery: %{interrupt_requested: false, priority: :next}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-SLEEP-CHAT")
   end
 
   test "chat-send to a paused agent auto-resumes it when a slot is free" do

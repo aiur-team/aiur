@@ -1635,26 +1635,20 @@ defmodule Aiur.CoreTest do
       trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex.trace}"
       run_id="$(date +%s%N)-$$"
       printf 'RUN:%s\\n' "$run_id" >> "$trace_file"
-      count=0
+      turn_count=0
 
       while IFS= read -r line; do
-        count=$((count + 1))
         printf 'JSON:%s\\n' "$line" >> "$trace_file"
-        case "$count" in
-          1)
+        case "$line" in
+          *'"method":"initialize"'*)
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
-          2)
-            ;;
-          3)
+          *'"method":"thread/start"'*)
             printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-cont"}}}'
             ;;
-          4)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-cont-1"}}}'
-            printf '%s\\n' '{"method":"turn/completed"}'
-            ;;
-          5)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-cont-2"}}}'
+          *'"method":"turn/start"'*)
+            turn_count=$((turn_count + 1))
+            printf '{"id":3,"result":{"turn":{"id":"turn-cont-%s"}}}\\n' "$turn_count"
             printf '%s\\n' '{"method":"turn/completed"}'
             ;;
         esac

@@ -26,7 +26,12 @@ defmodule Aiur.TestSupport do
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
-        only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
+        only: [
+          write_workflow_file!: 1,
+          write_workflow_file!: 2,
+          restore_env: 2,
+          stop_default_http_server: 0
+        ]
 
       setup do
         workflow_base =
@@ -140,11 +145,15 @@ defmodule Aiur.TestSupport do
   @spec pgrep_skip_reason() :: String.t() | nil
   def pgrep_skip_reason do
     if System.find_executable("pgrep") do
-      probe = ~s(sleep 1 & child=$!; pgrep -P $$ >/dev/null 2>&1; rc=$?; kill "$child" 2>/dev/null; exit $rc)
+      probe =
+        ~s(sleep 1 & child=$!; pgrep -P $$ >/dev/null 2>&1; rc=$?; kill "$child" 2>/dev/null; exit $rc)
 
       case System.cmd("sh", ["-c", probe], stderr_to_stdout: true) do
-        {_out, 0} -> nil
-        _ -> "pgrep cannot read the process list in this environment (e.g. macOS sandbox: sysmond unavailable)"
+        {_out, 0} ->
+          nil
+
+        _ ->
+          "pgrep cannot read the process list in this environment (e.g. macOS sandbox: sysmond unavailable)"
       end
     else
       "pgrep is not on $PATH"
@@ -191,6 +200,8 @@ defmodule Aiur.TestSupport do
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
           tracker_repo: nil,
           tracker_label_prefix: nil,
+          tracker_bot_account: nil,
+          tracker_trusted_accounts: [],
           max_vertical_panes: 3,
           agent_kind: "codex",
           agent_routing: %{},
@@ -243,7 +254,10 @@ defmodule Aiur.TestSupport do
     workspace_bootstrap_image = Keyword.get(config, :workspace_bootstrap_image)
     workspace_bootstrap_image_pull = Keyword.get(config, :workspace_bootstrap_image_pull)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
-    worker_max_concurrent_agents_per_host = Keyword.get(config, :worker_max_concurrent_agents_per_host)
+
+    worker_max_concurrent_agents_per_host =
+      Keyword.get(config, :worker_max_concurrent_agents_per_host)
+
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
@@ -324,7 +338,13 @@ defmodule Aiur.TestSupport do
         "  bootstrap_image_pull: #{yaml_value(workspace_bootstrap_image_pull)}",
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         agent_section,
-        hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
+        hooks_yaml(
+          hook_after_create,
+          hook_before_run,
+          hook_after_run,
+          hook_before_remove,
+          hook_timeout_ms
+        ),
         observability_yaml(
           observability_enabled,
           observability_writable,
@@ -366,14 +386,16 @@ defmodule Aiur.TestSupport do
     repo = Keyword.get(config, :tracker_repo)
     label_prefix = Keyword.get(config, :tracker_label_prefix)
     bot_account = Keyword.get(config, :tracker_bot_account)
+    trusted_accounts = Keyword.get(config, :tracker_trusted_accounts, [])
 
     [
       "  github:",
       repo && "    repo: #{yaml_value(repo)}",
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
-      bot_account && "    bot_account: #{yaml_value(bot_account)}"
+      bot_account && "    bot_account: #{yaml_value(bot_account)}",
+      trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}"
     ]
-    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
   end
 
@@ -480,9 +502,16 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp hooks_yaml(nil, nil, nil, nil, timeout_ms), do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
+  defp hooks_yaml(nil, nil, nil, nil, timeout_ms),
+    do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
 
-  defp hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, timeout_ms) do
+  defp hooks_yaml(
+         hook_after_create,
+         hook_before_run,
+         hook_after_run,
+         hook_before_remove,
+         timeout_ms
+       ) do
     [
       "hooks:",
       "  timeout_ms: #{yaml_value(timeout_ms)}",

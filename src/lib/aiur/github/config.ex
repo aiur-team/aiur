@@ -90,6 +90,31 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @doc """
+  Returns additional GitHub logins whose comments are trusted for agent
+  delivery without treating them as Aiur self-loop authors.
+  """
+  @spec trusted_accounts() :: [String.t()]
+  def trusted_accounts do
+    case section_value("trusted_accounts") do
+      accounts when is_list(accounts) ->
+        accounts
+        |> Enum.filter(&is_binary/1)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq_by(&String.downcase/1)
+
+      account when is_binary(account) ->
+        case String.trim(account) do
+          "" -> []
+          trimmed -> [trimmed]
+        end
+
+      _ ->
+        []
+    end
+  end
+
   @impl Aiur.TrackerConfig
   def validate! do
     cond do

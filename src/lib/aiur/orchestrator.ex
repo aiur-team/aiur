@@ -3349,6 +3349,12 @@ defmodule Aiur.Orchestrator do
 
   defp paused_running_entry?(_entry), do: false
 
+  defp sleeping_running_entry?(entry) when is_map(entry) do
+    (get_in(entry, [:control, :status]) || :working) == :sleeping
+  end
+
+  defp sleeping_running_entry?(_entry), do: false
+
   defp deactivated_running_entry?(entry) when is_map(entry) do
     get_in(entry, [:control, :status]) == :deactivated
   end
@@ -3874,13 +3880,16 @@ defmodule Aiur.Orchestrator do
       events: [event]
     }
 
+    running_entry = find_running_by_identifier(state.running, identifier)
+    delivery_opts = event_digest_delivery_opts(running_entry)
+
     {queue_store, item} =
-      AgentQueue.coordination_event(identifier, :events_digest, body, source: :system)
+      AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
       |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
     next_state = %{state | queue_store: queue_store}
 
-    case find_running_by_identifier(state.running, identifier) do
+    case running_entry do
       nil ->
         :ok
 
@@ -3903,13 +3912,16 @@ defmodule Aiur.Orchestrator do
       events: events
     }
 
+    running_entry = find_running_by_identifier(state.running, identifier)
+    delivery_opts = event_digest_delivery_opts(running_entry)
+
     {queue_store, item} =
-      AgentQueue.coordination_event(identifier, :events_digest, body, source: :system)
+      AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
       |> then(&AgentQueueStore.enqueue(state.queue_store, &1))
 
     next_state = %{state | queue_store: queue_store}
 
-    case find_running_by_identifier(state.running, identifier) do
+    case running_entry do
       nil ->
         :ok
 
@@ -4550,11 +4562,11 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp notify_running_queue_update(%{pid: pid}, item) when is_pid(pid) do
+  defp notify_running_queue_update(%{pid: pid} = running_entry, item) when is_pid(pid) do
     if Process.alive?(pid) do
       send(
         pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id, item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true}
+        {:agent_queue_updated, item.target_issue_identifier, item.id, deliver_now?(running_entry, item)}
       )
     end
 
@@ -4562,6 +4574,31 @@ defmodule Aiur.Orchestrator do
   end
 
   defp notify_running_queue_update(_running_entry, _item), do: :ok
+
+  defp deliver_now?(running_entry, item) do
+    queue_wake_required?(running_entry) or
+      item.delivery[:interrupt_requested] == true or
+      item.delivery[:immediate] == true
+  end
+
+  defp event_digest_delivery_opts(running_entry) do
+    if queue_wake_required?(running_entry) do
+      [source: :system, priority: :now, interrupt_requested: true]
+    else
+      [source: :system]
+    end
+  end
+
+  defp queue_wake_required?(running_entry) do
+    sleeping_running_entry?(running_entry) or
+      (active_running_entry?(running_entry) and no_active_turn?(running_entry))
+  end
+
+  defp no_active_turn?(%{identifier: identifier}) when is_binary(identifier) do
+    ActiveTurns.active_turn_ids(identifier) == []
+  end
+
+  defp no_active_turn?(_running_entry), do: false
 
   defp resume_issue(%State{} = state, issue_identifier) do
     case find_running_by_identifier(state.running, issue_identifier) do

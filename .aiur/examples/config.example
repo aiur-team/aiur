@@ -6,7 +6,7 @@ tracker:
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, cancelled, canceled]
 {{TRACKER_PROVIDER}}
-  # provider block (filled above): github {repo, label_prefix, bot_account} | linear {api_key, project_slug, assignee}
+  # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts} | linear {api_key, project_slug, assignee}
 
 # === Coding agents ===
 agent:

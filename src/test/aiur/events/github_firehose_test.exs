@@ -179,7 +179,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       end
 
       assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
-      assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+      assert_receive {:event, %{topic: "ticket.42.issue.commented", message: "looks good"}}, 500
     end
 
     test "IssueCommentEvent on a PR re-keys to the ticket id via the head ref" do
@@ -212,7 +212,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert {:ok, %{count: 1}} =
                GithubFirehose.poll(request_fun: stub, pr_lookup_fun: pr_lookup)
 
-      assert_receive {:event, %{topic: "ticket.7.issue.commented"}}, 500
+      assert_receive {:event, %{topic: "ticket.7.issue.commented", message: "ping"}}, 500
     end
 
     test "IssueCommentEvent on a PR falls back to the raw number when resolution fails" do
@@ -349,6 +349,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
                       %{
                         topic: "ticket.35.pr.review_comment",
                         issue_number: "35",
+                        message: "Codex review result",
                         comment: %{"id" => 4_783_049_689}
                       }},
                      500
