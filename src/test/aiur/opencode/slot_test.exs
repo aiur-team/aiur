@@ -13,6 +13,30 @@ defmodule Aiur.Opencode.SlotTest do
     end
   end
 
+  describe "writers_for_base_url/2 — reap selection (#372)" do
+    test "selects only the entries bound to the given base_url" do
+      entries = [
+        %{base_url: "http://h:1", identifier: "a"},
+        %{base_url: "http://h:2", identifier: "b"},
+        %{base_url: "http://h:1", identifier: "c"}
+      ]
+
+      # A serve rebuild reaps writers for the OLD base_url only. Matching
+      # on base_url must never sweep up a sibling slot's writers (each
+      # slot's serve owns a unique base_url), or the rebuild would kill a
+      # live agent's session on another slot.
+      selected = Slot.writers_for_base_url(entries, "http://h:1")
+
+      assert Enum.map(selected, & &1.identifier) == ["a", "c"]
+    end
+
+    test "returns [] when no entry matches" do
+      entries = [%{base_url: "http://h:2", identifier: "b"}]
+
+      assert Slot.writers_for_base_url(entries, "http://h:1") == []
+    end
+  end
+
   describe "slots_topic/0" do
     test "returns a stable string suitable for PubSub" do
       assert is_binary(Slot.slots_topic())
