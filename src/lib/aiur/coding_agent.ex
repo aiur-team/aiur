@@ -74,6 +74,10 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         remote_control: false,
+        # The codex app-server can rejoin a prior thread across an aiur restart
+        # via `thread/resume` against its on-disk rollout, so a respawned
+        # session continues rather than cold-starting (issue #378).
+        resumable: true,
         models: ["gpt-5.5", "gpt-5.4", "gpt-5.5-mini", "gpt-5.4-mini"],
         efforts: ["low", "medium", "high"]
       },
@@ -358,6 +362,20 @@ defmodule Aiur.CodingAgent do
   def remote_control?(backend) do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :remote_control, false)
+      :error -> false
+    end
+  end
+
+  @doc """
+  Whether a backend can resume a prior agent thread across an aiur restart
+  (reattach to the same session rather than cold-start a new conversation).
+  Only codex's app-server `thread/resume` is wired today; every other backend
+  — and any unknown one — is not resumable and degrades to a clean start.
+  """
+  @spec resumable?(backend()) :: boolean()
+  def resumable?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :resumable, false)
       :error -> false
     end
   end

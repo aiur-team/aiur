@@ -43,6 +43,98 @@ defmodule Aiur.Codex.CodingAgentTest do
     end
   end
 
+  describe "thread-init frame (start vs resume)" do
+    @policies %{approval_policy: "never", thread_sandbox: "read-only"}
+
+    test "builds a thread/start frame with dynamicTools when not resuming" do
+      frame = CodingAgent.thread_init_frame_for_test(nil, "/ws", @policies)
+
+      assert frame["method"] == "thread/start"
+      assert frame["id"] == 2
+      assert frame["params"]["cwd"] == "/ws"
+      assert frame["params"]["approvalPolicy"] == "never"
+      assert frame["params"]["sandbox"] == "read-only"
+      # A fresh thread registers aiur's custom dynamic tools.
+      assert is_list(frame["params"]["dynamicTools"])
+    end
+
+    test "builds a thread/resume frame carrying the threadId when resuming" do
+      frame = CodingAgent.thread_init_frame_for_test("thr_123", "/ws", @policies)
+
+      assert frame["method"] == "thread/resume"
+      assert frame["id"] == 2
+      assert frame["params"]["threadId"] == "thr_123"
+      assert frame["params"]["cwd"] == "/ws"
+      assert frame["params"]["approvalPolicy"] == "never"
+      assert frame["params"]["sandbox"] == "read-only"
+      # The codex app-server's thread/resume has no dynamicTools param; the
+      # registration is restored from the persisted rollout, so we must not
+      # send one (it would be rejected as an unknown field).
+      refute Map.has_key?(frame["params"], "dynamicTools")
+    end
+  end
+
+  describe "resume_outcome/2 (resumed vs fresh vs clean-start fallback)" do
+    test "a returned thread_id matching the requested one is a genuine resume" do
+      assert CodingAgent.resume_outcome({:ok, "thr_1"}, "thr_1") == {:resumed, "thr_1"}
+    end
+
+    test "a DIFFERENT returned thread_id is treated as fresh, not a resume" do
+      # Guards against codex silently substituting a new/empty thread: reporting
+      # resumed?=true there would hand the agent a context-free continuation
+      # prompt against a thread it never actually rejoined.
+      assert CodingAgent.resume_outcome({:ok, "thr_other"}, "thr_1") == {:fresh, "thr_other"}
+    end
+
+    test "a resume error degrades to a clean-start fallback carrying the reason" do
+      assert CodingAgent.resume_outcome({:error, {:response_error, %{}}}, "thr_1") ==
+               {:fallback, {:response_error, %{}}}
+
+      assert CodingAgent.resume_outcome({:error, :response_timeout}, "thr_1") ==
+               {:fallback, :response_timeout}
+    end
+  end
+
+  describe "parse_thread_response/1" do
+    test "extracts the thread id from a well-formed start/resume response" do
+      assert CodingAgent.parse_thread_response_for_test({:ok, %{"thread" => %{"id" => "thr_x"}}}) ==
+               {:ok, "thr_x"}
+    end
+
+    test "a thread payload without an id is an invalid-thread-payload error" do
+      assert {:error, {:invalid_thread_payload, %{"name" => "x"}}} =
+               CodingAgent.parse_thread_response_for_test({:ok, %{"thread" => %{"name" => "x"}}})
+    end
+
+    test "an underlying error response passes through unchanged" do
+      assert CodingAgent.parse_thread_response_for_test({:error, :response_timeout}) ==
+               {:error, :response_timeout}
+    end
+  end
+
+  describe "send_thread_init/2 graceful degradation" do
+    test "a closed app-server port yields {:error, :port_closed} instead of raising" do
+      # A dead app-server makes Port.command raise ArgumentError; the resume path
+      # must see an error tuple so it can fall back to a clean start rather than
+      # crashing the dispatch (issue #378: degrade gracefully).
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("cat"))},
+          [:binary, :exit_status]
+        )
+
+      true = Port.close(port)
+
+      frame =
+        CodingAgent.thread_init_frame_for_test("thr_1", "/ws", %{
+          approval_policy: "never",
+          thread_sandbox: "read-only"
+        })
+
+      assert {:error, :port_closed} = CodingAgent.send_thread_init_for_test(port, frame)
+    end
+  end
+
   defp wait_for_child(parent, budget_ms) do
     deadline = System.monotonic_time(:millisecond) + budget_ms
     do_wait_for_child(parent, deadline)
