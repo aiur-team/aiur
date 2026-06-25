@@ -41,7 +41,7 @@ defmodule Aiur.Events.GithubFirehose do
 
   require Logger
 
-  alias Aiur.Events.{CommentFilter, Publisher, Sanitizer}
+  alias Aiur.Events.{CommentFilter, GithubKeys, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
 
   @repo_events_per_page 30
@@ -148,44 +148,6 @@ defmodule Aiur.Events.GithubFirehose do
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
-  # Operator boot is captured once via `Aiur.Boot.epoch_seconds/0` (set
-  # when the application starts). 60s back-window absorbs the gap
-  # between a real push landing on GitHub and the firehose surfacing it
-  # — without that buffer a push that arrived seconds before boot would
-  # be dropped along with the truly stale ones.
-  @pre_boot_buffer_seconds 60
-
-  defp pre_boot?(event, opts) do
-    case event_created_at_epoch(event) do
-      nil ->
-        false
-
-      created_at ->
-        cutoff = boot_epoch_seconds(opts) - @pre_boot_buffer_seconds
-        created_at < cutoff
-    end
-  end
-
-  defp event_created_at_epoch(event) do
-    case Map.get(event, "created_at") do
-      iso when is_binary(iso) ->
-        case DateTime.from_iso8601(iso) do
-          {:ok, dt, _offset} -> DateTime.to_unix(dt)
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp boot_epoch_seconds(opts) do
-    case Keyword.get(opts, :boot_time) do
-      ts when is_integer(ts) -> ts
-      _ -> Aiur.Boot.epoch_seconds()
-    end
-  end
-
   defp publish_one(event, opts) do
     # The GitHub Events API surfaces the same historical events for
     # ~24h. On operator restart the dedup ETS table is empty, so
@@ -195,7 +157,7 @@ defmodule Aiur.Events.GithubFirehose do
     # Drop anything older than the operator's boot wall-clock minus
     # a small jitter window. Real-time events created after boot
     # always pass through. Tests inject `boot_time:` directly.
-    if pre_boot?(event, opts) do
+    if GithubKeys.pre_boot_event?(event, opts) do
       :pre_boot_drop
     else
       do_publish_one(event, opts)
@@ -240,7 +202,7 @@ defmodule Aiur.Events.GithubFirehose do
     actor = get_in(event, ["actor", "login"])
     repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
 
-    case ref_to_topic(ref) do
+    case GithubKeys.ref_to_topic(ref) do
       {:ticket, id, topic} ->
         payload = %{
           ref: ref,
@@ -250,7 +212,7 @@ defmodule Aiur.Events.GithubFirehose do
           repo: repo_name
         }
 
-        {topic, payload, actor: actor, issue_number: id, dedup_key: {repo_name, ref, sha}}
+        {topic, payload, actor: actor, issue_number: id, dedup_key: GithubKeys.push_dedup_key(repo_name, ref, sha)}
 
       {:system, topic} ->
         payload = %{
@@ -261,7 +223,7 @@ defmodule Aiur.Events.GithubFirehose do
           repo: repo_name
         }
 
-        {topic, payload, actor: actor, dedup_key: {repo_name, ref, sha}}
+        {topic, payload, actor: actor, dedup_key: GithubKeys.push_dedup_key(repo_name, ref, sha)}
 
       _ ->
         nil
@@ -277,13 +239,13 @@ defmodule Aiur.Events.GithubFirehose do
     repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
     pr_number = Map.get(pr, "number")
 
-    with {:ticket, id, _push_topic} <- ref_to_topic("refs/heads/" <> head_ref),
+    with {:ticket, id, _push_topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref),
          topic when is_binary(topic) <- pr_topic(id, action, Map.get(pr, "merged")) do
       publish_opts = [
         actor: actor,
         issue_number: id,
         bypass_contamination: action == "closed" and Map.get(pr, "merged") == true,
-        dedup_key: pr_dedup_key(repo_name, pr_number, action, head_sha)
+        dedup_key: GithubKeys.pr_dedup_key(repo_name, pr_number, action, head_sha)
       ]
 
       {topic, %{action: action, pr: pr}, publish_opts}
@@ -299,7 +261,7 @@ defmodule Aiur.Events.GithubFirehose do
     actor = get_in(event, ["actor", "login"])
     repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
     comment_id = Map.get(comment, "id")
-    dedup_key = comment_dedup_key(repo_name, "issue_comment", number, comment_id)
+    dedup_key = GithubKeys.comment_dedup_key(repo_name, "issue_comment", number, comment_id)
 
     cond do
       CommentFilter.agent_workpad?(comment) ->
@@ -363,7 +325,7 @@ defmodule Aiur.Events.GithubFirehose do
         actor: actor,
         issue_number: ticket_id,
         bypass_contamination: true,
-        dedup_key: comment_dedup_key(repo_name, "pr_review_comment", number, comment_id)
+        dedup_key: GithubKeys.comment_dedup_key(repo_name, "pr_review_comment", number, comment_id)
       ]
 
       {"ticket.#{ticket_id}.pr.review_comment", %{issue_number: ticket_id, comment: comment}, publish_opts}
@@ -400,14 +362,14 @@ defmodule Aiur.Events.GithubFirehose do
 
   defp resolve_pr_ticket_id(pr, number, opts) do
     with head_ref when is_binary(head_ref) and head_ref != "" <- get_in(pr, ["head", "ref"]),
-         {:ticket, id, _topic} <- ref_to_topic("refs/heads/" <> head_ref) do
+         {:ticket, id, _topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref) do
       id
     else
       _ ->
         lookup = Keyword.get(opts, :pr_lookup_fun, &Client.fetch_pull_request_head_ref/1)
 
         with {:ok, head_ref} when is_binary(head_ref) <- lookup.(number),
-             {:ticket, id, _topic} <- ref_to_topic("refs/heads/" <> head_ref) do
+             {:ticket, id, _topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref) do
           id
         else
           _ -> number
@@ -418,42 +380,4 @@ defmodule Aiur.Events.GithubFirehose do
   defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
   defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
   defp pr_topic(_id, _action, _merged), do: nil
-
-  # Match exactly `refs/heads/aiur/<id>` where `<id>` is digits only.
-  # Mirrors `Aiur.Events.LsRemoteTicker.ref_to_topic/1` so both
-  # detectors classify identical refs identically. A wider pattern
-  # accepting `aiur/<id>-<slug>` would route unrelated dev branches
-  # (e.g. `aiur/99-test-fixture`) to ticket 99's auto-resume hook —
-  # the shared agent prompt locks branch naming to the canonical form.
-  defp ref_to_topic(ref) when is_binary(ref) do
-    case Regex.run(~r{\Arefs/heads/aiur/(\d+)\z}, ref) do
-      [_, id] ->
-        {:ticket, id, "ticket.#{id}.branch.push"}
-
-      _ ->
-        case Regex.run(~r{\Arefs/heads/([^/]+)\z}, ref) do
-          [_, branch] -> {:system, "system.#{branch}.branch.push"}
-          _ -> nil
-        end
-    end
-  end
-
-  defp ref_to_topic(_), do: nil
-
-  # Dedup keys reuse Publisher's {binary, binary, binary} triple shape.
-  # GitHub Events API returns the same historical event on every poll
-  # within its ~24h window. Without these keys, opening a PR shows
-  # `📤 opened a PR` once per poll cycle.
-  defp pr_dedup_key(repo, pr_number, action, head_sha)
-       when is_binary(repo) and is_integer(pr_number) and is_binary(action) and is_binary(head_sha),
-       do: {repo, "pr:#{action}:#{pr_number}", head_sha}
-
-  defp pr_dedup_key(_, _, _, _), do: nil
-
-  defp comment_dedup_key(repo, kind, parent_number, comment_id)
-       when is_binary(repo) and is_binary(kind) and is_integer(parent_number) and
-              is_integer(comment_id),
-       do: {repo, "#{kind}:#{parent_number}", Integer.to_string(comment_id)}
-
-  defp comment_dedup_key(_, _, _, _), do: nil
 end

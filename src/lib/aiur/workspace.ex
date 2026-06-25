@@ -428,11 +428,7 @@ defmodule Aiur.Workspace do
     """
   end
 
-  defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, output})
-       when is_binary(output) do
-    String.contains?(output, "Refusing to refresh workspace") and
-      String.contains?(output, "tracked source changes")
-  end
+  defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, _output}), do: true
 
   defp stale_leftover_refresh_refusal?(_reason), do: false
 
