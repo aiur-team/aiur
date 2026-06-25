@@ -1997,8 +1997,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       request_fun = fn %{url: url} ->
-        send(parent, {:unexpected_comment_request, url})
-        {:ok, %{status: 200, body: []}}
+        if String.contains?(url, "/pulls?") do
+          {:ok, %{status: 200, body: []}}
+        else
+          send(parent, {:unexpected_comment_request, url})
+          {:ok, %{status: 200, body: []}}
+        end
       end
 
       state = %Orchestrator.State{
@@ -2017,6 +2021,67 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
       assert next.github_comment_issue_updated_at == %{"57" => updated_at}
       refute_receive {:unexpected_comment_request, _url}, 100
+    end
+
+    test "direct comment poll checks unchanged human-review issue when open PR changed" do
+      parent = self()
+      issue_updated_at = "2026-06-24T12:00:00Z"
+      pr_updated_at = "2026-06-24T12:03:00Z"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      issue = %Issue{
+        id: "57",
+        identifier: "57",
+        state: "human-review",
+        updated_at: datetime!(issue_updated_at)
+      }
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/57/comments?") ->
+            send(parent, :issue_comments_requested)
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: [%{"number" => 61}]}}
+
+          String.contains?(url, "/issues/61/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls/61/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+        end
+      end
+
+      state = %Orchestrator.State{
+        running: %{},
+        github_comments_since: %{"57" => "2026-06-24T11:59:59Z"},
+        github_comment_issue_updated_at: %{"57" => issue_updated_at}
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, [issue]} end,
+          review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
+        )
+
+      assert_receive :issue_comments_requested, 500
+
+      assert next.github_comment_issue_updated_at == %{
+               "57" => "issue=#{issue_updated_at};pr=#{pr_updated_at}"
+             }
     end
 
     test "human-review target failure does not stop running target cursor advancement" do
