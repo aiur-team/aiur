@@ -100,21 +100,30 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
-    try do
-      case Workspace.run_before_run_hook(workspace, issue, worker_host) do
-        :ok ->
-          :ok = maybe_attach_universal_subscriptions(issue)
-          :ok = maybe_enqueue_bootstrap_digest(issue)
-          run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+    result =
+      try do
+        case Workspace.run_before_run_hook(workspace, issue, worker_host) do
+          :ok ->
+            :ok = maybe_attach_universal_subscriptions(issue)
+            :ok = maybe_enqueue_bootstrap_digest(issue)
+            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
 
-        {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
-          pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason)
+          {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
+            {:before_run_failed, status, output, reason}
 
-        {:error, reason} ->
-          {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
+      after
+        Workspace.run_after_run_hook(workspace, issue, worker_host)
       end
-    after
-      Workspace.run_after_run_hook(workspace, issue, worker_host)
+
+    case result do
+      {:before_run_failed, status, output, reason} ->
+        pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason)
+
+      other ->
+        other
     end
   end
 
