@@ -354,37 +354,22 @@ defmodule Aiur.Opencode.AttachPool do
     # Slot processes, fall back to AttachPool's attachments view.
     slot_indexes = running_slot_indexes()
 
-    {known_slots, claimed_by_active} =
+    # Each active identifier needs at most ONE painted slot. A slot is
+    # reclaimable when it is idle, still shows a now-inactive identifier,
+    # or is a SURPLUS duplicate of an already-claimed active id. Without
+    # this, a single boot agent painted across every pre-warmed slot by
+    # kickoff_fan_out leaves zero free slots, stranding post-boot agents
+    # at ⏳ (#372). Reclaiming surplus slots lets each post-boot `added`
+    # identifier pair with a slot and paint via Slot.set_visible — one
+    # slot per agent, no fan-out (respects #409's FD limits).
+    slot_vids =
       if slot_indexes == [] do
-        # Test-only / no-slots path: use attachments.
-        known =
-          new_state.attachments
-          |> Enum.flat_map(fn {_id, %{attached_slots: slots}} -> MapSet.to_list(slots) end)
-          |> MapSet.new()
-
-        claimed =
-          new_state.attachments
-          |> Enum.flat_map(&active_visible_slot_for(&1, new_active))
-          |> MapSet.new()
-
-        {known, claimed}
+        slot_vids_from_attachments(new_state.attachments)
       else
-        slot_snapshots = Enum.map(slot_indexes, &visible_identifier_snapshot/1)
-
-        known = MapSet.new(slot_indexes)
-
-        claimed =
-          slot_snapshots
-          |> Enum.flat_map(&claimed_slot_for(&1, new_active))
-          |> MapSet.new()
-
-        {known, claimed}
+        Enum.map(slot_indexes, &visible_identifier_snapshot/1)
       end
 
-    free_slots =
-      known_slots
-      |> MapSet.difference(claimed_by_active)
-      |> Enum.sort()
+    free_slots = free_slots_for(slot_vids, new_active)
 
     leadoff_pairs = Enum.zip(added, free_slots)
     paired_added = Enum.map(leadoff_pairs, fn {id, _} -> id end)
@@ -394,11 +379,9 @@ defmodule Aiur.Opencode.AttachPool do
         new_active: new_active,
         added: added,
         removed: removed,
-        known_slots: MapSet.to_list(known_slots),
-        claimed_by_active: MapSet.to_list(claimed_by_active),
+        slot_vids: slot_vids,
         free_slots: free_slots,
-        pairs: leadoff_pairs,
-        slot_vids: collect_slot_vids(slot_indexes)
+        pairs: leadoff_pairs
       )
     end
 
@@ -686,12 +669,53 @@ defmodule Aiur.Opencode.AttachPool do
     Enum.count(state.attachments, fn {_id, att} -> not is_nil(att.visible_in) end)
   end
 
-  defp claimed_slot_for({idx, vid}, new_active) do
-    if is_binary(vid) and vid in new_active, do: [idx], else: []
+  @doc """
+  Given `{slot_index, visible_identifier | nil}` pairs and the current
+  active identifier list, return the sorted slot indexes that are free
+  for a new leadoff.
+
+  Each active identifier keeps exactly ONE slot — its primary, the
+  lowest-index slot currently showing it. Every other slot is free:
+  idle (`nil`), showing a now-inactive identifier, or a surplus
+  duplicate of an already-claimed active id. This is what lets a
+  post-boot agent claim a slot when one boot agent has been painted as
+  the leadoff across several pre-warmed slots (#372).
+  """
+  @spec free_slots_for([{pos_integer(), String.t() | nil}], [String.t()]) :: [pos_integer()]
+  def free_slots_for(slot_vids, active_identifiers) do
+    active = MapSet.new(active_identifiers)
+
+    {_claimed_ids, free} =
+      slot_vids
+      |> Enum.sort_by(fn {idx, _vid} -> idx end)
+      |> Enum.reduce({MapSet.new(), []}, fn {idx, vid}, {claimed_ids, free_acc} ->
+        if is_binary(vid) and MapSet.member?(active, vid) and
+             not MapSet.member?(claimed_ids, vid) do
+          {MapSet.put(claimed_ids, vid), free_acc}
+        else
+          {claimed_ids, [idx | free_acc]}
+        end
+      end)
+
+    Enum.sort(free)
   end
 
-  defp active_visible_slot_for({id, %{visible_in: slot}}, new_active) do
-    if is_integer(slot) and id in new_active, do: [slot], else: []
+  # Test / no-live-slots fallback: derive `{slot_index, visible_identifier}`
+  # pairs from the pool's own attachments (`visible_in`) so the same
+  # reclamation logic runs without live Slot snapshots. Attached-but-not-
+  # visible slots surface as `{idx, nil}`.
+  defp slot_vids_from_attachments(attachments) do
+    visible_by_slot =
+      Enum.reduce(attachments, %{}, fn {id, %{visible_in: slot}}, acc ->
+        if is_integer(slot), do: Map.put(acc, slot, id), else: acc
+      end)
+
+    attached_slots =
+      Enum.flat_map(attachments, fn {_id, %{attached_slots: slots}} -> MapSet.to_list(slots) end)
+
+    (attached_slots ++ Map.keys(visible_by_slot))
+    |> Enum.uniq()
+    |> Enum.map(fn slot -> {slot, Map.get(visible_by_slot, slot)} end)
   end
 
   defp detach_removed_identifier(id, acc) do
@@ -727,26 +751,6 @@ defmodule Aiur.Opencode.AttachPool do
     case Slot.snapshot(pid) do
       %{visible_identifier: vid} -> vid
       _ -> nil
-    end
-  end
-
-  defp collect_slot_vids([]), do: [{nil, :test_path}]
-
-  defp collect_slot_vids(slot_indexes) do
-    Enum.map(slot_indexes, &slot_vid_entry/1)
-  end
-
-  defp slot_vid_entry(idx) do
-    case slot_pid_for(idx) do
-      {:ok, pid} -> {idx, snapshot_visible_identifier(pid)}
-      :error -> {idx, :no_pid}
-    end
-  end
-
-  defp snapshot_visible_identifier(pid) do
-    case Slot.snapshot(pid) do
-      %{visible_identifier: vid} -> vid
-      other -> {:snapshot_shape, inspect(other)}
     end
   end
 

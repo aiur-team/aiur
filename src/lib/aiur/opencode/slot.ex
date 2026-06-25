@@ -766,11 +766,7 @@ defmodule Aiur.Opencode.Slot do
     # generation's writers and their opencode sessions stay orphaned in
     # the shared SQLite DB. The writers also hold connection pool slots
     # against a now-dead serve.
-    if is_binary(state.base_url) do
-      SessionWriterRegistry.all()
-      |> Enum.filter(fn entry -> entry.base_url == state.base_url end)
-      |> Enum.each(&reap_session_writer(&1, state.base_url))
-    end
+    reap_writers_for_base_url(state.base_url)
 
     # A noproc here (server already down) must not skip the pane reap below.
     if is_pid(state.server_pid) do
@@ -801,6 +797,34 @@ defmodule Aiur.Opencode.Slot do
     do: "kill-pane -t #{pane_id}"
 
   def terminate_pane_command(_state), do: nil
+
+  # Reap every SessionWriter bound to `base_url`: DELETE its opencode
+  # session and terminate the writer process. Used on teardown
+  # (`terminate/2`) and on serve rebuild (`do_schedule_serve_rebuild/3`).
+  # A rebuild bumps the slot to a fresh base_url, so any writer still
+  # pointing at the old serve is orphaned — its turn-marker posts would
+  # hang on the dead generation indefinitely (#372).
+  defp reap_writers_for_base_url(base_url) when is_binary(base_url) do
+    SessionWriterRegistry.all()
+    |> writers_for_base_url(base_url)
+    |> Enum.each(&reap_session_writer(&1, base_url))
+
+    :ok
+  end
+
+  defp reap_writers_for_base_url(_), do: :ok
+
+  @doc """
+  Select the SessionWriter registry entries bound to `base_url`. Pure
+  filter, extracted so the reap selection — only this slot's writers,
+  never another live slot's — is unit-testable without a live registry.
+  Each slot's serve owns a unique base_url, so matching on it cannot
+  reap a sibling slot's writers.
+  """
+  @spec writers_for_base_url([%{base_url: String.t()}], String.t()) :: [%{base_url: String.t()}]
+  def writers_for_base_url(entries, base_url) do
+    Enum.filter(entries, fn entry -> entry.base_url == base_url end)
+  end
 
   defp reap_session_writer(%{writer_pid: pid, session_id: session_id}, base_url) do
     _ = ApiClient.delete_session(base_url, session_id)
@@ -1227,6 +1251,14 @@ defmodule Aiur.Opencode.Slot do
   end
 
   defp do_schedule_serve_rebuild(state, pending, next_known) do
+    # Reap writers bound to the OLD base_url before tearing the serve
+    # down. The rebuild gives this slot a fresh base_url, so a writer
+    # left pointing at the old generation (e.g. the displaced leadoff
+    # identifier when a surplus slot is reclaimed for a post-boot agent)
+    # would otherwise post turn markers into the dead serve forever
+    # (#372). Done first so DELETE /session reaches a still-live serve.
+    reap_writers_for_base_url(state.base_url)
+
     # Tear down the existing serve + pane. Bump generation + delete
     # the old token so the bridge can't accept stale auth from a
     # still-running opencode process after we replace it.
