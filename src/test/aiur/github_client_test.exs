@@ -841,6 +841,82 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "classify_error/1 (error taxonomy)" do
+    # Operators must be able to tell a DNS/connectivity failure apart from an
+    # auth failure to fix flaky GitHub access (#617): a DNS outage and an
+    # expired token need different remediation, but both used to flatten into
+    # the opaque {:github_api_request, reason} tuple. Each branch below pins a
+    # distinct, pattern-matchable classification so callers can route on it.
+
+    test "an :nxdomain transport error classifies as :dns" do
+      assert {:github, :dns, detail} =
+               Client.classify_error({:error, %Req.TransportError{reason: :nxdomain}})
+
+      assert detail.reason == :nxdomain
+    end
+
+    test "a Mint.TransportError :nxdomain also classifies as :dns" do
+      # Req wraps Mint, but classification keys off the shared :reason field so
+      # either struct surfaces identically.
+      assert {:github, :dns, _detail} =
+               Client.classify_error({:error, %Mint.TransportError{reason: :nxdomain}})
+    end
+
+    test "a :timeout / :closed / :econnrefused transport error classifies as :timeout" do
+      for reason <- [:timeout, :closed, :econnrefused] do
+        assert {:github, :timeout, %{reason: ^reason}} =
+                 Client.classify_error({:error, %Req.TransportError{reason: reason}})
+      end
+    end
+
+    test "a TLS alert transport error classifies as :tls" do
+      assert {:github, :tls, _detail} =
+               Client.classify_error({:error, %Req.TransportError{reason: {:tls_alert, {:handshake_failure, "x"}}}})
+    end
+
+    test "an HTTP 401 classifies as :auth" do
+      assert {:github, :auth, %{status: 401}} =
+               Client.classify_error(%{status: 401, headers: [], body: %{}})
+    end
+
+    test "an HTTP 403 rate-limit response classifies as :rate_limited" do
+      response = %{
+        status: 403,
+        headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "42"}],
+        body: %{"message" => "API rate limit exceeded"}
+      }
+
+      assert {:github, :rate_limited, detail} = Client.classify_error(response)
+      assert detail.retry_after == 42
+    end
+
+    test "a plain HTTP 403 (no rate-limit signal) classifies as :http" do
+      assert {:github, :http, %{status: 403}} =
+               Client.classify_error(%{status: 403, headers: [], body: %{}})
+    end
+
+    test "an unmapped 5xx status classifies as :http" do
+      assert {:github, :http, %{status: 503}} =
+               Client.classify_error(%{status: 503, headers: [], body: %{}})
+    end
+  end
+
+  describe "transport failures surface the taxonomy (not opaque tuples)" do
+    test "fetch_repo_events maps an :nxdomain DNS failure to {:github, :dns, _}" do
+      request_fun = fn _ -> {:error, %Req.TransportError{reason: :nxdomain}} end
+
+      assert {:error, {:github, :dns, _detail}} =
+               Client.fetch_repo_events(request_fun: request_fun, token: "test-gh-token")
+    end
+
+    test "create_comment maps a transport timeout to {:github, :timeout, _}" do
+      request_fun = fn _ -> {:error, %Req.TransportError{reason: :timeout}} end
+
+      assert {:error, {:github, :timeout, _detail}} =
+               Client.create_comment("42", "hi", request_fun: request_fun)
+    end
+  end
+
   defp codeowners_repo!(content) do
     repo_root = Path.join(System.tmp_dir!(), "aiur-github-client-test-#{System.unique_integer([:positive])}")
     path = Path.join(repo_root, ".github/CODEOWNERS")

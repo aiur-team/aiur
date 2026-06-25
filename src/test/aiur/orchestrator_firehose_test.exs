@@ -1,6 +1,8 @@
 defmodule Aiur.OrchestratorFirehoseTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Connectivity
   alias Aiur.Orchestrator
   alias Aiur.Workflow
 
@@ -14,7 +16,11 @@ defmodule Aiur.OrchestratorFirehoseTest do
       tracker_label_prefix: "aiur"
     )
 
-    on_exit(fn -> restore_env("GITHUB_TOKEN", prev_token) end)
+    on_exit(fn ->
+      restore_env("GITHUB_TOKEN", prev_token)
+
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
 
     :ok
   end
@@ -48,6 +54,43 @@ defmodule Aiur.OrchestratorFirehoseTest do
     assert next.events_last_id == "burst-1"
     assert_receive {:events_page_requested, "1"}
     assert_receive {:events_page_requested, "2"}
+  end
+
+  test "repeated DNS failures escalate to an operator-visible connectivity blocker" do
+    # WHY (#617): a DNS outage in an agent workspace used to only
+    # Logger.warning forever, so the operator never learned agents were
+    # wedged. After a sustained streak the firehose path must fire a loud,
+    # surfaced alert that an operator can act on.
+    :ok = Exchange.subscribe("system.github.connectivity_lost")
+
+    stub = fn _req -> {:error, %Req.TransportError{reason: :nxdomain}} end
+
+    state =
+      Enum.reduce(1..Connectivity.escalation_threshold(), %Orchestrator.State{}, fn _i, acc ->
+        Orchestrator.poll_github_firehose_for_test(acc, request_fun: stub)
+      end)
+
+    # The streak is tracked as a classified :dns break under the firehose source.
+    assert {:dns, _count} = state.github_connectivity[:firehose]
+
+    assert_receive {:event, %{topic: "system.github.connectivity_lost"} = event}, 500
+    assert event["message"] =~ "DNS"
+  end
+
+  test "a recovering poll clears the connectivity streak" do
+    fail = fn _req -> {:error, %Req.TransportError{reason: :nxdomain}} end
+
+    ok = fn req ->
+      page = request_page(req)
+      body = if page == "1", do: [], else: []
+      {:ok, %{status: 200, headers: [{"ETag", ~s("e")}], body: body}}
+    end
+
+    state = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: fail)
+    assert {:dns, 1} = state.github_connectivity[:firehose]
+
+    recovered = Orchestrator.poll_github_firehose_for_test(state, request_fun: ok)
+    assert recovered.github_connectivity[:firehose] == nil
   end
 
   defp request_page(%{url: url}) do

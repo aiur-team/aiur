@@ -83,9 +83,11 @@ defmodule Aiur.GitHub.ClientEventsTest do
       assert {:error, {:github_api_status, 500}} = Client.fetch_repo_events(request_fun: stub)
     end
 
-    test "transport error returns wrapped error" do
+    test "transport error returns the classified taxonomy error" do
       stub = fn _req -> {:error, :timeout} end
-      assert {:error, {:github_api_request, :timeout}} = Client.fetch_repo_events(request_fun: stub)
+
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
+               Client.fetch_repo_events(request_fun: stub)
     end
   end
 

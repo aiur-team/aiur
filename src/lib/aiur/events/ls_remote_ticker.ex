@@ -32,8 +32,10 @@ defmodule Aiur.Events.LsRemoteTicker do
 
   require Logger
 
+  alias Aiur.Alerts
   alias Aiur.Events.Publisher
   alias Aiur.Git
+  alias Aiur.GitHub.Connectivity
 
   @default_interval_ms 30_000
   @default_remote "origin"
@@ -79,6 +81,10 @@ defmodule Aiur.Events.LsRemoteTicker do
       repo: Keyword.get(opts, :repo),
       refs: %{},
       bootstrapped?: false,
+      # Streak state for the connectivity escalation policy (#617): a
+      # sustained DNS/auth break raises a loud operator blocker instead of
+      # only Logger.debug-ing forever.
+      connectivity: %{},
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
 
@@ -113,11 +119,13 @@ defmodule Aiur.Events.LsRemoteTicker do
   defp run_tick(state) do
     case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
       {:ok, refs} when is_map(refs) ->
-        fold_refs(state, refs)
+        state
+        |> note_connectivity_success()
+        |> fold_refs(refs)
 
       {:error, reason} ->
         Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
-        state
+        note_connectivity_failure(state, Connectivity.classify_ls_remote(reason))
 
       other ->
         Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
@@ -132,6 +140,28 @@ defmodule Aiur.Events.LsRemoteTicker do
     kind, reason ->
       Logger.warning("LsRemoteTicker tick caught #{kind}: #{inspect(reason)}")
       state
+  end
+
+  defp note_connectivity_success(state) do
+    %{state | connectivity: Connectivity.note_success(state.connectivity, :ls_remote)}
+  end
+
+  # Records a classified ls-remote failure and emits a single operator-visible
+  # blocker once a sustained DNS/auth streak crosses the escalation threshold.
+  defp note_connectivity_failure(state, classification) do
+    {streaks, alerts} =
+      Connectivity.note_failure(state.connectivity, :ls_remote, classification)
+
+    repo = state.repo || resolve_repo()
+
+    Enum.each(alerts, fn alert ->
+      Alerts.emit_custom(
+        "system.github.connectivity_lost",
+        Connectivity.alert_message(alert, repo: repo)
+      )
+    end)
+
+    %{state | connectivity: streaks}
   end
 
   defp fold_refs(state, current_refs) do
