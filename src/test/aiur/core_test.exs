@@ -1609,6 +1609,115 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "agent runner pauses on before_run failure and resumes after operator intervention" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-agent-runner-before-run-pause-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      before_run_trace = Path.join(test_root, "before-run.trace")
+      codex_trace = Path.join(test_root, "codex.trace")
+      resume_marker = Path.join(test_root, "allow-before-run")
+      identifier = "MT-BEFORE-RUN-PAUSE-#{System.unique_integer([:positive])}"
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file=#{inspect(codex_trace)}
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+        request_id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '{"id":%s,"result":{}}\\n' "$request_id"
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '{"id":%s,"result":{"thread":{"id":"thread-before-run-resume"}}}\\n' "$request_id"
+            ;;
+          *'"method":"turn/start"'*)
+            printf '{"id":%s,"result":{"turn":{"id":"turn-before-run-resume"}}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        hook_before_run: """
+        printf 'before_run\\n' >> #{before_run_trace}
+        if [ ! -f #{resume_marker} ]; then
+          printf '%s\\n' 'dependency fetch failed' >&2
+          exit 74
+        fi
+        """,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      issue = %Issue{
+        id: "issue-before-run-pause",
+        identifier: identifier,
+        title: "Pause on hook failure",
+        description: "before_run should pause instead of exhausting retries",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-BEFORE-RUN-PAUSE",
+        labels: []
+      }
+
+      test_pid = self()
+
+      task =
+        Task.async(fn ->
+          AgentRunner.run(
+            issue,
+            test_pid,
+            issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+          )
+        end)
+
+      assert_receive {:worker_control_state, "issue-before-run-pause", :paused}, 5_000
+      refute_receive {:codex_worker_update, "issue-before-run-pause", %{event: :session_started}}, 200
+      assert Task.yield(task, 50) == nil
+
+      File.write!(resume_marker, "ok\n")
+      send(task.pid, {:resume_agent, 101})
+
+      assert_receive {:worker_control_state, "issue-before-run-pause", :working}, 5_000
+
+      receive do
+        {:codex_worker_update, "issue-before-run-pause", %{event: :session_started}} -> :ok
+      after
+        5_000 ->
+          flunk("session did not start after resume; codex trace:\n#{File.read!(codex_trace)}")
+      end
+
+      assert {:ok, :ok} = Task.yield(task, 15_000)
+
+      assert before_run_trace |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner continues with a follow-up turn while the issue remains active" do
     test_root =
       Path.join(

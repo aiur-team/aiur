@@ -82,19 +82,57 @@ defmodule Aiur.AgentRunner do
       {:ok, workspace} ->
         send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
 
-        try do
-          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
-            :ok = maybe_attach_universal_subscriptions(issue)
-            :ok = maybe_enqueue_bootstrap_digest(issue)
-            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
-          end
-        after
-          Workspace.run_after_run_hook(workspace, issue, worker_host)
-        end
+        run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host) do
+    case run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
+      :resume_after_before_run_pause ->
+        run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host)
+
+      result ->
+        result
+    end
+  end
+
+  defp run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
+    result =
+      try do
+        case Workspace.run_before_run_hook(workspace, issue, worker_host) do
+          :ok ->
+            :ok = maybe_attach_universal_subscriptions(issue)
+            :ok = maybe_enqueue_bootstrap_digest(issue)
+            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+
+          {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
+            {:before_run_failed, status, output, reason}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      after
+        Workspace.run_after_run_hook(workspace, issue, worker_host)
+      end
+
+    case result do
+      {:before_run_failed, status, output, reason} ->
+        pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason)
+
+      other ->
+        other
+    end
+  end
+
+  defp pause_for_before_run_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason) do
+    Logger.warning("Pausing agent for #{issue_context(issue)} after before_run hook failed status=#{inspect(status)} output=#{inspect(trim_hook_output(output))}")
+
+    write_pause_log(workspace, worker_host, "before_run hook failed; agent paused pending operator resume.")
+    send_control_state(codex_update_recipient, issue, :paused)
+    wait_for_before_run_resume(issue, codex_update_recipient, reason)
   end
 
   # Deliver a bootstrap digest of missed events on the first turn
@@ -1178,6 +1216,20 @@ defmodule Aiur.AgentRunner do
     end
   end
 
+  defp wait_for_before_run_resume(issue, codex_update_recipient, reason) do
+    receive do
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused before run for #{issue_context(issue)} request_id=#{request_id}")
+        send_control_state(codex_update_recipient, issue, :paused)
+        wait_for_before_run_resume(issue, codex_update_recipient, reason)
+
+      {:resume_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Resuming agent after before_run failure for #{issue_context(issue)} request_id=#{request_id}")
+        send_control_state(codex_update_recipient, issue, :working)
+        :resume_after_before_run_pause
+    end
+  end
+
   # Paused state. Wait for an explicit wake signal — a new
   # `:agent_queue_updated` broadcast from the orchestrator, or a
   # `:resume_agent` control message — before touching the operator
@@ -1878,12 +1930,24 @@ defmodule Aiur.AgentRunner do
   end
 
   defp write_pause_log(workspace, worker_host) do
+    write_pause_log(workspace, worker_host, "Agent paused by operator.")
+  end
+
+  defp write_pause_log(workspace, worker_host, message) do
     AgentEventLog.write(workspace, worker_host, %{
       event: :worker_paused,
       timestamp: DateTime.utc_now(),
-      last_message: "Agent paused by operator."
+      last_message: message
     })
   end
+
+  defp trim_hook_output(output) when is_binary(output) do
+    output
+    |> String.trim()
+    |> String.slice(0, 500)
+  end
+
+  defp trim_hook_output(output), do: output
 
   defp session_workspace(%{workspace: workspace}) when is_binary(workspace), do: workspace
   defp session_workspace(_session), do: nil
