@@ -48,7 +48,7 @@ function setupPackage({
   // The shim reads its pinned opencode version from this package.json.
   writeFileSync(
     path.join(root, "package.json"),
-    JSON.stringify({ name: "aiur-cli", version, opencodeVersion: "1.15.6" }),
+    JSON.stringify({ name: "aiur-cli", version, opencodeVersion: "1.17.10" }),
   );
   writeFileSync(path.join(root, "share", "aiur.tmux.conf"), "# test conf\n");
 
@@ -83,7 +83,7 @@ function setupPackage({
   if (withOpencode) {
     const oc = path.join(fakeBin, "opencode");
     // Report the pinned version so the shim's pin check is satisfied.
-    writeFileSync(oc, '#!/usr/bin/env bash\necho "1.15.6"\n');
+    writeFileSync(oc, '#!/usr/bin/env bash\necho "1.17.10"\n');
     chmodSync(oc, 0o755);
   }
 
@@ -205,7 +205,7 @@ test("provisions opencode on first run when missing", () => {
     [
       "#!/usr/bin/env bash",
       'if [ "$1" = "install" ]; then',
-      `  printf '#!/usr/bin/env bash\\necho 1.15.6\\n' > "${oc}"`,
+      `  printf '#!/usr/bin/env bash\\necho 1.17.10\\n' > "${oc}"`,
       `  chmod +x "${oc}"`,
       "fi",
       "exit 0",

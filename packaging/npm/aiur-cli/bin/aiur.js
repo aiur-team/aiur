@@ -162,8 +162,9 @@ function ensureTmux() {
   }
 }
 
-// True only when the pinned opencode is on PATH; a wrong version (e.g. 1.17.x,
-// which broke the panes) must be replaced, so presence alone isn't enough.
+// True only when the pinned opencode is on PATH; a wrong (e.g. newer,
+// unverified) version must be replaced with the pin, so presence alone
+// isn't enough.
 function opencodeMatchesPin() {
   const result = safeSpawn("opencode", ["--version"], { encoding: "utf8" });
   return !result.error && result.status === 0 && (result.stdout || "").trim() === opencodeVersion();
