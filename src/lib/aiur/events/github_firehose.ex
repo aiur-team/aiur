@@ -41,7 +41,7 @@ defmodule Aiur.Events.GithubFirehose do
 
   require Logger
 
-  alias Aiur.Events.{Publisher, Sanitizer}
+  alias Aiur.Events.{CommentFilter, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
 
   @repo_events_per_page 30
@@ -302,6 +302,9 @@ defmodule Aiur.Events.GithubFirehose do
     dedup_key = comment_dedup_key(repo_name, "issue_comment", number, comment_id)
 
     cond do
+      CommentFilter.agent_workpad?(comment) ->
+        nil
+
       not is_integer(number) ->
         nil
 

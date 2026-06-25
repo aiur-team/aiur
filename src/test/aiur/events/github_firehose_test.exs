@@ -182,6 +182,35 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.42.issue.commented", message: "looks good"}}, 500
     end
 
+    test "IssueCommentEvent skips Agent Workpad comments" do
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("e4-workpad")}],
+           body: [
+             %{
+               "id" => "workpad-comment",
+               "type" => "IssueCommentEvent",
+               "actor" => %{"login" => "dan"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "issue" => %{"number" => 42},
+                 "comment" => %{"id" => 556, "body" => "## Agent Workpad\n\n- [x] done"}
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 0, last_event_id: "workpad-comment"}} =
+               GithubFirehose.poll(request_fun: stub)
+
+      refute_receive {:event, %{topic: "ticket.42.issue.commented"}}, 200
+    end
+
     test "IssueCommentEvent on a PR re-keys to the ticket id via the head ref" do
       # A PR-conversation comment fires as an IssueCommentEvent keyed by
       # the PR's number (21), but the agent owns ticket 7. The firehose
