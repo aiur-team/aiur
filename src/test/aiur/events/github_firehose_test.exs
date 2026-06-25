@@ -610,7 +610,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
         end
       end
 
-      assert {:error, {:github_api_request, :timeout}} =
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
                GithubFirehose.poll(request_fun: stub, last_event_id: "last-seen")
 
       refute_receive {:event, %{topic: "ticket.66.issue.commented"}}, 100
@@ -679,10 +679,10 @@ defmodule Aiur.Events.GithubFirehoseTest do
       refute_receive {:event, _}, 100
     end
 
-    test "transport error returns {:error, reason} and preserves caller etag" do
+    test "transport error returns the classified taxonomy error and preserves caller etag" do
       stub = fn _ -> {:error, :timeout} end
 
-      assert {:error, {:github_api_request, :timeout}} =
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
                GithubFirehose.poll(etag: ~s("e7"), request_fun: stub)
     end
   end

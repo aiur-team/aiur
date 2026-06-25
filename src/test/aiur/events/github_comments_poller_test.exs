@@ -518,7 +518,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:error, [{"42", {:pr_review_comments, {:github_api_request, :timeout}}}]} =
+    assert {:error, [{"42", {:pr_review_comments, {:github, :timeout, %{reason: :timeout}}}}]} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -537,7 +537,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:error, [{"42", {:issue_comments, {:github_api_request, :timeout}}}]} =
+    assert {:error, [{"42", {:issue_comments, {:github, :timeout, %{reason: :timeout}}}}]} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",

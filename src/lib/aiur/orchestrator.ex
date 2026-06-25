@@ -36,6 +36,7 @@ defmodule Aiur.Orchestrator do
   }
 
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
   alias AiurWeb.ObservabilityPubSub
@@ -85,7 +86,8 @@ defmodule Aiur.Orchestrator do
             codex_rate_limits: map() | nil,
             events_etag: String.t() | nil,
             events_last_id: String.t() | nil,
-            github_comments_since: String.t() | nil
+            github_comments_since: String.t() | nil,
+            github_connectivity: map()
           }
 
     defstruct [
@@ -111,7 +113,8 @@ defmodule Aiur.Orchestrator do
       codex_rate_limits: nil,
       events_etag: nil,
       events_last_id: nil,
-      github_comments_since: nil
+      github_comments_since: nil,
+      github_connectivity: %{}
     ]
   end
 
@@ -1138,11 +1141,14 @@ defmodule Aiur.Orchestrator do
     case GithubFirehose.poll(poll_opts) do
       {:ok, %{etag: etag, last_event_id: last_event_id, count: count}} ->
         if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
+        state = note_github_connectivity_success(state, :firehose)
         %{state | events_etag: etag, events_last_id: last_event_id}
 
-      {:error, _reason} ->
-        # Preserve cached etag so we retry as If-None-Match next tick
-        state
+      {:error, reason} ->
+        # Preserve cached etag so we retry as If-None-Match next tick; the
+        # classified failure feeds the escalation policy so a sustained
+        # DNS/auth break surfaces a loud operator blocker (#617).
+        note_github_connectivity_failure(state, :firehose, reason)
     end
   end
 
@@ -1174,12 +1180,48 @@ defmodule Aiur.Orchestrator do
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
 
+        state = note_github_connectivity_success(state, :comments)
         %{state | github_comments_since: since}
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller skipped; reason=#{inspect(reason)}")
-        state
+        note_github_connectivity_failure(state, :comments, comments_poll_classification(reason))
     end
+  end
+
+  # The comments poller aggregates per-target failures as
+  # `[{target, {scope, taxonomy}}]`; pull the first classified GitHub error
+  # out so the escalation policy sees the underlying connectivity class.
+  defp comments_poll_classification([{_target, {_scope, taxonomy}} | _]), do: taxonomy
+  defp comments_poll_classification(reason), do: reason
+
+  # Records a successful poll for `source`, clearing any failure streak so a
+  # later break re-arms a fresh operator escalation.
+  defp note_github_connectivity_success(%State{} = state, source) do
+    %{state | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source)}
+  end
+
+  # Classifies a poll failure and, when a sustained DNS/auth streak crosses the
+  # escalation threshold, emits a single operator-visible blocker alert (#617).
+  defp note_github_connectivity_failure(%State{} = state, source, reason) do
+    classification = connectivity_classification(reason)
+
+    {streaks, alerts} =
+      GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
+
+    Enum.each(alerts, &emit_github_connectivity_alert/1)
+
+    %{state | github_connectivity: streaks}
+  end
+
+  defp connectivity_classification({:github, classification, _detail}), do: classification
+  defp connectivity_classification(_reason), do: :transport
+
+  defp emit_github_connectivity_alert(alert) do
+    Alerts.emit_custom(
+      "system.github.connectivity_lost",
+      GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())
+    )
   end
 
   defp github_comment_poll_targets(%State{} = state, opts) do

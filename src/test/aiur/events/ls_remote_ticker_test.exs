@@ -375,4 +375,56 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     refute Keyword.has_key?(opts, :dedup_key),
            "dedup_key must be omitted when repo is empty/nil so Publisher.deduped? does not see a malformed key"
   end
+
+  test "a DNS ls-remote failure builds a classified streak toward operator escalation",
+       %{publisher: publisher} do
+    # WHY (#617): the operator-visible symptom was `git ls-remote` failing
+    # with "Could not resolve host: github.com". That output must classify as
+    # :dns and accumulate a streak so a sustained outage escalates rather than
+    # only Logger.debug-ing forever.
+    dns_failure = fn _remote, _patterns ->
+      {:error, {:git_ls_remote_failed, 128, "fatal: Could not resolve host: github.com"}}
+    end
+
+    {:ok, pid} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: dns_failure,
+        publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
+        repo: "owner/aiur",
+        start_paused?: true
+      )
+
+    tick(pid)
+    state1 = :sys.get_state(pid)
+    assert state1.connectivity[:ls_remote] == {:dns, 1}
+
+    tick(pid)
+    state2 = :sys.get_state(pid)
+    assert {:dns, 2} = state2.connectivity[:ls_remote]
+  end
+
+  test "a successful tick clears the connectivity streak", %{publisher: publisher} do
+    {:ok, agent} = Agent.start_link(fn -> {:error, {:git_ls_remote_failed, 128, "Could not resolve host"}} end)
+
+    ls_remote_fun = fn _remote, _patterns -> Agent.get(agent, & &1) end
+
+    {:ok, pid} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: ls_remote_fun,
+        publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
+        repo: "owner/aiur",
+        start_paused?: true
+      )
+
+    tick(pid)
+    assert {:dns, 1} = :sys.get_state(pid).connectivity[:ls_remote]
+
+    Agent.update(agent, fn _ -> {:ok, %{}} end)
+    tick(pid)
+    assert :sys.get_state(pid).connectivity[:ls_remote] == nil
+  end
 end
