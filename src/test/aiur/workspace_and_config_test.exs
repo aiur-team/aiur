@@ -333,30 +333,29 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "before_run still protects dirty in-progress resume workspaces" do
+  test "before_run skips refresh for dirty in-progress resume workspaces" do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-protect-resume-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-skip-dirty-resume-#{System.unique_integer([:positive])}"
       )
 
     try do
-      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "LIVE-1")
+      {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "LIVE-1", :skip)
 
       issue = %Issue{
         id: "issue-live-1",
         identifier: "LIVE-1",
-        title: "Protect resume workspace",
+        title: "Resume dirty workspace",
         state: "in-progress",
         labels: ["agent:in-progress"]
       }
 
-      assert {:error, {:workspace_hook_failed, "before_run", 65, output}} =
-               Workspace.run_before_run_hook(workspace, issue)
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
 
-      assert output =~ "Refusing to refresh workspace from origin/main"
       assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) == "M README.md"
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) == ["attempt", "skipped"]
     after
       File.rm_rf(test_root)
     end
@@ -2535,7 +2534,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  defp bootstrap_dirty_refresh_workspace!(test_root, identifier) do
+  defp bootstrap_dirty_refresh_workspace!(test_root, identifier, dirty_mode \\ :fatal) do
     source_repo = Path.join(test_root, "source")
     remote_repo = Path.join(test_root, "remote.git")
     workspace_root = Path.join(test_root, "workspaces")
@@ -2568,11 +2567,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
       else
         git fetch origin main
         if ! git diff --quiet -- . || ! git diff --cached --quiet -- .; then
-          echo "Refusing to refresh workspace from origin/main because tracked source changes are present." >&2
-          echo "Commit or resolve the workspace changes before resuming this agent." >&2
-          exit 65
+          #{dirty_refresh_action(dirty_mode, trace_file)}
+        else
+          git merge --no-edit origin/main
         fi
-        git merge --no-edit origin/main
       fi
       """
     )
@@ -2581,6 +2579,22 @@ defmodule Aiur.WorkspaceAndConfigTest do
     File.write!(Path.join(workspace, "README.md"), "dirty\n")
 
     {workspace, trace_file}
+  end
+
+  defp dirty_refresh_action(:fatal, _trace_file) do
+    """
+    echo "Refusing to refresh workspace from origin/main because tracked source changes are present." >&2
+          echo "Commit or resolve the workspace changes before resuming this agent." >&2
+          exit 65
+    """
+  end
+
+  defp dirty_refresh_action(:skip, trace_file) do
+    """
+    printf 'skipped\\n' >> #{shell_quote(trace_file)}
+          echo "Skipping origin/main refresh because tracked source changes are present." >&2
+          echo "The agent will continue with its current workspace; merge origin/main before opening the PR if needed." >&2
+    """
   end
 
   defp git!(args) do

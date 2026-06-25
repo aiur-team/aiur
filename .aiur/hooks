@@ -41,11 +41,11 @@ before_run: |
     git fetch origin main
     if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||
        ! git diff --cached --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs'; then
-      echo "Refusing to refresh workspace from origin/main because tracked source changes are present." >&2
-      echo "Commit or resolve the workspace changes before resuming this agent." >&2
-      exit 65
+      echo "Skipping origin/main refresh because tracked source changes are present." >&2
+      echo "The agent will continue with its current workspace; merge origin/main before opening the PR if needed." >&2
+    else
+      git merge --no-edit origin/main
     fi
-    git merge --no-edit origin/main
   fi
   mkdir -p ./.aiur-hex ./.aiur-mix
   if [ -f mise.toml ]; then

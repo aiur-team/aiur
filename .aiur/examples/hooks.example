@@ -28,11 +28,11 @@ before_run: |
   else
     git fetch origin main
     if ! git diff --quiet || ! git diff --cached --quiet; then
-      echo "Refusing to refresh workspace from origin/main because tracked changes are present." >&2
-      echo "Commit or resolve the workspace changes before resuming this agent." >&2
-      exit 65
+      echo "Skipping origin/main refresh because tracked changes are present." >&2
+      echo "The agent will continue with its current workspace; merge origin/main before opening the PR if needed." >&2
+    else
+      git merge --no-edit origin/main
     fi
-    git merge --no-edit origin/main
   fi
 
 # Optional — run after each agent turn (e.g. format, quick checks):
