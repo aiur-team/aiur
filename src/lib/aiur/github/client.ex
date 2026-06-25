@@ -144,7 +144,24 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  defp classify_status(429, response) do
+    {:github, :rate_limited,
+     %{
+       status: 429,
+       retry_after: retry_after(response),
+       poll_interval: rate_limit_poll_interval(response)
+     }}
+  end
+
   defp classify_status(status, _response), do: {:github, :http, %{status: status}}
+
+  defp github_status_error(%{status: status} = response) do
+    if rate_limited_response?(response, :unknown) do
+      classify_error(response)
+    else
+      {:github_api_status, status}
+    end
+  end
 
   defp response_message(%{body: %{"message" => message}}) when is_binary(message), do: message
   defp response_message(_response), do: nil
@@ -268,8 +285,8 @@ defmodule Aiur.GitHub.Client do
           # GET on the next poll, re-translating the same page of events.
           {:ok, {:events, body, header(headers, "etag") || etag, poll_interval(headers)}}
 
-        {:ok, %{status: status}} ->
-          {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} ->
+          {:error, github_status_error(response)}
 
         {:error, reason} ->
           {:error, classify_error({:error, reason})}
@@ -364,8 +381,8 @@ defmodule Aiur.GitHub.Client do
         next = parse_next_page_url(headers)
         fetch_member_logins(request_fun, token, next, acc ++ new_logins)
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         {:error, classify_error({:error, reason})}
@@ -511,7 +528,17 @@ defmodule Aiur.GitHub.Client do
          {:ok, token} <- require_token(opts),
          {:ok, number} <- normalize_pr_number(pr_number) do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
-      fetch_unaddressed_review_thread_pages(request_fun, token, owner, repo, number, nil, opts, [])
+
+      fetch_unaddressed_review_thread_pages(
+        request_fun,
+        token,
+        owner,
+        repo,
+        number,
+        nil,
+        opts,
+        []
+      )
     end
   end
 
@@ -746,7 +773,8 @@ defmodule Aiur.GitHub.Client do
   defp human_gh_keyring_status(_), do: "`gh` keyring auth status could not be determined."
 
   defp rate_limited_response?(response, endpoint) do
-    rate_limit_remaining(response) == 0 or
+    Map.get(response, :status) == 429 or
+      rate_limit_remaining(response) == 0 or
       (endpoint == :rate_limit and rate_limit_body_remaining(response) == 0) or
       rate_limit_message?(Map.get(response, :body))
   end
@@ -897,8 +925,8 @@ defmodule Aiur.GitHub.Client do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, body}
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         {:error, classify_error({:error, reason})}
@@ -925,7 +953,16 @@ defmodule Aiur.GitHub.Client do
 
   defp normalize_pr_number(number), do: {:error, {:invalid_pr_number, number}}
 
-  defp fetch_unaddressed_review_thread_pages(request_fun, token, owner, repo, number, cursor, opts, acc) do
+  defp fetch_unaddressed_review_thread_pages(
+         request_fun,
+         token,
+         owner,
+         repo,
+         number,
+         cursor,
+         opts,
+         acc
+       ) do
     variables =
       %{"owner" => owner, "repo" => repo, "number" => number}
       |> maybe_put_query("cursor", cursor)
@@ -952,7 +989,16 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
-  defp continue_unaddressed_review_thread_pages(request_fun, token, owner, repo, number, page_info, opts, acc) do
+  defp continue_unaddressed_review_thread_pages(
+         request_fun,
+         token,
+         owner,
+         repo,
+         number,
+         page_info,
+         opts,
+         acc
+       ) do
     if Map.get(page_info, "hasNextPage") == true do
       fetch_unaddressed_review_thread_pages(
         request_fun,
@@ -979,8 +1025,8 @@ defmodule Aiur.GitHub.Client do
       {:ok, %{status: 200, body: response}} when is_map(response) ->
         {:ok, response}
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         {:error, classify_error({:error, reason})}
@@ -1123,7 +1169,15 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
-  defp remove_active_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix) do
+  defp remove_active_state_labels(
+         request_fun,
+         token,
+         owner,
+         repo,
+         issue_number,
+         issue_body,
+         prefix
+       ) do
     issue_body
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
@@ -1168,7 +1222,14 @@ defmodule Aiur.GitHub.Client do
     if active_target_state?(state_name) do
       add_active_issue_label(context, new_label)
     else
-      add_issue_label(context.request_fun, context.token, context.owner, context.repo, context.issue_number, new_label)
+      add_issue_label(
+        context.request_fun,
+        context.token,
+        context.owner,
+        context.repo,
+        context.issue_number,
+        new_label
+      )
     end
   end
 
@@ -1186,7 +1247,14 @@ defmodule Aiur.GitHub.Client do
             context.prefix
           )
         else
-          add_issue_label(context.request_fun, context.token, context.owner, context.repo, context.issue_number, new_label)
+          add_issue_label(
+            context.request_fun,
+            context.token,
+            context.owner,
+            context.repo,
+            context.issue_number,
+            new_label
+          )
         end
 
       {:ok, %{status: status}} ->
@@ -1242,7 +1310,12 @@ defmodule Aiur.GitHub.Client do
 
   defp maybe_close_issue(request_fun, token, issue_url, state_name) do
     if normalize_state(state_name) in ["done", "cancelled", "canceled"] do
-      case request_fun.(%{method: :patch, url: issue_url, token: token, body: %{"state" => "closed"}}) do
+      case request_fun.(%{
+             method: :patch,
+             url: issue_url,
+             token: token,
+             body: %{"state" => "closed"}
+           }) do
         {:ok, %{status: status}} when status in [200, 201] ->
           :ok
 

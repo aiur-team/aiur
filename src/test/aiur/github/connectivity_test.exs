@@ -98,6 +98,11 @@ defmodule Aiur.GitHub.ConnectivityTest do
       assert Connectivity.backoff_ms(:rate_limited, 1, %{retry_after: 30}) == 30_000
     end
 
+    test "rate_limited clamps large retry_after values" do
+      assert Connectivity.backoff_ms(:rate_limited, 1, %{retry_after: 3_600}) ==
+               Connectivity.max_backoff_ms()
+    end
+
     test "rate_limited honors poll_interval when retry_after absent" do
       assert Connectivity.backoff_ms(:rate_limited, 1, %{poll_interval: 12}) == 12_000
     end

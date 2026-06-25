@@ -83,6 +83,15 @@ defmodule Aiur.GitHub.ClientEventsTest do
       assert {:error, {:github_api_status, 500}} = Client.fetch_repo_events(request_fun: stub)
     end
 
+    test "429 status returns rate-limit taxonomy with Retry-After" do
+      stub = fn _req ->
+        {:ok, %{status: 429, headers: [{"Retry-After", "11"}], body: %{"message" => "rate limited"}}}
+      end
+
+      assert {:error, {:github, :rate_limited, %{status: 429, retry_after: 11}}} =
+               Client.fetch_repo_events(request_fun: stub)
+    end
+
     test "transport error returns the classified taxonomy error" do
       stub = fn _req -> {:error, :timeout} end
 
@@ -134,7 +143,9 @@ defmodule Aiur.GitHub.ClientEventsTest do
 
     test "422 returns error (cycle detected by GitHub)" do
       stub = fn _req -> {:ok, %{status: 422, headers: [], body: %{}}} end
-      assert {:error, {:github_api_status, 422}} = Client.add_dependency(42, 99, request_fun: stub)
+
+      assert {:error, {:github_api_status, 422}} =
+               Client.add_dependency(42, 99, request_fun: stub)
     end
   end
 end
