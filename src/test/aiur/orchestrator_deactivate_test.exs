@@ -1617,7 +1617,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           review_issue_fetcher: fn ["human-review"] -> {:ok, [issue]} end
         )
 
-      assert next.github_comments_since == "2026-06-24T11:59:59Z"
+      assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
 
       assert_receive {:event,
                       %{
@@ -1710,11 +1710,204 @@ defmodule Aiur.OrchestratorDeactivateTest do
           review_issue_fetcher: fn ["human-review"] -> {:ok, [human_review_issue]} end
         )
 
-      assert next.github_comments_since == "2026-06-24T12:01:59Z"
+      assert next.github_comments_since == %{
+               "42" => "2026-06-24T11:59:59Z",
+               "57" => "2026-06-24T12:01:59Z"
+             }
+
       assert_receive {:event, %{topic: "ticket.42.issue.commented", message: "running target comment"}}, 500
 
       assert_receive {:event, %{topic: "ticket.57.pr.review_comment", message: "human-review target comment"}},
                      500
+    after
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "direct comment poll bounds human-review targets by oldest cursor" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      issues =
+        for id <- ~w(10 11 12 13) do
+          %Issue{
+            id: id,
+            identifier: id,
+            state: "human-review",
+            updated_at: datetime!("2026-06-24T12:00:00Z")
+          }
+        end
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/") and String.contains?(url, "/comments?") ->
+            [_, id] = Regex.run(~r{/issues/([^/]+)/comments\?}, url)
+            send(parent, {:issue_comments_requested, id})
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: []}}
+        end
+      end
+
+      state = %Orchestrator.State{
+        running: %{},
+        github_comments_since: %{
+          "10" => "2026-06-24T12:00:00Z",
+          "11" => "2026-06-24T10:00:00Z",
+          "12" => "2026-06-24T11:00:00Z",
+          "13" => "2026-06-24T09:00:00Z"
+        }
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, issues} end,
+          human_review_comment_target_limit: 2,
+          max_concurrency: 1
+        )
+
+      assert_receive {:issue_comments_requested, "13"}, 500
+      assert_receive {:issue_comments_requested, "11"}, 500
+      refute_receive {:issue_comments_requested, _}, 100
+
+      assert next.github_comments_since == %{
+               "10" => "2026-06-24T12:00:00Z",
+               "11" => "2026-06-24T10:00:00Z",
+               "12" => "2026-06-24T11:00:00Z",
+               "13" => "2026-06-24T09:00:00Z"
+             }
+
+      assert next.github_comment_issue_updated_at == %{
+               "11" => "2026-06-24T12:00:00Z",
+               "13" => "2026-06-24T12:00:00Z"
+             }
+    end
+
+    test "direct comment poll skips unchanged human-review issues" do
+      parent = self()
+      updated_at = "2026-06-24T12:00:00Z"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      issue = %Issue{
+        id: "57",
+        identifier: "57",
+        state: "human-review",
+        updated_at: datetime!(updated_at)
+      }
+
+      request_fun = fn %{url: url} ->
+        send(parent, {:unexpected_comment_request, url})
+        {:ok, %{status: 200, body: []}}
+      end
+
+      state = %Orchestrator.State{
+        running: %{},
+        github_comments_since: %{"57" => "2026-06-24T11:59:59Z"},
+        github_comment_issue_updated_at: %{"57" => updated_at}
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, [issue]} end
+        )
+
+      assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
+      assert next.github_comment_issue_updated_at == %{"57" => updated_at}
+      refute_receive {:unexpected_comment_request, _url}, 100
+    end
+
+    test "human-review target failure does not stop running target cursor advancement" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      human_review_issue = %Issue{
+        id: "57",
+        identifier: "57",
+        state: "human-review",
+        updated_at: datetime!("2026-06-24T12:00:00Z")
+      }
+
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/42/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => 4203,
+                   "body" => "running target still advances",
+                   "updated_at" => "2026-06-24T12:03:00Z",
+                   "user" => %{"login" => "its-everdred"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/issues/57/comments?") ->
+            {:error, :timeout}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: []}}
+        end
+      end
+
+      state = %Orchestrator.State{
+        running: %{
+          "issue-42" => %{
+            identifier: "42",
+            issue: %Issue{id: "issue-42", state: "in-progress", identifier: "42"},
+            control: %{status: :working}
+          }
+        },
+        github_comments_since: %{
+          "42" => "2026-06-24T11:00:00Z",
+          "57" => "2026-06-24T11:00:00Z"
+        }
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, [human_review_issue]} end,
+          max_concurrency: 1
+        )
+
+      assert next.github_comments_since == %{
+               "42" => "2026-06-24T12:02:59Z",
+               "57" => "2026-06-24T11:00:00Z"
+             }
+
+      assert next.github_comment_issue_updated_at == %{}
+      assert next.github_poll_delays == %{}
+      assert_receive {:event, %{topic: "ticket.42.issue.commented", message: "running target still advances"}}, 500
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -2754,6 +2947,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp datetime!(iso8601) do
+    {:ok, datetime, _offset} = DateTime.from_iso8601(iso8601)
+    datetime
+  end
 
   defp empty_review_threads_response do
     {:ok,

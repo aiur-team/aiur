@@ -30,7 +30,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   test "returns default cursor without calling GitHub when there are no targets" do
-    assert {:ok, %{count: 0, since: "2026-06-24T11:59:00Z"}} =
+    assert {:ok, %{count: 0, since: %{}, errors: []}} =
              GithubCommentsPoller.poll(["", "  "], boot_time: 1_782_302_400)
   end
 
@@ -46,7 +46,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 0, since: "2026-06-24T11:00:00Z"}} =
+    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42", " 42 ", ""],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -86,7 +86,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: "2026-06-24T11:59:59Z"}} =
+    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T11:59:59Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -131,7 +131,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 0, since: "2026-06-24T11:59:59Z"}} =
+    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:59:59Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -176,7 +176,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: "2026-06-24T12:00:59Z"}} =
+    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:00:59Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -230,7 +230,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: "2026-06-25T00:00:00Z"}} =
+    assert {:ok, %{count: 1, since: %{"42" => "2026-06-25T00:00:00Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-25T00:00:00Z",
                repo: "owner/repo",
@@ -284,7 +284,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: "2026-06-24T12:01:59Z"}} =
+    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:01:59Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -338,7 +338,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 0, since: "2026-06-24T12:01:59Z"}} =
+    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T12:01:59Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -376,7 +376,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: "2026-06-24T12:02:59Z"}} =
+    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:02:59Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -466,7 +466,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 1, since: "2026-06-24T11:00:00Z"}} =
+    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -485,7 +485,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:ok, %{count: 0, since: "2026-06-24T11:00:00Z"}} =
+    assert {:ok, %{count: 0, since: %{"42" => "2026-06-24T11:00:00Z"}, errors: []}} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -493,7 +493,58 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              )
   end
 
-  test "returns an error instead of advancing cursor when any watched endpoint fails" do
+  test "advances successful target cursor when another target fails" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 4204,
+                 "body" => "target A still moves",
+                 "updated_at" => "2026-06-24T12:04:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F42") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/issues/43/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F43") ->
+          {:error, :timeout}
+      end
+    end
+
+    assert {:ok,
+            %{
+              count: 1,
+              since: %{
+                "42" => "2026-06-24T12:03:59Z",
+                "43" => "2026-06-24T11:00:00Z"
+              },
+              errors: [{"43", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
+            }} =
+             GithubCommentsPoller.poll(["42", "43"],
+               since: %{"42" => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
+               repo: "owner/repo",
+               request_fun: request_fun,
+               max_concurrency: 2
+             )
+
+    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    stop_codeowners(codeowners)
+  end
+
+  test "reports an error and leaves target cursor unchanged when any watched endpoint fails" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")
 
@@ -518,7 +569,12 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:error, [{"42", {:pr_review_comments, {:github, :timeout, %{reason: :timeout}}}}]} =
+    assert {:ok,
+            %{
+              count: 1,
+              since: %{"42" => "2026-06-24T11:00:00Z"},
+              errors: [{"42", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
+            }} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
@@ -529,7 +585,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
-  test "returns an error when issue comment polling fails" do
+  test "reports an error when issue comment polling fails" do
     request_fun = fn %{url: url} ->
       cond do
         String.contains?(url, "/issues/42/comments?") -> {:error, :timeout}
@@ -537,7 +593,12 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       end
     end
 
-    assert {:error, [{"42", {:issue_comments, {:github, :timeout, %{reason: :timeout}}}}]} =
+    assert {:ok,
+            %{
+              count: 0,
+              since: %{"42" => "2026-06-24T11:00:00Z"},
+              errors: [{"42", {:issue_comments, {:github, :timeout, %{reason: :timeout}}}}]
+            }} =
              GithubCommentsPoller.poll(["42"],
                since: "2026-06-24T11:00:00Z",
                repo: "owner/repo",
