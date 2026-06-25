@@ -2202,6 +2202,23 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
+
+    assert Schema.resolve_turn_sandbox_policy(%Schema{
+             agent: %Schema.Agent{
+               codex: %Codex{thread_sandbox: "danger-full-access", turn_sandbox_policy: nil}
+             },
+             workspace: %Schema.Workspace{root: "/tmp/ignored"}
+           }) == %{"type" => "dangerFullAccess"}
+
+    assert Schema.resolve_turn_sandbox_policy(%Schema{
+             agent: %Schema.Agent{
+               codex: %Codex{
+                 thread_sandbox: "danger-full-access",
+                 turn_sandbox_policy: explicit_policy
+               }
+             },
+             workspace: %Schema.Workspace{root: "/tmp/ignored"}
+           }) == explicit_policy
   end
 
   test "schema keeps workspace roots raw while sandbox helpers expand only for local use" do
@@ -2383,13 +2400,55 @@ defmodule Aiur.WorkspaceAndConfigTest do
             settings.agent
             | codex: %{
                 settings.agent.codex
-                | turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
+                | thread_sandbox: "danger-full-access",
+                  turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
               }
           }
       }
 
       assert {:ok, %{"type" => "futureSandbox", "nested" => %{"flag" => true}}} =
                Schema.resolve_runtime_turn_sandbox_policy(future_settings, 123)
+
+      danger_settings = %{
+        settings
+        | agent: %{
+            settings.agent
+            | codex: %{
+                settings.agent.codex
+                | thread_sandbox: "danger-full-access",
+                  turn_sandbox_policy: nil
+              }
+          }
+      }
+
+      assert {:ok, %{"type" => "dangerFullAccess"}} =
+               Schema.resolve_runtime_turn_sandbox_policy(danger_settings, 123)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_thread_sandbox: "danger-full-access",
+        codex_turn_sandbox_policy: nil
+      )
+
+      assert {:ok, runtime_settings} = Config.codex_runtime_settings(issue_workspace)
+      assert runtime_settings.thread_sandbox == "danger-full-access"
+      assert runtime_settings.turn_sandbox_policy == %{"type" => "dangerFullAccess"}
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_thread_sandbox: "danger-full-access",
+        codex_turn_sandbox_policy: %{
+          type: "futureSandbox",
+          nested: %{flag: true}
+        }
+      )
+
+      assert {:ok, runtime_settings} = Config.codex_runtime_settings(issue_workspace)
+
+      assert runtime_settings.turn_sandbox_policy == %{
+               "type" => "futureSandbox",
+               "nested" => %{"flag" => true}
+             }
 
       assert {:error, {:unsafe_turn_sandbox_policy, {:invalid_workspace_root, 123}}} =
                Schema.resolve_runtime_turn_sandbox_policy(settings, 123)

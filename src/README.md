@@ -222,6 +222,8 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 - Path values support `~` for the home directory and `$VAR` for environment substitution.
 - Codex defaults to safer policies when omitted (`approval_policy` rejects unprompted
   approvals, `thread_sandbox` is `workspace-write`).
+- Setting `agent.codex.thread_sandbox: danger-full-access` also defaults Codex turns to
+  `dangerFullAccess` unless `turn_sandbox_policy` is explicitly configured.
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
