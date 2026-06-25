@@ -117,6 +117,28 @@ defmodule Aiur.AiurAlertRelaySkillTest do
     assert alert["needs_attention"] == false
   end
 
+  test "escapes structured text fields as valid JSON", %{home: home} do
+    config = build_fixture(home)
+    ndjson = Path.join(home, ".aiur/workspaces/its-applekid/actions/38/logs/agent.ndjson")
+
+    File.write!(
+      ndjson,
+      Jason.encode!(%{
+        "event" => "alert",
+        "message" => "custom alert",
+        "reason" => "line\twith control \"chars\"",
+        "severity" => "warning",
+        "needs_attention" => true,
+        "source_ticket_id" => "38",
+        "topic" => "ticket.38.agent.custom"
+      }) <> "\n"
+    )
+
+    [alert] = run(config, home) |> alert_lines()
+    assert alert["reason"] == "line\twith control \"chars\""
+    assert alert["needs_attention"] == true
+  end
+
   test "reports no active agents when nothing is recent", %{home: home} do
     config = build_fixture(home)
     # Backdate the ndjson well outside the default 15m window.

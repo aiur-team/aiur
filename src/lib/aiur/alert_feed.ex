@@ -4,15 +4,22 @@ defmodule Aiur.AlertFeed do
   """
 
   alias Aiur.Config
+  alias Aiur.Config.Paths
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
-    opts
-    |> roots()
-    |> Enum.flat_map(&alert_log_paths/1)
+    workspace_alert_log_paths(opts)
+    |> Kernel.++(central_alert_log_paths(opts))
+    |> Enum.uniq()
     |> Enum.flat_map(&read_alerts/1)
     |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
     |> Enum.sort_by(&Map.get(&1, "timestamp", ""))
+  end
+
+  defp workspace_alert_log_paths(opts) do
+    opts
+    |> roots()
+    |> Enum.flat_map(&alert_log_paths/1)
   end
 
   defp roots(opts) do
@@ -37,6 +44,35 @@ defmodule Aiur.AlertFeed do
     _ -> nil
   end
 
+  defp central_alert_log_paths(opts) do
+    opts
+    |> log_roots()
+    |> Enum.map(&Path.join(&1, "alerts.ndjson"))
+    |> Enum.filter(&File.regular?/1)
+  end
+
+  defp log_roots(opts) do
+    configured_roots = Keyword.get(opts, :log_roots)
+
+    roots =
+      case configured_roots do
+        list when is_list(list) -> list
+        _ -> [configured_log_root()]
+      end
+
+    roots
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&Path.expand/1)
+    |> Enum.uniq()
+    |> Enum.filter(&File.dir?/1)
+  end
+
+  defp configured_log_root do
+    Paths.log_root_dir()
+  rescue
+    _ -> nil
+  end
+
   defp user_home do
     System.user_home() || "."
   end
@@ -55,7 +91,7 @@ defmodule Aiur.AlertFeed do
     agent = agent_from_path(path)
 
     path
-    |> File.stream!([], :line)
+    |> File.stream!(:line)
     |> Stream.map(&decode_line/1)
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&(Map.get(&1, "event") == "alert"))
@@ -118,6 +154,14 @@ defmodule Aiur.AlertFeed do
   defp default_severity(false), do: "info"
 
   defp agent_from_path(path) do
+    if Path.basename(path) == "alerts.ndjson" do
+      "system"
+    else
+      agent_from_workspace_path(path)
+    end
+  end
+
+  defp agent_from_workspace_path(path) do
     path
     |> Path.dirname()
     |> Path.dirname()

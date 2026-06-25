@@ -28,7 +28,7 @@ defmodule Aiur.AlertFeedTest do
                "severity" => "warning",
                "needs_attention" => true
              }
-           ] = AlertFeed.list(roots: [root])
+           ] = AlertFeed.list(roots: [root], log_roots: [])
   end
 
   test "needs-attention filtering only trusts emitted boolean fields", %{root: root} do
@@ -45,6 +45,25 @@ defmodule Aiur.AlertFeedTest do
                "topic" => "ticket.38.agent.tokens_exhausted",
                "needs_attention" => true
              }
-           ] = AlertFeed.list(roots: [root], needs_attention: true)
+           ] = AlertFeed.list(roots: [root], log_roots: [], needs_attention: true)
+  end
+
+  test "reads central alert feed entries", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"system.github.connectivity_lost","message":"GitHub connectivity lost","reason":"GitHub API failed","severity":"warning","needs_attention":true,"source_ticket_id":null}
+    """)
+
+    assert [
+             %{
+               "agent" => "system",
+               "topic" => "system.github.connectivity_lost",
+               "reason" => "GitHub API failed",
+               "severity" => "warning",
+               "needs_attention" => true
+             }
+           ] = AlertFeed.list(roots: [root], log_roots: [log_root], needs_attention: true)
   end
 end

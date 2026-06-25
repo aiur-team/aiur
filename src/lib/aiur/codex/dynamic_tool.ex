@@ -406,8 +406,7 @@ defmodule Aiur.Codex.DynamicTool do
     alert_emitter = Keyword.get(opts, :alert_emitter)
 
     with {:ok, name, message, reason, needs_attention, severity} <- normalize_emit_alert_arguments(arguments),
-         true <- is_function(alert_emitter, 5) || {:error, :alert_emitter_unavailable},
-         :ok <- alert_emitter.(name, message, reason, needs_attention, severity) do
+         :ok <- call_alert_emitter(alert_emitter, name, message, reason, needs_attention, severity) do
       dynamic_tool_response(
         true,
         Jason.encode!(
@@ -471,8 +470,8 @@ defmodule Aiur.Codex.DynamicTool do
   defp normalize_emit_alert_arguments(arguments) when is_map(arguments) do
     with {:ok, name} <- normalize_emit_alert_string(arguments, "name", :missing_alert_name),
          {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_alert_message),
-         {:ok, reason} <- normalize_emit_alert_string(arguments, "reason", :missing_alert_reason),
-         {:ok, needs_attention} <- normalize_emit_alert_boolean(arguments, "needs_attention", :missing_alert_needs_attention) do
+         {:ok, reason} <- normalize_emit_alert_reason(arguments, message),
+         {:ok, needs_attention} <- normalize_emit_alert_needs_attention(arguments) do
       {:ok, name, message, reason, needs_attention, normalize_emit_alert_severity(arguments, needs_attention)}
     end
   end
@@ -495,6 +494,25 @@ defmodule Aiur.Codex.DynamicTool do
   defp emit_alert_value(arguments, "name"), do: Map.get(arguments, "name") || Map.get(arguments, :name)
   defp emit_alert_value(arguments, "message"), do: Map.get(arguments, "message") || Map.get(arguments, :message)
   defp emit_alert_value(arguments, "reason"), do: Map.get(arguments, "reason") || Map.get(arguments, :reason)
+
+  defp normalize_emit_alert_reason(arguments, message) do
+    case emit_alert_value(arguments, "reason") do
+      nil -> {:ok, message}
+      _ -> normalize_emit_alert_string(arguments, "reason", :missing_alert_reason)
+    end
+  end
+
+  defp normalize_emit_alert_needs_attention(arguments) do
+    if emit_alert_has_key?(arguments, "needs_attention") do
+      normalize_emit_alert_boolean(arguments, "needs_attention", :missing_alert_needs_attention)
+    else
+      {:ok, false}
+    end
+  end
+
+  defp emit_alert_has_key?(arguments, key) do
+    Map.has_key?(arguments, key) or Map.has_key?(arguments, String.to_atom(key))
+  end
 
   defp normalize_emit_alert_boolean(arguments, key, error_reason) do
     value =
@@ -527,6 +545,20 @@ defmodule Aiur.Codex.DynamicTool do
 
   defp default_alert_severity(true), do: "warning"
   defp default_alert_severity(false), do: "info"
+
+  defp call_alert_emitter(emitter, name, message, reason, needs_attention, severity)
+       when is_function(emitter, 5) do
+    emitter.(name, message, reason, needs_attention, severity)
+  end
+
+  defp call_alert_emitter(emitter, name, message, _reason, _needs_attention, _severity)
+       when is_function(emitter, 2) do
+    emitter.(name, message)
+  end
+
+  defp call_alert_emitter(_emitter, _name, _message, _reason, _needs_attention, _severity) do
+    {:error, :alert_emitter_unavailable}
+  end
 
   defp normalize_query(arguments) do
     case Map.get(arguments, "query") || Map.get(arguments, :query) do

@@ -178,7 +178,24 @@ for root in "${roots[@]:-}"; do
       [ -n "$reason" ] || reason="${name##*.}"
       [ -n "$severity" ] || severity="info"
 
-      agent_alerts="${agent_alerts}{\"ticket\":\"$(json_escape "$tkt")\",\"source_ticket_id\":\"$(json_escape "$tkt")\",\"agent\":\"$(json_escape "$id")\",\"reason\":\"$(json_escape "$reason")\",\"severity\":\"$(json_escape "$severity")\",\"topic\":\"$(json_escape "$name")\",\"name\":\"$(json_escape "$name")\",\"needs_attention\":${need}}
+      if [ "$have_jq" -eq 1 ]; then
+        alert_json="$(
+          jq -cn \
+            --arg ticket "$tkt" \
+            --arg source_ticket_id "$tkt" \
+            --arg agent "$id" \
+            --arg reason "$reason" \
+            --arg severity "$severity" \
+            --arg topic "$name" \
+            --arg name "$name" \
+            --argjson needs_attention "$need" \
+            '{ticket:$ticket,source_ticket_id:$source_ticket_id,agent:$agent,reason:$reason,severity:$severity,topic:$topic,name:$name,needs_attention:$needs_attention}'
+        )"
+      else
+        alert_json="{\"ticket\":\"$(json_escape "$tkt")\",\"source_ticket_id\":\"$(json_escape "$tkt")\",\"agent\":\"$(json_escape "$id")\",\"reason\":\"$(json_escape "$reason")\",\"severity\":\"$(json_escape "$severity")\",\"topic\":\"$(json_escape "$name")\",\"name\":\"$(json_escape "$name")\",\"needs_attention\":${need}}"
+      fi
+
+      agent_alerts="${agent_alerts}${alert_json}
 "
     done < <(grep '"event":"alert"' "$abs" 2>/dev/null || true)
 

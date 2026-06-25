@@ -76,6 +76,63 @@ defmodule Aiur.AlertsTest do
              "\"name\":\"ticket.MT-ALERT-2.issue.label.added.agent.in-progress\""
   end
 
+  test "human-review state transitions are marked operator-actionable" do
+    workspace_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-review-#{System.unique_integer([:positive])}")
+
+    workspace = Path.join([workspace_root, "project", "MT-ALERT-REVIEW"])
+    File.mkdir_p!(workspace)
+
+    on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    previous_issue = %Issue{id: "issue-1", identifier: "MT-ALERT-REVIEW", state: "In Progress", title: "Task"}
+    next_issue = %Issue{id: "issue-1", identifier: "MT-ALERT-REVIEW", state: "Human Review", title: "Task"}
+
+    state = %Orchestrator.State{last_polled_issues: %{"issue-1" => previous_issue}}
+
+    _updated_state = Orchestrator.sync_polled_issue_state_for_test(state, [next_issue])
+
+    log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
+
+    assert log =~ "\"name\":\"ticket.MT-ALERT-REVIEW.issue.label.added.agent.human-review\""
+    assert log =~ "\"needs_attention\":true"
+    assert log =~ "\"severity\":\"warning\""
+    assert log =~ "\"reason\":\"Agent marked the ticket ready for human review\""
+  end
+
+  test "alerts without a local workspace are written to the central alert feed" do
+    log_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-central-#{System.unique_integer([:positive])}")
+
+    original_log_file = Application.get_env(:aiur, :log_file)
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(log_root)
+    end)
+
+    assert :ok =
+             Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+               reason: "Todo queue exceeds configured capacity",
+               needs_attention: true,
+               severity: "warning"
+             )
+
+    central_log = Path.join(log_root, "alerts.ndjson") |> File.read!()
+
+    assert central_log =~ "\"name\":\"system.dispatch.todo_capacity_exceeded\""
+    assert central_log =~ "\"reason\":\"Todo queue exceeds configured capacity\""
+    assert central_log =~ "\"needs_attention\":true"
+  end
+
   test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.unique_integer([:positive])}")

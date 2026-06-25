@@ -2329,7 +2329,10 @@ defmodule Aiur.Orchestrator do
       Alerts.emit_system(
         "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
         issue: issue,
-        worker_host: running_worker_host(state, issue.id)
+        worker_host: running_worker_host(state, issue.id),
+        reason: task_state_alert_reason(current_state),
+        needs_attention: task_state_needs_attention?(current_state),
+        severity: task_state_alert_severity(current_state)
       )
     end
 
@@ -2337,6 +2340,15 @@ defmodule Aiur.Orchestrator do
   end
 
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp task_state_alert_reason("human-review"), do: "Agent marked the ticket ready for human review"
+  defp task_state_alert_reason(_state), do: nil
+
+  defp task_state_needs_attention?("human-review"), do: true
+  defp task_state_needs_attention?(_state), do: false
+
+  defp task_state_alert_severity("human-review"), do: "warning"
+  defp task_state_alert_severity(_state), do: nil
 
   defp blocker_map(%Issue{blocked_by: blockers}) when is_list(blockers) do
     Enum.reduce(blockers, %{}, fn

@@ -7,6 +7,7 @@ defmodule Aiur.Alerts do
   require Logger
 
   alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue}
+  alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Events.{Publisher, Topic}
   alias AiurWeb.ObservabilityPubSub
@@ -149,9 +150,11 @@ defmodule Aiur.Alerts do
 
       Logger.info("[alert]#{identifier_suffix(opts)} #{topic}: #{message}")
 
-      AgentEventLog.write(workspace, worker_host, %{
+      timestamp = DateTime.utc_now()
+
+      alert_event = %{
         event: :alert,
-        timestamp: DateTime.utc_now(),
+        timestamp: timestamp,
         name: topic,
         topic: topic,
         message: message,
@@ -161,7 +164,10 @@ defmodule Aiur.Alerts do
         source_ticket_id: metadata.source_ticket_id,
         sound: selected_sound,
         raw: Jason.encode!(payload)
-      })
+      }
+
+      AgentEventLog.write(workspace, worker_host, alert_event)
+      maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host)
 
       maybe_play_sound(selected_sound, settings, opts)
       broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
@@ -200,6 +206,44 @@ defmodule Aiur.Alerts do
       _ when needs_attention -> "warning"
       _ -> "info"
     end
+  end
+
+  defp maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host) do
+    if is_binary(workspace) and worker_host == nil do
+      :ok
+    else
+      write_central_alert_feed_entry(alert_event)
+    end
+  end
+
+  defp write_central_alert_feed_entry(alert_event) do
+    path = Path.join(Paths.log_root_dir(), "alerts.ndjson")
+
+    encoded =
+      alert_event
+      |> central_alert_json()
+      |> Jason.encode!()
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, encoded <> "\n", [:append]) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.debug("Failed writing central alert feed path=#{path} reason=#{inspect(reason)}")
+        :ok
+    end
+  rescue
+    error ->
+      Logger.debug("Failed writing central alert feed error=#{Exception.message(error)}")
+      :ok
+  end
+
+  defp central_alert_json(alert_event) do
+    Map.new(alert_event, fn
+      {:timestamp, %DateTime{} = timestamp} -> {"timestamp", DateTime.to_iso8601(timestamp)}
+      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+      {key, value} -> {to_string(key), value}
+    end)
   end
 
   defp publish_to_exchange(topic, message, metadata, opts) do
