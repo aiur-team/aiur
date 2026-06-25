@@ -732,8 +732,8 @@ defmodule Aiur.Opencode.ChatCompletions do
         # the agent. Ack cleanly without forwarding.
         {:ok, :noop}
 
-      normalized ->
-        AgentChat.send(identifier, normalized,
+      operator_text ->
+        AgentChat.send(identifier, operator_text,
           delivery_policy: :auto,
           turn_id: turn_id
         )
@@ -742,16 +742,50 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   # Durable, greppable operator-path trace. The next live `--test3` repro
   # greps `opencode_bridge operator_text` to pin delivery-vs-drop: the BUG
-  # signature is `wrapped=true dropped=true` (an operator message was present
-  # but normalize produced empty, so `send_operator/3` noops it and the agent
-  # never sees it). `wrapped=false dropped=true` is the benign scaffolding-only
-  # noop. Bytes (not raw text) keep the operator's content out of the logs.
+  # signature is `wrapped=true dropped=true` — a genuine (non-blank) operator
+  # message was present but normalize forwarded nothing, so `send_operator/3`
+  # noops it and the agent never sees it (issue #332). `wrapped=false` covers
+  # both raw text and opencode's own scaffolding-only reminders (and an
+  # empty-bodied wrapper, which is not a message), so none raise a false alarm.
+  # Bytes (not content) keep the operator's words out of the logs.
   defp log_operator_text(identifier, raw, normalized) do
+    trace = operator_text_trace(raw, normalized)
+
     Logger.info(
       "opencode_bridge operator_text identifier=#{identifier} " <>
-        "in_bytes=#{byte_size(raw)} out_bytes=#{byte_size(normalized)} " <>
-        "wrapped=#{operator_wrapper?(raw)} dropped=#{normalized == "" and raw != ""}"
+        "in_bytes=#{trace.in_bytes} out_bytes=#{trace.out_bytes} " <>
+        "wrapped=#{trace.wrapped} dropped=#{trace.dropped}"
     )
+  end
+
+  @doc false
+  # Pure derivation of the operator-path trace fields, so the diagnostic
+  # contract is unit-testable without Plug/app scaffolding. `wrapped` is true
+  # only when a genuine, non-blank operator message was buried in an opencode
+  # wrapper — an empty-bodied wrapper or scaffolding-only reminder is not a
+  # message and must not trip the alarm. `dropped` then means exactly "a real
+  # operator message was present but nothing was forwarded." Both fields and
+  # `normalize_operator_text/1` derive from the same `scan_operator_messages/1`,
+  # so the signal can't silently desync from what was actually delivered.
+  @spec operator_text_trace(String.t(), String.t()) :: %{
+          in_bytes: non_neg_integer(),
+          out_bytes: non_neg_integer(),
+          wrapped: boolean(),
+          dropped: boolean()
+        }
+  def operator_text_trace(raw, normalized) when is_binary(raw) and is_binary(normalized) do
+    wrapped? =
+      case scan_operator_messages(raw) do
+        nil -> false
+        msgs -> Enum.any?(msgs, &(String.trim(&1) != ""))
+      end
+
+    %{
+      in_bytes: byte_size(raw),
+      out_bytes: byte_size(normalized),
+      wrapped: wrapped?,
+      dropped: wrapped? and normalized == ""
+    }
   end
 
   # Opencode wraps operator-typed text in `<system-reminder>` envelopes before
@@ -772,15 +806,19 @@ defmodule Aiur.Opencode.ChatCompletions do
   # deleted the operator-bearing block too, yielding "" — a silent drop the
   # agent could never answer (issue #332). Scanning every wrapper anywhere in
   # the text recovers the operator's message regardless of what surrounds it.
-  @operator_wrapper_regex ~r/<system-reminder>\nThe user sent the following message:\n(?<msg>[\s\S]*?)\n\nPlease address this message and continue with your tasks\.\n<\/system-reminder>/
+  # Line breaks are `\r?\n` so a CRLF payload can't slip past the match and hit
+  # the over-deleting strip (the primary path pre-strips CR in `validate_body`,
+  # but this keeps the extraction correct independent of its callers).
+  @operator_wrapper_regex ~r/<system-reminder>\r?\nThe user sent the following message:\r?\n(?<msg>[\s\S]*?)\r?\n\r?\nPlease address this message and continue with your tasks\.\r?\n<\/system-reminder>/
 
   @doc false
   @spec normalize_operator_text(String.t()) :: String.t()
   def normalize_operator_text(text) when is_binary(text) do
     cond do
       msgs = scan_operator_messages(text) ->
-        # One or more genuine operator messages buried in opencode wrappers.
-        # Join multiple (a folded batch) the same way opencode separated them.
+        # One or more operator messages buried in opencode wrappers (a folded
+        # batch arrives as several concatenated wrappers). Recover and trim
+        # each, joined by a newline.
         Enum.map_join(msgs, "\n", &String.trim/1)
 
       String.contains?(text, "<system-reminder>") ->
@@ -803,8 +841,6 @@ defmodule Aiur.Opencode.ChatCompletions do
       matches -> Enum.map(matches, fn [msg] -> msg end)
     end
   end
-
-  defp operator_wrapper?(text), do: Regex.match?(@operator_wrapper_regex, text)
 
   defp emit_error_and_close(conn, completion_id, reason) do
     conn = chunk(conn, completion_id, "**system:** " <> inspect(reason), nil)
