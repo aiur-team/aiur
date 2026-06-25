@@ -3,7 +3,7 @@ defmodule Aiur.Events.Publisher do
   Shared publish boundary for every `Aiur.Events` source — GitHub
   firehose, ls-remote ticker, dependencies poll, and agent-emitted
   events all funnel through here so the policy choices (event IDs,
-  contamination filter, push dedup) live in one place rather than
+  contamination filter, replay dedup) live in one place rather than
   triplicated across source modules.
 
   ## Responsibilities
@@ -14,9 +14,9 @@ defmodule Aiur.Events.Publisher do
        in the orchestrator's tracked set (running/queued/recent) and
        drops events whose actor is the configured `bot_account` (to
        prevent self-loops where Aiur reacts to its own writes).
-    3. **`(repo, ref, sha)` push dedup** — when firehose and ls-remote
-       both observe the same push, only the first emits the event.
-       Dedup window defaults to 5 minutes (covers normal arrival skew).
+    3. **Replay dedup** — sources that poll replay-prone APIs can pass
+       a stable `:dedup_key` to avoid publishing the same PR/comment
+       event repeatedly.
     4. **Exchange.publish/2 fan-out** — once filters pass, hands off
        to the Exchange which sends to every matching subscriber.
 
@@ -72,7 +72,7 @@ defmodule Aiur.Events.Publisher do
     * `:issue_number` — number used by the contamination filter; nil
       bypasses filter (e.g. system topics like `system.main.branch.push`)
     * `:actor` — author login; if matches `bot_account`, drop
-    * `:dedup_key` — `{repo, ref, sha}` triple; if set, dedup is applied
+    * `:dedup_key` — stable source-specific key; if set, dedup is applied
     * `:bypass_contamination` — when `true`, skip the tracked-issue
       filter for this publish. Used for external reactivation triggers
       (firehose `issue.commented` / `pr.review_comment`): a `:deactivated`
@@ -141,32 +141,6 @@ defmodule Aiur.Events.Publisher do
   defp extract_ticket_id(_), do: nil
 
   @doc """
-  Marks `(repo, ref, sha)` as seen. Called by the source module that
-  successfully published the push event so the other source skips it.
-  """
-  @spec record_push(String.t(), String.t(), String.t()) :: :ok
-  def record_push(repo, ref, sha) do
-    :ets.insert(@table, {{repo, ref, sha}, System.monotonic_time(:millisecond)})
-    :ok
-  end
-
-  @doc """
-  Returns true if `(repo, ref, sha)` was recorded within the dedup
-  window. Public so source modules can pre-check before formatting an
-  event payload (saves work on the dedup-loser side).
-  """
-  @spec push_seen?(String.t(), String.t(), String.t()) :: boolean()
-  def push_seen?(repo, ref, sha) do
-    case :ets.lookup(@table, {repo, ref, sha}) do
-      [{_, recorded_at}] ->
-        System.monotonic_time(:millisecond) - recorded_at < ttl_ms()
-
-      [] ->
-        false
-    end
-  end
-
-  @doc """
   Replaces the function used by `tracked?/1` to consult the running
   issue set. Orchestrator wires this up on startup. Stored in
   `:persistent_term` so `publish/3` (the hot path) reads it without a
@@ -223,22 +197,33 @@ defmodule Aiur.Events.Publisher do
 
   defp deduped?(nil), do: false
 
-  defp deduped?({repo, ref, sha}) when is_binary(repo) and is_binary(ref) and is_binary(sha) do
-    if push_seen?(repo, ref, sha) do
+  defp deduped?({repo, kind, id} = key) when is_binary(repo) and is_binary(kind) and is_binary(id) do
+    if seen?(key) do
       true
     else
-      record_push(repo, ref, sha)
+      record_seen(key)
       false
     end
   end
 
-  # Catch-all: a partially-populated dedup_key (e.g. `{nil, ref, sha}`
-  # from a caller that couldn't resolve the repo) MUST NOT crash the
-  # publish path. Drop the dedup signal and let the event through —
-  # losing cross-source dedup in that rare window is strictly better
-  # than crashing the caller (e.g. Aiur.Events.LsRemoteTicker) and
-  # rolling its bootstrap cache.
+  # Catch-all: a partially-populated dedup_key MUST NOT crash the
+  # publish path. Drop the dedup signal and let the event through.
   defp deduped?(_other), do: false
+
+  defp record_seen(key) do
+    :ets.insert(@table, {key, System.monotonic_time(:millisecond)})
+    :ok
+  end
+
+  defp seen?(key) do
+    case :ets.lookup(@table, key) do
+      [{_, recorded_at}] ->
+        System.monotonic_time(:millisecond) - recorded_at < ttl_ms()
+
+      [] ->
+        false
+    end
+  end
 
   defp ttl_ms do
     :persistent_term.get({__MODULE__, :ttl_ms}, @default_ttl_ms)

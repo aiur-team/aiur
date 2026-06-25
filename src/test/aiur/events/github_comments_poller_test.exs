@@ -142,60 +142,6 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
-  test "polls open PR review comments and publishes pr.review_comment under ticket id" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
-    codeowners = ensure_codeowners!("* @its-everdred\n")
-
-    request_fun = fn %{url: url} ->
-      cond do
-        String.contains?(url, "/issues/42/comments?") ->
-          {:ok, %{status: 200, body: []}}
-
-        String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77}]}}
-
-        String.contains?(url, "/issues/77/comments?") ->
-          {:ok, %{status: 200, body: []}}
-
-        String.contains?(url, "/pulls/77/comments?") ->
-          {:ok,
-           %{
-             status: 200,
-             body: [
-               %{
-                 "id" => 2002,
-                 "body" => "line note needs rework",
-                 "updated_at" => "2026-06-24T12:01:00Z",
-                 "user" => %{"login" => "its-everdred"}
-               }
-             ]
-           }}
-
-        String.contains?(url, "/graphql") ->
-          empty_review_threads_response()
-      end
-    end
-
-    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:00:59Z"}, errors: []}} =
-             GithubCommentsPoller.poll(["42"],
-               since: "2026-06-24T11:00:00Z",
-               repo: "owner/repo",
-               request_fun: request_fun
-             )
-
-    assert_receive {:event,
-                    %{
-                      topic: "ticket.42.pr.review_comment",
-                      author_trusted?: true,
-                      source: :github,
-                      message: "line note needs rework",
-                      comment: %{"body" => "line note needs rework"}
-                    }},
-                   500
-
-    stop_codeowners(codeowners)
-  end
-
   test "polls unaddressed PR review threads without requiring a fresh comment timestamp" do
     :ok = Exchange.subscribe("ticket.42.pr.review_comment")
     codeowners = ensure_codeowners!("* @its-everdred\n")
@@ -209,9 +155,6 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: [%{"number" => 77}]}}
 
         String.contains?(url, "/issues/77/comments?") ->
-          {:ok, %{status: 200, body: []}}
-
-        String.contains?(url, "/pulls/77/comments?") ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/graphql") ->
@@ -280,9 +223,6 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              ]
            }}
 
-        String.contains?(url, "/pulls/77/comments?") ->
-          {:ok, %{status: 200, body: []}}
-
         String.contains?(url, "/graphql") ->
           empty_review_threads_response()
       end
@@ -333,9 +273,6 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                }
              ]
            }}
-
-        String.contains?(url, "/pulls/77/comments?") ->
-          {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/graphql") ->
           empty_review_threads_response()

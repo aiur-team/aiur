@@ -4,8 +4,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   The repo `/events` feed is delayed and sampled, so issue comments can
   be crowded out before Aiur sees them. This poller queries each watched
-  ticket's issue comments and open PR review comments directly, then
-  publishes the same event topics as `Aiur.Events.GithubFirehose`.
+  ticket's issue comments, PR conversation comments, and unresolved PR
+  review threads directly.
   """
 
   require Logger
@@ -164,16 +164,13 @@ defmodule Aiur.Events.GithubCommentsPoller do
       {conversation_count, conversation_newest, conversation_result} =
         poll_pr_issue_comments(target, pr_number, since, repo, opts)
 
-      {review_count, review_newest, review_result} =
-        poll_pr_review_comments(target, pr_number, since, repo, opts)
-
       {thread_count, thread_result} =
         poll_unaddressed_pr_review_threads(target, pr_number, repo, opts)
 
       {
-        conversation_count + review_count + thread_count,
-        max_datetime(conversation_newest, review_newest),
-        [conversation_result, review_result, thread_result]
+        conversation_count + thread_count,
+        conversation_newest,
+        [conversation_result, thread_result]
       }
     else
       {:ok, nil} ->
@@ -204,23 +201,6 @@ defmodule Aiur.Events.GithubCommentsPoller do
         Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
 
         {0, nil, {:error, {:pr_issue_comments, reason}}}
-    end
-  end
-
-  defp poll_pr_review_comments(target, pr_number, since, repo, opts) do
-    case Client.fetch_pull_request_review_comments(pr_number, Keyword.put(opts, :since, since)) do
-      {:ok, comments} ->
-        count =
-          comments
-          |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
-          |> Enum.count(&match?({:ok, _, _}, &1))
-
-        {count, newest_comment_datetime(comments), :ok}
-
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR review comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
-
-        {0, nil, {:error, {:pr_review_comments, reason}}}
     end
   end
 

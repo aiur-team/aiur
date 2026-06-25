@@ -26,22 +26,6 @@ defmodule Aiur.Events.GithubKeysTest do
   end
 
   describe "dedup keys" do
-    test "builds push dedup keys only for complete binary values" do
-      assert GithubKeys.push_dedup_key("owner/repo", "refs/heads/aiur/1", "sha") ==
-               {"owner/repo", "refs/heads/aiur/1", "sha"}
-
-      assert GithubKeys.push_dedup_key("", "refs/heads/aiur/1", "sha") == nil
-      assert GithubKeys.push_dedup_key("owner/repo", "refs/heads/aiur/1", nil) == nil
-    end
-
-    test "adds push dedup keys to opts only when complete" do
-      assert GithubKeys.put_push_dedup_key([issue_number: "1"], "owner/repo", "ref", "sha") ==
-               [dedup_key: {"owner/repo", "ref", "sha"}, issue_number: "1"]
-
-      assert GithubKeys.put_push_dedup_key([issue_number: "1"], nil, "ref", "sha") ==
-               [issue_number: "1"]
-    end
-
     test "builds PR lifecycle dedup keys" do
       assert GithubKeys.pr_dedup_key("owner/repo", 12, "opened", "headsha") ==
                {"owner/repo", "pr:opened:12", "headsha"}

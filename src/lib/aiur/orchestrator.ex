@@ -1155,9 +1155,14 @@ defmodule Aiur.Orchestrator do
       |> Keyword.put_new(:last_event_id, state.events_last_id)
 
     case GithubFirehose.poll(poll_opts) do
-      {:ok, %{etag: etag, last_event_id: last_event_id, count: count}} ->
+      {:ok, %{etag: etag, last_event_id: last_event_id, count: count} = result} ->
         if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
-        state = note_github_connectivity_success(state, :firehose)
+
+        state =
+          state
+          |> note_github_connectivity_success(:firehose)
+          |> note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
+
         %{state | events_etag: etag, events_last_id: last_event_id}
 
       {:error, reason} ->
@@ -1302,6 +1307,13 @@ defmodule Aiur.Orchestrator do
     do: delay_ms
 
   defp normalize_github_backoff_ms(_delay_ms, %State{} = state), do: state.poll_interval_ms
+
+  defp note_github_poll_interval(%State{} = state, source, seconds)
+       when is_integer(seconds) and seconds > 0 do
+    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)}
+  end
+
+  defp note_github_poll_interval(%State{} = state, _source, _seconds), do: state
 
   defp next_poll_delay_ms(%State{} = state) do
     github_next_poll_delay_ms(state) || state.poll_interval_ms
@@ -6713,14 +6725,11 @@ defmodule Aiur.Orchestrator do
   defp default_blockee_subscriptions(blocker_identifier) when is_binary(blocker_identifier) do
     base = "ticket." <> blocker_identifier
 
-    # Topic strings must match what GithubFirehose publishes literally
-    # (Exchange routes by literal segment match). See Aiur.Events.GithubFirehose
-    # `translate/2` clauses for the canonical names:
-    #   PushEvent             -> ticket.<N>.branch.push
-    #   IssuesEvent           -> ticket.<N>.issue.*
-    #   IssueCommentEvent     -> ticket.<N>.issue.commented
-    #   PullRequestEvent      -> ticket.<N>.pr.{opened,merged,closed,…}
-    #   PullRequestReviewComment -> ticket.<N>.pr.review_comment
+    # Topic strings must match the publisher source modules literally
+    # (Exchange routes by literal segment match):
+    #   LsRemoteTicker        -> ticket.<N>.branch.push
+    #   GithubCommentsPoller  -> ticket.<N>.issue.commented / pr.review_comment
+    #   GithubFirehose        -> ticket.<N>.pr.{opened,merged,closed,…}
     [
       base <> ".branch.push",
       base <> ".branch.force-push",

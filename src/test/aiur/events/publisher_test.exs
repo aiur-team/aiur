@@ -116,38 +116,32 @@ defmodule Aiur.Events.PublisherTest do
     end
   end
 
-  describe "push dedup" do
-    test "same (repo, ref, sha) triple within window is deduped" do
-      :ok = Exchange.subscribe("ticket.42.branch.push")
+  describe "replay dedup" do
+    test "same stable dedup key within window is deduped" do
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
 
-      sha = "ded-#{System.unique_integer([:positive])}"
-      dedup = {"owner/repo", "refs/heads/aiur/42", sha}
-      assert {:ok, _, _} = Publisher.publish("ticket.42.branch.push", %{sha: sha}, dedup_key: dedup)
-      assert :deduped = Publisher.publish("ticket.42.branch.push", %{sha: sha}, dedup_key: dedup)
+      comment_id = System.unique_integer([:positive])
+      dedup = {"owner/repo", "issue_comment:42", Integer.to_string(comment_id)}
+      assert {:ok, _, _} = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, dedup_key: dedup)
+      assert :deduped = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, dedup_key: dedup)
 
       assert_receive {:event, _}, 500
       refute_receive {:event, _}, 100
     end
 
-    test "different sha for the same ref is NOT deduped" do
-      :ok = Exchange.subscribe("ticket.42.branch.push")
+    test "different stable keys are NOT deduped" do
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
 
-      sha_a = "abc-#{System.unique_integer([:positive])}"
-      sha_b = "def-#{System.unique_integer([:positive])}"
-      d1 = {"owner/repo", "refs/heads/aiur/42", sha_a}
-      d2 = {"owner/repo", "refs/heads/aiur/42", sha_b}
+      comment_id_1 = System.unique_integer([:positive])
+      comment_id_2 = System.unique_integer([:positive])
+      d1 = {"owner/repo", "issue_comment:42", Integer.to_string(comment_id_1)}
+      d2 = {"owner/repo", "issue_comment:42", Integer.to_string(comment_id_2)}
 
-      assert {:ok, _, _} = Publisher.publish("ticket.42.branch.push", %{sha: sha_a}, dedup_key: d1)
-      assert {:ok, _, _} = Publisher.publish("ticket.42.branch.push", %{sha: sha_b}, dedup_key: d2)
+      assert {:ok, _, _} = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id_1}}, dedup_key: d1)
+      assert {:ok, _, _} = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id_2}}, dedup_key: d2)
 
-      assert_receive {:event, %{sha: ^sha_a}}, 500
-      assert_receive {:event, %{sha: ^sha_b}}, 500
-    end
-
-    test "record_push/3 + push_seen?/3 round-trip" do
-      assert :ok = Publisher.record_push("owner/repo", "refs/heads/main", "xyz")
-      assert Publisher.push_seen?("owner/repo", "refs/heads/main", "xyz")
-      refute Publisher.push_seen?("owner/repo", "refs/heads/main", "different")
+      assert_receive {:event, %{comment: %{id: ^comment_id_1}}}, 500
+      assert_receive {:event, %{comment: %{id: ^comment_id_2}}}, 500
     end
   end
 end

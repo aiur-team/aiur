@@ -12,11 +12,8 @@ defmodule Aiur.Events.LsRemoteTicker do
   surfaced. Blockee subscribers to `ticket.99.branch.push` never woke
   up.
 
-  The ls-remote ticker provides a parallel push detector that runs on
-  a fixed cadence. The `Aiur.Events.Publisher.publish/3` dedup table
-  uses `(repo, ref, sha)` as the key, so when both firehose and
-  ls-remote see the same push only the first one through publishes —
-  the other is silently dropped.
+  The ls-remote ticker is the only ticket-branch push detector. The
+  GitHub firehose no longer publishes ticket branch pushes.
 
   ## Bootstrap
 
@@ -71,12 +68,6 @@ defmodule Aiur.Events.LsRemoteTicker do
       remote: Keyword.get(opts, :remote, @default_remote),
       ref_pattern: Keyword.get(opts, :ref_pattern, @default_ref_pattern),
       ls_remote_fun: Keyword.get(opts, :ls_remote_fun, &default_ls_remote/2),
-      # Resolves a commit subject for `{repo, sha}` and returns the
-      # `commits` field used in the published payload. Tests inject a
-      # no-op (`fn _, _ -> [] end`) so `gh api` isn't shelled out for
-      # fake SHAs; production uses `&default_fetch_commits/2`, which
-      # shells out to `gh` with a 2s timeout.
-      commits_fun: Keyword.get(opts, :commits_fun, &default_fetch_commits/2),
       publisher: Keyword.get(opts, :publisher),
       repo: Keyword.get(opts, :repo),
       refs: %{},
@@ -115,8 +106,8 @@ defmodule Aiur.Events.LsRemoteTicker do
   # refs cache would make the next successful tick treat every
   # existing ticket branch as a brand-new push and fan-out a phantom
   # auto-resume for every paused blockee. A push that lands between a
-  # transient error and the next success is lost, but the GitHub
-  # firehose covers that window as the second detection source.
+  # transient error and the next success is lost; the next successful
+  # tick resumes from the observed ref state.
   defp run_tick(state) do
     case state.ls_remote_fun.(state.remote, [state.ref_pattern]) do
       {:ok, refs} when is_map(refs) ->
@@ -228,12 +219,11 @@ defmodule Aiur.Events.LsRemoteTicker do
           ref: ref,
           sha: sha,
           actor: nil,
-          commits: state.commits_fun.(repo, sha),
+          commits: [],
           repo: repo
         }
 
-        publish_opts = build_publish_opts(repo, ref, sha, issue_number: id)
-        do_publish(state, topic, payload, publish_opts)
+        do_publish(state, topic, payload, issue_number: id)
 
       {:system, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
@@ -242,88 +232,16 @@ defmodule Aiur.Events.LsRemoteTicker do
           ref: ref,
           sha: sha,
           actor: nil,
-          commits: state.commits_fun.(repo, sha),
+          commits: [],
           repo: repo
         }
 
-        do_publish(state, topic, payload, build_publish_opts(repo, ref, sha))
+        do_publish(state, topic, payload, [])
 
       nil ->
         :ignore
     end
   end
-
-  # `git ls-remote` returns only `{ref, sha}` — no commit subject. The
-  # renderer falls back to a bare "pushed" with no quoted message when
-  # `commits` is empty, which is the common UX complaint after this
-  # detector wins the (repo, ref, sha) dedup race against the GitHub
-  # firehose (firehose carries commit subjects from the PushEvent
-  # payload). Enriching synchronously here so the dedup-winning emit
-  # already carries the subject. Bounded gh api call with a 2s timeout;
-  # failure falls back to empty commits (no regression vs the original
-  # path). Output shape matches
-  # `Aiur.Events.GithubFirehose.translate/2`'s PushEvent payload so the
-  # renderer side reads both sources uniformly.
-  defp default_fetch_commits(repo, sha)
-       when is_binary(repo) and repo != "" and is_binary(sha) and sha != "" do
-    case gh_commit_subject(repo, sha) do
-      {:ok, subject} when is_binary(subject) and subject != "" ->
-        [%{"message" => subject, "sha" => sha}]
-
-      _ ->
-        []
-    end
-  end
-
-  defp default_fetch_commits(_repo, _sha), do: []
-
-  defp gh_commit_subject(repo, sha) do
-    task =
-      Task.async(fn ->
-        System.cmd(
-          "gh",
-          ["api", "repos/#{repo}/commits/#{sha}", "--jq", ".commit.message"],
-          stderr_to_stdout: true
-        )
-      end)
-
-    case Task.yield(task, 2_000) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {output, 0}} ->
-        # gh returns the full commit message; the first line is the subject.
-        subject =
-          output
-          |> String.split("\n", parts: 2)
-          |> List.first()
-          |> Kernel.||("")
-          |> String.trim()
-
-        {:ok, subject}
-
-      {:ok, {output, _nonzero}} ->
-        Logger.debug("LsRemoteTicker gh commit lookup failed sha=#{sha}: #{String.trim(output)}")
-        :error
-
-      nil ->
-        Logger.debug("LsRemoteTicker gh commit lookup timed out sha=#{sha}")
-        :error
-
-      other ->
-        Logger.debug("LsRemoteTicker gh commit lookup raised: #{inspect(other)}")
-        :error
-    end
-  end
-
-  # Only attach the `(repo, ref, sha)` dedup_key when the repo is a
-  # non-empty string. `Aiur.Events.Publisher.deduped?/1` matches on
-  # `{repo, ref, sha}` with three binaries; a `nil` repo (e.g.
-  # `Aiur.Tracker.project_identity/0` returning nil during a config
-  # gap) would have raised FunctionClauseError before the catch-all
-  # was added to Publisher. Suppressing the key here keeps the
-  # contract clean.
-  defp build_publish_opts(repo, ref, sha, extra \\ [])
-
-  defp build_publish_opts(repo, ref, sha, extra),
-    do: GithubKeys.put_push_dedup_key(extra, repo, ref, sha)
 
   defp do_publish(%{publisher: nil}, topic, payload, opts) do
     Publisher.publish(topic, payload, opts)
@@ -338,9 +256,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   end
 
   # `Aiur.Tracker.project_identity/0` is `String.t() | nil` by spec
-  # and returns `nil` cleanly when no adapter is loaded. When `nil`,
-  # `build_publish_opts/4` simply omits `dedup_key:` — the publish
-  # still goes through, only cross-source dedup is sacrificed for
-  # that tick.
+  # and returns `nil` cleanly when no adapter is loaded. `nil` still
+  # publishes; the payload just has no repo identity for renderers.
   defp resolve_repo, do: Aiur.Tracker.project_identity()
 end

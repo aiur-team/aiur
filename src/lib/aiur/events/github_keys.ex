@@ -2,9 +2,9 @@ defmodule Aiur.Events.GithubKeys do
   @moduledoc """
   Shared key and topic helpers for GitHub-backed event detectors.
 
-  The firehose, ls-remote ticker, and comments poller must classify refs and
-  build dedup keys identically so whichever source sees an event first wins the
-  same Publisher dedup race.
+  The firehose, ls-remote ticker, and comments poller share ref classification
+  and dedup key helpers for the event sources that still need replay
+  suppression.
   """
 
   @pre_boot_buffer_seconds 60
@@ -31,30 +31,6 @@ defmodule Aiur.Events.GithubKeys do
   end
 
   def ref_to_topic(_), do: nil
-
-  @doc """
-  Returns the Publisher dedup key for push detectors.
-
-  Invalid or incomplete values return nil so callers can either include a nil
-  `:dedup_key` or omit the option entirely.
-  """
-  @spec push_dedup_key(term(), term(), term()) :: {String.t(), String.t(), String.t()} | nil
-  def push_dedup_key(repo, ref, sha)
-      when is_binary(repo) and repo != "" and is_binary(ref) and is_binary(sha),
-      do: {repo, ref, sha}
-
-  def push_dedup_key(_repo, _ref, _sha), do: nil
-
-  @doc """
-  Adds a push dedup key to keyword options only when the key is complete.
-  """
-  @spec put_push_dedup_key(keyword(), term(), term(), term()) :: keyword()
-  def put_push_dedup_key(opts, repo, ref, sha) when is_list(opts) do
-    case push_dedup_key(repo, ref, sha) do
-      nil -> opts
-      dedup_key -> Keyword.put(opts, :dedup_key, dedup_key)
-    end
-  end
 
   @doc """
   Returns the Publisher dedup key for PR lifecycle events.

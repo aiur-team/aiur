@@ -10,21 +10,15 @@ defmodule Aiur.Events.GithubFirehose do
 
   ## What we publish
 
-  v1 supports the events most useful for cross-ticket coordination:
+  The firehose is intentionally narrow. Ticket branch pushes come from
+  `Aiur.Events.LsRemoteTicker`, and comments come from
+  `Aiur.Events.GithubCommentsPoller`.
 
   | GitHub event type | Published topic                                   |
   |-------------------|---------------------------------------------------|
-  | `PushEvent` (ticket branch `aiur/<id>`) | `ticket.<id>.branch.push` |
   | `PushEvent` (default branch)            | `system.<branch>.branch.push` |
   | `PullRequestEvent action=opened`        | `ticket.<id>.pr.opened`   |
   | `PullRequestEvent action=closed merged` | `ticket.<id>.pr.merged`   |
-  | `IssueCommentEvent`                     | `ticket.<id>.issue.commented` |
-  | `PullRequestReviewCommentEvent`         | `ticket.<id>.pr.review_comment` |
-
-  A PR-conversation comment arrives as an `IssueCommentEvent` keyed by
-  the PR's number; `<id>` above is resolved back to the originating
-  ticket via the PR's `aiur/<id>` head ref so the topic matches the
-  agent's identifier (see `resolve_comment_ticket_id/3`).
 
   Other event types are dropped silently. v1 keeps the surface narrow;
   add new types here as the brainstorm/use-cases call for them.
@@ -35,13 +29,11 @@ defmodule Aiur.Events.GithubFirehose do
     is passed; tracked_fn drops the rest).
   - **CODEOWNERS filter** — applied at the sanitization layer
     downstream of Publisher (U15-U17, separate units).
-  - **`(repo, ref, sha)` dedup with ls-remote** — pass `dedup_key:` to
-    Publisher so the firehose and ls-remote source dedupe each other.
   """
 
   require Logger
 
-  alias Aiur.Events.{CommentFilter, GithubKeys, Publisher, Sanitizer}
+  alias Aiur.Events.{GithubKeys, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
 
   @repo_events_per_page 30
@@ -69,10 +61,10 @@ defmodule Aiur.Events.GithubFirehose do
       |> maybe_put(:request_fun, Keyword.get(opts, :request_fun))
 
     case Client.fetch_repo_events(client_opts) do
-      {:ok, {:not_modified, etag, _poll_interval}} ->
-        {:ok, %{etag: etag, last_event_id: last_event_id, count: 0}}
+      {:ok, {:not_modified, etag, poll_interval}} ->
+        {:ok, %{etag: etag, last_event_id: last_event_id, count: 0, poll_interval: poll_interval}}
 
-      {:ok, {:events, events, etag, _poll_interval}} ->
+      {:ok, {:events, events, etag, poll_interval}} ->
         with {:ok, pages} <- fetch_backfill_pages(events, last_event_id, opts) do
           events_to_publish = events_since_watermark(pages, last_event_id)
 
@@ -81,7 +73,13 @@ defmodule Aiur.Events.GithubFirehose do
             |> Enum.map(&publish_one(&1, opts))
             |> Enum.count(&match?({:ok, _, _}, &1))
 
-          {:ok, %{etag: etag, last_event_id: newest_event_id(events) || last_event_id, count: count}}
+          {:ok,
+           %{
+             etag: etag,
+             last_event_id: newest_event_id(events) || last_event_id,
+             count: count,
+             poll_interval: poll_interval
+           }}
         end
 
       {:error, reason} ->
@@ -203,17 +201,6 @@ defmodule Aiur.Events.GithubFirehose do
     repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
 
     case GithubKeys.ref_to_topic(ref) do
-      {:ticket, id, topic} ->
-        payload = %{
-          ref: ref,
-          sha: sha,
-          actor: actor,
-          commits: get_in(event, ["payload", "commits"]) || [],
-          repo: repo_name
-        }
-
-        {topic, payload, actor: actor, issue_number: id, dedup_key: GithubKeys.push_dedup_key(repo_name, ref, sha)}
-
       {:system, topic} ->
         payload = %{
           ref: ref,
@@ -223,7 +210,7 @@ defmodule Aiur.Events.GithubFirehose do
           repo: repo_name
         }
 
-        {topic, payload, actor: actor, dedup_key: GithubKeys.push_dedup_key(repo_name, ref, sha)}
+        {topic, payload, actor: actor}
 
       _ ->
         nil
@@ -254,128 +241,7 @@ defmodule Aiur.Events.GithubFirehose do
     end
   end
 
-  defp translate(%{"type" => "IssueCommentEvent"} = event, opts) do
-    issue = get_in(event, ["payload", "issue"]) || %{}
-    number = Map.get(issue, "number")
-    comment = get_in(event, ["payload", "comment"]) || %{}
-    actor = get_in(event, ["actor", "login"])
-    repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
-    comment_id = Map.get(comment, "id")
-    dedup_key = GithubKeys.comment_dedup_key(repo_name, "issue_comment", number, comment_id)
-
-    cond do
-      CommentFilter.agent_workpad?(comment) ->
-        nil
-
-      not is_integer(number) ->
-        nil
-
-      # The GitHub Events API replays in-window events for ~24h and the
-      # Publisher dedups by `dedup_key` at publish time. Resolving a
-      # PR-conversation comment to its ticket id costs a synchronous
-      # head-ref GET (the IssueCommentEvent's `issue.pull_request` carries
-      # no head ref), so short-circuit on a dedup hit BEFORE that lookup —
-      # otherwise the same in-window comment re-fetches the head ref on
-      # every poll cycle until it ages out of the dedup window. (#408)
-      already_deduped?(dedup_key) ->
-        nil
-
-      true ->
-        # A PR-conversation comment fires as an IssueCommentEvent whose
-        # `issue.number` is the PR's number, not the originating ticket's.
-        # Resolve it to the ticket id via the PR's `aiur/<id>` head ref so
-        # the topic matches the agent's identifier — the orchestrator
-        # reactivates a `:deactivated` entry and live agents subscribe by
-        # ticket id. Mirrors how PullRequestEvent already keys by head ref.
-        # Plain issue comments carry no `pull_request` key and already use
-        # the ticket number.
-        ticket_id = resolve_comment_ticket_id(issue, number, opts)
-
-        # `bypass_contamination`: a `:deactivated` ticket (agent in
-        # human-review) is intentionally excluded from the orchestrator's
-        # tracked set so the killed task's late `agent.*` events stay
-        # filtered. An inbound human comment, however, must still reach the
-        # orchestrator to reactivate that entry — so it skips the tracked
-        # filter. The orchestrator (and live agents) self-gate by
-        # subscription, so a comment on an untracked issue reaches no
-        # reactivation target.
-        publish_opts = [
-          actor: actor,
-          issue_number: ticket_id,
-          bypass_contamination: true,
-          dedup_key: dedup_key
-        ]
-
-        {"ticket.#{ticket_id}.issue.commented", %{issue_number: ticket_id, comment: comment}, publish_opts}
-    end
-  end
-
-  defp translate(%{"type" => "PullRequestReviewCommentEvent"} = event, opts) do
-    pr = get_in(event, ["payload", "pull_request"]) || %{}
-    number = Map.get(pr, "number")
-    comment = get_in(event, ["payload", "comment"]) || %{}
-    actor = get_in(event, ["actor", "login"])
-    repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
-    comment_id = Map.get(comment, "id")
-
-    if is_integer(number) do
-      ticket_id = resolve_pr_ticket_id(pr, number, opts)
-
-      publish_opts = [
-        actor: actor,
-        issue_number: ticket_id,
-        bypass_contamination: true,
-        dedup_key: GithubKeys.comment_dedup_key(repo_name, "pr_review_comment", number, comment_id)
-      ]
-
-      {"ticket.#{ticket_id}.pr.review_comment", %{issue_number: ticket_id, comment: comment}, publish_opts}
-    end
-  end
-
   defp translate(_event, _opts), do: nil
-
-  # Pre-check the Publisher dedup table with the same key `publish/3`
-  # would record. Lets the firehose skip a comment's ticket-id resolution
-  # (a synchronous head-ref GET for PR-conversation comments) when the
-  # event is a GitHub Events-API replay already published this window.
-  # `push_seen?/3` is a read-only lookup; the recording side-effect stays
-  # in `Publisher.publish/3`, so the first sighting still publishes.
-  defp already_deduped?({repo, ref, sha})
-       when is_binary(repo) and is_binary(ref) and is_binary(sha),
-       do: Publisher.push_seen?(repo, ref, sha)
-
-  defp already_deduped?(_), do: false
-
-  # Resolve a comment's topic ticket id. For a PR-conversation comment
-  # (`issue.pull_request` present) look up the PR's `aiur/<id>` head ref
-  # and return `<id>`. On any failure — lookup error, or a non-`aiur/`
-  # branch — fall back to the raw number so the event still publishes
-  # rather than being dropped (matches pre-resolution behavior). A plain
-  # issue comment's number already IS the ticket id.
-  defp resolve_comment_ticket_id(issue, number, opts) do
-    if is_map(Map.get(issue, "pull_request")) do
-      resolve_pr_ticket_id(%{}, number, opts)
-    else
-      number
-    end
-  end
-
-  defp resolve_pr_ticket_id(pr, number, opts) do
-    with head_ref when is_binary(head_ref) and head_ref != "" <- get_in(pr, ["head", "ref"]),
-         {:ticket, id, _topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref) do
-      id
-    else
-      _ ->
-        lookup = Keyword.get(opts, :pr_lookup_fun, &Client.fetch_pull_request_head_ref/1)
-
-        with {:ok, head_ref} when is_binary(head_ref) <- lookup.(number),
-             {:ticket, id, _topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref) do
-          id
-        else
-          _ -> number
-        end
-    end
-  end
 
   defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
   defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
