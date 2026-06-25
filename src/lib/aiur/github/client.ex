@@ -73,6 +73,112 @@ defmodule Aiur.GitHub.Client do
 
   def format_auth_preflight_error(reason), do: inspect(reason)
 
+  @typedoc """
+  The error classification produced by `classify_error/1`. Operators must be
+  able to tell these apart to fix flaky GitHub access (#617): a DNS outage and
+  an expired token need entirely different remediation.
+  """
+  @type classification ::
+          :dns | :timeout | :tls | :transport | :auth | :rate_limited | :http
+
+  @doc """
+  Classifies a GitHub transport failure or HTTP response into the structured
+  error taxonomy `{:github, classification, detail}`.
+
+  Accepts either:
+
+    * `{:error, reason}` — a transport failure, where `reason` is a
+      `Req.TransportError`/`Mint.TransportError` (or bare reason). DNS
+      (`:nxdomain`) → `:dns`; connectivity (`:timeout`/`:closed`/`:econnrefused`
+      …) → `:timeout`; TLS alerts → `:tls`; anything else → `:transport`.
+    * an HTTP response map `%{status: ...}` — 401 → `:auth`; a 403 carrying a
+      rate-limit signal → `:rate_limited`; any other status → `:http`.
+
+  `detail` is a map (`%{reason: ...}` for transport, `%{status: ...}` for HTTP,
+  plus `:retry_after`/`:poll_interval` for rate-limit) so callers can both
+  pattern-match the classification and recover the specifics.
+  """
+  @spec classify_error({:error, term()} | map()) :: {:github, classification(), map()}
+  def classify_error({:error, reason}), do: classify_transport(reason)
+
+  def classify_error(%{status: status} = response) when is_integer(status) do
+    classify_status(status, response)
+  end
+
+  defp classify_transport(%{__struct__: struct, reason: reason})
+       when struct in [Req.TransportError, Mint.TransportError] do
+    classify_transport_reason(reason)
+  end
+
+  defp classify_transport(reason), do: classify_transport_reason(reason)
+
+  defp classify_transport_reason(:nxdomain), do: {:github, :dns, %{reason: :nxdomain}}
+
+  defp classify_transport_reason(reason)
+       when reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset],
+       do: {:github, :timeout, %{reason: reason}}
+
+  defp classify_transport_reason(reason)
+       when reason in [:protocol_not_negotiated],
+       do: {:github, :tls, %{reason: reason}}
+
+  defp classify_transport_reason({tag, _} = reason)
+       when tag in [:tls_alert, :bad_alpn_protocol, :ssl_error],
+       do: {:github, :tls, %{reason: reason}}
+
+  defp classify_transport_reason(reason), do: {:github, :transport, %{reason: reason}}
+
+  defp classify_status(401, response),
+    do: {:github, :auth, %{status: 401, message: response_message(response)}}
+
+  defp classify_status(403, response) do
+    if rate_limited_response?(response, :unknown) do
+      {:github, :rate_limited,
+       %{
+         status: 403,
+         retry_after: retry_after(response),
+         poll_interval: rate_limit_poll_interval(response)
+       }}
+    else
+      {:github, :http, %{status: 403}}
+    end
+  end
+
+  defp classify_status(status, _response), do: {:github, :http, %{status: status}}
+
+  defp response_message(%{body: %{"message" => message}}) when is_binary(message), do: message
+  defp response_message(_response), do: nil
+
+  defp retry_after(%{headers: headers}) do
+    case header(headers, "retry-after") do
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {n, _} when n > 0 -> n
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp retry_after(_response), do: nil
+
+  defp rate_limit_poll_interval(%{headers: headers}) do
+    case header(headers, "x-poll-interval") do
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {n, _} when n > 0 -> n
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp rate_limit_poll_interval(_response), do: nil
+
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
     fetch_issues_by_states(Config.active_states(), opts)
@@ -106,7 +212,7 @@ defmodule Aiur.GitHub.Client do
           {:error, {:github_api_status, status}}
 
         {:error, reason} ->
-          {:error, {:github_api_request, reason}}
+          {:error, classify_error({:error, reason})}
       end
     end
   end
@@ -166,7 +272,7 @@ defmodule Aiur.GitHub.Client do
           {:error, {:github_api_status, status}}
 
         {:error, reason} ->
-          {:error, {:github_api_request, reason}}
+          {:error, classify_error({:error, reason})}
       end
     end
   end
@@ -227,7 +333,7 @@ defmodule Aiur.GitHub.Client do
       case request_fun.(%{method: :get, url: url, token: token}) do
         {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
         {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
-        {:error, reason} -> {:error, {:github_api_request, reason}}
+        {:error, reason} -> {:error, classify_error({:error, reason})}
       end
     end
   end
@@ -262,7 +368,7 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_status, status}}
 
       {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -383,7 +489,7 @@ defmodule Aiur.GitHub.Client do
           {:error, {:github_api_status, status}}
 
         {:error, reason} ->
-          {:error, {:github_api_request, reason}}
+          {:error, classify_error({:error, reason})}
       end
     end
   end
@@ -461,7 +567,7 @@ defmodule Aiur.GitHub.Client do
       case request_fun.(%{method: :post, url: url, token: token, body: %{"labels" => [label]}}) do
         {:ok, %{status: status}} when status in 200..299 -> :ok
         {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
-        {:error, reason} -> {:error, {:github_api_request, reason}}
+        {:error, reason} -> {:error, classify_error({:error, reason})}
       end
     end
   end
@@ -480,7 +586,7 @@ defmodule Aiur.GitHub.Client do
         # 404 = label already absent; treat as success so the toggle is idempotent.
         {:ok, %{status: status}} when status in 200..299 or status == 404 -> :ok
         {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
-        {:error, reason} -> {:error, {:github_api_request, reason}}
+        {:error, reason} -> {:error, classify_error({:error, reason})}
       end
     end
   end
@@ -753,7 +859,7 @@ defmodule Aiur.GitHub.Client do
 
       {:error, reason} ->
         Logger.error("GitHub API request failed: #{inspect(reason)}")
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -782,7 +888,7 @@ defmodule Aiur.GitHub.Client do
         {:halt, {:error, {:github_api_status, status}}}
 
       {:error, reason} ->
-        {:halt, {:error, {:github_api_request, reason}}}
+        {:halt, {:error, classify_error({:error, reason})}}
     end
   end
 
@@ -795,7 +901,7 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_status, status}}
 
       {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -877,7 +983,7 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_status, status}}
 
       {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -997,7 +1103,7 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_status, status}}
 
       {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -1087,7 +1193,7 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_status, status}}
 
       {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -1115,7 +1221,7 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_status, status}}
 
       {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -1130,7 +1236,7 @@ defmodule Aiur.GitHub.Client do
         {:error, {:github_api_status, status}}
 
       {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+        {:error, classify_error({:error, reason})}
     end
   end
 
@@ -1144,7 +1250,7 @@ defmodule Aiur.GitHub.Client do
           {:error, {:github_api_status, status}}
 
         {:error, reason} ->
-          {:error, {:github_api_request, reason}}
+          {:error, classify_error({:error, reason})}
       end
     else
       :ok
@@ -1365,7 +1471,7 @@ defmodule Aiur.GitHub.Client do
           {:error, {:github_api_status, status}}
 
         {:error, reason} ->
-          {:error, {:github_api_request, reason}}
+          {:error, classify_error({:error, reason})}
       end
     end
   end
@@ -1395,7 +1501,7 @@ defmodule Aiur.GitHub.Client do
           {:error, {:github_api_status, status}}
 
         {:error, reason} ->
-          {:error, {:github_api_request, reason}}
+          {:error, classify_error({:error, reason})}
       end
     end
   end
