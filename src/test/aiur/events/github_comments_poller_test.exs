@@ -170,6 +170,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                }
              ]
            }}
+
+        String.contains?(url, "/graphql") ->
+          empty_review_threads_response()
       end
     end
 
@@ -187,6 +190,60 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                       source: :github,
                       message: "line note needs rework",
                       comment: %{"body" => "line note needs rework"}
+                    }},
+                   500
+
+    stop_codeowners(codeowners)
+  end
+
+  test "polls unaddressed PR review threads without requiring a fresh comment timestamp" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/graphql") ->
+          review_threads_response([
+            %{
+              "isResolved" => false,
+              "path" => "lib/app.ex",
+              "line" => 12,
+              "comments" => %{
+                "nodes" => [
+                  review_thread_comment(2102, "its-everdred", "old unresolved thread")
+                ]
+              }
+            }
+          ])
+      end
+    end
+
+    assert {:ok, %{count: 1, since: "2026-06-25T00:00:00Z"}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-25T00:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:event,
+                    %{
+                      topic: "ticket.42.pr.review_comment",
+                      author_trusted?: true,
+                      source: :github,
+                      message: "old unresolved thread",
+                      comment: %{"body" => "old unresolved thread"}
                     }},
                    500
 
@@ -221,6 +278,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
         String.contains?(url, "/pulls/77/comments?") ->
           {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/graphql") ->
+          empty_review_threads_response()
       end
     end
 
@@ -272,6 +332,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
         String.contains?(url, "/pulls/77/comments?") ->
           {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/graphql") ->
+          empty_review_threads_response()
       end
     end
 
@@ -549,5 +612,37 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   defp stop_codeowners(%{pid: pid, path: path, owned?: true}) do
     if Process.alive?(pid), do: GenServer.stop(pid)
     File.rm(path)
+  end
+
+  defp empty_review_threads_response, do: review_threads_response([])
+
+  defp review_threads_response(nodes) do
+    {:ok,
+     %{
+       status: 200,
+       body: %{
+         "data" => %{
+           "repository" => %{
+             "pullRequest" => %{
+               "reviewThreads" => %{
+                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                 "nodes" => nodes
+               }
+             }
+           }
+         }
+       }
+     }}
+  end
+
+  defp review_thread_comment(id, login, body) do
+    %{
+      "databaseId" => id,
+      "body" => body,
+      "createdAt" => "2026-06-24T10:00:00Z",
+      "updatedAt" => "2026-06-24T10:00:00Z",
+      "url" => "https://github.test/discussion_r#{id}",
+      "author" => %{"login" => login}
+    }
   end
 end

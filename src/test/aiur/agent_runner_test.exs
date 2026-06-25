@@ -545,6 +545,60 @@ defmodule Aiur.AgentRunnerTest do
              ]
     end
 
+    test "includes unaddressed review threads even before the latest workpad handoff" do
+      issue = %Aiur.Issue{id: "35", identifier: "35", title: "Resume comments"}
+
+      fetchers = %{
+        issue_comments: fn
+          "35" ->
+            {:ok,
+             [
+               %{
+                 "id" => 1001,
+                 "body" => "## Agent Workpad\n\nhandoff",
+                 "updated_at" => "2026-06-25T09:00:00Z",
+                 "user" => %{"login" => "agent"},
+                 authoritative: true
+               }
+             ]}
+
+          49 ->
+            {:ok, []}
+        end,
+        open_pr: fn "35" -> {:ok, %{"number" => 49, "head" => %{"ref" => "aiur/35"}}} end,
+        pr_review_comments: fn 49 ->
+          {:ok,
+           [
+             %{
+               "id" => 3001,
+               "body" => "old flat inline directive",
+               "updated_at" => "2026-06-25T08:57:00Z",
+               "user" => %{"login" => "owner"},
+               authoritative: true
+             }
+           ]}
+        end,
+        unaddressed_pr_review_thread_comments: fn 49 ->
+          {:ok,
+           [
+             %{
+               "id" => 4001,
+               "body" => "old unresolved review directive",
+               "updated_at" => "2026-06-25T08:58:00Z",
+               "user" => %{"login" => "owner"},
+               authoritative: true
+             }
+           ]}
+        end
+      }
+
+      events = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
+      summaries = Enum.map(events, & &1.summary)
+
+      assert "old unresolved review directive" in summaries
+      refute "old flat inline directive" in summaries
+    end
+
     test "sanitizes fetched comment bodies before rendering" do
       issue = %Aiur.Issue{id: "35", identifier: "35", title: "Sanitize"}
 

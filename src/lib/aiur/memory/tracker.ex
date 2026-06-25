@@ -72,6 +72,9 @@ defmodule Aiur.Memory.Tracker do
   @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]}
   def fetch_classified_pr_review_comments(_pr_number), do: {:ok, []}
 
+  @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) :: {:ok, [map()]}
+  def fetch_unaddressed_pr_review_thread_comments(_pr_number), do: {:ok, []}
+
   @spec fetch_open_pull_request_for_branch(String.t() | integer()) :: {:ok, nil}
   def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
 

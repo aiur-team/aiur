@@ -215,6 +215,11 @@ defmodule Aiur.AgentRunner do
         "ticket.#{identifier}.pr.review_comment",
         fn -> fetchers.pr_review_comments.(pr_number) end,
         cutoff
+      ) ++
+      fetch_unaddressed_review_thread_events(
+        "ticket.#{identifier}.pr.review_comment",
+        Map.get(fetchers, :unaddressed_pr_review_thread_comments),
+        pr_number
       )
   end
 
@@ -227,7 +232,8 @@ defmodule Aiur.AgentRunner do
     %{
       issue_comments: &Tracker.fetch_classified_issue_comments/1,
       open_pr: &Tracker.fetch_open_pull_request_for_branch/1,
-      pr_review_comments: &Tracker.fetch_classified_pr_review_comments/1
+      pr_review_comments: &Tracker.fetch_classified_pr_review_comments/1,
+      unaddressed_pr_review_thread_comments: &Tracker.fetch_unaddressed_pr_review_thread_comments/1
     }
   end
 
@@ -240,6 +246,20 @@ defmodule Aiur.AgentRunner do
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} reason=#{inspect(reason)}")
+        []
+    end
+  end
+
+  defp fetch_unaddressed_review_thread_events(_topic, nil, _pr_number), do: []
+
+  defp fetch_unaddressed_review_thread_events(topic, fetch_fun, pr_number)
+       when is_function(fetch_fun, 1) do
+    case fetch_fun.(pr_number) do
+      {:ok, comments} when is_list(comments) ->
+        comments_to_events(comments, topic)
+
+      {:error, reason} ->
+        Logger.warning("comment_context fetch_failed topic=#{topic} source=unaddressed_review_threads reason=#{inspect(reason)}")
         []
     end
   end

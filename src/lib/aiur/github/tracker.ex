@@ -63,6 +63,12 @@ defmodule Aiur.GitHub.Tracker do
     client_module().fetch_classified_pr_review_comments(pr_number)
   end
 
+  @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_unaddressed_pr_review_thread_comments(pr_number) do
+    client_module().fetch_unaddressed_pr_review_thread_comments(pr_number)
+  end
+
   @spec fetch_classified_issue_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_id) do

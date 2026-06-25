@@ -528,6 +528,113 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_unaddressed_pr_review_thread_comments/2" do
+    test "returns latest trusted comments from unresolved threads only" do
+      repo_root = codeowners_repo!("src/owned.ts @owner\n")
+
+      request_fun = fn
+        %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+          assert body["query"] =~ "reviewThreads"
+          assert body["variables"]["owner"] == "owner"
+          assert body["variables"]["repo"] == "repo"
+          assert body["variables"]["number"] == 61
+
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{
+                   "pullRequest" => %{
+                     "reviewThreads" => %{
+                       "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                       "nodes" => [
+                         %{
+                           "isResolved" => false,
+                           "path" => "src/owned.ts",
+                           "line" => 10,
+                           "comments" => %{
+                             "nodes" => [
+                               review_thread_comment(101, "owner", "please fix this")
+                             ]
+                           }
+                         },
+                         %{
+                           "isResolved" => true,
+                           "path" => "src/owned.ts",
+                           "line" => 11,
+                           "comments" => %{
+                             "nodes" => [
+                               review_thread_comment(102, "owner", "resolved already")
+                             ]
+                           }
+                         },
+                         %{
+                           "isResolved" => false,
+                           "path" => "src/owned.ts",
+                           "line" => 12,
+                           "comments" => %{
+                             "nodes" => [
+                               review_thread_comment(103, "owner", "agent answered this"),
+                               review_thread_comment(104, "aiur-bot", "addressed")
+                             ]
+                           }
+                         },
+                         %{
+                           "isResolved" => false,
+                           "path" => "src/owned.ts",
+                           "line" => 13,
+                           "comments" => %{
+                             "nodes" => [
+                               review_thread_comment(105, "guest", "not trusted")
+                             ]
+                           }
+                         },
+                         %{
+                           "isResolved" => false,
+                           "path" => "src/owned.ts",
+                           "line" => 14,
+                           "comments" => %{
+                             "nodes" => [
+                               review_thread_comment(106, "owner", "old request"),
+                               review_thread_comment(107, "owner", "reviewer follow-up")
+                             ]
+                           }
+                         },
+                         %{
+                           "isResolved" => false,
+                           "path" => "src/owned.ts",
+                           "line" => 15,
+                           "comments" => %{
+                             "nodes" => [
+                               review_thread_comment(108, "owner", "wake test, no code changes needed")
+                             ]
+                           }
+                         }
+                       ]
+                     }
+                   }
+                 }
+               }
+             }
+           }}
+      end
+
+      assert {:ok, comments} =
+               Client.fetch_unaddressed_pr_review_thread_comments(61,
+                 request_fun: request_fun,
+                 repo_root: repo_root,
+                 agent_logins: ["aiur-bot"]
+               )
+
+      assert Enum.map(comments, & &1["id"]) == [101, 107]
+      assert Enum.map(comments, & &1["body"]) == ["please fix this", "reviewer follow-up"]
+      assert Enum.all?(comments, & &1.authoritative)
+
+      File.rm_rf!(repo_root)
+    end
+  end
+
   describe "fetch_classified_issue_comments/2" do
     test "uses repo-wide CODEOWNERS for issue comments without PR paths" do
       repo_root = codeowners_repo!("docs/ @docs-owner\n")
@@ -740,5 +847,16 @@ defmodule Aiur.GitHub.ClientTest do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, content)
     repo_root
+  end
+
+  defp review_thread_comment(id, login, body) do
+    %{
+      "databaseId" => id,
+      "body" => body,
+      "createdAt" => "2026-06-25T04:13:21Z",
+      "updatedAt" => "2026-06-25T04:13:21Z",
+      "url" => "https://github.test/discussion_r#{id}",
+      "author" => %{"login" => login}
+    }
   end
 end
