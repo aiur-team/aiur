@@ -123,10 +123,8 @@ defmodule Aiur.SessionHandle do
         host
 
       _ ->
-        case :inet.gethostname() do
-          {:ok, name} -> to_string(name)
-          _ -> "unknown"
-        end
+        {:ok, name} = :inet.gethostname()
+        to_string(name)
     end
   end
 
