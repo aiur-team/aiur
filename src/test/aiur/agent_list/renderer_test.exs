@@ -133,9 +133,9 @@ defmodule Aiur.AgentList.RendererTest do
 
     # ID is labelled; tag-circle and state-circle columns use
     # emoji-only cells and therefore have no header text. Column
-    # order is ID → tag-circle → state-circle → TITLE → LATEST →
-    # PROGRESS → TIME.
-    assert out =~ ~r/ID\s+TITLE\s+LATEST\s+PROGRESS\s+TIME/
+    # order is ID → tag-circle → state-circle → MODEL → TITLE →
+    # LATEST → PROGRESS → TIME.
+    assert out =~ ~r/ID\s+MODEL\s+TITLE\s+LATEST\s+PROGRESS\s+TIME/
   end
 
   test "shows '(no agents running)' when the list is empty" do
@@ -1106,6 +1106,152 @@ defmodule Aiur.AgentList.RendererTest do
         |> visible()
 
       assert out =~ "Remote Control requires a local Claude agent"
+    end
+  end
+
+  describe "MODEL column (mirrors the website Example column)" do
+    defp model_summary(overrides) do
+      Map.merge(
+        %{identifier: "MT-1", status: :running, alert_count: 0, work_state: :working},
+        overrides
+      )
+    end
+
+    test "wide terminal shows the full version suffix per model" do
+      for {backend, model, full} <- [
+            {"claude-repl", "opus-4-8", "Claude Opus 4.8"},
+            {"claude-repl", "sonnet-4-6", "Claude Sonnet 4.6"},
+            {"codex", "gpt-5.5", "Codex GPT-5.5"}
+          ] do
+        out =
+          render(
+            base_state(%{
+              summaries: [model_summary(%{backend: backend, model: model, title: "Short"})],
+              columns: 200
+            })
+          )
+          |> visible()
+
+        assert out =~ full, "expected #{full} at wide width for #{backend}/#{model}"
+      end
+    end
+
+    test "medium terminal shows the base name only, version suffix dropped" do
+      out =
+        render(
+          base_state(%{
+            summaries: [
+              model_summary(%{backend: "claude-repl", model: "opus-4-8", title: "Short"})
+            ],
+            latest_event_by_id: %{"MT-1" => %{message: "Working on it"}},
+            columns: 90
+          })
+        )
+        |> visible()
+
+      # The base name persists; the version suffix yields *before* LATEST or
+      # TITLE — both of which still render in full at this width.
+      assert out =~ "Opus"
+      refute out =~ "Claude Opus 4.8"
+      assert out =~ "Short", "TITLE kept its width when the version dropped"
+      assert out =~ "Working on it", "LATEST kept its width when the version dropped"
+    end
+
+    test "extreme narrowness drops the whole MODEL column" do
+      out =
+        render(
+          base_state(%{
+            summaries: [model_summary(%{backend: "codex", model: "gpt-5.5", title: "Short"})],
+            columns: 40
+          })
+        )
+        |> visible()
+
+      refute out =~ "MODEL", "MODEL header should drop at extreme narrowness"
+      refute out =~ "Codex", "MODEL cell should drop at extreme narrowness"
+    end
+
+    test "uses 24-bit truecolor escapes per model on truecolor terminals" do
+      for {backend, model, hex, text} <- [
+            {"claude-repl", "opus-4-8", "\e[38;2;198;155;255m", "Claude Opus 4.8"},
+            {"claude-repl", "sonnet-4-6", "\e[38;2;89;176;255m", "Claude Sonnet 4.6"},
+            {"codex", "gpt-5.5", "\e[38;2;63;185;80m", "Codex GPT-5.5"}
+          ] do
+        raw =
+          render(
+            base_state(%{
+              summaries: [model_summary(%{backend: backend, model: model, title: "Short"})],
+              columns: 200,
+              truecolor?: true,
+              # Keep the row unselected — selected rows strip interior SGRs.
+              selection_focus: :max_agents
+            })
+          )
+
+        assert raw =~ hex <> text, "expected truecolor #{inspect(hex)} before #{text}"
+      end
+    end
+
+    test "falls back to ANSI colors without truecolor support" do
+      for {backend, model, ansi, text} <- [
+            {"claude-repl", "opus-4-8", IO.ANSI.magenta(), "Claude Opus 4.8"},
+            {"claude-repl", "sonnet-4-6", IO.ANSI.blue(), "Claude Sonnet 4.6"},
+            {"codex", "gpt-5.5", IO.ANSI.green(), "Codex GPT-5.5"}
+          ] do
+        raw =
+          render(
+            base_state(%{
+              summaries: [model_summary(%{backend: backend, model: model, title: "Short"})],
+              columns: 200,
+              truecolor?: false,
+              # Keep the row unselected — selected rows strip interior SGRs.
+              selection_focus: :max_agents
+            })
+          )
+
+        assert raw =~ ansi <> text, "expected ANSI #{inspect(ansi)} before #{text}"
+      end
+    end
+
+    test "queued agents render a dim placeholder with no model" do
+      out =
+        render(
+          base_state(%{
+            summaries: [%{identifier: "MT-9", status: :queued, alert_count: 0, title: "Pending"}],
+            columns: 200
+          })
+        )
+        |> visible()
+
+      assert out =~ "–", "queued row should show the en-dash placeholder"
+    end
+
+    test "unpinned models show the base name with no version suffix" do
+      out =
+        render(
+          base_state(%{
+            summaries: [model_summary(%{backend: "codex", title: "Short"})],
+            columns: 200
+          })
+        )
+        |> visible()
+
+      assert out =~ "Codex"
+      refute out =~ "GPT", "an unpinned model must not show a version suffix"
+    end
+
+    test "renders a mix of queued, unpinned, and pinned rows without error" do
+      summaries = [
+        %{identifier: "Q-1", status: :queued, alert_count: 0, title: "Queued"},
+        model_summary(%{identifier: "U-1", backend: "claude-repl", title: "Unpinned"}),
+        model_summary(%{identifier: "P-1", backend: "codex", model: "gpt-5.5", title: "Pinned"})
+      ]
+
+      out = render(base_state(%{summaries: summaries, columns: 200})) |> visible()
+
+      assert out =~ "–"
+      assert out =~ "Claude"
+      assert out =~ "Codex GPT-5.5"
     end
   end
 end

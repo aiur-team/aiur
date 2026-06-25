@@ -61,6 +61,13 @@ defmodule Aiur.AgentList.Renderer do
   # the constraint doesn't trigger and the title renders in full.
   @title_constrained_cap 25
 
+  # Floor width for the MODEL column: holds the longest base name
+  # ("Sonnet" = 6). The column reserves this much when shown and expands
+  # to a model's full version string only into spare width (see
+  # compute_layout/2). Like PROGRESS, the whole column drops at extreme
+  # narrowness — but only after TITLE/LATEST are already at their minimums.
+  @model_base_width 6
+
   # ANSI palette.
   @ansi_reset IO.ANSI.reset()
   @ansi_bold IO.ANSI.bright()
@@ -70,6 +77,24 @@ defmodule Aiur.AgentList.Renderer do
   @ansi_green IO.ANSI.green()
   @ansi_red IO.ANSI.red()
   @ansi_reverse IO.ANSI.reverse()
+  # ANSI fallbacks for the per-model colors below, used when the terminal
+  # has no 24-bit truecolor support (`:truecolor?` false).
+  @ansi_magenta IO.ANSI.magenta()
+  @ansi_blue IO.ANSI.blue()
+
+  # Per-model text colors for the MODEL column, mirroring the website's
+  # `.ag-opus` / `.ag-sonnet` / `.ag-codex` classes in
+  # `website/src/styles.css`. Keep these hexes in sync with that file:
+  #   opus   → #c69bff  (light theme #8a4fd0)
+  #   sonnet → #59b0ff  (light theme #1f6fd6)
+  #   codex  → #3fb950  (light theme #1f9d4d)
+  # 24-bit escapes below match the dark-theme hexes exactly; terminals
+  # without truecolor fall back to the nearest ANSI color (magenta/blue/
+  # green). The light-theme hexes are recorded here for parity but the TUI
+  # renders against an arbitrary terminal background, so it uses the
+  # dark-theme values as the canonical mapping.
+  @model_truecolor %{opus: "\e[38;2;198;155;255m", sonnet: "\e[38;2;89;176;255m", codex: "\e[38;2;63;185;80m"}
+  @model_ansi %{opus: @ansi_magenta, sonnet: @ansi_blue, codex: @ansi_green}
 
   # Work states meaning the agent has finished this iteration. Used to
   # render 🏁 and to suppress the warming/starting LATEST placeholder so
@@ -136,6 +161,7 @@ defmodule Aiur.AgentList.Renderer do
         |> Map.put(:prewarm_active?, Map.get(state, :prewarm_active?, false))
         |> Map.put(:prewarm_phase, Map.get(state, :prewarm_phase))
         |> Map.put(:project_label, Map.get(state, :project_label))
+        |> Map.put(:truecolor?, Map.get(state, :truecolor?, true))
 
       markers = compute_markers(state, summaries)
 
@@ -549,12 +575,16 @@ defmodule Aiur.AgentList.Renderer do
 
     runtime_header = [" ", cell("TIME", @runtime_cell_width)]
 
+    model_header =
+      if layout.model_width > 0, do: [cell("MODEL", layout.model_width), " "], else: []
+
     body = [
       "│   ",
       cell("ID", layout.id_width),
       cell("", @rc_cell_width),
       cell("", @state_cell_width),
       cell("", @attention_cell_width),
+      model_header,
       cell("TITLE", layout.title_width),
       " ",
       cell("LATEST", layout.latest_width),
@@ -633,6 +663,7 @@ defmodule Aiur.AgentList.Renderer do
     attention_cell = attention_cell(id_str, layout)
     title_cell = cell(title, layout.title_width)
     latest_cell = latest_cell(id_str, layout, summary)
+    model_block = model_cell_block(summary, layout)
 
     progress_block =
       if layout.show_progress? do
@@ -652,6 +683,7 @@ defmodule Aiur.AgentList.Renderer do
       rc_cell(summary),
       state_cell,
       attention_cell,
+      model_block,
       title_cell,
       " ",
       @ansi_dim,
@@ -663,16 +695,18 @@ defmodule Aiur.AgentList.Renderer do
 
     progress_width = if layout.show_progress?, do: @progress_cell_width + 1, else: 0
     runtime_width = @runtime_cell_width + 1
+    model_width = if layout.model_width > 0, do: layout.model_width + 1, else: 0
 
     # Visual columns consumed by the body, in order:
     #   `│ ` (2) + marker (2) + id_cell + rc_cell (3)
-    #   + state_cell (3) + attention_cell (4) + title_cell + ` ` (1)
-    #   + latest_cell + progress_block + runtime_block.
+    #   + state_cell (3) + attention_cell (4) + model_block + title_cell
+    #   + ` ` (1) + latest_cell + progress_block + runtime_block.
     # Sum the parts directly so the right `│` border lands at the
     # same column as the metadata/separator rows above.
     plain_visual =
       2 + 2 + layout.id_width + @rc_cell_width + @state_cell_width + @attention_cell_width +
-        layout.title_width + 1 + layout.latest_width + progress_width + runtime_width
+        model_width + layout.title_width + 1 + layout.latest_width + progress_width +
+        runtime_width
 
     # Reserve the last column for the right `│` border so each row
     # closes cleanly. Pad to (inner_width - 1) then append the bar.
@@ -902,6 +936,117 @@ defmodule Aiur.AgentList.Renderer do
     end
   end
 
+  # ---------- model column ---------------------------------------------------
+
+  # Iodata for the MODEL column cell: per-model color + base-or-version text
+  # + reset + the trailing separator space. `[]` when the column is dropped
+  # (model_width 0). The version suffix shows only when the column has been
+  # expanded into spare width (model_width > the base floor); otherwise the
+  # base name is the floor. Queued / backend-less rows render a dim `–`.
+  defp model_cell_block(summary, layout) do
+    width = layout.model_width
+
+    if width <= 0 do
+      []
+    else
+      family = model_family(summary)
+      text = model_text(summary, family, width)
+      padded = cell(text, width)
+
+      case model_color(family, Map.get(layout, :truecolor?, true)) do
+        # Families with no website color: dim the queued/unknown `–`
+        # placeholder (family nil); leave a generic claude/haiku name in the
+        # default foreground.
+        nil when is_nil(family) -> [@ansi_dim, padded, @ansi_reset, " "]
+        nil -> [padded, " "]
+        color -> [color, padded, @ansi_reset, " "]
+      end
+    end
+  end
+
+  # Display text for one row's model cell at the resolved column width. Base
+  # name is the floor; when the column is wide enough to have been expanded
+  # (width past the base floor) the full version string is preferred, falling
+  # back to the base name for unpinned models. A row with no resolvable model
+  # (queued / no backend) shows a dim en-dash placeholder.
+  defp model_text(summary, family, width) do
+    case model_base(family) do
+      "" ->
+        "–"
+
+      base ->
+        if width > @model_base_width do
+          model_full_name(family, Map.get(summary, :model)) || base
+        else
+          base
+        end
+    end
+  end
+
+  # Natural full width a row wants in the MODEL column: the full version
+  # string when a model is pinned, else the base name's length (0 when the
+  # row has no resolvable model). compute_layout/2 takes the max across rows.
+  defp model_natural_width(summary) do
+    family = model_family(summary)
+
+    case model_full_name(family, Map.get(summary, :model)) do
+      nil -> String.length(model_base(family))
+      full -> String.length(full)
+    end
+  end
+
+  # Website model family driving color + base name. The pinned variant is the
+  # most specific signal (opus/sonnet/haiku for claude, gpt for codex); when
+  # absent we fall back to the backend family (`codex`, or a generic `claude`
+  # with no opus/sonnet pin). `nil` for queued / backend-less rows.
+  defp model_family(summary) do
+    case Map.get(summary, :model) do
+      "opus" <> _ -> :opus
+      "sonnet" <> _ -> :sonnet
+      "haiku" <> _ -> :haiku
+      "gpt" <> _ -> :codex
+      _ -> family_from_backend(summary)
+    end
+  end
+
+  defp family_from_backend(summary) do
+    case engine_word(summary) do
+      "codex" -> :codex
+      "claude" -> :claude
+      _ -> nil
+    end
+  end
+
+  defp model_base(:opus), do: "Opus"
+  defp model_base(:sonnet), do: "Sonnet"
+  defp model_base(:haiku), do: "Haiku"
+  defp model_base(:codex), do: "Codex"
+  defp model_base(:claude), do: "Claude"
+  defp model_base(_), do: ""
+
+  # Full human-readable version string, or nil when no version is pinned.
+  #   {:opus, "opus-4-8"}    -> "Claude Opus 4.8"
+  #   {:sonnet, "sonnet-4-6"}-> "Claude Sonnet 4.6"
+  #   {:codex, "gpt-5.5"}    -> "Codex GPT-5.5"
+  defp model_full_name(:codex, model) when is_binary(model) do
+    "Codex " <> String.replace_prefix(model, "gpt", "GPT")
+  end
+
+  defp model_full_name(family, model) when family in [:opus, :sonnet, :haiku] and is_binary(model) do
+    case String.split(model, "-", parts: 2) do
+      [_family] -> "Claude " <> model_base(family)
+      [_family, version] -> "Claude " <> model_base(family) <> " " <> String.replace(version, "-", ".")
+    end
+  end
+
+  defp model_full_name(_family, _model), do: nil
+
+  # 24-bit truecolor escape (preferred) or nearest ANSI fallback for a
+  # model family. `nil` for families with no website color (haiku, generic
+  # claude, queued) — those render uncolored.
+  defp model_color(family, true), do: Map.get(@model_truecolor, family)
+  defp model_color(family, _falsey), do: Map.get(@model_ansi, family)
+
   defp latest_event_message(nil), do: ""
   defp latest_event_message(%{message: msg}) when is_binary(msg), do: msg
   defp latest_event_message(%{"message" => msg}) when is_binary(msg), do: msg
@@ -1038,8 +1183,17 @@ defmodule Aiur.AgentList.Renderer do
       |> Enum.max(fn -> 0 end)
       |> max(@min_title_width)
 
+    # Widest full model string across the rows (e.g. "Claude Sonnet 4.6"),
+    # floored at the base-name width. Drives the opportunistic expansion
+    # below; a list with no pinned models stays at the floor.
+    natural_model_width =
+      summaries
+      |> Enum.map(&model_natural_width/1)
+      |> Enum.max(fn -> 0 end)
+      |> max(@model_base_width)
+
     # `│ ` (2) + marker (2) + id + rc (3) + state (3)
-    # + attention (4) + title + ` ` (1) + [progress block]
+    # + attention (4) + [model block] + title + ` ` (1) + [progress block]
     # + runtime_block (8) + ` │` (1 for the right border the row
     # closes with).
     runtime_block_width = @runtime_cell_width + 1
@@ -1052,7 +1206,17 @@ defmodule Aiur.AgentList.Renderer do
         @progress_cell_width + 1
 
     progress_block_width = if show_progress?, do: @progress_cell_width + 1, else: 0
-    fixed_non_id_overhead = base_overhead + progress_block_width
+
+    # The MODEL base column reserves @model_base_width (+ a separator),
+    # mirroring the PROGRESS drop pattern: it shows only when there's room
+    # for it beyond the id/title/latest minimums, so at extreme narrowness it
+    # drops *after* TITLE/LATEST are already at their minimums — never before.
+    show_model? =
+      inner_width - base_overhead - progress_block_width - @min_id_width - @min_title_width -
+        @min_latest_width - 1 >= @model_base_width + 1
+
+    model_base_block = if show_model?, do: @model_base_width + 1, else: 0
+    fixed_non_id_overhead = base_overhead + progress_block_width + model_base_block
 
     # Cap id so the row never bleeds past `inner_width` — title and
     # latest still get their minimums regardless of identifier length.
@@ -1086,10 +1250,25 @@ defmodule Aiur.AgentList.Renderer do
     latest_width =
       min(@max_latest_width, max(remaining_after_id - title_width, @min_latest_width))
 
+    # Whatever's left after TITLE and LATEST have taken their (capped) widths
+    # is trailing pad. The version suffix is purely opportunistic: it expands
+    # the MODEL column into that pad only when LATEST has hit its @max cap and
+    # TITLE its natural width with room to spare — so it never shrinks either.
+    # All-or-nothing to avoid mid-version truncation.
+    leftover = remaining_after_id - title_width - latest_width
+
+    model_width =
+      cond do
+        not show_model? -> 0
+        leftover >= natural_model_width - @model_base_width -> natural_model_width
+        true -> @model_base_width
+      end
+
     %{
       id_width: id_width,
       title_width: title_width,
       latest_width: latest_width,
+      model_width: model_width,
       show_progress?: show_progress?
     }
   end
