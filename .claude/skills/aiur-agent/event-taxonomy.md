@@ -22,7 +22,7 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 |------|--------------|-----------------|
 | `progress.<slug>` | Hit a milestone within your ticket (`progress.brainstorm-end`, `progress.tests-green`) | `ticket.<id>.agent.progress.<slug>` |
 | `decision.<slug>` | Made an architectural choice worth broadcasting (`decision.use-amqp-matcher`) | `ticket.<id>.agent.decision.<slug>` |
-| `blocked` | Your work is now blocked — typically called right after `aiur_declare_blocker` | `ticket.<id>.agent.blocked` |
+| `blocked` | A specific integration point is non-stubbably blocked after `aiur_declare_blocker`; keep unrelated prep moving | `ticket.<id>.agent.blocked` |
 | `unblocked` | You're no longer blocked (real or stubbed-then-fetch) | `ticket.<id>.agent.unblocked` |
 | `attention.<slug>` | Need the operator to answer something (opens ❗ in the agent list) | `ticket.<id>.agent.attention.<slug>` |
 | `attention.resolved` | Closing a previously-opened attention; pass `payload: {slug: "<the-slug>"}` | `ticket.<id>.agent.attention.resolved` |

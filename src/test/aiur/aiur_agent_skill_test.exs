@@ -65,6 +65,24 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "blocker guidance keeps unblocked work moving" do
+    shared_prompt = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
+    stub_doc = File.read!(Path.join(@claude_skill, "stub-then-fetch.md"))
+    taxonomy = File.read!(Path.join(@claude_skill, "event-taxonomy.md"))
+
+    shared_prompt = one_line(shared_prompt)
+    stub_doc = one_line(stub_doc)
+    taxonomy = one_line(taxonomy)
+
+    assert shared_prompt =~ "not a stop signal"
+    assert shared_prompt =~ "Only park the specific integration point"
+
+    assert stub_doc =~ "not a reason to park the whole ticket"
+    assert stub_doc =~ "Do not reimplement ticket N's helper"
+    assert stub_doc =~ "Stop working on the dependent code only"
+    assert taxonomy =~ "keep unrelated prep moving"
+  end
+
   test "Codex discovers aiur run and status skills through canonical Claude skills" do
     for skill <- ~w(aiur-run aiur-monitor) do
       claude_skill = Path.join(@repo_root, ".claude/skills/#{skill}")
@@ -95,4 +113,6 @@ defmodule Aiur.AiurAgentSkillTest do
       assert String.contains?(skill, "alias for `aiur`")
     end
   end
+
+  defp one_line(text), do: String.replace(text, ~r/\s+/, " ")
 end
