@@ -561,7 +561,7 @@ defmodule Aiur.Config.Schema do
   @spec resolve_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil) :: map()
   def resolve_turn_sandbox_policy(settings, workspace \\ nil) do
     CodexSandboxPolicy.resolve(
-      settings.agent.codex.turn_sandbox_policy,
+      effective_turn_sandbox_policy(settings.agent.codex),
       workspace,
       settings.workspace.root
     )
@@ -571,12 +571,22 @@ defmodule Aiur.Config.Schema do
           {:ok, map()} | {:error, term()}
   def resolve_runtime_turn_sandbox_policy(settings, workspace \\ nil, opts \\ []) do
     CodexSandboxPolicy.resolve_runtime(
-      settings.agent.codex.turn_sandbox_policy,
+      effective_turn_sandbox_policy(settings.agent.codex),
       workspace,
       settings.workspace.root,
       opts
     )
   end
+
+  defp effective_turn_sandbox_policy(%Codex{turn_sandbox_policy: nil, thread_sandbox: thread_sandbox})
+       when is_binary(thread_sandbox) do
+    case String.trim(thread_sandbox) do
+      "danger-full-access" -> %{"type" => "dangerFullAccess"}
+      _ -> nil
+    end
+  end
+
+  defp effective_turn_sandbox_policy(%Codex{turn_sandbox_policy: policy}), do: policy
 
   @spec normalize_issue_state(String.t()) :: String.t()
   def normalize_issue_state(state_name) when is_binary(state_name) do
