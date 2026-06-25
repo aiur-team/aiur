@@ -270,6 +270,11 @@ defmodule AiurEngineTest do
 
   defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
 
+  defp realpath(path) do
+    {out, 0} = System.cmd("pwd", ["-P"], cd: path)
+    String.trim(out)
+  end
+
   defp spawn_sleeper(cwd) do
     port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])
     {:os_pid, os_pid} = Port.info(port, :os_pid)
@@ -342,6 +347,153 @@ defmodule AiurEngineTest do
     rel = fake_release()
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
     assert out =~ "Aiur.AgentControlCLI.status()"
+  end
+
+  test "writes an instance record with launch identity metadata" do
+    state = tmp_state()
+    launch_root = Path.join(System.tmp_dir!(), "aiur-record-root-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(launch_root)
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm_rf(launch_root)
+    end)
+
+    script = """
+    cd "$LAUNCH_ROOT"
+    AIUR_BG_STATE_DIR="$STATE"
+    AIUR_INSTANCE_KEY=abc123
+    AIUR_RELEASE_NODE=aiur-tester-abc123@127.0.0.1
+    AIUR_REPO_ROOT=
+    aiur_resolve_identity
+    write_aiur_instance_record aiur-tester-abc123-default aiur-tester-abc123
+    cat "$(aiur_instance_record_path)"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"STATE", state},
+        {"LAUNCH_ROOT", launch_root},
+        {"AIUR_RELEASE_NODE", nil},
+        {"AIUR_INSTANCE_KEY", nil},
+        {"AIUR_REPO_ROOT", nil}
+      ])
+
+    launch_root_real = realpath(launch_root)
+
+    assert out =~ "AIUR_RECORD_NODE=aiur-tester-abc123@127.0.0.1"
+    assert out =~ "AIUR_RECORD_INSTANCE_KEY=abc123"
+    assert out =~ "AIUR_RECORD_SESSION=aiur-tester-abc123-default"
+    assert out =~ "AIUR_RECORD_SOCKET=aiur-tester-abc123"
+    assert out =~ "AIUR_RECORD_PROJECT_ROOT=#{launch_root_real}"
+    assert out =~ "AIUR_RECORD_PROJECT_ROOT_SOURCE=cwd"
+  end
+
+  test "global-config control RPC adopts the live launch record from a subdirectory" do
+    rel = fake_release()
+
+    File.write!(Path.join([rel, "bin", "aiur"]), """
+    #!/usr/bin/env bash
+    echo "NODE:$RELEASE_NODE"
+    echo "__AIUR_CONTROL_EXIT__:0"
+    """)
+
+    state = tmp_state()
+    base = Path.join(System.tmp_dir!(), "aiur-control-record-#{System.unique_integer([:positive])}")
+    home = Path.join(base, "home")
+    launch_root = Path.join(base, "project")
+    subdir = Path.join([launch_root, "nested", "dir"])
+    File.mkdir_p!(home)
+    File.mkdir_p!(subdir)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(base)
+    end)
+
+    live_node = "aiur-tester-live123@127.0.0.1"
+
+    script = """
+    AIUR_BG_STATE_DIR="$STATE"
+    AIUR_RELEASE_NODE="$LIVE_NODE"
+    AIUR_INSTANCE_KEY=live123
+    AIUR_PROJECT_ROOT="$LAUNCH_ROOT"
+    AIUR_PROJECT_ROOT_SOURCE=cwd
+    write_aiur_instance_record aiur-tester-live123-default aiur-tester-live123
+
+    cd "$SUBDIR"
+    unset AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_PROJECT_ROOT AIUR_PROJECT_ROOT_SOURCE
+    AIUR_REPO_ROOT=
+    probe_node_liveness() {
+      case "$RELEASE_NODE" in
+        "$LIVE_NODE") printf up ;;
+        *) printf down ;;
+      esac
+    }
+    run_control_rpc "Aiur.AgentControlCLI.status()"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"STATE", state},
+        {"HOME", home},
+        {"LAUNCH_ROOT", launch_root},
+        {"SUBDIR", subdir},
+        {"LIVE_NODE", live_node},
+        {"AIUR_RELEASE_NODE", nil},
+        {"AIUR_INSTANCE_KEY", nil},
+        {"AIUR_REPO_ROOT", nil}
+      ])
+
+    assert out =~ "NODE:#{live_node}"
+    refute out =~ "no running aiur node"
+  end
+
+  test "down global-config control RPC prints a cwd-keyed hint" do
+    state = tmp_state()
+    caller = Path.join(System.tmp_dir!(), "aiur-control-miss-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(caller)
+
+    rpc = Path.join(System.tmp_dir!(), "aiur-rpc-down-#{System.unique_integer([:positive])}")
+    File.write!(rpc, "#!/usr/bin/env bash\necho transport failed >&2\nexit 42\n")
+    File.chmod!(rpc, 0o755)
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm_rf(caller)
+      File.rm(rpc)
+    end)
+
+    script = """
+    cd "$CALLER"
+    resolve_release() { release_bin="$RPC"; release_dir=/tmp/nonexistent-aiur-release; }
+    prepare_distribution() { aiur_resolve_identity; RELEASE_NODE="$AIUR_RELEASE_NODE"; }
+    probe_node_liveness() { printf down; }
+    if run_control_rpc "Aiur.AgentControlCLI.status()"; then
+      code=0
+    else
+      code=$?
+    fi
+    echo "CODE=$code"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_BG_STATE_DIR", state},
+        {"CALLER", caller},
+        {"RPC", rpc},
+        {"AIUR_RELEASE_NODE", nil},
+        {"AIUR_INSTANCE_KEY", nil},
+        {"AIUR_REPO_ROOT", nil}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "no running aiur node at aiur-"
+    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
+    assert out =~ "run control commands from the launch directory"
   end
 
   test "down control RPC with crash marker reports orphaned-agent guidance" do
@@ -877,6 +1029,66 @@ defmodule AiurEngineTest do
     assert out =~ "SENTINEL_LEFT_FOR_WATCHDOG"
     assert out =~ "CRASH_MARKER_REMOVED"
     refute out =~ "CRASH_MARKER_STILL_PRESENT"
+  end
+
+  test "cmd_stop fails loud instead of no-oping for an unmatched global-config cwd" do
+    rel = fake_release()
+    state = tmp_state()
+    events = Path.join(System.tmp_dir!(), "aiur-stop-miss-events-#{System.unique_integer([:positive])}")
+    caller = Path.join(System.tmp_dir!(), "aiur-stop-miss-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(caller)
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" has-session "*) exit 1 ;;
+        *) echo "TMUX:$*" >> "$EVENTS"; exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(caller)
+      File.rm(events)
+    end)
+
+    script = """
+    cd "$CALLER"
+    current_workspace_root() { return 1; }
+    probe_node_liveness() { printf down; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    reap_workspace_cwd_agents() { echo "CWD_REAP:$1" >> "$EVENTS"; }
+    set +e
+    cmd_stop
+    code=$?
+    set -e
+    echo "CODE=$code"
+    cat "$EVENTS"
+    [ -e "$(aiur_stop_sentinel_path)" ] && echo "SENTINEL_WRITTEN" || echo "NO_SENTINEL"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"CALLER", caller},
+        {"EVENTS", events},
+        {"PATH", path},
+        {"AIUR_RELEASE_NODE", nil},
+        {"AIUR_INSTANCE_KEY", nil},
+        {"AIUR_REPO_ROOT", nil}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "nothing stopped"
+    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
+    assert out =~ "NO_SENTINEL"
+    refute out =~ "KILL_BEAM:"
+    refute out =~ "CWD_REAP:"
   end
 
   test "message RPCs the message expression with base64-encoded text" do

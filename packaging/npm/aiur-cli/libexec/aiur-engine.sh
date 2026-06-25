@@ -81,6 +81,25 @@ aiur_project_root() {
   printf '%s' "$pwd_real"
 }
 
+aiur_project_root_source() {
+  if [ -n "${AIUR_REPO_ROOT:-}" ]; then printf 'env'; return; fi
+
+  local pwd_real home_real
+  pwd_real="$(pwd -P 2>/dev/null || printf '%s' "$PWD")"
+  home_real="$(cd "${HOME:-}" 2>/dev/null && pwd -P || printf '%s' "${HOME:-}")"
+
+  local d="$pwd_real"
+  while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$home_real" ]; do
+    if [ -f "$d/.aiur/config" ] || [ -f "$d/.aiurconfig" ]; then
+      printf 'repo'
+      return
+    fi
+    d="$(dirname "$d")"
+  done
+
+  printf 'cwd'
+}
+
 # Short, stable, node-name-legal (lowercase hex) key for the project root, so two
 # aiur instances for the same user get distinct node/session/socket names and can't
 # reap each other. Any real cwd now resolves a key (global-config runs key by
@@ -99,6 +118,8 @@ aiur_instance_key() {
 
 aiur_resolve_identity() {
   local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  AIUR_PROJECT_ROOT="$(aiur_project_root)"
+  AIUR_PROJECT_ROOT_SOURCE="$(aiur_project_root_source)"
 
   : "${AIUR_BG_STATE_DIR:=$config_home/aiur}"
   : "${AIUR_COOKIE_FILE:=$AIUR_BG_STATE_DIR/cookie}"
@@ -112,7 +133,8 @@ aiur_resolve_identity() {
   : "${AIUR_RELEASE_NODE:=aiur-${USER}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}@127.0.0.1}"
 
   export AIUR_BG_STATE_DIR AIUR_COOKIE_FILE AIUR_SESSION_PREFIX \
-    AIUR_PROFILES_FILE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY
+    AIUR_PROFILES_FILE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY \
+    AIUR_PROJECT_ROOT AIUR_PROJECT_ROOT_SOURCE
 }
 
 aiur_print_identity() {
@@ -123,6 +145,8 @@ aiur_print_identity() {
   printf 'AIUR_PROFILES_FILE=%s\n' "$AIUR_PROFILES_FILE"
   printf 'AIUR_RELEASE_NODE=%s\n' "$AIUR_RELEASE_NODE"
   printf 'AIUR_INSTANCE_KEY=%s\n' "$AIUR_INSTANCE_KEY"
+  printf 'AIUR_PROJECT_ROOT=%s\n' "$AIUR_PROJECT_ROOT"
+  printf 'AIUR_PROJECT_ROOT_SOURCE=%s\n' "$AIUR_PROJECT_ROOT_SOURCE"
   printf 'AIUR_COOKIE_FILE=%s\n' "$AIUR_COOKIE_FILE"
 }
 
@@ -467,6 +491,7 @@ run_session() {
   # session whose BEAM/control plane is gone should be reclaimed before retry.
   if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
     if [ "$(probe_control_liveness)" = "up" ]; then
+      write_aiur_instance_record "$session" "$socket"
       echo "aiur is already running in the background (tmux session ${session})." >&2
       echo "Use: aiur status   # inspect agents" >&2
       echo "Use: aiur stop     # stop it before starting a fresh session" >&2
@@ -532,6 +557,8 @@ run_session() {
     rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" 2>/dev/null || true
     exit 1
   fi
+
+  write_aiur_instance_record "$session" "$socket"
 
   if [ "$mode" = "foreground" ]; then
     echo "aiur foreground tmux socket ${socket}, session ${session}" >&2
@@ -920,6 +947,34 @@ aiur_state_slug() {
   printf '%s' "${AIUR_RELEASE_NODE:-aiur}" | tr -c 'A-Za-z0-9._-' '_'
 }
 
+aiur_instances_dir() {
+  printf '%s/instances' "${AIUR_BG_STATE_DIR:?}"
+}
+
+aiur_instance_record_path() {
+  printf '%s/%s.instance' "$(aiur_instances_dir)" "$(aiur_state_slug)"
+}
+
+write_aiur_instance_record() {
+  local session="$1" socket="$2" record_dir record tmp root
+  record_dir="$(aiur_instances_dir)"
+  record="$(aiur_instance_record_path)"
+  root="$(canonical_workspace_root "${AIUR_PROJECT_ROOT:-}")"
+  mkdir -p "$record_dir" 2>/dev/null || return 0
+  tmp="$(mktemp "$record_dir/.${AIUR_INSTANCE_KEY:-aiur}.XXXXXX" 2>/dev/null)" || return 0
+  {
+    printf 'AIUR_RECORD_NODE=%q\n' "$AIUR_RELEASE_NODE"
+    printf 'AIUR_RECORD_INSTANCE_KEY=%q\n' "$AIUR_INSTANCE_KEY"
+    printf 'AIUR_RECORD_SESSION=%q\n' "$session"
+    printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
+    printf 'AIUR_RECORD_PROJECT_ROOT=%q\n' "$root"
+    printf 'AIUR_RECORD_PROJECT_ROOT_SOURCE=%q\n' "${AIUR_PROJECT_ROOT_SOURCE:-}"
+    printf 'AIUR_RECORD_WRITTEN_AT=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+  } >"$tmp" || { rm -f "$tmp" 2>/dev/null || true; return 0; }
+  chmod 0600 "$tmp" 2>/dev/null || true
+  mv "$tmp" "$record" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+}
+
 # Marker `status` reads to tell "daemon crashed, agents may be orphaned" apart
 # from "nothing was ever running". Written by the watchdog on an unexpected exit,
 # cleared on a clean stop and on the next successful background start.
@@ -1248,6 +1303,7 @@ session_cleanup() {
   sweep_stale_tmp_artifacts || true
 
   rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" "$_session_workspace_root_file" 2>/dev/null || true
+  rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
   return $code
 }
 install_foreground_traps() {
@@ -1292,12 +1348,122 @@ probe_node_liveness() {
   printf 'unknown'
 }
 
+probe_named_node_liveness() {
+  local node="$1" old_node="${RELEASE_NODE:-}" state
+  RELEASE_NODE="$node"
+  state="$(probe_node_liveness)"
+  RELEASE_NODE="$old_node"
+  printf '%s' "$state"
+}
+
+load_aiur_instance_record() {
+  local file="$1"
+  AIUR_RECORD_NODE=""
+  AIUR_RECORD_INSTANCE_KEY=""
+  AIUR_RECORD_SESSION=""
+  AIUR_RECORD_SOCKET=""
+  AIUR_RECORD_PROJECT_ROOT=""
+  AIUR_RECORD_PROJECT_ROOT_SOURCE=""
+  [ -r "$file" ] || return 1
+  # Records are written by this engine as KEY=%q lines under the user's state dir.
+  # shellcheck disable=SC1090
+  source "$file" 2>/dev/null || return 1
+  [ -n "$AIUR_RECORD_NODE" ] && [ -n "$AIUR_RECORD_SESSION" ] && \
+    [ -n "$AIUR_RECORD_SOCKET" ] && [ -n "$AIUR_RECORD_PROJECT_ROOT" ]
+}
+
+path_is_within_root() {
+  local root child
+  root="$(canonical_workspace_root "$1")"
+  child="$(canonical_workspace_root "$2")"
+  [ "$child" = "$root" ] || [[ "$child/" == "$root/"* ]]
+}
+
+AIUR_CONTROL_ADOPTED_RECORD=0
+AIUR_CONTROL_CURRENT_NODE_STATE=""
+AIUR_CONTROL_HINT_ROOTS=""
+AIUR_CONTROL_CALLER_ROOT=""
+AIUR_CONTROL_CALLER_NODE=""
+AIUR_CONTROL_CALLER_ROOT_SOURCE=""
+
+resolve_control_identity_from_records() {
+  AIUR_CONTROL_ADOPTED_RECORD=0
+  AIUR_CONTROL_CURRENT_NODE_STATE="$(probe_node_liveness)"
+  AIUR_CONTROL_HINT_ROOTS=""
+  AIUR_CONTROL_CALLER_ROOT="$(canonical_workspace_root "${AIUR_PROJECT_ROOT:-}")"
+  AIUR_CONTROL_CALLER_NODE="$AIUR_RELEASE_NODE"
+  AIUR_CONTROL_CALLER_ROOT_SOURCE="${AIUR_PROJECT_ROOT_SOURCE:-}"
+
+  [ "$AIUR_CONTROL_CURRENT_NODE_STATE" = "down" ] || return 0
+  [ "${AIUR_PROJECT_ROOT_SOURCE:-}" = "cwd" ] || return 0
+
+  local dir file state root match_count=0
+  local match_node="" match_key="" match_session="" match_socket="" match_root="" match_source=""
+  dir="$(aiur_instances_dir)"
+  [ -d "$dir" ] || return 0
+
+  for file in "$dir"/*.instance; do
+    [ -e "$file" ] || continue
+    load_aiur_instance_record "$file" || continue
+    state="$(probe_named_node_liveness "$AIUR_RECORD_NODE")"
+    [ "$state" = "up" ] || continue
+
+    root="$(canonical_workspace_root "$AIUR_RECORD_PROJECT_ROOT")"
+    case "$AIUR_CONTROL_HINT_ROOTS" in
+      *"
+$root
+"*) ;;
+      *) AIUR_CONTROL_HINT_ROOTS="${AIUR_CONTROL_HINT_ROOTS}${root}
+" ;;
+    esac
+
+    path_is_within_root "$root" "$AIUR_CONTROL_CALLER_ROOT" || continue
+    match_count=$((match_count + 1))
+    match_node="$AIUR_RECORD_NODE"
+    match_key="$AIUR_RECORD_INSTANCE_KEY"
+    match_session="$AIUR_RECORD_SESSION"
+    match_socket="$AIUR_RECORD_SOCKET"
+    match_root="$root"
+    match_source="$AIUR_RECORD_PROJECT_ROOT_SOURCE"
+  done
+
+  [ "$match_count" -eq 1 ] || return 0
+
+  AIUR_RELEASE_NODE="$match_node"
+  AIUR_INSTANCE_KEY="$match_key"
+  AIUR_PROJECT_ROOT="$match_root"
+  AIUR_PROJECT_ROOT_SOURCE="$match_source"
+  AIUR_ADOPTED_TMUX_SESSION="$match_session"
+  AIUR_ADOPTED_TMUX_SOCKET="$match_socket"
+  export AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_PROJECT_ROOT AIUR_PROJECT_ROOT_SOURCE \
+    AIUR_ADOPTED_TMUX_SESSION AIUR_ADOPTED_TMUX_SOCKET
+  RELEASE_NODE="$AIUR_RELEASE_NODE"
+  export RELEASE_NODE
+  AIUR_CONTROL_ADOPTED_RECORD=1
+}
+
+print_global_config_control_hint() {
+  [ "${AIUR_CONTROL_CALLER_ROOT_SOURCE:-}" = "cwd" ] || return 0
+  [ "${AIUR_CONTROL_CURRENT_NODE_STATE:-}" = "down" ] || return 0
+
+  echo "aiur: global-config control identity is keyed by cwd ${AIUR_CONTROL_CALLER_ROOT:-${AIUR_PROJECT_ROOT:-unknown}}" >&2
+  echo "aiur: run control commands from the launch directory, or from a subdirectory of that launch directory" >&2
+  if [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ]; then
+    echo "aiur: live launch directory candidate(s):" >&2
+    printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
+  fi
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
   local expression="$1"
   resolve_release
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  resolve_control_identity_from_records
+  if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
+    prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  fi
 
   local marker="__AIUR_CONTROL_EXIT__:"
   local output status exit_code=0 saw_marker=0 line
@@ -1326,6 +1492,7 @@ run_control_rpc() {
           echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
         else
           echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
+          print_global_config_control_hint
         fi
         ;;
       up)
@@ -1622,14 +1789,33 @@ sweep_stale_tmp_artifacts() {
 cmd_stop() {
   resolve_release
   aiur_resolve_identity
+  RELEASE_NODE="$AIUR_RELEASE_NODE"
+  ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}"
+  export RELEASE_NODE ERL_EPMD_ADDRESS
+  resolve_control_identity_from_records
 
   local workspace_root
   workspace_root="$(current_workspace_root 2>/dev/null || true)"
 
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
-  local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
-  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
+  local session="${AIUR_ADOPTED_TMUX_SESSION:-${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default}"
+  local socket="${AIUR_ADOPTED_TMUX_SOCKET:-${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}}"
+
+  local has_session=0
+  if [ -n "$tmux_bin" ] && "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null; then
+    has_session=1
+  fi
+
+  if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -ne 1 ] && \
+    [ "${AIUR_CONTROL_CURRENT_NODE_STATE:-}" = "down" ] && \
+    [ "${AIUR_PROJECT_ROOT_SOURCE:-}" = "cwd" ] && \
+    [ "$has_session" -eq 0 ] && \
+    [ ! -f "$(aiur_crash_marker_path)" ]; then
+    echo "aiur: no running aiur node at ${AIUR_RELEASE_NODE}; nothing stopped" >&2
+    print_global_config_control_hint
+    return 1
+  fi
 
   # Tell the background BEAM-death watchdog this exit is intentional before we
   # kill the BEAM, so it consumes the sentinel instead of recording a crash. The
@@ -1674,6 +1860,7 @@ cmd_stop() {
   reap_stale_manual_smoke 0
   sweep_dead_tmux_sockets
   sweep_stale_tmp_artifacts
+  rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
 }
 
 # --- dispatch ----------------------------------------------------------------
