@@ -464,6 +464,87 @@ defmodule Aiur.AgentRunnerTest do
                AgentRunner.current_comment_context_events_for_test(issue, fetchers)
     end
 
+    test "only includes comments after the latest workpad handoff" do
+      issue = %Aiur.Issue{id: "35", identifier: "35", title: "Resume comments"}
+
+      fetchers = %{
+        issue_comments: fn
+          "35" ->
+            {:ok,
+             [
+               %{
+                 "id" => 1001,
+                 "body" => "old issue directive",
+                 "updated_at" => "2026-06-25T08:55:00Z",
+                 "user" => %{"login" => "owner"},
+                 authoritative: true
+               },
+               %{
+                 "id" => 1002,
+                 "body" => "## Agent Workpad\n\nhandoff",
+                 "updated_at" => "2026-06-25T09:00:00Z",
+                 "user" => %{"login" => "agent"},
+                 authoritative: true
+               },
+               %{
+                 "id" => 1003,
+                 "body" => "new issue directive",
+                 "updated_at" => "2026-06-25T09:01:00Z",
+                 "user" => %{"login" => "owner"},
+                 authoritative: true
+               }
+             ]}
+
+          49 ->
+            {:ok,
+             [
+               %{
+                 "id" => 2001,
+                 "body" => "old PR conversation directive",
+                 "updated_at" => "2026-06-25T08:56:00Z",
+                 "user" => %{"login" => "owner"},
+                 authoritative: true
+               },
+               %{
+                 "id" => 2002,
+                 "body" => "new PR conversation directive",
+                 "updated_at" => "2026-06-25T09:02:00Z",
+                 "user" => %{"login" => "owner"},
+                 authoritative: true
+               }
+             ]}
+        end,
+        open_pr: fn "35" -> {:ok, %{"number" => 49, "head" => %{"ref" => "aiur/35"}}} end,
+        pr_review_comments: fn 49 ->
+          {:ok,
+           [
+             %{
+               "id" => 3001,
+               "body" => "old inline directive",
+               "updated_at" => "2026-06-25T08:57:00Z",
+               "user" => %{"login" => "owner"},
+               authoritative: true
+             },
+             %{
+               "id" => 3002,
+               "body" => "new inline directive",
+               "updated_at" => "2026-06-25T09:03:00Z",
+               "user" => %{"login" => "owner"},
+               authoritative: true
+             }
+           ]}
+        end
+      }
+
+      events = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
+
+      assert Enum.map(events, & &1.summary) == [
+               "new issue directive",
+               "new PR conversation directive",
+               "new inline directive"
+             ]
+    end
+
     test "sanitizes fetched comment bodies before rendering" do
       issue = %Aiur.Issue{id: "35", identifier: "35", title: "Sanitize"}
 
