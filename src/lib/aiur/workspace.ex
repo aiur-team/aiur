@@ -7,6 +7,7 @@ defmodule Aiur.Workspace do
   alias Aiur.{Config, PathSafety, RepoBase, SSH}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
+  @warm_cache_paths ["src/deps", "src/_build", "deps", "_build"]
 
   @type worker_host :: String.t() | nil
 
@@ -260,7 +261,7 @@ defmodule Aiur.Workspace do
 
     case hook_result do
       :ok ->
-        ensure_git_metadata_writable(workspace, worker_host)
+        finalize_before_run_workspace(workspace, issue_context, worker_host)
 
       {:error, reason} = error ->
         maybe_recreate_stale_workspace(
@@ -271,6 +272,12 @@ defmodule Aiur.Workspace do
           issue_context,
           worker_host
         )
+    end
+  end
+
+  defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
+    with :ok <- ensure_git_metadata_writable(workspace, worker_host) do
+      maybe_seed_from_bootstrap_image(workspace, issue_context, worker_host)
     end
   end
 
@@ -298,9 +305,110 @@ defmodule Aiur.Workspace do
 
         with :ok <- recreate_workspace(workspace, worker_host),
              :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
-          ensure_git_metadata_writable(workspace, worker_host)
+          finalize_before_run_workspace(workspace, issue_context, worker_host)
         end
     end
+  end
+
+  defp maybe_seed_from_bootstrap_image(workspace, issue_context, worker_host) do
+    case Config.workspace_bootstrap_image() do
+      image when is_binary(image) ->
+        seed_from_bootstrap_image(
+          workspace,
+          issue_context,
+          image,
+          Config.workspace_bootstrap_image_pull?(),
+          worker_host
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp seed_from_bootstrap_image(workspace, issue_context, image, pull?, nil) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+
+    Logger.info("Seeding workspace from bootstrap image #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local image=#{image}")
+
+    task =
+      Task.async(fn ->
+        System.cmd("sh", ["-c", bootstrap_image_script(workspace, image, pull?)],
+          cd: workspace,
+          stderr_to_stdout: true
+        )
+      end)
+
+    case Task.yield(task, timeout_ms) do
+      {:ok, cmd_result} ->
+        handle_hook_command_result(cmd_result, workspace, issue_context, "bootstrap_image")
+
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+
+        Logger.warning("Workspace bootstrap image timed out #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
+
+        {:error, {:workspace_hook_timeout, "bootstrap_image", timeout_ms}}
+    end
+  end
+
+  defp seed_from_bootstrap_image(workspace, issue_context, image, pull?, worker_host)
+       when is_binary(worker_host) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+
+    Logger.info("Seeding workspace from bootstrap image #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host} image=#{image}")
+
+    case run_remote_command(worker_host, bootstrap_image_script(workspace, image, pull?), timeout_ms) do
+      {:ok, cmd_result} ->
+        handle_hook_command_result(cmd_result, workspace, issue_context, "bootstrap_image")
+
+      {:error, {:workspace_hook_timeout, "remote_command", ^timeout_ms}} ->
+        {:error, {:workspace_hook_timeout, "bootstrap_image", timeout_ms}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp bootstrap_image_script(workspace, image, pull?) do
+    [
+      "set -eu",
+      remote_shell_assign("workspace", workspace),
+      pull? && "docker pull #{shell_escape(image)}",
+      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{shell_escape(image)} -lc #{shell_escape(bootstrap_image_copy_script())}"
+    ]
+    |> Enum.reject(&(&1 in [nil, false, ""]))
+    |> Enum.join("\n")
+  end
+
+  defp bootstrap_image_copy_script do
+    paths = Enum.map_join(@warm_cache_paths, " ", &shell_escape/1)
+
+    """
+    set -eu
+    found=0
+    for path in #{paths}; do
+      source="/opt/aiur/$path"
+      target="/workspace/$path"
+
+      if [ -e "$target" ]; then
+        found=1
+        printf 'aiur warm bootstrap: keep existing %s\\n' "$path"
+      elif [ -e "$source" ]; then
+        found=1
+        mkdir -p "$(dirname "$target")"
+        cp -R "$source" "$target"
+        printf 'aiur warm bootstrap: seeded %s\\n' "$path"
+      else
+        printf 'aiur warm bootstrap: missing %s in image\\n' "$source"
+      fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+      printf 'aiur warm bootstrap: no cache paths found in image or workspace\\n' >&2
+      exit 66
+    fi
+    """
   end
 
   defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, output})

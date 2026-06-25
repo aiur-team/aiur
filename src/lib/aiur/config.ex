@@ -146,6 +146,18 @@ defmodule Aiur.Config do
     settings!().workspace.root
   end
 
+  @doc "Optional Docker image used to seed warm build artifacts into workspaces."
+  @spec workspace_bootstrap_image() :: String.t() | nil
+  def workspace_bootstrap_image do
+    settings!().workspace.bootstrap_image
+  end
+
+  @doc "Whether aiur should pull the configured workspace bootstrap image before seeding."
+  @spec workspace_bootstrap_image_pull?() :: boolean()
+  def workspace_bootstrap_image_pull? do
+    settings!().workspace.bootstrap_image_pull
+  end
+
   @spec max_vertical_panes() :: pos_integer()
   def max_vertical_panes do
     settings!().max_vertical_panes

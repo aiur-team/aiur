@@ -23,6 +23,12 @@ eagerly before the first dispatch (the agent list shows a loading bar) and rebui
 `main` advances. Unconfigured or undetected repos fall back to the normal cold-clone path.
 Enable via the `prewarm:` block in `.aiur/config`.
 
+**Bootstrap image cache seeding (opt-in).** Repos can also publish a warm Docker image and set
+`workspace.bootstrap_image` to seed missing build caches into a checkout after `before_run`.
+Aiur mounts the workspace at `/workspace`, copies cache directories such as `src/deps` and
+`src/_build` from `/opt/aiur` when they are absent, and leaves existing caches untouched. The
+image seeds the workspace only; agents and opencode still run on the host.
+
 Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets you open
 any agent in an opencode-backed chat pane, and send messages directly into a running
 session. A LiveView dashboard at `/` mirrors this surface read-only for browser-based operators;

@@ -196,6 +196,8 @@ defmodule Aiur.TestSupport do
           agent_routing: %{},
           poll_interval_seconds: 30,
           workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
+          workspace_bootstrap_image: nil,
+          workspace_bootstrap_image_pull: false,
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
@@ -238,6 +240,8 @@ defmodule Aiur.TestSupport do
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
     poll_interval_seconds = Keyword.get(config, :poll_interval_seconds)
     workspace_root = Keyword.get(config, :workspace_root)
+    workspace_bootstrap_image = Keyword.get(config, :workspace_bootstrap_image)
+    workspace_bootstrap_image_pull = Keyword.get(config, :workspace_bootstrap_image_pull)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
     worker_max_concurrent_agents_per_host = Keyword.get(config, :worker_max_concurrent_agents_per_host)
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
@@ -316,6 +320,8 @@ defmodule Aiur.TestSupport do
         "  interval_seconds: #{yaml_value(poll_interval_seconds)}",
         "workspace:",
         "  root: #{yaml_value(workspace_root)}",
+        workspace_bootstrap_image && "  bootstrap_image: #{yaml_value(workspace_bootstrap_image)}",
+        "  bootstrap_image_pull: #{yaml_value(workspace_bootstrap_image_pull)}",
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         agent_section,
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
