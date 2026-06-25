@@ -15,6 +15,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   @type target :: String.t() | integer()
   @default_max_concurrency 4
+  @default_target_timeout 60_000
 
   @spec poll([target()], keyword()) :: {:ok, map()}
   def poll(targets, opts \\ []) when is_list(targets) do
@@ -33,12 +34,21 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
     results =
       targets
-      |> Task.async_stream(
-        fn target -> poll_target(target, Map.fetch!(since_by_target, target), repo, opts) end,
-        max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
-        timeout: Keyword.get(opts, :timeout, :infinity)
-      )
-      |> Enum.map(fn {:ok, result} -> result end)
+      |> target_task_results(since_by_target, repo, opts)
+      |> Enum.zip(targets)
+      |> Enum.map(fn
+        {{:ok, result}, _target} ->
+          result
+
+        {{:exit, reason}, target} ->
+          Logger.warning("GithubCommentsPoller target task exited: issue=#{target} reason=#{inspect(reason)}")
+
+          failed_target_result(
+            target,
+            Map.fetch!(since_by_target, target),
+            {:target, {:exit, reason}}
+          )
+      end)
 
     next_since =
       Map.new(results, fn %{target: target, since: since} ->
@@ -56,12 +66,46 @@ defmodule Aiur.Events.GithubCommentsPoller do
     {:ok, %{since: next_since, count: count, errors: errors}}
   end
 
+  defp target_task_results(targets, since_by_target, repo, opts) do
+    run_target = fn target ->
+      poll_target(target, Map.fetch!(since_by_target, target), repo, opts)
+    end
+
+    task_opts = [
+      max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
+      timeout: Keyword.get(opts, :timeout, @default_target_timeout),
+      on_timeout: :kill_task
+    ]
+
+    case Process.whereis(Aiur.TaskSupervisor) do
+      pid when is_pid(pid) ->
+        pid
+        |> Task.Supervisor.async_stream_nolink(targets, run_target, task_opts)
+        |> Enum.to_list()
+
+      nil ->
+        previous_trap_exit = Process.flag(:trap_exit, true)
+
+        try do
+          targets
+          |> Task.async_stream(run_target, task_opts)
+          |> Enum.to_list()
+        after
+          Process.flag(:trap_exit, previous_trap_exit)
+        end
+    end
+  end
+
   defp normalize_targets(targets) do
     targets
     |> Enum.map(&to_string/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
+  end
+
+  defp failed_target_result(target, since, reason) do
+    %{target: target, count: 0, since: since, errors: [reason]}
   end
 
   defp normalize_since(%{} = since_by_target, targets, opts) do

@@ -544,6 +544,89 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
+  test "keeps successful target isolated when another target task crashes" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 4205,
+                 "body" => "target A still publishes",
+                 "updated_at" => "2026-06-24T12:05:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F42") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/issues/43/comments?") ->
+          raise "target 43 crash"
+      end
+    end
+
+    assert {:ok,
+            %{
+              count: 1,
+              since: %{
+                "42" => "2026-06-24T12:04:59Z",
+                "43" => "2026-06-24T11:00:00Z"
+              },
+              errors: errors
+            }} =
+             GithubCommentsPoller.poll(["42", "43"],
+               since: %{"42" => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
+               repo: "owner/repo",
+               request_fun: request_fun,
+               max_concurrency: 2
+             )
+
+    assert [{"43", {:target, {:exit, {%RuntimeError{message: "target 43 crash"}, [_ | _]}}}}] =
+             errors
+
+    assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    stop_codeowners(codeowners)
+  end
+
+  test "reports timed out target task as target-local error" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F42") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/issues/43/comments?") ->
+          Process.sleep(:infinity)
+      end
+    end
+
+    assert {:ok,
+            %{
+              count: 0,
+              since: %{
+                "42" => "2026-06-24T11:00:00Z",
+                "43" => "2026-06-24T11:00:00Z"
+              },
+              errors: [{"43", {:target, {:exit, :timeout}}}]
+            }} =
+             GithubCommentsPoller.poll(["42", "43"],
+               since: %{"42" => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
+               repo: "owner/repo",
+               request_fun: request_fun,
+               max_concurrency: 2,
+               timeout: 20
+             )
+  end
+
   test "reports an error and leaves target cursor unchanged when any watched endpoint fails" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")
@@ -615,7 +698,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
         %{pid: pid, path: nil, owned?: false, previous_allowlist: previous_allowlist}
 
       nil ->
-        path = Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+        path =
+          Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+
         File.write!(path, contents)
 
         {:ok, pid} = CodeOwners.start_link(path: path, refresh_seconds: 3600)
