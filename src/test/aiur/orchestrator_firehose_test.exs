@@ -3,6 +3,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
   alias Aiur.Events.Exchange
   alias Aiur.GitHub.Connectivity
+  alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Workflow
 
@@ -77,6 +78,59 @@ defmodule Aiur.OrchestratorFirehoseTest do
     assert event["message"] =~ "DNS"
   end
 
+  test "firehose next poll delay grows with repeated DNS failures" do
+    stub = fn _req -> {:error, %Req.TransportError{reason: :nxdomain}} end
+
+    state1 = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: stub)
+    assert Orchestrator.github_next_poll_delay_for_test(state1) == 1_000
+
+    state2 = Orchestrator.poll_github_firehose_for_test(state1, request_fun: stub)
+    assert Orchestrator.github_next_poll_delay_for_test(state2) == 2_000
+  end
+
+  test "firehose honors Retry-After on rate-limited responses" do
+    stub = fn _req ->
+      {:ok, %{status: 429, headers: [{"Retry-After", "7"}], body: %{"message" => "rate limited"}}}
+    end
+
+    state = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: stub)
+
+    assert {:rate_limited, 1} = state.github_connectivity[:firehose]
+    assert Orchestrator.github_next_poll_delay_for_test(state) == 7_000
+  end
+
+  test "comments poller honors Retry-After on rate-limited responses" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 429, headers: [{"Retry-After", "9"}], body: %{"message" => "rate limited"}}}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    state = %Orchestrator.State{
+      running: %{
+        "issue-42" => %{
+          identifier: "42",
+          issue: %Issue{id: "issue-42", state: "in-progress", identifier: "42"},
+          control: %{status: :working}
+        }
+      }
+    }
+
+    next =
+      Orchestrator.poll_github_comments_for_test(state,
+        repo: "owner/repo",
+        request_fun: request_fun,
+        review_issue_fetcher: fn ["human-review"] -> {:ok, []} end
+      )
+
+    assert {:rate_limited, 1} = next.github_connectivity[:comments]
+    assert Orchestrator.github_next_poll_delay_for_test(next) == 9_000
+  end
+
   test "a recovering poll clears the connectivity streak" do
     fail = fn _req -> {:error, %Req.TransportError{reason: :nxdomain}} end
 
@@ -88,9 +142,11 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     state = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: fail)
     assert {:dns, 1} = state.github_connectivity[:firehose]
+    assert Orchestrator.github_next_poll_delay_for_test(state) == 1_000
 
     recovered = Orchestrator.poll_github_firehose_for_test(state, request_fun: ok)
     assert recovered.github_connectivity[:firehose] == nil
+    assert Orchestrator.github_next_poll_delay_for_test(recovered) == nil
   end
 
   defp request_page(%{url: url}) do

@@ -87,7 +87,8 @@ defmodule Aiur.Orchestrator do
             events_etag: String.t() | nil,
             events_last_id: String.t() | nil,
             github_comments_since: String.t() | nil,
-            github_connectivity: map()
+            github_connectivity: map(),
+            github_poll_delays: map()
           }
 
     defstruct [
@@ -114,7 +115,8 @@ defmodule Aiur.Orchestrator do
       events_etag: nil,
       events_last_id: nil,
       github_comments_since: nil,
-      github_connectivity: %{}
+      github_connectivity: %{},
+      github_poll_delays: %{}
     ]
   end
 
@@ -332,7 +334,7 @@ defmodule Aiur.Orchestrator do
   def handle_info(:run_poll_cycle, state) do
     state = refresh_runtime_config(state)
     state = maybe_dispatch(state)
-    state = schedule_tick(state, state.poll_interval_ms)
+    state = schedule_tick(state, next_poll_delay_ms(state))
     state = %{state | poll_check_in_progress: false}
 
     notify_dashboard(state)
@@ -661,7 +663,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, _branch, _event), do: state
+  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, _branch, _event),
+    do: state
 
   defp default_branch_name do
     case Config.settings!() do
@@ -871,7 +874,14 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp schedule_comment_rework_retry(%State{} = state, issue_number, source, event, attempt, reason) do
+  defp schedule_comment_rework_retry(
+         %State{} = state,
+         issue_number,
+         source,
+         event,
+         attempt,
+         reason
+       ) do
     max_attempts = comment_rework_max_attempts()
 
     if attempt >= max_attempts do
@@ -909,11 +919,13 @@ defmodule Aiur.Orchestrator do
 
       {:skip, reason} ->
         Logger.info("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
         schedule_poll_cycle_start()
         state
 
       {:error, reason} ->
         Logger.warning("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
         schedule_poll_cycle_start()
         state
     end
@@ -1063,6 +1075,7 @@ defmodule Aiur.Orchestrator do
 
       {:error, reason} ->
         Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
         state
     end
   end
@@ -1198,24 +1211,73 @@ defmodule Aiur.Orchestrator do
   # Records a successful poll for `source`, clearing any failure streak so a
   # later break re-arms a fresh operator escalation.
   defp note_github_connectivity_success(%State{} = state, source) do
-    %{state | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source)}
+    %{
+      state
+      | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source),
+        github_poll_delays: Map.delete(state.github_poll_delays, source)
+    }
   end
 
   # Classifies a poll failure and, when a sustained DNS/auth streak crosses the
   # escalation threshold, emits a single operator-visible blocker alert (#617).
   defp note_github_connectivity_failure(%State{} = state, source, reason) do
     classification = connectivity_classification(reason)
+    detail = connectivity_detail(reason)
 
     {streaks, alerts} =
       GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
 
     Enum.each(alerts, &emit_github_connectivity_alert/1)
 
-    %{state | github_connectivity: streaks}
+    backoff_ms =
+      classification
+      |> GitHubConnectivity.backoff_ms(connectivity_streak_count(streaks, source), detail)
+      |> normalize_github_backoff_ms(state)
+
+    %{
+      state
+      | github_connectivity: streaks,
+        github_poll_delays: Map.put(state.github_poll_delays, source, backoff_ms)
+    }
   end
 
   defp connectivity_classification({:github, classification, _detail}), do: classification
+  defp connectivity_classification({:github_api_status, 429}), do: :rate_limited
   defp connectivity_classification(_reason), do: :transport
+
+  defp connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
+
+  defp connectivity_detail({:github_api_status, status}) when is_integer(status),
+    do: %{status: status}
+
+  defp connectivity_detail(_reason), do: %{}
+
+  defp connectivity_streak_count(streaks, source) do
+    case Map.get(streaks, source) do
+      {_classification, count} when is_integer(count) and count > 0 -> count
+      _ -> 1
+    end
+  end
+
+  defp normalize_github_backoff_ms(:escalate, _state), do: GitHubConnectivity.max_backoff_ms()
+
+  defp normalize_github_backoff_ms(delay_ms, _state) when is_integer(delay_ms) and delay_ms >= 0,
+    do: delay_ms
+
+  defp normalize_github_backoff_ms(_delay_ms, %State{} = state), do: state.poll_interval_ms
+
+  defp next_poll_delay_ms(%State{} = state) do
+    github_next_poll_delay_ms(state) || state.poll_interval_ms
+  end
+
+  defp github_next_poll_delay_ms(%State{github_poll_delays: delays}) when is_map(delays) do
+    delays
+    |> Map.values()
+    |> Enum.filter(&(is_integer(&1) and &1 >= 0))
+    |> Enum.max(fn -> nil end)
+  end
+
+  defp github_next_poll_delay_ms(_state), do: nil
 
   defp emit_github_connectivity_alert(alert) do
     Alerts.emit_custom(
@@ -1263,7 +1325,9 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp comment_target_for_issue(%Issue{identifier: identifier}) when not is_nil(identifier), do: identifier
+  defp comment_target_for_issue(%Issue{identifier: identifier}) when not is_nil(identifier),
+    do: identifier
+
   defp comment_target_for_issue(%Issue{id: id}) when not is_nil(id), do: id
   defp comment_target_for_issue(_issue), do: nil
 
@@ -1568,6 +1632,10 @@ defmodule Aiur.Orchestrator do
   def poll_github_comments_for_test(%State{} = state, opts) when is_list(opts) do
     poll_github_comments(state, opts)
   end
+
+  @doc false
+  @spec github_next_poll_delay_for_test(State.t()) :: non_neg_integer() | nil
+  def github_next_poll_delay_for_test(%State{} = state), do: github_next_poll_delay_ms(state)
 
   @doc false
   @spec parse_pause_request_topic_for_test(String.t()) :: {:ok, String.t()} | :nomatch
@@ -3081,10 +3149,12 @@ defmodule Aiur.Orchestrator do
 
       {:skip, reason, state} ->
         Logger.debug("Skipping startup todo workspace cleanup: #{format_retry_preflight_error(reason)}")
+
         state
 
       {:error, reason, state} ->
         Logger.warning("Skipping startup todo workspace cleanup: #{format_retry_preflight_error(reason)}")
+
         state
     end
   end
@@ -3100,6 +3170,7 @@ defmodule Aiur.Orchestrator do
 
       {:error, reason} ->
         Logger.debug("Skipping startup todo workspace cleanup; failed to fetch todo issues: #{inspect(reason)}")
+
         state
     end
   end
@@ -3126,6 +3197,7 @@ defmodule Aiur.Orchestrator do
 
       {:skip, reason, state} ->
         Logger.debug("Skipping startup terminal workspace cleanup: #{format_retry_preflight_error(reason)}")
+
         state
 
       {:error, reason, state} ->
@@ -3137,7 +3209,8 @@ defmodule Aiur.Orchestrator do
 
   defp ensure_terminal_workspace_cleanup_preflight(%State{} = state) do
     case ensure_tracker_preflight(state) do
-      {:error, reason, state} when reason in [:missing_linear_api_token, :missing_linear_project_slug] ->
+      {:error, reason, state}
+      when reason in [:missing_linear_api_token, :missing_linear_project_slug] ->
         {:skip, reason, state}
 
       result ->
@@ -3146,7 +3219,9 @@ defmodule Aiur.Orchestrator do
   end
 
   defp cleanup_terminal_workspaces_after_preflight(%State{} = state) do
-    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states, quiet_auth_errors?: true) do
+    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states,
+           quiet_auth_errors?: true
+         ) do
       {:ok, issues} ->
         Enum.each(issues, &cleanup_terminal_issue_workspace/1)
         state
@@ -3397,7 +3472,10 @@ defmodule Aiur.Orchestrator do
     @continuation_retry_delay_ms
   end
 
-  defp retry_delay(_attempt, %{delay_type: :precondition, retry_poll_failures: retry_poll_failures}) do
+  defp retry_delay(_attempt, %{
+         delay_type: :precondition,
+         retry_poll_failures: retry_poll_failures
+       }) do
     retry_poll_failures
     |> normalize_retry_poll_failures()
     |> max(1)
@@ -4794,7 +4872,8 @@ defmodule Aiur.Orchestrator do
   end
 
   defp event_digest_delivery_opts(running_entry, event_or_events) do
-    if queue_wake_required?(running_entry) or trusted_comment_wake_required?(running_entry, event_or_events) do
+    if queue_wake_required?(running_entry) or
+         trusted_comment_wake_required?(running_entry, event_or_events) do
       [source: :system, priority: :now, interrupt_requested: true]
     else
       [source: :system]
@@ -6262,7 +6341,8 @@ defmodule Aiur.Orchestrator do
 
   defp event_dedupe_key(event), do: event
 
-  defp event_topic(event) when is_map(event), do: Map.get(event, :topic) || Map.get(event, "topic")
+  defp event_topic(event) when is_map(event),
+    do: Map.get(event, :topic) || Map.get(event, "topic")
 
   defp event_comment_id(event) when is_map(event) do
     comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}

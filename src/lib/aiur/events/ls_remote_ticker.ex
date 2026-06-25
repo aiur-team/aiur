@@ -85,6 +85,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       # sustained DNS/auth break raises a loud operator blocker instead of
       # only Logger.debug-ing forever.
       connectivity: %{},
+      next_delay_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
 
@@ -95,7 +96,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   @impl true
   def handle_info(:tick, state) do
     state = run_tick(state)
-    schedule_tick(state.interval_ms)
+    schedule_tick(state.next_delay_ms)
     {:noreply, state}
   end
 
@@ -143,7 +144,11 @@ defmodule Aiur.Events.LsRemoteTicker do
   end
 
   defp note_connectivity_success(state) do
-    %{state | connectivity: Connectivity.note_success(state.connectivity, :ls_remote)}
+    %{
+      state
+      | connectivity: Connectivity.note_success(state.connectivity, :ls_remote),
+        next_delay_ms: state.interval_ms
+    }
   end
 
   # Records a classified ls-remote failure and emits a single operator-visible
@@ -161,8 +166,27 @@ defmodule Aiur.Events.LsRemoteTicker do
       )
     end)
 
-    %{state | connectivity: streaks}
+    delay_ms =
+      classification
+      |> Connectivity.backoff_ms(connectivity_streak_count(streaks), %{})
+      |> normalize_backoff_ms(state)
+
+    %{state | connectivity: streaks, next_delay_ms: delay_ms}
   end
+
+  defp connectivity_streak_count(streaks) do
+    case Map.get(streaks, :ls_remote) do
+      {_classification, count} when is_integer(count) and count > 0 -> count
+      _ -> 1
+    end
+  end
+
+  defp normalize_backoff_ms(:escalate, _state), do: Connectivity.max_backoff_ms()
+
+  defp normalize_backoff_ms(delay_ms, _state) when is_integer(delay_ms) and delay_ms >= 0,
+    do: delay_ms
+
+  defp normalize_backoff_ms(_delay_ms, state), do: state.interval_ms
 
   defp fold_refs(state, current_refs) do
     repo = state.repo || resolve_repo()
@@ -197,14 +221,28 @@ defmodule Aiur.Events.LsRemoteTicker do
       {:ticket, id, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic} ticket=#{id}")
 
-        payload = %{ref: ref, sha: sha, actor: nil, commits: state.commits_fun.(repo, sha), repo: repo}
+        payload = %{
+          ref: ref,
+          sha: sha,
+          actor: nil,
+          commits: state.commits_fun.(repo, sha),
+          repo: repo
+        }
+
         publish_opts = build_publish_opts(repo, ref, sha, issue_number: id)
         do_publish(state, topic, payload, publish_opts)
 
       {:system, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
 
-        payload = %{ref: ref, sha: sha, actor: nil, commits: state.commits_fun.(repo, sha), repo: repo}
+        payload = %{
+          ref: ref,
+          sha: sha,
+          actor: nil,
+          commits: state.commits_fun.(repo, sha),
+          repo: repo
+        }
+
         do_publish(state, topic, payload, build_publish_opts(repo, ref, sha))
 
       nil ->

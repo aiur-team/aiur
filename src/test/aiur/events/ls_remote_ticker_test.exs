@@ -399,14 +399,41 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     tick(pid)
     state1 = :sys.get_state(pid)
     assert state1.connectivity[:ls_remote] == {:dns, 1}
+    assert state1.next_delay_ms == 1_000
 
     tick(pid)
     state2 = :sys.get_state(pid)
     assert {:dns, 2} = state2.connectivity[:ls_remote]
+    assert state2.next_delay_ms == 2_000
+  end
+
+  test "a timeout ls-remote failure backs off the next tick exponentially", %{
+    publisher: publisher
+  } do
+    timeout_failure = fn _remote, _patterns ->
+      {:error, {:git_ls_remote_failed, 128, "fatal: operation timed out"}}
+    end
+
+    {:ok, pid} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: timeout_failure,
+        publisher: publisher,
+        commits_fun: fn _repo, _sha -> [] end,
+        repo: "owner/aiur",
+        start_paused?: true
+      )
+
+    tick(pid)
+    assert :sys.get_state(pid).next_delay_ms == 1_000
+
+    tick(pid)
+    assert :sys.get_state(pid).next_delay_ms == 2_000
   end
 
   test "a successful tick clears the connectivity streak", %{publisher: publisher} do
-    {:ok, agent} = Agent.start_link(fn -> {:error, {:git_ls_remote_failed, 128, "Could not resolve host"}} end)
+    {:ok, agent} =
+      Agent.start_link(fn -> {:error, {:git_ls_remote_failed, 128, "Could not resolve host"}} end)
 
     ls_remote_fun = fn _remote, _patterns -> Agent.get(agent, & &1) end
 
@@ -422,9 +449,12 @@ defmodule Aiur.Events.LsRemoteTickerTest do
 
     tick(pid)
     assert {:dns, 1} = :sys.get_state(pid).connectivity[:ls_remote]
+    assert :sys.get_state(pid).next_delay_ms == 1_000
 
     Agent.update(agent, fn _ -> {:ok, %{}} end)
     tick(pid)
-    assert :sys.get_state(pid).connectivity[:ls_remote] == nil
+    state = :sys.get_state(pid)
+    assert state.connectivity[:ls_remote] == nil
+    assert state.next_delay_ms == state.interval_ms
   end
 end
