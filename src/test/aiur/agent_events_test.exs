@@ -28,13 +28,29 @@ defmodule Aiur.AgentEventsTest do
 
       assert event.name == "task.todo"
       assert event.message == "you have a new todo"
+      assert event.reason == "you have a new todo"
+      assert event.severity == "info"
+      assert event.needs_attention == false
+      assert event.source_ticket_id == nil
       assert is_nil(event.sound)
       assert %DateTime{} = event.timestamp
     end
 
-    test "accepts a sound override" do
-      event = AgentEvents.alert_event("task.done", "done", sound: "ding.wav")
+    test "accepts structured alert metadata overrides" do
+      event =
+        AgentEvents.alert_event("task.done", "done",
+          sound: "ding.wav",
+          reason: "review needed",
+          severity: "warning",
+          needs_attention: true,
+          source_ticket_id: "42"
+        )
+
       assert event.sound == "ding.wav"
+      assert event.reason == "review needed"
+      assert event.severity == "warning"
+      assert event.needs_attention == true
+      assert event.source_ticket_id == "42"
     end
   end
 

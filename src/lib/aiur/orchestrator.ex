@@ -1218,9 +1218,12 @@ defmodule Aiur.Orchestrator do
   defp connectivity_classification(_reason), do: :transport
 
   defp emit_github_connectivity_alert(alert) do
-    Alerts.emit_custom(
-      "system.github.connectivity_lost",
-      GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())
+    message = GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())
+
+    Alerts.emit_custom("system.github.connectivity_lost", message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning"
     )
   end
 
@@ -2765,7 +2768,10 @@ defmodule Aiur.Orchestrator do
     Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
 
     Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
-      issue: issue.identifier
+      issue: issue.identifier,
+      reason: "Codex restart loop exceeded the configured thrash limit; dispatch was skipped.",
+      needs_attention: true,
+      severity: "warning"
     )
 
     state
@@ -2882,7 +2888,12 @@ defmodule Aiur.Orchestrator do
 
       Logger.warning("Giving up on issue_id=#{issue_id} issue_identifier=#{identifier} after #{failed_attempts} failed attempt(s); max_retry_attempts=#{Config.max_retry_attempts()}#{error_suffix}")
 
-      Alerts.emit_system("ticket.#{identifier}.agent.retry_exhausted", issue: identifier)
+      Alerts.emit_system("ticket.#{identifier}.agent.retry_exhausted",
+        issue: identifier,
+        reason: "Agent retry attempts were exhausted; the ticket needs operator review.",
+        needs_attention: true,
+        severity: "warning"
+      )
 
       %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}
     else
@@ -3037,7 +3048,10 @@ defmodule Aiur.Orchestrator do
       "orchestrator.retry_poll.exhausted",
       message,
       issue: identifier,
-      worker_host: metadata[:worker_host]
+      worker_host: metadata[:worker_host],
+      reason: message,
+      needs_attention: true,
+      severity: "warning"
     )
   end
 
@@ -4730,7 +4744,10 @@ defmodule Aiur.Orchestrator do
     Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.paused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host)
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "Agent paused and may need operator input before continuing.",
+      needs_attention: true,
+      severity: "warning"
     )
   end
 
@@ -4739,7 +4756,10 @@ defmodule Aiur.Orchestrator do
     Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host)
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "Agent resumed; no operator action is needed.",
+      needs_attention: false,
+      severity: "info"
     )
   end
 
@@ -5797,11 +5817,18 @@ defmodule Aiur.Orchestrator do
       %Issue{} = issue ->
         Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
           issue: issue,
-          worker_host: running_worker_host(state, issue.id)
+          worker_host: running_worker_host(state, issue.id),
+          reason: "Todo issue count exceeds the current dispatch capacity.",
+          needs_attention: true,
+          severity: "warning"
         )
 
       _ ->
-        Alerts.emit_system("system.dispatch.todo_capacity_exceeded")
+        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+          reason: "Todo issue count exceeds the current dispatch capacity.",
+          needs_attention: true,
+          severity: "warning"
+        )
     end
   end
 

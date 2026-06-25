@@ -24,7 +24,10 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Enum.any?(specs, fn
              %{
-               "inputSchema" => %{"required" => ["name", "message"]},
+               "inputSchema" => %{
+                 "properties" => %{"reason" => _, "needs_attention" => _, "severity" => _},
+                 "required" => ["name", "message", "reason", "needs_attention"]
+               },
                "name" => "emit_alert"
              } ->
                true
@@ -93,15 +96,17 @@ defmodule Aiur.Codex.DynamicToolTest do
         "emit_alert",
         %{
           "name" => "phase.work.start",
-          "message" => "Entered implementation"
+          "message" => "Entered implementation",
+          "reason" => "work phase started",
+          "needs_attention" => false
         },
-        alert_emitter: fn name, message ->
-          send(test_pid, {:alert_emitted, name, message})
+        alert_emitter: fn name, message, reason, needs_attention, severity ->
+          send(test_pid, {:alert_emitted, name, message, reason, needs_attention, severity})
           :ok
         end
       )
 
-    assert_received {:alert_emitted, "phase.work.start", "Entered implementation"}
+    assert_received {:alert_emitted, "phase.work.start", "Entered implementation", "work phase started", false, "info"}
     assert response["success"] == true
   end
 
@@ -111,9 +116,12 @@ defmodule Aiur.Codex.DynamicToolTest do
         "emit_alert",
         %{
           "name" => "task.done",
-          "message" => "Completed"
+          "message" => "Completed",
+          "reason" => "attempted system scope",
+          "needs_attention" => true,
+          "severity" => "critical"
         },
-        alert_emitter: fn _name, _message -> {:error, :system_scope_reserved} end
+        alert_emitter: fn _name, _message, _reason, _needs_attention, _severity -> {:error, :system_scope_reserved} end
       )
 
     assert response["success"] == false

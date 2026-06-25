@@ -39,7 +39,11 @@ defmodule Aiur.AgentEvents do
   @type alert_event :: %{
           name: String.t(),
           message: String.t(),
+          reason: String.t(),
+          severity: String.t(),
+          needs_attention: boolean(),
           sound: String.t() | nil,
+          source_ticket_id: String.t() | nil,
           timestamp: DateTime.t()
         }
 
@@ -124,7 +128,11 @@ defmodule Aiur.AgentEvents do
     %{
       name: name,
       message: message,
+      reason: Keyword.get(opts, :reason) || message,
+      severity: Keyword.get(opts, :severity) || "info",
+      needs_attention: Keyword.get(opts, :needs_attention) == true,
       sound: Keyword.get(opts, :sound),
+      source_ticket_id: Keyword.get(opts, :source_ticket_id),
       timestamp: Keyword.get(opts, :timestamp) || DateTime.utc_now()
     }
   end

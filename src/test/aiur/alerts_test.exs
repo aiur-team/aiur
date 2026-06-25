@@ -33,7 +33,12 @@ defmodule Aiur.AlertsTest do
     ndjson_path = Path.join(workspace, "logs/agent.ndjson")
 
     assert File.read!(ndjson_path) =~ "\"name\":\"#{topic}\""
+    assert File.read!(ndjson_path) =~ "\"topic\":\"#{topic}\""
     assert File.read!(ndjson_path) =~ "\"message\":\"Task state changed\""
+    assert File.read!(ndjson_path) =~ "\"reason\":\"Task state changed\""
+    assert File.read!(ndjson_path) =~ "\"severity\":\"info\""
+    assert File.read!(ndjson_path) =~ "\"needs_attention\":false"
+    assert File.read!(ndjson_path) =~ "\"source_ticket_id\":\"MT-ALERT-1\""
 
     assert [%{role: "alert", title: ^topic, body: "Task state changed"}] =
              log_path
@@ -150,7 +155,11 @@ defmodule Aiur.AlertsTest do
           log = File.read!(log_path)
 
           String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.paused\"") and
-            String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"")
+            String.contains?(log, "\"needs_attention\":true") and
+            String.contains?(log, "\"severity\":\"warning\"") and
+            String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"") and
+            String.contains?(log, "\"reason\":\"Agent resumed; no operator action is needed.\"") and
+            String.contains?(log, "\"needs_attention\":false")
         else
           false
         end

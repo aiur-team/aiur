@@ -51,10 +51,12 @@ implement → test → build → lint → commit → push → PR loop.
 ## Milestone alerts (`emit_alert`)
 
 Aiur supports custom alert emission through an `emit_alert` function. When using
-`emit_alert`, always send exactly:
+`emit_alert`, always send:
 
 - `name`
 - `message`
+- `reason`
+- `needs_attention`
 
 Never emit Aiur-owned system alerts from the agent. The system owns:
 
@@ -63,7 +65,8 @@ Never emit Aiur-owned system alerts from the agent. The system owns:
 - `chat.*`
 
 When the work naturally enters one of the standard delivery phases, emit these
-custom alerts through `emit_alert`. Use concrete messages, and emit them when you
+custom alerts through `emit_alert`. Use concrete messages, set
+`needs_attention: false` for normal phase milestones, and emit them when you
 actually enter or leave the phase, not retroactively:
 
 - `phase.brainstorm.start` / `phase.brainstorm.end` when using `ce-brainstorm`

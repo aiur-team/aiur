@@ -69,6 +69,7 @@ defmodule Aiur.AgentEventLog do
   defp json_safe(%{} = value), do: Map.new(value, fn {key, val} -> {json_safe_key(key), json_safe(val)} end)
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
   defp json_safe(nil), do: nil
+  defp json_safe(value) when is_boolean(value), do: value
   defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
   defp json_safe(value), do: value
 

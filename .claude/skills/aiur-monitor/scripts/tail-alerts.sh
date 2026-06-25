@@ -6,14 +6,14 @@
 #
 # aiur emits ALERTs as events AND appends them to each workspace's
 # logs/agent.ndjson, one JSON object per line:
-#   {"event":"alert","message":"Agent paused","name":"ticket.43.agent.paused",...}
+#   {"event":"alert","reason":"Agent paused","needs_attention":true,"name":"ticket.43.agent.paused",...}
 # The alert TOPIC is `.name` (e.g. ticket.<id>.agent.paused / system.<...>).
-# There is no CLI to tail these and no "needs operator" flag — that verdict is
-# DERIVED here, in shell, from the topic name (no model in the loop).
+# `needs_attention` is set by the emitter. This relay never guesses operator
+# intent from the topic name.
 #
 # Output: a DAEMON header (same shape as tail-agents.sh) then one structured
 # line per alert, OLDEST first / NEWEST last, ready to relay:
-#   {"ticket":"43","agent":"43","reason":"Agent paused","name":"ticket.43.agent.paused","needs_attention":true}
+#   {"ticket":"43","agent":"43","reason":"Agent paused","severity":"warning","name":"ticket.43.agent.paused","needs_attention":true}
 #
 # This is a read-only sibling of tail-agents.sh: it reuses the same root
 # enumeration (config workspace.root + ~/.aiur/workspaces, deduped), the same
@@ -38,10 +38,6 @@ fi
 window_min="${AIUR_ACTIVE_WINDOW_MIN:-15}"
 include_stale="${AIUR_INCLUDE_STALE:-0}"
 alert_tail="${AIUR_ALERT_TAIL:-0}"   # 0 = no cap
-
-# Topics that mean "an operator should look NOW". Matched case-insensitively as
-# substrings of the alert topic (.name). Derived verdict — no model.
-attention_keywords="human-review input_required paused thrash retry_exhausted tokens_exhausted"
 
 have_jq=0
 command -v jq >/dev/null 2>&1 && have_jq=1
@@ -103,33 +99,6 @@ note_mtime() {
   return 0
 }
 
-# --- needs_attention verdict (shell, no model) -----------------------------
-# true iff the topic contains any attention keyword on a SEGMENT boundary,
-# case-insensitively. The boundary requirement is load-bearing: topic segments
-# are split by `.`/`_`/`-`, and a naive substring test flags `agent.unpaused`
-# (the all-clear) as needing attention because it ends in `paused`. So a keyword
-# must sit at start-of-string or right after a non-alphanumeric delimiter.
-needs_attention() {
-  local name_lc kw before
-  name_lc="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  for kw in $attention_keywords; do
-    case "$name_lc" in
-      "$kw"*) printf 'true'; return 0 ;;          # at start
-      *[!a-z0-9]"$kw"*)                            # after a delimiter
-        # The case above also matches mid-word if the char before kw is the
-        # delimiter — which is exactly the boundary we want. Guard the rare
-        # case where kw embeds in a longer alnum run by re-checking the char
-        # immediately before the match is a delimiter.
-        before="${name_lc%%"$kw"*}"
-        case "${before: -1}" in
-          [!a-z0-9]) printf 'true'; return 0 ;;
-        esac
-        ;;
-    esac
-  done
-  printf 'false'
-}
-
 # --- JSON helpers ----------------------------------------------------------
 # Without jq we still must emit valid JSON; escape the bare minimum (\ and ").
 json_escape() {
@@ -176,31 +145,40 @@ for root in "${roots[@]:-}"; do
       [ -n "$line" ] || continue
 
       if [ "$have_jq" -eq 1 ]; then
-        # One jq pass yields message<TAB>name; non-alert/garbage lines are dropped.
-        parsed="$(printf '%s' "$line" | jq -r 'select(.event=="alert") | [(.message // ""), (.name // "")] | @tsv' 2>/dev/null || true)"
+        # One jq pass yields message/name/reason/severity/needs/ticket fields;
+        # non-alert/garbage lines are dropped.
+        parsed="$(printf '%s' "$line" | jq -r 'select(.event=="alert") | [(.message // ""), (.topic // .name // ""), (.reason // ""), (.severity // "info"), (if .needs_attention == true then "true" else "false" end), (.source_ticket_id // "")] | join("\u001f")' 2>/dev/null || true)"
         [ -n "$parsed" ] || continue
-        msg="${parsed%%$'\t'*}"
-        name="${parsed#*$'\t'}"
+        IFS=$'\x1f' read -r msg name reason severity need src_ticket <<<"$parsed"
       else
         # jq-less fallback: scrape "name":"..." and "message":"..." from the raw
         # line. Good enough for the flat alert objects aiur writes.
-        name="$(printf '%s' "$line" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
+        name="$(printf '%s' "$line" | sed -n 's/.*"topic":"\([^"]*\)".*/\1/p')"
+        [ -n "$name" ] || name="$(printf '%s' "$line" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
         [ -n "$name" ] || continue
         msg="$(printf '%s' "$line" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p')"
+        reason="$(printf '%s' "$line" | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p')"
+        severity="$(printf '%s' "$line" | sed -n 's/.*"severity":"\([^"]*\)".*/\1/p')"
+        src_ticket="$(printf '%s' "$line" | sed -n 's/.*"source_ticket_id":"\([^"]*\)".*/\1/p')"
+        if printf '%s' "$line" | grep -q '"needs_attention":true'; then
+          need="true"
+        else
+          need="false"
+        fi
       fi
 
       # ticket id: parse `ticket.<id>.` from the topic, else fall back to the
       # workspace dir name (== ticket id == agent id for per-issue workspaces).
-      tkt="$(printf '%s' "$name" | sed -n 's/^ticket\.\([^.]*\)\..*/\1/p')"
+      tkt="$src_ticket"
+      [ -n "$tkt" ] || tkt="$(printf '%s' "$name" | sed -n 's/^ticket\.\([^.]*\)\..*/\1/p')"
       [ -n "$tkt" ] || tkt="$id"
 
-      # reason: prefer the human message; else the topic's last segment.
-      reason="$msg"
+      # reason: prefer explicit source context; then the human message; else the topic's last segment.
+      [ -n "$reason" ] || reason="$msg"
       [ -n "$reason" ] || reason="${name##*.}"
+      [ -n "$severity" ] || severity="info"
 
-      need="$(needs_attention "$name")"
-
-      agent_alerts="${agent_alerts}{\"ticket\":\"$(json_escape "$tkt")\",\"agent\":\"$(json_escape "$id")\",\"reason\":\"$(json_escape "$reason")\",\"name\":\"$(json_escape "$name")\",\"needs_attention\":${need}}
+      agent_alerts="${agent_alerts}{\"ticket\":\"$(json_escape "$tkt")\",\"source_ticket_id\":\"$(json_escape "$tkt")\",\"agent\":\"$(json_escape "$id")\",\"reason\":\"$(json_escape "$reason")\",\"severity\":\"$(json_escape "$severity")\",\"topic\":\"$(json_escape "$name")\",\"name\":\"$(json_escape "$name")\",\"needs_attention\":${need}}
 "
     done < <(grep '"event":"alert"' "$abs" 2>/dev/null || true)
 

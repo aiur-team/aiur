@@ -609,6 +609,24 @@ test("set max-agents reports below-active caps as draining", () => {
   expect(result.stderr).not.toContain("rpc to");
 });
 
+test("alerts supports needs-attention control rpc filter", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "ok",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    },
+    ["alerts", "--needs-attention"],
+  );
+
+  expect(result.status).toBe(0);
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("Aiur.AgentControlCLI.alerts(needs_attention: true)");
+});
+
 test("set max-agents rejects invalid values before rpc", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(

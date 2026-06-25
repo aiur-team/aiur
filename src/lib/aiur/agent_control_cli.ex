@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, Config, Orchestrator}
+  alias Aiur.{AgentChat, AlertFeed, Config, Orchestrator}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -42,6 +42,15 @@ defmodule Aiur.AgentControlCLI do
         print_orchestrator_status_error(:unavailable)
         exit_marker(1)
     end
+  end
+
+  @spec alerts(keyword()) :: :ok
+  def alerts(opts \\ []) do
+    opts
+    |> AlertFeed.list()
+    |> Enum.each(&IO.puts(Jason.encode!(&1)))
+
+    exit_marker(0)
   end
 
   # Absolute set of the concurrent-agent cap on a live node — `aiur set

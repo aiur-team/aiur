@@ -125,7 +125,8 @@ defmodule Aiur.Alerts do
     # Always publish through the Exchange — even when there's no matching
     # alert entry. Subscribers to the topic bus see every alert-emitted
     # event, regardless of whether the operator-facing sound/badge fires.
-    publish_to_exchange(topic, message, opts)
+    metadata = alert_metadata(message, opts)
+    publish_to_exchange(topic, message, metadata, opts)
 
     with {:ok, message} <- present_string(message, :missing_message) do
       settings = alert_settings()
@@ -134,7 +135,12 @@ defmodule Aiur.Alerts do
       payload = %{
         "event" => "alert",
         "name" => topic,
+        "topic" => topic,
         "message" => message,
+        "reason" => metadata.reason,
+        "severity" => metadata.severity,
+        "needs_attention" => metadata.needs_attention,
+        "source_ticket_id" => metadata.source_ticket_id,
         "sound" => selected_sound
       }
 
@@ -147,20 +153,67 @@ defmodule Aiur.Alerts do
         event: :alert,
         timestamp: DateTime.utc_now(),
         name: topic,
+        topic: topic,
         message: message,
+        reason: metadata.reason,
+        severity: metadata.severity,
+        needs_attention: metadata.needs_attention,
+        source_ticket_id: metadata.source_ticket_id,
         sound: selected_sound,
         raw: Jason.encode!(payload)
       })
 
       maybe_play_sound(selected_sound, settings, opts)
-      broadcast_agent_alert(topic, message, selected_sound, opts)
+      broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
       ObservabilityPubSub.broadcast_update()
       :ok
     end
   end
 
-  defp publish_to_exchange(topic, message, opts) do
-    Publisher.publish(topic, %{"message" => message || "", "source" => "alert"}, issue_number: issue_number_for(opts))
+  defp alert_metadata(message, opts) do
+    needs_attention = Keyword.get(opts, :needs_attention) == true
+
+    %{
+      reason: alert_reason(message, opts),
+      severity: alert_severity(needs_attention, opts),
+      needs_attention: needs_attention,
+      source_ticket_id: issue_number_for(opts)
+    }
+  end
+
+  defp alert_reason(message, opts) do
+    opts
+    |> Keyword.get(:reason)
+    |> present_string()
+    |> case do
+      {:ok, reason} -> reason
+      _ -> message || ""
+    end
+  end
+
+  defp alert_severity(needs_attention, opts) do
+    opts
+    |> Keyword.get(:severity)
+    |> present_string()
+    |> case do
+      {:ok, severity} -> severity
+      _ when needs_attention -> "warning"
+      _ -> "info"
+    end
+  end
+
+  defp publish_to_exchange(topic, message, metadata, opts) do
+    payload = %{
+      "message" => message || "",
+      "source" => "alert",
+      "reason" => metadata.reason,
+      "severity" => metadata.severity,
+      "needs_attention" => metadata.needs_attention,
+      "source_ticket_id" => metadata.source_ticket_id,
+      "topic" => topic
+    }
+
+    Publisher.publish(topic, payload, issue_number: issue_number_for(opts))
 
     :ok
   rescue
@@ -177,10 +230,18 @@ defmodule Aiur.Alerts do
     end
   end
 
-  defp broadcast_agent_alert(name, message, selected_sound, opts) do
+  defp broadcast_agent_alert(name, message, metadata, selected_sound, opts) do
     case identifier_for_alert(opts) do
       identifier when is_binary(identifier) ->
-        event = AgentEvents.alert_event(name, message, sound: selected_sound)
+        event =
+          AgentEvents.alert_event(name, message,
+            reason: metadata.reason,
+            severity: metadata.severity,
+            needs_attention: metadata.needs_attention,
+            source_ticket_id: metadata.source_ticket_id,
+            sound: selected_sound
+          )
+
         AgentPubSub.broadcast_alert(identifier, event)
 
       _ ->
