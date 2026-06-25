@@ -382,12 +382,20 @@ defmodule Aiur.Codex.CodingAgent do
   # rather than erroring (issue #378 acceptance: degrade gracefully).
   defp start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
        when is_binary(resume_thread_id) do
-    case resume_thread(port, workspace, session_policies, resume_thread_id) do
-      {:ok, thread_id} ->
+    case resume_outcome(resume_thread(port, workspace, session_policies, resume_thread_id), resume_thread_id) do
+      {:resumed, thread_id} ->
         Logger.info("Codex resumed prior thread thread_id=#{thread_id} (no cold start)")
         {:ok, thread_id, true}
 
-      {:error, reason} ->
+      {:fresh, thread_id} ->
+        # codex handed back a thread other than the one we asked to resume, so
+        # we did NOT actually rejoin the prior conversation. Report resumed?
+        # false so the first turn replays the full cold-start prompt instead of
+        # a context-free continuation prompt against an unfamiliar thread.
+        Logger.warning("Codex thread/resume returned a different thread_id (requested=#{resume_thread_id} got=#{thread_id}); treating as a clean start")
+        {:ok, thread_id, false}
+
+      {:fallback, reason} ->
         Logger.warning("Codex thread/resume failed for thread_id=#{resume_thread_id} (#{inspect(reason)}); falling back to a clean thread/start")
         Aiur.Perf.event(:codex_resume_fallback, thread_id: resume_thread_id, reason: inspect(reason))
 
@@ -397,14 +405,36 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
+  # Classify a `thread/resume` result against the thread we asked to resume.
+  # A genuine resume returns the SAME thread id; any other id means codex did
+  # not rejoin our rollout (treat as fresh), and an error means fall back to a
+  # clean start. Pure so the resumed?-vs-clean-start decision is unit-testable
+  # without a live app-server.
+  @doc false
+  @spec resume_outcome({:ok, String.t()} | {:error, term()}, String.t()) ::
+          {:resumed, String.t()} | {:fresh, String.t()} | {:fallback, term()}
+  def resume_outcome({:ok, resume_thread_id}, resume_thread_id), do: {:resumed, resume_thread_id}
+  def resume_outcome({:ok, other_thread_id}, _resume_thread_id), do: {:fresh, other_thread_id}
+  def resume_outcome({:error, reason}, _resume_thread_id), do: {:fallback, reason}
+
   defp start_thread(port, workspace, session_policies) do
-    send_message(port, thread_init_frame(nil, workspace, session_policies))
-    parse_thread_response(await_response(port, @thread_start_id))
+    send_thread_init(port, thread_init_frame(nil, workspace, session_policies))
   end
 
   defp resume_thread(port, workspace, session_policies, resume_thread_id) do
-    send_message(port, thread_init_frame(resume_thread_id, workspace, session_policies))
+    send_thread_init(port, thread_init_frame(resume_thread_id, workspace, session_policies))
+  end
+
+  # Write the thread/start|resume frame and read its response. A dead app-server
+  # makes `Port.command` raise `ArgumentError`; catch it as `{:error,
+  # :port_closed}` (mirroring `send_initialize`/`send_operator_message`) so a
+  # port that died before/at the send degrades to a handled error — and, on the
+  # resume path, to a clean start — rather than crashing the dispatch.
+  defp send_thread_init(port, frame) do
+    send_message(port, frame)
     parse_thread_response(await_response(port, @thread_start_id))
+  rescue
+    ArgumentError -> {:error, :port_closed}
   end
 
   # `thread/start` and `thread/resume` share a request id and response shape
@@ -1788,6 +1818,14 @@ defmodule Aiur.Codex.CodingAgent do
   def thread_init_frame_for_test(resume_thread_id, workspace, session_policies) do
     thread_init_frame(resume_thread_id, workspace, session_policies)
   end
+
+  @doc false
+  @spec send_thread_init_for_test(port(), map()) :: {:ok, String.t()} | {:error, term()}
+  def send_thread_init_for_test(port, frame), do: send_thread_init(port, frame)
+
+  @doc false
+  @spec parse_thread_response_for_test({:ok, map()} | {:error, term()}) :: {:ok, String.t()} | {:error, term()}
+  def parse_thread_response_for_test(response), do: parse_thread_response(response)
 
   @doc false
   @spec unretryable_codex_error_for_test(map()) :: boolean()

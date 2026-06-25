@@ -53,7 +53,11 @@ Important boundary:
 - Load runtime behavior from a repository-owned `.aiurconfig` contract.
 - Expose operator-visible observability (at minimum structured logs).
 - Support tracker/filesystem-driven restart recovery without requiring a persistent database; exact
-  in-memory scheduler state is not restored.
+  in-memory scheduler state is not restored. An implementation MAY persist a durable per-issue
+  coding-agent session handle and, on restart, resume the prior agent thread — continuing its
+  existing conversation instead of cold-starting one that re-discovers the work — when the backend
+  supports it. Resume MUST degrade to a clean start when the persisted session is missing, stale, or
+  unavailable (e.g. on a different host).
 
 ### 2.2 Non-Goals
 

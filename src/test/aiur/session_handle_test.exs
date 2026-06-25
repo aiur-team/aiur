@@ -10,11 +10,11 @@ defmodule Aiur.SessionHandleTest do
   end
 
   describe "save/3 + load/3 round-trip" do
-    test "a saved handle loads back with the same backend, thread_id, and model", %{dir: dir} do
+    test "a saved handle loads back with the same backend and thread_id", %{dir: dir} do
       :ok =
         SessionHandle.save(
           "378",
-          %{backend: "codex", thread_id: "thr_abc", model: "gpt-5.5"},
+          %{backend: "codex", thread_id: "thr_abc"},
           dir: dir,
           hostname: "box-1"
         )
@@ -22,24 +22,17 @@ defmodule Aiur.SessionHandleTest do
       assert {:ok, handle} = SessionHandle.load("378", "codex", dir: dir, hostname: "box-1")
       assert handle.thread_id == "thr_abc"
       assert handle.backend == "codex"
-      assert handle.model == "gpt-5.5"
       assert handle.hostname == "box-1"
     end
 
-    test "a nil model round-trips as nil", %{dir: dir} do
-      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t1", model: nil}, dir: dir, hostname: "h")
-      assert {:ok, handle} = SessionHandle.load("9", "codex", dir: dir, hostname: "h")
-      assert handle.model == nil
-    end
-
     test "a re-save overwrites the prior thread_id", %{dir: dir} do
-      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "old", model: nil}, dir: dir, hostname: "h")
-      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "new", model: nil}, dir: dir, hostname: "h")
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "old"}, dir: dir, hostname: "h")
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "new"}, dir: dir, hostname: "h")
       assert {:ok, %{thread_id: "new"}} = SessionHandle.load("9", "codex", dir: dir, hostname: "h")
     end
 
     test "identifiers with path-unsafe characters are sanitized into one file", %{dir: dir} do
-      :ok = SessionHandle.save("feat/x", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      :ok = SessionHandle.save("feat/x", %{backend: "codex", thread_id: "t"}, dir: dir, hostname: "h")
       assert {:ok, %{thread_id: "t"}} = SessionHandle.load("feat/x", "codex", dir: dir, hostname: "h")
     end
   end
@@ -50,17 +43,17 @@ defmodule Aiur.SessionHandleTest do
     end
 
     test "a backend mismatch is :none (never resume a different backend's thread)", %{dir: dir} do
-      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t"}, dir: dir, hostname: "h")
       assert :none == SessionHandle.load("9", "claude", dir: dir, hostname: "h")
     end
 
     test "a hostname mismatch is :none (codex rollouts are host-local)", %{dir: dir} do
-      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "box-1")
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t"}, dir: dir, hostname: "box-1")
       assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "box-2")
     end
 
     test "a corrupt (non-JSON) handle file is :none, not a crash", %{dir: dir} do
-      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t"}, dir: dir, hostname: "h")
       path = SessionHandle.path_for("9", dir: dir)
       File.write!(path, "{not json")
       assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "h")
@@ -83,7 +76,7 @@ defmodule Aiur.SessionHandleTest do
 
   describe "clear/2" do
     test "removes a saved handle so the next load is :none", %{dir: dir} do
-      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t", model: nil}, dir: dir, hostname: "h")
+      :ok = SessionHandle.save("9", %{backend: "codex", thread_id: "t"}, dir: dir, hostname: "h")
       :ok = SessionHandle.clear("9", dir: dir)
       assert :none == SessionHandle.load("9", "codex", dir: dir, hostname: "h")
     end

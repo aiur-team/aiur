@@ -599,6 +599,8 @@ defmodule Aiur.AgentRunner do
       # Persist the live session handle so the next aiur restart can resume it.
       persist_session_handle(session, issue.identifier, worker_host)
 
+      log_resume_outcome(issue, session, resume_thread_id)
+
       report_repl_session(codex_update_recipient, issue, session)
 
       display_tailer = maybe_start_display_tailer(session, issue, rc?)
@@ -716,7 +718,7 @@ defmodule Aiur.AgentRunner do
   end
 
   # The thread id to resume, or nil for a clean start, given the resolved
-  # backend, the worker host, and the result of `SessionHandle.load/2`. Resume
+  # backend, the worker host, and the result of `SessionHandle.load/3`. Resume
   # applies only to a resumable backend on the local worker with a valid
   # handle; everything else (no handle, non-resumable backend, remote worker)
   # cleanly starts fresh.
@@ -741,16 +743,48 @@ defmodule Aiur.AgentRunner do
   def session_resumed?(%{resumed: true}), do: true
   def session_resumed?(_session), do: false
 
+  # Session-lifecycle log carrying full issue context (per docs/logging.md,
+  # which scopes issue-context start/completion logging to AgentRunner). Only
+  # logs when a resume was attempted, distinguishing a true resume from a
+  # clean-start fallback so an operator can see whether the agent rejoined its
+  # prior thread or restarted cold.
+  defp log_resume_outcome(_issue, _session, nil), do: :ok
+
+  defp log_resume_outcome(issue, session, resume_thread_id) when is_binary(resume_thread_id) do
+    if session_resumed?(session) do
+      Logger.info("Resumed prior agent session for #{issue_context(issue)} thread_id=#{Map.get(session, :thread_id)}")
+    else
+      Logger.info("Resume requested but degraded to a clean start for #{issue_context(issue)} requested_thread_id=#{resume_thread_id}")
+    end
+
+    :ok
+  end
+
   # Persist the live session handle so a future aiur restart can resume this
   # thread. Skips anything that can't be resumed later (non-resumable backend,
   # remote worker, no thread id) so we never leave a misleading handle.
   defp persist_session_handle(session, identifier, worker_host) do
     case session_handle_to_save(session, worker_host) do
-      {:ok, attrs} -> SessionHandle.save(identifier, attrs)
+      {:ok, attrs} -> persist_handle_best_effort(identifier, attrs)
       :skip -> :ok
     end
+  end
 
+  # Best-effort persistence: `SessionHandle.save/3` (via `JsonStore.write!`)
+  # raises on any I/O failure (disk full, read-only/permission-denied state
+  # dir). A resume sidecar must never take down an agent run that already
+  # started successfully, so swallow the failure — the only cost is that this
+  # session won't resume on the next restart. Mirrors the rescue in
+  # `Aiur.Events.SubscriptionStore.persist/1`.
+  @doc false
+  @spec persist_handle_best_effort(String.t(), map(), keyword()) :: :ok
+  def persist_handle_best_effort(identifier, attrs, opts \\ []) do
+    SessionHandle.save(identifier, attrs, opts)
     :ok
+  rescue
+    error ->
+      Logger.warning("Could not persist session handle for #{identifier} (resume disabled for next restart): #{inspect(error)}")
+      :ok
   end
 
   # The handle attrs to persist for `session`, or `:skip` when this session can
@@ -763,7 +797,7 @@ defmodule Aiur.AgentRunner do
     backend = session_backend(session)
 
     if CodingAgent.resumable?(backend) do
-      {:ok, %{backend: backend, thread_id: thread_id, model: Map.get(session, :model)}}
+      {:ok, %{backend: backend, thread_id: thread_id}}
     else
       :skip
     end

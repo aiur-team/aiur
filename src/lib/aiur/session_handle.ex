@@ -32,14 +32,12 @@ defmodule Aiur.SessionHandle do
 
   @type attrs :: %{
           required(:backend) => String.t(),
-          required(:thread_id) => String.t(),
-          optional(:model) => String.t() | nil
+          required(:thread_id) => String.t()
         }
 
   @type handle :: %{
           backend: String.t(),
           thread_id: String.t(),
-          model: String.t() | nil,
           hostname: String.t(),
           updated_at: String.t() | nil
         }
@@ -50,13 +48,12 @@ defmodule Aiur.SessionHandle do
   (defaults to this host) — both injectable for tests.
   """
   @spec save(String.t(), attrs(), keyword()) :: :ok
-  def save(identifier, %{backend: backend, thread_id: thread_id} = attrs, opts \\ [])
+  def save(identifier, %{backend: backend, thread_id: thread_id}, opts \\ [])
       when is_binary(backend) and is_binary(thread_id) do
     payload = %{
       "schema_version" => @schema_version,
       "backend" => backend,
       "thread_id" => thread_id,
-      "model" => Map.get(attrs, :model),
       "hostname" => hostname(opts),
       "updated_at" => timestamp()
     }
@@ -110,7 +107,6 @@ defmodule Aiur.SessionHandle do
        %{
          backend: expected_backend,
          thread_id: thread_id,
-         model: Map.get(raw, "model"),
          hostname: host,
          updated_at: Map.get(raw, "updated_at")
        }}

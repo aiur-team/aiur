@@ -270,10 +270,10 @@ defmodule Aiur.AgentRunnerTest do
   end
 
   describe "session_handle_to_save/2 (what to persist for next restart)" do
-    test "persists backend, thread_id, and model for a resumable local codex session" do
-      session = %{backend: "codex", thread_id: "thr_9", model: "gpt-5.5"}
+    test "persists backend and thread_id for a resumable local codex session" do
+      session = %{backend: "codex", thread_id: "thr_9"}
 
-      assert {:ok, %{backend: "codex", thread_id: "thr_9", model: "gpt-5.5"}} =
+      assert {:ok, %{backend: "codex", thread_id: "thr_9"}} =
                AgentRunner.session_handle_to_save(session, nil)
     end
 
@@ -287,6 +287,31 @@ defmodule Aiur.AgentRunnerTest do
 
     test "skips a session with no thread id" do
       assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex"}, nil)
+    end
+  end
+
+  describe "persist_handle_best_effort/3 (a failed sidecar write must not crash a started run)" do
+    test "swallows a handle-write failure and returns :ok" do
+      # Point the handle at a directory whose parent is a regular file, so the
+      # underlying JsonStore.write! (mkdir_p!) raises. The agent run has already
+      # started successfully; persistence is best-effort and must never take it down.
+      not_a_dir = Path.join(System.tmp_dir!(), "ar_persist_test_#{System.unique_integer([:positive])}")
+      File.write!(not_a_dir, "x")
+      on_exit(fn -> File.rm_rf(not_a_dir) end)
+
+      bad_dir = Path.join(not_a_dir, "nested")
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok =
+                   AgentRunner.persist_handle_best_effort(
+                     "9",
+                     %{backend: "codex", thread_id: "t"},
+                     dir: bad_dir
+                   )
+        end)
+
+      assert log =~ "Could not persist session handle"
     end
   end
 
