@@ -33,6 +33,13 @@ work ordering, so they're worth stating up front:
   needs blocker code. The skill's `stub-then-fetch.md` has the exact provisional
   and integrated `unblocked` emit sequence — follow it rather than guessing the
   event timing from memory.
+- **Treat blocker branch pushes as inspect-and-stack cues.** When a declared
+  blocker emits `ticket.N.branch.push`, load `/aiur-agent`, fetch
+  `origin/aiur/N`, inspect the pushed diff/exports, and decide whether the
+  needed API landed. If it did, remove any temporary stub, rebase/merge/stack on
+  the blocker branch, and open your PR against that branch while it is still
+  unmerged. If it did not, stay blocked only on the integration point and record
+  the concrete inspected reason.
 
 The bare `progress` / `progress.checkin` emits that drive the operator's
 agent-list bar are a separate, operator-facing protocol — see "Progress emits"
