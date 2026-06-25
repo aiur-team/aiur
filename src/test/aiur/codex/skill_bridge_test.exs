@@ -18,11 +18,11 @@ defmodule Aiur.Codex.SkillBridgeTest do
     assert "using-aiur" in codex_advertised_skill_names(workspace)
     assert "aiur-agent" in codex_advertised_skill_names(workspace)
 
-    assert_symlinked_skill_file!(workspace, "using-aiur", "SKILL.md")
-    assert_symlinked_skill_file!(workspace, "using-aiur", "turn-workflow.md")
-    assert_symlinked_skill_file!(workspace, "aiur-agent", "SKILL.md")
-    assert_symlinked_skill_file!(workspace, "aiur-agent", "overview.md")
-    assert_symlinked_skill_file!(workspace, "aiur-agent", "event-taxonomy.md")
+    assert_generated_skill_file!(workspace, "using-aiur", "SKILL.md")
+    assert_generated_skill_file!(workspace, "using-aiur", "turn-workflow.md")
+    assert_generated_skill_file!(workspace, "aiur-agent", "SKILL.md")
+    assert_generated_skill_file!(workspace, "aiur-agent", "overview.md")
+    assert_generated_skill_file!(workspace, "aiur-agent", "event-taxonomy.md")
 
     File.write!(
       Path.join([workspace, ".claude", "skills", "using-aiur", "dev-loop.md"]),
@@ -30,7 +30,7 @@ defmodule Aiur.Codex.SkillBridgeTest do
     )
 
     assert :ok = SkillBridge.materialize_shared_skills(workspace)
-    assert_symlinked_skill_file!(workspace, "using-aiur", "dev-loop.md")
+    assert_generated_skill_file!(workspace, "using-aiur", "dev-loop.md")
   end
 
   test "materializing tracked Codex skill symlinks does not dirty a git workspace" do
@@ -87,11 +87,11 @@ defmodule Aiur.Codex.SkillBridgeTest do
     end)
   end
 
-  defp assert_symlinked_skill_file!(workspace, skill, file) do
+  defp assert_generated_skill_file!(workspace, skill, file) do
     codex_file = Path.join([workspace, ".codex", "skills", skill, file])
     claude_file = Path.join([workspace, ".claude", "skills", skill, file])
 
-    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(codex_file)
+    assert {:ok, %File.Stat{type: :regular}} = File.lstat(codex_file)
     assert File.read!(codex_file) == File.read!(claude_file)
   end
 
