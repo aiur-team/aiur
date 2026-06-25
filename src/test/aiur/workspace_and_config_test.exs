@@ -342,9 +342,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     try do
       {workspace, trace_file} =
-        bootstrap_dirty_refresh_workspace!(test_root, "STALE-65-ONLY",
-          refusal_output: "changed operator-facing refusal text"
-        )
+        bootstrap_dirty_refresh_workspace!(test_root, "STALE-65-ONLY", refusal_output: "changed operator-facing refusal text")
 
       issue = %Issue{
         id: "issue-stale-65-only",

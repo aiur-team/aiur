@@ -1702,12 +1702,14 @@ defmodule Aiur.CoreTest do
       send(task.pid, {:resume_agent, 101})
 
       assert_receive {:worker_control_state, "issue-before-run-pause", :working}, 5_000
+
       receive do
         {:codex_worker_update, "issue-before-run-pause", %{event: :session_started}} -> :ok
       after
         5_000 ->
           flunk("session did not start after resume; codex trace:\n#{File.read!(codex_trace)}")
       end
+
       assert {:ok, :ok} = Task.yield(task, 15_000)
 
       assert before_run_trace |> File.read!() |> String.split("\n", trim: true) |> length() == 2
