@@ -137,6 +137,24 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "agent operating guidance requires the full pre-PR verification gate" do
+    dev_loop = File.read!(Path.join([@repo_root, ".claude", "skills", "using-aiur", "dev-loop.md"]))
+    repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
+
+    for source <- [one_line(dev_loop), one_line(repo_prompt)] do
+      assert source =~ "pre-PR"
+      assert source =~ "mix compile --warnings-as-errors"
+      assert source =~ "mix format --check-formatted"
+      assert source =~ "mix test"
+      assert source =~ "mix credo --strict"
+      assert source =~ "mix dialyzer"
+    end
+
+    assert one_line(dev_loop) =~ "Do not substitute a smaller local gate"
+    assert one_line(dev_loop) =~ "Re-run the pre-PR verification gate after review fixes"
+    assert one_line(repo_prompt) =~ "fix failures before opening/finalizing a PR"
+  end
+
   defp assert_codex_skill_symlink_resolves_to_claude(skill) do
     claude_skill = Path.join([@repo_root, ".claude", "skills", skill])
     codex_skill = Path.join([@repo_root, ".codex", "skills", skill])

@@ -34,8 +34,11 @@ and avoids the index-write failure path entirely.
 
 1. Implement
 2. Add / update / run tests
-3. Build
-4. Lint (with autofix)
+3. Run the pre-PR verification gate before opening or finalizing the PR:
+   `mix compile --warnings-as-errors`, `mix format --check-formatted`,
+   `mix test`, `mix credo --strict`, and `mix dialyzer`
+4. Fix every verification failure before continuing. Do not substitute a
+   smaller local gate such as "tests + format" for the PR-ready check.
 5. Commit using short, 3–7 word messages, keeping your machine's git identity as
    the author. **When that author is `its-applekid` (email
    `its.applekid@gmail.com`)**, add GitHub's co-author trailer crediting the
@@ -51,7 +54,9 @@ and avoids the index-write failure path entirely.
 8. **Self-review the draft PR with `ce-code-review`** against the diff you just
    pushed.
 9. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
-10. If you still believe the work is complete and correct, **mark the PR ready
+10. Re-run the pre-PR verification gate after review fixes if any code, tests,
+    prompt, skill, or config files changed.
+11. If you still believe the work is complete and correct, **mark the PR ready
     for review** and add the `agent:human-review` label.
 
 Do **not** self-merge. Always await user review after marking the PR ready.
@@ -70,6 +75,10 @@ Before opening the draft PR, run the CLI locally and manually exercise all new
 functionality end-to-end. If the CLI fails to run, debug and fix the issues — do
 not skip verification or give up. Only open the draft PR once the requested
 functionality is confirmed working in the CLI.
+
+Manual CLI verification is in addition to the pre-PR verification gate above,
+not a replacement for it. A PR is not ready for human review until compile,
+format, tests, credo strict, and dialyzer have all passed locally.
 
 ## Closing keyword in the PR description
 
