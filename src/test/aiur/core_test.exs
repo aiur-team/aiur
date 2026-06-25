@@ -2370,7 +2370,7 @@ defmodule Aiur.CoreTest do
       assert_receive {:codex_worker_update, "issue-pause-resume", %{event: :session_started}}, 5_000
 
       send(task.pid, {:pause_agent, 91})
-      assert Task.yield(task, 100) == nil
+      assert_receive {:worker_control_state, "issue-pause-resume", :paused}, 5_000
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =
