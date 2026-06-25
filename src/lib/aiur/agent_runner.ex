@@ -170,37 +170,51 @@ defmodule Aiur.AgentRunner do
 
   defp current_comment_context_events(%Issue{identifier: identifier}, fetchers)
        when is_binary(identifier) do
-    issue_events =
-      fetch_comment_events(
-        "ticket.#{identifier}.issue.commented",
-        fn -> fetchers.issue_comments.(identifier) end
-      )
+    {issue_comments, cutoff} = issue_comment_context(identifier, fetchers)
 
-    pr_events = pr_comment_context_events(identifier, fetchers)
+    issue_events =
+      issue_comments
+      |> comments_after_workpad(cutoff)
+      |> comments_to_events("ticket.#{identifier}.issue.commented")
+
+    pr_events = pr_comment_context_events(identifier, fetchers, cutoff)
 
     Enum.uniq_by(issue_events ++ pr_events, &bootstrap_event_key/1)
   end
 
   defp current_comment_context_events(_issue, _fetchers), do: []
 
-  defp pr_comment_context_events(identifier, fetchers) do
+  defp issue_comment_context(identifier, fetchers) do
+    case fetchers.issue_comments.(identifier) do
+      {:ok, comments} when is_list(comments) ->
+        {comments, latest_workpad_comment_datetime(comments)}
+
+      {:error, reason} ->
+        Logger.warning("comment_context fetch_failed topic=ticket.#{identifier}.issue.commented reason=#{inspect(reason)}")
+        {[], nil}
+    end
+  end
+
+  defp pr_comment_context_events(identifier, fetchers, cutoff) do
     case fetchers.open_pr.(identifier) do
-      {:ok, %{} = pr} -> pr_comment_context_events_for_pr(identifier, pr_number(pr), fetchers)
+      {:ok, %{} = pr} -> pr_comment_context_events_for_pr(identifier, pr_number(pr), fetchers, cutoff)
       {:ok, nil} -> []
       {:error, reason} -> log_comment_context_open_pr_failed(identifier, reason)
     end
   end
 
-  defp pr_comment_context_events_for_pr(_identifier, nil, _fetchers), do: []
+  defp pr_comment_context_events_for_pr(_identifier, nil, _fetchers, _cutoff), do: []
 
-  defp pr_comment_context_events_for_pr(identifier, pr_number, fetchers) do
+  defp pr_comment_context_events_for_pr(identifier, pr_number, fetchers, cutoff) do
     fetch_comment_events(
       "ticket.#{identifier}.issue.commented",
-      fn -> fetchers.issue_comments.(pr_number) end
+      fn -> fetchers.issue_comments.(pr_number) end,
+      cutoff
     ) ++
       fetch_comment_events(
         "ticket.#{identifier}.pr.review_comment",
-        fn -> fetchers.pr_review_comments.(pr_number) end
+        fn -> fetchers.pr_review_comments.(pr_number) end,
+        cutoff
       )
   end
 
@@ -217,16 +231,91 @@ defmodule Aiur.AgentRunner do
     }
   end
 
-  defp fetch_comment_events(topic, fetch_fun) when is_function(fetch_fun, 0) do
+  defp fetch_comment_events(topic, fetch_fun, cutoff) when is_function(fetch_fun, 0) do
     case fetch_fun.() do
       {:ok, comments} when is_list(comments) ->
-        Enum.map(comments, &comment_context_event(topic, &1))
+        comments
+        |> comments_after_workpad(cutoff)
+        |> comments_to_events(topic)
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} reason=#{inspect(reason)}")
         []
     end
   end
+
+  defp comments_to_events(comments, topic) when is_list(comments) do
+    Enum.map(comments, &comment_context_event(topic, &1))
+  end
+
+  defp comments_after_workpad(comments, nil) when is_list(comments) do
+    Enum.reject(comments, &workpad_comment?/1)
+  end
+
+  defp comments_after_workpad(comments, %DateTime{} = cutoff) when is_list(comments) do
+    comments
+    |> Enum.reject(&workpad_comment?/1)
+    |> Enum.filter(&comment_after_cutoff?(&1, cutoff))
+  end
+
+  defp latest_workpad_comment_datetime(comments) when is_list(comments) do
+    comments
+    |> Enum.filter(&workpad_comment?/1)
+    |> Enum.map(&comment_datetime/1)
+    |> Enum.reject(&is_nil/1)
+    |> latest_datetime()
+  end
+
+  defp latest_datetime([]), do: nil
+
+  defp latest_datetime([first | rest]) do
+    Enum.reduce(rest, first, fn datetime, latest ->
+      if DateTime.compare(datetime, latest) == :gt, do: datetime, else: latest
+    end)
+  end
+
+  defp workpad_comment?(comment) when is_map(comment) do
+    comment
+    |> comment_body()
+    |> String.trim_leading()
+    |> String.starts_with?("## Agent Workpad")
+  end
+
+  defp workpad_comment?(_comment), do: false
+
+  defp comment_after_cutoff?(comment, %DateTime{} = cutoff) do
+    case comment_datetime(comment) do
+      %DateTime{} = datetime -> DateTime.compare(datetime, cutoff) == :gt
+      nil -> true
+    end
+  end
+
+  defp comment_datetime(comment) when is_map(comment) do
+    value =
+      Map.get(comment, "updated_at") ||
+        Map.get(comment, :updated_at) ||
+        Map.get(comment, "updatedAt") ||
+        Map.get(comment, :updatedAt) ||
+        Map.get(comment, "created_at") ||
+        Map.get(comment, :created_at) ||
+        Map.get(comment, "createdAt") ||
+        Map.get(comment, :createdAt)
+
+    parse_comment_datetime(value)
+  end
+
+  defp comment_datetime(_comment), do: nil
+
+  defp parse_comment_datetime(%DateTime{} = datetime), do: datetime
+
+  defp parse_comment_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp parse_comment_datetime(_value), do: nil
 
   defp comment_context_event(topic, comment) do
     author = comment_author(comment)
@@ -240,7 +329,7 @@ defmodule Aiur.AgentRunner do
       }
       |> Sanitizer.scrub()
 
-    summary = get_in(payload, [:comment, "body"]) || ""
+    summary = get_in(payload, [:comment, "body"]) || get_in(payload, [:comment, :body]) || ""
 
     payload
     |> Map.merge(%{
@@ -259,6 +348,12 @@ defmodule Aiur.AgentRunner do
   end
 
   defp comment_author(_comment), do: nil
+
+  defp comment_body(comment) when is_map(comment) do
+    Map.get(comment, "body") || Map.get(comment, :body) || ""
+  end
+
+  defp comment_body(_comment), do: ""
 
   defp comment_event_id(comment) when is_map(comment) do
     case Map.get(comment, "id") || Map.get(comment, :id) do
