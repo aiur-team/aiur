@@ -82,6 +82,17 @@ defmodule Aiur.Events.Sanitizer do
   def scrub(other), do: other
 
   @doc """
+  Promote a sanitized GitHub comment body to the top-level `message`
+  field consumed by logs and agent event digests.
+  """
+  @spec put_comment_message(map()) :: map()
+  def put_comment_message(%{comment: %{"body" => body}} = payload) when is_binary(body) do
+    Map.put(payload, :message, body)
+  end
+
+  def put_comment_message(payload), do: payload
+
+  @doc """
   Add an `author_trusted?` flag to the payload based on whether
   `author` (a GitHub login) is currently in the resolved CODEOWNERS
   trust set. No-op when CodeOwners isn't running (test harnesses,

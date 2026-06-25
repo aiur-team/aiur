@@ -119,6 +119,11 @@ Discovery precedence: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` 
 - **Trackers**: `linear`, `github`, `memory`
 - **Agents**: `codex`, `claude`
 
+For GitHub trackers, `github.trusted_accounts` can name operator accounts whose
+comments should reach agent event digests even when CODEOWNERS team expansion is
+unavailable. Keep it separate from `github.bot_account`: bot-account authors are
+filtered as self-loops, while trusted accounts are allowed human operators.
+
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
 - [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)

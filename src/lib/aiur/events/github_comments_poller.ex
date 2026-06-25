@@ -54,13 +54,14 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp poll_target(target, since, repo, opts, {count, newest_seen_at, successes, errors}) do
     {issue_count, issue_newest, issue_result} = poll_issue_comments(target, since, repo, opts)
-    {pr_count, pr_newest, pr_result} = poll_pr_review_comments(target, since, repo, opts)
+    {pr_count, pr_newest, pr_results} = poll_pr_comments(target, since, repo, opts)
+    results = [issue_result | pr_results]
 
     {
       count + issue_count + pr_count,
       max_datetime(newest_seen_at, max_datetime(issue_newest, pr_newest)),
-      successes + success_count(issue_result) + success_count(pr_result),
-      collect_error(errors, target, issue_result, pr_result)
+      successes + success_count(results),
+      collect_error(errors, target, results)
     }
   end
 
@@ -81,28 +82,65 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
   end
 
-  defp poll_pr_review_comments(target, since, repo, opts) do
+  defp poll_pr_comments(target, since, repo, opts) do
     with {:ok, pr} when is_map(pr) <- Client.fetch_open_pull_request_for_branch(target, opts),
-         pr_number when not is_nil(pr_number) <- Map.get(pr, "number"),
-         {:ok, comments} <-
-           Client.fetch_pull_request_review_comments(pr_number, Keyword.put(opts, :since, since)) do
-      count =
-        comments
-        |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
-        |> Enum.count(&match?({:ok, _, _}, &1))
+         pr_number when is_integer(pr_number) <- parse_integer(Map.get(pr, "number")) do
+      {conversation_count, conversation_newest, conversation_result} =
+        poll_pr_issue_comments(target, pr_number, since, repo, opts)
 
-      {count, newest_comment_datetime(comments), :ok}
+      {review_count, review_newest, review_result} =
+        poll_pr_review_comments(target, pr_number, since, repo, opts)
+
+      {
+        conversation_count + review_count,
+        max_datetime(conversation_newest, review_newest),
+        [conversation_result, review_result]
+      }
     else
       {:ok, nil} ->
-        {0, nil, :ok}
+        {0, nil, [:ok]}
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}")
 
-        {0, nil, {:error, {:pr_review_comments, reason}}}
+        {0, nil, [{:error, {:pr_review_comments, reason}}]}
 
       nil ->
-        {0, nil, :ok}
+        {0, nil, [:ok]}
+    end
+  end
+
+  defp poll_pr_issue_comments(target, pr_number, since, repo, opts) do
+    case Client.fetch_issue_comments(pr_number, Keyword.put(opts, :since, since)) do
+      {:ok, comments} ->
+        count =
+          comments
+          |> Enum.map(&publish_pr_issue_comment(target, pr_number, &1, repo))
+          |> Enum.count(&match?({:ok, _, _}, &1))
+
+        {count, newest_comment_datetime(comments), :ok}
+
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+
+        {0, nil, {:error, {:pr_issue_comments, reason}}}
+    end
+  end
+
+  defp poll_pr_review_comments(target, pr_number, since, repo, opts) do
+    case Client.fetch_pull_request_review_comments(pr_number, Keyword.put(opts, :since, since)) do
+      {:ok, comments} ->
+        count =
+          comments
+          |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
+          |> Enum.count(&match?({:ok, _, _}, &1))
+
+        {count, newest_comment_datetime(comments), :ok}
+
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller PR review comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+
+        {0, nil, {:error, {:pr_review_comments, reason}}}
     end
   end
 
@@ -116,6 +154,18 @@ defmodule Aiur.Events.GithubCommentsPoller do
       actor,
       issue_number: target,
       dedup_key: comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id"))
+    )
+  end
+
+  defp publish_pr_issue_comment(target, pr_number, comment, repo) when is_map(comment) do
+    actor = get_in(comment, ["user", "login"])
+
+    publish_comment(
+      "ticket.#{target}.issue.commented",
+      %{issue_number: target, comment: comment},
+      actor,
+      issue_number: target,
+      dedup_key: comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
     )
   end
 
@@ -137,6 +187,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
       |> Map.put(:source, :github)
       |> Sanitizer.scrub()
       |> Sanitizer.stamp_author_trust(actor: actor)
+      |> Sanitizer.put_comment_message()
 
     publish_opts =
       publish_opts
@@ -148,9 +199,10 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp success_count(:ok), do: 1
   defp success_count({:error, _}), do: 0
+  defp success_count(results) when is_list(results), do: Enum.map(results, &success_count/1) |> Enum.sum()
 
-  defp collect_error(errors, target, issue_result, pr_result) do
-    [issue_result, pr_result]
+  defp collect_error(errors, target, results) do
+    results
     |> Enum.reduce(errors, fn
       {:error, reason}, acc -> [{target, reason} | acc]
       _ok, acc -> acc
@@ -226,4 +278,6 @@ defmodule Aiur.Events.GithubCommentsPoller do
       _ -> nil
     end
   end
+
+  defp parse_integer(_value), do: nil
 end

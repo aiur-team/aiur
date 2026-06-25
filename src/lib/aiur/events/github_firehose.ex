@@ -220,6 +220,7 @@ defmodule Aiur.Events.GithubFirehose do
           |> Map.put(:source, :github)
           |> Sanitizer.scrub()
           |> Sanitizer.stamp_author_trust(actor: Keyword.get(publish_opts, :actor))
+          |> Sanitizer.put_comment_message()
 
         Publisher.publish(topic, sanitized, publish_opts)
     end

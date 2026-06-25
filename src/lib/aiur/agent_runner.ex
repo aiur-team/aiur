@@ -1108,11 +1108,25 @@ defmodule Aiur.AgentRunner do
   defp wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
     receive do
       {:agent_queue_updated, issue_identifier, _item_id} when issue_identifier == issue.identifier ->
-        try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+        try_claim_after_queue_update(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient,
+          true
+        )
 
-      {:agent_queue_updated, issue_identifier, _item_id, _interrupt_requested}
+      {:agent_queue_updated, issue_identifier, _item_id, deliver_now?}
       when issue_identifier == issue.identifier ->
-        try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+        try_claim_after_queue_update(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient,
+          deliver_now?
+        )
 
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
@@ -1122,15 +1136,15 @@ defmodule Aiur.AgentRunner do
       {:resume_agent, request_id} when is_integer(request_id) ->
         Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{request_id}")
         send_control_state(codex_update_recipient, issue, :working)
-        # An explicit resume drains the operator queue so restored items
+        # An explicit resume drains the agent queue so restored items
         # land in the same turn instead of being deferred until the next
         # checkpoint of an initial-prompt turn.
         claim_and_run_or_continue(app_session, issue, message_handler, orchestrator, codex_update_recipient)
     end
   end
 
-  defp try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
-    case claim_next_operator_item(orchestrator, issue.identifier) do
+  defp try_claim_after_queue_update(app_session, issue, message_handler, orchestrator, codex_update_recipient, deliver_now?) do
+    case claim_after_queue_update(orchestrator, issue.identifier, deliver_now?) do
       {:ok, item} ->
         Logger.info("Resuming paused agent for #{issue_context(issue)} request_id=#{item.id}")
         send_control_state(codex_update_recipient, issue, :working)
@@ -1138,11 +1152,28 @@ defmodule Aiur.AgentRunner do
 
       :empty ->
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
+
+      :ignored ->
+        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
     end
   end
 
+  @doc false
+  @spec claim_after_queue_update_for_test(GenServer.server(), String.t(), boolean()) ::
+          {:ok, map()} | :empty | :ignored
+  def claim_after_queue_update_for_test(orchestrator, issue_identifier, deliver_now?)
+      when is_binary(issue_identifier) and is_boolean(deliver_now?) do
+    claim_after_queue_update(orchestrator, issue_identifier, deliver_now?)
+  end
+
+  defp claim_after_queue_update(orchestrator, issue_identifier, true) do
+    claim_next_wake_queue_item(orchestrator, issue_identifier)
+  end
+
+  defp claim_after_queue_update(_orchestrator, _issue_identifier, false), do: :ignored
+
   defp claim_and_run_or_continue(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
-    case claim_next_operator_item(orchestrator, issue.identifier) do
+    case claim_next_wake_queue_item(orchestrator, issue.identifier) do
       {:ok, item} ->
         run_operator_turn(app_session, issue, item, message_handler, orchestrator, codex_update_recipient)
 
@@ -1168,6 +1199,10 @@ defmodule Aiur.AgentRunner do
       :empty -> :empty
       {:error, _reason} -> :empty
     end
+  end
+
+  defp claim_next_wake_queue_item(orchestrator, issue_identifier) do
+    claim_next_queue_item(orchestrator, issue_identifier)
   end
 
   defp claim_next_operator_item(orchestrator, issue_identifier) when is_binary(issue_identifier) do
@@ -1306,6 +1341,12 @@ defmodule Aiur.AgentRunner do
     debounced = debounce_block_state_events(trusted)
     rendered = Enum.map_join(debounced, "\n", &render_event_line/1)
     "<aiur:events>\n" <> rendered <> "\n</aiur:events>"
+  end
+
+  @doc false
+  @spec render_events_digest_for_test([map()], String.t()) :: String.t()
+  def render_events_digest_for_test(events, identifier) when is_list(events) and is_binary(identifier) do
+    render_events_digest(events, identifier)
   end
 
   # Default-untrusted policy for GitHub-sourced events with no

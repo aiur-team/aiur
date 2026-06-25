@@ -5,7 +5,9 @@ defmodule Aiur.GitHub.CodeOwnersTest do
   alias Aiur.Workflow
 
   setup do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_codeowners_#{System.unique_integer([:positive])}")
+    tmp_dir =
+      Path.join(System.tmp_dir!(), "aiur_codeowners_#{System.unique_integer([:positive])}")
+
     File.mkdir_p!(tmp_dir)
     path = Path.join(tmp_dir, "CODEOWNERS")
 
@@ -59,6 +61,31 @@ defmodule Aiur.GitHub.CodeOwnersTest do
 
       {_pid, name} = start_owners(path)
       assert CodeOwners.snapshot(name) == ["aiur-bot"]
+    end
+
+    test "trusted accounts are included without becoming bot self-loop authors", %{path: path} do
+      File.write!(path, "* @alice\n")
+      configure_github(trusted_accounts: ["its-everdred"])
+
+      {_pid, name} = start_owners(path)
+      snap = CodeOwners.snapshot(name)
+
+      assert "alice" in snap
+      assert "its-everdred" in snap
+      refute "aiur-bot" in snap
+    end
+
+    test "trusted accounts survive CODEOWNERS team resolution failures", %{path: path} do
+      File.write!(path, "* @myorg/myteam\n")
+      configure_github(trusted_accounts: ["its-everdred"])
+
+      request_fun = fn _ -> {:ok, %{status: 404, headers: [], body: ""}} end
+
+      {_pid, name} = start_owners(path, request_fun: request_fun)
+      snap = CodeOwners.snapshot(name)
+
+      assert snap == ["its-everdred"]
+      assert CodeOwners.allowed?("its-everdred", name)
     end
 
     test "comment-only lines do not contribute entries", %{path: path} do
@@ -155,11 +182,16 @@ defmodule Aiur.GitHub.CodeOwnersTest do
   end
 
   defp configure_bot_account(bot) do
+    configure_github(bot_account: bot)
+  end
+
+  defp configure_github(opts) do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
       tracker_repo: "owner/repo",
       tracker_label_prefix: "aiur",
-      tracker_bot_account: bot
+      tracker_bot_account: Keyword.get(opts, :bot_account),
+      tracker_trusted_accounts: Keyword.get(opts, :trusted_accounts, [])
     )
   end
 end

@@ -74,6 +74,18 @@ defmodule Aiur.AgentQueueTest do
     assert consumed.status == :consumed
   end
 
+  test "coordination event can request immediate wake delivery" do
+    item =
+      AgentQueue.coordination_event("MT-201", :events_digest, %{summary: "review comment"},
+        priority: :now,
+        interrupt_requested: true
+      )
+
+    assert item.delivery.priority == :now
+    assert item.delivery.consume_at == :safe_checkpoint
+    assert item.delivery.interrupt_requested == true
+  end
+
   test "mark queue item delivered, consumed, failed, and superseded" do
     store = AgentQueueStore.new()
     {store, item} = AgentQueue.operator_message("MT-300", "hello") |> then(&AgentQueueStore.enqueue(store, &1))

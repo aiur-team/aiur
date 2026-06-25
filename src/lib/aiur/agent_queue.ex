@@ -42,7 +42,7 @@ defmodule Aiur.AgentQueue do
         priority: Keyword.get(opts, :priority, :later),
         durability: :durable,
         consume_at: :safe_checkpoint,
-        interrupt_requested: false
+        interrupt_requested: Keyword.get(opts, :interrupt_requested, false)
       },
       dedupe_key: Keyword.get(opts, :dedupe_key),
       causal_refs: Keyword.get(opts, :causal_refs, []),

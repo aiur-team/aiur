@@ -47,11 +47,12 @@ defmodule Aiur.Config.Schema do
       field(:repo, :string)
       field(:label_prefix, :string, default: "agent")
       field(:bot_account, :string)
+      field(:trusted_accounts, {:array, :string}, default: [])
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
-      cast(schema, attrs, [:repo, :label_prefix, :bot_account], empty_values: [])
+      cast(schema, attrs, [:repo, :label_prefix, :bot_account, :trusted_accounts], empty_values: [])
     end
   end
 

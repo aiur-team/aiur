@@ -98,6 +98,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                       topic: "ticket.42.issue.commented",
                       author_trusted?: true,
                       source: :github,
+                      message: "please rework this",
                       comment: %{"body" => "please rework this"}
                     }},
                    500
@@ -116,6 +117,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
         String.contains?(url, "/pulls?") ->
           {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls/77/comments?") ->
           {:ok,
@@ -145,7 +149,106 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                       topic: "ticket.42.pr.review_comment",
                       author_trusted?: true,
                       source: :github,
+                      message: "line note needs rework",
                       comment: %{"body" => "line note needs rework"}
+                    }},
+                   500
+
+    stop_codeowners(codeowners)
+  end
+
+  test "polls open PR conversation comments and publishes issue.commented under ticket id" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 2502,
+                 "body" => "conversation needs rework",
+                 "updated_at" => "2026-06-24T12:02:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 1, since: "2026-06-24T12:01:59Z"}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:event,
+                    %{
+                      topic: "ticket.42.issue.commented",
+                      author_trusted?: true,
+                      source: :github,
+                      message: "conversation needs rework",
+                      comment: %{"body" => "conversation needs rework"}
+                    }},
+                   500
+
+    stop_codeowners(codeowners)
+  end
+
+  test "trusts configured accounts when CODEOWNERS does not include the commenter" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+
+    configure_github(trusted_accounts: ["its-everdred"])
+    codeowners = ensure_configured_codeowners!("* @someone-else\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 2602,
+                 "body" => "trusted by config",
+                 "updated_at" => "2026-06-24T12:03:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 1, since: "2026-06-24T12:02:59Z"}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:event,
+                    %{
+                      topic: "ticket.42.issue.commented",
+                      author_trusted?: true,
+                      source: :github,
+                      message: "trusted by config",
+                      comment: %{"body" => "trusted by config"}
                     }},
                    500
 
@@ -319,10 +422,50 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     end
   end
 
+  defp ensure_configured_codeowners!(contents) do
+    path = Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+    File.write!(path, contents)
+
+    case Process.whereis(CodeOwners) do
+      pid when is_pid(pid) ->
+        previous_state = :sys.get_state(pid)
+
+        :sys.replace_state(pid, fn state ->
+          %{state | allowlist: MapSet.new(["__codeowners_bootstrap__"]), codeowners_path: path}
+        end)
+
+        :ok = CodeOwners.refresh(pid)
+
+        %{pid: pid, path: path, owned?: false, previous_state: previous_state}
+
+      nil ->
+        {:ok, pid} = CodeOwners.start_link(path: path, refresh_seconds: 3600)
+        %{pid: pid, path: path, owned?: true}
+    end
+  end
+
+  defp configure_github(opts) do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "aiur",
+      tracker_bot_account: Keyword.get(opts, :bot_account),
+      tracker_trusted_accounts: Keyword.get(opts, :trusted_accounts, [])
+    )
+  end
+
   defp stop_codeowners(%{pid: pid, owned?: false, previous_allowlist: previous_allowlist}) do
     if Process.alive?(pid) do
       :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(previous_allowlist)})
     end
+  end
+
+  defp stop_codeowners(%{pid: pid, path: path, owned?: false, previous_state: previous_state}) do
+    if Process.alive?(pid) do
+      :sys.replace_state(pid, fn _state -> previous_state end)
+    end
+
+    File.rm(path)
   end
 
   defp stop_codeowners(%{pid: pid, path: path, owned?: true}) do

@@ -9,6 +9,10 @@ tracker:
 github:
   repo: your-org/your-repo
   label_prefix: agent
+  # Optional: trusted human operator logins whose GitHub comments reach
+  # agent event digests even when CODEOWNERS team expansion is unavailable.
+  # trusted_accounts:
+  #   - your-github-login
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

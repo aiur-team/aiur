@@ -2,6 +2,7 @@ defmodule Aiur.AgentRunnerTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner
+  alias Aiur.Orchestrator
 
   # Regression: open_aiur_turn_streams posted the `__aiur_turn__:<id>`
   # marker SYNCHRONOUSLY in a for-loop, one POST per attached
@@ -312,6 +313,51 @@ defmodule Aiur.AgentRunnerTest do
         end)
 
       assert log =~ "Could not persist session handle"
+    end
+  end
+
+  describe "queue-update wake claiming" do
+    test "deliver-now updates claim event digests, not only operator messages" do
+      orchestrator_name = Module.concat(__MODULE__, :WakeClaimOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: Process.exit(pid, :normal)
+      end)
+
+      event = %{
+        id: 123,
+        topic: "ticket.MT-WAKE.issue.commented",
+        source: :github,
+        author_trusted?: true,
+        message: "please fix the PR",
+        comment: %{"body" => "please fix the PR"}
+      }
+
+      assert :ok = GenServer.call(orchestrator_name, {:enqueue_event_digest, "MT-WAKE", event})
+      assert :ignored = AgentRunner.claim_after_queue_update_for_test(orchestrator_name, "MT-WAKE", false)
+
+      assert {:ok, %{category: :coordination_event, event_type: :events_digest, body: %{events: [^event]}}} =
+               AgentRunner.claim_after_queue_update_for_test(orchestrator_name, "MT-WAKE", true)
+    end
+
+    test "trusted GitHub comment text renders in the agent-visible event digest" do
+      rendered =
+        AgentRunner.render_events_digest_for_test(
+          [
+            %{
+              id: 456,
+              topic: "ticket.MT-WAKE.issue.commented",
+              source: :github,
+              author_trusted?: true,
+              message: "please fix the PR"
+            }
+          ],
+          "MT-WAKE"
+        )
+
+      assert rendered =~ "ticket.MT-WAKE.issue.commented"
+      assert rendered =~ "<external-content source=\"github\">please fix the PR</external-content>"
     end
   end
 

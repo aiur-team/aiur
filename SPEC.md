@@ -734,6 +734,16 @@ Distinct terminal reasons are important because retry logic and logs differ.
   - Benign operator or monitor comments that merely report a successful review SHOULD NOT be treated
     as rework-triggering feedback.
 
+- `Trusted External Comment Event`
+  - A GitHub issue comment, pull request conversation comment, or inline pull request review comment
+    from a trusted account SHOULD publish an agent-visible coordination event for the owning ticket.
+  - PR conversation and review comments SHOULD be keyed by the source issue branch when it follows
+    the canonical agent branch shape, so comments on PR `N` reach ticket `M` when the PR head is for
+    ticket `M`.
+  - Comment text delivered to the agent MUST be sanitized, trust-filtered, and rendered as external
+    content. Idle or sleeping agents SHOULD wake for trusted comment events; active turns may receive
+    them at the next safe delivery boundary.
+
 - `Stall Timeout`
   - Kill worker and schedule retry.
 
