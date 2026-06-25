@@ -1356,6 +1356,7 @@ defmodule Aiur.Orchestrator do
           |> Enum.map(&human_review_comment_target_for_issue/1)
           |> Enum.reject(&is_nil/1)
           |> dedupe_human_review_targets()
+          |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
           |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
           |> Enum.sort_by(&human_review_comment_target_sort_key(state.github_comments_since, &1))
           |> Enum.take(human_review_comment_target_limit(opts))
@@ -1378,9 +1379,44 @@ defmodule Aiur.Orchestrator do
 
   defp human_review_comment_target_for_issue(%Issue{} = issue) do
     case normalize_comment_targets([comment_target_for_issue(issue)]) do
-      [target] -> %{target: target, updated_at: issue_updated_at_key(issue.updated_at)}
-      [] -> nil
+      [target] ->
+        issue_updated_at = issue_updated_at_key(issue.updated_at)
+        %{target: target, issue_updated_at: issue_updated_at, updated_at: issue_updated_at}
+
+      [] ->
+        nil
     end
+  end
+
+  defp with_human_review_pr_updated_at(%{target: target} = entry, opts) do
+    fetcher = human_review_pr_fetcher(opts)
+
+    case fetcher.(target) do
+      {:ok, pr} when is_map(pr) ->
+        pr_updated_at =
+          pr
+          |> Map.get("updated_at", Map.get(pr, :updated_at))
+          |> issue_updated_at_key()
+
+        %{entry | updated_at: human_review_target_updated_at_key(entry.issue_updated_at, pr_updated_at)}
+
+      {:ok, nil} ->
+        %{entry | updated_at: human_review_target_updated_at_key(entry.issue_updated_at, nil)}
+
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller PR freshness lookup failed: issue=#{target} reason=#{inspect(reason)}")
+        %{entry | updated_at: nil}
+
+      other ->
+        Logger.warning("GithubCommentsPoller PR freshness lookup returned unexpected value: issue=#{target} result=#{inspect(other)}")
+        %{entry | updated_at: nil}
+    end
+  end
+
+  defp human_review_pr_fetcher(opts) do
+    Keyword.get_lazy(opts, :review_pull_request_fetcher, fn ->
+      fn target -> GitHubClient.fetch_open_pull_request_for_branch(target, opts) end
+    end)
   end
 
   defp dedupe_human_review_targets(targets) do
@@ -1419,6 +1455,13 @@ defmodule Aiur.Orchestrator do
   defp issue_updated_at_key(%DateTime{} = updated_at), do: DateTime.to_iso8601(updated_at)
   defp issue_updated_at_key(updated_at) when is_binary(updated_at), do: updated_at
   defp issue_updated_at_key(_updated_at), do: nil
+
+  defp human_review_target_updated_at_key(issue_updated_at, pr_updated_at)
+       when is_binary(pr_updated_at) do
+    IO.iodata_to_binary(["issue=", issue_updated_at || "", ";pr=", pr_updated_at])
+  end
+
+  defp human_review_target_updated_at_key(issue_updated_at, _pr_updated_at), do: issue_updated_at
 
   defp remember_polled_human_review_targets(updated_at_by_target, human_review_targets, errors) do
     failed_targets =
