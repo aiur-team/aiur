@@ -32,6 +32,18 @@ GitHub issue state is label-based:
 11. Before ending a turn while the issue remains active, update the handoff with
     current phase, key decisions, validation completed, and remaining next steps.
 
+## PR review feedback loop
+
+When a `pr.review_comment` event or unresolved review thread asks for a real code
+change, treat it as active feedback even if GitHub marks the thread outdated.
+Either make and push the requested change, or verify the current branch already
+addresses it, then reply concisely on that exact thread with the evidence.
+
+Before moving the issue back to `agent:human-review`, re-fetch the relevant
+review thread and confirm your reply is now the latest comment. If the reply is
+missing, retry or keep the issue in `agent:rework`; do not mark the feedback
+handled based only on an attempted reply command.
+
 Right-size the CE skill flow to the actual work — see `complexity-routing.md`
 for which skills to run at each `complexity:N` tier and `dev-loop.md` for the
 implement → test → build → lint → commit → push → PR loop.
