@@ -3,7 +3,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
   alias Aiur.Codex.DynamicTool
 
-  test "tool_specs advertises the linear_graphql and emit_alert contracts" do
+  test "tool_specs advertises the linear_graphql, review reply, and emit_alert contracts" do
     specs = DynamicTool.tool_specs()
 
     assert Enum.any?(specs, fn
@@ -17,6 +17,22 @@ defmodule Aiur.Codex.DynamicToolTest do
                "name" => "linear_graphql"
              } ->
                description =~ "Linear"
+
+             _ ->
+               false
+           end)
+
+    assert Enum.any?(specs, fn
+             %{
+               "description" => description,
+               "inputSchema" => %{
+                 "properties" => %{"review_thread_id" => _, "body" => _},
+                 "required" => ["review_thread_id", "body"],
+                 "type" => "object"
+               },
+               "name" => "aiur_reply_review_thread"
+             } ->
+               description =~ "review thread"
 
              _ ->
                false
@@ -47,6 +63,7 @@ defmodule Aiur.Codex.DynamicToolTest do
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
                "supportedTools" => [
                  "linear_graphql",
+                 "aiur_reply_review_thread",
                  "emit_alert",
                  "emit_event",
                  "aiur_subscribe",
@@ -88,6 +105,50 @@ defmodule Aiur.Codex.DynamicToolTest do
     assert response["contentItems"] == [%{"type" => "inputText", "text" => response["output"]}]
   end
 
+  test "aiur_reply_review_thread returns verified reply payloads" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "aiur_reply_review_thread",
+        %{
+          "review_thread_id" => "PRRT_verified",
+          "body" => "Verified on this branch."
+        },
+        review_thread_replier: fn review_thread_id, body, opts ->
+          send(test_pid, {:reply_review_thread_called, review_thread_id, body, opts})
+          {:ok, %{verified: true, review_thread_id: review_thread_id}}
+        end
+      )
+
+    assert_received {:reply_review_thread_called, "PRRT_verified", "Verified on this branch.", []}
+    assert response["success"] == true
+
+    assert Jason.decode!(response["output"]) == %{
+             "review_thread_id" => "PRRT_verified",
+             "verified" => true
+           }
+  end
+
+  test "aiur_reply_review_thread surfaces unverified replies as failures" do
+    response =
+      DynamicTool.execute(
+        "aiur_reply_review_thread",
+        %{
+          "review_thread_id" => "PRRT_unverified",
+          "body" => "Verified on this branch."
+        },
+        review_thread_replier: fn _review_thread_id, _body, _opts ->
+          {:error, {:review_thread_reply_not_verified, %{attempts: 3}}}
+        end
+      )
+
+    assert response["success"] == false
+
+    assert Jason.decode!(response["output"])["error"]["reason"] ==
+             "review_thread_reply_not_verified"
+  end
+
   test "emit_alert invokes the provided emitter for custom scopes" do
     test_pid = self()
 
@@ -107,6 +168,7 @@ defmodule Aiur.Codex.DynamicToolTest do
       )
 
     assert_received {:alert_emitted, "phase.work.start", "Entered implementation", "work phase started", false, "info"}
+
     assert response["success"] == true
   end
 
@@ -165,7 +227,9 @@ defmodule Aiur.Codex.DynamicToolTest do
       )
 
     assert response["success"] == false
-    assert Jason.decode!(response["output"])["error"]["message"] == "`emit_alert.needs_attention` must be true or false."
+
+    assert Jason.decode!(response["output"])["error"]["message"] ==
+             "`emit_alert.needs_attention` must be true or false."
   end
 
   test "emit_alert rejects reserved system scopes" do
@@ -179,7 +243,9 @@ defmodule Aiur.Codex.DynamicToolTest do
           "needs_attention" => true,
           "severity" => "critical"
         },
-        alert_emitter: fn _name, _message, _reason, _needs_attention, _severity -> {:error, :system_scope_reserved} end
+        alert_emitter: fn _name, _message, _reason, _needs_attention, _severity ->
+          {:error, :system_scope_reserved}
+        end
       )
 
     assert response["success"] == false
@@ -239,7 +305,15 @@ defmodule Aiur.Codex.DynamicToolTest do
         %{"query" => query},
         linear_client: fn forwarded_query, variables, opts ->
           send(test_pid, {:linear_client_called, forwarded_query, variables, opts})
-          {:ok, %{"errors" => [%{"message" => "Must provide operation name if query contains multiple operations."}]}}
+
+          {:ok,
+           %{
+             "errors" => [
+               %{
+                 "message" => "Must provide operation name if query contains multiple operations."
+               }
+             ]
+           }}
         end
       )
 
@@ -393,7 +467,9 @@ defmodule Aiur.Codex.DynamicToolTest do
       DynamicTool.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
-        linear_client: fn _query, _variables, _opts -> {:error, {:linear_api_request, :timeout}} end
+        linear_client: fn _query, _variables, _opts ->
+          {:error, {:linear_api_request, :timeout}}
+        end
       )
 
     assert Jason.decode!(request_error["output"]) == %{

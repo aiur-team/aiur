@@ -3,7 +3,8 @@ defmodule Aiur.Codex.DynamicTool do
   Executes client-side tool calls requested by Codex app-server turns.
   """
 
-  alias Aiur.Linear.Client
+  alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.Linear.Client, as: LinearClient
 
   @emit_alert_tool "emit_alert"
   @emit_alert_description """
@@ -16,7 +17,10 @@ defmodule Aiur.Codex.DynamicTool do
     "additionalProperties" => false,
     "required" => ["name", "message", "reason", "needs_attention"],
     "properties" => %{
-      "name" => %{"type" => "string", "description" => "Scoped alert name such as `phase.work.start`."},
+      "name" => %{
+        "type" => "string",
+        "description" => "Scoped alert name such as `phase.work.start`."
+      },
       "message" => %{"type" => "string", "description" => "Concise log-facing alert message."},
       "reason" => %{
         "type" => "string",
@@ -135,6 +139,27 @@ defmodule Aiur.Codex.DynamicTool do
       }
     }
   }
+  @reply_review_thread_tool "aiur_reply_review_thread"
+  @reply_review_thread_description """
+  Post a reply to an exact GitHub pull request review thread, then re-fetch
+  that thread and verify the latest comment is the agent's reply. Returns
+  success only after the read-after-write postcondition passes.
+  """
+  @reply_review_thread_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["review_thread_id", "body"],
+    "properties" => %{
+      "review_thread_id" => %{
+        "type" => "string",
+        "description" => "GitHub PullRequestReviewThread node id, e.g. PRRT_kwD..."
+      },
+      "body" => %{
+        "type" => "string",
+        "description" => "Concise reply to post on the review thread."
+      }
+    }
+  }
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do
@@ -142,12 +167,22 @@ defmodule Aiur.Codex.DynamicTool do
       @linear_graphql_tool ->
         execute_linear_graphql(arguments, opts)
 
+      @reply_review_thread_tool ->
+        execute_reply_review_thread(arguments, opts)
+
       @emit_alert_tool ->
         execute_emit_alert(arguments, opts)
 
       @emit_event_tool ->
         execute_emit_event(arguments, opts)
 
+      other ->
+        execute_subscription_or_dependency_tool(other, arguments, opts)
+    end
+  end
+
+  defp execute_subscription_or_dependency_tool(tool, arguments, opts) do
+    case tool do
       @aiur_subscribe_tool ->
         execute_subscription(arguments, opts, :subscribe)
 
@@ -177,6 +212,11 @@ defmodule Aiur.Codex.DynamicTool do
         "name" => @linear_graphql_tool,
         "description" => @linear_graphql_description,
         "inputSchema" => @linear_graphql_input_schema
+      },
+      %{
+        "name" => @reply_review_thread_tool,
+        "description" => @reply_review_thread_description,
+        "inputSchema" => @reply_review_thread_input_schema
       },
       %{
         "name" => @emit_alert_tool,
@@ -229,7 +269,10 @@ defmodule Aiur.Codex.DynamicTool do
          {:ok, result} <- handler.(issue_number) do
       dynamic_tool_response(
         true,
-        Jason.encode!(%{"ok" => true, "issue_number" => issue_number, "result" => result_jsonable(result)}, pretty: true)
+        Jason.encode!(
+          %{"ok" => true, "issue_number" => issue_number, "result" => result_jsonable(result)},
+          pretty: true
+        )
       )
     else
       {:error, reason} ->
@@ -278,7 +321,10 @@ defmodule Aiur.Codex.DynamicTool do
     with {:ok, pattern} <- normalize_topic_pattern(arguments),
          true <- is_function(handler, 1) || {:error, error_atom},
          :ok <- handler.(pattern) do
-      dynamic_tool_response(true, Jason.encode!(%{"ok" => true, "topic_pattern" => pattern}, pretty: true))
+      dynamic_tool_response(
+        true,
+        Jason.encode!(%{"ok" => true, "topic_pattern" => pattern}, pretty: true)
+      )
     else
       {:error, reason} ->
         failure_response(tool_error_payload(reason))
@@ -339,7 +385,8 @@ defmodule Aiur.Codex.DynamicTool do
 
   defp normalize_emit_event_arguments(arguments) when is_map(arguments) do
     with {:ok, name} <- normalize_emit_alert_string(arguments, "name", :missing_event_name),
-         {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_event_message) do
+         {:ok, message} <-
+           normalize_emit_alert_string(arguments, "message", :missing_event_message) do
       payload =
         case Map.get(arguments, "payload") || Map.get(arguments, :payload) do
           %{} = map -> map
@@ -402,11 +449,38 @@ defmodule Aiur.Codex.DynamicTool do
     :ok
   end
 
+  defp execute_reply_review_thread(arguments, opts) do
+    review_thread_replier =
+      Keyword.get(opts, :review_thread_replier, &GitHubClient.reply_to_review_thread/3)
+
+    with {:ok, review_thread_id, body} <- normalize_reply_review_thread_arguments(arguments),
+         {:ok, response} <- review_thread_replier.(review_thread_id, body, []) do
+      dynamic_tool_response(true, encode_payload(response))
+    else
+      {:error, reason} ->
+        failure_response(tool_error_payload(reason))
+    end
+  end
+
+  defp normalize_reply_review_thread_arguments(arguments) when is_map(arguments) do
+    with {:ok, review_thread_id} <-
+           normalize_dynamic_tool_string(arguments, "review_thread_id", :missing_review_thread_id),
+         {:ok, body} <-
+           normalize_dynamic_tool_string(arguments, "body", :missing_review_thread_body) do
+      {:ok, review_thread_id, body}
+    end
+  end
+
+  defp normalize_reply_review_thread_arguments(_arguments),
+    do: {:error, :invalid_review_thread_reply_arguments}
+
   defp execute_emit_alert(arguments, opts) do
     alert_emitter = Keyword.get(opts, :alert_emitter)
 
-    with {:ok, name, message, reason, needs_attention, severity} <- normalize_emit_alert_arguments(arguments),
-         :ok <- call_alert_emitter(alert_emitter, name, message, reason, needs_attention, severity) do
+    with {:ok, name, message, reason, needs_attention, severity} <-
+           normalize_emit_alert_arguments(arguments),
+         :ok <-
+           call_alert_emitter(alert_emitter, name, message, reason, needs_attention, severity) do
       dynamic_tool_response(
         true,
         Jason.encode!(
@@ -431,7 +505,7 @@ defmodule Aiur.Codex.DynamicTool do
   end
 
   defp execute_linear_graphql(arguments, opts) do
-    linear_client = Keyword.get(opts, :linear_client, &Client.graphql/3)
+    linear_client = Keyword.get(opts, :linear_client, &LinearClient.graphql/3)
 
     with {:ok, query, variables} <- normalize_linear_graphql_arguments(arguments),
          {:ok, response} <- linear_client.(query, variables, []) do
@@ -467,9 +541,23 @@ defmodule Aiur.Codex.DynamicTool do
 
   defp normalize_linear_graphql_arguments(_arguments), do: {:error, :invalid_arguments}
 
+  defp normalize_dynamic_tool_string(arguments, key, error_reason) do
+    case Map.get(arguments, key) || Map.get(arguments, String.to_atom(key)) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, error_reason}
+          trimmed -> {:ok, trimmed}
+        end
+
+      _ ->
+        {:error, error_reason}
+    end
+  end
+
   defp normalize_emit_alert_arguments(arguments) when is_map(arguments) do
     with {:ok, name} <- normalize_emit_alert_string(arguments, "name", :missing_alert_name),
-         {:ok, message} <- normalize_emit_alert_string(arguments, "message", :missing_alert_message),
+         {:ok, message} <-
+           normalize_emit_alert_string(arguments, "message", :missing_alert_message),
          {:ok, reason} <- normalize_emit_alert_reason(arguments, message),
          {:ok, needs_attention} <- normalize_emit_alert_needs_attention(arguments) do
       {:ok, name, message, reason, needs_attention, normalize_emit_alert_severity(arguments, needs_attention)}
@@ -491,9 +579,14 @@ defmodule Aiur.Codex.DynamicTool do
     end
   end
 
-  defp emit_alert_value(arguments, "name"), do: Map.get(arguments, "name") || Map.get(arguments, :name)
-  defp emit_alert_value(arguments, "message"), do: Map.get(arguments, "message") || Map.get(arguments, :message)
-  defp emit_alert_value(arguments, "reason"), do: Map.get(arguments, "reason") || Map.get(arguments, :reason)
+  defp emit_alert_value(arguments, "name"),
+    do: Map.get(arguments, "name") || Map.get(arguments, :name)
+
+  defp emit_alert_value(arguments, "message"),
+    do: Map.get(arguments, "message") || Map.get(arguments, :message)
+
+  defp emit_alert_value(arguments, "reason"),
+    do: Map.get(arguments, "reason") || Map.get(arguments, :reason)
 
   defp normalize_emit_alert_reason(arguments, message) do
     case emit_alert_value(arguments, "reason") do
@@ -630,6 +723,30 @@ defmodule Aiur.Codex.DynamicTool do
     }
   end
 
+  defp tool_error_payload(:invalid_review_thread_reply_arguments) do
+    %{
+      "error" => %{
+        "message" => "`aiur_reply_review_thread` expects an object with non-empty `review_thread_id` and `body` strings."
+      }
+    }
+  end
+
+  defp tool_error_payload(:missing_review_thread_id),
+    do: %{"error" => %{"message" => "`aiur_reply_review_thread.review_thread_id` is required."}}
+
+  defp tool_error_payload(:missing_review_thread_body),
+    do: %{"error" => %{"message" => "`aiur_reply_review_thread.body` is required."}}
+
+  defp tool_error_payload({:review_thread_reply_not_verified, detail}) do
+    %{
+      "error" => %{
+        "message" => "GitHub review thread reply was not verified.",
+        "reason" => "review_thread_reply_not_verified",
+        "detail" => result_jsonable(detail)
+      }
+    }
+  end
+
   defp tool_error_payload(:invalid_alert_arguments) do
     %{
       "error" => %{
@@ -638,9 +755,14 @@ defmodule Aiur.Codex.DynamicTool do
     }
   end
 
-  defp tool_error_payload(:missing_alert_name), do: %{"error" => %{"message" => "`emit_alert.name` is required."}}
-  defp tool_error_payload(:missing_alert_message), do: %{"error" => %{"message" => "`emit_alert.message` is required."}}
-  defp tool_error_payload(:missing_alert_reason), do: %{"error" => %{"message" => "`emit_alert.reason` is required."}}
+  defp tool_error_payload(:missing_alert_name),
+    do: %{"error" => %{"message" => "`emit_alert.name` is required."}}
+
+  defp tool_error_payload(:missing_alert_message),
+    do: %{"error" => %{"message" => "`emit_alert.message` is required."}}
+
+  defp tool_error_payload(:missing_alert_reason),
+    do: %{"error" => %{"message" => "`emit_alert.reason` is required."}}
 
   defp tool_error_payload(:missing_alert_needs_attention),
     do: %{"error" => %{"message" => "`emit_alert.needs_attention` must be true or false."}}
@@ -711,7 +833,9 @@ defmodule Aiur.Codex.DynamicTool do
     }
 
   defp tool_error_payload(:subscriber_unavailable),
-    do: %{"error" => %{"message" => "`aiur_subscribe` is unavailable in the current runtime context."}}
+    do: %{
+      "error" => %{"message" => "`aiur_subscribe` is unavailable in the current runtime context."}
+    }
 
   defp tool_error_payload(:unsubscriber_unavailable),
     do: %{
@@ -727,10 +851,16 @@ defmodule Aiur.Codex.DynamicTool do
     do: %{"error" => %{"message" => "`issue_number` must be a positive integer."}}
 
   defp tool_error_payload(:blocker_declarer_unavailable),
-    do: %{"error" => %{"message" => "`aiur_declare_blocker` is unavailable in the current runtime context."}}
+    do: %{
+      "error" => %{
+        "message" => "`aiur_declare_blocker` is unavailable in the current runtime context."
+      }
+    }
 
   defp tool_error_payload(:unblocker_unavailable),
-    do: %{"error" => %{"message" => "`aiur_unblock` is unavailable in the current runtime context."}}
+    do: %{
+      "error" => %{"message" => "`aiur_unblock` is unavailable in the current runtime context."}
+    }
 
   defp tool_error_payload(:cycle_detected),
     do: %{
@@ -740,13 +870,17 @@ defmodule Aiur.Codex.DynamicTool do
     }
 
   defp tool_error_payload(:blocker_not_found),
-    do: %{"error" => %{"message" => "Blocker issue does not exist or is not visible to Aiur's token."}}
+    do: %{
+      "error" => %{"message" => "Blocker issue does not exist or is not visible to Aiur's token."}
+    }
 
   defp tool_error_payload(:rate_limited),
     do: %{"error" => %{"message" => "Cycle pre-check exhausted API budget; retry later."}}
 
   defp tool_error_payload(:permission_denied),
-    do: %{"error" => %{"message" => "Aiur's GitHub token lacks Issues:write scope for this repo."}}
+    do: %{
+      "error" => %{"message" => "Aiur's GitHub token lacks Issues:write scope for this repo."}
+    }
 
   defp tool_error_payload(:custom_event_quota_exceeded) do
     %{

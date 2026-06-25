@@ -81,6 +81,21 @@ defmodule Aiur.Events.GithubKeys do
   def comment_dedup_key(_repo, _kind, _parent_number, _comment_id), do: nil
 
   @doc """
+  Returns the Publisher dedup key for unresolved PR review thread wakeups.
+
+  The unaddressed-thread GraphQL path may not have a numeric comment
+  `databaseId`, but GitHub's review thread node id is stable across replies.
+  """
+  @spec review_thread_dedup_key(term(), term(), term()) ::
+          {String.t(), String.t(), String.t()} | nil
+  def review_thread_dedup_key(repo, pr_number, thread_id)
+      when is_binary(repo) and is_integer(pr_number) and is_binary(thread_id) and
+             thread_id != "",
+      do: {repo, "pr_review_thread:#{pr_number}", thread_id}
+
+  def review_thread_dedup_key(_repo, _pr_number, _thread_id), do: nil
+
+  @doc """
   Returns the GitHub event cutoff epoch for this boot window.
   """
   @spec boot_cutoff_epoch_seconds(keyword()) :: integer()
