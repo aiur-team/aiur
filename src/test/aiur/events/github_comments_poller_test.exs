@@ -248,6 +248,61 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
+  test "uses supplied open PR without fetching it again" do
+    parent = self()
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") ->
+          send(parent, {:unexpected_pull_request_lookup, url})
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "id" => 2504,
+                 "body" => "conversation from supplied pr",
+                 "updated_at" => "2026-06-24T12:02:00Z",
+                 "user" => %{"login" => "its-everdred"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/graphql") ->
+          empty_review_threads_response()
+      end
+    end
+
+    assert {:ok, %{count: 1, since: %{"42" => "2026-06-24T12:01:59Z"}, errors: []}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun,
+               open_pull_requests_by_target: %{"42" => %{"number" => 77}}
+             )
+
+    assert_receive {:event,
+                    %{
+                      topic: "ticket.42.issue.commented",
+                      author_trusted?: true,
+                      source: :github,
+                      message: "conversation from supplied pr",
+                      comment: %{"body" => "conversation from supplied pr"}
+                    }},
+                   500
+
+    refute_receive {:unexpected_pull_request_lookup, _url}, 100
+    stop_codeowners(codeowners)
+  end
+
   test "skips Agent Workpad PR conversation comments" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")

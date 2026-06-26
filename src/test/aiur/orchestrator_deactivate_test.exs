@@ -1933,6 +1933,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
+            send(parent, {:pulls_requested, url})
             {:ok, %{status: 200, body: []}}
         end
       end
@@ -1959,6 +1960,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert_receive {:issue_comments_requested, "13"}, 500
       assert_receive {:issue_comments_requested, "11"}, 500
       refute_receive {:issue_comments_requested, _}, 100
+      assert_receive {:pulls_requested, pulls_13}, 500
+      assert_receive {:pulls_requested, pulls_11}, 500
+      refute_receive {:pulls_requested, _}, 100
+
+      assert String.contains?(pulls_13, "aiur%2F13")
+      assert String.contains?(pulls_11, "aiur%2F11")
 
       assert next.github_comments_since == %{
                "10" => "2026-06-24T12:00:00Z",
@@ -2046,7 +2053,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 61}]}}
+            send(parent, {:unexpected_pull_request_lookup, url})
+            {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -2074,6 +2082,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       assert_receive :issue_comments_requested, 500
+      refute_receive {:unexpected_pull_request_lookup, _url}, 100
 
       assert next.github_comment_issue_updated_at == %{
                "57" => "issue=#{issue_updated_at};pr=#{pr_updated_at}"
