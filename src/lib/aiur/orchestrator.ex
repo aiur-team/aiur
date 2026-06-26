@@ -1623,6 +1623,105 @@ defmodule Aiur.Orchestrator do
     kept
   end
 
+  # Mid-run teardown for PR-anchored agents (U6). Each poll cycle, terminate any
+  # RUNNING PR-anchored agent (a watched/commanded human PR dispatched by U4)
+  # whose PR is no longer open — it would otherwise keep burning compute and
+  # pushing to a dead branch. Most teardown is IMPLICIT: a merged/closed/untagged
+  # PR simply stops producing watch poll targets (U2) and the command path stores
+  # no state, so nothing new is dispatched. This function covers the one gap the
+  # implicit drop cannot: an agent already in-flight when its PR reaches a
+  # terminal state.
+  #
+  # DESIGN DECISION — an untag mid-run does NOT abort a running agent. The agent
+  # was dispatched for a real comment; let it finish the work it started.
+  # Untagging only stops NEW dispatches (U2's implicit target drop). ONLY a
+  # closed/merged PR — observed as `{:ok, nil}` from `fetch_open_pull_request/1`,
+  # the same signal that treats closed/merged as "not open" — triggers mid-run
+  # termination here.
+  #
+  # Fetch isolation: `{:ok, pr}` (still open) and `{:error, _}` (transient — a
+  # rate-limit or network blip) both LEAVE the agent running. We never terminate
+  # on a fetch error; a real terminal state will be re-observed next cycle.
+  #
+  # Gated on `pr_watch_enabled?` and short-circuited when there are zero
+  # PR-anchored running entries, so a repo not using the feature issues no
+  # fetches.
+  defp maybe_stop_closed_pr_anchored_agents(%State{} = state, opts \\ []) do
+    if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?() do
+      case pr_anchored_running_entries(state) do
+        [] -> state
+        entries -> stop_closed_pr_anchored_entries(state, entries, opts)
+      end
+    else
+      state
+    end
+  end
+
+  # Select the running entries dispatched as PR-anchored units. We key off the
+  # stored `%Issue{}` `state == @pr_anchored_state` (the canonical sentinel
+  # `build_pr_anchored_issue/1` stamps) rather than the `"pr-"` running-key
+  # prefix: the state is a dedicated marker nothing else uses, while a key prefix
+  # is a derived convention a tracker id could collide with.
+  defp pr_anchored_running_entries(%State{running: running}) do
+    Enum.filter(running, fn {_issue_id, running_entry} ->
+      pr_anchored_running_entry?(running_entry)
+    end)
+  end
+
+  defp pr_anchored_running_entry?(%{issue: %Issue{state: @pr_anchored_state}}), do: true
+  defp pr_anchored_running_entry?(_running_entry), do: false
+
+  defp stop_closed_pr_anchored_entries(%State{} = state, entries, opts) do
+    fetcher = pr_open_state_fetcher(opts)
+
+    Enum.reduce(entries, state, fn {issue_id, running_entry}, state_acc ->
+      pr_number = Map.get(running_entry, :identifier)
+
+      case fetcher.(pr_number) do
+        {:ok, nil} ->
+          Logger.warning("PR-anchored agent's PR is no longer open; stopping agent and cleaning workspace: issue_id=#{issue_id} pr=#{pr_number}")
+
+          state_acc = terminate_running_issue(state_acc, issue_id, false)
+          cleanup_pr_anchored_workspace(issue_id, running_entry)
+          state_acc
+
+        {:ok, _pr} ->
+          # PR still open — let the agent keep working.
+          state_acc
+
+        {:error, reason} ->
+          # Transient fetch failure — do NOT terminate. A real terminal state is
+          # re-observed next cycle.
+          Logger.warning("PR-anchored teardown PR fetch failed; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} reason=#{inspect(reason)}")
+
+          state_acc
+
+        other ->
+          Logger.warning("PR-anchored teardown PR fetch returned unexpected value; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} value=#{inspect(other)}")
+
+          state_acc
+      end
+    end)
+  end
+
+  defp pr_open_state_fetcher(opts) do
+    case Keyword.get(opts, :open_pull_request_fetcher) do
+      fun when is_function(fun, 1) -> fun
+      _ -> fn pr_number -> GitHubClient.fetch_open_pull_request(pr_number) end
+    end
+  end
+
+  # `terminate_running_issue/3`'s workspace cleanup keys off the running entry's
+  # `identifier` (the bare PR number), but a PR-anchored workspace lives at the
+  # `pr-<pr#>` leaf (`Workspace.workspace_identifier/2`), which equals the
+  # running-map KEY (`issue.id`). Clean the `pr-<pr#>` leaf explicitly so no
+  # orphan workspace is left behind, mirroring the legacy terminal cleanup.
+  defp cleanup_pr_anchored_workspace(issue_id, running_entry) when is_binary(issue_id) do
+    Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
+  end
+
+  defp cleanup_pr_anchored_workspace(_issue_id, _running_entry), do: :ok
+
   # Emit the SAME PR-number reactivation signal U2 uses
   # (`ticket.<pr#>.pr.review_comment`) with `bypass_contamination: true` so it
   # reaches the orchestrator even though the commanded PR is absent from the
@@ -2063,6 +2162,7 @@ defmodule Aiur.Orchestrator do
     state = poll_github_firehose(state)
     state = poll_github_comments(state)
     state = scan_pr_commands(state)
+    state = maybe_stop_closed_pr_anchored_agents(state)
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
@@ -2341,6 +2441,12 @@ defmodule Aiur.Orchestrator do
   @spec scan_pr_commands_for_test(State.t(), keyword()) :: State.t()
   def scan_pr_commands_for_test(%State{} = state, opts) when is_list(opts) do
     scan_pr_commands(state, opts)
+  end
+
+  @doc false
+  @spec maybe_stop_closed_pr_anchored_agents_for_test(State.t(), keyword()) :: State.t()
+  def maybe_stop_closed_pr_anchored_agents_for_test(%State{} = state, opts) when is_list(opts) do
+    maybe_stop_closed_pr_anchored_agents(state, opts)
   end
 
   @doc false

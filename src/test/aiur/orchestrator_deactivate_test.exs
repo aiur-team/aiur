@@ -4,6 +4,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
@@ -4124,6 +4125,183 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "PR-anchored lifecycle teardown (U6)" do
+    setup do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-pr-anchored-teardown-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(test_root)
+      on_exit(fn -> File.rm_rf(test_root) end)
+      {:ok, test_root: test_root}
+    end
+
+    test "a PR-anchored agent whose PR closed/merged is terminated and its pr-<pr#> workspace cleaned",
+         %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      # The PR-anchored workspace lives at the `pr-<pr#>` leaf (namespaced by
+      # repo), NOT the bare `<pr#>` leaf. Create it so we can prove teardown
+      # removes the correct directory.
+      pr_workspace = Path.join([test_root, "acme", "widgets", "pr-77"])
+      File.mkdir_p!(pr_workspace)
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      ref = Process.monitor(agent_pid)
+
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          # {:ok, nil} == closed/merged/missing PR.
+          open_pull_request_fetcher: fn "77" -> {:ok, nil} end
+        )
+
+      # Running entry, claim, and retry_attempts all torn down.
+      refute Map.has_key?(next.running, "pr-77")
+      refute MapSet.member?(next.claimed, "pr-77")
+      refute Map.has_key?(next.retry_attempts, "pr-77")
+
+      # Agent task was killed.
+      assert_receive {:DOWN, ^ref, :process, ^agent_pid, :killed}, 500
+
+      # The pr-<pr#> workspace is gone — no orphan left behind.
+      refute File.exists?(pr_workspace)
+    end
+
+    test "a PR-anchored agent whose PR is still open is NOT terminated", %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn "77" ->
+            {:ok, %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}}}
+          end
+        )
+
+      assert Map.has_key?(next.running, "pr-77")
+      assert MapSet.member?(next.claimed, "pr-77")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+
+    test "a fetch error does NOT terminate (transient-safe)", %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn "77" -> {:error, :rate_limited} end
+        )
+
+      assert Map.has_key?(next.running, "pr-77")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+
+    test "feature off issues no fetch and terminates nothing", %{test_root: test_root} do
+      # pr_watch disabled (default): no fetch, no teardown.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "acme/widgets",
+        workspace_root: test_root
+      )
+
+      test_pid = self()
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn _pr ->
+            send(test_pid, :fetcher_called)
+            {:ok, nil}
+          end
+        )
+
+      refute_received :fetcher_called
+      assert Map.has_key?(next.running, "pr-77")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+
+    test "no PR-anchored running entries issues no fetch (legacy entries are skipped)", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+
+      test_pid = self()
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      # A legacy tracker-issue running entry (state != @pr_anchored_state) must
+      # never be selected for PR-anchored teardown — and with zero PR-anchored
+      # entries, no fetch is issued at all.
+      state = %Orchestrator.State{
+        running: %{
+          "issue-1" => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: "501",
+            issue: %Issue{id: "issue-1", identifier: "501", state: "in-progress"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new(["issue-1"]),
+        retry_attempts: %{}
+      }
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn _pr ->
+            send(test_pid, :fetcher_called)
+            {:ok, nil}
+          end
+        )
+
+      refute_received :fetcher_called
+      assert Map.has_key?(next.running, "issue-1")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+  end
+
+  defp pr_anchored_running_state(pr_number, agent_pid) do
+    key = "pr-#{pr_number}"
+    identifier = to_string(pr_number)
+
+    %Orchestrator.State{
+      running: %{
+        key => %{
+          pid: agent_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{
+            id: key,
+            identifier: identifier,
+            state: "pr-watch",
+            pr_head_ref: "feature/login"
+          },
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      },
+      claimed: MapSet.new([key]),
+      retry_attempts: %{key => %{attempt: 1}}
+    }
+  end
+
   defp enable_pr_watch!(test_root) do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
@@ -4202,8 +4380,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   # restore the previous allowlist in the `after` block. Mirrors the
   # github_comments_poller test's `ensure_codeowners!` pattern.
   defp trust_authors!(logins) do
-    pid = Process.whereis(Aiur.GitHub.CodeOwners)
-    previous = Aiur.GitHub.CodeOwners.snapshot(pid)
+    pid = Process.whereis(CodeOwners)
+    previous = CodeOwners.snapshot(pid)
     Process.put(:command_scan_codeowners, %{pid: pid, previous: previous})
     allowlist = MapSet.new(Enum.map(logins, &String.downcase/1))
     :sys.replace_state(pid, fn state -> %{state | allowlist: allowlist} end)
