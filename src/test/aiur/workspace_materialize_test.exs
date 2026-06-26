@@ -35,6 +35,81 @@ defmodule Aiur.WorkspaceMaterializeTest do
     assert branch(workspace) == "aiur/123"
   end
 
+  # Characterization: pins the legacy 2-arity contract so the PR-anchored
+  # variant below provably leaves it untouched. The branch MUST be `aiur/<id>`
+  # and never the human-PR-style prefix the new path produces.
+  test "legacy materialize_from_base/2 always branches aiur/<id> (no PR-anchored leakage)", %{
+    tmp: tmp,
+    base: base
+  } do
+    workspace = Path.join(tmp, "456")
+
+    assert :ok = Workspace.materialize_from_base(base, workspace)
+
+    assert branch(workspace) == "aiur/456"
+    refute branch(workspace) =~ ~r{\Apr-}
+  end
+
+  test "PR-anchored materialize fetches + checks out the PR head ref (not aiur/<id>)", %{tmp: tmp} do
+    # A bare origin holds the human PR's existing branch `feature/login`. The
+    # PR-anchored materialize must fetch and check out THAT branch, not create
+    # `aiur/<id>`.
+    origin = Path.join(tmp, "origin.git")
+    git!(["init", "--quiet", "--bare", "-b", "main", origin])
+
+    seed = Path.join(tmp, "seed")
+    git!(["clone", "--quiet", origin, seed])
+    git!(["-C", seed, "config", "user.email", "t@example.com"])
+    git!(["-C", seed, "config", "user.name", "T"])
+    File.write!(Path.join(seed, "README.md"), "main\n")
+    git!(["-C", seed, "add", "."])
+    git!(["-C", seed, "commit", "--quiet", "-m", "main"])
+    git!(["-C", seed, "push", "--quiet", "origin", "main"])
+
+    # The human's PR branch, pushed to origin.
+    git!(["-C", seed, "checkout", "--quiet", "-b", "feature/login"])
+    File.write!(Path.join(seed, "login.txt"), "human work\n")
+    git!(["-C", seed, "add", "."])
+    git!(["-C", seed, "commit", "--quiet", "-m", "add login"])
+    git!(["-C", seed, "push", "--quiet", "origin", "feature/login"])
+    pr_tip = String.trim(git!(["-C", seed, "rev-parse", "HEAD"]))
+
+    # Warm base = clone of origin (on main) with gitignored warm _build.
+    base = Path.join(tmp, "prbase")
+    git!(["clone", "--quiet", origin, base])
+    File.mkdir_p!(Path.join(base, "_build"))
+    File.write!(Path.join(base, "_build/sentinel"), "warm\n")
+
+    workspace = Path.join(tmp, "pr-77")
+    assert :ok = Workspace.materialize_from_base(base, workspace, "feature/login")
+
+    assert branch(workspace) == "feature/login",
+           "PR-anchored materialize did not check out the PR head ref"
+
+    refute File.dir?(Path.join([workspace, ".git", "refs", "heads", "aiur"])),
+           "PR-anchored materialize created an aiur/<id> branch"
+
+    assert String.trim(git!(["-C", workspace, "rev-parse", "HEAD"])) == pr_tip,
+           "workspace is not on the PR head tip"
+
+    assert File.read!(Path.join(workspace, "login.txt")) == "human work\n"
+    assert File.exists?(Path.join(workspace, "_build/sentinel")), "warm _build was not carried"
+  end
+
+  test "PR-anchored materialize falls back to a local branch when origin has no such ref", %{
+    tmp: tmp,
+    base: base
+  } do
+    # The base setup has no usable remote for `feature/x`; materialize still
+    # succeeds on a local branch off the copied HEAD so the agent can work.
+    workspace = Path.join(tmp, "pr-88")
+
+    assert :ok = Workspace.materialize_from_base(base, workspace, "feature/x")
+
+    assert branch(workspace) == "feature/x"
+    refute branch(workspace) =~ ~r{\Aaiur/}
+  end
+
   test "materialized workspaces expose writable git metadata and repair stale locks", %{tmp: tmp, base: base} do
     workspace = Path.join(tmp, "561")
 

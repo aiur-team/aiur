@@ -703,6 +703,47 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @doc """
+  Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
+  for PR-anchored routing of watched/commanded PR comments.
+
+  Returns `{:ok, pr_map}` for an open PR (the map carries `number`, `head.ref`,
+  `title`, `body`, `state`), `{:ok, nil}` when the number is NOT an open PR — a
+  404 (the number is a plain issue) or a closed/merged PR — and `{:error, _}`
+  otherwise. The `{:ok, nil}` result is the safe signal that the comment must
+  fall through to the legacy reactivation path (a tracker issue, not a human PR).
+  """
+  @spec fetch_open_pull_request(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil} | {:error, term()}
+  def fetch_open_pull_request(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: %{} = pr}} ->
+          {:ok, open_pull_request_or_nil(pr)}
+
+        {:ok, %{status: 404}} ->
+          {:ok, nil}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, classify_error({:error, reason})}
+      end
+    end
+  end
+
+  # Treat a closed/merged PR the same as a missing one (nil) so the caller
+  # routes its comment through the unchanged legacy path rather than dispatching
+  # a PR-anchored agent onto a dead branch.
+  defp open_pull_request_or_nil(%{"state" => "open"} = pr), do: pr
+  defp open_pull_request_or_nil(%{"state" => state}) when is_binary(state), do: nil
+  defp open_pull_request_or_nil(pr) when is_map(pr), do: pr
+
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number, opts \\ []) do
