@@ -131,11 +131,11 @@ defmodule Aiur.Regression.EventFlowE2eTest do
   end
 
   describe "GithubFirehose end-to-end" do
-    test "PushEvent from firehose → reaches subscribed ticket's enqueue" do
+    test "PullRequestEvent from firehose reaches subscribed ticket's enqueue" do
       ticket_2 = "e2e-fh-#{System.unique_integer([:positive])}"
 
       :ok = SubscriptionStore.attach(ticket_2)
-      :ok = SubscriptionStore.add_subscription(ticket_2, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(ticket_2, "ticket.42.pr.opened", "test")
       Process.sleep(50)
 
       stub_firehose = fn _req ->
@@ -145,13 +145,15 @@ defmodule Aiur.Regression.EventFlowE2eTest do
            headers: [{"ETag", ~s("z1")}, {"X-Poll-Interval", "60"}],
            body: [
              %{
-               "type" => "PushEvent",
+               "type" => "PullRequestEvent",
                "actor" => %{"login" => "bob"},
                "repo" => %{"name" => "owner/repo"},
                "payload" => %{
-                 "ref" => "refs/heads/aiur/42",
-                 "head" => "fh-#{System.unique_integer([:positive])}",
-                 "commits" => [%{"message" => "wip"}]
+                 "action" => "opened",
+                 "pull_request" => %{
+                   "number" => 4242,
+                   "head" => %{"ref" => "aiur/42", "sha" => "fh-#{System.unique_integer([:positive])}"}
+                 }
                }
              }
            ]
@@ -160,7 +162,7 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub_firehose)
 
-      assert_receive {:enqueued, ^ticket_2, %{topic: "ticket.42.branch.push", actor: "bob"}}, 500
+      assert_receive {:enqueued, ^ticket_2, %{topic: "ticket.42.pr.opened"}}, 500
 
       :ok = SubscriptionStore.stop(ticket_2)
     end

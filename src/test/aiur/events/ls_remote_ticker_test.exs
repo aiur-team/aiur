@@ -46,7 +46,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -73,7 +72,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -92,7 +90,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert payload.sha == "sha2"
     assert payload.repo == "owner/aiur"
     assert opts[:issue_number] == "99"
-    assert opts[:dedup_key] == {"owner/aiur", ref_a, "sha2"}
+    refute Keyword.has_key?(opts, :dedup_key)
 
     refute_receive {:published, "ticket.100.branch.push", _, _}, 100
   end
@@ -112,7 +110,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -143,7 +140,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -190,7 +186,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -222,7 +217,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         ref_pattern: "refs/heads/main",
         start_paused?: true
@@ -254,7 +248,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -292,7 +285,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -300,9 +292,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     # Tick 1 errors. `bootstrapped?` must STAY false. The previous
     # behavior of marking bootstrapped on error caused tick 2 to
     # treat every existing aiur/* ref as a new push and fan-out
-    # phantom auto-resumes for every paused blockee. The lost-push
-    # window between an error and the next success is recovered by
-    # the firehose as the second detection source.
+    # phantom auto-resumes for every paused blockee.
     tick(pid)
     assert_receive :polled, 500
 
@@ -339,43 +329,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     refute_receive {:published, "ticket.101.branch.push", _, _}, 100
   end
 
-  test "empty-string repo → dedup_key is omitted from publish opts (no Publisher crash)",
-       %{publisher: publisher} do
-    parent = self()
-
-    {:ok, agent} = Agent.start_link(fn -> {:ok, %{}} end)
-
-    ls_remote_fun = fn _remote, _patterns ->
-      send(parent, :polled)
-      Agent.get(agent, & &1)
-    end
-
-    # `repo: ""` exercises the same `not is_binary or empty` branch as
-    # `repo: nil` would, without relying on `Aiur.Tracker.project_identity/0`
-    # returning nil in the test environment.
-    {:ok, pid} =
-      LsRemoteTicker.start_link(
-        name: nil,
-        ls_remote_fun: ls_remote_fun,
-        publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
-        repo: "",
-        start_paused?: true
-      )
-
-    tick(pid)
-    assert_receive :polled, 500
-
-    Agent.update(agent, fn _ -> {:ok, %{"refs/heads/aiur/99" => "sha1"}} end)
-    tick(pid)
-    assert_receive :polled, 500
-
-    assert_receive {:published, "ticket.99.branch.push", _, opts}, 500
-
-    refute Keyword.has_key?(opts, :dedup_key),
-           "dedup_key must be omitted when repo is empty/nil so Publisher.deduped? does not see a malformed key"
-  end
-
   test "a DNS ls-remote failure builds a classified streak toward operator escalation",
        %{publisher: publisher} do
     # WHY (#617): the operator-visible symptom was `git ls-remote` failing
@@ -391,7 +344,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: dns_failure,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -419,7 +371,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: timeout_failure,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )
@@ -442,7 +393,6 @@ defmodule Aiur.Events.LsRemoteTickerTest do
         name: nil,
         ls_remote_fun: ls_remote_fun,
         publisher: publisher,
-        commits_fun: fn _repo, _sha -> [] end,
         repo: "owner/aiur",
         start_paused?: true
       )

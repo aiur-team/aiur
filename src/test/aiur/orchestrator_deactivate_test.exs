@@ -1769,22 +1769,20 @@ defmodule Aiur.OrchestratorDeactivateTest do
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
 
-          String.contains?(url, "/pulls/61/comments?") ->
-            {:ok,
-             %{
-               status: 200,
-               body: [
-                 %{
-                   "id" => 5701,
-                   "body" => "same-whale transfers should stay sequential",
-                   "updated_at" => "2026-06-24T12:00:00Z",
-                   "user" => %{"login" => "its-everdred"}
-                 }
-               ]
-             }}
-
           String.contains?(url, "/graphql") ->
-            empty_review_threads_response()
+            review_threads_response([
+              %{
+                "id" => "PRRT_human_review_only",
+                "isResolved" => false,
+                "path" => "lib/app.ex",
+                "line" => 12,
+                "comments" => %{
+                  "nodes" => [
+                    review_thread_comment(5701, "its-everdred", "same-whale transfers should stay sequential")
+                  ]
+                }
+              }
+            ])
         end
       end
 
@@ -1800,7 +1798,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           review_issue_fetcher: fn ["human-review"] -> {:ok, [issue]} end
         )
 
-      assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
+      assert next.github_comments_since == %{"57" => "2026-06-24T11:00:00Z"}
 
       assert_receive {:event,
                       %{
@@ -1856,22 +1854,20 @@ defmodule Aiur.OrchestratorDeactivateTest do
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
 
-          String.contains?(url, "/pulls/61/comments?") ->
-            {:ok,
-             %{
-               status: 200,
-               body: [
-                 %{
-                   "id" => 5702,
-                   "body" => "human-review target comment",
-                   "updated_at" => "2026-06-24T12:02:00Z",
-                   "user" => %{"login" => "its-everdred"}
-                 }
-               ]
-             }}
-
           String.contains?(url, "/graphql") ->
-            empty_review_threads_response()
+            review_threads_response([
+              %{
+                "id" => "PRRT_human_review_with_running",
+                "isResolved" => false,
+                "path" => "lib/app.ex",
+                "line" => 12,
+                "comments" => %{
+                  "nodes" => [
+                    review_thread_comment(5702, "its-everdred", "human-review target comment")
+                  ]
+                }
+              }
+            ])
         end
       end
 
@@ -1895,7 +1891,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert next.github_comments_since == %{
                "42" => "2026-06-24T11:59:59Z",
-               "57" => "2026-06-24T12:01:59Z"
+               "57" => "2026-06-24T11:00:00Z"
              }
 
       assert_receive {:event, %{topic: "ticket.42.issue.commented", message: "running target comment"}}, 500
@@ -3212,6 +3208,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defp empty_review_threads_response do
+    review_threads_response([])
+  end
+
+  defp review_threads_response(nodes) do
     {:ok,
      %{
        status: 200,
@@ -3221,12 +3221,22 @@ defmodule Aiur.OrchestratorDeactivateTest do
              "pullRequest" => %{
                "reviewThreads" => %{
                  "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
-                 "nodes" => []
+                 "nodes" => nodes
                }
              }
            }
          }
        }
      }}
+  end
+
+  defp review_thread_comment(id, login, body) do
+    %{
+      "databaseId" => id,
+      "body" => body,
+      "author" => %{"login" => login},
+      "createdAt" => "2026-06-24T12:00:00Z",
+      "updatedAt" => "2026-06-24T12:00:00Z"
+    }
   end
 end

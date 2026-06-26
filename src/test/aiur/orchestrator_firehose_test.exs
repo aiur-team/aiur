@@ -99,6 +99,17 @@ defmodule Aiur.OrchestratorFirehoseTest do
     assert Orchestrator.github_next_poll_delay_for_test(state) == 7_000
   end
 
+  test "firehose honors X-Poll-Interval on successful responses" do
+    stub = fn _req ->
+      {:ok, %{status: 200, headers: [{"ETag", ~s("e")}, {"X-Poll-Interval", "13"}], body: []}}
+    end
+
+    state = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: stub)
+
+    assert state.github_connectivity[:firehose] == nil
+    assert Orchestrator.github_next_poll_delay_for_test(state) == 13_000
+  end
+
   test "comments poller honors Retry-After on rate-limited responses" do
     request_fun = fn %{url: url} ->
       cond do
@@ -146,7 +157,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     recovered = Orchestrator.poll_github_firehose_for_test(state, request_fun: ok)
     assert recovered.github_connectivity[:firehose] == nil
-    assert Orchestrator.github_next_poll_delay_for_test(recovered) == nil
+    assert Orchestrator.github_next_poll_delay_for_test(recovered) == 60_000
   end
 
   defp request_page(%{url: url}) do
