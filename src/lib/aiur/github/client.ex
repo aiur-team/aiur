@@ -584,6 +584,80 @@ defmodule Aiur.GitHub.Client do
   defp pull_request_has_label?(_pull_request, _label), do: false
 
   @doc """
+  Fetches recent PR REVIEW (line) comments across ALL pull requests in the
+  repo, for the per-comment command scan (the one-off `/aiur`/bot-mention
+  trigger).
+
+  Lists `GET /repos/{owner}/{repo}/pulls/comments?sort=updated&direction=desc`
+  with a `since` cursor (`:since`). This is a repo-wide comment STREAM, not a
+  per-PR fetch — a `/aiur` left as a review comment does NOT reliably bump the
+  PR's `updated_at`, so scanning by PR freshness would silently miss it; the
+  comment stream surfaces it directly. Each review comment carries
+  `pull_request_url` so the caller can derive the PR number. Paginates the
+  `Link` `rel="next"` header (like `fetch_labeled_open_pull_requests/5`) so a
+  burst within one cursor window cannot silently truncate.
+  """
+  @spec fetch_recent_repo_review_comments(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_recent_repo_review_comments(opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = repo_comment_stream_query(opts)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/comments?#{query}"
+      fetch_repo_comment_stream(request_fun, token, url, [])
+    end
+  end
+
+  @doc """
+  Fetches recent ISSUE/PR-conversation comments across ALL issues and PRs in
+  the repo, for the per-comment command scan.
+
+  Lists `GET /repos/{owner}/{repo}/issues/comments?sort=updated&direction=desc`
+  with a `since` cursor (`:since`). The endpoint returns comments for both
+  plain issues and PR conversations; the caller filters to PR comments (the
+  `html_url` contains `/pull/`) and derives the PR number from `issue_url`.
+  Paginates the `Link` `rel="next"` header so a burst within one cursor window
+  cannot silently truncate.
+  """
+  @spec fetch_recent_repo_issue_comments(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_recent_repo_issue_comments(opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = repo_comment_stream_query(opts)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/comments?#{query}"
+      fetch_repo_comment_stream(request_fun, token, url, [])
+    end
+  end
+
+  defp repo_comment_stream_query(opts) do
+    %{"sort" => "updated", "direction" => "desc", "per_page" => "100"}
+    |> maybe_put_query("since", Keyword.get(opts, :since))
+    |> URI.encode_query()
+  end
+
+  defp fetch_repo_comment_stream(_request_fun, _token, nil, acc), do: {:ok, acc}
+
+  defp fetch_repo_comment_stream(request_fun, token, url, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        next = parse_next_page_url(headers)
+        fetch_repo_comment_stream(request_fun, token, next, acc ++ body)
+
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, acc ++ body}
+
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, classify_error({:error, reason})}
+    end
+  end
+
+  @doc """
   Fetches raw issue conversation comments for one issue or PR conversation.
   """
   @spec fetch_issue_comments(String.t() | integer(), keyword()) ::

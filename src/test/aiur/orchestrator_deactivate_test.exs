@@ -2725,6 +2725,293 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "per-comment command scan (one-off /aiur or @bot trigger)" do
+    test "a trusted /aiur review comment on an unlabeled PR emits the pr#-keyed event" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true,
+        pr_watch_command_prefix: "/aiur"
+      )
+
+      trust_authors!(["its-everdred"])
+
+      :ok = Exchange.subscribe("ticket.733.pr.review_comment")
+
+      # A REVIEW (line) comment — the primary "live review partner" case. The
+      # PR number is derived from `pull_request_url`, NOT from any PR fetch.
+      review_command = %{
+        "id" => 90_001,
+        "body" => "/aiur fix the nil case",
+        "updated_at" => "2026-06-25T02:00:00Z",
+        "user" => %{"login" => "its-everdred"},
+        "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/733"
+      }
+
+      state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
+
+      next =
+        Orchestrator.scan_pr_commands_for_test(state,
+          repo: "owner/repo",
+          command_scan_review_comment_fetcher: fn _opts -> {:ok, [review_command]} end,
+          command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+        )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.733.pr.review_comment",
+                        source: :github,
+                        message: "/aiur fix the nil case",
+                        issue_number: "733"
+                      }},
+                     500
+
+      # The scan cursor advanced past the handled comment (−1s rewind), so the
+      # same comment will not re-fire next cycle — the one-off guarantee.
+      assert next.github_command_scan_since == "2026-06-25T01:59:59Z"
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "a @<bot_account> mention in a PR conversation comment emits the reactivation event" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      trust_authors!(["its-everdred"])
+
+      :ok = Exchange.subscribe("ticket.734.pr.review_comment")
+
+      # A conversation comment on a PR — `issue_url` gives the number and the
+      # `/pull/` in `html_url` confirms it's a PR (not a plain issue).
+      mention_comment = %{
+        "id" => 90_002,
+        "body" => "could you take a look @aiur-bot?",
+        "updated_at" => "2026-06-25T03:00:00Z",
+        "user" => %{"login" => "its-everdred"},
+        "issue_url" => "https://api.github.com/repos/owner/repo/issues/734",
+        "html_url" => "https://github.com/owner/repo/pull/734#issuecomment-90002"
+      }
+
+      Orchestrator.scan_pr_commands_for_test(
+        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        repo: "owner/repo",
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [mention_comment]} end
+      )
+
+      assert_receive {:event, %{topic: "ticket.734.pr.review_comment", source: :github}}, 500
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "a /aiur on a plain (non-PR) issue is out of scope — no event" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      trust_authors!(["its-everdred"])
+
+      :ok = Exchange.subscribe("ticket.736.pr.review_comment")
+
+      # A plain ISSUE comment: `html_url` contains `/issues/`, not `/pull/`, so
+      # the PR-number derivation returns nil and the comment is dropped.
+      issue_comment = %{
+        "id" => 90_020,
+        "body" => "/aiur fix this",
+        "updated_at" => "2026-06-25T05:00:00Z",
+        "user" => %{"login" => "its-everdred"},
+        "issue_url" => "https://api.github.com/repos/owner/repo/issues/736",
+        "html_url" => "https://github.com/owner/repo/issues/736#issuecomment-90020"
+      }
+
+      Orchestrator.scan_pr_commands_for_test(
+        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        repo: "owner/repo",
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [issue_comment]} end
+      )
+      |> tap(fn _ -> send(parent, :scan_done) end)
+
+      refute_receive {:event, %{topic: "ticket.736.pr.review_comment"}}, 200
+      assert_receive :scan_done, 500
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "an untrusted author's /aiur is ignored (no event); the bot's own command is dropped" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      # `its-everdred` is trusted; `stranger` is not. The bot is also trusted
+      # (self-include) but must be dropped by the self-loop gate.
+      trust_authors!(["its-everdred", "aiur-bot"])
+
+      :ok = Exchange.subscribe("ticket.735.pr.review_comment")
+
+      review_comments = [
+        %{
+          "id" => 90_010,
+          "body" => "/aiur do the thing",
+          "updated_at" => "2026-06-25T04:00:00Z",
+          "user" => %{"login" => "stranger"},
+          "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/735"
+        },
+        %{
+          "id" => 90_011,
+          "body" => "/aiur status",
+          "updated_at" => "2026-06-25T04:01:00Z",
+          "user" => %{"login" => "aiur-bot"},
+          "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/735"
+        }
+      ]
+
+      Orchestrator.scan_pr_commands_for_test(
+        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        repo: "owner/repo",
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, review_comments} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+      )
+      |> tap(fn _ -> send(parent, :scan_done) end)
+
+      # Neither the untrusted /aiur nor the bot's own /aiur produces a dispatch.
+      refute_receive {:event, %{topic: "ticket.735.pr.review_comment"}}, 200
+      assert_receive :scan_done, 500
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "pr_watch disabled produces no scan and no events" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot"
+      )
+
+      state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
+
+      next =
+        Orchestrator.scan_pr_commands_for_test(state,
+          repo: "owner/repo",
+          command_scan_review_comment_fetcher: fn _opts ->
+            send(parent, :unexpected_command_scan_fetch)
+            {:ok, []}
+          end,
+          command_scan_issue_comment_fetcher: fn _opts ->
+            send(parent, :unexpected_command_scan_fetch)
+            {:ok, []}
+          end
+        )
+
+      # Feature off: the fetchers are never invoked and state is untouched.
+      assert next == state
+      refute_receive :unexpected_command_scan_fetch, 100
+    end
+
+    test "the command scan is bounded by distinct commanded PRs and the drop is logged" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      trust_authors!(["its-everdred"])
+
+      # Four distinct commanded PRs surface in one cursor window; the cap keeps
+      # the lowest 2 PR numbers and logs the 2 dropped.
+      for pr <- 1..4, do: Exchange.subscribe("ticket.#{pr}.pr.review_comment")
+
+      review_comments =
+        for n <- 1..4 do
+          %{
+            "id" => 90_100 + n,
+            "body" => "/aiur handle this",
+            "updated_at" => "2026-06-25T0#{n}:00:00Z",
+            "user" => %{"login" => "its-everdred"},
+            "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/#{n}"
+          }
+        end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          Orchestrator.scan_pr_commands_for_test(
+            %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+            repo: "owner/repo",
+            command_scan_pull_request_limit: 2,
+            command_scan_review_comment_fetcher: fn _opts -> {:ok, review_comments} end,
+            command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+          )
+        end)
+
+      # The two lowest-numbered PRs fire; the other two are capped out.
+      assert_receive {:event, %{topic: "ticket.1.pr.review_comment"}}, 500
+      assert_receive {:event, %{topic: "ticket.2.pr.review_comment"}}, 500
+      refute_receive {:event, %{topic: "ticket.3.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: "ticket.4.pr.review_comment"}}, 100
+
+      assert log =~ "scan_pr_commands capped"
+      assert log =~ "dropped=2"
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+  end
+
   describe "pause-request topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid agent.pause.request topic" do
       assert {:ok, "100"} =
@@ -3708,6 +3995,32 @@ defmodule Aiur.OrchestratorDeactivateTest do
     after
       200 -> Enum.reverse(acc)
     end
+  end
+
+  # Override the running CodeOwners allowlist so `Sanitizer.stamp_author_trust/2`
+  # treats `logins` as trusted for the duration of a command-scan test, then
+  # restore the previous allowlist in the `after` block. Mirrors the
+  # github_comments_poller test's `ensure_codeowners!` pattern.
+  defp trust_authors!(logins) do
+    pid = Process.whereis(Aiur.GitHub.CodeOwners)
+    previous = Aiur.GitHub.CodeOwners.snapshot(pid)
+    Process.put(:command_scan_codeowners, %{pid: pid, previous: previous})
+    allowlist = MapSet.new(Enum.map(logins, &String.downcase/1))
+    :sys.replace_state(pid, fn state -> %{state | allowlist: allowlist} end)
+    %{pid: pid, previous: previous}
+  end
+
+  defp codeowners_state, do: Process.get(:command_scan_codeowners)
+
+  defp restore_trust!(nil), do: :ok
+
+  defp restore_trust!(%{pid: pid, previous: previous}) do
+    if Process.alive?(pid) do
+      :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(previous)})
+    end
+
+    Process.delete(:command_scan_codeowners)
+    :ok
   end
 
   defp empty_review_threads_response do
