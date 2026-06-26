@@ -31,6 +31,19 @@ defmodule Aiur.AiurAgentSkillTest do
     assert File.exists?(Path.join(@claude_skill, "SKILL.md"))
   end
 
+  test "using-aiur turn-workflow teaches respond-vs-code and PR-anchored mode" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/turn-workflow.md"))
+
+    # respond-vs-code: reply by default, write code only when clearly intended
+    assert content =~ "Most comments do not ask for code"
+    assert content =~ "only make and push a code change when the comment clearly intends"
+
+    # PR-anchored mode: work the PR's own branch, no new PR, no auto-resolve
+    assert content =~ "PR-anchored mode"
+    assert content =~ "you are already checked out on that PR's own branch"
+    assert content =~ "Do NOT open a new PR"
+  end
+
   test "Codex backend surface: prompt-referenced skills resolve through symlinks" do
     for skill <- ~w(aiur-agent using-aiur) do
       assert_codex_skill_symlink_resolves_to_claude(skill)

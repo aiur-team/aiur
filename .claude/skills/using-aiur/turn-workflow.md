@@ -34,6 +34,13 @@ GitHub issue state is label-based:
 
 ## PR review feedback loop
 
+Most comments do not ask for code. A question, a clarification request, a
+discussion point, or an approval wants a *reply*, not a commit. Differentiate
+intuitively and only make and push a code change when the comment clearly intends
+one; otherwise reply concisely on the thread and change nothing. Over-eager coding
+on every comment is the failure mode to avoid — acknowledge, assess, then reply or
+change as the comment actually warrants.
+
 When a `pr.review_comment` event or unresolved review thread asks for a real code
 change, treat it as active feedback even if GitHub marks the thread outdated.
 Either make and push the requested change, or verify the current branch already
@@ -54,6 +61,14 @@ fails with `review_thread_resolution_not_permitted`,
 `review_thread_resolution_not_authorized`, the reply is still the durable done or
 handoff signal; record the refusal in the workpad instead of retrying the same
 resolution call.
+
+PR-anchored mode (watched / `/aiur`-commanded PRs): when you were woken for a PR
+you did not create — a PR carrying the `agent:watch` label, or a single comment
+addressed to you — you are already checked out on that PR's own branch, not an
+`aiur/<id>` branch. Push any commits to that same branch and reply on its review
+threads. Do NOT open a new PR, and do NOT resolve threads unless the comment
+explicitly tells you to. The trust rule for whose comments to act on is unchanged
+(see `conventions.md` — CODEOWNERS and trusted accounts only).
 
 Right-size the CE skill flow to the actual work — see `complexity-routing.md`
 for which skills to run at each `complexity:N` tier and `dev-loop.md` for the
