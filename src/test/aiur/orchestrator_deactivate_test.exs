@@ -484,6 +484,139 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
+    test "human-review with transient GraphQL verification errors is left for a later poll" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-human-review-graphql-transient-#{System.unique_integer([:positive])}"
+        )
+
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_guard_recipient = Application.get_env(:aiur, :human_review_guard_recipient)
+      previous_ready_result = Application.get_env(:aiur, :human_review_ready_result)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          workspace_root: test_root,
+          tracker_repo: "owner/repo",
+          tracker_label_prefix: "agent",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :github_client_module, HumanReviewGuardGitHubClient)
+        Application.put_env(:aiur, :human_review_guard_recipient, self())
+
+        transient_errors = [
+          {"58", [%{"type" => "RATE_LIMITED", "message" => "secondary rate limit"}]},
+          {"59", [%{"type" => "INTERNAL", "message" => "server error"}]},
+          {"60", [%{"extensions" => %{"code" => "INTERNAL_SERVER_ERROR"}}]},
+          {"61", [%{type: :SERVICE_UNAVAILABLE}]}
+        ]
+
+        for {issue_id, errors} <- transient_errors do
+          agent_pid =
+            spawn(fn ->
+              receive do
+                :stop -> :ok
+              end
+            end)
+
+          try do
+            Application.put_env(
+              :aiur,
+              :human_review_ready_result,
+              {:error, {:github_graphql_errors, errors}}
+            )
+
+            state = human_review_running_state(issue_id, agent_pid)
+            issue = human_review_issue(issue_id)
+
+            updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+            assert_receive {:human_review_verify, ^issue_id}
+            refute_receive {:human_review_update, ^issue_id, "rework"}, 100
+            assert Process.alive?(agent_pid)
+
+            entry = Map.fetch!(updated_state.running, issue_id)
+            assert entry.pid == agent_pid
+            assert entry.issue.state == "in-progress"
+            assert get_in(entry, [:control, :status]) == :working
+          after
+            if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+          end
+        end
+      after
+        restore_application_env(:github_client_module, previous_github_client)
+        restore_application_env(:human_review_guard_recipient, previous_guard_recipient)
+        restore_application_env(:human_review_ready_result, previous_ready_result)
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "human-review with a non-transient GraphQL verification error reverts to rework" do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-orch-human-review-graphql-permanent-#{System.unique_integer([:positive])}"
+        )
+
+      issue_id = "62"
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_guard_recipient = Application.get_env(:aiur, :human_review_guard_recipient)
+      previous_ready_result = Application.get_env(:aiur, :human_review_ready_result)
+
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          workspace_root: test_root,
+          tracker_repo: "owner/repo",
+          tracker_label_prefix: "agent",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :github_client_module, HumanReviewGuardGitHubClient)
+        Application.put_env(:aiur, :human_review_guard_recipient, self())
+
+        Application.put_env(
+          :aiur,
+          :human_review_ready_result,
+          {:error, {:github_graphql_errors, [%{"type" => "FORBIDDEN", "message" => "denied"}]}}
+        )
+
+        state = human_review_running_state(issue_id, agent_pid)
+        issue = human_review_issue(issue_id)
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        assert_receive {:human_review_verify, ^issue_id}
+        assert_receive {:human_review_update, ^issue_id, "rework"}
+        assert Process.alive?(agent_pid)
+
+        entry = Map.fetch!(updated_state.running, issue_id)
+        assert entry.pid == agent_pid
+        assert entry.issue.state == "rework"
+        assert get_in(entry, [:control, :status]) == :working
+      after
+        if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
+        restore_application_env(:github_client_module, previous_github_client)
+        restore_application_env(:human_review_guard_recipient, previous_guard_recipient)
+        restore_application_env(:human_review_ready_result, previous_ready_result)
+        File.rm_rf(test_root)
+      end
+    end
+
     test "terminate (terminal label) also broadcasts aiur_turn_done for every active chat stream" do
       test_root =
         Path.join(
@@ -3201,6 +3334,35 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp human_review_running_state(issue_id, agent_pid) do
+    %Orchestrator.State{
+      running: %{
+        issue_id => %{
+          pid: agent_pid,
+          ref: nil,
+          identifier: issue_id,
+          issue: %Issue{id: issue_id, state: "in-progress", identifier: issue_id},
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      },
+      claimed: MapSet.new([issue_id]),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+  end
+
+  defp human_review_issue(issue_id) do
+    %Issue{
+      id: issue_id,
+      identifier: issue_id,
+      state: "human-review",
+      title: "PR up for review",
+      description: "",
+      labels: []
+    }
+  end
 
   defp datetime!(iso8601) do
     {:ok, datetime, _offset} = DateTime.from_iso8601(iso8601)
