@@ -1933,6 +1933,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
+            send(parent, {:pulls_requested, url})
             {:ok, %{status: 200, body: []}}
         end
       end
@@ -1959,6 +1960,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert_receive {:issue_comments_requested, "13"}, 500
       assert_receive {:issue_comments_requested, "11"}, 500
       refute_receive {:issue_comments_requested, _}, 100
+      assert_receive {:pulls_requested, pulls_13}, 500
+      assert_receive {:pulls_requested, pulls_11}, 500
+      refute_receive {:pulls_requested, _}, 100
+
+      assert String.contains?(pulls_13, "aiur%2F13")
+      assert String.contains?(pulls_11, "aiur%2F11")
 
       assert next.github_comments_since == %{
                "10" => "2026-06-24T12:00:00Z",
@@ -2046,7 +2053,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 61}]}}
+            send(parent, {:unexpected_pull_request_lookup, url})
+            {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -2074,9 +2082,75 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       assert_receive :issue_comments_requested, 500
+      refute_receive {:unexpected_pull_request_lookup, _url}, 100
 
       assert next.github_comment_issue_updated_at == %{
                "57" => "issue=#{issue_updated_at};pr=#{pr_updated_at}"
+             }
+    end
+
+    test "direct comment poll prefers unknown human-review targets before capped PR lookups" do
+      parent = self()
+      updated_at = "2026-06-24T12:00:00Z"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      issues =
+        for id <- ~w(10 11) do
+          %Issue{
+            id: id,
+            identifier: id,
+            state: "human-review",
+            updated_at: datetime!(updated_at)
+          }
+        end
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/11/comments?") ->
+            send(parent, {:issue_comments_requested, "11"})
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls?") ->
+            send(parent, {:pulls_requested, url})
+            {:ok, %{status: 200, body: []}}
+        end
+      end
+
+      state = %Orchestrator.State{
+        running: %{},
+        github_comments_since: %{
+          "10" => "2026-06-24T09:00:00Z",
+          "11" => "2026-06-24T10:00:00Z"
+        },
+        github_comment_issue_updated_at: %{"10" => updated_at}
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, issues} end,
+          human_review_comment_target_limit: 1,
+          max_concurrency: 1
+        )
+
+      assert_receive {:pulls_requested, pulls_11}, 500
+      assert_receive {:issue_comments_requested, "11"}, 500
+      refute_receive {:pulls_requested, _}, 100
+      refute_receive {:issue_comments_requested, _}, 100
+
+      assert String.contains?(pulls_11, "aiur%2F11")
+
+      assert next.github_comment_issue_updated_at == %{
+               "10" => updated_at,
+               "11" => updated_at
              }
     end
 

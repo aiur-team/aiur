@@ -1178,6 +1178,7 @@ defmodule Aiur.Orchestrator do
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
+      |> put_human_review_open_pull_requests(human_review_targets)
 
     case GithubCommentsPoller.poll(targets, poll_opts) do
       {:ok, %{since: since, count: count, errors: errors}} ->
@@ -1348,10 +1349,10 @@ defmodule Aiur.Orchestrator do
           |> Enum.map(&human_review_comment_target_for_issue/1)
           |> Enum.reject(&is_nil/1)
           |> dedupe_human_review_targets()
+          |> Enum.sort_by(&human_review_comment_target_sort_key(state, &1))
+          |> Enum.take(human_review_comment_target_limit(opts))
           |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
           |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
-          |> Enum.sort_by(&human_review_comment_target_sort_key(state.github_comments_since, &1))
-          |> Enum.take(human_review_comment_target_limit(opts))
 
         {:ok, targets}
 
@@ -1390,10 +1391,14 @@ defmodule Aiur.Orchestrator do
           |> Map.get("updated_at", Map.get(pr, :updated_at))
           |> issue_updated_at_key()
 
-        %{entry | updated_at: human_review_target_updated_at_key(entry.issue_updated_at, pr_updated_at)}
+        entry
+        |> Map.put(:open_pull_request, pr)
+        |> Map.put(:updated_at, human_review_target_updated_at_key(entry.issue_updated_at, pr_updated_at))
 
       {:ok, nil} ->
-        %{entry | updated_at: human_review_target_updated_at_key(entry.issue_updated_at, nil)}
+        entry
+        |> Map.put(:open_pull_request, nil)
+        |> Map.put(:updated_at, human_review_target_updated_at_key(entry.issue_updated_at, nil))
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller PR freshness lookup failed: issue=#{target} reason=#{inspect(reason)}")
@@ -1429,18 +1434,68 @@ defmodule Aiur.Orchestrator do
 
   defp unchanged_human_review_comment_target?(_state, _target), do: false
 
-  defp human_review_comment_target_sort_key(cursors, %{target: target}) do
-    {comment_cursor_sort_key(cursors, target), target}
+  defp human_review_comment_target_sort_key(
+         %State{
+           github_comments_since: cursors,
+           github_comment_issue_updated_at: updated_at_by_target
+         },
+         %{target: target, issue_updated_at: issue_updated_at}
+       ) do
+    {
+      human_review_pr_probe_priority(updated_at_by_target, target, issue_updated_at),
+      comment_cursor_sort_key(cursors, target),
+      target
+    }
   end
 
   defp comment_cursor_sort_key(%{} = cursors, target), do: Map.get(cursors, target) || ""
   defp comment_cursor_sort_key(cursor, _target) when is_binary(cursor), do: cursor
   defp comment_cursor_sort_key(_cursor, _target), do: ""
 
+  defp human_review_pr_probe_priority(%{} = updated_at_by_target, target, issue_updated_at)
+       when is_binary(issue_updated_at) do
+    case Map.get(updated_at_by_target, target) do
+      updated_at when is_binary(updated_at) ->
+        if human_review_target_known_at_issue_updated_at?(updated_at, issue_updated_at), do: 1, else: 0
+
+      _other ->
+        0
+    end
+  end
+
+  defp human_review_pr_probe_priority(_updated_at_by_target, _target, _issue_updated_at), do: 0
+
+  defp human_review_target_known_at_issue_updated_at?(updated_at, issue_updated_at) do
+    updated_at == issue_updated_at or String.starts_with?(updated_at, "issue=#{issue_updated_at};pr=")
+  end
+
   defp human_review_comment_target_limit(opts) do
     case Keyword.get(opts, :human_review_comment_target_limit, @human_review_comment_targets_per_poll) do
       limit when is_integer(limit) and limit > 0 -> limit
       _ -> @human_review_comment_targets_per_poll
+    end
+  end
+
+  defp put_human_review_open_pull_requests(opts, human_review_targets) do
+    open_pull_requests =
+      human_review_targets
+      |> Enum.reduce(%{}, fn
+        %{target: target} = entry, acc when is_binary(target) ->
+          if Map.has_key?(entry, :open_pull_request) do
+            Map.put(acc, target, Map.get(entry, :open_pull_request))
+          else
+            acc
+          end
+
+        _entry, acc ->
+          acc
+      end)
+
+    if map_size(open_pull_requests) == 0 do
+      opts
+    else
+      existing = Keyword.get(opts, :open_pull_requests_by_target, %{})
+      Keyword.put(opts, :open_pull_requests_by_target, Map.merge(existing, open_pull_requests))
     end
   end
 

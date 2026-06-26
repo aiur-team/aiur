@@ -159,32 +159,59 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp poll_pr_comments(target, since, repo, opts) do
-    with {:ok, pr} when is_map(pr) <- Client.fetch_open_pull_request_for_branch(target, opts),
-         pr_number when is_integer(pr_number) <- parse_integer(Map.get(pr, "number")) do
-      {conversation_count, conversation_newest, conversation_result} =
-        poll_pr_issue_comments(target, pr_number, since, repo, opts)
+    case open_pull_request_for_target(target, opts) do
+      {:ok, pr} ->
+        poll_pr_comments_for_open_pull_request(target, pr, since, repo, opts)
 
-      {thread_count, thread_result} =
-        poll_unaddressed_pr_review_threads(target, pr_number, repo, opts)
+      :fetch ->
+        case Client.fetch_open_pull_request_for_branch(target, opts) do
+          {:ok, pr} ->
+            poll_pr_comments_for_open_pull_request(target, pr, since, repo, opts)
 
-      {
-        conversation_count + thread_count,
-        conversation_newest,
-        [conversation_result, thread_result]
-      }
-    else
-      {:ok, nil} ->
-        {0, nil, [:ok]}
+          {:error, reason} ->
+            Logger.warning("GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}")
 
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}")
+            {0, nil, [{:error, {:pr_lookup, reason}}]}
+        end
+    end
+  end
 
-        {0, nil, [{:error, {:pr_lookup, reason}}]}
+  defp open_pull_request_for_target(target, opts) do
+    case Keyword.get(opts, :open_pull_requests_by_target) do
+      %{} = open_pull_requests ->
+        if Map.has_key?(open_pull_requests, target) do
+          {:ok, Map.get(open_pull_requests, target)}
+        else
+          :fetch
+        end
+
+      _other ->
+        :fetch
+    end
+  end
+
+  defp poll_pr_comments_for_open_pull_request(target, pr, since, repo, opts) when is_map(pr) do
+    case parse_integer(Map.get(pr, "number")) do
+      pr_number when is_integer(pr_number) ->
+        {conversation_count, conversation_newest, conversation_result} =
+          poll_pr_issue_comments(target, pr_number, since, repo, opts)
+
+        {thread_count, thread_result} =
+          poll_unaddressed_pr_review_threads(target, pr_number, repo, opts)
+
+        {
+          conversation_count + thread_count,
+          conversation_newest,
+          [conversation_result, thread_result]
+        }
 
       nil ->
         {0, nil, [:ok]}
     end
   end
+
+  defp poll_pr_comments_for_open_pull_request(_target, nil, _since, _repo, _opts),
+    do: {0, nil, [:ok]}
 
   defp poll_pr_issue_comments(target, pr_number, since, repo, opts) do
     case Client.fetch_issue_comments(pr_number, Keyword.put(opts, :since, since)) do
