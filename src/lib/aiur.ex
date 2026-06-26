@@ -111,6 +111,7 @@ defmodule Aiur.Application do
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
       Aiur.OperatorWaitLog,
+      Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator,
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,

@@ -39,6 +39,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.Orchestrator.TrackedSet
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -236,29 +237,8 @@ defmodule Aiur.Orchestrator do
     :ok
   end
 
-  @tracked_table __MODULE__.TrackedSet
-
   defp init_tracked_set_table do
-    ensure_tracked_set_table()
-    :ets.delete_all_objects(@tracked_table)
-    :ok
-  end
-
-  defp ensure_tracked_set_table do
-    case :ets.whereis(@tracked_table) do
-      :undefined ->
-        :ets.new(@tracked_table, [
-          :named_table,
-          :public,
-          :set,
-          read_concurrency: true,
-          write_concurrency: true
-        ])
-
-      _ ->
-        @tracked_table
-    end
-
+    TrackedSet.reset([])
     :ok
   end
 
@@ -271,12 +251,7 @@ defmodule Aiur.Orchestrator do
   def issue_tracked?(nil), do: false
 
   def issue_tracked?(issue_number) do
-    needle = to_string(issue_number)
-
-    case :ets.whereis(@tracked_table) do
-      :undefined -> true
-      _ -> :ets.member(@tracked_table, needle)
-    end
+    TrackedSet.member?(issue_number)
   end
 
   # Refreshes the tracked set with the current running issues. Called
@@ -299,9 +274,7 @@ defmodule Aiur.Orchestrator do
       end)
       |> Enum.reject(&is_nil/1)
 
-    ensure_tracked_set_table()
-    :ets.delete_all_objects(@tracked_table)
-    Enum.each(needles, &:ets.insert(@tracked_table, {&1, true}))
+    TrackedSet.reset(needles)
     state
   end
 
