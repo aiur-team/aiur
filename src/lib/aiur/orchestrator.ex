@@ -52,6 +52,7 @@ defmodule Aiur.Orchestrator do
   @poll_transition_render_delay_ms 20
   @human_review_state "human-review"
   @human_review_comment_targets_per_poll 25
+  @watch_comment_targets_per_poll 25
   @transient_github_graphql_error_types ~w(
     INTERNAL
     INTERNAL_SERVER_ERROR
@@ -1170,8 +1171,8 @@ defmodule Aiur.Orchestrator do
 
   defp do_poll_github_comments(%State{} = state, opts) do
     case github_comment_poll_targets(state, opts) do
-      {:ok, targets, human_review_targets} ->
-        poll_github_comment_targets(state, targets, human_review_targets, opts)
+      {:ok, targets, human_review_targets, watch_targets} ->
+        poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
@@ -1179,14 +1180,16 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _opts), do: state
+  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts),
+    do: state
 
-  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, opts)
+  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
        when is_list(targets) do
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
-      |> put_human_review_open_pull_requests(human_review_targets)
+      |> put_open_pull_requests_by_target(human_review_targets)
+      |> put_open_pull_requests_by_target(watch_targets)
 
     case GithubCommentsPoller.poll(targets, poll_opts) do
       {:ok, %{since: since, count: count, errors: errors}} ->
@@ -1328,15 +1331,99 @@ defmodule Aiur.Orchestrator do
   end
 
   defp github_comment_poll_targets(%State{} = state, opts) do
-    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts) do
+    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts),
+         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
       running_targets = running_comment_poll_targets(state)
 
       targets =
         running_targets
         |> Kernel.++(Enum.map(human_review_targets, & &1.target))
+        |> Kernel.++(Enum.map(watch_targets, & &1.target))
         |> Enum.uniq()
 
-      {:ok, targets, human_review_targets}
+      {:ok, targets, human_review_targets, watch_targets}
+    end
+  end
+
+  # Discovers open PRs labeled `agent:watch` repo-wide and turns each into a
+  # PR-number-keyed comment poll target carrying its PR object, so the poller
+  # never branch-derives for watched PRs (it consumes the passed PR via
+  # `open_pull_requests_by_target`). Mirrors `human_review_comment_poll_targets/2`:
+  # closed/merged PRs are excluded at the query, the set is deduped and capped per
+  # poll, and the drop is logged (never silent). Returns `{:ok, []}` when the
+  # feature is disabled so the rest of the poll cycle is untouched.
+  defp watch_comment_poll_targets(%State{} = _state, opts) do
+    if Aiur.GitHub.Config.pr_watch_enabled?() do
+      fetcher = watch_pull_request_fetcher(opts)
+
+      case fetcher.(Aiur.GitHub.Config.watch_label()) do
+        {:ok, pull_requests} when is_list(pull_requests) ->
+          {:ok, build_watch_targets(pull_requests, opts)}
+
+        {:error, _reason} = error ->
+          error
+
+        other ->
+          {:error, {:unexpected_watch_targets, other}}
+      end
+    else
+      {:ok, []}
+    end
+  end
+
+  defp watch_pull_request_fetcher(opts) do
+    Keyword.get_lazy(opts, :watch_pull_request_fetcher, fn ->
+      fn label -> GitHubClient.fetch_open_pull_requests_by_label(label, opts) end
+    end)
+  end
+
+  defp build_watch_targets(pull_requests, opts) do
+    targets =
+      pull_requests
+      |> Enum.map(&watch_comment_target_for_pull_request/1)
+      |> Enum.reject(&is_nil/1)
+      |> dedupe_watch_targets()
+
+    limit = watch_comment_target_limit(opts)
+    kept = Enum.take(targets, limit)
+
+    dropped = length(targets) - length(kept)
+
+    if dropped > 0 do
+      Logger.warning("watch_comment_poll_targets capped: kept=#{length(kept)} dropped=#{dropped} limit=#{limit}")
+    end
+
+    kept
+  end
+
+  # A watched PR's identifier/topic is its PR number (string). Open/closed is
+  # already filtered at the query, so any PR reaching here is an active watch
+  # target. `open` defends against a fetcher that returns non-open PRs.
+  defp watch_comment_target_for_pull_request(%{"number" => number} = pr)
+       when is_integer(number) do
+    if pull_request_open?(pr) do
+      %{target: to_string(number), open_pull_request: pr}
+    end
+  end
+
+  defp watch_comment_target_for_pull_request(_pr), do: nil
+
+  defp pull_request_open?(%{"state" => state}) when is_binary(state), do: state == "open"
+  defp pull_request_open?(%{"merged_at" => merged_at}) when is_binary(merged_at), do: false
+  defp pull_request_open?(_pr), do: true
+
+  defp dedupe_watch_targets(targets) do
+    targets
+    |> Enum.reduce(%{}, fn %{target: target} = entry, acc ->
+      Map.put_new(acc, target, entry)
+    end)
+    |> Map.values()
+  end
+
+  defp watch_comment_target_limit(opts) do
+    case Keyword.get(opts, :watch_comment_target_limit, @watch_comment_targets_per_poll) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> @watch_comment_targets_per_poll
     end
   end
 
@@ -1484,9 +1571,9 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp put_human_review_open_pull_requests(opts, human_review_targets) do
+  defp put_open_pull_requests_by_target(opts, targets) do
     open_pull_requests =
-      human_review_targets
+      targets
       |> Enum.reduce(%{}, fn
         %{target: target} = entry, acc when is_binary(target) ->
           if Map.has_key?(entry, :open_pull_request) do

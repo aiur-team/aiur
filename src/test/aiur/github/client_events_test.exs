@@ -148,4 +148,65 @@ defmodule Aiur.GitHub.ClientEventsTest do
                Client.add_dependency(42, 99, request_fun: stub)
     end
   end
+
+  describe "fetch_open_pull_requests_by_label/2" do
+    test "lists open PRs and filters by label name, carrying number + head ref" do
+      labelled = %{
+        "number" => 314,
+        "state" => "open",
+        "head" => %{"ref" => "feature/human-branch"},
+        "labels" => [%{"name" => "agent:watch"}, %{"name" => "size:s"}]
+      }
+
+      unlabelled = %{
+        "number" => 315,
+        "state" => "open",
+        "head" => %{"ref" => "other"},
+        "labels" => [%{"name" => "size:m"}]
+      }
+
+      stub = fn req ->
+        uri = URI.parse(req.url)
+        assert uri.path == "/repos/owner/repo/pulls"
+        assert URI.decode_query(uri.query) == %{"state" => "open", "per_page" => "100"}
+
+        {:ok, %{status: 200, headers: [], body: [labelled, unlabelled]}}
+      end
+
+      assert {:ok, [pr]} = Client.fetch_open_pull_requests_by_label("agent:watch", request_fun: stub)
+      assert pr["number"] == 314
+      assert pr["head"]["ref"] == "feature/human-branch"
+    end
+
+    test "returns an empty list when no open PR carries the label" do
+      pr = %{"number" => 1, "state" => "open", "labels" => [%{"name" => "bug"}]}
+      stub = fn _req -> {:ok, %{status: 200, headers: [], body: [pr]}} end
+
+      assert {:ok, []} = Client.fetch_open_pull_requests_by_label("agent:watch", request_fun: stub)
+    end
+
+    test "surfaces a GitHub API error" do
+      stub = fn _req -> {:ok, %{status: 500, headers: [], body: %{}}} end
+
+      assert {:error, {:github_api_status, 500}} =
+               Client.fetch_open_pull_requests_by_label("agent:watch", request_fun: stub)
+    end
+
+    test "follows Link rel=next so a watched PR past page 1 is not silently dropped" do
+      page1 = %{"number" => 1, "state" => "open", "labels" => [%{"name" => "agent:watch"}]}
+      page2 = %{"number" => 250, "state" => "open", "labels" => [%{"name" => "agent:watch"}]}
+
+      stub = fn req ->
+        if String.contains?(req.url, "page=2") do
+          {:ok, %{status: 200, headers: [], body: [page2]}}
+        else
+          next = ~s(<https://api.github.com/repos/owner/repo/pulls?state=open&per_page=100&page=2>; rel="next")
+          {:ok, %{status: 200, headers: [{"link", next}], body: [page1]}}
+        end
+      end
+
+      assert {:ok, prs} = Client.fetch_open_pull_requests_by_label("agent:watch", request_fun: stub)
+      assert Enum.map(prs, & &1["number"]) == [1, 250]
+    end
+  end
 end

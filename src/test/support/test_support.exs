@@ -359,7 +359,8 @@ defmodule Aiur.TestSupport do
           opencode_serve_args,
           opencode_model_prefix
         ),
-        alerts_yaml(overrides)
+        alerts_yaml(overrides),
+        pr_watch_yaml(overrides)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
 
@@ -467,6 +468,26 @@ defmodule Aiur.TestSupport do
   end
 
   defp alerts_line(key, overrides, override_key) do
+    if Keyword.has_key?(overrides, override_key) do
+      "  #{key}: #{yaml_value(Keyword.get(overrides, override_key))}"
+    end
+  end
+
+  # Only renders a `pr_watch:` block when a test passes pr_watch overrides, so
+  # the default generated config exercises the schema defaults (feature off).
+  defp pr_watch_yaml(overrides) do
+    lines =
+      [
+        pr_watch_line("enabled", overrides, :pr_watch_enabled),
+        pr_watch_line("watch_label", overrides, :pr_watch_watch_label),
+        pr_watch_line("command_prefix", overrides, :pr_watch_command_prefix)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    if lines == [], do: nil, else: Enum.join(["pr_watch:" | lines], "\n")
+  end
+
+  defp pr_watch_line(key, overrides, override_key) do
     if Keyword.has_key?(overrides, override_key) do
       "  #{key}: #{yaml_value(Keyword.get(overrides, override_key))}"
     end

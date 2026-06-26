@@ -530,6 +530,60 @@ defmodule Aiur.GitHub.Client do
   end
 
   @doc """
+  Fetches the OPEN pull requests carrying `label` (e.g. `"agent:watch"`),
+  repo-wide, for opt-in PR comment watching.
+
+  Lists open PRs (`GET /pulls?state=open`) — which return full PR objects
+  including `number`, `head.ref`, and `labels` — and filters by label name
+  client-side, since the `/pulls` endpoint does not support a server-side
+  label filter. Each returned PR map carries at least the PR number and head
+  ref so the comment poller can key on the PR number and skip
+  `fetch_open_pull_request_for_branch/2` (no branch derivation for watched PRs).
+  """
+  @spec fetch_open_pull_requests_by_label(String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_by_label(label, opts \\ []) when is_binary(label) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls?#{query}"
+      fetch_labeled_open_pull_requests(request_fun, token, url, label, [])
+    end
+  end
+
+  # Follows the GitHub `Link` `rel="next"` pagination (mirrors
+  # `fetch_member_logins/4`) so a repo with more than 100 open PRs cannot
+  # silently hide a watched PR past the first page — silent truncation here
+  # would drop a watched PR's comments, the exact failure this feature prevents.
+  defp fetch_labeled_open_pull_requests(_request_fun, _token, nil, _label, acc), do: {:ok, acc}
+
+  defp fetch_labeled_open_pull_requests(request_fun, token, url, label, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        matched = Enum.filter(body, &pull_request_has_label?(&1, label))
+        next = parse_next_page_url(headers)
+        fetch_labeled_open_pull_requests(request_fun, token, next, label, acc ++ matched)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, classify_error({:error, reason})}
+    end
+  end
+
+  defp pull_request_has_label?(%{"labels" => labels}, label) when is_list(labels) do
+    Enum.any?(labels, fn
+      %{"name" => name} when is_binary(name) -> name == label
+      name when is_binary(name) -> name == label
+      _ -> false
+    end)
+  end
+
+  defp pull_request_has_label?(_pull_request, _label), do: false
+
+  @doc """
   Fetches raw issue conversation comments for one issue or PR conversation.
   """
   @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
