@@ -25,6 +25,13 @@ defmodule Aiur.GitHub.Labels do
   # two in sync.
   @state_suffixes ~w(todo in-progress human-review rework merging done error cancelled canceled)
 
+  # The opt-in PR-watch marker. NOT a lifecycle state — the orchestrator never
+  # sets or reads it as a dispatch state; it only flags a PR for repo-wide
+  # comment monitoring. Kept out of `@state_suffixes` so it never enters the
+  # dispatch state machine, but created by `label_set/2` so `aiur init` seeds it
+  # and the operator can apply it.
+  @watch_suffix "watch"
+
   @type request :: %{
           method: :post,
           url: String.t(),
@@ -37,11 +44,16 @@ defmodule Aiur.GitHub.Labels do
   @doc "Full label set to create for a repo, given the label prefix and chosen backends."
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
-    state_labels(prefix) ++ model_labels(backends) ++ alias_labels(backends) ++ complexity_labels()
+    state_labels(prefix) ++
+      watch_labels(prefix) ++ model_labels(backends) ++ alias_labels(backends) ++ complexity_labels()
   end
 
   @spec state_labels(String.t()) :: [String.t()]
   def state_labels(prefix), do: Enum.map(@state_suffixes, &"#{prefix}:#{&1}")
+
+  @doc "The opt-in PR-watch marker label, given the prefix (e.g. `agent:watch`)."
+  @spec watch_labels(String.t()) :: [String.t()]
+  def watch_labels(prefix), do: ["#{prefix}:#{@watch_suffix}"]
 
   @spec model_labels([String.t()]) :: [String.t()]
   def model_labels(backends), do: CodingAgent.override_labels(backends)
@@ -74,6 +86,7 @@ defmodule Aiur.GitHub.Labels do
     end
   end
 
+  defp state_description("watch"), do: "aiur watches this PR for comments"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
   defp state_description("human-review"), do: "awaiting human review"
