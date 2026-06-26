@@ -52,6 +52,14 @@ defmodule Aiur.Orchestrator do
   @poll_transition_render_delay_ms 20
   @human_review_state "human-review"
   @human_review_comment_targets_per_poll 25
+  @transient_github_graphql_error_types ~w(
+    INTERNAL
+    INTERNAL_SERVER_ERROR
+    RATE_LIMITED
+    SERVER_ERROR
+    SERVICE_UNAVAILABLE
+    TIMEOUT
+  )
   @empty_agent_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -2069,7 +2077,38 @@ defmodule Aiur.Orchestrator do
        when status in [408, 429] or status in 500..599,
        do: true
 
+  defp transient_human_review_verification_error?({:github_graphql_errors, errors})
+       when is_list(errors),
+       do: Enum.any?(errors, &transient_github_graphql_error?/1)
+
   defp transient_human_review_verification_error?(_reason), do: false
+
+  defp transient_github_graphql_error?(error) when is_map(error) do
+    error
+    |> github_graphql_error_values()
+    |> Enum.any?(&transient_github_graphql_error_value?/1)
+  end
+
+  defp transient_github_graphql_error?(_error), do: false
+
+  defp github_graphql_error_values(error) do
+    [
+      Map.get(error, "type"),
+      Map.get(error, :type),
+      Map.get(error, "code"),
+      Map.get(error, :code),
+      get_in(error, ["extensions", "code"]),
+      get_in(error, [:extensions, :code])
+    ]
+  end
+
+  defp transient_github_graphql_error_value?(value) when is_atom(value),
+    do: value |> Atom.to_string() |> transient_github_graphql_error_value?()
+
+  defp transient_github_graphql_error_value?(value) when is_binary(value),
+    do: String.upcase(value) in @transient_github_graphql_error_types
+
+  defp transient_github_graphql_error_value?(_value), do: false
 
   defp defer_human_review_transition(%State{} = state, %Issue{} = issue, reason) do
     Logger.warning("human-review transition verification deferred: #{issue_context(issue)} reason=#{inspect(reason)}")
