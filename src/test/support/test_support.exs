@@ -109,6 +109,7 @@ defmodule Aiur.TestSupport do
       end
 
     File.write!(path, config_yaml)
+    write_default_alerts_file!(path)
 
     if Process.whereis(Aiur.WorkflowStore) do
       try do
@@ -119,6 +120,17 @@ defmodule Aiur.TestSupport do
     end
 
     :ok
+  end
+
+  # Mirror the real `.aiur/` layout in tests: drop the canonical alert
+  # definitions next to the generated config so `Alerts` resolves its default
+  # `<config-dir>/alerts.yaml` the same way a real run does. Tests that need
+  # different (or no) definitions still override via `:alerts_file_path` or an
+  # `alerts_file` config entry — both take precedence over this default.
+  @default_alerts_source Path.expand("../../../.aiur/alerts.yaml", __DIR__)
+  defp write_default_alerts_file!(config_path) do
+    dest = Path.join(Path.dirname(config_path), "alerts.yaml")
+    if File.regular?(@default_alerts_source), do: File.cp!(@default_alerts_source, dest)
   end
 
   def restore_env(key, nil), do: System.delete_env(key)

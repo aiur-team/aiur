@@ -6,13 +6,11 @@ defmodule Aiur.Alerts do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue}
+  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue, Workflow}
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Events.{Publisher, Topic}
   alias AiurWeb.ObservabilityPubSub
-
-  @alerts_path Path.expand("../../../alerts.yaml", __DIR__)
 
   # Built-in OS system sounds keyed by alert category. macOS ships AIFF clips in
   # the system sounds folder; Linux desktops ship freedesktop OGA themes, with a
@@ -319,7 +317,19 @@ defmodule Aiur.Alerts do
         path
 
       true ->
-        @alerts_path
+        default_alerts_path()
+    end
+  end
+
+  # The default alert definitions live alongside the aiur config, at
+  # `<config-dir>/alerts.yaml` (i.e. `.aiur/alerts.yaml`). Resolved at RUNTIME
+  # from the active config path rather than a compile-time module attribute, so
+  # it tracks the operator's `.aiur/` directory and resolves correctly inside an
+  # assembled release/escript (a baked source path would not).
+  defp default_alerts_path do
+    case Workflow.workflow_file_path() do
+      path when is_binary(path) and path != "" -> Path.join(Path.dirname(path), "alerts.yaml")
+      _ -> nil
     end
   end
 
@@ -345,6 +355,8 @@ defmodule Aiur.Alerts do
       _ -> %{}
     end
   end
+
+  defp load_yaml(_path), do: %{}
 
   defp normalize_definitions(definitions) when is_map(definitions) do
     Enum.reduce(definitions, %{}, fn {key, value}, acc ->
