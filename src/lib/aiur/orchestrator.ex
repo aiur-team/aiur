@@ -622,7 +622,8 @@ defmodule Aiur.Orchestrator do
   # PR-anchored. An `aiur/<N>`-headed PR (a legacy aiur PR) → legacy. The
   # PR-anchored path NEVER touches an `agent:` label or opens a new `aiur/<N>` PR.
   defp maybe_route_pr_anchored_or_legacy(%State{} = state, issue_number, source, event, attempt) do
-    if pr_anchored_routing_enabled?() do
+    if pr_anchored_routing_enabled?() and trusted_comment_event?(event) and
+         not benign_review_pass_comment?(event) do
       case resolve_pr_anchored_unit(issue_number, event) do
         {:ok, %Issue{} = pr_issue} ->
           dispatch_pr_anchored_unit(state, pr_issue, source, event)

@@ -3361,9 +3361,33 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
     setup do
+      # Isolate subscription persistence to a unique tmp dir. `attach` loads
+      # any `<repo>.<identifier>.subscriptions.json` left on disk, and the
+      # `unique_integer` identifier can repeat across separate `mix test`
+      # runs (the counter resets per VM boot). Without isolation a sibling
+      # test's persisted `ticket.99.branch.push` subscription leaks back in
+      # and wrongly auto-resumes a blockee that should stay paused.
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "aiur_blockee_subscr_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      original_log_file = Application.get_env(:aiur, :log_file)
+      Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
+
       identifier = "BLOCKEE-#{System.unique_integer([:positive])}"
       :ok = SubscriptionStore.attach(identifier)
-      on_exit(fn -> :ok = SubscriptionStore.stop(identifier) end)
+
+      on_exit(fn ->
+        :ok = SubscriptionStore.stop(identifier)
+
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+
+        File.rm_rf(tmp_dir)
+      end)
 
       fake_pid = spawn_link(fn -> fake_agent_loop() end)
 
@@ -4003,6 +4027,37 @@ defmodule Aiur.OrchestratorDeactivateTest do
       refute Enum.any?(unit.labels, &String.starts_with?(&1, "agent:"))
     end
 
+    test "an UNTRUSTED commenter on an open human PR is refused PR-anchored dispatch", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+      test_pid = self()
+      fetcher_calls = capture_fetcher(test_pid)
+
+      # Same open-human-PR setup as the happy path, but the comment author is NOT
+      # trusted. Third-party comments must never wake a PR-anchored agent (the
+      # agent treats the comment body as instructions and can push to the branch).
+      # The trust gate short-circuits at routing time: no PR-anchored dispatch and
+      # not even a `GET /pulls/N` fetch — the comment falls through to legacy.
+      event = %{
+        topic: "ticket.77.pr.review_comment",
+        author_trusted?: false,
+        open_pull_request_fetcher:
+          fetcher_calls.(fn 77 ->
+            {:ok, %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}}}
+          end),
+        pr_anchored_dispatch_fun: fn state, issue ->
+          send(test_pid, {:pr_anchored_dispatched, issue})
+          state
+        end
+      }
+
+      {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
+
+      refute_received {:pr_anchored_dispatched, _unit}
+      refute_received {:fetcher_called, _pr_number}
+    end
+
     test "a 404 (plain issue) falls through to the legacy path, never PR-anchored", %{
       test_root: test_root
     } do
@@ -4010,11 +4065,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_pid = self()
       fetcher_calls = capture_fetcher(test_pid)
 
-      # `/pulls/N` 404 → {:ok, nil}: N is a plain tracker issue. Untrusted author
-      # so the legacy transition is observably a no-op (no tracker mutation).
+      # `/pulls/N` 404 → {:ok, nil}: N is a plain tracker issue. Trusted author so
+      # routing reaches the fetch; the nil result then falls through to legacy.
       event = %{
         topic: "ticket.55.pr.review_comment",
-        author_trusted?: false,
+        author_trusted?: true,
         open_pull_request_fetcher: fetcher_calls.(fn 55 -> {:ok, nil} end),
         pr_anchored_dispatch_fun: fn state, issue ->
           send(test_pid, {:pr_anchored_dispatched, issue})
@@ -4038,7 +4093,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # keep flowing through the unchanged reactivation, never PR-anchored.
       event = %{
         topic: "ticket.42.pr.review_comment",
-        author_trusted?: false,
+        author_trusted?: true,
         open_pull_request_fetcher: fn 42 ->
           {:ok, %{"number" => 42, "state" => "open", "head" => %{"ref" => "aiur/42"}}}
         end,
@@ -4066,7 +4121,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       event = %{
         topic: "ticket.99.pr.review_comment",
-        author_trusted?: false,
+        author_trusted?: true,
         open_pull_request_fetcher: fn _n ->
           send(test_pid, :fetcher_called)
           {:ok, nil}
