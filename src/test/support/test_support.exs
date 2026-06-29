@@ -55,11 +55,23 @@ defmodule Aiur.TestSupport do
         # `init/1` (e.g. `Orchestrator`) crash-loops `Aiur.Supervisor` past its
         # `max_restarts` and takes the whole `:aiur` app down — the #589 cascade.
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
+        previous_log_file = Application.get_env(:aiur, :log_file)
 
         File.mkdir_p!(workflow_root)
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
+
+        # Isolate per-issue/per-repo persistent state (issue logs, the central
+        # alert feed, and SessionHandle resume files) under the per-test workflow
+        # root. Without this, `Paths.log_root_dir/0` defaults to the shared
+        # `<cwd>/log`, where a leftover `<repo>.<id>.session.json` makes a later
+        # test's agent runner resume a prior thread (building the "session
+        # resumed" continuation prompt) instead of cold-starting — an
+        # order-dependent failure that only surfaces when the leaking sibling
+        # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
+        File.mkdir_p!(Path.join(workflow_root, "log"))
+        Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
         stop_default_http_server()
 
@@ -67,6 +79,11 @@ defmodule Aiur.TestSupport do
           case previous_workflow_file_path do
             nil -> Application.delete_env(:aiur, :workflow_file_path)
             path -> Application.put_env(:aiur, :workflow_file_path, path)
+          end
+
+          case previous_log_file do
+            nil -> Application.delete_env(:aiur, :log_file)
+            path -> Application.put_env(:aiur, :log_file, path)
           end
 
           Application.delete_env(:aiur, :server_port_override)
