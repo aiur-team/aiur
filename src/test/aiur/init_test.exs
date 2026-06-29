@@ -135,6 +135,8 @@ defmodule Aiur.InitTest do
         end,
         check_agent_auth: fn _kind -> :ok end,
         install_claude_app_server: fn -> :ok end,
+        repo_root: fn -> dir end,
+        github_login: fn -> "octocat" end,
         github_token: fn -> nil end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
@@ -220,6 +222,8 @@ defmodule Aiur.InitTest do
     end
   end
 
+  defp codeowners_path(dir), do: Path.join([dir, ".github", "CODEOWNERS"])
+
   # Prompts the wizard asked the operator to confirm (one per stage that has
   # labels to create).
   defp confirm_prompts(acc \\ []) do
@@ -242,6 +246,86 @@ defmodule Aiur.InitTest do
     }
 
     Map.merge(base, overrides, fn _k, v1, v2 -> Map.merge(v1, v2) end)
+  end
+
+  describe "CODEOWNERS trust setup" do
+    test "no-file + create writes CODEOWNERS and adds the operator", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      codeowners = File.read!(codeowners_path(dir))
+      assert codeowners =~ "aiur uses CODEOWNERS"
+      assert codeowners =~ "* @octocat"
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "aiur uses CODEOWNERS to determine which GitHub accounts it will trust"
+    end
+
+    test "no-file + decline leaves the repo unchanged", %{dir: dir, target: target} do
+      answers =
+        github_answers(%{
+          confirm: %{"Create .github/CODEOWNERS for aiur's GitHub trust checks?" => false}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      refute File.exists?(codeowners_path(dir))
+      assert Enum.any?(puts_log(), &(&1 =~ "Skipped CODEOWNERS"))
+    end
+
+    test "existing-file + add-self appends the operator without clobbering owners", %{dir: dir, target: target} do
+      File.mkdir_p!(Path.join(dir, ".github"))
+      File.write!(codeowners_path(dir), "* @platform-team # default owners\n")
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) == "* @platform-team @octocat # default owners\n"
+      refute Enum.any?(confirm_prompts(), &(&1 =~ "Create .github/CODEOWNERS"))
+    end
+
+    test "existing-file + already-present is a no-op with no CODEOWNERS prompt spam", %{dir: dir, target: target} do
+      File.write!(
+        target,
+        """
+        tracker:
+          kind: github
+          github:
+            repo: octo/repo
+        agent:
+          kind: claude
+        prewarm:
+          enabled: false
+        """
+      )
+
+      File.mkdir_p!(Path.join(dir, ".github"))
+      File.write!(codeowners_path(dir), "* @OctoCat\n")
+
+      assert :ok = Init.run(%{force: false}, io(self()), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) == "* @OctoCat\n"
+      refute "GitHub account to add to CODEOWNERS" in input_labels()
+      refute Enum.any?(confirm_prompts(), &(&1 =~ "CODEOWNERS"))
+    end
+
+    test "resume on an existing config backfills missing CODEOWNERS", %{dir: dir, target: target} do
+      File.write!(
+        target,
+        """
+        tracker:
+          kind: github
+          github:
+            repo: octo/repo
+        agent:
+          kind: claude
+        prewarm:
+          enabled: false
+        """
+      )
+
+      assert :ok = Init.run(%{force: false}, io(self()), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) =~ "* @octocat"
+    end
   end
 
   describe "pre-warm opt-in" do

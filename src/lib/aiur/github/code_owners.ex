@@ -186,13 +186,8 @@ defmodule Aiur.GitHub.CodeOwners do
   end
 
   defp default_codeowners_path do
-    Enum.find_value(
-      [".github/CODEOWNERS", "docs/CODEOWNERS", "CODEOWNERS"],
-      fn rel ->
-        path = Path.join(File.cwd!(), rel)
-        if File.regular?(path), do: path
-      end
-    ) || Path.join(File.cwd!(), ".github/CODEOWNERS")
+    Aiur.Codeowners.file_path() ||
+      Path.join(File.cwd!(), hd(Aiur.Codeowners.standard_paths()))
   end
 
   defp parse_codeowners(path) do
