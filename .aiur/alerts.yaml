@@ -25,19 +25,19 @@ alerts:
   "ticket.*.issue.label.added.agent.todo":
     message: Task entered todo
     sound:
-      - "~/alerts/advisor-yes-executor.wav"
-      - "~/alerts/advisor-your-will.wav"
-      - "~/alerts/advisor-i-hear-you.wav"
-      - "~/alerts/advisor-of-course.wav"
-      - "~/alerts/advisor-for-adun.wav"
-      - "~/alerts/advisor-terra-khala.wav"
-      - "~/alerts/templar-yes-executor.wav"
-      - "~/alerts/templar-consider-it-done.wav"
-      - "~/alerts/templar-indeed.wav"
-      - "~/alerts/templar-i-concur.wav"
-      - "~/alerts/templar-state-your-will.wav"
-      - "~/alerts/templar-i-am-ready.wav"
-      - "~/alerts/archon-power-overwhelming.wav"
+      - "~/alerts/advisor/advisor-yes-executor.wav"
+      - "~/alerts/advisor/advisor-your-will.wav"
+      - "~/alerts/advisor/advisor-i-hear-you.wav"
+      - "~/alerts/advisor/advisor-of-course.wav"
+      - "~/alerts/advisor/advisor-for-adun.wav"
+      - "~/alerts/advisor/advisor-terra-khala.wav"
+      - "~/alerts/templar/templar-yes-executor.wav"
+      - "~/alerts/templar/templar-consider-it-done.wav"
+      - "~/alerts/templar/templar-indeed.wav"
+      - "~/alerts/templar/templar-i-concur.wav"
+      - "~/alerts/templar/templar-state-your-will.wav"
+      - "~/alerts/templar/templar-i-am-ready.wav"
+      - "~/alerts/archon/archon-power-overwhelming.wav"
       - "~/alerts/zealot/zealot-defend1.wav"
       - "~/alerts/zealot/zealot-defend2.wav"
       - "~/alerts/zealot/zealot-entaro-adun.wav"
@@ -55,8 +55,8 @@ alerts:
   "ticket.*.issue.label.added.agent.human-review":
     message: Ready for human review
     sound:
-      - "~/alerts/advisor-under-attack.wav"
-      - "~/alerts/advisor-warriors-engaged-enemy.wav"
+      - "~/alerts/advisor/advisor-under-attack.wav"
+      - "~/alerts/advisor/advisor-warriors-engaged-enemy.wav"
       - "~/alerts/zealot/zealot-attack.wav"
       - "~/alerts/zealot/zealot-doomed-to-all-who-threaten-the-home-world.wav"
       - "~/alerts/zealot/zealot-i-long-for-combat.wav"
@@ -69,67 +69,65 @@ alerts:
   "ticket.*.pr.merged":
     message: Merge complete
     sound:
-      - "~/alerts/archon-merging-complete.wav"
+      - "~/alerts/archon/archon-merging-complete.wav"
   "ticket.*.issue.state.changed":
     message: Task state changed
-    sound:
-      - "~/alerts/advisor-upgrade-complete.wav"
 
   # ---------- Orchestrator dispatch ---------------------------------------
   "system.dispatch.todo_capacity_exceeded":
     message: Todo queue exceeds capacity
     sound:
-      - "~/alerts/advisor-not-enough-minerals.wav"
-      - "~/alerts/advisor-additional-pylons.wav"
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
 
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
-      - "~/alerts/advisor-not-enough-minerals.wav"
-      - "~/alerts/advisor-require-more-vesphene-gas.wav"
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor/advisor-require-more-vesphene-gas.wav"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:
-      - "~/alerts/advisor-yes-executor.wav"
-      - "~/alerts/templar-yes-executor.wav"
+      - "~/alerts/advisor/advisor-yes-executor.wav"
+      - "~/alerts/templar/templar-yes-executor.wav"
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:
-      - "~/alerts/advisor-your-will.wav"
-      - "~/alerts/advisor-i-hear-you.wav"
-      - "~/alerts/advisor-of-course.wav"
-      - "~/alerts/advisor-for-adun.wav"
-      - "~/alerts/advisor-terra-khala.wav"
-      - "~/alerts/templar-yes-executor.wav"
-      - "~/alerts/templar-consider-it-done.wav"
-      - "~/alerts/templar-indeed.wav"
-      - "~/alerts/templar-i-concur.wav"
-      - "~/alerts/templar-state-your-will.wav"
-      - "~/alerts/templar-i-am-ready.wav"
-      - "~/alerts/archon-power-overwhelming.wav"
+      - "~/alerts/advisor/advisor-your-will.wav"
+      - "~/alerts/advisor/advisor-i-hear-you.wav"
+      - "~/alerts/advisor/advisor-of-course.wav"
+      - "~/alerts/advisor/advisor-for-adun.wav"
+      - "~/alerts/advisor/advisor-terra-khala.wav"
+      - "~/alerts/templar/templar-yes-executor.wav"
+      - "~/alerts/templar/templar-consider-it-done.wav"
+      - "~/alerts/templar/templar-indeed.wav"
+      - "~/alerts/templar/templar-i-concur.wav"
+      - "~/alerts/templar/templar-state-your-will.wav"
+      - "~/alerts/templar/templar-i-am-ready.wav"
+      - "~/alerts/archon/archon-power-overwhelming.wav"
 
   # ---------- Chat lifecycle ----------------------------------------------
   "ticket.*.chat.opened":
     message: Chat opened
     sound:
-      - "~/alerts/advisor-yes-executor.wav"
-      - "~/alerts/templar-yes-executor.wav"
+      - "~/alerts/advisor/advisor-yes-executor.wav"
+      - "~/alerts/templar/templar-yes-executor.wav"
   "ticket.*.chat.closed":
     message: Chat closed
     sound:
-      - "~/alerts/advisor-your-will.wav"
-      - "~/alerts/advisor-i-hear-you.wav"
-      - "~/alerts/advisor-of-course.wav"
-      - "~/alerts/advisor-for-adun.wav"
-      - "~/alerts/advisor-terra-khala.wav"
-      - "~/alerts/templar-yes-executor.wav"
-      - "~/alerts/templar-consider-it-done.wav"
-      - "~/alerts/templar-indeed.wav"
-      - "~/alerts/templar-i-concur.wav"
-      - "~/alerts/templar-state-your-will.wav"
-      - "~/alerts/templar-i-am-ready.wav"
-      - "~/alerts/archon-power-overwhelming.wav"
+      - "~/alerts/advisor/advisor-your-will.wav"
+      - "~/alerts/advisor/advisor-i-hear-you.wav"
+      - "~/alerts/advisor/advisor-of-course.wav"
+      - "~/alerts/advisor/advisor-for-adun.wav"
+      - "~/alerts/advisor/advisor-terra-khala.wav"
+      - "~/alerts/templar/templar-yes-executor.wav"
+      - "~/alerts/templar/templar-consider-it-done.wav"
+      - "~/alerts/templar/templar-indeed.wav"
+      - "~/alerts/templar/templar-i-concur.wav"
+      - "~/alerts/templar/templar-state-your-will.wav"
+      - "~/alerts/templar/templar-i-am-ready.wav"
+      - "~/alerts/archon/archon-power-overwhelming.wav"
 
   # ---------- Workflow phase milestones (agent-emitted) -------------------
   # Agents emit bare names like `brainstorm.start`; agent_runner prefixes
@@ -139,13 +137,13 @@ alerts:
   "ticket.*.agent.brainstorm.end":
     message: Exited brainstorm
     sound:
-      - "~/alerts/advisor-research-complete.wav"
+      - "~/alerts/advisor/advisor-research-complete.wav"
   "ticket.*.agent.plan.start":
     message: Entered planning
   "ticket.*.agent.plan.end":
     message: Exited planning
     sound:
-      - "~/alerts/advisor-research-complete.wav"
+      - "~/alerts/advisor/advisor-research-complete.wav"
   "ticket.*.agent.work.start":
     message: Entered implementation
   "ticket.*.agent.work.end":
@@ -155,4 +153,4 @@ alerts:
   "ticket.*.agent.review.end":
     message: Exited review
     sound:
-      - "~/alerts/advisor-research-complete.wav"
+      - "~/alerts/advisor/advisor-research-complete.wav"
