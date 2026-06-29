@@ -314,8 +314,39 @@ defmodule Aiur.RepoBase do
 
   ## ---- git / fs helpers ----
 
-  defp git(args, nil), do: System.cmd("git", args, stderr_to_stdout: true)
-  defp git(args, cwd), do: System.cmd("git", ["-C", cwd | args], stderr_to_stdout: true)
+  defp git(args, nil), do: System.cmd("git", args, stderr_to_stdout: true, env: git_auth_env())
+  defp git(args, cwd), do: System.cmd("git", ["-C", cwd | args], stderr_to_stdout: true, env: git_auth_env())
+
+  # Auth for networked git calls. Git never reads GITHUB_TOKEN on its own, so a
+  # warm-base clone/fetch of a private repo 401s ("Password authentication is not
+  # supported") — and with no TTY it then hangs/fails trying to prompt for a
+  # username. We inject the token as a per-host HTTP Authorization header via
+  # git's env-based config (GIT_CONFIG_*), matching what GitHub Actions does:
+  #
+  #   - env config (not `-c key=value`) keeps the token out of argv / `ps`
+  #   - a clean origin URL keeps it out of the cloned `.git/config`
+  #   - scoping to `http.https://github.com/.` confines it to github.com
+  #
+  # `GIT_TERMINAL_PROMPT=0` makes git fail fast instead of blocking on a
+  # credential prompt (the "could not read Username … Device not configured"
+  # case) when no token is available. The header is HTTP-transport only, so it is
+  # inert for the local rev-parse/reset calls that also route through `git/2`.
+  defp git_auth_env, do: git_auth_env(Aiur.GitHub.Config.token())
+
+  @doc false
+  @spec git_auth_env(String.t() | nil) :: [{String.t(), String.t()}]
+  def git_auth_env(token) when is_binary(token) and token != "" do
+    header = "AUTHORIZATION: basic " <> Base.encode64("x-access-token:" <> token)
+
+    [
+      {"GIT_TERMINAL_PROMPT", "0"},
+      {"GIT_CONFIG_COUNT", "1"},
+      {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"},
+      {"GIT_CONFIG_VALUE_0", header}
+    ]
+  end
+
+  def git_auth_env(_token), do: [{"GIT_TERMINAL_PROMPT", "0"}]
 
   defp head_of(base_path) do
     case git(["rev-parse", "HEAD"], base_path) do

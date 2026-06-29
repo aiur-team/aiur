@@ -90,6 +90,17 @@ defmodule Aiur.RepoBaseTest do
       refute log =~ "prewarm base unavailable"
     end
 
+    test "never persists the auth header into the cloned repo's git config", %{origin: origin, base: base} do
+      # The token rides in env-config (GIT_CONFIG_*), so it must never be written
+      # into the cloned repo's own config the way a token-in-URL or `-c` would.
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+
+      config = File.read!(Path.join(base, ".git/config"))
+      refute config =~ "extraheader"
+      refute config =~ "Authorization"
+      refute config =~ "x-access-token"
+    end
+
     test "emits ordered phase events", %{origin: origin, base: base} do
       Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
 
@@ -210,6 +221,39 @@ defmodule Aiur.RepoBaseTest do
       send(pid, {:remote_head, "same"})
 
       assert %{phase: :ready} = :sys.get_state(pid)
+    end
+  end
+
+  describe "git_auth_env/1" do
+    test "injects the token as a per-host Authorization header via env config" do
+      env = RepoBase.git_auth_env("ghp_secrettoken")
+      assert {"GIT_CONFIG_COUNT", "1"} in env
+      assert {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"} in env
+      assert {"GIT_TERMINAL_PROMPT", "0"} in env
+
+      {_k, value} = Enum.find(env, fn {k, _v} -> k == "GIT_CONFIG_VALUE_0" end)
+      assert "AUTHORIZATION: basic " <> b64 = value
+      assert Base.decode64!(b64) == "x-access-token:ghp_secrettoken"
+    end
+
+    test "carries the secret only in the env (base64-encoded), never in plaintext" do
+      # The token rides in `env:` to System.cmd, never on argv, and even there it
+      # only appears base64-encoded inside the Authorization header — so a raw
+      # token string never lands in argv/`ps` or the env list verbatim.
+      env = RepoBase.git_auth_env("ghp_secrettoken")
+      refute inspect(env) =~ "ghp_secrettoken"
+
+      {_k, value} = Enum.find(env, fn {k, _v} -> k == "GIT_CONFIG_VALUE_0" end)
+      assert "AUTHORIZATION: basic " <> b64 = value
+      assert Base.decode64!(b64) =~ "ghp_secrettoken"
+    end
+
+    test "with no token, disables the terminal prompt and injects no credential" do
+      for token <- [nil, ""] do
+        env = RepoBase.git_auth_env(token)
+        assert env == [{"GIT_TERMINAL_PROMPT", "0"}]
+        refute Enum.any?(env, fn {k, _v} -> String.starts_with?(k, "GIT_CONFIG") end)
+      end
     end
   end
 
