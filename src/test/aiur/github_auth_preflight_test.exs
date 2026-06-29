@@ -62,7 +62,10 @@ defmodule Aiur.GitHubAuthPreflightTest do
     log =
       capture_log(fn ->
         send(pid, :run_poll_cycle)
-        Process.sleep(50)
+        # Barrier: a synchronous system message queues behind :run_poll_cycle,
+        # so this returns only after the cycle (and its preflight Logger.error)
+        # has been fully handled — deterministic vs. a fixed sleep.
+        _ = :sys.get_state(pid)
       end)
 
     assert log =~ "GitHub auth preflight failed for GITHUB_TOKEN"
