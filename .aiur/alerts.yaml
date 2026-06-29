@@ -77,7 +77,6 @@ alerts:
   "system.dispatch.todo_capacity_exceeded":
     message: Todo queue exceeds capacity
     sound:
-      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
       - "~/alerts/advisor/advisor-additional-pylons.wav"
 
   # ---------- Agent state -------------------------------------------------

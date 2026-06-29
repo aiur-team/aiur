@@ -109,11 +109,38 @@ defmodule Aiur.Prewarm.DetectTest do
       assert command =~ "bun install"
     end
 
+    test "Swift package builds with swift build" do
+      root = tmp_repo(%{"Package.swift" => "// swift-tools-version:5.9", "Package.resolved" => "{}"})
+
+      assert {:ok, %{language: :swift, build_root: ".", command: "mise exec -- swift build"}} =
+               Detect.detect(root)
+    end
+
+    test "CocoaPods project installs pods" do
+      root = tmp_repo(%{"Podfile" => "platform :ios", "Podfile.lock" => ""})
+
+      assert {:ok, %{language: :cocoapods, command: "mise exec -- pod install"}} = Detect.detect(root)
+    end
+
+    test "vendored SwiftPM/CocoaPods trees are skipped, not detected" do
+      # A node app whose Pods/ and .build/ carry their own manifests must still
+      # resolve to the app's own toolchain, not the vendored ones.
+      root =
+        tmp_repo(%{
+          "package.json" => ~s({"scripts":{"build":"vite build"}}),
+          "package-lock.json" => "{}",
+          "Pods/Some/Podfile" => "platform :ios",
+          ".build/checkouts/dep/Package.swift" => "// swift"
+        })
+
+      assert {:ok, %{language: :node}} = Detect.detect(root)
+    end
+
     test "no supported manifest -> :none" do
       assert :none = Detect.detect(tmp_repo(%{"README.md" => "hi"}))
     end
 
-    test "two lockfile-backed languages at the same depth -> :none (ambiguous)" do
+    test "two lockfile-backed languages at the same depth -> {:ambiguous, candidates}" do
       root =
         tmp_repo(%{
           "package.json" => "{}",
@@ -122,7 +149,11 @@ defmodule Aiur.Prewarm.DetectTest do
           "go.sum" => ""
         })
 
-      assert :none = Detect.detect(root)
+      assert {:ambiguous, candidates} = Detect.detect(root)
+      langs = Enum.map(candidates, & &1.language)
+      assert :node in langs
+      assert :go in langs
+      assert Enum.all?(candidates, &(&1.build_root == "."))
     end
 
     test "nx monorepo builds through the workspace orchestrator" do

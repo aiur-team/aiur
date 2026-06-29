@@ -348,7 +348,7 @@ defmodule Aiur.Init do
   # --- Resume (existing config) ---
 
   defp print_saved_summary(io, config) do
-    io.puts.("Saved selections:")
+    io.puts.("✅ Saved selections:")
 
     Enum.each(saved_summary_lines(config), fn line ->
       io.puts.(IO.ANSI.format([:faint, "  " <> line]))
@@ -725,6 +725,10 @@ defmodule Aiur.Init do
           _ -> %{enabled: false, base_build: nil}
         end
 
+      {:ambiguous, candidates} ->
+        print_prewarm_ambiguous(io, candidates)
+        %{enabled: false, base_build: nil}
+
       :none ->
         print_prewarm_fallback(io)
         %{enabled: false, base_build: nil}
@@ -734,6 +738,24 @@ defmodule Aiur.Init do
   defp print_prewarm_fallback(io) do
     io.puts.([
       "\nCouldn't auto-detect this repo's build — pre-warm left off. To enable it, paste this to your coding agent:\n\n",
+      dim(prewarm_fallback_prompt())
+    ])
+  end
+
+  # Detection found several competing build roots (e.g. a polyglot monorepo).
+  # Pre-warm builds a single base, so rather than silently picking one — or
+  # misreporting "couldn't detect" — disclose what was found and hand the operator
+  # the same agent prompt to pick one (or describe a combined build).
+  defp print_prewarm_ambiguous(io, candidates) do
+    roots =
+      Enum.map_join(candidates, "\n", fn %{language: lang, build_root: root} ->
+        "  • #{lang} (#{root})"
+      end)
+
+    io.puts.([
+      "\nFound multiple build roots — pre-warm builds one base, so it needs a single command:\n",
+      dim(roots),
+      "\n\nLeaving pre-warm off. To enable it, pick one (or describe the combined build) and paste this to your coding agent:\n\n",
       dim(prewarm_fallback_prompt())
     ])
   end
@@ -799,7 +821,7 @@ defmodule Aiur.Init do
             io.puts.("✅ Warm base ready.")
 
           {:error, reason} ->
-            io.puts.(["⚠️  Warm base build failed (", inspect(reason), "); it retries on the next `aiur` run."])
+            report_prewarm_failure(io, repo, cmd, reason)
         end
 
       _ ->
@@ -808,6 +830,136 @@ defmodule Aiur.Init do
   end
 
   defp maybe_first_prewarm(_io, _deps, _tracker, _prewarm), do: :ok
+
+  # A warm-base build that fails at runtime (private-repo clone auth, network, or
+  # a broken base_build command) used to print a single "retries next run" line
+  # with no path forward. Classify the failure, give the operator concrete
+  # self-resolution steps for that class, and hand them a ready-to-paste prompt —
+  # embedding the actual captured failure output — so a coding agent can fix it.
+  defp report_prewarm_failure(io, repo, cmd, reason) do
+    class = classify_prewarm_failure(reason)
+
+    io.puts.(["\n⚠️  Warm base build failed (", inspect(reason), ")."])
+    io.puts.(prewarm_failure_guidance(class, repo))
+
+    io.puts.([
+      "\nOr paste this to your coding agent to fix it for you:\n\n",
+      dim(prewarm_failure_prompt(repo, cmd, reason))
+    ])
+
+    io.puts.("\nThe warm base also retries automatically on the next `aiur` run.")
+  end
+
+  # Clone/fetch/reset failures carry the git stderr; an auth signature in it means
+  # the token is missing/invalid/unauthorized. A base_build failure is a toolchain
+  # problem. Anything else degrades to generic guidance.
+  defp classify_prewarm_failure({tag, _status, out})
+       when tag in [:repo_base_clone_failed, :repo_base_fetch_failed, :repo_base_reset_failed] and
+              is_binary(out) do
+    if auth_error?(out), do: :auth, else: :clone
+  end
+
+  defp classify_prewarm_failure({:base_build_failed, _status, _out}), do: :build
+  defp classify_prewarm_failure(_reason), do: :other
+
+  defp auth_error?(out) do
+    out = String.downcase(out)
+
+    Enum.any?(
+      [
+        "authentication failed",
+        "could not read username",
+        "invalid username or token",
+        "password authentication",
+        "terminal prompts disabled",
+        "permission denied",
+        "403 forbidden"
+      ],
+      &String.contains?(out, &1)
+    )
+  end
+
+  defp prewarm_failure_guidance(:auth, repo) do
+    [
+      "\nThis looks like a GitHub authentication failure cloning ",
+      dim(repo),
+      ".\nTo fix it yourself:\n",
+      "  • Make sure GITHUB_TOKEN is set in .env and still valid:\n",
+      "      ",
+      dim(~s(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user)),
+      "\n",
+      "  • The token's account must have read access to this repo.\n",
+      "  • Classic tokens need the `repo` scope; fine-grained tokens need Contents: Read.\n",
+      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
+    ]
+  end
+
+  defp prewarm_failure_guidance(:clone, repo) do
+    [
+      "\nThe warm-base clone of ",
+      dim(repo),
+      " failed.\nTo fix it yourself:\n",
+      "  • Confirm the repo exists and is reachable from this machine.\n",
+      "  • Check your network/proxy, and that GITHUB_TOKEN (if the repo is private) has access.\n",
+      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
+    ]
+  end
+
+  defp prewarm_failure_guidance(:build, _repo) do
+    [
+      "\nThe repo cloned, but the base_build command failed.\nTo fix it yourself:\n",
+      "  • Run the base_build command in a clean checkout and watch where it breaks.\n",
+      "  • Fix it in .aiur/config under prewarm.base_build (keep it idempotent).\n",
+      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
+    ]
+  end
+
+  defp prewarm_failure_guidance(:other, _repo) do
+    [
+      "\nTo fix it yourself, inspect the error above, resolve the underlying cause,\n",
+      "then re-run `aiur init` (or `aiur`) to rebuild the warm base."
+    ]
+  end
+
+  # The AI handoff, mirroring `prewarm_fallback_prompt/0` but for a *runtime*
+  # failure: it embeds the repo, the configured base_build, and the captured
+  # failure output so the agent can diagnose auth vs. toolchain without guessing.
+  defp prewarm_failure_prompt(repo, cmd, reason) do
+    """
+    You are working in a repository managed by aiur, an agent-orchestration
+    runtime. To avoid every agent cold-cloning and recompiling, aiur keeps one
+    shared, pre-installed checkout of this repo's main branch — the "warm base" —
+    and materializes agent workspaces from it copy-on-write.
+
+    Building the warm base just FAILED. Diagnose and fix it, then verify locally.
+
+    Repo: #{repo}
+    Configured prewarm.base_build: #{cmd}
+
+    Captured failure output:
+    #{failure_output(reason)}
+
+    Likely causes and what to do:
+    - GitHub auth: cloning a private repo needs a valid GITHUB_TOKEN in .env whose
+      account has read access (classic token `repo` scope, or fine-grained
+      Contents: Read). If the token is missing or expired, tell the operator
+      exactly what to set — do not invent a secret.
+    - Toolchain/build: if the repo cloned but base_build failed, detect this repo's
+      real install + build command and write it into .aiur/config as
+      prewarm.base_build. Route tool calls through `mise exec --`, cd into the
+      directory holding the build manifest, use frozen/locked installs, and keep it
+      idempotent and incremental. Do not mutate tracked source; no brew/apt/sudo.
+
+    Then run the fix in a clean checkout, confirm it exits 0, run it a second time
+    unchanged to confirm it is a near no-op, and report the final command (or the
+    secret the operator must set).
+    """
+  end
+
+  defp failure_output({_tag, _status, out}) when is_binary(out),
+    do: out |> String.trim() |> String.slice(0, 1500)
+
+  defp failure_output(reason), do: inspect(reason)
 
   # --- Alert sound opt-in ---
 

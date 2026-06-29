@@ -8,14 +8,20 @@ defmodule Aiur.Prewarm.Detect do
   synthesizes a one-time install+compile command routed through `mise exec --`
   so it pins the same runtime on Linux and macOS.
 
-  Returns `{:ok, %{language:, build_root:, command:}}` or `:none` when nothing
-  is detected or detection is ambiguous (multiple languages with no
-  lockfile-tiebreaker). JS/TS workspaces are a first-class base case: install at
-  the workspace root, then run the workspace/orchestrator build. `:none` is the
-  signal to fall back to the agent-prompt path — never a guess.
+  Returns `{:ok, %{language:, build_root:, command:}}` for a single detected
+  toolchain, `{:ambiguous, [%{language:, build_root:}]}` when several lockfile-
+  backed projects compete with no tiebreaker (init discloses the candidates), or
+  `:none` when nothing is detected. JS/TS workspaces are a first-class base case:
+  install at the workspace root, then run the workspace/orchestrator build.
+  Neither `:none` nor `{:ambiguous, _}` ever guesses — both fall back to the
+  agent-prompt path; `{:ambiguous, _}` carries the candidates so the operator is
+  told what was found rather than "couldn't detect".
   """
 
-  @type result :: {:ok, %{language: atom(), build_root: String.t(), command: String.t()}} | :none
+  @type result ::
+          {:ok, %{language: atom(), build_root: String.t(), command: String.t()}}
+          | {:ambiguous, [%{language: atom(), build_root: String.t()}]}
+          | :none
 
   # Manifest filename(s) that identify each supported language.
   @manifests [
@@ -23,7 +29,9 @@ defmodule Aiur.Prewarm.Detect do
     {:node, ["package.json"]},
     {:go, ["go.mod"]},
     {:rust, ["Cargo.toml"]},
-    {:python, ["pyproject.toml", "requirements.txt"]}
+    {:python, ["pyproject.toml", "requirements.txt"]},
+    {:swift, ["Package.swift"]},
+    {:cocoapods, ["Podfile"]}
   ]
 
   # Lockfiles whose presence distinguishes a real project from a vanity/shim
@@ -33,11 +41,15 @@ defmodule Aiur.Prewarm.Detect do
     node: ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"],
     go: ["go.sum"],
     rust: ["Cargo.lock"],
-    python: ["poetry.lock", "uv.lock", "pdm.lock", "Pipfile.lock"]
+    python: ["poetry.lock", "uv.lock", "pdm.lock", "Pipfile.lock"],
+    swift: ["Package.resolved"],
+    cocoapods: ["Podfile.lock"]
   }
 
-  # Directories never worth descending into when hunting for a manifest.
-  @skip_dirs ~w(.git node_modules deps _build target vendor cover .elixir_ls priv)
+  # Directories never worth descending into when hunting for a manifest. Includes
+  # vendored/build trees (`.build` for SwiftPM, `Pods` for CocoaPods) so their
+  # nested checkouts don't masquerade as the repo's own toolchain.
+  @skip_dirs ~w(.git node_modules deps _build target vendor cover .elixir_ls priv .build Pods)
   @max_depth 4
 
   @doc "Detect the warm-base build command for the repo rooted at `root`."
@@ -51,9 +63,18 @@ defmodule Aiur.Prewarm.Detect do
     |> shallowest_per_language()
     |> select()
     |> case do
-      nil -> :none
-      {lang, dir} -> resolve(lang, dir, root)
+      :none -> :none
+      {:single, lang, dir} -> resolve(lang, dir, root)
+      {:ambiguous, candidates} -> {:ambiguous, candidate_roots(candidates, root)}
     end
+  end
+
+  # Reduce the ambiguous candidate list to the {language, build_root} the operator
+  # needs to choose between, sorted for a stable disclosure.
+  defp candidate_roots(candidates, root) do
+    candidates
+    |> Enum.map(fn {lang, dir, _depth} -> %{language: lang, build_root: relative_root(dir, root)} end)
+    |> Enum.sort_by(& &1.build_root)
   end
 
   # ---- manifest discovery ----
@@ -106,16 +127,17 @@ defmodule Aiur.Prewarm.Detect do
 
   # ---- selection ----
 
-  defp select([]), do: nil
-  defp select([{lang, dir, _depth}]), do: {lang, dir}
+  defp select([]), do: :none
+  defp select([{lang, dir, _depth}]), do: {:single, lang, dir}
 
   defp select(candidates) do
     # Multiple languages: the lockfile is the tiebreaker. Exactly one
     # lockfile-backed candidate wins (this is how aiur's real `src/mix.exs`
-    # beats its lockfile-less root `package.json`); anything else is ambiguous.
+    # beats its lockfile-less root `package.json`); anything else is ambiguous,
+    # and we surface the candidates so init can disclose them.
     case Enum.filter(candidates, fn {lang, dir, _} -> has_lock?(lang, dir) end) do
-      [{lang, dir, _}] -> {lang, dir}
-      _ -> nil
+      [{lang, dir, _}] -> {:single, lang, dir}
+      _ -> {:ambiguous, candidates}
     end
   end
 
@@ -159,6 +181,8 @@ defmodule Aiur.Prewarm.Detect do
   defp command_for(:go, _dir), do: "mise exec -- go mod download && mise exec -- go build ./..."
   defp command_for(:rust, _dir), do: "mise exec -- cargo build"
   defp command_for(:python, dir), do: python_install(dir)
+  defp command_for(:swift, _dir), do: "mise exec -- swift build"
+  defp command_for(:cocoapods, _dir), do: "mise exec -- pod install"
 
   defp node_install(dir) do
     cond do

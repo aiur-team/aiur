@@ -159,6 +159,26 @@ defmodule Aiur.InitTest do
     end
   end
 
+  # Resume init against an enabled-prewarm config whose first warm-base build
+  # fails with `reason`, returning the joined operator-facing output.
+  defp run_prewarm_failure(parent, dir, target, reason) do
+    File.write!(target, """
+    tracker:
+      kind: github
+      github:
+        repo: octo/repo
+    agent:
+      kind: claude
+    prewarm:
+      enabled: true
+      base_build: mise exec -- npm ci && mise exec -- npm run build
+    """)
+
+    d = deps(parent, dir, target, %{prewarm_build: fn _url, _cmd -> {:error, reason} end})
+    assert :ok = Init.run(%{force: false}, io(parent), d)
+    Enum.join(puts_log(), "\n")
+  end
+
   defp input_labels(acc \\ []) do
     receive do
       {:input_label, label} -> input_labels([label | acc])
@@ -263,6 +283,28 @@ defmodule Aiur.InitTest do
       assert log =~ "prewarm:"
       assert log =~ "base_build:"
       assert log =~ "Run it a second time unchanged"
+
+      config = File.read!(target)
+      assert config =~ "enabled: false"
+      refute config =~ "base_build:"
+    end
+
+    test "ambiguous detection discloses the candidates and routes to the AI prompt",
+         %{dir: dir, target: target} do
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ambiguous, [%{language: :node, build_root: "."}, %{language: :swift, build_root: "watchos"}]}
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "multiple build roots"
+      assert log =~ "node (.)"
+      assert log =~ "swift (watchos)"
+      assert log =~ "paste this to your coding agent"
 
       config = File.read!(target)
       assert config =~ "enabled: false"
@@ -502,6 +544,53 @@ defmodule Aiur.InitTest do
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ "Building the warm base now"))
       assert Enum.any?(log, &(&1 =~ "Warm base ready"))
+    end
+  end
+
+  describe "warm-base failure report" do
+    test "auth failure gives token guidance + an AI prompt embedding the captured output",
+         %{dir: dir, target: target} do
+      out = "fatal: Authentication failed for 'https://github.com/octo/repo.git/'"
+      log = run_prewarm_failure(self(), dir, target, {:repo_base_clone_failed, 128, out})
+
+      assert log =~ "Warm base build failed"
+      assert log =~ "authentication failure"
+      assert log =~ "GITHUB_TOKEN"
+      # AI handoff present and embeds the real git error
+      assert log =~ "paste this to your coding agent"
+      assert log =~ "Authentication failed for"
+      assert log =~ "retries automatically on the next"
+    end
+
+    test "build failure points at base_build and routes to the AI prompt",
+         %{dir: dir, target: target} do
+      log = run_prewarm_failure(self(), dir, target, {:base_build_failed, 1, "npm ERR! boom"})
+
+      assert log =~ "base_build command failed"
+      assert log =~ "paste this to your coding agent"
+      assert log =~ "npm ERR! boom"
+      refute log =~ "authentication failure"
+    end
+
+    test "a non-auth clone error gives clone guidance, not auth guidance",
+         %{dir: dir, target: target} do
+      log =
+        run_prewarm_failure(self(), dir, target, {:repo_base_clone_failed, 128, "fatal: repository not found"})
+
+      assert log =~ "warm-base clone of"
+      refute log =~ "authentication failure"
+      assert log =~ "paste this to your coding agent"
+    end
+
+    test "a non-tuple failure reason still reports gracefully (no crash)",
+         %{dir: dir, target: target} do
+      # classify -> :other and failure_output -> inspect fallback; must not raise.
+      log = run_prewarm_failure(self(), dir, target, {:build_crashed, :killed})
+
+      assert log =~ "Warm base build failed"
+      assert log =~ "paste this to your coding agent"
+      assert log =~ "retries automatically on the next"
+      refute log =~ "authentication failure"
     end
   end
 
