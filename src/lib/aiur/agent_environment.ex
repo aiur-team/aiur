@@ -12,6 +12,7 @@ defmodule Aiur.AgentEnvironment do
   # does not export it today, but any wrapping harness might).
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
+  @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
   def erlang_distribution_env_name?(name) when is_binary(name) do
@@ -26,13 +27,17 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT; " <>
+    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
+      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT; " <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done"
   end
+
+  @spec parent_log_env_name?(String.t()) :: boolean()
+  def parent_log_env_name?(name) when is_binary(name), do: name in @parent_log_env_names
 
   @doc """
   Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
