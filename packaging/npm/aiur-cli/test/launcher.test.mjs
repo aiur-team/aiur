@@ -437,7 +437,7 @@ test("background start still creates a fresh session when no tmux session exists
 // Builds on setupRealLauncher with the two binaries run_control_rpc shells out
 // to: the release `bin/aiur` (its `rpc` subcommand) and the bundled epmd
 // (`-names`). Behaviour is env-driven so one layout exercises every branch:
-//   AIUR_FAKE_RPC_MODE        ok | appfail | noconnection
+//   AIUR_FAKE_RPC_MODE        ok | appfail | noconnection | hang
 //   AIUR_FAKE_EPMD_REGISTERED "1" lists our node (up); "error" => -names exits
 //                             non-zero (unreachable epmd => unknown); else absent (down)
 const CONTROL_NODE = "aiur-test@127.0.0.1";
@@ -464,6 +464,7 @@ function setupControlRpc() {
       '    appfail) echo "__AIUR_CONTROL_EXIT__:7"; exit 0 ;;',
       '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
       '    missing_marker_empty) exit 0 ;;',
+      '    hang) trap \'echo cleaned >"$AIUR_FAKE_RPC_CLEANUP"; exit 143\' TERM; while :; do sleep 1; done ;;',
       // Transport fails the way Elixir --rpc-eval does for an unreachable node.
       '    noconnection) echo "--rpc-eval : RPC failed with reason :noconnection" >&2; exit 1 ;;',
       "  esac",
@@ -666,6 +667,35 @@ test("control rpc is not silent when the exit marker and output are missing", ()
   expect(result.status).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("returned no exit marker");
+});
+
+test("status and agents control rpc time out and terminate a stuck helper", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+
+  for (const command of ["status", "agents"]) {
+    const cleanup = path.join(root, `rpc-cleanup-${command}`);
+    const started = Date.now();
+    const result = runControl(
+      launcher,
+      releaseDir,
+      {
+        AIUR_FAKE_RPC_MODE: "hang",
+        AIUR_FAKE_RPC_CLEANUP: cleanup,
+        AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "1",
+      },
+      [command],
+    );
+    const elapsedMs = Date.now() - started;
+
+    expect(result.status).toBe(124);
+    expect(elapsedMs).toBeLessThan(5000);
+    expect(result.stderr).toContain("control rpc to aiur-test@127.0.0.1 timed out after 1s");
+    expect(readFileSync(cleanup, "utf8")).toContain("cleaned");
+  }
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("Aiur.AgentControlCLI.status()");
+  expect(capture).toContain("Aiur.AgentControlCLI.agents()");
 });
 
 // --- Update notifier -------------------------------------------------------
