@@ -42,6 +42,43 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "create_for_issue uses a pr-<pr#> leaf for a PR-anchored unit (identifier stays <pr#>)" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-pr-anchored-leaf-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root
+      )
+
+      # A synthetic PR-anchored unit: identifier is the bare PR number (the
+      # comment topic / resume key) while `pr_head_ref` marks it PR-anchored.
+      pr_issue = %Issue{
+        id: "pr-77",
+        identifier: "77",
+        title: "Human PR",
+        description: "",
+        state: "pr-watch",
+        branch_name: "feature/login",
+        pr_head_ref: "feature/login",
+        labels: []
+      }
+
+      assert {:ok, workspace} = Workspace.create_for_issue(pr_issue)
+
+      assert Path.basename(workspace) == "pr-77",
+             "PR-anchored workspace leaf must be pr-<pr#>, got #{Path.basename(workspace)}"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace bootstrap supports normal git metadata writes" do
     test_root =
       Path.join(

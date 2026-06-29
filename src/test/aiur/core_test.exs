@@ -926,7 +926,10 @@ defmodule Aiur.CoreTest do
                  :sys.get_state(pid).retry_attempts[issue_id]
 
         send(pid, {:retry_issue, issue_id, retry_token})
-        Process.sleep(50)
+        # Barrier: blocks until the third retry (exhaustion path) is fully
+        # handled, so the synchronous `[alert]` log line is emitted before
+        # capture_log flushes — deterministic vs. a fixed sleep.
+        _ = :sys.get_state(pid)
       end)
 
     state = :sys.get_state(pid)

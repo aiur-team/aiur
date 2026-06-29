@@ -497,6 +497,23 @@ fields locally if they want stricter startup checks.
   - Default: `300000` (5 minutes)
   - If `<= 0`, stall detection is disabled.
 
+#### 5.3.12 `pr_watch` (extension, OPTIONAL)
+
+Opt-in repo-wide PR comment monitoring. When `enabled` is false (the default), aiur only reacts to
+comments on the `aiur/<id>` PRs it created. When enabled, two triggers let a code owner or
+`github.trusted_accounts` member direct an agent on any PR in the repo:
+
+- `enabled` (boolean) — Default `false`. Strict opt-in: untagged, un-commanded PRs are never acted on.
+- `watch_label` (string) — Default `"watch"`. Combined with `github.label_prefix` (e.g. `agent:watch`);
+  labelling a PR enrolls it for persistent monitoring of all its code-owner / trusted comments.
+- `command_prefix` (string) — Default `"/aiur"`. A trusted comment starting with this prefix — or
+  mentioning `github.bot_account` — handles that one comment, no label required (one-and-done).
+
+Requires `github.bot_account` (the agent's reply identity, used by read-after-write reply verification)
+and a CODEOWNERS file / `github.trusted_accounts` (the authors permitted to direct the agent). A
+triggered agent works the PR's existing branch directly (PR-anchored, keyed by PR number rather than
+`aiur/<id>`), replies on the review thread, and does not auto-resolve threads.
+
 ### 5.4 Prompt Template Contract
 
 The prompt template referenced by `.aiurconfig`'s `prompt_file:` (or the built-in default) is the

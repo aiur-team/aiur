@@ -4,6 +4,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
@@ -2466,6 +2467,552 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "watch-target discovery (agent:watch PR comment polling)" do
+    test "open agent:watch PR becomes a pr#-keyed target and publishes ticket.<pr#>.pr.review_comment" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        pr_watch_enabled: true
+      )
+
+      :ok = Exchange.subscribe("ticket.314.pr.review_comment")
+
+      watch_pr = %{
+        "number" => 314,
+        "state" => "open",
+        "head" => %{"ref" => "feature/human-branch"},
+        "labels" => [%{"name" => "agent:watch"}]
+      }
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/314/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          # The PR object is passed through; the poller must NOT branch-derive.
+          String.contains?(url, "/pulls?") ->
+            send(parent, {:unexpected_pull_request_lookup, url})
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            review_threads_response([
+              %{
+                "id" => "PRRT_watch_314",
+                "isResolved" => false,
+                "path" => "lib/app.ex",
+                "line" => 7,
+                "comments" => %{
+                  "nodes" => [
+                    review_thread_comment(31_401, "its-everdred", "watched PR feedback")
+                  ]
+                }
+              }
+            ])
+        end
+      end
+
+      state = %Orchestrator.State{
+        running: %{},
+        github_comments_since: "2026-06-25T00:00:00Z"
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+          watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
+        )
+
+      assert next.github_comments_since == %{"314" => "2026-06-25T00:00:00Z"}
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.314.pr.review_comment",
+                        source: :github,
+                        message: "watched PR feedback"
+                      }},
+                     500
+
+      refute_receive {:unexpected_pull_request_lookup, _url}, 100
+    after
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "watch targets are isolated: one failing PR does not stall or rewind the others" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        pr_watch_enabled: true
+      )
+
+      healthy_pr = %{"number" => 100, "state" => "open", "head" => %{"ref" => "branch-a"}}
+      flaky_pr = %{"number" => 200, "state" => "open", "head" => %{"ref" => "branch-b"}}
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/100/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => 10_001,
+                   "body" => "healthy watch comment",
+                   "updated_at" => "2026-06-25T01:00:00Z",
+                   "user" => %{"login" => "its-everdred"}
+                 }
+               ]
+             }}
+
+          # The flaky PR's issue/conversation fetch errors, so its cursor must
+          # not advance — but it must not block the healthy PR either.
+          String.contains?(url, "/issues/200/comments?") ->
+            {:ok, %{status: 500, body: %{"message" => "boom"}}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+        end
+      end
+
+      state = %Orchestrator.State{
+        running: %{},
+        github_comments_since: %{
+          "100" => "2026-06-25T00:00:00Z",
+          "200" => "2026-06-25T00:00:00Z"
+        }
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          max_concurrency: 1,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+          watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [healthy_pr, flaky_pr]} end
+        )
+
+      # Healthy target advanced (−1s rewind); flaky target held its cursor.
+      assert next.github_comments_since == %{
+               "100" => "2026-06-25T00:59:59Z",
+               "200" => "2026-06-25T00:00:00Z"
+             }
+    after
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "closed/merged watch PRs are excluded and the target set is capped (drop logged)" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        pr_watch_enabled: true
+      )
+
+      open_prs =
+        for n <- 1..3 do
+          %{"number" => n, "state" => "open", "head" => %{"ref" => "branch-#{n}"}}
+        end
+
+      merged_pr = %{
+        "number" => 900,
+        "state" => "closed",
+        "merged_at" => "2026-06-25T00:00:00Z",
+        "head" => %{"ref" => "merged-branch"}
+      }
+
+      closed_pr = %{"number" => 901, "state" => "closed", "head" => %{"ref" => "closed-branch"}}
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/") and String.contains?(url, "/comments?") ->
+            [_, id] = Regex.run(~r{/issues/([^/]+)/comments\?}, url)
+            send(parent, {:issue_comments_requested, id})
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+        end
+      end
+
+      state = %Orchestrator.State{running: %{}, github_comments_since: %{}}
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          Orchestrator.poll_github_comments_for_test(state,
+            repo: "owner/repo",
+            request_fun: request_fun,
+            max_concurrency: 1,
+            watch_comment_target_limit: 2,
+            review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+            watch_pull_request_fetcher: fn "agent:watch" ->
+              {:ok, open_prs ++ [merged_pr, closed_pr]}
+            end
+          )
+        end)
+
+      # Merged/closed PRs never become targets, and the open set is capped at 2.
+      # A watched PR's target IS its PR number, so the poller hits
+      # /issues/<pr#>/comments for both the issue and PR-conversation passes —
+      # dedup to the distinct PR numbers actually polled.
+      polled = drain_issue_comment_requests([]) |> Enum.uniq()
+
+      assert length(polled) == 2
+      assert Enum.all?(polled, &(&1 in ["1", "2", "3"]))
+      refute "900" in polled
+      refute "901" in polled
+      assert log =~ "watch_comment_poll_targets capped"
+      assert log =~ "dropped=1"
+    after
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "no watch targets are produced when pr_watch is disabled (default)" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      request_fun = fn %{url: url} ->
+        send(parent, {:unexpected_request, url})
+        {:ok, %{status: 200, body: []}}
+      end
+
+      state = %Orchestrator.State{running: %{}, github_comments_since: %{}}
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+          watch_pull_request_fetcher: fn _label ->
+            send(parent, :unexpected_watch_fetch)
+            {:ok, []}
+          end
+        )
+
+      # No targets at all (no running, no human-review, watch disabled) ->
+      # the poller is never invoked.
+      assert next == state
+      refute_receive :unexpected_watch_fetch, 100
+      refute_receive {:unexpected_request, _url}, 100
+    after
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+  end
+
+  describe "per-comment command scan (one-off /aiur or @bot trigger)" do
+    test "a trusted /aiur review comment on an unlabeled PR emits the pr#-keyed event" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true,
+        pr_watch_command_prefix: "/aiur"
+      )
+
+      trust_authors!(["its-everdred"])
+
+      :ok = Exchange.subscribe("ticket.733.pr.review_comment")
+
+      # A REVIEW (line) comment — the primary "live review partner" case. The
+      # PR number is derived from `pull_request_url`, NOT from any PR fetch.
+      review_command = %{
+        "id" => 90_001,
+        "body" => "/aiur fix the nil case",
+        "updated_at" => "2026-06-25T02:00:00Z",
+        "user" => %{"login" => "its-everdred"},
+        "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/733"
+      }
+
+      state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
+
+      next =
+        Orchestrator.scan_pr_commands_for_test(state,
+          repo: "owner/repo",
+          command_scan_review_comment_fetcher: fn _opts -> {:ok, [review_command]} end,
+          command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+        )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.733.pr.review_comment",
+                        source: :github,
+                        message: "/aiur fix the nil case",
+                        issue_number: "733"
+                      }},
+                     500
+
+      # The scan cursor advanced past the handled comment (−1s rewind), so the
+      # same comment will not re-fire next cycle — the one-off guarantee.
+      assert next.github_command_scan_since == "2026-06-25T01:59:59Z"
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "a @<bot_account> mention in a PR conversation comment emits the reactivation event" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      trust_authors!(["its-everdred"])
+
+      :ok = Exchange.subscribe("ticket.734.pr.review_comment")
+
+      # A conversation comment on a PR — `issue_url` gives the number and the
+      # `/pull/` in `html_url` confirms it's a PR (not a plain issue).
+      mention_comment = %{
+        "id" => 90_002,
+        "body" => "could you take a look @aiur-bot?",
+        "updated_at" => "2026-06-25T03:00:00Z",
+        "user" => %{"login" => "its-everdred"},
+        "issue_url" => "https://api.github.com/repos/owner/repo/issues/734",
+        "html_url" => "https://github.com/owner/repo/pull/734#issuecomment-90002"
+      }
+
+      Orchestrator.scan_pr_commands_for_test(
+        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        repo: "owner/repo",
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [mention_comment]} end
+      )
+
+      assert_receive {:event, %{topic: "ticket.734.pr.review_comment", source: :github}}, 500
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "a /aiur on a plain (non-PR) issue is out of scope — no event" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      trust_authors!(["its-everdred"])
+
+      :ok = Exchange.subscribe("ticket.736.pr.review_comment")
+
+      # A plain ISSUE comment: `html_url` contains `/issues/`, not `/pull/`, so
+      # the PR-number derivation returns nil and the comment is dropped.
+      issue_comment = %{
+        "id" => 90_020,
+        "body" => "/aiur fix this",
+        "updated_at" => "2026-06-25T05:00:00Z",
+        "user" => %{"login" => "its-everdred"},
+        "issue_url" => "https://api.github.com/repos/owner/repo/issues/736",
+        "html_url" => "https://github.com/owner/repo/issues/736#issuecomment-90020"
+      }
+
+      Orchestrator.scan_pr_commands_for_test(
+        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        repo: "owner/repo",
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [issue_comment]} end
+      )
+      |> tap(fn _ -> send(parent, :scan_done) end)
+
+      refute_receive {:event, %{topic: "ticket.736.pr.review_comment"}}, 200
+      assert_receive :scan_done, 500
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "an untrusted author's /aiur is ignored (no event); the bot's own command is dropped" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      # `its-everdred` is trusted; `stranger` is not. The bot is also trusted
+      # (self-include) but must be dropped by the self-loop gate.
+      trust_authors!(["its-everdred", "aiur-bot"])
+
+      :ok = Exchange.subscribe("ticket.735.pr.review_comment")
+
+      review_comments = [
+        %{
+          "id" => 90_010,
+          "body" => "/aiur do the thing",
+          "updated_at" => "2026-06-25T04:00:00Z",
+          "user" => %{"login" => "stranger"},
+          "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/735"
+        },
+        %{
+          "id" => 90_011,
+          "body" => "/aiur status",
+          "updated_at" => "2026-06-25T04:01:00Z",
+          "user" => %{"login" => "aiur-bot"},
+          "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/735"
+        }
+      ]
+
+      Orchestrator.scan_pr_commands_for_test(
+        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        repo: "owner/repo",
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, review_comments} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+      )
+      |> tap(fn _ -> send(parent, :scan_done) end)
+
+      # Neither the untrusted /aiur nor the bot's own /aiur produces a dispatch.
+      refute_receive {:event, %{topic: "ticket.735.pr.review_comment"}}, 200
+      assert_receive :scan_done, 500
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "pr_watch disabled produces no scan and no events" do
+      parent = self()
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot"
+      )
+
+      state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
+
+      next =
+        Orchestrator.scan_pr_commands_for_test(state,
+          repo: "owner/repo",
+          command_scan_review_comment_fetcher: fn _opts ->
+            send(parent, :unexpected_command_scan_fetch)
+            {:ok, []}
+          end,
+          command_scan_issue_comment_fetcher: fn _opts ->
+            send(parent, :unexpected_command_scan_fetch)
+            {:ok, []}
+          end
+        )
+
+      # Feature off: the fetchers are never invoked and state is untouched.
+      assert next == state
+      refute_receive :unexpected_command_scan_fetch, 100
+    end
+
+    test "the command scan is bounded by distinct commanded PRs and the drop is logged" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        tracker_bot_account: "aiur-bot",
+        pr_watch_enabled: true
+      )
+
+      trust_authors!(["its-everdred"])
+
+      # Four distinct commanded PRs surface in one cursor window; the cap keeps
+      # the lowest 2 PR numbers and logs the 2 dropped.
+      for pr <- 1..4, do: Exchange.subscribe("ticket.#{pr}.pr.review_comment")
+
+      review_comments =
+        for n <- 1..4 do
+          %{
+            "id" => 90_100 + n,
+            "body" => "/aiur handle this",
+            "updated_at" => "2026-06-25T0#{n}:00:00Z",
+            "user" => %{"login" => "its-everdred"},
+            "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/#{n}"
+          }
+        end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          Orchestrator.scan_pr_commands_for_test(
+            %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+            repo: "owner/repo",
+            command_scan_pull_request_limit: 2,
+            command_scan_review_comment_fetcher: fn _opts -> {:ok, review_comments} end,
+            command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+          )
+        end)
+
+      # The two lowest-numbered PRs fire; the other two are capped out.
+      assert_receive {:event, %{topic: "ticket.1.pr.review_comment"}}, 500
+      assert_receive {:event, %{topic: "ticket.2.pr.review_comment"}}, 500
+      refute_receive {:event, %{topic: "ticket.3.pr.review_comment"}}, 100
+      refute_receive {:event, %{topic: "ticket.4.pr.review_comment"}}, 100
+
+      assert log =~ "scan_pr_commands capped"
+      assert log =~ "dropped=2"
+    after
+      restore_trust!(codeowners_state())
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+  end
+
   describe "pause-request topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid agent.pause.request topic" do
       assert {:ok, "100"} =
@@ -2814,9 +3361,33 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "ticket.<blocker>.branch.push auto-resumes paused blockees" do
     setup do
+      # Isolate subscription persistence to a unique tmp dir. `attach` loads
+      # any `<repo>.<identifier>.subscriptions.json` left on disk, and the
+      # `unique_integer` identifier can repeat across separate `mix test`
+      # runs (the counter resets per VM boot). Without isolation a sibling
+      # test's persisted `ticket.99.branch.push` subscription leaks back in
+      # and wrongly auto-resumes a blockee that should stay paused.
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "aiur_blockee_subscr_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      original_log_file = Application.get_env(:aiur, :log_file)
+      Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
+
       identifier = "BLOCKEE-#{System.unique_integer([:positive])}"
       :ok = SubscriptionStore.attach(identifier)
-      on_exit(fn -> :ok = SubscriptionStore.stop(identifier) end)
+
+      on_exit(fn ->
+        :ok = SubscriptionStore.stop(identifier)
+
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+
+        File.rm_rf(tmp_dir)
+      end)
 
       fake_pid = spawn_link(fn -> fake_agent_loop() end)
 
@@ -3406,6 +3977,414 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "PR-anchored comment routing (U4)" do
+    setup do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-pr-anchored-route-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(test_root)
+      on_exit(fn -> File.rm_rf(test_root) end)
+      {:ok, test_root: test_root}
+    end
+
+    test "routes an open human PR (non-aiur head) PR-anchored, with NO agent:* label flip", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+      test_pid = self()
+
+      # A PR fetch returning an OPEN PR on a human branch. The capture fun
+      # records the synthetic unit instead of spawning a real agent.
+      event = %{
+        topic: "ticket.77.pr.review_comment",
+        author_trusted?: true,
+        open_pull_request_fetcher: fn 77 ->
+          {:ok, %{"number" => 77, "state" => "open", "title" => "Add login", "body" => "please review", "head" => %{"ref" => "feature/login"}}}
+        end,
+        pr_anchored_dispatch_fun: fn state, issue ->
+          send(test_pid, {:pr_anchored_dispatched, issue})
+          state
+        end
+      }
+
+      {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
+
+      assert_receive {:pr_anchored_dispatched, %Issue{} = unit}
+
+      # Identity: keyed by PR number (resume key + comment topic), NOT a tracker id.
+      assert unit.identifier == "77"
+      assert unit.id == "pr-77"
+      assert unit.pr_head_ref == "feature/login"
+      assert unit.branch_name == "feature/login"
+      assert unit.title == "Add login"
+
+      # Safety: a synthetic PR unit carries no agent:* label — the human PR is
+      # never mutated.
+      assert unit.labels == []
+      refute Enum.any?(unit.labels, &String.starts_with?(&1, "agent:"))
+    end
+
+    test "an UNTRUSTED commenter on an open human PR is refused PR-anchored dispatch", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+      test_pid = self()
+      fetcher_calls = capture_fetcher(test_pid)
+
+      # Same open-human-PR setup as the happy path, but the comment author is NOT
+      # trusted. Third-party comments must never wake a PR-anchored agent (the
+      # agent treats the comment body as instructions and can push to the branch).
+      # The trust gate short-circuits at routing time: no PR-anchored dispatch and
+      # not even a `GET /pulls/N` fetch — the comment falls through to legacy.
+      event = %{
+        topic: "ticket.77.pr.review_comment",
+        author_trusted?: false,
+        open_pull_request_fetcher:
+          fetcher_calls.(fn 77 ->
+            {:ok, %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}}}
+          end),
+        pr_anchored_dispatch_fun: fn state, issue ->
+          send(test_pid, {:pr_anchored_dispatched, issue})
+          state
+        end
+      }
+
+      {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
+
+      refute_received {:pr_anchored_dispatched, _unit}
+      refute_received {:fetcher_called, _pr_number}
+    end
+
+    test "a 404 (plain issue) falls through to the legacy path, never PR-anchored", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+      test_pid = self()
+      fetcher_calls = capture_fetcher(test_pid)
+
+      # `/pulls/N` 404 → {:ok, nil}: N is a plain tracker issue. Trusted author so
+      # routing reaches the fetch; the nil result then falls through to legacy.
+      event = %{
+        topic: "ticket.55.pr.review_comment",
+        author_trusted?: true,
+        open_pull_request_fetcher: fetcher_calls.(fn 55 -> {:ok, nil} end),
+        pr_anchored_dispatch_fun: fn state, issue ->
+          send(test_pid, {:pr_anchored_dispatched, issue})
+          state
+        end
+      }
+
+      {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
+
+      assert_receive {:fetcher_called, 55}
+      refute_received {:pr_anchored_dispatched, _unit}
+    end
+
+    test "an aiur/<N>-headed PR (legacy aiur PR) falls through to the legacy path", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+      test_pid = self()
+
+      # An OPEN PR whose head is aiur/<N> is a LEGACY aiur PR; its comments must
+      # keep flowing through the unchanged reactivation, never PR-anchored.
+      event = %{
+        topic: "ticket.42.pr.review_comment",
+        author_trusted?: true,
+        open_pull_request_fetcher: fn 42 ->
+          {:ok, %{"number" => 42, "state" => "open", "head" => %{"ref" => "aiur/42"}}}
+        end,
+        pr_anchored_dispatch_fun: fn state, issue ->
+          send(test_pid, {:pr_anchored_dispatched, issue})
+          state
+        end
+      }
+
+      {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
+
+      refute_received {:pr_anchored_dispatched, _unit}
+    end
+
+    test "feature off bypasses routing entirely — no /pulls/N fetch", %{test_root: test_root} do
+      # pr_watch disabled (default): the legacy path runs and the PR fetcher is
+      # NEVER called (zero new GitHub requests).
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "acme/widgets",
+        workspace_root: test_root
+      )
+
+      test_pid = self()
+
+      event = %{
+        topic: "ticket.99.pr.review_comment",
+        author_trusted?: true,
+        open_pull_request_fetcher: fn _n ->
+          send(test_pid, :fetcher_called)
+          {:ok, nil}
+        end,
+        pr_anchored_dispatch_fun: fn state, issue ->
+          send(test_pid, {:pr_anchored_dispatched, issue})
+          state
+        end
+      }
+
+      {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
+
+      refute_received :fetcher_called
+      refute_received {:pr_anchored_dispatched, _unit}
+    end
+
+    test "a follow-up comment on a running PR-anchored agent resumes (no re-dispatch)", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+      test_pid = self()
+
+      # A PR-anchored agent is already running, keyed by identifier == "77".
+      state =
+        empty_orchestrator_state()
+        |> Map.put(:running, %{
+          "pr-77" => %{
+            pid: nil,
+            ref: nil,
+            identifier: "77",
+            issue: %Issue{id: "pr-77", identifier: "77", state: "pr-watch", pr_head_ref: "feature/login"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        })
+
+      event = %{
+        topic: "ticket.77.pr.review_comment",
+        author_trusted?: true,
+        open_pull_request_fetcher: fn _n ->
+          send(test_pid, :fetcher_called)
+          {:ok, %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}}}
+        end,
+        pr_anchored_dispatch_fun: fn s, issue ->
+          send(test_pid, {:pr_anchored_dispatched, issue})
+          s
+        end
+      }
+
+      {:noreply, _next} = Orchestrator.handle_info({:event, event}, state)
+
+      # Resolved to the EXISTING running entry: no fresh PR resolution, no
+      # re-dispatch (the live agent sees the comment via its own subscription).
+      refute_received :fetcher_called
+      refute_received {:pr_anchored_dispatched, _unit}
+    end
+  end
+
+  describe "PR-anchored lifecycle teardown (U6)" do
+    setup do
+      test_root =
+        Path.join(
+          System.tmp_dir!(),
+          "aiur-pr-anchored-teardown-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(test_root)
+      on_exit(fn -> File.rm_rf(test_root) end)
+      {:ok, test_root: test_root}
+    end
+
+    test "a PR-anchored agent whose PR closed/merged is terminated and its pr-<pr#> workspace cleaned",
+         %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      # The PR-anchored workspace lives at the `pr-<pr#>` leaf (namespaced by
+      # repo), NOT the bare `<pr#>` leaf. Create it so we can prove teardown
+      # removes the correct directory.
+      pr_workspace = Path.join([test_root, "acme", "widgets", "pr-77"])
+      File.mkdir_p!(pr_workspace)
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      ref = Process.monitor(agent_pid)
+
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          # {:ok, nil} == closed/merged/missing PR.
+          open_pull_request_fetcher: fn "77" -> {:ok, nil} end
+        )
+
+      # Running entry, claim, and retry_attempts all torn down.
+      refute Map.has_key?(next.running, "pr-77")
+      refute MapSet.member?(next.claimed, "pr-77")
+      refute Map.has_key?(next.retry_attempts, "pr-77")
+
+      # Agent task was killed.
+      assert_receive {:DOWN, ^ref, :process, ^agent_pid, :killed}, 500
+
+      # The pr-<pr#> workspace is gone — no orphan left behind.
+      refute File.exists?(pr_workspace)
+    end
+
+    test "a PR-anchored agent whose PR is still open is NOT terminated", %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn "77" ->
+            {:ok, %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}}}
+          end
+        )
+
+      assert Map.has_key?(next.running, "pr-77")
+      assert MapSet.member?(next.claimed, "pr-77")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+
+    test "a fetch error does NOT terminate (transient-safe)", %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn "77" -> {:error, :rate_limited} end
+        )
+
+      assert Map.has_key?(next.running, "pr-77")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+
+    test "feature off issues no fetch and terminates nothing", %{test_root: test_root} do
+      # pr_watch disabled (default): no fetch, no teardown.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "acme/widgets",
+        workspace_root: test_root
+      )
+
+      test_pid = self()
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn _pr ->
+            send(test_pid, :fetcher_called)
+            {:ok, nil}
+          end
+        )
+
+      refute_received :fetcher_called
+      assert Map.has_key?(next.running, "pr-77")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+
+    test "no PR-anchored running entries issues no fetch (legacy entries are skipped)", %{
+      test_root: test_root
+    } do
+      enable_pr_watch!(test_root)
+
+      test_pid = self()
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      # A legacy tracker-issue running entry (state != @pr_anchored_state) must
+      # never be selected for PR-anchored teardown — and with zero PR-anchored
+      # entries, no fetch is issued at all.
+      state = %Orchestrator.State{
+        running: %{
+          "issue-1" => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: "501",
+            issue: %Issue{id: "issue-1", identifier: "501", state: "in-progress"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new(["issue-1"]),
+        retry_attempts: %{}
+      }
+
+      next =
+        Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+          open_pull_request_fetcher: fn _pr ->
+            send(test_pid, :fetcher_called)
+            {:ok, nil}
+          end
+        )
+
+      refute_received :fetcher_called
+      assert Map.has_key?(next.running, "issue-1")
+      assert Process.alive?(agent_pid)
+
+      Process.exit(agent_pid, :kill)
+    end
+  end
+
+  defp pr_anchored_running_state(pr_number, agent_pid) do
+    key = "pr-#{pr_number}"
+    identifier = to_string(pr_number)
+
+    %Orchestrator.State{
+      running: %{
+        key => %{
+          pid: agent_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{
+            id: key,
+            identifier: identifier,
+            state: "pr-watch",
+            pr_head_ref: "feature/login"
+          },
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      },
+      claimed: MapSet.new([key]),
+      retry_attempts: %{key => %{attempt: 1}}
+    }
+  end
+
+  defp enable_pr_watch!(test_root) do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "acme/widgets",
+      workspace_root: test_root,
+      pr_watch_enabled: true
+    )
+  end
+
+  defp capture_fetcher(test_pid) do
+    fn inner ->
+      fn pr_number ->
+        send(test_pid, {:fetcher_called, pr_number})
+        inner.(pr_number)
+      end
+    end
+  end
+
+  defp empty_orchestrator_state do
+    %Orchestrator.State{
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{},
+      max_concurrent_agents: 6
+    }
+  end
+
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 
@@ -3441,6 +4420,40 @@ defmodule Aiur.OrchestratorDeactivateTest do
   defp datetime!(iso8601) do
     {:ok, datetime, _offset} = DateTime.from_iso8601(iso8601)
     datetime
+  end
+
+  defp drain_issue_comment_requests(acc) do
+    receive do
+      {:issue_comments_requested, id} -> drain_issue_comment_requests([id | acc])
+    after
+      200 -> Enum.reverse(acc)
+    end
+  end
+
+  # Override the running CodeOwners allowlist so `Sanitizer.stamp_author_trust/2`
+  # treats `logins` as trusted for the duration of a command-scan test, then
+  # restore the previous allowlist in the `after` block. Mirrors the
+  # github_comments_poller test's `ensure_codeowners!` pattern.
+  defp trust_authors!(logins) do
+    pid = Process.whereis(CodeOwners)
+    previous = CodeOwners.snapshot(pid)
+    Process.put(:command_scan_codeowners, %{pid: pid, previous: previous})
+    allowlist = MapSet.new(Enum.map(logins, &String.downcase/1))
+    :sys.replace_state(pid, fn state -> %{state | allowlist: allowlist} end)
+    %{pid: pid, previous: previous}
+  end
+
+  defp codeowners_state, do: Process.get(:command_scan_codeowners)
+
+  defp restore_trust!(nil), do: :ok
+
+  defp restore_trust!(%{pid: pid, previous: previous}) do
+    if Process.alive?(pid) do
+      :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(previous)})
+    end
+
+    Process.delete(:command_scan_codeowners)
+    :ok
   end
 
   defp empty_review_threads_response do

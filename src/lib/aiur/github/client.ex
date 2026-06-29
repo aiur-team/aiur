@@ -541,6 +541,134 @@ defmodule Aiur.GitHub.Client do
   end
 
   @doc """
+  Fetches the OPEN pull requests carrying `label` (e.g. `"agent:watch"`),
+  repo-wide, for opt-in PR comment watching.
+
+  Lists open PRs (`GET /pulls?state=open`) — which return full PR objects
+  including `number`, `head.ref`, and `labels` — and filters by label name
+  client-side, since the `/pulls` endpoint does not support a server-side
+  label filter. Each returned PR map carries at least the PR number and head
+  ref so the comment poller can key on the PR number and skip
+  `fetch_open_pull_request_for_branch/2` (no branch derivation for watched PRs).
+  """
+  @spec fetch_open_pull_requests_by_label(String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_by_label(label, opts \\ []) when is_binary(label) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls?#{query}"
+      fetch_labeled_open_pull_requests(request_fun, token, url, label, [])
+    end
+  end
+
+  # Follows the GitHub `Link` `rel="next"` pagination (mirrors
+  # `fetch_member_logins/4`) so a repo with more than 100 open PRs cannot
+  # silently hide a watched PR past the first page — silent truncation here
+  # would drop a watched PR's comments, the exact failure this feature prevents.
+  defp fetch_labeled_open_pull_requests(_request_fun, _token, nil, _label, acc), do: {:ok, acc}
+
+  defp fetch_labeled_open_pull_requests(request_fun, token, url, label, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        matched = Enum.filter(body, &pull_request_has_label?(&1, label))
+        next = parse_next_page_url(headers)
+        fetch_labeled_open_pull_requests(request_fun, token, next, label, acc ++ matched)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, classify_error({:error, reason})}
+    end
+  end
+
+  defp pull_request_has_label?(%{"labels" => labels}, label) when is_list(labels) do
+    Enum.any?(labels, fn
+      %{"name" => name} when is_binary(name) -> name == label
+      name when is_binary(name) -> name == label
+      _ -> false
+    end)
+  end
+
+  defp pull_request_has_label?(_pull_request, _label), do: false
+
+  @doc """
+  Fetches recent PR REVIEW (line) comments across ALL pull requests in the
+  repo, for the per-comment command scan (the one-off `/aiur`/bot-mention
+  trigger).
+
+  Lists `GET /repos/{owner}/{repo}/pulls/comments?sort=updated&direction=desc`
+  with a `since` cursor (`:since`). This is a repo-wide comment STREAM, not a
+  per-PR fetch — a `/aiur` left as a review comment does NOT reliably bump the
+  PR's `updated_at`, so scanning by PR freshness would silently miss it; the
+  comment stream surfaces it directly. Each review comment carries
+  `pull_request_url` so the caller can derive the PR number. Paginates the
+  `Link` `rel="next"` header (like `fetch_labeled_open_pull_requests/5`) so a
+  burst within one cursor window cannot silently truncate.
+  """
+  @spec fetch_recent_repo_review_comments(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_recent_repo_review_comments(opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = repo_comment_stream_query(opts)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/comments?#{query}"
+      fetch_repo_comment_stream(request_fun, token, url, [])
+    end
+  end
+
+  @doc """
+  Fetches recent ISSUE/PR-conversation comments across ALL issues and PRs in
+  the repo, for the per-comment command scan.
+
+  Lists `GET /repos/{owner}/{repo}/issues/comments?sort=updated&direction=desc`
+  with a `since` cursor (`:since`). The endpoint returns comments for both
+  plain issues and PR conversations; the caller filters to PR comments (the
+  `html_url` contains `/pull/`) and derives the PR number from `issue_url`.
+  Paginates the `Link` `rel="next"` header so a burst within one cursor window
+  cannot silently truncate.
+  """
+  @spec fetch_recent_repo_issue_comments(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_recent_repo_issue_comments(opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      query = repo_comment_stream_query(opts)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/issues/comments?#{query}"
+      fetch_repo_comment_stream(request_fun, token, url, [])
+    end
+  end
+
+  defp repo_comment_stream_query(opts) do
+    %{"sort" => "updated", "direction" => "desc", "per_page" => "100"}
+    |> maybe_put_query("since", Keyword.get(opts, :since))
+    |> URI.encode_query()
+  end
+
+  defp fetch_repo_comment_stream(_request_fun, _token, nil, acc), do: {:ok, acc}
+
+  defp fetch_repo_comment_stream(request_fun, token, url, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        next = parse_next_page_url(headers)
+        fetch_repo_comment_stream(request_fun, token, next, acc ++ body)
+
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, acc ++ body}
+
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, classify_error({:error, reason})}
+    end
+  end
+
+  @doc """
   Fetches raw issue conversation comments for one issue or PR conversation.
   """
   @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
@@ -585,6 +713,47 @@ defmodule Aiur.GitHub.Client do
       end
     end
   end
+
+  @doc """
+  Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
+  for PR-anchored routing of watched/commanded PR comments.
+
+  Returns `{:ok, pr_map}` for an open PR (the map carries `number`, `head.ref`,
+  `title`, `body`, `state`), `{:ok, nil}` when the number is NOT an open PR — a
+  404 (the number is a plain issue) or a closed/merged PR — and `{:error, _}`
+  otherwise. The `{:ok, nil}` result is the safe signal that the comment must
+  fall through to the legacy reactivation path (a tracker issue, not a human PR).
+  """
+  @spec fetch_open_pull_request(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil} | {:error, term()}
+  def fetch_open_pull_request(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- parse_repo(),
+         {:ok, token} <- require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+      url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: %{} = pr}} ->
+          {:ok, open_pull_request_or_nil(pr)}
+
+        {:ok, %{status: 404}} ->
+          {:ok, nil}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, classify_error({:error, reason})}
+      end
+    end
+  end
+
+  # Treat a closed/merged PR the same as a missing one (nil) so the caller
+  # routes its comment through the unchanged legacy path rather than dispatching
+  # a PR-anchored agent onto a dead branch.
+  defp open_pull_request_or_nil(%{"state" => "open"} = pr), do: pr
+  defp open_pull_request_or_nil(%{"state" => state}) when is_binary(state), do: nil
+  defp open_pull_request_or_nil(pr) when is_map(pr), do: pr
 
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}

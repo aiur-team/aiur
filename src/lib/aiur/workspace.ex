@@ -21,7 +21,8 @@ defmodule Aiur.Workspace do
 
       with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
            :ok <- validate_workspace_path(workspace, worker_host),
-           {:ok, workspace, created?} <- ensure_workspace(workspace, worker_host),
+           {:ok, workspace, created?} <-
+             ensure_workspace(workspace, worker_host, issue_context.pr_head_ref),
            :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
         {:ok, workspace}
       end
@@ -30,6 +31,32 @@ defmodule Aiur.Workspace do
         Logger.error("Workspace creation failed #{issue_log_context(issue_context)} worker_host=#{worker_host_for_log(worker_host)} error=#{Exception.message(error)}")
         {:error, error}
     end
+  end
+
+  # PR-anchored creation (`pr_head_ref` set) is only wired for the local
+  # worker today; a remote worker_host ignores it and keeps the legacy
+  # `aiur/<id>` remote path byte-for-byte (SSH PR-anchored is out of scope
+  # for this unit). The 3-arity head delegates to the unchanged 2-arity
+  # clauses for the legacy (`pr_head_ref == nil`) path.
+  defp ensure_workspace(workspace, worker_host, nil), do: ensure_workspace(workspace, worker_host)
+
+  defp ensure_workspace(workspace, nil, pr_head_ref) when is_binary(pr_head_ref) do
+    cond do
+      File.dir?(workspace) ->
+        {:ok, workspace, false}
+
+      File.exists?(workspace) ->
+        File.rm_rf!(workspace)
+        create_or_materialize(workspace, pr_head_ref)
+
+      true ->
+        create_or_materialize(workspace, pr_head_ref)
+    end
+  end
+
+  defp ensure_workspace(workspace, worker_host, pr_head_ref)
+       when is_binary(worker_host) and is_binary(pr_head_ref) do
+    ensure_workspace(workspace, worker_host)
   end
 
   defp ensure_workspace(workspace, nil) do
@@ -101,6 +128,22 @@ defmodule Aiur.Workspace do
     end
   end
 
+  # PR-anchored variant: materialize from the warm base (CoW) but check out
+  # the PR's existing head branch (`pr_head_ref`) instead of creating a fresh
+  # `aiur/<id>`. When pre-warm is unavailable, fall back to the unchanged cold
+  # `create_workspace/1` path (the operator's after_create hook owns the clone;
+  # PR-anchored cold-clone branch selection is out of scope for this unit).
+  defp create_or_materialize(workspace, pr_head_ref) when is_binary(pr_head_ref) do
+    with true <- Config.prewarm_enabled?(),
+         {:ready, base} when is_binary(base) <- RepoBase.status(),
+         true <- File.dir?(base),
+         :ok <- materialize_from_base(base, workspace, pr_head_ref) do
+      {:ok, workspace, :materialized}
+    else
+      _ -> create_workspace(workspace)
+    end
+  end
+
   @doc false
   # Copy the warm base into `workspace` (CoW when the FS supports it) and branch
   # off the base's HEAD as `aiur/<id>`. Public for tests; callers go through
@@ -125,6 +168,28 @@ defmodule Aiur.Workspace do
     end
   end
 
+  @doc false
+  # PR-anchored materialize: copy the warm base (CoW) then check out the PR's
+  # existing head branch (`pr_head_ref`) instead of creating `aiur/<id>`. The PR
+  # branch is a human's existing branch — the agent works it directly and pushes
+  # back there, never opening a new `aiur/<id>` PR. Public for tests; callers go
+  # through `create_or_materialize/2`.
+  @spec materialize_from_base(Path.t(), Path.t(), String.t()) :: :ok | {:error, term()}
+  def materialize_from_base(base, workspace, pr_head_ref) when is_binary(pr_head_ref) do
+    File.rm_rf!(workspace)
+    File.mkdir_p!(Path.dirname(workspace))
+
+    with {_out, 0} <- copy_tree(base, workspace),
+         :ok <- checkout_existing_pr_branch(workspace, pr_head_ref) do
+      :ok
+    else
+      other ->
+        Logger.warning("prewarm materialize (PR-anchored) failed (#{inspect(other)}); falling back to cold clone")
+        File.rm_rf!(workspace)
+        {:error, other}
+    end
+  end
+
   # Branch the agent's `aiur/<id>` off the LIVE `origin/<base>` tip rather than the
   # warm base's copied HEAD. The warm base only refetches on a timer/dispatch gate
   # (#567), so without this a materialized workspace can silently start from stale
@@ -136,6 +201,60 @@ defmodule Aiur.Workspace do
       ["-C", workspace, "checkout", "-B", branch_for(workspace)] ++ fresh_base_start_point(workspace)
 
     case System.cmd("git", args, stderr_to_stdout: true) do
+      {_out, 0} -> :ok
+      other -> {:error, other}
+    end
+  end
+
+  # PR-anchored checkout: fetch the PR's existing head branch from origin and
+  # check it out tracking the remote, instead of creating `aiur/<id>`. The agent
+  # then works the human's branch directly and pushes back there. If the remote
+  # fetch fails (offline/tests with no usable remote), fall back to a local
+  # branch off the copied HEAD so materialize still succeeds — the before_run
+  # hook / agent will reconcile against origin at push time.
+  defp checkout_existing_pr_branch(workspace, pr_head_ref) do
+    case fetch_pr_head_branch(workspace, pr_head_ref) do
+      :ok ->
+        checkout_tracking_pr_branch(workspace, pr_head_ref)
+
+      :no_remote ->
+        checkout_local_pr_branch(workspace, pr_head_ref)
+    end
+  end
+
+  defp fetch_pr_head_branch(workspace, pr_head_ref) do
+    case System.cmd(
+           "git",
+           ["-C", workspace, "fetch", "origin", pr_head_ref, "--quiet"],
+           stderr_to_stdout: true
+         ) do
+      {_out, 0} -> :ok
+      _ -> :no_remote
+    end
+  end
+
+  defp checkout_tracking_pr_branch(workspace, pr_head_ref) do
+    # `git checkout -B <ref> FETCH_HEAD` points the local branch at the freshly
+    # fetched remote tip (a plain `checkout <ref>` could resolve to a stale local
+    # ref). `--track origin/<ref>` is intentionally avoided: the remote-tracking
+    # ref may not exist yet for a one-shot fetch by ref, and FETCH_HEAD is the
+    # tip we just pulled.
+    case System.cmd(
+           "git",
+           ["-C", workspace, "checkout", "-B", pr_head_ref, "FETCH_HEAD"],
+           stderr_to_stdout: true
+         ) do
+      {_out, 0} -> :ok
+      other -> {:error, other}
+    end
+  end
+
+  defp checkout_local_pr_branch(workspace, pr_head_ref) do
+    case System.cmd(
+           "git",
+           ["-C", workspace, "checkout", "-B", pr_head_ref],
+           stderr_to_stdout: true
+         ) do
       {_out, 0} -> :ok
       other -> {:error, other}
     end
@@ -588,12 +707,43 @@ defmodule Aiur.Workspace do
   defp git_metadata_probe_paths(workspace, git_dir) do
     issue_id = Path.basename(workspace)
 
-    [
+    base = [
       Path.join(git_dir, "index.lock"),
       Path.join(git_dir, "FETCH_HEAD.lock"),
       Path.join(git_dir, "ORIG_HEAD.lock"),
       Path.join([git_dir, "refs", "remotes", "origin", "aiur", "#{issue_id}.lock"])
     ]
+
+    base ++ pr_anchored_ref_lock_paths(workspace, git_dir)
+  end
+
+  # A PR-anchored workspace (leaf `pr-<pr#>`) tracks the human PR's existing head
+  # branch, not `aiur/<id>`, so its remote-ref lock lives at
+  # `refs/remotes/origin/<head_ref>.lock`. Derive the head ref from the checked-out
+  # branch (the PR-anchored checkout set it) and pre-clear that lock too. Legacy
+  # `aiur/<id>` workspaces return `[]` here — their existing probe is unchanged.
+  defp pr_anchored_ref_lock_paths(workspace, git_dir) do
+    with true <- pr_anchored_workspace?(workspace),
+         branch when is_binary(branch) <- current_branch(workspace) do
+      ref_segments = String.split(branch, "/", trim: true)
+
+      if ref_segments == [] do
+        []
+      else
+        [Path.join([git_dir, "refs", "remotes", "origin"] ++ ref_lock_segments(ref_segments))]
+      end
+    else
+      _ -> []
+    end
+  end
+
+  defp ref_lock_segments(ref_segments) do
+    {leading, [last]} = Enum.split(ref_segments, length(ref_segments) - 1)
+    leading ++ ["#{last}.lock"]
+  end
+
+  defp pr_anchored_workspace?(workspace) do
+    String.starts_with?(Path.basename(workspace), "pr-")
   end
 
   defp probe_lock_file(path) do
@@ -1019,11 +1169,18 @@ defmodule Aiur.Workspace do
   defp worker_host_for_log(worker_host), do: worker_host
 
   defp issue_context(%{id: issue_id, identifier: identifier} = issue) do
+    pr_head_ref = pr_head_ref_from(issue)
+
     %{
       issue_id: issue_id,
-      issue_identifier: identifier || "issue",
+      # PR-anchored units take a `pr-<pr#>` workspace leaf (distinct from the
+      # legacy `<id>` leaf), so a watched human PR never collides with a tracker
+      # ticket of the same number. The running-entry identifier stays `<pr#>`
+      # (the comment topic / resume key) — only the on-disk leaf is prefixed.
+      issue_identifier: workspace_identifier(identifier || "issue", pr_head_ref),
       issue_state: Map.get(issue, :state),
-      issue_labels: Map.get(issue, :labels, [])
+      issue_labels: Map.get(issue, :labels, []),
+      pr_head_ref: pr_head_ref
     }
   end
 
@@ -1032,7 +1189,8 @@ defmodule Aiur.Workspace do
       issue_id: nil,
       issue_identifier: identifier,
       issue_state: nil,
-      issue_labels: []
+      issue_labels: [],
+      pr_head_ref: nil
     }
   end
 
@@ -1041,9 +1199,26 @@ defmodule Aiur.Workspace do
       issue_id: nil,
       issue_identifier: "issue",
       issue_state: nil,
-      issue_labels: []
+      issue_labels: [],
+      pr_head_ref: nil
     }
   end
+
+  # The PR-anchored head ref the dispatch path stamps on a synthetic PR work
+  # unit (`%{pr_head_ref: "<branch>"}`). Only a non-empty binary marks a unit
+  # as PR-anchored; everything else (legacy `aiur/<id>` tickets, bare
+  # identifiers) returns nil and keeps the unchanged branch behavior.
+  defp pr_head_ref_from(issue) when is_map(issue) do
+    case Map.get(issue, :pr_head_ref) do
+      ref when is_binary(ref) and ref != "" -> ref
+      _ -> nil
+    end
+  end
+
+  defp workspace_identifier(identifier, pr_head_ref) when is_binary(pr_head_ref),
+    do: "pr-" <> identifier
+
+  defp workspace_identifier(identifier, _pr_head_ref), do: identifier
 
   defp issue_log_context(%{issue_id: issue_id, issue_identifier: issue_identifier}) do
     "issue_id=#{issue_id || "n/a"} issue_identifier=#{issue_identifier || "issue"}"

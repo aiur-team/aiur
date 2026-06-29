@@ -30,7 +30,10 @@ defmodule Aiur.Orchestrator do
     Exchange,
     GithubCommentsPoller,
     GithubFirehose,
+    GithubKeys,
+    PrCommandScanner,
     Publisher,
+    Sanitizer,
     SubscriptionStore,
     UniversalSubscriptions
   }
@@ -51,7 +54,14 @@ defmodule Aiur.Orchestrator do
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
   @human_review_state "human-review"
+  # Sentinel state for synthetic PR-anchored work units (watched/commanded human
+  # PRs). Deliberately NOT a tracker active/terminal state: a PR-anchored unit is
+  # dispatched directly (slot-capped) and never flows through reconcile/label
+  # transitions that key on configured states.
+  @pr_anchored_state "pr-watch"
   @human_review_comment_targets_per_poll 25
+  @watch_comment_targets_per_poll 25
+  @command_scan_pull_requests_per_poll 25
   @transient_github_graphql_error_types ~w(
     INTERNAL
     INTERNAL_SERVER_ERROR
@@ -98,6 +108,7 @@ defmodule Aiur.Orchestrator do
             events_last_id: String.t() | nil,
             github_comments_since: String.t() | map() | nil,
             github_comment_issue_updated_at: map(),
+            github_command_scan_since: String.t() | nil,
             github_connectivity: map(),
             github_poll_delays: map()
           }
@@ -127,6 +138,7 @@ defmodule Aiur.Orchestrator do
       events_last_id: nil,
       github_comments_since: nil,
       github_comment_issue_updated_at: %{},
+      github_command_scan_since: nil,
       github_connectivity: %{},
       github_poll_delays: %{}
     ]
@@ -588,11 +600,159 @@ defmodule Aiur.Orchestrator do
 
   defp maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
     case find_running_by_identifier(state.running, issue_number) do
+      # An already-running entry (PR-anchored or legacy) resumes its SAME
+      # session — a follow-up comment on a PR-anchored agent's PR resolves here
+      # (identifier == to_string(pr#)) and never re-dispatches.
       running_entry when is_map(running_entry) ->
         reactivate_if_deactivated(state, running_entry, issue_number, source, event)
 
       _ ->
-        maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
+        maybe_route_pr_anchored_or_legacy(state, issue_number, source, event, attempt)
+    end
+  end
+
+  # Routing fork for a comment with no running entry. Before the legacy
+  # `agent:rework` transition, intercept a watched/commanded HUMAN PR and route
+  # it PR-anchored instead — but ONLY when `pr_watch` is enabled. When disabled,
+  # behave exactly as before: no `/pulls/N` fetch, legacy path byte-for-byte.
+  #
+  # Safety by construction: `issue_number` is the comment topic key. A legacy
+  # ticket's key is a tracker issue number → `GET /pulls/N` 404s → `{:ok, nil}`
+  # → legacy. A watched human PR → `{:ok, pr}` with a non-`aiur/<N>` head →
+  # PR-anchored. An `aiur/<N>`-headed PR (a legacy aiur PR) → legacy. The
+  # PR-anchored path NEVER touches an `agent:` label or opens a new `aiur/<N>` PR.
+  defp maybe_route_pr_anchored_or_legacy(%State{} = state, issue_number, source, event, attempt) do
+    if pr_anchored_routing_enabled?() and trusted_comment_event?(event) and
+         not benign_review_pass_comment?(event) do
+      case resolve_pr_anchored_unit(issue_number, event) do
+        {:ok, %Issue{} = pr_issue} ->
+          dispatch_pr_anchored_unit(state, pr_issue, source, event)
+
+        :legacy ->
+          maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
+      end
+    else
+      maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
+    end
+  end
+
+  defp pr_anchored_routing_enabled? do
+    Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?()
+  end
+
+  # Resolve the comment's PR number `N` to a PR-anchored work unit, or `:legacy`.
+  # `:legacy` is the safe fall-through for: a plain issue (`/pulls/N` 404 → nil),
+  # a closed/merged PR (nil), a legacy `aiur/<N>`-headed aiur PR, a fetch error,
+  # or a non-integer key. The fetcher is injectable for tests via the event.
+  defp resolve_pr_anchored_unit(issue_number, event) do
+    with {:ok, pr_number} <- pr_number_from_identifier(issue_number),
+         {:ok, %{} = pr} <- fetch_open_pull_request_for_routing(pr_number, event),
+         head_ref when is_binary(head_ref) and head_ref != "" <- pr_head_ref(pr),
+         false <- aiur_owned_head_ref?(head_ref, pr_number) do
+      {:ok, build_pr_anchored_issue(pr_number, pr, head_ref)}
+    else
+      _ -> :legacy
+    end
+  end
+
+  defp pr_number_from_identifier(issue_number) do
+    case Integer.parse(to_string(issue_number)) do
+      {pr_number, ""} when pr_number > 0 -> {:ok, pr_number}
+      _ -> :error
+    end
+  end
+
+  defp fetch_open_pull_request_for_routing(pr_number, event) do
+    fetcher =
+      case Map.get(event, :open_pull_request_fetcher) do
+        fun when is_function(fun, 1) -> fun
+        _ -> fn number -> GitHubClient.fetch_open_pull_request(number) end
+      end
+
+    case fetcher.(pr_number) do
+      {:ok, pr} when is_map(pr) -> {:ok, pr}
+      {:ok, nil} -> :legacy
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_open_pull_request, other}}
+    end
+  end
+
+  defp pr_head_ref(%{"head" => %{"ref" => ref}}) when is_binary(ref), do: ref
+  defp pr_head_ref(_pr), do: nil
+
+  # A PR whose head is `aiur/<N>` is a LEGACY aiur-created PR — its comments
+  # must keep flowing through the unchanged `aiur/<id>` reactivation, never the
+  # PR-anchored path. Only an external/human branch is PR-anchored.
+  defp aiur_owned_head_ref?(head_ref, pr_number) do
+    head_ref == "aiur/#{pr_number}"
+  end
+
+  # A synthetic, slot-respecting work unit for a watched/commanded human PR.
+  # `id: nil` keeps it OUT of `revalidate_issue_for_dispatch/3`'s tracker lookup
+  # (there is no tracker issue); `identifier: to_string(pr#)` is the comment
+  # topic / resume key (`find_running_by_identifier`); `pr_head_ref` tells the
+  # workspace to check out the human branch instead of creating `aiur/<id>`.
+  defp build_pr_anchored_issue(pr_number, pr, head_ref) do
+    %Issue{
+      id: pr_anchored_running_key(pr_number),
+      identifier: to_string(pr_number),
+      title: pr_field(pr, "title") || "PR ##{pr_number}",
+      description: pr_field(pr, "body") || "",
+      state: @pr_anchored_state,
+      branch_name: head_ref,
+      pr_head_ref: head_ref,
+      labels: []
+    }
+  end
+
+  # The running-map key for a PR-anchored unit. Distinct from any tracker issue
+  # id (prefixed `pr-`) so two PR-anchored agents never collide on a `nil` key
+  # and a PR-anchored unit never shadows a same-numbered tracker ticket.
+  defp pr_anchored_running_key(pr_number), do: "pr-#{pr_number}"
+
+  defp pr_field(pr, key) do
+    case Map.get(pr, key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  # Dispatch a PR-anchored unit through the slot-respecting worker path. We gate
+  # on the global agent cap (`available_slots`) explicitly — `should_dispatch_issue?`
+  # cannot be reused because its `candidate_issue?` requires a configured active
+  # state, which a synthetic PR unit deliberately is not. Then route straight to
+  # `do_dispatch_issue/4` (thrash budget + worker-slot dispatch), SKIPPING
+  # `revalidate_issue_for_dispatch/3`: there is no tracker issue to revalidate, and
+  # routing already proved the PR is open. When the cap is full or the unit is
+  # already running/claimed, log and skip — the next comment re-triggers (no
+  # `agent:` label is touched and no persistent state is written).
+  defp dispatch_pr_anchored_unit(%State{} = state, %Issue{} = issue, source, event) do
+    cond do
+      Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) ->
+        Logger.info("#{source} PR-anchored dispatch skipped; already running/claimed: pr=#{issue.identifier}")
+
+        state
+
+      available_slots(state) <= 0 ->
+        Logger.info("#{source} PR-anchored dispatch deferred; agent cap full: pr=#{issue.identifier}")
+
+        state
+
+      true ->
+        Logger.info("#{source} routed PR-anchored (no agent:* label, no aiur/<pr#> PR): pr=#{issue.identifier} head_ref=#{issue.pr_head_ref}")
+
+        pr_anchored_dispatch_fun(event).(state, issue)
+    end
+  end
+
+  # The terminal spawn for a PR-anchored unit. Defaults to the real
+  # `do_dispatch_issue/4` (slot-respecting worker dispatch). Tests inject a
+  # capture fun via the event so routing can be asserted without spawning a
+  # real agent.
+  defp pr_anchored_dispatch_fun(event) do
+    case Map.get(event, :pr_anchored_dispatch_fun) do
+      fun when is_function(fun, 2) -> fun
+      _ -> fn state, issue -> do_dispatch_issue(state, issue, nil, nil) end
     end
   end
 
@@ -1170,8 +1330,8 @@ defmodule Aiur.Orchestrator do
 
   defp do_poll_github_comments(%State{} = state, opts) do
     case github_comment_poll_targets(state, opts) do
-      {:ok, targets, human_review_targets} ->
-        poll_github_comment_targets(state, targets, human_review_targets, opts)
+      {:ok, targets, human_review_targets, watch_targets} ->
+        poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
@@ -1179,14 +1339,16 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _opts), do: state
+  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts),
+    do: state
 
-  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, opts)
+  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
        when is_list(targets) do
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
-      |> put_human_review_open_pull_requests(human_review_targets)
+      |> put_open_pull_requests_by_target(human_review_targets)
+      |> put_open_pull_requests_by_target(watch_targets)
 
     case GithubCommentsPoller.poll(targets, poll_opts) do
       {:ok, %{since: since, count: count, errors: errors}} ->
@@ -1327,16 +1489,458 @@ defmodule Aiur.Orchestrator do
     )
   end
 
+  # One-off per-comment command scan (the U3 trigger). Each cycle, scan the
+  # repo-wide PR-comment STREAMS directly — `pulls/comments` (review/line
+  # comments) and `issues/comments` (conversation comments), both with a
+  # `since` cursor — for a trusted `/aiur …` or `@<bot_account>` comment and
+  # publish the PR-number reactivation event so an agent handles that single
+  # comment. Scanning the comment streams (NOT a per-PR `updated_at` fetch) is
+  # load-bearing: a `/aiur` left as a review comment does not reliably bump the
+  # PR's `updated_at`, and a busy PR can fall outside a recently-updated
+  # window — both would silently drop the command. No label is required and no
+  # persistent watch state is stored: a commanded PR is NOT in the poller's
+  # tracked target set, so it is naturally one-and-done — the comment-stream
+  # `since` cursor + the Publisher dedup window keep an already-handled comment
+  # from re-firing. Gated on `pr_watch_enabled?`.
+  defp scan_pr_commands(%State{} = state, opts \\ []) do
+    if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?() do
+      do_scan_pr_commands(state, opts)
+    else
+      state
+    end
+  end
+
+  defp do_scan_pr_commands(%State{} = state, opts) do
+    since = command_scan_since(state, opts)
+    fetch_opts = Keyword.put(opts, :since, since)
+
+    review_comments = command_scan_review_comments(fetch_opts)
+    issue_comments = command_scan_issue_comments(fetch_opts)
+
+    pr_comments =
+      (review_comments ++ issue_comments)
+      |> Enum.map(&command_scan_annotate(&1))
+      |> Enum.reject(&is_nil(command_scan_comment_pr_number(&1)))
+
+    # Advance the cursor over EVERY PR comment seen this cycle, not just the
+    # command hits, so a non-command comment newer than a command doesn't make
+    # the cursor stall and re-scan the command next cycle.
+    newest = command_scan_newest_datetime(pr_comments)
+
+    publish_command_hits(pr_comments, command_scan_repo(opts), command_scan_limit(opts))
+
+    %{state | github_command_scan_since: advance_command_scan_since(since, newest)}
+  end
+
+  # Fetch the repo-wide review-comment stream (`pulls/comments`). A failure is
+  # logged and yields `[]` so the scan never raises; the cursor is unaffected
+  # because `command_scan_newest_datetime/1` only advances on comments seen.
+  defp command_scan_review_comments(fetch_opts) do
+    fetcher =
+      Keyword.get_lazy(fetch_opts, :command_scan_review_comment_fetcher, fn ->
+        fn scan_opts -> GitHubClient.fetch_recent_repo_review_comments(scan_opts) end
+      end)
+
+    case fetcher.(fetch_opts) do
+      {:ok, comments} when is_list(comments) ->
+        comments
+
+      {:error, reason} ->
+        Logger.warning("scan_pr_commands review-comment stream failed; reason=#{inspect(reason)}")
+        []
+
+      other ->
+        Logger.warning("scan_pr_commands review-comment stream returned unexpected value: #{inspect(other)}")
+        []
+    end
+  end
+
+  # Fetch the repo-wide conversation-comment stream (`issues/comments`). The
+  # endpoint returns comments on plain issues AND PR conversations; PR-number
+  # derivation (`command_scan_comment_pr_number/1`) only resolves the PR ones,
+  # so non-PR issue comments are dropped downstream (out of scope).
+  defp command_scan_issue_comments(fetch_opts) do
+    fetcher =
+      Keyword.get_lazy(fetch_opts, :command_scan_issue_comment_fetcher, fn ->
+        fn scan_opts -> GitHubClient.fetch_recent_repo_issue_comments(scan_opts) end
+      end)
+
+    case fetcher.(fetch_opts) do
+      {:ok, comments} when is_list(comments) ->
+        comments
+
+      {:error, reason} ->
+        Logger.warning("scan_pr_commands issue-comment stream failed; reason=#{inspect(reason)}")
+        []
+
+      other ->
+        Logger.warning("scan_pr_commands issue-comment stream returned unexpected value: #{inspect(other)}")
+        []
+    end
+  end
+
+  # Stamp event-time trust (`author_trusted?` from the canonical CODEOWNERS ∪
+  # bot ∪ trusted-accounts set) and pin the derived PR number so later steps
+  # don't re-derive it. The body/author the scanner reads stay untouched.
+  defp command_scan_annotate(comment) when is_map(comment) do
+    comment
+    |> Sanitizer.stamp_author_trust(actor: command_scan_comment_author(comment))
+    |> Map.put(:pr_number, derive_command_scan_pr_number(comment))
+  end
+
+  # Group the trusted command comments by PR number, bound the scan to a capped
+  # number of distinct commanded PRs per cycle (logging the drop), and publish
+  # a reactivation event for each comment under a kept PR.
+  defp publish_command_hits(comments, repo, limit) do
+    comments
+    |> PrCommandScanner.commands(
+      Aiur.GitHub.Config.command_prefix(),
+      Aiur.GitHub.Config.bot_account()
+    )
+    |> group_command_hits_by_pr()
+    |> cap_command_pr_hits(limit)
+    |> Enum.each(fn {pr_number, hits} ->
+      Enum.each(hits, &publish_command_reactivation(pr_number, &1, repo))
+    end)
+  end
+
+  defp group_command_hits_by_pr(hits) do
+    Enum.group_by(hits, &command_scan_comment_pr_number/1)
+  end
+
+  # Cap distinct commanded PRs per cycle. The streams are small per cursor
+  # window, but a burst could surface commands on many PRs at once; keep a
+  # bounded number and log the drop rather than silently truncating. Sorted by
+  # PR number so the cap is deterministic across cycles.
+  defp cap_command_pr_hits(hits_by_pr, limit) do
+    sorted = Enum.sort_by(hits_by_pr, fn {pr_number, _hits} -> pr_number end)
+    kept = Enum.take(sorted, limit)
+    dropped = map_size(hits_by_pr) - length(kept)
+
+    if dropped > 0 do
+      Logger.warning("scan_pr_commands capped: kept=#{length(kept)} dropped=#{dropped} limit=#{limit}")
+    end
+
+    kept
+  end
+
+  # Mid-run teardown for PR-anchored agents (U6). Each poll cycle, terminate any
+  # RUNNING PR-anchored agent (a watched/commanded human PR dispatched by U4)
+  # whose PR is no longer open — it would otherwise keep burning compute and
+  # pushing to a dead branch. Most teardown is IMPLICIT: a merged/closed/untagged
+  # PR simply stops producing watch poll targets (U2) and the command path stores
+  # no state, so nothing new is dispatched. This function covers the one gap the
+  # implicit drop cannot: an agent already in-flight when its PR reaches a
+  # terminal state.
+  #
+  # DESIGN DECISION — an untag mid-run does NOT abort a running agent. The agent
+  # was dispatched for a real comment; let it finish the work it started.
+  # Untagging only stops NEW dispatches (U2's implicit target drop). ONLY a
+  # closed/merged PR — observed as `{:ok, nil}` from `fetch_open_pull_request/1`,
+  # the same signal that treats closed/merged as "not open" — triggers mid-run
+  # termination here.
+  #
+  # Fetch isolation: `{:ok, pr}` (still open) and `{:error, _}` (transient — a
+  # rate-limit or network blip) both LEAVE the agent running. We never terminate
+  # on a fetch error; a real terminal state will be re-observed next cycle.
+  #
+  # Gated on `pr_watch_enabled?` and short-circuited when there are zero
+  # PR-anchored running entries, so a repo not using the feature issues no
+  # fetches.
+  defp maybe_stop_closed_pr_anchored_agents(%State{} = state, opts \\ []) do
+    if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?() do
+      case pr_anchored_running_entries(state) do
+        [] -> state
+        entries -> stop_closed_pr_anchored_entries(state, entries, opts)
+      end
+    else
+      state
+    end
+  end
+
+  # Select the running entries dispatched as PR-anchored units. We key off the
+  # stored `%Issue{}` `state == @pr_anchored_state` (the canonical sentinel
+  # `build_pr_anchored_issue/1` stamps) rather than the `"pr-"` running-key
+  # prefix: the state is a dedicated marker nothing else uses, while a key prefix
+  # is a derived convention a tracker id could collide with.
+  defp pr_anchored_running_entries(%State{running: running}) do
+    Enum.filter(running, fn {_issue_id, running_entry} ->
+      pr_anchored_running_entry?(running_entry)
+    end)
+  end
+
+  defp pr_anchored_running_entry?(%{issue: %Issue{state: @pr_anchored_state}}), do: true
+  defp pr_anchored_running_entry?(_running_entry), do: false
+
+  defp stop_closed_pr_anchored_entries(%State{} = state, entries, opts) do
+    fetcher = pr_open_state_fetcher(opts)
+
+    Enum.reduce(entries, state, fn {issue_id, running_entry}, state_acc ->
+      pr_number = Map.get(running_entry, :identifier)
+
+      case fetcher.(pr_number) do
+        {:ok, nil} ->
+          Logger.warning("PR-anchored agent's PR is no longer open; stopping agent and cleaning workspace: issue_id=#{issue_id} pr=#{pr_number}")
+
+          state_acc = terminate_running_issue(state_acc, issue_id, false)
+          cleanup_pr_anchored_workspace(issue_id, running_entry)
+          state_acc
+
+        {:ok, _pr} ->
+          # PR still open — let the agent keep working.
+          state_acc
+
+        {:error, reason} ->
+          # Transient fetch failure — do NOT terminate. A real terminal state is
+          # re-observed next cycle.
+          Logger.warning("PR-anchored teardown PR fetch failed; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} reason=#{inspect(reason)}")
+
+          state_acc
+
+        other ->
+          Logger.warning("PR-anchored teardown PR fetch returned unexpected value; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} value=#{inspect(other)}")
+
+          state_acc
+      end
+    end)
+  end
+
+  defp pr_open_state_fetcher(opts) do
+    case Keyword.get(opts, :open_pull_request_fetcher) do
+      fun when is_function(fun, 1) -> fun
+      _ -> fn pr_number -> GitHubClient.fetch_open_pull_request(pr_number) end
+    end
+  end
+
+  # `terminate_running_issue/3`'s workspace cleanup keys off the running entry's
+  # `identifier` (the bare PR number), but a PR-anchored workspace lives at the
+  # `pr-<pr#>` leaf (`Workspace.workspace_identifier/2`), which equals the
+  # running-map KEY (`issue.id`). Clean the `pr-<pr#>` leaf explicitly so no
+  # orphan workspace is left behind, mirroring the legacy terminal cleanup.
+  defp cleanup_pr_anchored_workspace(issue_id, running_entry) when is_binary(issue_id) do
+    Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
+  end
+
+  defp cleanup_pr_anchored_workspace(_issue_id, _running_entry), do: :ok
+
+  # Emit the SAME PR-number reactivation signal U2 uses
+  # (`ticket.<pr#>.pr.review_comment`) with `bypass_contamination: true` so it
+  # reaches the orchestrator even though the commanded PR is absent from the
+  # tracked set (mirrors the firehose `bypass_contamination` path). The
+  # Publisher's `bot_self_loop?` and dedup gates still apply.
+  defp publish_command_reactivation(pr_number, comment, repo) do
+    target = to_string(pr_number)
+    actor = command_scan_comment_author(comment)
+
+    payload =
+      %{issue_number: target, comment: comment, source: :github}
+      |> Sanitizer.scrub()
+      |> Sanitizer.put_comment_message()
+
+    Publisher.publish(
+      "ticket.#{target}.pr.review_comment",
+      payload,
+      issue_number: target,
+      actor: actor,
+      bypass_contamination: true,
+      dedup_key:
+        GithubKeys.comment_dedup_key(
+          repo,
+          "pr_command",
+          pr_number,
+          Map.get(comment, "id")
+        )
+    )
+  end
+
+  defp command_scan_comment_author(comment) when is_map(comment) do
+    get_in(comment, ["user", "login"]) || get_in(comment, ["author", "login"])
+  end
+
+  # The derived PR number, read from the annotation pinned by
+  # `command_scan_annotate/1`.
+  defp command_scan_comment_pr_number(comment) when is_map(comment) do
+    Map.get(comment, :pr_number)
+  end
+
+  # Derive the PR number from a stream comment. Review comments carry
+  # `pull_request_url` (`.../pulls/<n>`); conversation comments carry
+  # `issue_url` (`.../issues/<n>`) and are PRs only when `html_url` contains
+  # `/pull/` (a plain issue's `html_url` contains `/issues/`). Returns nil for
+  # non-PR issue comments and any malformed URL, dropping them from the scan.
+  defp derive_command_scan_pr_number(%{"pull_request_url" => url}) when is_binary(url) do
+    parse_trailing_number(url)
+  end
+
+  defp derive_command_scan_pr_number(%{"issue_url" => url} = comment) when is_binary(url) do
+    if command_scan_pr_html_url?(comment), do: parse_trailing_number(url)
+  end
+
+  defp derive_command_scan_pr_number(_comment), do: nil
+
+  defp command_scan_pr_html_url?(%{"html_url" => html_url}) when is_binary(html_url) do
+    String.contains?(html_url, "/pull/")
+  end
+
+  defp command_scan_pr_html_url?(_comment), do: false
+
+  defp parse_trailing_number(url) when is_binary(url) do
+    case url |> String.split("/") |> List.last() |> Integer.parse() do
+      {number, ""} when number > 0 -> number
+      _ -> nil
+    end
+  end
+
+  defp command_scan_repo(opts) do
+    Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
+  end
+
+  defp command_scan_since(%State{github_command_scan_since: since}, _opts)
+       when is_binary(since),
+       do: since
+
+  defp command_scan_since(%State{}, opts), do: GithubKeys.boot_cutoff_iso8601(opts)
+
+  defp command_scan_limit(opts) do
+    case Keyword.get(opts, :command_scan_pull_request_limit, @command_scan_pull_requests_per_poll) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> @command_scan_pull_requests_per_poll
+    end
+  end
+
+  defp command_scan_newest_datetime(comments) do
+    Enum.reduce(comments, nil, fn comment, newest ->
+      max_command_scan_datetime(newest, command_scan_comment_datetime(comment))
+    end)
+  end
+
+  defp command_scan_comment_datetime(comment) when is_map(comment) do
+    comment
+    |> Map.get("updated_at", Map.get(comment, "created_at"))
+    |> parse_command_scan_datetime()
+  end
+
+  defp parse_command_scan_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp parse_command_scan_datetime(_value), do: nil
+
+  defp max_command_scan_datetime(nil, datetime), do: datetime
+  defp max_command_scan_datetime(datetime, nil), do: datetime
+
+  defp max_command_scan_datetime(%DateTime{} = left, %DateTime{} = right) do
+    case DateTime.compare(left, right) do
+      :lt -> right
+      _ -> left
+    end
+  end
+
+  defp advance_command_scan_since(since, nil), do: since
+
+  defp advance_command_scan_since(_since, %DateTime{} = newest) do
+    newest
+    |> DateTime.add(-1, :second)
+    |> DateTime.to_iso8601()
+  end
+
   defp github_comment_poll_targets(%State{} = state, opts) do
-    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts) do
+    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts),
+         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
       running_targets = running_comment_poll_targets(state)
 
       targets =
         running_targets
         |> Kernel.++(Enum.map(human_review_targets, & &1.target))
+        |> Kernel.++(Enum.map(watch_targets, & &1.target))
         |> Enum.uniq()
 
-      {:ok, targets, human_review_targets}
+      {:ok, targets, human_review_targets, watch_targets}
+    end
+  end
+
+  # Discovers open PRs labeled `agent:watch` repo-wide and turns each into a
+  # PR-number-keyed comment poll target carrying its PR object, so the poller
+  # never branch-derives for watched PRs (it consumes the passed PR via
+  # `open_pull_requests_by_target`). Mirrors `human_review_comment_poll_targets/2`:
+  # closed/merged PRs are excluded at the query, the set is deduped and capped per
+  # poll, and the drop is logged (never silent). Returns `{:ok, []}` when the
+  # feature is disabled so the rest of the poll cycle is untouched.
+  defp watch_comment_poll_targets(%State{} = _state, opts) do
+    if Aiur.GitHub.Config.pr_watch_enabled?() do
+      fetcher = watch_pull_request_fetcher(opts)
+
+      case fetcher.(Aiur.GitHub.Config.watch_label()) do
+        {:ok, pull_requests} when is_list(pull_requests) ->
+          {:ok, build_watch_targets(pull_requests, opts)}
+
+        {:error, _reason} = error ->
+          error
+
+        other ->
+          {:error, {:unexpected_watch_targets, other}}
+      end
+    else
+      {:ok, []}
+    end
+  end
+
+  defp watch_pull_request_fetcher(opts) do
+    Keyword.get_lazy(opts, :watch_pull_request_fetcher, fn ->
+      fn label -> GitHubClient.fetch_open_pull_requests_by_label(label, opts) end
+    end)
+  end
+
+  defp build_watch_targets(pull_requests, opts) do
+    targets =
+      pull_requests
+      |> Enum.map(&watch_comment_target_for_pull_request/1)
+      |> Enum.reject(&is_nil/1)
+      |> dedupe_watch_targets()
+
+    limit = watch_comment_target_limit(opts)
+    kept = Enum.take(targets, limit)
+
+    dropped = length(targets) - length(kept)
+
+    if dropped > 0 do
+      Logger.warning("watch_comment_poll_targets capped: kept=#{length(kept)} dropped=#{dropped} limit=#{limit}")
+    end
+
+    kept
+  end
+
+  # A watched PR's identifier/topic is its PR number (string). Open/closed is
+  # already filtered at the query, so any PR reaching here is an active watch
+  # target. `open` defends against a fetcher that returns non-open PRs.
+  defp watch_comment_target_for_pull_request(%{"number" => number} = pr)
+       when is_integer(number) do
+    if pull_request_open?(pr) do
+      %{target: to_string(number), open_pull_request: pr}
+    end
+  end
+
+  defp watch_comment_target_for_pull_request(_pr), do: nil
+
+  defp pull_request_open?(%{"state" => state}) when is_binary(state), do: state == "open"
+  defp pull_request_open?(%{"merged_at" => merged_at}) when is_binary(merged_at), do: false
+  defp pull_request_open?(_pr), do: true
+
+  defp dedupe_watch_targets(targets) do
+    targets
+    |> Enum.reduce(%{}, fn %{target: target} = entry, acc ->
+      Map.put_new(acc, target, entry)
+    end)
+    |> Map.values()
+  end
+
+  defp watch_comment_target_limit(opts) do
+    case Keyword.get(opts, :watch_comment_target_limit, @watch_comment_targets_per_poll) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> @watch_comment_targets_per_poll
     end
   end
 
@@ -1484,9 +2088,9 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp put_human_review_open_pull_requests(opts, human_review_targets) do
+  defp put_open_pull_requests_by_target(opts, targets) do
     open_pull_requests =
-      human_review_targets
+      targets
       |> Enum.reduce(%{}, fn
         %{target: target} = entry, acc when is_binary(target) ->
           if Map.has_key?(entry, :open_pull_request) do
@@ -1558,6 +2162,8 @@ defmodule Aiur.Orchestrator do
     state = refresh_tracked_set(state)
     state = poll_github_firehose(state)
     state = poll_github_comments(state)
+    state = scan_pr_commands(state)
+    state = maybe_stop_closed_pr_anchored_agents(state)
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
@@ -1830,6 +2436,18 @@ defmodule Aiur.Orchestrator do
   @spec poll_github_comments_for_test(State.t(), keyword()) :: State.t()
   def poll_github_comments_for_test(%State{} = state, opts) when is_list(opts) do
     poll_github_comments(state, opts)
+  end
+
+  @doc false
+  @spec scan_pr_commands_for_test(State.t(), keyword()) :: State.t()
+  def scan_pr_commands_for_test(%State{} = state, opts) when is_list(opts) do
+    scan_pr_commands(state, opts)
+  end
+
+  @doc false
+  @spec maybe_stop_closed_pr_anchored_agents_for_test(State.t(), keyword()) :: State.t()
+  def maybe_stop_closed_pr_anchored_agents_for_test(%State{} = state, opts) when is_list(opts) do
+    maybe_stop_closed_pr_anchored_agents(state, opts)
   end
 
   @doc false

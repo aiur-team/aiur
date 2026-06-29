@@ -115,6 +115,34 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @doc """
+  Whether opt-in repo-wide PR comment watching is enabled (`pr_watch.enabled`).
+  When false, aiur only reacts to comments on its own `aiur/<id>` PRs.
+  """
+  @spec pr_watch_enabled?() :: boolean()
+  def pr_watch_enabled? do
+    Aiur.Config.settings!().pr_watch.enabled
+  end
+
+  @doc """
+  The fully-qualified opt-in watch label (e.g. `agent:watch`), combining the
+  github `label_prefix/0` with `pr_watch.watch_label`.
+  """
+  @spec watch_label() :: String.t()
+  def watch_label do
+    "#{label_prefix()}:#{Aiur.Config.settings!().pr_watch.watch_label}"
+  end
+
+  @doc """
+  The one-off per-comment command prefix (e.g. `/aiur`). A trusted comment
+  starting with this — or mentioning `bot_account/0` — wakes an agent for that
+  single comment, no label required.
+  """
+  @spec command_prefix() :: String.t()
+  def command_prefix do
+    Aiur.Config.settings!().pr_watch.command_prefix
+  end
+
   @impl Aiur.TrackerConfig
   def validate! do
     cond do

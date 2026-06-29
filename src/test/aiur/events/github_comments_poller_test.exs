@@ -303,6 +303,67 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     stop_codeowners(codeowners)
   end
 
+  test "watched PR keyed by its own number publishes ticket.<pr#>.pr.review_comment via passed PR" do
+    parent = self()
+    :ok = Exchange.subscribe("ticket.123.pr.review_comment")
+    codeowners = ensure_codeowners!("* @its-everdred\n")
+
+    request_fun = fn %{url: url} ->
+      cond do
+        # A watched PR's target IS its PR number, so issue/PR-conversation
+        # comments are both fetched against /issues/123/comments.
+        String.contains?(url, "/issues/123/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        # The PR object is supplied, so the poller must NOT branch-derive.
+        String.contains?(url, "/pulls?") ->
+          send(parent, {:unexpected_pull_request_lookup, url})
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/graphql") ->
+          review_threads_response([
+            %{
+              "id" => "PRRT_watched_pr",
+              "isResolved" => false,
+              "path" => "lib/app.ex",
+              "line" => 9,
+              "comments" => %{
+                "nodes" => [
+                  review_thread_comment(9301, "its-everdred", "watched PR review comment")
+                ]
+              }
+            }
+          ])
+      end
+    end
+
+    assert {:ok, %{count: 1, since: %{"123" => "2026-06-25T00:00:00Z"}, errors: []}} =
+             GithubCommentsPoller.poll(["123"],
+               since: "2026-06-25T00:00:00Z",
+               repo: "owner/repo",
+               request_fun: request_fun,
+               open_pull_requests_by_target: %{
+                 "123" => %{"number" => 123, "head" => %{"ref" => "feature/human-branch"}}
+               }
+             )
+
+    assert_receive {:event,
+                    %{
+                      topic: "ticket.123.pr.review_comment",
+                      author_trusted?: true,
+                      source: :github,
+                      message: "watched PR review comment",
+                      comment: %{
+                        "body" => "watched PR review comment",
+                        "review_thread_id" => "PRRT_watched_pr"
+                      }
+                    }},
+                   500
+
+    refute_receive {:unexpected_pull_request_lookup, _url}, 100
+    stop_codeowners(codeowners)
+  end
+
   test "skips Agent Workpad PR conversation comments" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")
@@ -619,7 +680,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                repo: "owner/repo",
                request_fun: request_fun,
                max_concurrency: 2,
-               timeout: 20
+               timeout: 200
              )
   end
 

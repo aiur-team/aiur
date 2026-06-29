@@ -13,6 +13,7 @@ defmodule Aiur.Issue do
     :branch_name,
     :url,
     :assignee_id,
+    :pr_head_ref,
     blocked_by: [],
     labels: [],
     assigned_to_worker: true,
@@ -30,6 +31,10 @@ defmodule Aiur.Issue do
           branch_name: String.t() | nil,
           url: String.t() | nil,
           assignee_id: String.t() | nil,
+          # Set only for PR-anchored work units (opt-in repo-wide PR watch): the
+          # human PR's existing head branch the agent works directly. nil for
+          # every legacy tracker-issue unit.
+          pr_head_ref: String.t() | nil,
           labels: [String.t()],
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,

@@ -454,6 +454,43 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_open_pull_request/2" do
+    test "returns the open PR map for an open PR" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/repos/owner/repo/pulls/77"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}}
+         }}
+      end
+
+      assert {:ok, %{"number" => 77, "head" => %{"ref" => "feature/login"}}} =
+               Client.fetch_open_pull_request(77, request_fun: request_fun)
+    end
+
+    test "returns nil on 404 (the number is a plain issue, not a PR)" do
+      request_fun = fn _ -> {:ok, %{status: 404}} end
+
+      assert {:ok, nil} = Client.fetch_open_pull_request(55, request_fun: request_fun)
+    end
+
+    test "returns nil for a closed/merged PR (routes to the legacy path)" do
+      request_fun = fn _ ->
+        {:ok, %{status: 200, body: %{"number" => 9, "state" => "closed", "head" => %{"ref" => "x"}}}}
+      end
+
+      assert {:ok, nil} = Client.fetch_open_pull_request(9, request_fun: request_fun)
+    end
+
+    test "surfaces a non-200/404 status as an error" do
+      request_fun = fn _ -> {:ok, %{status: 500, body: %{}}} end
+
+      assert {:error, _} = Client.fetch_open_pull_request(77, request_fun: request_fun)
+    end
+  end
+
   describe "fetch_open_pull_request_for_branch/2" do
     test "returns the first open PR for the canonical aiur branch" do
       request_fun = fn %{method: :get, url: url} ->
