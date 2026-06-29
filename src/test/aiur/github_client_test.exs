@@ -923,6 +923,105 @@ defmodule Aiur.GitHub.ClientTest do
       File.rm_rf!(repo_root)
     end
 
+    test "fails after resolving when a reviewer follow-up becomes latest in the resolve window" do
+      repo_root = codeowners_repo!("* @owner\n")
+      {:ok, query_count} = Agent.start_link(fn -> 0 end)
+      {:ok, unresolve_count} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        cond do
+          body["query"] =~ "query AiurReviewThread" ->
+            case Agent.get_and_update(query_count, &{&1, &1 + 1}) do
+              0 ->
+                review_thread_node_response("PRRT_raced", [
+                  review_thread_comment(711, "owner", "please verify"),
+                  review_thread_comment(712, "aiur-bot", "Done, no further changes.")
+                ])
+
+              1 ->
+                review_thread_node_response(
+                  "PRRT_raced",
+                  [
+                    review_thread_comment(711, "owner", "please verify"),
+                    review_thread_comment(712, "aiur-bot", "Done, no further changes."),
+                    review_thread_comment(713, "owner", "Actually, please also fix this.")
+                  ],
+                  %{"isResolved" => true}
+                )
+            end
+
+          body["query"] =~ "unresolveReviewThread" ->
+            Agent.update(unresolve_count, &(&1 + 1))
+            assert body["variables"] == %{"threadId" => "PRRT_raced"}
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "unresolveReviewThread" => %{
+                     "thread" => %{
+                       "id" => "PRRT_raced",
+                       "isResolved" => false
+                     }
+                   }
+                 }
+               }
+             }}
+
+          body["query"] =~ "resolveReviewThread" ->
+            assert body["variables"] == %{"threadId" => "PRRT_raced"}
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "resolveReviewThread" => %{
+                     "thread" => %{
+                       "id" => "PRRT_raced",
+                       "isResolved" => true
+                     }
+                   }
+                 }
+               }
+             }}
+        end
+      end
+
+      assert {:error,
+              {:review_thread_resolution_precondition_failed,
+               %{
+                 reason: :post_resolve_latest_comment_author_mismatch,
+                 review_thread_id: "PRRT_raced",
+                 latest_comment: %{"body" => "Actually, please also fix this."},
+                 unresolved_after_post_resolve_mismatch: %{
+                   review_thread_id: "PRRT_raced",
+                   mutation_response: %{
+                     "data" => %{
+                       "unresolveReviewThread" => %{
+                         "thread" => %{
+                           "id" => "PRRT_raced",
+                           "isResolved" => false
+                         }
+                       }
+                     }
+                   }
+                 }
+               }}} =
+               Client.resolve_review_thread("PRRT_raced",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot",
+                 terminal_reply_body: "Done, no further changes.",
+                 repo_root: repo_root
+               )
+
+      assert Agent.get(query_count, & &1) == 2
+      assert Agent.get(unresolve_count, & &1) == 1
+
+      File.rm_rf!(repo_root)
+    end
+
     test "classifies resolve permission failures with required token guidance" do
       repo_root = codeowners_repo!("* @owner\n")
 

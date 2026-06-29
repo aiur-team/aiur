@@ -38,6 +38,17 @@ defmodule Aiur.GitHub.Client do
   }
   """
 
+  @unresolve_review_thread_mutation """
+  mutation AiurUnresolveReviewThread($threadId: ID!) {
+    unresolveReviewThread(input: {threadId: $threadId}) {
+      thread {
+        id
+        isResolved
+      }
+    }
+  }
+  """
+
   @review_thread_query """
   query AiurReviewThread($id: ID!) {
     node(id: $id) {
@@ -1236,12 +1247,73 @@ defmodule Aiur.GitHub.Client do
            ),
          {:ok, body} <- resolve_review_thread_mutation(request_fun, token, thread_id) do
       Logger.info("GitHub review thread resolve mutation response: #{inspect(body)}")
-      verify_resolved_review_thread(body, thread_id, verification)
+
+      case verify_resolved_review_thread(body, thread_id, verification) do
+        {:ok, result} ->
+          verify_review_thread_after_resolution(
+            result,
+            request_fun,
+            token,
+            thread_id,
+            terminal_reply_body,
+            opts
+          )
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp verify_review_thread_after_resolution(result, request_fun, token, thread_id, terminal_reply_body, opts) do
+    case verify_review_thread_resolution_still_latest(
+           request_fun,
+           token,
+           thread_id,
+           terminal_reply_body,
+           opts
+         ) do
+      {:ok, post_resolution_verification} ->
+        {:ok, Map.put(result, :post_resolution_verification, post_resolution_verification)}
+
+      {:error, {:post_resolution_verification_failed, reason}} ->
+        unresolve_review_thread_after_post_resolution_failure(request_fun, token, thread_id, reason)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp resolve_review_thread_mutation(request_fun, token, thread_id) do
     case github_graphql(request_fun, token, @resolve_review_thread_mutation, %{"threadId" => thread_id}) do
+      {:error, {:github_graphql_errors, errors}} ->
+        {:error, classify_review_thread_resolution_errors(thread_id, errors)}
+
+      result ->
+        result
+    end
+  end
+
+  defp unresolve_review_thread_after_post_resolution_failure(request_fun, token, thread_id, reason) do
+    case unresolve_review_thread_mutation(request_fun, token, thread_id) do
+      {:ok, body} ->
+        Logger.info("GitHub review thread unresolve mutation response: #{inspect(body)}")
+
+        case verify_unresolved_review_thread(body, thread_id) do
+          {:ok, unresolve_verification} ->
+            {:error, add_unresolve_verification(reason, unresolve_verification)}
+
+          {:error, unresolve_reason} ->
+            {:error, add_unresolve_failure(reason, unresolve_reason)}
+        end
+
+      {:error, unresolve_reason} ->
+        {:error, add_unresolve_failure(reason, unresolve_reason)}
+    end
+  end
+
+  defp unresolve_review_thread_mutation(request_fun, token, thread_id) do
+    case github_graphql(request_fun, token, @unresolve_review_thread_mutation, %{"threadId" => thread_id}) do
       {:error, {:github_graphql_errors, errors}} ->
         {:error, classify_review_thread_resolution_errors(thread_id, errors)}
 
@@ -1264,6 +1336,25 @@ defmodule Aiur.GitHub.Client do
     else
       {:error,
        {:review_thread_not_resolved,
+        %{
+          review_thread_id: thread_id,
+          mutation_response: body
+        }}}
+    end
+  end
+
+  defp verify_unresolved_review_thread(body, thread_id) when is_map(body) do
+    thread = get_in(body, ["data", "unresolveReviewThread", "thread"]) || %{}
+
+    if Map.get(thread, "isResolved") == false do
+      {:ok,
+       %{
+         review_thread_id: Map.get(thread, "id") || thread_id,
+         mutation_response: body
+       }}
+    else
+      {:error,
+       {:review_thread_unresolve_failed,
         %{
           review_thread_id: thread_id,
           mutation_response: body
@@ -1322,20 +1413,50 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  defp verify_review_thread_resolution_still_latest(
+         request_fun,
+         token,
+         thread_id,
+         terminal_reply_body,
+         opts
+       ) do
+    case fetch_review_thread(request_fun, token, thread_id) do
+      {:ok, thread_body} ->
+        Logger.info("GitHub review thread post-resolution verification response: #{inspect(thread_body)}")
+
+        case verify_review_thread_resolution_latest_reply(
+               thread_body,
+               thread_id,
+               terminal_reply_body,
+               request_fun,
+               token,
+               opts,
+               :after_resolve
+             ) do
+          {:ok, _verification} = ok -> ok
+          {:error, reason} -> {:error, {:post_resolution_verification_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp verify_review_thread_resolution_latest_reply(
          thread_body,
          thread_id,
          terminal_reply_body,
          request_fun,
          token,
-         opts
+         opts,
+         phase \\ :before_resolve
        ) do
     thread = review_thread_from_body(thread_body)
     latest = thread |> thread_comments() |> List.last()
 
     with {:ok, bot_account} <- review_thread_bot_account(opts, request_fun, token) do
       cond do
-        Map.get(thread, "isResolved") == true ->
+        phase == :before_resolve and Map.get(thread, "isResolved") == true ->
           {:error,
            resolution_precondition_failed(thread_id, :already_resolved, %{
              review_thread_id: thread_id
@@ -1343,25 +1464,33 @@ defmodule Aiur.GitHub.Client do
 
         is_nil(latest) ->
           {:error,
-           resolution_precondition_failed(thread_id, :latest_comment_missing, %{
+           resolution_precondition_failed(thread_id, resolution_reason(phase, :latest_comment_missing), %{
              review_thread_id: thread_id
            })}
 
         get_in(latest, ["author", "login"]) != bot_account ->
           {:error,
-           resolution_precondition_failed(thread_id, :latest_comment_author_mismatch, %{
-             expected: bot_account,
-             actual: get_in(latest, ["author", "login"]),
-             latest_comment: normalize_verified_thread_comment(latest)
-           })}
+           resolution_precondition_failed(
+             thread_id,
+             resolution_reason(phase, :latest_comment_author_mismatch),
+             %{
+               expected: bot_account,
+               actual: get_in(latest, ["author", "login"]),
+               latest_comment: normalize_verified_thread_comment(latest)
+             }
+           )}
 
         Map.get(latest, "body") != terminal_reply_body ->
           {:error,
-           resolution_precondition_failed(thread_id, :latest_comment_body_mismatch, %{
-             expected: terminal_reply_body,
-             actual: Map.get(latest, "body"),
-             latest_comment: normalize_verified_thread_comment(latest)
-           })}
+           resolution_precondition_failed(
+             thread_id,
+             resolution_reason(phase, :latest_comment_body_mismatch),
+             %{
+               expected: terminal_reply_body,
+               actual: Map.get(latest, "body"),
+               latest_comment: normalize_verified_thread_comment(latest)
+             }
+           )}
 
         review_thread_authoritative_comment?(thread, opts) ->
           {:ok,
@@ -1380,6 +1509,31 @@ defmodule Aiur.GitHub.Client do
             }}}
       end
     end
+  end
+
+  defp resolution_reason(:before_resolve, reason), do: reason
+  defp resolution_reason(:after_resolve, :latest_comment_missing), do: :post_resolve_latest_comment_missing
+
+  defp resolution_reason(:after_resolve, :latest_comment_author_mismatch),
+    do: :post_resolve_latest_comment_author_mismatch
+
+  defp resolution_reason(:after_resolve, :latest_comment_body_mismatch),
+    do: :post_resolve_latest_comment_body_mismatch
+
+  defp add_unresolve_verification({type, detail}, verification) when is_map(detail) do
+    {type, Map.put(detail, :unresolved_after_post_resolve_mismatch, verification)}
+  end
+
+  defp add_unresolve_verification(reason, verification) do
+    {reason, %{unresolved_after_post_resolve_mismatch: verification}}
+  end
+
+  defp add_unresolve_failure({type, detail}, unresolve_reason) when is_map(detail) do
+    {type, Map.put(detail, :unresolve_error, unresolve_reason)}
+  end
+
+  defp add_unresolve_failure(reason, unresolve_reason) do
+    {reason, %{unresolve_error: unresolve_reason}}
   end
 
   defp resolution_precondition_failed(thread_id, reason, detail) do
