@@ -155,7 +155,9 @@ defmodule Aiur.AgentPubSub do
         Phoenix.PubSub.broadcast(@pubsub, topic, message)
 
       _ ->
-        Logger.debug("AgentPubSub.broadcast skipped (no PubSub registry): topic=#{topic}")
+        # No PubSub registry — expected in CLI contexts (e.g. `aiur init`) that
+        # don't start the full supervision tree. A broadcast with no subscribers
+        # is a silent no-op; logging it just adds noise to command output.
         :ok
     end
   end

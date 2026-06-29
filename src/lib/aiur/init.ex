@@ -348,7 +348,7 @@ defmodule Aiur.Init do
   # --- Resume (existing config) ---
 
   defp print_saved_summary(io, config) do
-    io.puts.("Saved selections:")
+    io.puts.("✅ Saved selections:")
 
     Enum.each(saved_summary_lines(config), fn line ->
       io.puts.(IO.ANSI.format([:faint, "  " <> line]))
