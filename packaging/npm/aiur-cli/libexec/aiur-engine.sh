@@ -274,6 +274,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur alerts [--needs-attention]  show structured alert feed
+       aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
        aiur message <id> <text>  send operator text to a running agent
@@ -1455,6 +1456,75 @@ print_global_config_control_hint() {
   fi
 }
 
+control_rpc_timeout_seconds() {
+  local seconds="${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}"
+  case "$seconds" in
+    '' | *[!0-9]* | 0) seconds=10 ;;
+  esac
+  printf '%s' "$seconds"
+}
+
+kill_control_rpc_process() {
+  local pid="$1" grouped="$2" p tree=()
+  [ -n "$pid" ] || return 0
+
+  if [ "$grouped" = "1" ]; then
+    kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    sleep 0.2
+    kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    return 0
+  fi
+
+  while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
+  for p in "${tree[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
+  sleep 0.2
+  for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
+}
+
+run_release_rpc_with_timeout() {
+  local expression="$1" timeout output_file timeout_file pid watchdog_pid status grouped=0
+  timeout="$(control_rpc_timeout_seconds)"
+  output_file="$(mktemp "${TMPDIR:-/tmp}/aiur-control-rpc-output.XXXXXX")"
+  timeout_file="$(mktemp "${TMPDIR:-/tmp}/aiur-control-rpc-timeout.XXXXXX")"
+  rm -f "$timeout_file" 2>/dev/null || true
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$release_bin" rpc "$expression" >"$output_file" 2>&1 &
+    grouped=1
+  else
+    "$release_bin" rpc "$expression" >"$output_file" 2>&1 &
+  fi
+  pid=$!
+
+  (
+    sleep "$timeout"
+    if kill -0 "$pid" 2>/dev/null; then
+      : >"$timeout_file"
+      kill_control_rpc_process "$pid" "$grouped"
+    fi
+  ) &
+  watchdog_pid=$!
+
+  if wait "$pid"; then
+    status=0
+  else
+    status=$?
+  fi
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+
+  AIUR_CONTROL_RPC_OUTPUT="$(cat "$output_file" 2>/dev/null || true)"
+  if [ -f "$timeout_file" ]; then
+    AIUR_CONTROL_RPC_TIMED_OUT=1
+    status=124
+  else
+    AIUR_CONTROL_RPC_TIMED_OUT=0
+  fi
+
+  rm -f "$output_file" "$timeout_file" 2>/dev/null || true
+  return "$status"
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
@@ -1470,9 +1540,16 @@ run_control_rpc() {
   local output status exit_code=0 saw_marker=0 line
 
   set +e
-  output="$("$release_bin" rpc "$expression" 2>&1)"
+  run_release_rpc_with_timeout "$expression"
   status=$?
+  output="$AIUR_CONTROL_RPC_OUTPUT"
   set -e
+
+  if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
+    [ -n "$output" ] && printf '%s\n' "$output" >&2
+    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; helper process was terminated" >&2
+    return 124
+  fi
 
   if [ "$status" -ne 0 ]; then
     # A non-zero exit here is the rpc transport failing — application-level
@@ -1637,6 +1714,57 @@ cmd_alerts() {
     run_control_rpc "Aiur.AgentControlCLI.alerts(needs_attention: true)"
   else
     run_control_rpc "Aiur.AgentControlCLI.alerts()"
+  fi
+}
+
+# `aiur watch` — the server-side status board. Compiles one row per active
+# agent (state · complexity · activity-age · doing) plus an actionable section
+# from aiur's own state, with no GitHub round-trip. `--changes` (default) prints
+# only state-level deltas since the last call; `--full` prints every row;
+# `--interval N` re-renders every N seconds as a foreground watcher (the Elixir
+# call stays one-shot — the loop lives here).
+cmd_watch() {
+  local mode="changes" interval="" arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --full) mode="full" ;;
+      --changes) mode="changes" ;;
+      --once) : ;;
+      --interval)
+        shift
+        interval="${1:-}"
+        watch_validate_interval "$interval"
+        ;;
+      --interval=*)
+        interval="${arg#--interval=}"
+        watch_validate_interval "$interval"
+        ;;
+      *)
+        echo "aiur: watch accepts --full, --changes, --once, --interval <secs>" >&2
+        exit 64
+        ;;
+    esac
+    shift
+  done
+
+  local expression="Aiur.AgentControlCLI.watch(mode: :${mode})"
+
+  if [ -n "$interval" ]; then
+    while true; do
+      run_control_rpc "$expression" || true
+      sleep "$interval"
+    done
+  else
+    run_control_rpc "$expression"
+  fi
+}
+
+watch_validate_interval() {
+  if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -le 0 ]; then
+    echo "aiur: watch --interval expects a positive integer (seconds)" >&2
+    exit 64
   fi
 }
 
@@ -1921,6 +2049,10 @@ aiur_engine_main() {
     alerts)
       shift
       cmd_alerts "$@"
+      ;;
+    watch)
+      shift
+      cmd_watch "$@"
       ;;
     set)
       shift

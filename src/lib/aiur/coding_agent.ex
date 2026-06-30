@@ -87,6 +87,13 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [:notification],
         remote_control: true,
+        # Headless claude runs through the external `aiur-claude` app-server,
+        # whose thread map is in-memory only (lost on restart) and whose
+        # `thread/start` exposes no way to seed a prior session id. aiur can't
+        # inject a disk `--resume` without an app-server protocol change, so the
+        # headless backend stays a clean start. Resume on the REPL transport
+        # (`claude-repl`), which drives the `claude` CLI directly, instead.
+        resumable: false,
         models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
         efforts: []
       },
@@ -103,6 +110,12 @@ defmodule Aiur.CodingAgent do
         safe_checkpoints: [],
         immediate_delivery: true,
         remote_control: true,
+        # The REPL spawns the `claude` CLI directly, so a respawn after an aiur
+        # restart can `--resume <session-id>` against the on-disk transcript
+        # jsonl (the session id is the transcript filename). The runner injects
+        # the persisted handle's id and `ReplAgent` degrades to a clean start
+        # when that transcript is gone (issue #613, follow-up to #378).
+        resumable: true,
         models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
         efforts: ["low", "medium", "high", "xhigh", "max"]
       }
@@ -369,8 +382,11 @@ defmodule Aiur.CodingAgent do
   @doc """
   Whether a backend can resume a prior agent thread across an aiur restart
   (reattach to the same session rather than cold-start a new conversation).
-  Only codex's app-server `thread/resume` is wired today; every other backend
-  — and any unknown one — is not resumable and degrades to a clean start.
+  Wired today for codex (app-server `thread/resume` against its on-disk
+  rollout) and `claude-repl` (the REPL `--resume`s the on-disk transcript
+  jsonl). The headless `claude` backend's external app-server keeps an
+  in-memory-only thread map and exposes no disk-resume seed, so it — and any
+  unknown backend — is not resumable and degrades to a clean start.
   """
   @spec resumable?(backend()) :: boolean()
   def resumable?(backend) do

@@ -7,6 +7,32 @@ defmodule Aiur.InitTest do
 
   @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
 
+  # Every topic the shipped alert examples must keep populated. Kept in sync with
+  # the real event names so the scaffolded map fires sounds with zero editing.
+  @alert_topics [
+    "ticket.*.issue.label.added.agent.todo",
+    "ticket.*.issue.label.added.agent.in-progress",
+    "ticket.*.issue.label.added.agent.human-review",
+    "ticket.*.issue.label.added.agent.rework",
+    "ticket.*.pr.merged",
+    "ticket.*.issue.state.changed",
+    "system.dispatch.todo_capacity_exceeded",
+    "ticket.*.agent.error.tokens_exhausted",
+    "ticket.*.agent.retry_exhausted",
+    "ticket.*.agent.paused",
+    "ticket.*.agent.unpaused",
+    "ticket.*.chat.opened",
+    "ticket.*.chat.closed",
+    "ticket.*.agent.phase.brainstorm.start",
+    "ticket.*.agent.phase.brainstorm.end",
+    "ticket.*.agent.phase.plan.start",
+    "ticket.*.agent.phase.plan.end",
+    "ticket.*.agent.phase.work.start",
+    "ticket.*.agent.phase.work.end",
+    "ticket.*.agent.phase.review.start",
+    "ticket.*.agent.phase.review.end"
+  ]
+
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
     target = Path.join([dir, ".aiur", "config"])
@@ -47,7 +73,7 @@ defmodule Aiur.InitTest do
       %{
         config_target: fn _location -> target end,
         legacy_config_target: fn _location -> Path.join(dir, ".aiurconfig") end,
-        existing_config_path: fn t -> if File.regular?(t), do: t end,
+        existing_config_path: &existing_path/1,
         load_config: fn t ->
           with {:ok, loaded} <- Workflow.load(t), do: {:ok, loaded.config}
         end,
@@ -62,6 +88,8 @@ defmodule Aiur.InitTest do
           send(parent, {:prewarm_build, url, cmd})
           {:ok, "/base"}
         end,
+        global_alerts_path: fn -> Path.join([dir, "home", ".aiur", "alerts"]) end,
+        existing_alerts_path: &existing_path/1,
         write_config: fn t, yaml ->
           File.mkdir_p!(Path.dirname(t))
           File.write!(t, yaml)
@@ -94,16 +122,7 @@ defmodule Aiur.InitTest do
             {:created, path}
           end
         end,
-        ensure_alerts: fn t ->
-          path = Path.join(Path.dirname(t), "alerts")
-
-          if File.regular?(path) do
-            {:exists, path}
-          else
-            File.write!(path, "alerts: {}\n")
-            {:created, path}
-          end
-        end,
+        ensure_alerts: &ensure_alerts_for_test/2,
         ensure_prewarm_file: fn t, cmd ->
           path = Path.join(Path.dirname(t), "prewarm")
           File.write!(path, cmd <> "\n")
@@ -148,9 +167,44 @@ defmodule Aiur.InitTest do
     )
   end
 
+  defp existing_path(path) do
+    if File.regular?(path), do: path
+  end
+
+  defp ensure_alerts_for_test(target, source_path) do
+    path = Path.join(Path.dirname(target), "alerts")
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      write_alerts_for_test(path, source_path)
+      {:created, path}
+    end
+  end
+
+  defp write_alerts_for_test(path, source_path) when is_binary(source_path) do
+    File.cp!(source_path, path)
+  end
+
+  defp write_alerts_for_test(path, _source_path) do
+    File.write!(path, "alerts: {}\n")
+  end
+
   defp written_config(path) do
     assert {:ok, loaded} = Workflow.load(path)
     loaded.config
+  end
+
+  defp assert_filled_alert_template(template, sound_path_regex) do
+    assert {:ok, %{"alerts" => alerts}} = YamlElixir.read_from_string(template)
+    assert alerts |> Map.keys() |> Enum.sort() == Enum.sort(@alert_topics)
+
+    for topic <- @alert_topics do
+      assert %{"message" => message, "sound" => sounds} = Map.fetch!(alerts, topic)
+      assert is_binary(message) and message != ""
+      assert is_list(sounds) and sounds != []
+      assert Enum.all?(sounds, &Regex.match?(sound_path_regex, &1))
+    end
   end
 
   defp puts_log(acc \\ []) do
@@ -237,6 +291,8 @@ defmodule Aiur.InitTest do
   @duration_label "Max agent duration in minutes"
 
   @location_label "Where will you store aiur settings for this project?"
+
+  @reuse_global_alerts_label "Found an existing alerts file at ~/.aiur/alerts — copy it into this repo's .aiur/alerts?"
 
   defp github_answers(overrides \\ %{}) do
     base = %{
@@ -464,6 +520,81 @@ defmodule Aiur.InitTest do
       assert config =~ "use_os_default_sounds: false"
     end
 
+    test "copies an existing global alerts file when accepted", %{dir: dir, target: target} do
+      source = Path.join([dir, "home", ".aiur", "alerts"])
+      File.mkdir_p!(Path.dirname(source))
+      File.write!(source, "ticket.*.attention: Glass\n")
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            @reuse_global_alerts_label => true
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(Path.join(Path.dirname(target), "alerts")) == "ticket.*.attention: Glass\n"
+    end
+
+    test "scaffolds the default alerts file when global reuse is declined", %{dir: dir, target: target} do
+      source = Path.join([dir, "home", ".aiur", "alerts"])
+      File.mkdir_p!(Path.dirname(source))
+      File.write!(source, "ticket.*.attention: Glass\n")
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            @reuse_global_alerts_label => false
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(Path.join(Path.dirname(target), "alerts")) == "alerts: {}\n"
+    end
+
+    test "scaffolds the default alerts file when no global alerts file exists", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(Path.join(Path.dirname(target), "alerts")) == "alerts: {}\n"
+      refute @reuse_global_alerts_label in confirm_prompts()
+    end
+
+    test "global init treats reusing the existing global alerts file as a no-op", %{dir: dir} do
+      target = Path.join([dir, "home", ".aiur", "config"])
+      source = Path.join([dir, "home", ".aiur", "alerts"])
+      File.mkdir_p!(Path.dirname(source))
+      File.write!(source, "ticket.*.attention: Glass\n")
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          select: %{@location_label => "global"},
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            @reuse_global_alerts_label => true
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(source) == "ticket.*.attention: Glass\n"
+    end
+
     test "scaffolds an extensionless .aiur/alerts next to the config", %{dir: dir, target: target} do
       d = deps(self(), dir, target, %{})
 
@@ -473,6 +604,44 @@ defmodule Aiur.InitTest do
       # map file is scaffolded next to the config (no extension).
       assert File.read!(target) =~ ~r/^\s*alerts_file: alerts\s*(#.*)?$/m
       assert File.regular?(Path.join(Path.dirname(target), "alerts"))
+    end
+
+    test "alert examples are concise and fully populated with platform sounds" do
+      macos = Init.alerts_template({:unix, :darwin})
+      linux = Init.alerts_template({:unix, :linux})
+
+      # Source-grouped section headers stay; the big explanatory block is gone.
+      for template <- [macos, linux] do
+        assert template =~ "Ticket-powered alerts"
+        assert template =~ "Agent-powered alerts"
+        assert template =~ "AI-powered alerts"
+        refute template =~ "Sound filenames"
+        refute template =~ "Topic / glob matching"
+
+        # Phase milestones publish as `ticket.<id>.agent.phase.<phase>.<edge>`
+        # (agent_runner prefixes the bare `phase.work.start` name). The glob must
+        # carry the `.phase.` segment or the sound never fires.
+        assert template =~ "ticket.*.agent.phase.work.start"
+        refute template =~ ~r/"ticket\.\*\.agent\.work\.start"/
+      end
+
+      assert_filled_alert_template(macos, ~r{\A/System/Library/Sounds/.+\.aiff\z})
+      assert_filled_alert_template(linux, ~r{\A/usr/share/sounds/freedesktop/stereo/.+\.oga\z})
+    end
+
+    test "alert template selection follows the host OS family" do
+      macos = Init.alerts_template({:unix, :darwin})
+      linux = Init.alerts_template({:unix, :linux})
+
+      assert macos =~ "/System/Library/Sounds/Glass.aiff"
+      refute macos =~ "/usr/share/sounds/freedesktop"
+
+      assert linux =~ "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
+      refute linux =~ "/System/Library/Sounds"
+
+      # Non-macOS Unix and unknown hosts fall back to the Linux example.
+      assert Init.alerts_template({:unix, :freebsd}) == linux
+      assert Init.alerts_template(:unknown) == linux
     end
   end
 

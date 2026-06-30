@@ -198,8 +198,8 @@ defmodule Aiur.Opencode.Protocol do
   # ---------------------------------------------------------------- SQLite row JSON
   #
   # Builders for the `message.data` and `part.data` JSON columns in
-  # opencode's SQLite store. Shapes verified against opencode 1.15.6 — see
-  # `src/docs/notes/opencode-row-shapes-1.15.6.md`.
+  # opencode's SQLite store. Shapes verified against opencode 1.17.10 — see
+  # `src/docs/notes/opencode-row-shapes-1.17.10.md`.
   #
   # The `id`, `session_id`, and `message_id` fields the OpenAPI schema
   # demands are NOT stored in `data` — they live in SQL columns. These

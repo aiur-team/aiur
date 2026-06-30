@@ -1,110 +1,61 @@
 ---
 name: aiur-monitor
-description: "Use when you want to view the status of a running aiur session's agents — tails each active agent's log and emits a one-glance status table. For checking in on aiur, whether a CLI-viewable session you're watching or a background run; to LAUNCH aiur itself use the aiur-run skill instead. Triggers: 'aiur status', 'aiur monitor', 'how are the agents doing', 'what are the agents working on', 'tail the agents', 'iarc status'."
+description: "Use when you want to view the status of a running aiur session's agents — runs `aiurdev watch` to compile a one-glance board and posts it. For checking in on aiur, whether a CLI-viewable session you're watching or a background run; to LAUNCH aiur itself use the aiur-run skill instead. Triggers: 'aiur status', 'aiur monitor', 'how are the agents doing', 'what are the agents working on', 'tail the agents', 'iarc status'."
 ---
 
 # Agent Status
 
-Produce a one-glance status table for every **active** aiur agent by tailing its
-per-agent log. One row per agent: what it is, what state it's in, and a concise
-phrasing of what it's doing right now.
+Post a one-glance status board for a running aiur session. The board is compiled
+**server-side by aiur itself** — `aiurdev watch` reads the orchestrator's own
+status snapshot + the structured alert feed in a single call, so this skill no
+longer hand-rolls the table from `gh`/`jq` + log-tailing scripts.
 
 `iarc` is an operator alias for `aiur` in this repo. Treat `/iarc status` as this
 same aiur agent-status playbook.
 
 ## Procedure
 
-### 1. Gather recent log tails
-
-Run the gather script. It scans **both** the `workspace.root` from `.aiur/config`
-(legacy `.aiurconfig` fallback) **and** the canonical live-instance tree at
-`~/.aiur/workspaces/<owner>/<repo>/<id>/logs/agent.md`, dedupes across them,
-probes daemon health, and prints a tail of each recently-active agent:
+### 1. Compile the board
 
 ```bash
-bash .claude/skills/aiur-monitor/scripts/tail-agents.sh
+aiurdev watch --changes    # deltas since last call + actionable items (low-token)
+aiurdev watch --full       # the complete board, every active agent
 ```
 
-Scanning both roots is the fix for #489: a `--bg` run materializes workspaces
-under `~/.aiur/workspaces`, **not** the source repo's configured
-`workspace.root`, so a single-root scan reported a false "no active agents"
-while a run was live. Never trust the static config root alone.
+Use `--changes` for the periodic cadence tick (only rows whose state changed +
+anything actionable) and `--full` when the operator asks for the whole board or
+on your first tick of a session. The output is one row per active agent
+(`TICKET · STATE · CX · AGE · DOING`) followed by an `ACTIONABLE` section
+(needs-attention alerts, stuck agents, PR-ready tickets). Stuck detection (no
+agent activity for >10m), complexity, and tracker state are all computed
+server-side — you do not classify the log tail yourself anymore.
 
-Knobs (env vars), only if asked:
-- `AIUR_ACTIVE_WINDOW_MIN` (default 15) — how recent counts as "active".
-- `AIUR_TAIL_LINES` (default 45) — log lines per agent.
-- `AIUR_INCLUDE_STALE=1` — also include agents idle beyond the window.
+### 2. Post it
 
-The first block is always the **daemon-health header**, then one block per agent:
-```
-===== DAEMON node yes | last activity 2m ago | roots /Users/me/.aiur/workspaces =====
+Post the `aiurdev watch` output to the operator as-is (a fenced block is fine).
+The board already encodes status; do not re-derive it. Two things to surface on
+top of the raw output:
 
-===== AGENT 341 | last activity 2m ago | session yes | root /Users/me/.aiur/workspaces =====
-## 2026-06-21T14:22:31Z item/started
-```text
-{"method":"item/started","params":{"item":{"type":"commandExecution","command":"mix test test/aiur/orchestrator_test.exs"}}}
-```
-...
-```
-
-Read the `DAEMON` header first:
-- `node no` with a recent `last activity` (or an explicit `daemon down:` line) ⇒
-  the BEAM is gone but agents were just running. Render a **red** daemon row
-  (`🔴 daemon down · last activity Nm ago`) — this is exactly the case #489
-  required us to stop silently swallowing. Do **not** report "no active agents"
-  when the daemon-down line is present.
-- A `warning: … mismatch …` line ⇒ the `.aiur/config` `workspace.root` is stale
-  and unused; surface it as the `⚠️ Needs you` line so the operator fixes config.
-
-### 2. Read each agent's tail and classify
-
-For each `AGENT` block, read the last events and infer state + a one-line focus.
-Map the latest meaningful events to a status:
-
-| Status | Signal in the tail |
-|--------|--------------------|
-| 🟢 Working | recent `item/agentMessage`, `reasoning`, or a `commandExecution` still running; `turn/started` with no completion yet |
-| 🧪 Verifying | the running/last command is tests, build, lint, CI (`mix test`, `make`, `gh pr checks`, …) |
-| 🔀 Landing | opening/working a PR (`gh pr create`, push, merge) near the tail |
-| ⏳ Awaiting input | `paused` / `input_required` / a question posed with no follow-up |
-| 🚧 Blocked | a declared blocker or an alert event (`alert`, `alert_emitted`) that hasn't cleared |
-| ❌ Failed | an error/non-zero command at the tail with no recovery, or a failed turn |
-| ✅ Done | `turn` completed, PR landed, or a closing summary with no later activity |
-| 💤 Idle | recent file but no active turn (e.g. waiting between polls) |
-
-Prefer the **most recent** strong signal. If the last line is a long-running
-command with output deltas, it's 🟢/🧪 (still running), not ✅.
-
-### 3. Emit the table
-
-Output **only** a status table — one row per agent, never wrapped. Use this layout:
-
-```
-**aiur <HH:MM> · <one-glance roll-up>**
-
-| Agent | Ticket | Cx | Doing |
-|---|---|---|---|
-| <emoji> #<id> | <slug> | <1–5> | <concrete clause> |
-```
-
-- **Agent** = `<emoji> #<id>` — the emoji *is* the status (🟢 working · 🧪 verifying · 🔀 landing · ⏳ awaiting · 🚧 blocked · ❌ failed · ✅ done · 💤 idle); no separate status word/column.
-- **Ticket** = slug · **Cx** = complexity 1–5 · **Doing** = a concrete clause ("typecheck + lint", "editing Velodrome CL encoder", "opened PR #382"), never "the agent is working". Truncate any long cell with `…` so each row stays a single line.
-- Order most-advanced / newest activity first.
-- Header line above the table: `**aiur <HH:MM> · <one-glance roll-up>**` (e.g. `9 running · 1 review`).
-- **The `⚠️ Needs you` line is conditional and load-bearing** — its presence means "act now," its absence means all-clear. Add ONE line below the table, `⚠️ Needs you: #<id> (<why>)`, ONLY when the operator must actually DO something: review/merge a PR, unblock or answer an agent, or act on a stability problem. **Never emit it as a placeholder or reassurance** — do NOT write `Needs you: nothing` / `none` / `nothing blocking` / `all clear`. When nothing requires the operator, OMIT the line entirely. If the content you're about to put after "Needs you:" is reassurance rather than a request, delete the whole line.
-- Don't invent progress the log doesn't show; ambiguous tail ⇒ `unclear`. No active agents ⇒ say so in one line, don't print an empty table.
-- **Daemon row.** When the `DAEMON` header reports `node no` with recent activity (or a `daemon down:` line), prepend a `🔴 daemon down · last activity Nm ago` row to the table — never collapse a downed-but-recently-active node to "no active agents".
+- **`⚠️ Needs you`** — when the `ACTIONABLE` section is non-empty, add ONE line
+  below the board, `⚠️ Needs you: #<id> (<why>)`, naming what the operator must
+  actually DO (review/merge a PR, unblock or answer an agent, act on a stuck
+  agent). **Never** emit it as reassurance — if `ACTIONABLE` is empty, OMIT the
+  line entirely (no "all clear", no "nothing blocking").
+- **Daemon down.** If `aiurdev watch` reports the orchestrator is not running
+  (`aiur: orchestrator is not running`), the BEAM is gone — render a
+  `🔴 daemon down` line instead of "no active agents", and tell the operator the
+  node needs restarting.
 
 ## Monitoring cadence (REQUIRED DEFAULT)
 
 This is a required behavior, not soft guidance. **WHILE an aiur run is live** (you launched it
-via `aiur-run`, or one is running in this repo) you **MUST** post the operator a fresh formatted
-status table (steps 1–3: gather → classify → emit) **every `<the operator's chosen interval>`**
-(established once by asking — via `aiur-run`'s launch ask / `aiur-loop`'s Step 0 — and **default
-5 minutes** if unset; the `/loop <chosen>m` interval; "approximately" is not license to stretch it
-past the chosen interval), **automatically**, until the run reaches a terminal state or the
-operator says stop — you do not get to opt out of "watching"; a live run obligates the cadence.
-5 minutes is the recommended default; the operator picks the value once and you never re-ask it.
+via `aiur-run`, or one is running in this repo) you **MUST** post the operator a fresh board
+(run `aiurdev watch` → post it) **every `<the operator's chosen interval>`** (established once by
+asking — via `aiur-run`'s launch ask / `aiur-loop`'s Step 0 — and **default 5 minutes** if unset;
+the `/loop <chosen>m` interval; "approximately" is not license to stretch it past the chosen
+interval), **automatically**, until the run reaches a terminal state or the operator says stop —
+you do not get to opt out of "watching"; a live run obligates the cadence. 5 minutes is the
+recommended default; the operator picks the value once and you never re-ask it.
 
 Drive it with the loop skill (substitute the chosen interval; defaults to 5m):
 
@@ -118,74 +69,62 @@ that you **RE-ARM every tick** (or an equivalent scheduled wakeup). **Do NOT rel
 subagent-completion, PR, CI, or watcher notifications to drive the cadence** — those have no time
 floor, so a long compile, a slow review, or a quiet stretch will silently skip updates. The
 interval clock runs independently of whatever else is in flight; a tick fires even mid-task (post
-the table, then continue).
+the board, then continue).
 
 Rules — close every "wait to be asked" loophole (these apply to the chosen interval):
 - The operator should **NEVER** have to ask for the next update. The cadence is automatic;
   re-asking is the failure this rule exists to prevent.
-- **Don't skip a tick because "nothing changed."** Post the table anyway and note
-  steady-state (e.g. roll-up "9 running · steady, no change since HH:MM"). A missing tick
-  reads as "the agent stopped watching."
+- **Don't skip a tick because "nothing changed."** Post the board anyway and note steady-state
+  (e.g. "steady, no change since HH:MM"). A missing tick reads as "the agent stopped watching."
+  `aiurdev watch --changes` will print `(no changes)` — relay that; it is still a tick.
 - **Don't wait for a PR, an event, or a state change** to post. The chosen-interval clock is the
   only trigger.
-- **Don't defer the tick because you're mid-task.** Reviewing a PR, curating tickets,
-  or fixing a bug does NOT pause the clock. The status table is posted on every interval tick
-  regardless of what else you're doing — interleave it, don't postpone it.
-- **Terminal / stop only.** Keep looping until the operator explicitly stops it OR the run
-  has truly ended (daemon down AND no active agents on two consecutive ticks). A single
-  "no active agents" read early in a run is warm-up/dispatch lag, NOT a terminal state —
-  keep ticking.
-- If this skill is **already** running inside a `/loop`, do NOT start a nested loop — just
-  emit the table and let the existing loop re-invoke on the next interval tick.
-- A single one-shot snapshot (no cadence) is allowed only when the operator explicitly asks
-  for one; otherwise the live-run default is the chosen-interval auto-cadence above (default 5 min).
+- **Don't defer the tick because you're mid-task.** Reviewing a PR, curating tickets, or fixing a
+  bug does NOT pause the clock. The board is posted on every interval tick regardless of what else
+  you're doing — interleave it, don't postpone it.
+- **Terminal / stop only.** Keep looping until the operator explicitly stops it OR the run has
+  truly ended (daemon down AND no active agents on two consecutive ticks). A single "no active
+  agents" read early in a run is warm-up/dispatch lag, NOT a terminal state — keep ticking.
+- If this skill is **already** running inside a `/loop`, do NOT start a nested loop — just post the
+  board and let the existing loop re-invoke on the next interval tick.
+- A single one-shot snapshot (no cadence) is allowed only when the operator explicitly asks for
+  one; otherwise the live-run default is the chosen-interval auto-cadence above (default 5 min).
 
-## Alert relay
+## Real-time alert relay (additive immediacy)
 
-aiur emits ALERTs (and plays a sound) as it runs, but the operator just hears a
-random chime with no context. On **each monitor tick**, after the status table,
-also run the alert tailer and relay anything operator-actionable so they get the
-"why" the instant they hear it:
+`aiurdev watch`'s `ACTIONABLE` section is the **pull** path — actionable alerts reach the operator
+on every cadence tick. For **push** immediacy (the instant an alert fires, between ticks), arm the
+streaming watcher **once per session** — at launch (the `aiur-run` Alerts step does this), or on
+your first monitor invocation — with the **Monitor tool**, `persistent: true`:
 
 ```bash
-bash .claude/skills/aiur-monitor/scripts/tail-alerts.sh
+bash .claude/skills/aiur-monitor/scripts/watch-alerts.sh
 ```
 
-It scans the same roots as `tail-agents.sh` (config `workspace.root` +
-`~/.aiur/workspaces`, deduped, recency-windowed) but reads each active agent's
-`logs/agent.ndjson`, pulls `.event == "alert"` lines, and emits one structured
-line per alert (newest last) after a `DAEMON` header. `needs_attention`,
-`reason`, `severity`, `source_ticket_id`, and `topic` come from the structured
-alert event; the script does not infer attention from topic names:
+It prints **one JSON line per NEW alert** as it lands (history at startup is skipped). Each emitted
+line is one Monitor event — post it in chat so the operator gets the "why" the instant they hear
+the chime:
 
 ```
-{"ticket":"43","source_ticket_id":"43","agent":"43","reason":"Agent paused","severity":"warning","topic":"ticket.43.agent.paused","name":"ticket.43.agent.paused","needs_attention":true}
+#<ticket> · <name> · <reason>
 ```
 
-For any **NEW** `needs_attention:true` alert, relay it to the operator via
-**PushNotification**, formatted:
-
-```
-#<ticket> · <agent> · <reason> — needs you
-```
-
-so they get the context the instant the sound plays. Rules:
-- **De-dup** — track relayed alerts (e.g. by `name` + `reason` per agent) and
-  never push the same one twice across ticks.
-- Informational alerts (`needs_attention:false`) are **not** pushed — they're
-  available if the operator asks ("what was that sound?"), but don't notify.
-- Same knobs as `tail-agents.sh`: `AIUR_ACTIVE_WINDOW_MIN`, plus
-  `AIUR_INCLUDE_STALE=1` to sweep a finished run and `AIUR_ALERT_TAIL=N` to cap
-  alerts per agent.
+For any **NEW** `needs_attention:true` alert, also relay it via **PushNotification**, formatted
+`#<ticket> · <agent> · <reason> — needs you`, so it reaches their phone. Rules:
+- **Arm it once.** It is a persistent, long-lived stream — do NOT re-arm it on every monitor tick
+  (that would stack duplicate watchers). It tracks emitted alerts in memory, so it never replays
+  one across its lifetime. `AIUR_ALERT_NEEDS_ATTENTION=1` makes it emit only `needs_attention:true`
+  lines.
+- **De-dup** — never push the same alert twice. Informational alerts (`needs_attention:false`) are
+  posted in chat if streamed but **not** pushed to the phone.
+- This is **additive immediacy, not the status cadence.** The board still fires on the armed
+  `/loop` timer above; the watcher only adds real-time alert posts on top.
 
 ## Notes
 
-- Source of truth is each workspace's `logs/agent.md` (the same log the dashboard
-  renders) and `logs/agent.ndjson` (the structured stream the alert relay reads).
-  The scripts never attach to tmux or the running node, so they're safe
-  to run anytime alongside a live aiur.
-- The script scans the config `workspace.root` **and** `~/.aiur/workspaces`
-  (deduped), because a live `--bg` instance writes to the latter while the
-  source repo's config still points at its own default. Daemon liveness is a
-  `pgrep` for the `rel/aiur` BEAM plus tmux sessions; both are read-only probes.
+- Source of truth is aiur's own running state: `aiurdev watch` calls the orchestrator's status
+  snapshot + the structured alert feed (the same data the dashboard renders) in one server-side
+  call, so there is no `gh`/`jq` or per-agent log classification to maintain here. The real-time
+  alert watcher still reads each workspace's `logs/agent.ndjson` directly so it keeps working
+  between ticks and across both workspace roots.
 - Agent id == ticket id == workspace directory name.

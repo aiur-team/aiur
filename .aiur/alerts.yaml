@@ -72,6 +72,8 @@ alerts:
       - "~/alerts/archon/archon-merging-complete.wav"
   "ticket.*.issue.state.changed":
     message: Task state changed
+    sound:
+      - "~/alerts/advisor-upgrade-complete.wav"
 
   # ---------- Orchestrator dispatch ---------------------------------------
   "system.dispatch.todo_capacity_exceeded":
@@ -85,6 +87,11 @@ alerts:
     sound:
       - "~/alerts/advisor/advisor-not-enough-minerals.wav"
       - "~/alerts/advisor/advisor-require-more-vesphene-gas.wav"
+  "ticket.*.agent.retry_exhausted":
+    message: Agent retry budget exhausted
+    sound:
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:

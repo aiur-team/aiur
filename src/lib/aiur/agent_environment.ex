@@ -12,6 +12,7 @@ defmodule Aiur.AgentEnvironment do
   # does not export it today, but any wrapping harness might).
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
+  @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
   def erlang_distribution_env_name?(name) when is_binary(name) do
@@ -26,13 +27,17 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT; " <>
+    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
+      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT; " <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done"
   end
+
+  @spec parent_log_env_name?(String.t()) :: boolean()
+  def parent_log_env_name?(name) when is_binary(name), do: name in @parent_log_env_names
 
   @doc """
   Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
@@ -45,27 +50,35 @@ defmodule Aiur.AgentEnvironment do
   Returns an empty list when `workspace` is not a binary so callers can splat
   the result into Port.open env opts unconditionally.
   """
-  @spec workspace_env(any()) :: [{charlist(), charlist()}]
+  @spec workspace_env(any()) :: [{charlist(), charlist() | false}]
   def workspace_env(workspace) when is_binary(workspace) do
     hex = Path.join(workspace, ".aiur-hex")
     mix = Path.join(workspace, ".aiur-mix")
 
-    [
-      {~c"HEX_HOME", String.to_charlist(hex)},
-      {~c"MIX_HOME", String.to_charlist(mix)},
-      # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
-      # lives (most repos — including aiur — keep it at the root, not under
-      # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
-      # a file that does not exist and left the real config untrusted (#440).
-      {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
-      # Marker so any nested invocation of `scripts/aiurdev` from inside
-      # an agent's workspace can detect it is running under an agent
-      # and refuse destructive commands (`--test`, `--test3`, `stop`).
-      # Without this, agents that try "manual CLI verification" by
-      # running `./scripts/aiurdev --test` reset the operator's sandbox
-      # tickets and kill the parent BEAM mid-run.
-      {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
-    ]
+    unset_parent_logs =
+      Enum.map(@parent_log_env_names, fn name ->
+        {String.to_charlist(name), false}
+      end)
+
+    workspace_env =
+      [
+        {~c"HEX_HOME", String.to_charlist(hex)},
+        {~c"MIX_HOME", String.to_charlist(mix)},
+        # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
+        # lives (most repos — including aiur — keep it at the root, not under
+        # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
+        # a file that does not exist and left the real config untrusted (#440).
+        {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
+        # Marker so any nested invocation of `scripts/aiurdev` from inside
+        # an agent's workspace can detect it is running under an agent
+        # and refuse destructive commands (`--test`, `--test3`, `stop`).
+        # Without this, agents that try "manual CLI verification" by
+        # running `./scripts/aiurdev --test` reset the operator's sandbox
+        # tickets and kill the parent BEAM mid-run.
+        {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
+      ]
+
+    unset_parent_logs ++ workspace_env
   end
 
   def workspace_env(_), do: []

@@ -146,12 +146,14 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       refute Enum.any?(snap, &String.contains?(&1, "team"))
     end
 
-    test "missing file + nil bot_account → sentinel keeps allowlist non-empty",
+    test "missing file + nil bot_account → falls back to trusting the repo owner",
          %{path: path} do
-      # Both bot_account unset and file missing — the size==0 guard
-      # would silently preserve init's bootstrap sentinel, ensuring
-      # allowed?/1 returns false rather than getting stuck in a
-      # broken-empty state.
+      # Both bot_account unset and file missing. Rather than trust nobody —
+      # which silently disables the whole review-comment → rework loop (#693)
+      # by dropping every comment as :untrusted_author — the allowlist falls
+      # back to the repo owner ("owner" of "owner/repo"). The owner is
+      # inherently trusted (unlike an arbitrary third party, #687), so the
+      # operator's comments still drive rework; a random login stays untrusted.
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -160,7 +162,9 @@ defmodule Aiur.GitHub.CodeOwnersTest do
 
       {_pid, name} = start_owners(path)
       snap = CodeOwners.snapshot(name)
-      assert "__codeowners_bootstrap__" in snap
+      assert "owner" in snap
+      refute "__codeowners_bootstrap__" in snap
+      assert CodeOwners.allowed?("owner", name)
       refute CodeOwners.allowed?("alice", name)
     end
 

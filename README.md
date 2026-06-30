@@ -27,15 +27,16 @@ the work at a higher level._
   label-based state machines where the tracker supports them.
 - **Implementation adapters:** configure implementation backends through Aiur's app-server
   protocol.
-- **Live run logs:** each workspace writes `logs/agent.md` and `logs/agent.ndjson`; the dashboard
-  can open those logs in a live-updating modal while a run is active.
+- **Live run logs:** each workspace writes a human-readable `logs/agent.md` transcript, which the
+  dashboard opens in a live-updating modal while a run is active, plus `logs/agent.ndjson`, a
+  structured per-event JSON stream that feeds the attentions feed and records agent crash reasons.
 - **opencode chat panes:** the tmux CLI opens opencode-backed chat panes for live operator
   input while Aiur keeps the Codex/Claude runtime and transcript as the source of truth.
 - **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
   configured host/port for private operational access.
 - **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing
   behavior consistent across runs without making those workflows part of Aiur's core model.
-- **Optional alert sounds:** users can edit the checked-in `alerts.yaml` file, where each alert
+- **Optional alert sounds:** users can edit the checked-in `.aiur/alerts.yaml` file, where each alert
   defines its `name`, `message`, and optional `sound` clips in one place.
 
 See [src/README.md](src/README.md#configuration) for the supported `.aiurconfig` options and

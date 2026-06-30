@@ -234,6 +234,63 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert turn_models == ["claude-sonnet-4-6", "opus-4-8"]
   end
 
+  test "an operator message after the transport is torn down fails cleanly, never crashing the caller" do
+    # Regression for #708/#699: a write to the agent backend after its stdio
+    # transport closed used to raise `ArgumentError` from `Port.command/2` and
+    # crash the turn — the Elixir-side mirror of the unguarded-stdout EPIPE that
+    # killed the Node agent. Delivering a queued operator message onto a
+    # torn-down port must now fail with `{:error, :port_closed}` instead.
+    root = Path.join(System.tmp_dir!(), "aiur_claude_port_closed_#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server(Path.join(workspace, "frames.jsonl"))
+    )
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+
+    # Close the agent's stdio out from under the caller, mirroring the aiur peer
+    # closing the agent's stdout read-end mid-session.
+    Port.close(session.port)
+
+    assert {:error, :port_closed} =
+             ClaudeAgent.send_operator_message(session, %{kind: :text, body: "queued operator message"})
+  end
+
+  test "a backend that dies mid-turn ends the turn with a clean port_exit, not an EPIPE crash" do
+    # Regression for #708/#699: when the backend's stdout closes mid-turn the
+    # turn must unwind to a clean `{:port_exit, N}` error (and emit
+    # `:turn_ended_with_error` carrying that tuple reason — the same
+    # `{:port_exit, N}` shape the AgentEventLog encoder fix now persists), rather
+    # than crash the receive loop.
+    root = Path.join(System.tmp_dir!(), "aiur_claude_port_exit_#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_that_exits_after_turn_start(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:port-exit", title: "port-exit"}
+    test_pid = self()
+    on_message = fn message -> send(test_pid, {:agent_message, message}) end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+
+    assert {:error, {:port_exit, 1}} =
+             ClaudeAgent.run_turn(session, "do the thing", issue, on_message: on_message)
+
+    assert_received {:agent_message, %{event: :turn_ended_with_error, reason: {:port_exit, 1}}}
+  end
+
   # Minimal bash stand-in for the Claude app-server: records every frame
   # it receives to `frames`, and replies to the fixed initialize(1) /
   # thread/start(2) / turn/start(3) request ids so a full turn completes.
@@ -269,6 +326,21 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
       "*'\"turn/start\"'*) echo '#{turn}'; echo '#{tool_call}' ;; " <>
       "*'\"id\":101'*) echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  # Replies to the turn/start request id so the turn is accepted, then exits
+  # non-zero — the agent backend dying (closing its stdout) mid-turn.
+  defp fake_app_server_that_exits_after_turn_start(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; exit 1 ;; " <>
       "esac; done"
   end
 

@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator do
     Config,
     Issue,
     RepoBase,
+    SessionHandle,
     SystemLoad,
     Tracker,
     Workspace
@@ -54,6 +55,13 @@ defmodule Aiur.Orchestrator do
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
   @human_review_state "human-review"
+  @merging_state "merging"
+  # Non-active review states whose idle tickets the comment listener still polls
+  # so a trusted reviewer comment promotes them to `rework`, independent of the
+  # configured `active_states`. `human-review` is the primary review stage;
+  # `merging` covers a last-minute "actually, change this" before the merge lands
+  # (and keeps coverage in configs where `merging` is not an active state).
+  @comment_poll_review_states [@human_review_state, @merging_state]
   # Sentinel state for synthetic PR-anchored work units (watched/commanded human
   # PRs). Deliberately NOT a tracker active/terminal state: a PR-anchored unit is
   # dispatched directly (slot-capped) and never flows through reconcile/label
@@ -483,7 +491,7 @@ defmodule Aiur.Orchestrator do
         {:noreply, maybe_resume_blockees_on_push(state, blocker_identifier, topic)}
 
       {:system_branch_push, branch} ->
-        {:noreply, maybe_stop_active_agents_on_default_branch_push(state, branch, event)}
+        {:noreply, maybe_notify_agents_on_default_branch_push(state, branch, event)}
 
       :nomatch ->
         {:noreply, state}
@@ -795,26 +803,44 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, branch, event)
+  # The default branch advanced (a PR merged to the base branch). We do NOT
+  # touch active agents: terminating every agent on each merge thrashed the
+  # whole fleet and discarded each in-flight turn. Notification needs no work
+  # here — every agent universally subscribes to `system.<base>.branch.push`
+  # (`UniversalSubscriptions.topics/1`), so the same push that reaches the
+  # orchestrator is independently delivered into each agent's event digest by
+  # its own `SubscriptionStore`, through the exact `enqueue_event_digest_item/4`
+  # -> `event_digest_delivery_opts/2` -> `queue_wake_required?/1` path the
+  # comment fan-out uses. That path already encodes the desired per-state
+  # behavior:
+  #
+  #   * `:working` mid-turn  -> queued, NON-interrupting; seen at the next turn
+  #     boundary, the current turn continues uninterrupted.
+  #   * `:sleeping` (standby) -> woken so it can pull main and resume. A sleeping
+  #     entry already holds its slot, so the wake consumes no new capacity and
+  #     dispatches no new agent.
+  #   * `:paused` (manual operator/agent pause) -> queued but NOT woken; a manual
+  #     pause is never woken by a main update.
+  #
+  # So there is nothing for the orchestrator to do but record the advance for
+  # operators. Re-emitting a notice here would double-deliver, since the
+  # orchestrator and every agent's SubscriptionStore both receive this push. The
+  # agent-facing `using-aiur` skill tells the agent it may see this signal and to
+  # pull/rebase at its own discretion.
+  defp maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event)
        when is_binary(branch) do
     if branch == default_branch_name() do
       sha = Map.get(event, :sha) || Map.get(event, "sha")
 
-      state.running
-      |> Enum.reject(fn {_issue_id, running_entry} ->
-        paused_running_entry?(running_entry) or deactivated_running_entry?(running_entry)
-      end)
-      |> Enum.reduce(state, fn {issue_id, running_entry}, state_acc ->
-        Logger.warning("Default branch advanced; stopping active stale agent: branch=#{branch} sha=#{sha || "-"} issue_id=#{issue_id} issue_identifier=#{Map.get(running_entry, :identifier)}")
-
-        terminate_running_issue(state_acc, issue_id, false)
-      end)
-    else
-      state
+      Logger.info(
+        "Default branch advanced; not terminating agents — each handles the push via its system.#{branch}.branch.push subscription (active turns continue uninterrupted, standby wakes): sha=#{sha || "-"}"
+      )
     end
+
+    state
   end
 
-  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, _branch, _event),
+  defp maybe_notify_agents_on_default_branch_push(%State{} = state, _branch, _event),
     do: state
 
   defp default_branch_name do
@@ -1216,6 +1242,8 @@ defmodule Aiur.Orchestrator do
   defp mark_pr_merged_issue_done(%State{} = state, identifier) do
     case Tracker.update_issue_state(to_string(identifier), "done") do
       :ok ->
+        clear_session_handle(identifier)
+
         case find_running_by_identifier(state.running, identifier) do
           %{issue: %Issue{id: issue_id}} ->
             terminate_running_issue(state, issue_id, true)
@@ -1718,6 +1746,13 @@ defmodule Aiur.Orchestrator do
   # running-map KEY (`issue.id`). Clean the `pr-<pr#>` leaf explicitly so no
   # orphan workspace is left behind, mirroring the legacy terminal cleanup.
   defp cleanup_pr_anchored_workspace(issue_id, running_entry) when is_binary(issue_id) do
+    # A closed PR is terminal for a PR-anchored unit, but this path bypasses
+    # `cleanup_terminal_issue_artifacts`, so the resume handle is never cleared
+    # for it. The handle is keyed by the PR-number `identifier` (what
+    # `start_agent_session` persisted under), not the `pr-<pr#>` running key;
+    # without this, a reopened PR would `--resume` the finished thread now that
+    # `claude-repl` is resumable (#613).
+    clear_session_handle(Map.get(running_entry, :identifier))
     Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
   end
 
@@ -1951,10 +1986,14 @@ defmodule Aiur.Orchestrator do
     |> normalize_comment_targets()
   end
 
+  # Discovers idle (non-running) tickets in the comment-actionable review states
+  # (`human-review` + `merging`) and turns each into a comment poll target, so a
+  # trusted reviewer comment on them is seen and promotes the ticket to `rework`
+  # even though those states are not in `active_states`.
   defp human_review_comment_poll_targets(%State{} = state, opts) do
     fetcher = Keyword.get(opts, :review_issue_fetcher, &Tracker.fetch_issues_by_states/1)
 
-    case fetcher.([@human_review_state]) do
+    case fetcher.(@comment_poll_review_states) do
       {:ok, issues} when is_list(issues) ->
         targets =
           issues
@@ -2496,7 +2535,7 @@ defmodule Aiur.Orchestrator do
   @spec apply_system_branch_push_for_test(State.t(), String.t(), map()) :: State.t()
   def apply_system_branch_push_for_test(%State{} = state, branch, event \\ %{})
       when is_binary(branch) and is_map(event) do
-    maybe_stop_active_agents_on_default_branch_push(state, branch, event)
+    maybe_notify_agents_on_default_branch_push(state, branch, event)
   end
 
   @doc false
@@ -2870,7 +2909,7 @@ defmodule Aiur.Orchestrator do
         kill_repl_session(running_entry)
 
         if cleanup_workspace do
-          cleanup_issue_workspace(identifier, worker_host)
+          cleanup_terminal_issue_artifacts(identifier, worker_host)
         end
 
         # Close any open chat-completion SSE streams BEFORE killing the
@@ -3898,6 +3937,8 @@ defmodule Aiur.Orchestrator do
         severity: "warning"
       )
 
+      move_exhausted_issue_to_error_state(identifier)
+
       %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}
     else
       delay_ms = retry_delay(next_attempt, metadata)
@@ -3941,6 +3982,24 @@ defmodule Aiur.Orchestrator do
   defp failure_retry?(metadata) when is_map(metadata) do
     Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait, :precondition]
   end
+
+  # On genuine retry exhaustion, surface the ticket in an operator-visible
+  # state instead of silently leaving it in `rework` with no live agent (#699).
+  # `error` ("agent hit an error") is a valid state in neither the active nor
+  # the terminal set, so it does not get auto-redispatched. Best-effort: a
+  # failed tracker write must not crash the orchestrator.
+  defp move_exhausted_issue_to_error_state(identifier) when is_binary(identifier) do
+    case Tracker.update_issue_state(identifier, "error") do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp move_exhausted_issue_to_error_state(_identifier), do: :ok
 
   defp log_scheduled_retry(
          issue_id,
@@ -4065,7 +4124,7 @@ defmodule Aiur.Orchestrator do
       terminal_issue_state?(issue.state, terminal_states) ->
         Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
 
-        cleanup_issue_workspace(issue.identifier, metadata[:worker_host])
+        cleanup_terminal_issue_artifacts(issue.identifier, metadata[:worker_host])
         {:noreply, release_issue_claim(state, issue_id)}
 
       retry_candidate_issue?(issue, terminal_states) ->
@@ -4089,7 +4148,15 @@ defmodule Aiur.Orchestrator do
     Workspace.remove_issue_workspaces(identifier, worker_host)
   end
 
-  defp cleanup_issue_workspace(_identifier, _worker_host), do: :ok
+  defp cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil)
+
+  defp cleanup_terminal_issue_artifacts(identifier, worker_host) when is_binary(identifier) do
+    cleanup_issue_workspace(identifier, worker_host)
+    clear_session_handle(identifier)
+  end
+
+  defp clear_session_handle(identifier) when is_binary(identifier), do: SessionHandle.clear(identifier)
+  defp clear_session_handle(_identifier), do: :ok
 
   defp run_startup_todo_workspace_cleanup(%State{} = state) do
     case ensure_terminal_workspace_cleanup_preflight(state) do
@@ -4113,7 +4180,7 @@ defmodule Aiur.Orchestrator do
       {:ok, issues} ->
         issues
         |> Enum.filter(&todo_issue_for_startup_cleanup?/1)
-        |> Enum.each(&cleanup_terminal_issue_workspace/1)
+        |> Enum.each(&cleanup_issue_workspace_for_issue/1)
 
         state
 
@@ -4201,9 +4268,15 @@ defmodule Aiur.Orchestrator do
 
   defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier})
        when is_binary(identifier),
-       do: cleanup_issue_workspace(identifier)
+       do: cleanup_terminal_issue_artifacts(identifier)
 
   defp cleanup_terminal_issue_workspace(_issue), do: :ok
+
+  defp cleanup_issue_workspace_for_issue(%Issue{identifier: identifier})
+       when is_binary(identifier),
+       do: cleanup_issue_workspace(identifier)
+
+  defp cleanup_issue_workspace_for_issue(_issue), do: :ok
 
   defp notify_dashboard(state) do
     state
@@ -4311,6 +4384,12 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # Highest `complexity:N` label on the issue (nil when unlabelled). Reused by
+  # the status rows so `aiur watch` can render the cx column without a tracker
+  # round-trip — the issue is already in memory.
+  defp issue_complexity(%Issue{} = issue), do: CodingAgent.complexity_level(issue)
+  defp issue_complexity(_issue), do: nil
+
   defp agent_statuses(%State{} = state) do
     now = DateTime.utc_now()
 
@@ -4345,7 +4424,11 @@ defmodule Aiur.Orchestrator do
       workspace_path: Map.get(entry, :workspace_path),
       session_id: Map.get(entry, :session_id),
       runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
-      queue_depth: queue_depth_for_issue(state, identifier)
+      queue_depth: queue_depth_for_issue(state, identifier),
+      complexity: issue_complexity(issue),
+      last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
+      last_codex_message: Map.get(entry, :last_codex_message),
+      last_codex_event: Map.get(entry, :last_codex_event)
     }
   end
 
@@ -4376,7 +4459,11 @@ defmodule Aiur.Orchestrator do
       workspace_path: nil,
       session_id: nil,
       runtime_seconds: 0,
-      queue_depth: idle_queue_depth(state, identifier)
+      queue_depth: idle_queue_depth(state, identifier),
+      complexity: issue_complexity(issue),
+      last_codex_timestamp: nil,
+      last_codex_message: nil,
+      last_codex_event: nil
     }
   end
 

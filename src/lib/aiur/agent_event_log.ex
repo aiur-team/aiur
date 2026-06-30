@@ -1,6 +1,19 @@
 defmodule Aiur.AgentEventLog do
   @moduledoc """
-  Writes per-workspace log entries to `agent.ndjson` and `agent.md`.
+  Writes every agent event to both per-workspace sinks: `agent.md` and
+  `agent.ndjson`.
+
+  - `agent.md` — human-readable, chat-style markdown transcript rendered by the
+    web dashboard log modal (`Aiur.AgentLog`).
+  - `agent.ndjson` — the structured, one-event-per-line JSON stream.
+    `Aiur.AlertFeed` reads its `alert` lines to build the cross-workspace
+    attentions feed, and crash reasons such as `{:port_exit, N}` must persist
+    here for post-mortem (#708).
+
+  Do not filter what reaches `agent.ndjson` by event type. It is the only
+  structured per-event record, so dropping "transcript" events to save a write
+  silently breaks crash-reason persistence (#708) — guarded by the regression
+  test in `agent_event_log_test.exs`.
   """
 
   require Logger
@@ -68,6 +81,10 @@ defmodule Aiur.AgentEventLog do
   defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp json_safe(%{} = value), do: Map.new(value, fn {key, val} -> {json_safe_key(key), json_safe(val)} end)
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  # Tuples (e.g. a `{:port_exit, 1}` crash reason) are not JSON-encodable and
+  # would otherwise make `Jason.encode!/1` raise — swallowed by the rescue in
+  # `write/3`, so the crash detail never persists. Encode them as a list.
+  defp json_safe(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_safe()
   defp json_safe(nil), do: nil
   defp json_safe(value) when is_boolean(value), do: value
   defp json_safe(value) when is_atom(value), do: Atom.to_string(value)

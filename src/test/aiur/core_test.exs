@@ -683,7 +683,19 @@ defmodule Aiur.CoreTest do
     assert_due_in_range(due_at_ms, before_down_ms, 39_500, 40_500)
   end
 
-  test "abnormal worker exit beyond max_retry_attempts gives up and clears retry state" do
+  test "abnormal worker exit beyond max_retry_attempts gives up, clears retry state, and surfaces the error state" do
+    # Drive the give-up path through the in-memory tracker so the state move is
+    # observable (#708): on genuine retry exhaustion the orchestrator must push
+    # the ticket into the operator-visible `error` state instead of silently
+    # leaving it in `rework` with no live agent.
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+      tracker_terminal_states: ["done", "cancelled", "canceled"]
+    )
+
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+
     issue_id = "issue-exhausted"
     ref = make_ref()
     orchestrator_name = Module.concat(__MODULE__, :ExhaustedRetryOrchestrator)
@@ -731,6 +743,8 @@ defmodule Aiur.CoreTest do
 
     assert log =~ "after 3 failed attempt(s)"
     assert log =~ "ticket.MT-EX.agent.retry_exhausted"
+
+    assert_receive {:memory_tracker_state_update, "MT-EX", "error"}
   end
 
   test "first abnormal worker exit waits before retrying" do

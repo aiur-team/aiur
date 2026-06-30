@@ -1,0 +1,94 @@
+# Aiur alert sound mapping, scaffolded by `aiur init` as `.aiur/alerts`.
+# Consulted only when `alerts.use_os_default_sounds: false`. Linux desktops ship
+# these freedesktop sounds (sound-theme-freedesktop) for paplay/canberra.
+
+alerts:
+  # ---------- Ticket-powered alerts (issue/PR lifecycle) ------------------
+  "ticket.*.issue.label.added.agent.todo":
+    message: Task entered todo
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
+  "ticket.*.issue.label.added.agent.in-progress":
+    message: Task picked up
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "ticket.*.issue.label.added.agent.human-review":
+    message: Ready for human review
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/bell.oga"
+  "ticket.*.issue.label.added.agent.rework":
+    message: Sent back for changes
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "ticket.*.pr.merged":
+    message: Merge complete
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/complete.oga"
+  "ticket.*.issue.state.changed":
+    message: Task state changed
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/message.oga"
+
+  # ---------- Agent-powered alerts (runtime state) -----------------------
+  "system.dispatch.todo_capacity_exceeded":
+    message: Todo queue exceeds capacity
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "ticket.*.agent.error.tokens_exhausted":
+    message: Agent ran out of tokens
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+  "ticket.*.agent.retry_exhausted":
+    message: Agent retry budget exhausted
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "ticket.*.agent.paused":
+    message: Agent paused
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/power-unplug.oga"
+  "ticket.*.agent.unpaused":
+    message: Agent unpaused
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/power-plug.oga"
+  "ticket.*.chat.opened":
+    message: Chat opened
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/service-login.oga"
+  "ticket.*.chat.closed":
+    message: Chat closed
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/service-logout.oga"
+
+  # ---------- AI-powered alerts (workflow phase milestones) --------------
+  "ticket.*.agent.phase.brainstorm.start":
+    message: Entered brainstorm
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "ticket.*.agent.phase.brainstorm.end":
+    message: Exited brainstorm
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/complete.oga"
+  "ticket.*.agent.phase.plan.start":
+    message: Entered planning
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "ticket.*.agent.phase.plan.end":
+    message: Exited planning
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/complete.oga"
+  "ticket.*.agent.phase.work.start":
+    message: Entered implementation
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "ticket.*.agent.phase.work.end":
+    message: Exited implementation
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/complete.oga"
+  "ticket.*.agent.phase.review.start":
+    message: Entered review
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "ticket.*.agent.phase.review.end":
+    message: Exited review
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/complete.oga"

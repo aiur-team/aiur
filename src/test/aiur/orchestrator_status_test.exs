@@ -3,6 +3,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.SessionHandle
 
   defmodule StartupCleanupLinearClient do
     def fetch_candidate_issues, do: {:ok, []}
@@ -15,6 +16,40 @@ defmodule Aiur.OrchestratorStatusTest do
     end
 
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+
+    def graphql(query, %{"issueId" => _issue_id, "stateName" => "rework"})
+        when is_binary(query) do
+      {:ok,
+       %{
+         "data" => %{
+           "issue" => %{
+             "team" => %{"states" => %{"nodes" => [%{"id" => "state-rework"}]}}
+           }
+         }
+       }}
+    end
+
+    def graphql(query, %{issueId: _issue_id, stateName: "rework"})
+        when is_binary(query) do
+      {:ok,
+       %{
+         "data" => %{
+           "issue" => %{
+             "team" => %{"states" => %{"nodes" => [%{"id" => "state-rework"}]}}
+           }
+         }
+       }}
+    end
+
+    def graphql(query, %{"issueId" => _issue_id, "stateId" => "state-rework"})
+        when is_binary(query) do
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+    end
+
+    def graphql(query, %{issueId: _issue_id, stateId: "state-rework"})
+        when is_binary(query) do
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+    end
 
     defp notify(message) do
       case Application.get_env(:aiur, :startup_cleanup_test_pid) do
@@ -222,15 +257,69 @@ defmodule Aiur.OrchestratorStatusTest do
     end
   end
 
+  test "startup terminal cleanup clears persisted session handles" do
+    previous_github_client = Application.get_env(:aiur, :github_client_module)
+    previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
+    previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    previous_log_file = Application.get_env(:aiur, :log_file)
+    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-terminal-cleanup-#{System.unique_integer([:positive])}")
+
+    try do
+      System.put_env("GITHUB_TOKEN", "gh-test-token")
+      Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
+
+      terminal_workspace = Path.join([workspace_root, "owner", "repo", "610"])
+      File.mkdir_p!(terminal_workspace)
+      File.write!(Path.join(terminal_workspace, "dirty.txt"), "leftover")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress"],
+        tracker_terminal_states: ["done"],
+        workspace_root: workspace_root,
+        poll_interval_seconds: 60
+      )
+
+      Application.put_env(:aiur, :github_client_module, StartupCleanupGitHubClient)
+      Application.put_env(:aiur, :startup_cleanup_test_pid, self())
+
+      Application.put_env(:aiur, :startup_cleanup_issues, [
+        %Issue{id: "issue-610", identifier: "610", title: "Done", state: "done"}
+      ])
+
+      :ok = SessionHandle.save("610", %{backend: "codex", thread_id: "thread-clear"})
+
+      assert %Orchestrator.State{} =
+               Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+
+      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
+      assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
+      refute File.exists?(terminal_workspace)
+      assert :none == SessionHandle.load("610", "codex")
+    after
+      restore_application_env(:github_client_module, previous_github_client)
+      restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+      restore_application_env(:startup_cleanup_issues, previous_issues)
+      restore_application_env(:log_file, previous_log_file)
+      restore_env("GITHUB_TOKEN", previous_github_token)
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "startup todo cleanup removes stale todo workspaces before dispatch" do
     previous_github_client = Application.get_env(:aiur, :github_client_module)
     previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
     previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
     previous_github_token = System.get_env("GITHUB_TOKEN")
+    previous_log_file = Application.get_env(:aiur, :log_file)
     workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-todo-cleanup-#{System.unique_integer([:positive])}")
 
     try do
       System.put_env("GITHUB_TOKEN", "gh-test-token")
+      Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
 
       todo_workspace = Path.join([workspace_root, "owner", "repo", "586"])
       in_progress_workspace = Path.join([workspace_root, "owner", "repo", "587"])
@@ -257,6 +346,13 @@ defmodule Aiur.OrchestratorStatusTest do
         %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"}
       ])
 
+      # `todo` is NOT a terminal state, so this startup cleanup must remove the
+      # stale workspace WITHOUT clearing the resume handle — a re-dispatched todo
+      # issue should still be able to rejoin its prior thread now that
+      # `claude-repl` is resumable (#613). The terminal-cleanup path is what
+      # clears the handle (see the terminal-cleanup test above).
+      :ok = SessionHandle.save("586", %{backend: "claude-repl", thread_id: "thread-keep"})
+
       assert %Orchestrator.State{} =
                Orchestrator.run_startup_todo_workspace_cleanup_for_test(%Orchestrator.State{})
 
@@ -265,10 +361,13 @@ defmodule Aiur.OrchestratorStatusTest do
       refute File.exists?(todo_workspace)
       assert File.exists?(in_progress_workspace)
       assert File.read!(Path.join(in_progress_workspace, "dirty.txt")) == "keep"
+      # Non-terminal cleanup leaves the resume handle intact.
+      assert {:ok, %{thread_id: "thread-keep"}} = SessionHandle.load("586", "claude-repl")
     after
       restore_application_env(:github_client_module, previous_github_client)
       restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
       restore_application_env(:startup_cleanup_issues, previous_issues)
+      restore_application_env(:log_file, previous_log_file)
       restore_env("GITHUB_TOKEN", previous_github_token)
       File.rm_rf(workspace_root)
     end
@@ -1729,6 +1828,127 @@ defmodule Aiur.OrchestratorStatusTest do
               category: :coordination_event,
               delivery: %{interrupt_requested: false, priority: :later}
             }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-PAUSED")
+  end
+
+  test "system default-branch push wakes a sleeping (standby) agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :SleepingMainPushOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-main-sleep" => running_entry("issue-main-sleep", "MT-MAIN-SLEEP", :sleeping, worker_pid)
+          }
+      }
+    end)
+
+    # Same path a real push takes: each agent's SubscriptionStore enqueues the
+    # `system.<base>.branch.push` it is universally subscribed to.
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-MAIN-SLEEP",
+               %{topic: "system.main.branch.push", sha: "abc123", message: "main advanced"}
+             })
+
+    # Standby agent is woken so it can pull main and resume in its held slot.
+    assert_receive {:agent_queue_updated, "MT-MAIN-SLEEP", item_id, true}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: true, priority: :now}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-SLEEP")
+  end
+
+  test "system default-branch push does not wake a manually paused agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :PausedMainPushOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-main-paused" => running_entry("issue-main-paused", "MT-MAIN-PAUSED", :paused, worker_pid)
+          }
+      }
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-MAIN-PAUSED",
+               %{topic: "system.main.branch.push", sha: "abc123", message: "main advanced"}
+             })
+
+    # A manual pause is never woken by a main update; the notice waits in queue
+    # until the operator resumes.
+    assert_receive {:agent_queue_updated, "MT-MAIN-PAUSED", item_id, false}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: false, priority: :later}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-PAUSED")
+  end
+
+  test "system default-branch push does not interrupt a working agent mid-turn" do
+    orchestrator_name = Module.concat(__MODULE__, :WorkingMainPushOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      ActiveTurns.mark_closed("MT-MAIN-WORK", "turn-active", :test_cleanup)
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+    :ok = ActiveTurns.put("MT-MAIN-WORK", "turn-active")
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-main-work" => running_entry("issue-main-work", "MT-MAIN-WORK", :working, worker_pid)
+          }
+      }
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-MAIN-WORK",
+               %{topic: "system.main.branch.push", sha: "abc123", message: "main advanced"}
+             })
+
+    # The headline acceptance criterion: a main update never interrupts an
+    # in-flight turn. The notice is queued NON-interrupting and seen at the next
+    # turn boundary, leaving whether/when to pull main to the agent.
+    assert_receive {:agent_queue_updated, "MT-MAIN-WORK", item_id, false}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: false, priority: :later}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-WORK")
   end
 
   test "event digest wakes a running agent with no active turn" do
