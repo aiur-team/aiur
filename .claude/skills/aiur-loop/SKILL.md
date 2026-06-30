@@ -45,7 +45,7 @@ tickets the developer didn't authorize.
    are captured under `~/.aiur/logs` for monitoring + diagnosis. Clean slate first (no stray BEAM,
    dashboard port free, epmd clear) — a stale instance will grab newly-`agent:todo` tickets on old code.
 2. **Monitor** with `aiur-monitor`. This is REQUIRED, not optional: while the run is live you
-   **MUST** post a fresh formatted status table every `<the operator's chosen interval>`
+   **MUST** post a fresh board (run `aiurdev watch`) every `<the operator's chosen interval>`
    automatically (the `/loop <chosen>m` interval — **default 5 minutes** if unset; "approximately"
    is not license to stretch it past the chosen interval; the operator should never have to ask;
    don't skip a tick when steady — see `aiur-monitor`'s required "Monitoring cadence"). Use the
