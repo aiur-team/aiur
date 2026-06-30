@@ -17,6 +17,7 @@ defmodule Aiur.Codex.CodingAgent do
   @turn_start_id 3
   @port_line_bytes 1_048_576
   @max_stream_log_bytes 1_000
+  @cold_start_response_timeout_ms 30_000
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
 
   @type session :: %{
@@ -341,7 +342,7 @@ defmodule Aiur.Codex.CodingAgent do
 
     send_message(port, payload)
 
-    with {:ok, _} <- await_response(port, @initialize_id) do
+    with {:ok, _} <- await_startup_response(port, @initialize_id) do
       send_message(port, %{"method" => "initialized", "params" => %{}})
       :ok
     end
@@ -432,7 +433,7 @@ defmodule Aiur.Codex.CodingAgent do
   # resume path, to a clean start — rather than crashing the dispatch.
   defp send_thread_init(port, frame) do
     send_message(port, frame)
-    parse_thread_response(await_response(port, @thread_start_id))
+    parse_thread_response(await_startup_response(port, @thread_start_id))
   rescue
     ArgumentError -> {:error, :port_closed}
   end
@@ -492,7 +493,7 @@ defmodule Aiur.Codex.CodingAgent do
       }
     })
 
-    case await_response(port, @turn_start_id) do
+    case await_startup_response(port, @turn_start_id) do
       {:ok, %{"turn" => %{"id" => turn_id}}} -> {:ok, turn_id}
       other -> other
     end
@@ -1447,8 +1448,12 @@ defmodule Aiur.Codex.CodingAgent do
     String.starts_with?(normalized_label, "approve") or String.starts_with?(normalized_label, "allow")
   end
 
-  defp await_response(port, request_id) do
-    with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "")
+  defp await_startup_response(port, request_id) do
+    with_timeout_response(port, request_id, startup_response_timeout_ms(), "")
+  end
+
+  defp startup_response_timeout_ms(read_timeout_ms \\ Config.agent_read_timeout_ms()) do
+    max(read_timeout_ms, @cold_start_response_timeout_ms)
   end
 
   defp with_timeout_response(port, request_id, timeout_ms, pending_line) do
@@ -1846,6 +1851,16 @@ defmodule Aiur.Codex.CodingAgent do
   @doc false
   @spec send_thread_init_for_test(port(), map()) :: {:ok, String.t()} | {:error, term()}
   def send_thread_init_for_test(port, frame), do: send_thread_init(port, frame)
+
+  @doc false
+  @spec await_startup_response_for_test(port(), integer(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def await_startup_response_for_test(port, request_id, read_timeout_ms) do
+    with_timeout_response(port, request_id, startup_response_timeout_ms(read_timeout_ms), "")
+  end
+
+  @doc false
+  @spec startup_response_timeout_ms_for_test(pos_integer()) :: pos_integer()
+  def startup_response_timeout_ms_for_test(read_timeout_ms), do: startup_response_timeout_ms(read_timeout_ms)
 
   @doc false
   @spec parse_thread_response_for_test({:ok, map()} | {:error, term()}) :: {:ok, String.t()} | {:error, term()}

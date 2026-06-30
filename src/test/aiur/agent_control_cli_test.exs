@@ -24,6 +24,19 @@ defmodule Aiur.AgentControlCLITest do
     }
   end
 
+  # A running entry shaped for `watch` assertions: lets a test set the tracker
+  # state, labels (for the complexity column), last activity timestamp (for age
+  # / stuck detection) and last message (for the doing column).
+  defp watch_entry(issue_id, identifier, opts) do
+    issue_id
+    |> running_entry(identifier, Keyword.get(opts, :work_state, :working))
+    |> update_in([:issue], fn issue ->
+      %{issue | state: Keyword.get(opts, :state, "in-progress"), labels: Keyword.get(opts, :labels, [])}
+    end)
+    |> Map.put(:last_codex_timestamp, Keyword.get(opts, :last_codex_timestamp))
+    |> Map.put(:last_codex_message, Keyword.get(opts, :last_codex_message))
+  end
+
   setup do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
@@ -671,6 +684,114 @@ defmodule Aiur.AgentControlCLITest do
         end)
 
       assert stderr =~ "must be a positive integer"
+    end
+  end
+
+  describe "watch" do
+    setup do
+      :persistent_term.erase({Aiur.AgentControlCLI, :watch_baseline})
+
+      root = Path.join(System.tmp_dir!(), "aiur-watch-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(root)
+      on_exit(fn -> File.rm_rf!(root) end)
+
+      {:ok, watch_root: root}
+    end
+
+    test "full board renders state, complexity, and activity per agent", %{orchestrator: pid, watch_root: root} do
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{
+              "issue-44" =>
+                watch_entry("issue-44", "repo#44",
+                  state: "in-progress",
+                  labels: ["agent:in-progress", "complexity:3"],
+                  last_codex_message: "running mix test"
+                )
+            }
+        }
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ "TICKET  STATE         CX  AGE     DOING"
+      assert output =~ ~r/#44\s+in-progress\s+3\s/
+      assert output =~ "running mix test"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "empty board reports no active agents", %{watch_root: root} do
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ "(no active agents)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "changes mode prints a row once, then only when its state shifts", %{orchestrator: pid, watch_root: root} do
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-44" => watch_entry("issue-44", "repo#44", state: "in-progress")}}
+      end)
+
+      first = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+      assert first =~ "#44"
+
+      second = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+      assert second =~ "(no changes)"
+      refute second =~ "#44"
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-44" => watch_entry("issue-44", "repo#44", state: "rework")}}
+      end)
+
+      third = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+      assert third =~ "#44"
+      assert third =~ "rework"
+    end
+
+    test "changes mode diffs each agent independently", %{orchestrator: pid, watch_root: root} do
+      both = fn s45 ->
+        %{
+          "issue-44" => watch_entry("issue-44", "repo#44", state: "in-progress"),
+          "issue-45" => watch_entry("issue-45", "repo#45", state: s45)
+        }
+      end
+
+      :sys.replace_state(pid, fn state -> %{state | running: both.("in-progress")} end)
+      _first = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+
+      # Only #45 shifts state; #44 holds steady.
+      :sys.replace_state(pid, fn state -> %{state | running: both.("rework")} end)
+      second = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+
+      assert second =~ "#45"
+      assert second =~ "rework"
+      refute second =~ "#44"
+    end
+
+    test "actionable section flags stuck agents and PR-ready tickets", %{orchestrator: pid, watch_root: root} do
+      stale_ts = DateTime.add(DateTime.utc_now(), -1_200, :second)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{
+              "issue-44" =>
+                watch_entry("issue-44", "repo#44",
+                  state: "in-progress",
+                  last_codex_timestamp: stale_ts,
+                  last_codex_message: "compiling"
+                ),
+              "issue-45" => watch_entry("issue-45", "repo#45", state: "human-review")
+            }
+        }
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ "ACTIONABLE"
+      assert output =~ ~r/#44 stuck/
+      assert output =~ ~r/#45 human-review · needs review\/merge/
     end
   end
 end

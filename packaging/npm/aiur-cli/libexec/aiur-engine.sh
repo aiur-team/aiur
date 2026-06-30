@@ -274,6 +274,7 @@ Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <por
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur alerts [--needs-attention]  show structured alert feed
+       aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause <ids|--all> | resume <ids|--all>
        aiur message <id> <text>  send operator text to a running agent
@@ -1716,6 +1717,57 @@ cmd_alerts() {
   fi
 }
 
+# `aiur watch` — the server-side status board. Compiles one row per active
+# agent (state · complexity · activity-age · doing) plus an actionable section
+# from aiur's own state, with no GitHub round-trip. `--changes` (default) prints
+# only state-level deltas since the last call; `--full` prints every row;
+# `--interval N` re-renders every N seconds as a foreground watcher (the Elixir
+# call stays one-shot — the loop lives here).
+cmd_watch() {
+  local mode="changes" interval="" arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --full) mode="full" ;;
+      --changes) mode="changes" ;;
+      --once) : ;;
+      --interval)
+        shift
+        interval="${1:-}"
+        watch_validate_interval "$interval"
+        ;;
+      --interval=*)
+        interval="${arg#--interval=}"
+        watch_validate_interval "$interval"
+        ;;
+      *)
+        echo "aiur: watch accepts --full, --changes, --once, --interval <secs>" >&2
+        exit 64
+        ;;
+    esac
+    shift
+  done
+
+  local expression="Aiur.AgentControlCLI.watch(mode: :${mode})"
+
+  if [ -n "$interval" ]; then
+    while true; do
+      run_control_rpc "$expression" || true
+      sleep "$interval"
+    done
+  else
+    run_control_rpc "$expression"
+  fi
+}
+
+watch_validate_interval() {
+  if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -le 0 ]; then
+    echo "aiur: watch --interval expects a positive integer (seconds)" >&2
+    exit 64
+  fi
+}
+
 cmd_cleanup_stale() {
   local dry_run=0 arg
   for arg in "$@"; do
@@ -1997,6 +2049,10 @@ aiur_engine_main() {
     alerts)
       shift
       cmd_alerts "$@"
+      ;;
+    watch)
+      shift
+      cmd_watch "$@"
       ;;
     set)
       shift

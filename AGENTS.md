@@ -75,8 +75,10 @@ segment (e.g. memory) fall back to `<workspace.root>/<issue-id>/`. The leaf is
 still the bare issue id, so `basename "$PWD"` resolves the issue number. Two log
 files are written inside each workspace:
 
-- `logs/agent.md` — human-readable chat-style log
-- `logs/agent.ndjson` — newline-delimited JSON event stream
+- `logs/agent.md` — human-readable chat-style transcript of every event
+- `logs/agent.ndjson` — newline-delimited JSON event stream. The attentions feed
+  (`Aiur.AlertFeed`) reads its `alert` events, and agent crash reasons must
+  persist here (#708); don't stop writing it.
 
 When resuming an issue that was already in progress, inspect both logs and
 the workpad comment on the issue before changing code. Don't repeat work

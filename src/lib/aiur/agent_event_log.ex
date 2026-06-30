@@ -1,6 +1,19 @@
 defmodule Aiur.AgentEventLog do
   @moduledoc """
-  Writes per-workspace log entries to `agent.ndjson` and `agent.md`.
+  Writes every agent event to both per-workspace sinks: `agent.md` and
+  `agent.ndjson`.
+
+  - `agent.md` — human-readable, chat-style markdown transcript rendered by the
+    web dashboard log modal (`Aiur.AgentLog`).
+  - `agent.ndjson` — the structured, one-event-per-line JSON stream.
+    `Aiur.AlertFeed` reads its `alert` lines to build the cross-workspace
+    attentions feed, and crash reasons such as `{:port_exit, N}` must persist
+    here for post-mortem (#708).
+
+  Do not filter what reaches `agent.ndjson` by event type. It is the only
+  structured per-event record, so dropping "transcript" events to save a write
+  silently breaks crash-reason persistence (#708) — guarded by the regression
+  test in `agent_event_log_test.exs`.
   """
 
   require Logger

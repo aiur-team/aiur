@@ -82,14 +82,18 @@ defmodule Aiur.Init do
   @aiurhooks_example_template File.read!(@aiurhooks_example_path)
 
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
-  # so init also writes an extensionless `.aiur/alerts` (from
-  # `.aiur/examples/alerts.example`) next to the config — matching the `.aiur/`
-  # convention where config-like files have no extension. Embedded at compile time
-  # so the wizard works from a release with no runtime file dependency.
+  # so init also writes an extensionless `.aiur/alerts` next to the config —
+  # matching the `.aiur/` convention where config-like files have no extension.
+  # macOS and Linux ship different system sounds, so there is one filled example
+  # per platform and init scaffolds the host's. Embedded at compile time so the
+  # wizard works from a release with no runtime file dependency.
   @alerts_file_name "alerts"
-  @alerts_example_path Path.expand("../../../.aiur/examples/alerts.example", __DIR__)
-  @external_resource @alerts_example_path
-  @alerts_example_template File.read!(@alerts_example_path)
+  @alerts_macos_example_path Path.expand("../../../.aiur/examples/alerts.macos.example", __DIR__)
+  @alerts_linux_example_path Path.expand("../../../.aiur/examples/alerts.linux.example", __DIR__)
+  @external_resource @alerts_macos_example_path
+  @external_resource @alerts_linux_example_path
+  @alerts_macos_example_template File.read!(@alerts_macos_example_path)
+  @alerts_linux_example_template File.read!(@alerts_linux_example_path)
 
   @type io :: %{
           puts: (IO.chardata() -> :ok),
@@ -1091,8 +1095,8 @@ defmodule Aiur.Init do
   end
 
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
-  # so make sure `.aiur/alerts` exists (created from alerts.example). Never clobber
-  # an existing one — the operator may have tuned the topic→sound map.
+  # so make sure `.aiur/alerts` exists (created from the host's alerts example).
+  # Never clobber an existing one — the operator may have tuned the topic→sound map.
   defp ensure_alerts(io, deps, target, alerts) do
     case deps.ensure_alerts.(target, alerts.source_path) do
       {:created, path} -> io.puts.(["Created: ", dim(path)])
@@ -1567,7 +1571,7 @@ defmodule Aiur.Init do
   end
 
   defp write_new_alerts_file(path, _source_path) do
-    File.write!(path, @alerts_example_template)
+    File.write!(path, alerts_template(:os.type()))
     {:created, path}
   end
 
@@ -1756,7 +1760,13 @@ defmodule Aiur.Init do
 
   @doc "Raw alert sound map template that `aiur init` scaffolds as `.aiur/alerts`."
   @spec alerts_template() :: String.t()
-  def alerts_template, do: @alerts_example_template
+  def alerts_template, do: alerts_template(:os.type())
+
+  @doc false
+  @spec alerts_template({atom(), atom()} | term()) :: String.t()
+  def alerts_template({:unix, :darwin}), do: @alerts_macos_example_template
+  def alerts_template({:unix, _}), do: @alerts_linux_example_template
+  def alerts_template(_os_type), do: @alerts_linux_example_template
 
   @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
   @spec prompt_file_template() :: String.t()

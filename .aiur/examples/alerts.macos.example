@@ -1,0 +1,94 @@
+# Aiur alert sound mapping, scaffolded by `aiur init` as `.aiur/alerts`.
+# Consulted only when `alerts.use_os_default_sounds: false`. macOS ships these
+# clips under /System/Library/Sounds.
+
+alerts:
+  # ---------- Ticket-powered alerts (issue/PR lifecycle) ------------------
+  "ticket.*.issue.label.added.agent.todo":
+    message: Task entered todo
+    sound:
+      - "/System/Library/Sounds/Ping.aiff"
+  "ticket.*.issue.label.added.agent.in-progress":
+    message: Task picked up
+    sound:
+      - "/System/Library/Sounds/Tink.aiff"
+  "ticket.*.issue.label.added.agent.human-review":
+    message: Ready for human review
+    sound:
+      - "/System/Library/Sounds/Glass.aiff"
+  "ticket.*.issue.label.added.agent.rework":
+    message: Sent back for changes
+    sound:
+      - "/System/Library/Sounds/Sosumi.aiff"
+  "ticket.*.pr.merged":
+    message: Merge complete
+    sound:
+      - "/System/Library/Sounds/Hero.aiff"
+  "ticket.*.issue.state.changed":
+    message: Task state changed
+    sound:
+      - "/System/Library/Sounds/Submarine.aiff"
+
+  # ---------- Agent-powered alerts (runtime state) -----------------------
+  "system.dispatch.todo_capacity_exceeded":
+    message: Todo queue exceeds capacity
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "ticket.*.agent.error.tokens_exhausted":
+    message: Agent ran out of tokens
+    sound:
+      - "/System/Library/Sounds/Sosumi.aiff"
+  "ticket.*.agent.retry_exhausted":
+    message: Agent retry budget exhausted
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "ticket.*.agent.paused":
+    message: Agent paused
+    sound:
+      - "/System/Library/Sounds/Funk.aiff"
+  "ticket.*.agent.unpaused":
+    message: Agent unpaused
+    sound:
+      - "/System/Library/Sounds/Pop.aiff"
+  "ticket.*.chat.opened":
+    message: Chat opened
+    sound:
+      - "/System/Library/Sounds/Purr.aiff"
+  "ticket.*.chat.closed":
+    message: Chat closed
+    sound:
+      - "/System/Library/Sounds/Bottle.aiff"
+
+  # ---------- AI-powered alerts (workflow phase milestones) --------------
+  "ticket.*.agent.phase.brainstorm.start":
+    message: Entered brainstorm
+    sound:
+      - "/System/Library/Sounds/Tink.aiff"
+  "ticket.*.agent.phase.brainstorm.end":
+    message: Exited brainstorm
+    sound:
+      - "/System/Library/Sounds/Glass.aiff"
+  "ticket.*.agent.phase.plan.start":
+    message: Entered planning
+    sound:
+      - "/System/Library/Sounds/Morse.aiff"
+  "ticket.*.agent.phase.plan.end":
+    message: Exited planning
+    sound:
+      - "/System/Library/Sounds/Glass.aiff"
+  "ticket.*.agent.phase.work.start":
+    message: Entered implementation
+    sound:
+      - "/System/Library/Sounds/Blow.aiff"
+  "ticket.*.agent.phase.work.end":
+    message: Exited implementation
+    sound:
+      - "/System/Library/Sounds/Hero.aiff"
+  "ticket.*.agent.phase.review.start":
+    message: Entered review
+    sound:
+      - "/System/Library/Sounds/Bottle.aiff"
+  "ticket.*.agent.phase.review.end":
+    message: Exited review
+    sound:
+      - "/System/Library/Sounds/Frog.aiff"

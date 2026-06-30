@@ -31,6 +31,8 @@ what you're doing — you don't need all four every turn.
 - The branch is exactly `aiur/<issue-number>` — never invent another name.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
+- You may be notified that main has updated; use your discretion on whether and
+  when to pull/rebase it into your branch.
 
 ## What stays in the per-turn prompt (not here)
 
