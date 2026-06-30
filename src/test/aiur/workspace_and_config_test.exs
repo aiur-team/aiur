@@ -829,7 +829,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "workspace creates an empty directory when no bootstrap hook is configured" do
+  test "workspace installs only agent skills (no repo content) when no bootstrap hook is configured" do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
@@ -844,7 +844,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
       assert File.dir?(workspace)
-      assert {:ok, []} = File.ls(workspace)
+
+      # With no bootstrap hook the workspace gets no repo content, but aiur still
+      # seeds its bundled agent skills (#689) so a dispatched agent can load them
+      # without a filesystem search.
+      assert {:ok, entries} = File.ls(workspace)
+      assert Enum.sort(entries) == [".claude", ".codex"]
+      assert File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"]))
     after
       File.rm_rf(workspace_root)
     end
