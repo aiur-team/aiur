@@ -452,6 +452,7 @@ defmodule Aiur.AgentControlCLI do
 
     %{
       id: display_identifier(status),
+      key: to_string(Map.get(status, :issue_id) || Map.get(status, :identifier) || display_identifier(status)),
       sort_key: watch_sort_key(status),
       state: state,
       complexity: Map.get(status, :complexity),
@@ -500,15 +501,26 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.sort_by(&to_string(Map.get(&1, "ticket")))
   end
 
+  # Diff against the previously-reported board, keyed on the canonical issue id
+  # (not the display string, which could collide across repos). Each baseline
+  # entry keeps the row's state-level signature plus its display id so a removed
+  # ticket can still be named after it has left the roster.
   defp update_watch_baseline(rows) do
     previous = :persistent_term.get(@watch_baseline_key, %{})
-    current = Map.new(rows, &{&1.id, &1.signature})
+    current = Map.new(rows, &{&1.key, {&1.signature, &1.id}})
     :persistent_term.put(@watch_baseline_key, current)
 
-    changed = for {id, sig} <- current, Map.get(previous, id) != sig, into: MapSet.new(), do: id
-    removed = for {id, _sig} <- previous, not Map.has_key?(current, id), do: id
+    changed = for {key, {sig, _id}} <- current, baseline_signature(previous, key) != sig, into: MapSet.new(), do: key
+    removed = for {key, {_sig, id}} <- previous, not Map.has_key?(current, key), do: id
 
     {changed, Enum.sort(removed)}
+  end
+
+  defp baseline_signature(baseline, key) do
+    case Map.get(baseline, key) do
+      {sig, _id} -> sig
+      _ -> nil
+    end
   end
 
   @watch_header "TICKET  STATE         CX  AGE     DOING"
@@ -522,7 +534,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp watch_rows_for_mode(rows, :changes, changed) do
-    Enum.filter(rows, &MapSet.member?(changed, &1.id))
+    Enum.filter(rows, &MapSet.member?(changed, &1.key))
   end
 
   defp watch_rows_for_mode(rows, _mode, _changed), do: rows

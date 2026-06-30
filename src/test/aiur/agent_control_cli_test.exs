@@ -749,6 +749,26 @@ defmodule Aiur.AgentControlCLITest do
       assert third =~ "rework"
     end
 
+    test "changes mode diffs each agent independently", %{orchestrator: pid, watch_root: root} do
+      both = fn s45 ->
+        %{
+          "issue-44" => watch_entry("issue-44", "repo#44", state: "in-progress"),
+          "issue-45" => watch_entry("issue-45", "repo#45", state: s45)
+        }
+      end
+
+      :sys.replace_state(pid, fn state -> %{state | running: both.("in-progress")} end)
+      _first = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+
+      # Only #45 shifts state; #44 holds steady.
+      :sys.replace_state(pid, fn state -> %{state | running: both.("rework")} end)
+      second = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+
+      assert second =~ "#45"
+      assert second =~ "rework"
+      refute second =~ "#44"
+    end
+
     test "actionable section flags stuck agents and PR-ready tickets", %{orchestrator: pid, watch_root: root} do
       stale_ts = DateTime.add(DateTime.utc_now(), -1_200, :second)
 
