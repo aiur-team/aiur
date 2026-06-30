@@ -9,8 +9,8 @@ import {
 } from "../scripts/postinstall.mjs";
 
 test("opencode is pinned to a specific version, not floating to latest", () => {
-  // 1.17.x broke aiur's chat panes; the package spec must carry an explicit
-  // version so a fresh install gets the validated one.
+  // The package spec must carry an explicit version (never `latest`) so a
+  // fresh install gets the validated opencode, not an unverified newer one.
   expect(OPENCODE_PACKAGE).toMatch(/^opencode-ai@\d+\.\d+\.\d+$/);
 });
 

@@ -24,7 +24,7 @@
   "engines": {
     "node": ">=18"
   },
-  "opencodeVersion": "1.15.6",
+  "opencodeVersion": "1.17.10",
   "optionalDependencies": {
     "aiur-cli-linux-x64": "0.0.0",
     "aiur-cli-linux-arm64": "0.0.0",
