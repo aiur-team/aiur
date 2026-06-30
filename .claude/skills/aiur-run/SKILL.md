@@ -97,7 +97,7 @@ value once via the ask above.)
   self-ticking fallback — if you do not arm `/loop`, no further updates will fire, which is the
   failure this step exists to prevent. Don't skip a tick when nothing changed — post the table
   anyway, noting steady-state.
-- **Alerts** — relay operator-actionable alerts via `aiur-monitor`'s alert-relay (`tail-alerts.sh` → PushNotification).
+- **Alerts** — arm `aiur-monitor`'s real-time alert relay now: start `watch-alerts.sh` once via the **Monitor tool** (`persistent: true`) and post every new alert in chat (`#<ticket> · <name> · <reason>`), so the operator gets the "why" the instant the chime plays. The 5-min `tail-alerts.sh` tick stays as the floor + PushNotification. See `aiur-monitor`'s "Alert relay".
 - **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
   concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
   `max_concurrent_agents` and relaunch.

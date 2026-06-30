@@ -143,9 +143,52 @@ Rules — close every "wait to be asked" loophole (these apply to the chosen int
 ## Alert relay
 
 aiur emits ALERTs (and plays a sound) as it runs, but the operator just hears a
-random chime with no context. On **each monitor tick**, after the status table,
-also run the alert tailer and relay anything operator-actionable so they get the
-"why" the instant they hear it:
+random chime with no context. Close that with **two** relays off the same
+#651/#662 structured alert feed: an immediate in-chat post the instant an alert
+fires, and the periodic tick as a guaranteed floor.
+
+### Immediate — stream every new alert into chat (real time)
+
+Arm the streaming watcher **once per session** — at launch (the `aiur-run`
+Alerts step does this), or on your first monitor invocation if you weren't
+launched via `aiur-run` — with the **Monitor tool**, `persistent: true`:
+
+```bash
+bash .claude/skills/aiur-monitor/scripts/watch-alerts.sh
+```
+
+It reads the same per-agent `logs/agent.ndjson` files as `tail-alerts.sh` (same
+alert schema) and prints **one JSON line per NEW alert** as it lands — history
+at startup is skipped, so you only see alerts that fire after watching began:
+
+```
+{"timestamp":"...","ticket":"43","source_ticket_id":"43","agent":"43","reason":"Agent paused","severity":"warning","topic":"ticket.43.agent.paused","name":"ticket.43.agent.paused","needs_attention":true}
+```
+
+Each emitted line is one Monitor event — **post it in chat** so the operator gets
+the "why" the instant they hear the chime:
+
+```
+#<ticket> · <name> · <reason>
+```
+
+append ` — needs you` when `needs_attention` is true. Rules:
+- **Phase 1 relays ALL alerts**, not just actionable ones. The obvious switch to
+  Phase 2 (actionable only) is the env var `AIUR_ALERT_NEEDS_ATTENTION=1`, which
+  makes the watcher emit only `needs_attention:true` lines — no skill rewrite.
+- **Arm it once.** It is a persistent, long-lived stream — do NOT re-arm it on
+  every monitor tick (that would stack duplicate watchers). It tracks emitted
+  alerts in memory, so it never replays one across its lifetime.
+- This is **additive immediacy, not the status cadence.** The status table still
+  fires on the armed `/loop` timer (see "Monitoring cadence" above); the watcher
+  only adds real-time alert posts on top — it does not make the status loop
+  event-driven.
+
+### Floor — periodic tick (backstop + phone push)
+
+On **each monitor tick**, after the status table, also run the one-shot tailer so
+actionable alerts still reach the operator's phone even if the streaming watcher
+was never armed:
 
 ```bash
 bash .claude/skills/aiur-monitor/scripts/tail-alerts.sh
