@@ -379,6 +379,81 @@ defmodule Aiur.CodingAgentTest do
     test "reason falls back to the method when no detail field is present" do
       assert CodexAgent.codex_error_reason_for_test(%{"params" => %{"willRetry" => false}}, "task/error") == "task/error"
     end
+
+    test "reason reaches a codexErrorInfo detail instead of the bare method" do
+      payload = %{"params" => %{"willRetry" => false, "codexErrorInfo" => "usageLimitExceeded"}}
+      assert CodexAgent.codex_error_reason_for_test(payload, "error") == "error: usageLimitExceeded"
+    end
+
+    test "reason reaches a nested error.message detail" do
+      payload = %{"params" => %{"error" => %{"message" => "overloaded"}}}
+      assert CodexAgent.codex_error_reason_for_test(payload, "task/error") == "task/error: overloaded"
+    end
+  end
+
+  describe "codex usage-limit (quota exhausted) detection" do
+    test "a usageLimitExceeded error is detected as a quota pause" do
+      payload = %{
+        "method" => "error",
+        "params" => %{
+          "willRetry" => false,
+          "codexErrorInfo" => "usageLimitExceeded",
+          "message" => "You've hit your usage limit. Purchase more credits or try again at 11:43 PM."
+        }
+      }
+
+      assert CodexAgent.usage_limit_exceeded_for_test(payload)
+    end
+
+    test "an ordinary willRetry:false error is not a quota pause" do
+      payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}}
+      refute CodexAgent.usage_limit_exceeded_for_test(payload)
+    end
+
+    test "the reset time is extracted from the human message" do
+      payload = %{
+        "params" => %{"message" => "You've hit your usage limit. Purchase more credits or try again at 11:43 PM."}
+      }
+
+      assert CodexAgent.usage_limit_reset_hint_for_test(payload) == "11:43 PM"
+    end
+
+    test "the reset hint is nil when no try-again phrase is present" do
+      refute CodexAgent.usage_limit_reset_hint_for_test(%{"params" => %{"message" => "usageLimitExceeded"}})
+    end
+
+    test "a quota error routes to a pause carrying the reset hint, not an unretryable error" do
+      payload = %{
+        "method" => "error",
+        "params" => %{
+          "willRetry" => false,
+          "codexErrorInfo" => "usageLimitExceeded",
+          "message" => "You've hit your usage limit. Purchase more credits or try again at 11:43 PM."
+        }
+      }
+
+      assert {:paused, pause} = CodexAgent.notification_outcome_for_test("error", payload)
+      assert pause.kind == :usage_limit_exhausted
+      assert pause.reset_hint == "11:43 PM"
+      # The pause carries the real backend detail, never the opaque bare "error".
+      assert pause.reason =~ "usage limit"
+      refute pause.reason == "error"
+    end
+
+    test "an ordinary unretryable error still routes to a turn_unretryable error, not a pause" do
+      payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap: sandbox refused"}}
+
+      assert {:error, {:turn_unretryable, "error: bwrap: sandbox refused"}} =
+               CodexAgent.notification_outcome_for_test("error", payload)
+    end
+
+    test "a retryable error mentioning a usage limit is NOT a quota pause" do
+      # willRetry:true means codex will retry; pausing would strand the agent
+      # (no auto-resume), so a transient \"usage limit\" mention must not pause.
+      payload = %{"method" => "error", "params" => %{"willRetry" => true, "message" => "approaching usage limit, retrying"}}
+
+      refute CodexAgent.codex_quota_exhausted_for_test("error", payload)
+    end
   end
 
   defp open_cat_port do

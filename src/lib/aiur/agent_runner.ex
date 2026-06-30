@@ -1127,6 +1127,8 @@ defmodule Aiur.AgentRunner do
       {:paused, pause_payload} ->
         Logger.info("Paused agent run for #{issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
+        maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload)
+
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
         write_pause_log(workspace, worker_host)
         send_control_state(codex_update_recipient, issue, :paused)
@@ -1427,7 +1429,14 @@ defmodule Aiur.AgentRunner do
 
         drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
-      {:paused, _payload} ->
+      {:paused, pause_payload} ->
+        maybe_emit_usage_limit_alert(
+          issue,
+          session_workspace(app_session),
+          session_worker_host(app_session),
+          pause_payload
+        )
+
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
         write_pause_log(session_workspace(app_session), session_worker_host(app_session))
         send_control_state(codex_update_recipient, issue, :paused)
@@ -2138,6 +2147,37 @@ defmodule Aiur.AgentRunner do
       :deduped -> {:error, :event_deduped}
     end
   end
+
+  # A codex turn that died on an exhausted account quota pauses the agent
+  # (instead of burning retries into `agent:error`). Surface a clear operator
+  # alert carrying the reset time so the run can be resumed once the quota
+  # resets. Only the quota-driven pause carries `kind: :usage_limit_exhausted`;
+  # ordinary operator pauses are a no-op here.
+  defp maybe_emit_usage_limit_alert(issue, workspace, worker_host, %{kind: :usage_limit_exhausted} = pause_payload) do
+    reset_hint = pause_payload[:reset_hint]
+    backend = pause_payload[:reason]
+
+    reset_suffix = if is_binary(reset_hint), do: " (try again at #{reset_hint})", else: ""
+    backend_suffix = if is_binary(backend), do: " Backend detail: #{backend}.", else: ""
+
+    reason =
+      "Agent paused: the codex account usage quota is exhausted; retrying cannot help " <>
+        "until it resets#{reset_suffix}. Resume the agent after the quota resets.#{backend_suffix}"
+
+    Alerts.emit_system(
+      "ticket.#{issue.identifier}.agent.usage_limit_exhausted",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      reason: reason,
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    :ok
+  end
+
+  defp maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload), do: :ok
 
   defp maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do
