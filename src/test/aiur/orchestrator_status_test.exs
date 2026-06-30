@@ -3,6 +3,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.SessionHandle
 
   defmodule StartupCleanupLinearClient do
     def fetch_candidate_issues, do: {:ok, []}
@@ -219,6 +220,58 @@ defmodule Aiur.OrchestratorStatusTest do
       restore_application_env(:linear_client_module, previous_linear_client)
       restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
       restore_env("GITHUB_TOKEN", previous_github_token)
+    end
+  end
+
+  test "startup terminal cleanup clears persisted session handles" do
+    previous_github_client = Application.get_env(:aiur, :github_client_module)
+    previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
+    previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    previous_log_file = Application.get_env(:aiur, :log_file)
+    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-terminal-cleanup-#{System.unique_integer([:positive])}")
+
+    try do
+      System.put_env("GITHUB_TOKEN", "gh-test-token")
+      Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
+
+      terminal_workspace = Path.join([workspace_root, "owner", "repo", "610"])
+      File.mkdir_p!(terminal_workspace)
+      File.write!(Path.join(terminal_workspace, "dirty.txt"), "leftover")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress"],
+        tracker_terminal_states: ["done"],
+        workspace_root: workspace_root,
+        poll_interval_seconds: 60
+      )
+
+      Application.put_env(:aiur, :github_client_module, StartupCleanupGitHubClient)
+      Application.put_env(:aiur, :startup_cleanup_test_pid, self())
+
+      Application.put_env(:aiur, :startup_cleanup_issues, [
+        %Issue{id: "issue-610", identifier: "610", title: "Done", state: "done"}
+      ])
+
+      :ok = SessionHandle.save("610", %{backend: "codex", thread_id: "thread-clear"})
+
+      assert %Orchestrator.State{} =
+               Orchestrator.run_terminal_workspace_cleanup_for_test(%Orchestrator.State{})
+
+      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
+      assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
+      refute File.exists?(terminal_workspace)
+      assert :none == SessionHandle.load("610", "codex")
+    after
+      restore_application_env(:github_client_module, previous_github_client)
+      restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+      restore_application_env(:startup_cleanup_issues, previous_issues)
+      restore_application_env(:log_file, previous_log_file)
+      restore_env("GITHUB_TOKEN", previous_github_token)
+      File.rm_rf(workspace_root)
     end
   end
 
