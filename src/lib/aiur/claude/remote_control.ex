@@ -169,6 +169,23 @@ defmodule Aiur.Claude.RemoteControl do
     end
   end
 
+  @doc """
+  Absolute path of the transcript jsonl for a known claude session id in a
+  workspace's project dir (`<projects_dir>/<workspace-slug>/<session_id>.jsonl`).
+
+  The claude CLI names a session's transcript by its id, so this is the inverse
+  of `newest_transcript/3`'s filename→id read. The resume path uses it to
+  confirm a persisted session's transcript still exists before handing
+  `--resume <session_id>` to the REPL; a missing file degrades to a clean
+  start. Override `:projects_dir` for tests.
+  """
+  @spec session_transcript_path(Path.t(), String.t(), keyword()) :: Path.t()
+  def session_transcript_path(workspace, session_id, opts \\ [])
+      when is_binary(workspace) and is_binary(session_id) do
+    projects_dir = Keyword.get(opts, :projects_dir) || default_projects_dir()
+    Path.join([projects_dir, workspace_slug(workspace), session_id <> ".jsonl"])
+  end
+
   defp file_mtime(path) do
     DateTime.from_unix!(file_mtime_unix(path))
   end

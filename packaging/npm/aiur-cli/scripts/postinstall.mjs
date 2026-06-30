@@ -23,14 +23,15 @@ import path from "node:path";
 
 // Pinned opencode version, read from package.json `opencodeVersion` (single
 // source of truth — keep in sync with mise.toml). aiur's opencode pane
-// integration is validated against this version; 1.17.x broke custom-provider
-// model resolution (ProviderModelNotFoundError), blanking the chat panes.
+// integration is validated end-to-end against this exact version; floating to
+// `latest` would adopt an unverified opencode that could regress custom-provider
+// model resolution or the chat panes, so the spec must carry a fixed version.
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 export const OPENCODE_PACKAGE = `opencode-ai@${pkg.opencodeVersion}`;
 
 // True only when the *pinned* opencode version is on PATH. A wrong (e.g.
-// newer) version must be reinstalled — leaving 1.17.x in place keeps the
-// panes broken — so a mere presence check isn't enough.
+// newer, unverified) version must be reinstalled to the pin — so a mere
+// presence check isn't enough.
 export function opencodeMatchesPin() {
   const result = spawnSync("opencode", ["--version"], { encoding: "utf8" });
   return !result.error && result.status === 0 && result.stdout.trim() === pkg.opencodeVersion;

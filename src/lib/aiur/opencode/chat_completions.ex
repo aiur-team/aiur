@@ -798,6 +798,12 @@ defmodule Aiur.Opencode.ChatCompletions do
   # so we forward only the operator's genuine text — exactly what Claude's
   # Remote Control channel delivers — and opencode input is consumed like RC.
   #
+  # opencode 1.17.10 (the pinned version) no longer emits this user-message
+  # wrapper (verified absent from the binary): the scan below then finds no
+  # match and the generic system-reminder strip + raw passthrough branches
+  # carry the operator's text. The extraction is kept because it stays correct
+  # for any opencode that still wraps and guards the #332 silent drop.
+  #
   # The pattern is intentionally NOT `\A..\z`-anchored: opencode also emits its
   # own `<system-reminder>` scaffolding (cwd/file/selection/goal) and can fold
   # several queued messages into one batch, so a real payload carries the

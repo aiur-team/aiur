@@ -28,6 +28,35 @@ defmodule Aiur.Claude.RemoteControlTest do
     end
   end
 
+  describe "session_transcript_path/3" do
+    test "builds <projects_dir>/<workspace-slug>/<session_id>.jsonl" do
+      assert RemoteControl.session_transcript_path("/ws/aiur/613", "abc-123", projects_dir: "/p") ==
+               "/p/-ws-aiur-613/abc-123.jsonl"
+    end
+
+    test "round-trips with newest_transcript's filename->id read" do
+      # The claude CLI names a session's transcript by its id, so resolving the
+      # newest transcript and rebuilding its path from the parsed id must point
+      # back at the same file (the resume existence-check relies on this).
+      dir = Path.join(System.tmp_dir!(), "rc-session-path-#{System.unique_integer([:positive])}")
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      workspace = "/ws/aiur/613"
+      slug_dir = Path.join(dir, RemoteControl.workspace_slug(workspace))
+      File.mkdir_p!(slug_dir)
+      transcript = Path.join(slug_dir, "session-xyz.jsonl")
+      File.write!(transcript, ~s({"cwd":"#{workspace}"}\n))
+
+      session_id =
+        slug_dir
+        |> RemoteControl.newest_transcript(workspace)
+        |> Path.basename()
+        |> Path.rootname()
+
+      assert RemoteControl.session_transcript_path(workspace, session_id, projects_dir: dir) == transcript
+    end
+  end
+
   describe "ensure_workspace_trusted/2" do
     setup do
       path = Path.join(System.tmp_dir!(), "claude-#{System.unique_integer([:positive])}.json")

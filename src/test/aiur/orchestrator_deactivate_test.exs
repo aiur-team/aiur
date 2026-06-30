@@ -1942,7 +1942,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:00:00Z"}
@@ -1952,6 +1952,69 @@ defmodule Aiur.OrchestratorDeactivateTest do
                         topic: "ticket.57.pr.review_comment",
                         source: :github,
                         message: "same-whale transfers should stay sequential"
+                      }},
+                     500
+    after
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end
+
+    test "direct comment poll watches merging issues without running entries (#696)" do
+      # The comment listener must cover merging tickets too, not only
+      # human-review, so a reviewer's last-minute comment during merge is seen
+      # and can promote the ticket to rework — independent of `active_states`.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      issue = %Issue{id: "63", identifier: "63", state: "merging"}
+      :ok = Exchange.subscribe("ticket.63.issue.commented")
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/63/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => 6301,
+                   "body" => "hold the merge — please revert the rename",
+                   "updated_at" => "2026-06-24T12:00:00Z",
+                   "user" => %{"login" => "its-everdred"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: []}}
+        end
+      end
+
+      state = %Orchestrator.State{
+        running: %{},
+        github_comments_since: "2026-06-24T11:00:00Z"
+      }
+
+      next =
+        Orchestrator.poll_github_comments_for_test(state,
+          repo: "owner/repo",
+          request_fun: request_fun,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
+        )
+
+      assert next.github_comments_since == %{"63" => "2026-06-24T11:59:59Z"}
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.63.issue.commented",
+                        source: :github,
+                        message: "hold the merge — please revert the rename"
                       }},
                      500
     after
@@ -2033,7 +2096,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, [human_review_issue]} end
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [human_review_issue]} end
         )
 
       assert next.github_comments_since == %{
@@ -2099,7 +2162,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, issues} end,
           human_review_comment_target_limit: 2,
           max_concurrency: 1
         )
@@ -2165,7 +2228,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
@@ -2224,7 +2287,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, [issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end,
           review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
         )
 
@@ -2283,7 +2346,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, issues} end,
           human_review_comment_target_limit: 1,
           max_concurrency: 1
         )
@@ -2361,7 +2424,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, [human_review_issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [human_review_issue]} end,
           max_concurrency: 1
         )
 
@@ -2424,7 +2487,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:error, :tracker_down} end
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:error, :tracker_down} end
         )
 
       assert next.github_comments_since == "2026-06-24T11:00:00Z"
@@ -2477,6 +2540,144 @@ defmodule Aiur.OrchestratorDeactivateTest do
           Application.delete_env(:aiur, :memory_tracker_recipient)
         end
       end
+    end
+  end
+
+  describe "idle review comment auto-promote to rework (no running entry) (#696)" do
+    # The live #696 symptom was an `agent:human-review` ticket with no running
+    # agent whose trusted reviewer comment was logged as
+    # "issue comment ignored for idle issue". These drive the idle path —
+    # `handle_info({:event, ...})` with an empty `running` map →
+    # `maybe_transition_idle_issue_to_rework` — across the three acceptance
+    # scenarios: trusted promotes to rework; untrusted and the bot's own
+    # comment do not (no self-trigger loop).
+    setup do
+      previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+      previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+      on_exit(fn ->
+        restore_application_env(:memory_tracker_recipient, previous_recipient)
+        restore_application_env(:memory_tracker_issues, previous_issues)
+      end)
+
+      :ok
+    end
+
+    test "a trusted comment on a human-review ticket transitions it to rework" do
+      issue_identifier = "70"
+
+      Application.put_env(:aiur, :memory_tracker_issues, [
+        %Issue{
+          id: issue_identifier,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR up for review",
+          description: "",
+          labels: []
+        }
+      ])
+
+      {:noreply, _next} =
+        Orchestrator.handle_info(
+          {:event,
+           %{
+             topic: "ticket.#{issue_identifier}.issue.commented",
+             author_trusted?: true,
+             comment: %{body: "Please rename the helper to decode_frame/1"}
+           }},
+          empty_orchestrator_state()
+        )
+
+      assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+    end
+
+    test "a trusted comment on a merging ticket transitions it to rework" do
+      # #696's merging extension: a last-minute "actually, change this" comment
+      # during merge must promote the idle ticket too, not only human-review.
+      issue_identifier = "73"
+
+      Application.put_env(:aiur, :memory_tracker_issues, [
+        %Issue{
+          id: issue_identifier,
+          identifier: issue_identifier,
+          state: "merging",
+          title: "PR mid-merge",
+          description: "",
+          labels: []
+        }
+      ])
+
+      {:noreply, _next} =
+        Orchestrator.handle_info(
+          {:event,
+           %{
+             topic: "ticket.#{issue_identifier}.issue.commented",
+             author_trusted?: true,
+             comment: %{body: "hold the merge — please revert the rename"}
+           }},
+          empty_orchestrator_state()
+        )
+
+      assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+    end
+
+    test "an untrusted comment is ignored (no transition)" do
+      issue_identifier = "71"
+
+      Application.put_env(:aiur, :memory_tracker_issues, [
+        %Issue{id: issue_identifier, identifier: issue_identifier, state: "human-review"}
+      ])
+
+      log =
+        capture_log(fn ->
+          {:noreply, _next} =
+            Orchestrator.handle_info(
+              {:event,
+               %{
+                 topic: "ticket.#{issue_identifier}.issue.commented",
+                 author_trusted?: false,
+                 comment: %{body: "drive-by comment from a stranger"}
+               }},
+              empty_orchestrator_state()
+            )
+        end)
+
+      refute_receive {:memory_tracker_state_update, _, "rework"}, 100
+      assert log =~ "issue comment ignored for idle issue"
+      assert log =~ ":untrusted_author"
+    end
+
+    test "the bot's own '[codex] review passed' comment does not self-trigger rework" do
+      issue_identifier = "72"
+
+      Application.put_env(:aiur, :memory_tracker_issues, [
+        %Issue{id: issue_identifier, identifier: issue_identifier, state: "human-review"}
+      ])
+
+      log =
+        capture_log(fn ->
+          {:noreply, _next} =
+            Orchestrator.handle_info(
+              {:event,
+               %{
+                 topic: "ticket.#{issue_identifier}.issue.commented",
+                 author_trusted?: true,
+                 comment: %{body: "[codex] Review passed for commit abc123"}
+               }},
+              empty_orchestrator_state()
+            )
+        end)
+
+      refute_receive {:memory_tracker_state_update, _, "rework"}, 100
+      assert log =~ ":benign_review_pass_comment"
     end
   end
 
@@ -2538,7 +2739,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
         )
 
@@ -2611,7 +2812,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           repo: "owner/repo",
           request_fun: request_fun,
           max_concurrency: 1,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [healthy_pr, flaky_pr]} end
         )
 
@@ -2673,7 +2874,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             request_fun: request_fun,
             max_concurrency: 1,
             watch_comment_target_limit: 2,
-            review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+            review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
             watch_pull_request_fetcher: fn "agent:watch" ->
               {:ok, open_prs ++ [merged_pr, closed_pr]}
             end
@@ -2720,7 +2921,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Orchestrator.poll_github_comments_for_test(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn _label ->
             send(parent, :unexpected_watch_fetch)
             {:ok, []}
@@ -4237,6 +4438,29 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       # The pr-<pr#> workspace is gone — no orphan left behind.
       refute File.exists?(pr_workspace)
+    end
+
+    test "a PR-anchored agent whose PR closed clears its persisted resume handle",
+         %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      # claude-repl is resumable (#613): without clearing on a closed PR, a
+      # reopened PR would `--resume` the finished thread. The handle is keyed by
+      # the PR-number identifier the agent session persisted under (here "77"),
+      # not the `pr-77` running-map key.
+      :ok = SessionHandle.save("77", %{backend: "claude-repl", thread_id: "session-xyz"})
+      assert {:ok, %{thread_id: "session-xyz"}} = SessionHandle.load("77", "claude-repl")
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+        # {:ok, nil} == closed/merged/missing PR.
+        open_pull_request_fetcher: fn "77" -> {:ok, nil} end
+      )
+
+      # The closed-PR teardown is terminal for this unit, so the handle is gone.
+      assert :none == SessionHandle.load("77", "claude-repl")
     end
 
     test "a PR-anchored agent whose PR is still open is NOT terminated", %{test_root: test_root} do
