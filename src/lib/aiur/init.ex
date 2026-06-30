@@ -109,11 +109,13 @@ defmodule Aiur.Init do
           detect_repo: (-> String.t() | nil),
           detect_toolchain: (-> Detect.result()),
           prewarm_build: (String.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
+          global_alerts_path: (-> Path.t()),
+          existing_alerts_path: (Path.t() -> String.t() | nil),
           write_config: (Path.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           append_config: (Path.t(), iodata() -> {:ok, Path.t()} | {:error, term()}),
           ensure_prompt_file: (Path.t(), String.t(), String.t() | nil -> {:created | :exists, Path.t()}),
           ensure_aiurhooks: (Path.t() -> {:created | :exists, Path.t()}),
-          ensure_alerts: (Path.t() -> {:created | :exists, Path.t()}),
+          ensure_alerts: (Path.t(), Path.t() | nil -> {:created | :exists, Path.t()}),
           ensure_prewarm_file: (Path.t(), String.t() -> {:created | :exists, Path.t()}),
           add_gitignore_entry: (String.t() -> {:added | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
@@ -272,7 +274,7 @@ defmodule Aiur.Init do
     # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
     prewarm = prompt_prewarm(io, deps, location)
-    alerts = prompt_alerts(io)
+    alerts = prompt_alerts(io, deps, target)
 
     fills =
       build_fills(%{
@@ -298,7 +300,7 @@ defmodule Aiur.Init do
         io.puts.(["Created: ", dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         ensure_aiurhooks(io, deps, path)
-        ensure_alerts(io, deps, path)
+        ensure_alerts(io, deps, path, alerts)
         ensure_prewarm_file(io, deps, path, prewarm)
         setup_env(io, deps, tracker)
         maybe_offer_gitignore(io, deps, location)
@@ -971,7 +973,7 @@ defmodule Aiur.Init do
   # `.aiur/alerts`; the map is only consulted when OS-default sounds are off.
   # Sounds are machine-level, so this is offered for global configs too (unlike
   # prewarm, which is per-repo).
-  defp prompt_alerts(io) do
+  defp prompt_alerts(io, deps, target) do
     if io.confirm.("Add sound effects for alerts (e.g. an agent is stuck or needs your input)?", false) do
       io.puts.([
         "aiur scaffolds an editable ",
@@ -979,10 +981,28 @@ defmodule Aiur.Init do
         " map so you can set a custom sound per event."
       ])
 
+      source_path = prompt_reuse_global_alerts(io, deps, target)
       use_os = io.confirm.("Use the built-in OS default sounds? (No = play the custom .aiur/alerts mapping)", true)
-      %{enabled: true, use_os_default_sounds: use_os}
+      %{enabled: true, use_os_default_sounds: use_os, source_path: source_path}
     else
-      %{enabled: false, use_os_default_sounds: false}
+      %{enabled: false, use_os_default_sounds: false, source_path: nil}
+    end
+  end
+
+  defp prompt_reuse_global_alerts(io, deps, _target) do
+    source = deps.global_alerts_path.()
+
+    case deps.existing_alerts_path.(source) do
+      nil ->
+        nil
+
+      path ->
+        if io.confirm.(
+             "Found an existing alerts file at ~/.aiur/alerts — copy it into this repo's .aiur/alerts?",
+             true
+           ) do
+          path
+        end
     end
   end
 
@@ -1073,8 +1093,8 @@ defmodule Aiur.Init do
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
   # so make sure `.aiur/alerts` exists (created from alerts.example). Never clobber
   # an existing one — the operator may have tuned the topic→sound map.
-  defp ensure_alerts(io, deps, target) do
-    case deps.ensure_alerts.(target) do
+  defp ensure_alerts(io, deps, target, alerts) do
+    case deps.ensure_alerts.(target, alerts.source_path) do
       {:created, path} -> io.puts.(["Created: ", dim(path)])
       {:exists, _path} -> :ok
     end
@@ -1439,11 +1459,13 @@ defmodule Aiur.Init do
       detect_repo: &detect_repo/0,
       detect_toolchain: &detect_toolchain/0,
       prewarm_build: &run_first_prewarm/2,
+      global_alerts_path: &global_alerts_path/0,
+      existing_alerts_path: &existing_alerts_path/1,
       write_config: &write_config/2,
       append_config: &append_config_section/2,
       ensure_prompt_file: &write_prompt_file/3,
       ensure_aiurhooks: &write_aiurhooks/1,
-      ensure_alerts: &write_alerts_file/1,
+      ensure_alerts: &write_alerts_file/2,
       ensure_prewarm_file: &write_prewarm_file/2,
       add_gitignore_entry: &add_gitignore_entry/1,
       ensure_env: &ensure_env/1,
@@ -1461,8 +1483,14 @@ defmodule Aiur.Init do
   defp legacy_config_target(:global), do: Path.expand("~/" <> @legacy_config_file_name)
   defp legacy_config_target(_location), do: Path.join(File.cwd!(), @legacy_config_file_name)
 
+  defp global_alerts_path, do: Path.expand("~/.aiur/" <> @alerts_file_name)
+
   defp existing_config_path(target) do
     if File.regular?(target), do: target
+  end
+
+  defp existing_alerts_path(path) do
+    if File.regular?(path), do: path
   end
 
   defp load_config(target) do
@@ -1519,16 +1547,31 @@ defmodule Aiur.Init do
     end
   end
 
-  defp write_alerts_file(target) do
+  defp write_alerts_file(target, source_path) do
     path = Path.join(Path.dirname(target), @alerts_file_name)
 
     if File.regular?(path) do
       {:exists, path}
     else
-      File.write!(path, @alerts_example_template)
+      write_new_alerts_file(path, source_path)
+    end
+  end
+
+  defp write_new_alerts_file(path, source_path) when is_binary(source_path) do
+    if same_path?(path, source_path) do
+      {:exists, path}
+    else
+      File.cp!(source_path, path)
       {:created, path}
     end
   end
+
+  defp write_new_alerts_file(path, _source_path) do
+    File.write!(path, @alerts_example_template)
+    {:created, path}
+  end
+
+  defp same_path?(left, right), do: Path.expand(left) == Path.expand(right)
 
   defp write_prewarm_file(target, command) do
     path = Path.join(Path.dirname(target), @prewarm_file_name)
