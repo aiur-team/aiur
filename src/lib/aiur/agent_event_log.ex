@@ -68,6 +68,10 @@ defmodule Aiur.AgentEventLog do
   defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp json_safe(%{} = value), do: Map.new(value, fn {key, val} -> {json_safe_key(key), json_safe(val)} end)
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  # Tuples (e.g. a `{:port_exit, 1}` crash reason) are not JSON-encodable and
+  # would otherwise make `Jason.encode!/1` raise — swallowed by the rescue in
+  # `write/3`, so the crash detail never persists. Encode them as a list.
+  defp json_safe(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_safe()
   defp json_safe(nil), do: nil
   defp json_safe(value) when is_boolean(value), do: value
   defp json_safe(value) when is_atom(value), do: Atom.to_string(value)

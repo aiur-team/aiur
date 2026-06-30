@@ -3919,6 +3919,8 @@ defmodule Aiur.Orchestrator do
         severity: "warning"
       )
 
+      move_exhausted_issue_to_error_state(identifier)
+
       %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}
     else
       delay_ms = retry_delay(next_attempt, metadata)
@@ -3962,6 +3964,24 @@ defmodule Aiur.Orchestrator do
   defp failure_retry?(metadata) when is_map(metadata) do
     Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait, :precondition]
   end
+
+  # On genuine retry exhaustion, surface the ticket in an operator-visible
+  # state instead of silently leaving it in `rework` with no live agent (#699).
+  # `error` ("agent hit an error") is a valid state in neither the active nor
+  # the terminal set, so it does not get auto-redispatched. Best-effort: a
+  # failed tracker write must not crash the orchestrator.
+  defp move_exhausted_issue_to_error_state(identifier) when is_binary(identifier) do
+    case Tracker.update_issue_state(identifier, "error") do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp move_exhausted_issue_to_error_state(_identifier), do: :ok
 
   defp log_scheduled_retry(
          issue_id,

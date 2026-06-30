@@ -120,6 +120,24 @@ defmodule Aiur.AgentEventLogTest do
       assert ndjson =~ ~s("nested":[1,"two",null])
     end
 
+    test "persists a tuple crash reason (e.g. {:port_exit, N}) as a JSON list" do
+      # Regression for #708/#699: a `{:port_exit, 1}` reason is not
+      # JSON-encodable, so `Jason.encode!` used to raise and the rescue
+      # swallowed the whole record — the crash detail never reached
+      # agent.ndjson. The tuple must now round-trip as a list.
+      workspace = tmp_workspace()
+
+      assert :ok =
+               AgentEventLog.write(workspace, nil, %{
+                 event: "turn_ended_with_error",
+                 reason: {:port_exit, 1}
+               })
+
+      ndjson = File.read!(Path.join(workspace, "logs/agent.ndjson"))
+      assert ndjson =~ ~s("event":"turn_ended_with_error")
+      assert ndjson =~ ~s("reason":["port_exit",1])
+    end
+
     test "accepts a binary timestamp string in the message and renders it unchanged" do
       workspace = tmp_workspace()
 
