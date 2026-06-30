@@ -2599,6 +2599,36 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
     end
 
+    test "a trusted comment on a merging ticket transitions it to rework" do
+      # #696's merging extension: a last-minute "actually, change this" comment
+      # during merge must promote the idle ticket too, not only human-review.
+      issue_identifier = "73"
+
+      Application.put_env(:aiur, :memory_tracker_issues, [
+        %Issue{
+          id: issue_identifier,
+          identifier: issue_identifier,
+          state: "merging",
+          title: "PR mid-merge",
+          description: "",
+          labels: []
+        }
+      ])
+
+      {:noreply, _next} =
+        Orchestrator.handle_info(
+          {:event,
+           %{
+             topic: "ticket.#{issue_identifier}.issue.commented",
+             author_trusted?: true,
+             comment: %{body: "hold the merge — please revert the rename"}
+           }},
+          empty_orchestrator_state()
+        )
+
+      assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+    end
+
     test "an untrusted comment is ignored (no transition)" do
       issue_identifier = "71"
 
