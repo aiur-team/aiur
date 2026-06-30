@@ -4100,34 +4100,36 @@ defmodule Aiur.OrchestratorDeactivateTest do
         retry_attempts: %{issue_a.id => %{attempt: 1}, issue_b.id => %{attempt: 1}}
       }
 
-      next =
-        Orchestrator.apply_system_branch_push_for_test(state, "main", %{
-          sha: "abc123"
-        })
+      try do
+        next =
+          Orchestrator.apply_system_branch_push_for_test(state, "main", %{
+            sha: "abc123"
+          })
 
-      # No agent is terminated — the kill-on-merge fleet thrash is gone. Each
-      # agent is notified via its own system.<base>.branch.push subscription and
-      # keeps its in-flight turn.
-      assert Map.has_key?(next.running, issue_a.id)
-      assert Map.has_key?(next.running, issue_b.id)
-      assert Map.has_key?(next.running, issue_paused.id)
+        # No agent is terminated — the kill-on-merge fleet thrash is gone. Each
+        # agent is notified via its own system.<base>.branch.push subscription and
+        # keeps its in-flight turn.
+        assert Map.has_key?(next.running, issue_a.id)
+        assert Map.has_key?(next.running, issue_b.id)
+        assert Map.has_key?(next.running, issue_paused.id)
 
-      # Claims and retry bookkeeping survive — nothing is released or
-      # re-dispatched.
-      assert MapSet.member?(next.claimed, issue_a.id)
-      assert MapSet.member?(next.claimed, issue_b.id)
-      assert MapSet.member?(next.claimed, issue_paused.id)
-      assert Map.has_key?(next.retry_attempts, issue_a.id)
-      assert Map.has_key?(next.retry_attempts, issue_b.id)
+        # Claims and retry bookkeeping survive — nothing is released or
+        # re-dispatched.
+        assert MapSet.member?(next.claimed, issue_a.id)
+        assert MapSet.member?(next.claimed, issue_b.id)
+        assert MapSet.member?(next.claimed, issue_paused.id)
+        assert Map.has_key?(next.retry_attempts, issue_a.id)
+        assert Map.has_key?(next.retry_attempts, issue_b.id)
 
-      # The agent tasks are still alive (no brutal kill).
-      assert Process.alive?(pid_a)
-      assert Process.alive?(pid_b)
-      assert Process.alive?(pid_paused)
-
-      Process.exit(pid_a, :kill)
-      Process.exit(pid_b, :kill)
-      Process.exit(pid_paused, :kill)
+        # The agent tasks are still alive (no brutal kill).
+        assert Process.alive?(pid_a)
+        assert Process.alive?(pid_b)
+        assert Process.alive?(pid_paused)
+      after
+        Process.exit(pid_a, :kill)
+        Process.exit(pid_b, :kill)
+        Process.exit(pid_paused, :kill)
+      end
     end
 
     test "non-default system branch push leaves active agents running" do

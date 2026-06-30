@@ -1909,6 +1909,48 @@ defmodule Aiur.OrchestratorStatusTest do
             }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-PAUSED")
   end
 
+  test "system default-branch push does not interrupt a working agent mid-turn" do
+    orchestrator_name = Module.concat(__MODULE__, :WorkingMainPushOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      ActiveTurns.mark_closed("MT-MAIN-WORK", "turn-active", :test_cleanup)
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+    :ok = ActiveTurns.put("MT-MAIN-WORK", "turn-active")
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-main-work" => running_entry("issue-main-work", "MT-MAIN-WORK", :working, worker_pid)
+          }
+      }
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-MAIN-WORK",
+               %{topic: "system.main.branch.push", sha: "abc123", message: "main advanced"}
+             })
+
+    # The headline acceptance criterion: a main update never interrupts an
+    # in-flight turn. The notice is queued NON-interrupting and seen at the next
+    # turn boundary, leaving whether/when to pull main to the agent.
+    assert_receive {:agent_queue_updated, "MT-MAIN-WORK", item_id, false}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: false, priority: :later}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-WORK")
+  end
+
   test "event digest wakes a running agent with no active turn" do
     orchestrator_name = Module.concat(__MODULE__, :IdleEventDigestOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
