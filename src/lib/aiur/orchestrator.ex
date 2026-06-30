@@ -55,6 +55,13 @@ defmodule Aiur.Orchestrator do
   # label can render before the poll finishes.
   @poll_transition_render_delay_ms 20
   @human_review_state "human-review"
+  @merging_state "merging"
+  # Non-active review states whose idle tickets the comment listener still polls
+  # so a trusted reviewer comment promotes them to `rework`, independent of the
+  # configured `active_states`. `human-review` is the primary review stage;
+  # `merging` covers a last-minute "actually, change this" before the merge lands
+  # (and keeps coverage in configs where `merging` is not an active state).
+  @comment_poll_review_states [@human_review_state, @merging_state]
   # Sentinel state for synthetic PR-anchored work units (watched/commanded human
   # PRs). Deliberately NOT a tracker active/terminal state: a PR-anchored unit is
   # dispatched directly (slot-capped) and never flows through reconcile/label
@@ -1961,10 +1968,14 @@ defmodule Aiur.Orchestrator do
     |> normalize_comment_targets()
   end
 
+  # Discovers idle (non-running) tickets in the comment-actionable review states
+  # (`human-review` + `merging`) and turns each into a comment poll target, so a
+  # trusted reviewer comment on them is seen and promotes the ticket to `rework`
+  # even though those states are not in `active_states`.
   defp human_review_comment_poll_targets(%State{} = state, opts) do
     fetcher = Keyword.get(opts, :review_issue_fetcher, &Tracker.fetch_issues_by_states/1)
 
-    case fetcher.([@human_review_state]) do
+    case fetcher.(@comment_poll_review_states) do
       {:ok, issues} when is_list(issues) ->
         targets =
           issues
