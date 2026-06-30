@@ -18,18 +18,19 @@ defmodule Aiur.InitTest do
     "ticket.*.issue.state.changed",
     "system.dispatch.todo_capacity_exceeded",
     "ticket.*.agent.error.tokens_exhausted",
+    "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.paused",
     "ticket.*.agent.unpaused",
     "ticket.*.chat.opened",
     "ticket.*.chat.closed",
-    "ticket.*.agent.brainstorm.start",
-    "ticket.*.agent.brainstorm.end",
-    "ticket.*.agent.plan.start",
-    "ticket.*.agent.plan.end",
-    "ticket.*.agent.work.start",
-    "ticket.*.agent.work.end",
-    "ticket.*.agent.review.start",
-    "ticket.*.agent.review.end"
+    "ticket.*.agent.phase.brainstorm.start",
+    "ticket.*.agent.phase.brainstorm.end",
+    "ticket.*.agent.phase.plan.start",
+    "ticket.*.agent.phase.plan.end",
+    "ticket.*.agent.phase.work.start",
+    "ticket.*.agent.phase.work.end",
+    "ticket.*.agent.phase.review.start",
+    "ticket.*.agent.phase.review.end"
   ]
 
   setup do
@@ -532,6 +533,12 @@ defmodule Aiur.InitTest do
         assert template =~ "AI-powered alerts"
         refute template =~ "Sound filenames"
         refute template =~ "Topic / glob matching"
+
+        # Phase milestones publish as `ticket.<id>.agent.phase.<phase>.<edge>`
+        # (agent_runner prefixes the bare `phase.work.start` name). The glob must
+        # carry the `.phase.` segment or the sound never fires.
+        assert template =~ "ticket.*.agent.phase.work.start"
+        refute template =~ ~r/"ticket\.\*\.agent\.work\.start"/
       end
 
       assert_filled_alert_template(macos, ~r{\A/System/Library/Sounds/.+\.aiff\z})

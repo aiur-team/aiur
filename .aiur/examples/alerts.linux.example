@@ -38,6 +38,10 @@ alerts:
     message: Agent ran out of tokens
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+  "ticket.*.agent.retry_exhausted":
+    message: Agent retry budget exhausted
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:
@@ -56,35 +60,35 @@ alerts:
       - "/usr/share/sounds/freedesktop/stereo/service-logout.oga"
 
   # ---------- AI-powered alerts (workflow phase milestones) --------------
-  "ticket.*.agent.brainstorm.start":
+  "ticket.*.agent.phase.brainstorm.start":
     message: Entered brainstorm
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
-  "ticket.*.agent.brainstorm.end":
+  "ticket.*.agent.phase.brainstorm.end":
     message: Exited brainstorm
     sound:
       - "/usr/share/sounds/freedesktop/stereo/complete.oga"
-  "ticket.*.agent.plan.start":
+  "ticket.*.agent.phase.plan.start":
     message: Entered planning
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
-  "ticket.*.agent.plan.end":
+  "ticket.*.agent.phase.plan.end":
     message: Exited planning
     sound:
       - "/usr/share/sounds/freedesktop/stereo/complete.oga"
-  "ticket.*.agent.work.start":
+  "ticket.*.agent.phase.work.start":
     message: Entered implementation
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
-  "ticket.*.agent.work.end":
+  "ticket.*.agent.phase.work.end":
     message: Exited implementation
     sound:
       - "/usr/share/sounds/freedesktop/stereo/complete.oga"
-  "ticket.*.agent.review.start":
+  "ticket.*.agent.phase.review.start":
     message: Entered review
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
-  "ticket.*.agent.review.end":
+  "ticket.*.agent.phase.review.end":
     message: Exited review
     sound:
       - "/usr/share/sounds/freedesktop/stereo/complete.oga"

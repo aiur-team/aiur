@@ -38,6 +38,10 @@ alerts:
     message: Agent ran out of tokens
     sound:
       - "/System/Library/Sounds/Sosumi.aiff"
+  "ticket.*.agent.retry_exhausted":
+    message: Agent retry budget exhausted
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
   "ticket.*.agent.paused":
     message: Agent paused
     sound:
@@ -56,35 +60,35 @@ alerts:
       - "/System/Library/Sounds/Bottle.aiff"
 
   # ---------- AI-powered alerts (workflow phase milestones) --------------
-  "ticket.*.agent.brainstorm.start":
+  "ticket.*.agent.phase.brainstorm.start":
     message: Entered brainstorm
     sound:
       - "/System/Library/Sounds/Tink.aiff"
-  "ticket.*.agent.brainstorm.end":
+  "ticket.*.agent.phase.brainstorm.end":
     message: Exited brainstorm
     sound:
       - "/System/Library/Sounds/Glass.aiff"
-  "ticket.*.agent.plan.start":
+  "ticket.*.agent.phase.plan.start":
     message: Entered planning
     sound:
       - "/System/Library/Sounds/Morse.aiff"
-  "ticket.*.agent.plan.end":
+  "ticket.*.agent.phase.plan.end":
     message: Exited planning
     sound:
       - "/System/Library/Sounds/Glass.aiff"
-  "ticket.*.agent.work.start":
+  "ticket.*.agent.phase.work.start":
     message: Entered implementation
     sound:
       - "/System/Library/Sounds/Blow.aiff"
-  "ticket.*.agent.work.end":
+  "ticket.*.agent.phase.work.end":
     message: Exited implementation
     sound:
       - "/System/Library/Sounds/Hero.aiff"
-  "ticket.*.agent.review.start":
+  "ticket.*.agent.phase.review.start":
     message: Entered review
     sound:
       - "/System/Library/Sounds/Bottle.aiff"
-  "ticket.*.agent.review.end":
+  "ticket.*.agent.phase.review.end":
     message: Exited review
     sound:
       - "/System/Library/Sounds/Frog.aiff"
