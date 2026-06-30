@@ -1,13 +1,13 @@
 defmodule Aiur.AiurAlertWatchSkillTest do
   @moduledoc """
   Guards the aiur-monitor real-time alert watcher (`watch-alerts.sh`): the
-  immediacy half of the alert relay. Where `tail-alerts.sh` is a one-shot
-  snapshot relayed on the 5-minute status tick, this script is long-lived and
+  immediacy half of the alert relay. Where `aiurdev watch` is a one-shot board
+  pull relayed on the 5-minute status tick, this script is long-lived and
   streams one structured line per NEW alert as it lands, so the operator agent
   can post the "why" in chat in near real time.
 
-  It reads the SAME #651/#662 per-agent `logs/agent.ndjson` feed as
-  `tail-alerts.sh`, and tracks per-file alert-line counts in memory so it only
+  It reads the SAME #651/#662 per-agent `logs/agent.ndjson` feed as the alert
+  board, and tracks per-file alert-line counts in memory so it only
   emits alerts that fire after watching began (history is skipped unless
   `AIUR_ALERT_RELAY_BACKLOG=1`).
 

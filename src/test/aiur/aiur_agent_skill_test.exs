@@ -142,7 +142,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert String.contains?(run_skill, "iarc run")
     assert String.contains?(status_skill, "iarc status")
     assert String.contains?(status_skill, "aiur status")
-    assert String.contains?(status_skill, "tail-agents.sh")
+    assert String.contains?(status_skill, "aiurdev watch")
 
     for skill <- [run_skill, status_skill] do
       assert String.contains?(skill, "iarc")

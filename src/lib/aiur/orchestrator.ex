@@ -4384,6 +4384,12 @@ defmodule Aiur.Orchestrator do
     end
   end
 
+  # Highest `complexity:N` label on the issue (nil when unlabelled). Reused by
+  # the status rows so `aiur watch` can render the cx column without a tracker
+  # round-trip — the issue is already in memory.
+  defp issue_complexity(%Issue{} = issue), do: CodingAgent.complexity_level(issue)
+  defp issue_complexity(_issue), do: nil
+
   defp agent_statuses(%State{} = state) do
     now = DateTime.utc_now()
 
@@ -4418,7 +4424,11 @@ defmodule Aiur.Orchestrator do
       workspace_path: Map.get(entry, :workspace_path),
       session_id: Map.get(entry, :session_id),
       runtime_seconds: running_seconds(Map.get(entry, :started_at), now),
-      queue_depth: queue_depth_for_issue(state, identifier)
+      queue_depth: queue_depth_for_issue(state, identifier),
+      complexity: issue_complexity(issue),
+      last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
+      last_codex_message: Map.get(entry, :last_codex_message),
+      last_codex_event: Map.get(entry, :last_codex_event)
     }
   end
 
@@ -4449,7 +4459,11 @@ defmodule Aiur.Orchestrator do
       workspace_path: nil,
       session_id: nil,
       runtime_seconds: 0,
-      queue_depth: idle_queue_depth(state, identifier)
+      queue_depth: idle_queue_depth(state, identifier),
+      complexity: issue_complexity(issue),
+      last_codex_timestamp: nil,
+      last_codex_message: nil,
+      last_codex_event: nil
     }
   end
 

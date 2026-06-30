@@ -3,26 +3,26 @@
 # Stream NEW aiur ALERT events out of every active agent's structured NDJSON log,
 # one JSON line per alert, as they fire — so the operator agent running aiur can
 # post the "why" in chat in near real time instead of waiting for the 5-minute
-# status tick. This is the immediacy half of the alert relay; tail-alerts.sh
-# remains the periodic floor/backstop.
+# status tick. This is the immediacy half of the alert relay; `aiurdev watch`'s
+# ACTIONABLE section is the periodic floor/backstop.
 #
-# Unlike tail-alerts.sh (a one-shot snapshot), this is LONG-LIVED: it keeps
+# Unlike a one-shot board snapshot, this is LONG-LIVED: it keeps
 # running and prints each new alert as it lands. Drive it from the operator
 # agent's harness as a streaming background watch (the Monitor tool) so every
 # printed line becomes one in-chat notification. It never drives the status
 # cadence (that stays an armed /loop), so it does not violate the monitor skill's
 # "armed timer, not passive event-waiting" cadence rule — it only adds immediacy
-# to alerts, which the periodic tail-alerts.sh tick still catches as a floor.
+# to alerts, which the periodic `aiurdev watch` tick still catches as a floor.
 #
-# Reuses the #651/#662 structured alert feed: it reads the SAME per-agent
-# logs/agent.ndjson files tail-alerts.sh reads and the same alert schema
+# Reuses the #651/#662 structured alert feed: it reads each active agent's
+# logs/agent.ndjson and the same alert schema
 #   {"event":"alert","timestamp":"...","name":"ticket.43.agent.paused",
 #    "reason":"Agent paused","severity":"warning","needs_attention":true,
 #    "source_ticket_id":"43",...}
 # The central alerts.ndjson is written only for remote worker_host agents and is
 # out of scope for Phase 1 (local --bg runs write only agent.ndjson).
 #
-# Output (oldest->newest, one per new alert; same shape as tail-alerts.sh plus
+# Output (oldest->newest, one per new alert; same shape as the alert feed plus
 # a timestamp so the chat line can say when it fired):
 #   {"timestamp":"...","ticket":"43","source_ticket_id":"43","agent":"43",
 #    "reason":"Agent paused","severity":"warning","topic":"ticket.43.agent.paused",
@@ -32,7 +32,7 @@
 # already emitted — held IN MEMORY for the life of the process (no persisted
 # cursor, so no cross-run state collisions and nothing to grow unbounded). At
 # startup each existing file is baselined to its current count (history is
-# skipped — it is covered by the status tick / manual tail-alerts.sh), so only
+# skipped — it is covered by the `aiurdev watch` tick), so only
 # alerts that fire AFTER watching began are streamed.
 #
 # Tune with env vars:
@@ -59,7 +59,7 @@ need_only="${AIUR_ALERT_NEEDS_ATTENTION:-0}"
 have_jq=0
 command -v jq >/dev/null 2>&1 && have_jq=1
 
-# --- Resolve candidate workspace roots (same as tail-alerts.sh) -------------
+# --- Resolve candidate workspace roots (same as the alert feed) -------------
 config_root=""
 if [ -f "$config" ]; then
   config_root="$(awk '
@@ -108,7 +108,7 @@ index_of() {
 }
 
 # Map one raw alert ndjson line to the structured output line; honour the
-# needs_attention-only Phase-2 filter. Mirrors tail-alerts.sh's field handling
+# needs_attention-only Phase-2 filter. Mirrors the alert feed's field handling
 # (kept in sync deliberately) and adds the timestamp.
 emit_alert_line() {
   local line="$1" agent="$2"
