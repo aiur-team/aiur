@@ -3939,7 +3939,15 @@ defmodule Aiur.Orchestrator do
 
       move_exhausted_issue_to_error_state(identifier)
 
-      %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}
+      # Release the claim so a later label-driven re-dispatch (operator moves the
+      # ticket from `error` back to an active state) is picked up without a full
+      # daemon restart (#699). The crash path pops `running` but deliberately
+      # holds the claim across retries; on give-up that hold must end, otherwise
+      # the issue lingers in `claimed` and `dispatch_candidate?/4` refuses it for
+      # the daemon's lifetime. Mirrors the retry-poll exhaustion path, which
+      # already releases the claim.
+      released = release_issue_claim(state, issue_id)
+      %{released | retry_attempts: Map.delete(released.retry_attempts, issue_id)}
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
