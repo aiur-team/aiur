@@ -4239,6 +4239,29 @@ defmodule Aiur.OrchestratorDeactivateTest do
       refute File.exists?(pr_workspace)
     end
 
+    test "a PR-anchored agent whose PR closed clears its persisted resume handle",
+         %{test_root: test_root} do
+      enable_pr_watch!(test_root)
+
+      # claude-repl is resumable (#613): without clearing on a closed PR, a
+      # reopened PR would `--resume` the finished thread. The handle is keyed by
+      # the PR-number identifier the agent session persisted under (here "77"),
+      # not the `pr-77` running-map key.
+      :ok = SessionHandle.save("77", %{backend: "claude-repl", thread_id: "session-xyz"})
+      assert {:ok, %{thread_id: "session-xyz"}} = SessionHandle.load("77", "claude-repl")
+
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      state = pr_anchored_running_state(77, agent_pid)
+
+      Orchestrator.maybe_stop_closed_pr_anchored_agents_for_test(state,
+        # {:ok, nil} == closed/merged/missing PR.
+        open_pull_request_fetcher: fn "77" -> {:ok, nil} end
+      )
+
+      # The closed-PR teardown is terminal for this unit, so the handle is gone.
+      assert :none == SessionHandle.load("77", "claude-repl")
+    end
+
     test "a PR-anchored agent whose PR is still open is NOT terminated", %{test_root: test_root} do
       enable_pr_watch!(test_root)
 
