@@ -2650,7 +2650,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
             )
         end)
 
-      refute_receive {:memory_tracker_state_update, _, "rework"}, 100
+      # Scope the refute to the issue under test (matching the positive cases'
+      # `^issue_identifier`): a stray `rework` transition for an unrelated issue
+      # leaked from another test in the suite must not be read as this idle
+      # untrusted comment self-triggering a promotion (#708 CI flake).
+      refute_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}, 100
       assert log =~ "issue comment ignored for idle issue"
       assert log =~ ":untrusted_author"
     end
@@ -2676,7 +2680,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
             )
         end)
 
-      refute_receive {:memory_tracker_state_update, _, "rework"}, 100
+      # Scope to the issue under test so a stray `rework` for an unrelated issue
+      # (leaked from another suite test) can't masquerade as a self-trigger.
+      refute_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}, 100
       assert log =~ ":benign_review_pass_comment"
     end
   end
