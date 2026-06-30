@@ -24,6 +24,7 @@ defmodule Aiur.Workspace do
            {:ok, workspace, created?} <-
              ensure_workspace(workspace, worker_host, issue_context.pr_head_ref),
            :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
+        maybe_install_agent_skills(workspace, worker_host)
         {:ok, workspace}
       end
     rescue
@@ -32,6 +33,14 @@ defmodule Aiur.Workspace do
         {:error, error}
     end
   end
+
+  # Install aiur's bundled agent-operating skills (`using-aiur`, `/aiur-agent`)
+  # into the freshly populated workspace so the agent can load the skills the
+  # per-turn prompt routes it to instead of full-disk-searching (#689). Local
+  # worker only — a remote worker materializes on another host where these local
+  # file writes wouldn't land. Idempotent, so reuse + re-dispatch are safe.
+  defp maybe_install_agent_skills(workspace, nil), do: Aiur.AgentSkills.install(workspace)
+  defp maybe_install_agent_skills(_workspace, worker_host) when is_binary(worker_host), do: :ok
 
   # PR-anchored creation (`pr_head_ref` set) is only wired for the local
   # worker today; a remote worker_host ignores it and keeps the legacy
