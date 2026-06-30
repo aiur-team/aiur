@@ -107,7 +107,8 @@ defmodule Aiur.GitHub.CodeOwners do
       codeowners_path: Keyword.get(opts, :path, default_codeowners_path()),
       request_fun: Keyword.get(opts, :request_fun),
       refresh_seconds: Keyword.get(opts, :refresh_seconds, @default_refresh_seconds),
-      timer_ref: nil
+      timer_ref: nil,
+      empty_alerted: false
     }
 
     {:ok, state, {:continue, :initial_refresh}}
@@ -167,13 +168,65 @@ defmodule Aiur.GitHub.CodeOwners do
 
     new_allowlist = MapSet.union(resolved, trusted_set)
 
-    if MapSet.size(new_allowlist) == 0 do
-      Logger.error("CodeOwners: allowlist would be empty (bot_account also unset); keeping previous allowlist")
-
-      state
+    if MapSet.size(new_allowlist) > 0 do
+      %{state | allowlist: new_allowlist, empty_alerted: false}
     else
-      %{state | allowlist: new_allowlist}
+      # No CODEOWNERS entries and no bot_account/trusted_accounts. Rather than
+      # silently trust nobody — which disables the whole review-comment → rework
+      # loop (#693) by dropping every comment as :untrusted_author — fall back to
+      # the repo owner (inherently trusted, unlike an arbitrary third party per
+      # #687) and surface the gap loudly so the operator sets CODEOWNERS /
+      # trusted_accounts.
+      owner = repo_owner_login()
+      state = maybe_alert_empty_allowlist(state, owner)
+
+      case owner do
+        owner when is_binary(owner) ->
+          %{state | allowlist: MapSet.new([owner])}
+
+        _ ->
+          Logger.error(
+            "CodeOwners: trust allowlist is empty and repo owner is unknown; " <>
+              "keeping previous allowlist (review-comment trust disabled)"
+          )
+
+          state
+      end
     end
+  end
+
+  # Repo owner login from `owner/name`, lowercased; nil when unknown.
+  defp repo_owner_login do
+    with repo when is_binary(repo) <- Config.repo(),
+         [owner, _name] <- String.split(repo, "/", parts: 2),
+         trimmed when trimmed != "" <- String.trim(owner) do
+      String.downcase(trimmed)
+    else
+      _ -> nil
+    end
+  end
+
+  # One-shot needs_attention alert the first time the allowlist resolves empty,
+  # so the degraded review-comment feature is visible instead of silently
+  # dropping comments. Reset to re-armable once a real allowlist is configured
+  # (the size>0 branch sets empty_alerted: false).
+  defp maybe_alert_empty_allowlist(%{empty_alerted: true} = state, _owner), do: state
+
+  defp maybe_alert_empty_allowlist(state, owner) do
+    detail =
+      if is_binary(owner),
+        do: "falling back to repo owner @#{owner}",
+        else: "no repo owner could be derived; review comments are NOT trusted"
+
+    Aiur.Alerts.emit_custom(
+      "github.codeowners.allowlist_empty",
+      "Comment-trust allowlist is empty (no .github/CODEOWNERS and no bot_account/trusted_accounts) — " <>
+        detail <> ". Set CODEOWNERS or trusted_accounts so review comments drive rework.",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | empty_alerted: true}
   end
 
   defp trusted_account_set do
