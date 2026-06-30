@@ -7,6 +7,31 @@ defmodule Aiur.InitTest do
 
   @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
 
+  # Every topic the shipped alert examples must keep populated. Kept in sync with
+  # the real event names so the scaffolded map fires sounds with zero editing.
+  @alert_topics [
+    "ticket.*.issue.label.added.agent.todo",
+    "ticket.*.issue.label.added.agent.in-progress",
+    "ticket.*.issue.label.added.agent.human-review",
+    "ticket.*.issue.label.added.agent.rework",
+    "ticket.*.pr.merged",
+    "ticket.*.issue.state.changed",
+    "system.dispatch.todo_capacity_exceeded",
+    "ticket.*.agent.error.tokens_exhausted",
+    "ticket.*.agent.paused",
+    "ticket.*.agent.unpaused",
+    "ticket.*.chat.opened",
+    "ticket.*.chat.closed",
+    "ticket.*.agent.brainstorm.start",
+    "ticket.*.agent.brainstorm.end",
+    "ticket.*.agent.plan.start",
+    "ticket.*.agent.plan.end",
+    "ticket.*.agent.work.start",
+    "ticket.*.agent.work.end",
+    "ticket.*.agent.review.start",
+    "ticket.*.agent.review.end"
+  ]
+
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
     target = Path.join([dir, ".aiur", "config"])
@@ -165,6 +190,18 @@ defmodule Aiur.InitTest do
   defp written_config(path) do
     assert {:ok, loaded} = Workflow.load(path)
     loaded.config
+  end
+
+  defp assert_filled_alert_template(template, sound_path_regex) do
+    assert {:ok, %{"alerts" => alerts}} = YamlElixir.read_from_string(template)
+    assert alerts |> Map.keys() |> Enum.sort() == Enum.sort(@alert_topics)
+
+    for topic <- @alert_topics do
+      assert %{"message" => message, "sound" => sounds} = Map.fetch!(alerts, topic)
+      assert is_binary(message) and message != ""
+      assert is_list(sounds) and sounds != []
+      assert Enum.all?(sounds, &Regex.match?(sound_path_regex, &1))
+    end
   end
 
   defp puts_log(acc \\ []) do
@@ -482,6 +519,38 @@ defmodule Aiur.InitTest do
       # map file is scaffolded next to the config (no extension).
       assert File.read!(target) =~ ~r/^\s*alerts_file: alerts\s*(#.*)?$/m
       assert File.regular?(Path.join(Path.dirname(target), "alerts"))
+    end
+
+    test "alert examples are concise and fully populated with platform sounds" do
+      macos = Init.alerts_template({:unix, :darwin})
+      linux = Init.alerts_template({:unix, :linux})
+
+      # Source-grouped section headers stay; the big explanatory block is gone.
+      for template <- [macos, linux] do
+        assert template =~ "Ticket-powered alerts"
+        assert template =~ "Agent-powered alerts"
+        assert template =~ "AI-powered alerts"
+        refute template =~ "Sound filenames"
+        refute template =~ "Topic / glob matching"
+      end
+
+      assert_filled_alert_template(macos, ~r{\A/System/Library/Sounds/.+\.aiff\z})
+      assert_filled_alert_template(linux, ~r{\A/usr/share/sounds/freedesktop/stereo/.+\.oga\z})
+    end
+
+    test "alert template selection follows the host OS family" do
+      macos = Init.alerts_template({:unix, :darwin})
+      linux = Init.alerts_template({:unix, :linux})
+
+      assert macos =~ "/System/Library/Sounds/Glass.aiff"
+      refute macos =~ "/usr/share/sounds/freedesktop"
+
+      assert linux =~ "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
+      refute linux =~ "/System/Library/Sounds"
+
+      # Non-macOS Unix and unknown hosts fall back to the Linux example.
+      assert Init.alerts_template({:unix, :freebsd}) == linux
+      assert Init.alerts_template(:unknown) == linux
     end
   end
 
