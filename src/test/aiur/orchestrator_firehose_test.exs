@@ -135,7 +135,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
       Orchestrator.poll_github_comments_for_test(state,
         repo: "owner/repo",
         request_fun: request_fun,
-        review_issue_fetcher: fn ["human-review"] -> {:ok, []} end
+        review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end
       )
 
     assert {:rate_limited, 1} = next.github_connectivity[:comments]
