@@ -825,9 +825,10 @@ defmodule Aiur.AgentRunner do
   def remote_session_backend(backend, _rc?), do: backend
 
   # Load the prior thread id to resume from, or nil for a clean start. Only a
-  # resumable backend (codex) running on the LOCAL worker can resume — the
-  # codex rollout lives in this host's ~/.codex, so a remote worker cannot
-  # reattach to it. Disk is only touched when a resume could apply.
+  # resumable backend running on the LOCAL worker can resume — the durable
+  # resume artifact is host-local (codex's rollout in ~/.codex, the claude REPL's
+  # transcript jsonl in ~/.claude/projects), so a remote worker cannot reattach
+  # to it. Disk is only touched when a resume could apply.
   defp load_resume_thread_id(backend, worker_host, identifier) do
     if worker_host == nil and CodingAgent.resumable?(backend) do
       resume_thread_id(backend, worker_host, SessionHandle.load(identifier, backend))
@@ -877,6 +878,39 @@ defmodule Aiur.AgentRunner do
     end
 
     :ok
+  end
+
+  # Persist the handle after a completed turn for a backend that only learns
+  # its session id once a turn has run (the claude REPL reads it from the
+  # transcript filename, unlike codex/headless which get a thread id at
+  # `start_session`). `turn_handle_attrs/2` gates this to that case; the
+  # resulting attrs still pass through `persist_session_handle/3`'s resumable +
+  # local + thread-id gate.
+  defp maybe_persist_turn_handle(app_session, turn_session, identifier, worker_host) do
+    case turn_handle_attrs(app_session, turn_session) do
+      {:ok, attrs} -> persist_session_handle(attrs, identifier, worker_host)
+      :skip -> :ok
+    end
+  end
+
+  # The handle attrs to persist after a turn, or `:skip`. Persist only when the
+  # turn's session id differs from the one the start session already carried:
+  # codex/headless fix their thread id at `start_session` and a turn echoes it,
+  # so they `:skip` (persisted once at start). The REPL learns its id per-turn
+  # from the transcript filename — nil at a fresh start, and it can drift if the
+  # CLI ever hands `--resume` a new id — so its live id is captured here, keeping
+  # the handle pointed at the conversation the next restart should rejoin. Pure
+  # so the gate is unit-testable without touching disk.
+  @doc false
+  @spec turn_handle_attrs(map(), map()) :: {:ok, map()} | :skip
+  def turn_handle_attrs(app_session, turn_session) do
+    turn_thread_id = Map.get(turn_session, :thread_id)
+
+    if is_binary(turn_thread_id) and turn_thread_id != Map.get(app_session, :thread_id) do
+      {:ok, %{backend: session_backend(app_session), thread_id: turn_thread_id}}
+    else
+      :skip
+    end
   end
 
   # Persist the live session handle so a future aiur restart can resume this
@@ -1076,6 +1110,7 @@ defmodule Aiur.AgentRunner do
 
     case result do
       {:ok, turn_session} ->
+        maybe_persist_turn_handle(app_session, turn_session, issue.identifier, worker_host)
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
         with :ok <-

@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator do
     Config,
     Issue,
     RepoBase,
+    SessionHandle,
     SystemLoad,
     Tracker,
     Workspace
@@ -1718,6 +1719,17 @@ defmodule Aiur.Orchestrator do
   # running-map KEY (`issue.id`). Clean the `pr-<pr#>` leaf explicitly so no
   # orphan workspace is left behind, mirroring the legacy terminal cleanup.
   defp cleanup_pr_anchored_workspace(issue_id, running_entry) when is_binary(issue_id) do
+    # A closed PR is terminal for a PR-anchored unit, but this path bypasses
+    # `cleanup_issue_workspace` — the only other place the resume handle is
+    # cleared — so clear it here too. The handle is keyed by the PR-number
+    # `identifier` (what `start_agent_session` persisted under), not the
+    # `pr-<pr#>` running key; without this, a reopened PR would `--resume` the
+    # finished thread now that `claude-repl` is resumable (#613).
+    case Map.get(running_entry, :identifier) do
+      identifier when is_binary(identifier) -> SessionHandle.clear(identifier)
+      _ -> :ok
+    end
+
     Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
   end
 
@@ -4086,6 +4098,11 @@ defmodule Aiur.Orchestrator do
   defp cleanup_issue_workspace(identifier, worker_host \\ nil)
 
   defp cleanup_issue_workspace(identifier, worker_host) when is_binary(identifier) do
+    # The resume sidecar (`<repo>.<id>.session.json`) lives in the shared state
+    # dir, not the workspace, so removing the workspace alone leaves it to
+    # accumulate — and a reopened issue would try to resume a finished thread.
+    # Every caller here is a terminal-state path, so clear the handle too (#613).
+    SessionHandle.clear(identifier)
     Workspace.remove_issue_workspaces(identifier, worker_host)
   end
 
