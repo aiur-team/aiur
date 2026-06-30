@@ -6,13 +6,11 @@ defmodule Aiur.Alerts do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue}
+  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue, Workflow}
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Events.{Publisher, Topic}
   alias AiurWeb.ObservabilityPubSub
-
-  @alerts_path Path.expand("../../../alerts.yaml", __DIR__)
 
   # Built-in OS system sounds keyed by alert category. macOS ships AIFF clips in
   # the system sounds folder; Linux desktops ship freedesktop OGA themes, with a
@@ -46,7 +44,7 @@ defmodule Aiur.Alerts do
 
   # Substring → category, in match order. The first match wins, so more specific
   # markers are listed ahead of broader ones. This drives OS-default-sound
-  # selection only; the topic→sound *mapping* in the bundled `alerts.yaml` is the
+  # selection only; the topic→sound *mapping* in `.aiur/alerts.yaml` is the
   # source of truth for the non-OS-default path. Keep new alert topics in sync
   # across both. The `.paused` needle is delimiter-anchored so it does not also
   # match the `agent.unpaused` resume topic.
@@ -309,7 +307,7 @@ defmodule Aiur.Alerts do
   end
 
   # Path precedence: the `:alerts_file_path` app-env override (tests) wins, then
-  # the config `alerts.alerts_file`, then the bundled repo `alerts.yaml`.
+  # the config `alerts.alerts_file`, then the default `<config-dir>/alerts.yaml`.
   defp alerts_path do
     cond do
       override = Application.get_env(:aiur, :alerts_file_path) ->
@@ -319,12 +317,24 @@ defmodule Aiur.Alerts do
         path
 
       true ->
-        @alerts_path
+        default_alerts_path()
+    end
+  end
+
+  # The default alert definitions live alongside the aiur config, at
+  # `<config-dir>/alerts.yaml` (i.e. `.aiur/alerts.yaml`). Resolved at RUNTIME
+  # from the active config path rather than a compile-time module attribute, so
+  # it tracks the operator's `.aiur/` directory and resolves correctly inside an
+  # assembled release/escript (a baked source path would not).
+  defp default_alerts_path do
+    case Workflow.workflow_file_path() do
+      path when is_binary(path) and path != "" -> Path.join(Path.dirname(path), "alerts.yaml")
+      _ -> nil
     end
   end
 
   # A configured `alerts_file` is only honoured when it actually exists, so a
-  # typo'd or missing custom path falls back to the bundled `alerts.yaml` rather
+  # typo'd or missing custom path falls back to the default `<config-dir>/alerts.yaml` rather
   # than silently dropping every alert sound. Relative paths are pre-resolved
   # against the config dir at load time (see `Aiur.Workflow`), so by here the
   # value is already absolute or a `~/`-prefixed path expanded below.
@@ -345,6 +355,8 @@ defmodule Aiur.Alerts do
       _ -> %{}
     end
   end
+
+  defp load_yaml(_path), do: %{}
 
   defp normalize_definitions(definitions) when is_map(definitions) do
     Enum.reduce(definitions, %{}, fn {key, value}, acc ->
