@@ -47,7 +47,7 @@ defmodule Aiur.InitTest do
       %{
         config_target: fn _location -> target end,
         legacy_config_target: fn _location -> Path.join(dir, ".aiurconfig") end,
-        existing_config_path: fn t -> if File.regular?(t), do: t end,
+        existing_config_path: &existing_path/1,
         load_config: fn t ->
           with {:ok, loaded} <- Workflow.load(t), do: {:ok, loaded.config}
         end,
@@ -62,6 +62,8 @@ defmodule Aiur.InitTest do
           send(parent, {:prewarm_build, url, cmd})
           {:ok, "/base"}
         end,
+        global_alerts_path: fn -> Path.join([dir, "home", ".aiur", "alerts"]) end,
+        existing_alerts_path: &existing_path/1,
         write_config: fn t, yaml ->
           File.mkdir_p!(Path.dirname(t))
           File.write!(t, yaml)
@@ -94,16 +96,7 @@ defmodule Aiur.InitTest do
             {:created, path}
           end
         end,
-        ensure_alerts: fn t ->
-          path = Path.join(Path.dirname(t), "alerts")
-
-          if File.regular?(path) do
-            {:exists, path}
-          else
-            File.write!(path, "alerts: {}\n")
-            {:created, path}
-          end
-        end,
+        ensure_alerts: &ensure_alerts_for_test/2,
         ensure_prewarm_file: fn t, cmd ->
           path = Path.join(Path.dirname(t), "prewarm")
           File.write!(path, cmd <> "\n")
@@ -144,6 +137,29 @@ defmodule Aiur.InitTest do
       },
       overrides
     )
+  end
+
+  defp existing_path(path) do
+    if File.regular?(path), do: path
+  end
+
+  defp ensure_alerts_for_test(target, source_path) do
+    path = Path.join(Path.dirname(target), "alerts")
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      write_alerts_for_test(path, source_path)
+      {:created, path}
+    end
+  end
+
+  defp write_alerts_for_test(path, source_path) when is_binary(source_path) do
+    File.cp!(source_path, path)
+  end
+
+  defp write_alerts_for_test(path, _source_path) do
+    File.write!(path, "alerts: {}\n")
   end
 
   defp written_config(path) do
@@ -233,6 +249,8 @@ defmodule Aiur.InitTest do
   @duration_label "Max agent duration in minutes"
 
   @location_label "Where will you store aiur settings for this project?"
+
+  @reuse_global_alerts_label "Found an existing alerts file at ~/.aiur/alerts — copy it into this repo's .aiur/alerts?"
 
   defp github_answers(overrides \\ %{}) do
     base = %{
@@ -378,6 +396,81 @@ defmodule Aiur.InitTest do
       config = File.read!(target)
       assert config =~ ~r/alerts:\n\s+enabled: true/
       assert config =~ "use_os_default_sounds: false"
+    end
+
+    test "copies an existing global alerts file when accepted", %{dir: dir, target: target} do
+      source = Path.join([dir, "home", ".aiur", "alerts"])
+      File.mkdir_p!(Path.dirname(source))
+      File.write!(source, "ticket.*.attention: Glass\n")
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            @reuse_global_alerts_label => true
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(Path.join(Path.dirname(target), "alerts")) == "ticket.*.attention: Glass\n"
+    end
+
+    test "scaffolds the default alerts file when global reuse is declined", %{dir: dir, target: target} do
+      source = Path.join([dir, "home", ".aiur", "alerts"])
+      File.mkdir_p!(Path.dirname(source))
+      File.write!(source, "ticket.*.attention: Glass\n")
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            @reuse_global_alerts_label => false
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(Path.join(Path.dirname(target), "alerts")) == "alerts: {}\n"
+    end
+
+    test "scaffolds the default alerts file when no global alerts file exists", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(Path.join(Path.dirname(target), "alerts")) == "alerts: {}\n"
+      refute @reuse_global_alerts_label in confirm_prompts()
+    end
+
+    test "global init treats reusing the existing global alerts file as a no-op", %{dir: dir} do
+      target = Path.join([dir, "home", ".aiur", "config"])
+      source = Path.join([dir, "home", ".aiur", "alerts"])
+      File.mkdir_p!(Path.dirname(source))
+      File.write!(source, "ticket.*.attention: Glass\n")
+      d = deps(self(), dir, target, %{})
+
+      answers =
+        github_answers(%{
+          select: %{@location_label => "global"},
+          confirm: %{
+            "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?" => true,
+            @reuse_global_alerts_label => true
+          }
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert File.read!(source) == "ticket.*.attention: Glass\n"
     end
 
     test "scaffolds an extensionless .aiur/alerts next to the config", %{dir: dir, target: target} do
