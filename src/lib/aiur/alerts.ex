@@ -44,7 +44,7 @@ defmodule Aiur.Alerts do
 
   # Substring → category, in match order. The first match wins, so more specific
   # markers are listed ahead of broader ones. This drives OS-default-sound
-  # selection only; the topic→sound *mapping* in the bundled `alerts.yaml` is the
+  # selection only; the topic→sound *mapping* in `.aiur/alerts.yaml` is the
   # source of truth for the non-OS-default path. Keep new alert topics in sync
   # across both. The `.paused` needle is delimiter-anchored so it does not also
   # match the `agent.unpaused` resume topic.
@@ -307,7 +307,7 @@ defmodule Aiur.Alerts do
   end
 
   # Path precedence: the `:alerts_file_path` app-env override (tests) wins, then
-  # the config `alerts.alerts_file`, then the bundled repo `alerts.yaml`.
+  # the config `alerts.alerts_file`, then the default `<config-dir>/alerts.yaml`.
   defp alerts_path do
     cond do
       override = Application.get_env(:aiur, :alerts_file_path) ->
@@ -334,7 +334,7 @@ defmodule Aiur.Alerts do
   end
 
   # A configured `alerts_file` is only honoured when it actually exists, so a
-  # typo'd or missing custom path falls back to the bundled `alerts.yaml` rather
+  # typo'd or missing custom path falls back to the default `<config-dir>/alerts.yaml` rather
   # than silently dropping every alert sound. Relative paths are pre-resolved
   # against the config dir at load time (see `Aiur.Workflow`), so by here the
   # value is already absolute or a `~/`-prefixed path expanded below.
