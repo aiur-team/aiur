@@ -28,6 +28,31 @@ defmodule Aiur.Codeowners do
   @base_url "https://api.github.com"
 
   @doc """
+  Standard GitHub CODEOWNERS locations, in discovery order.
+  """
+  @spec standard_paths() :: [String.t()]
+  def standard_paths, do: @codeowners_paths
+
+  @doc """
+  Finds the repo root used for CODEOWNERS discovery.
+  """
+  @spec repo_root(Path.t()) :: Path.t()
+  def repo_root(path \\ File.cwd!()), do: discover_repo_root(path)
+
+  @doc """
+  Returns the active CODEOWNERS file path, if one exists.
+  """
+  @spec file_path(keyword()) :: Path.t() | nil
+  def file_path(opts \\ []) do
+    repo_root = Keyword.get(opts, :repo_root) || repo_root(File.cwd!())
+
+    Enum.find_value(@codeowners_paths, fn relative_path ->
+      full_path = Path.join(repo_root, relative_path)
+      if File.regular?(full_path), do: full_path
+    end)
+  end
+
+  @doc """
   Returns usernames responsible for a path.
 
   Team owners are expanded to member usernames when a token and request
@@ -206,15 +231,10 @@ defmodule Aiur.Codeowners do
   end
 
   defp read_codeowners(opts) do
-    repo_root = Keyword.get(opts, :repo_root) || discover_repo_root(File.cwd!())
-
-    Enum.find_value(@codeowners_paths, %{present?: false, rules: []}, fn relative_path ->
-      full_path = Path.join(repo_root, relative_path)
-
-      if File.regular?(full_path) do
-        %{present?: true, rules: parse_file!(full_path)}
-      end
-    end)
+    case file_path(opts) do
+      nil -> %{present?: false, rules: []}
+      full_path -> %{present?: true, rules: parse_file!(full_path)}
+    end
   end
 
   defp discover_repo_root(path) do

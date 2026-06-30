@@ -13,6 +13,7 @@ defmodule Aiur.Init do
   network, auth) so it is fully unit-testable with no real side effects.
   """
 
+  alias Aiur.Codeowners
   alias Aiur.CodingAgent
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Prompt
@@ -37,6 +38,7 @@ defmodule Aiur.Init do
   ]
   @env_file_name ".env"
   @env_example_file_name ".env.example"
+  @codeowners_file_name ".github/CODEOWNERS"
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
@@ -125,6 +127,8 @@ defmodule Aiur.Init do
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
           install_claude_app_server: (-> :ok | {:error, String.t()}),
+          repo_root: (-> Path.t()),
+          github_login: (-> String.t() | nil),
           github_token: (-> String.t() | nil),
           list_labels: (map() -> {:ok, [String.t()]} | {:error, term()}),
           create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
@@ -211,6 +215,7 @@ defmodule Aiur.Init do
         tracker = tracker_from_config(deps, config)
         backfill_missing_sections(io, deps, location, tracker, config, effective_target)
         maybe_resume_prewarm(io, deps, tracker, config)
+        setup_codeowners(io, deps, tracker)
         provision(io, deps, tracker, agents_from_config(config))
 
       {:error, reason} ->
@@ -308,6 +313,7 @@ defmodule Aiur.Init do
         ensure_prewarm_file(io, deps, path, prewarm)
         setup_env(io, deps, tracker)
         maybe_offer_gitignore(io, deps, location)
+        setup_codeowners(io, deps, tracker)
         maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
 
@@ -1136,6 +1142,231 @@ defmodule Aiur.Init do
   defp tracker_repo(%{repo: repo}), do: repo
   defp tracker_repo(_tracker), do: nil
 
+  # CODEOWNERS is part of the GitHub trust boundary: aiur uses it to decide whose
+  # PR/issue comments can drive agents. This runs on fresh setup and on resume so
+  # existing installs pick up the newer safety step without `--force`.
+  defp setup_codeowners(io, deps, %{kind: "github"}) do
+    repo_root = deps.repo_root.()
+
+    repo_root
+    |> then(fn repo_root -> Codeowners.file_path(repo_root: repo_root) end)
+    |> maybe_create_codeowners(io, repo_root)
+    |> maybe_add_operator_codeowner(io, deps, repo_root)
+  end
+
+  defp setup_codeowners(_io, _deps, _tracker), do: :ok
+
+  defp maybe_create_codeowners(nil, io, repo_root) do
+    explain_codeowners_trust(io)
+
+    if io.confirm.("Create #{@codeowners_file_name} for aiur's GitHub trust checks?", true) do
+      case create_codeowners_file(repo_root) do
+        {:ok, path} ->
+          io.puts.(["Created: ", dim(path)])
+          path
+
+        {:error, reason} ->
+          io.puts.(["⚠️  Couldn't create #{@codeowners_file_name} (", inspect(reason), ")."])
+          nil
+      end
+    else
+      io.puts.("Skipped CODEOWNERS. Without it, only explicitly configured GitHub accounts are trusted by aiur.")
+      nil
+    end
+  end
+
+  defp maybe_create_codeowners(path, _io, _repo_root), do: path
+
+  defp explain_codeowners_trust(io) do
+    io.puts.([
+      "\naiur uses CODEOWNERS to determine which GitHub accounts it will trust ",
+      "when responding to PR/issue comments. Without CODEOWNERS, only explicitly ",
+      "configured accounts are trusted."
+    ])
+  end
+
+  defp create_codeowners_file(repo_root) do
+    path = Path.join(repo_root, @codeowners_file_name)
+
+    if File.regular?(path) do
+      {:ok, path}
+    else
+      File.mkdir_p!(Path.dirname(path))
+
+      File.write(path, """
+      # aiur uses CODEOWNERS to decide which GitHub accounts are trusted for PR/issue comments.
+      # Add owners below, for example:
+      # * @your-github-login
+      """)
+      |> case do
+        :ok -> {:ok, path}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp maybe_add_operator_codeowner(nil, _io, _deps, _repo_root), do: :ok
+
+  defp maybe_add_operator_codeowner(path, io, deps, repo_root) do
+    detected_login = normalize_login(deps.github_login.())
+
+    if is_binary(detected_login) and codeowners_has_login?(repo_root, detected_login) do
+      :ok
+    else
+      path
+      |> prompt_and_add_operator_codeowner(io, repo_root, detected_login)
+    end
+  end
+
+  defp prompt_and_add_operator_codeowner(path, io, repo_root, default_login) do
+    case prompt_github_login(io, default_login) do
+      nil ->
+        io.puts.("Skipped CODEOWNERS account entry because no GitHub login was provided.")
+
+      login ->
+        if codeowners_has_login?(repo_root, login) do
+          :ok
+        else
+          offer_operator_codeowner(io, path, login)
+        end
+    end
+  end
+
+  defp prompt_github_login(io, default) do
+    io.input.(
+      "GitHub account to add to CODEOWNERS",
+      default,
+      "This account will be trusted to drive aiur from PR/issue comments."
+    )
+    |> normalize_login()
+  end
+
+  defp codeowners_has_login?(repo_root, login) do
+    login in Codeowners.repo_ownership(repo_root: repo_root).owners
+  end
+
+  defp offer_operator_codeowner(io, path, login) do
+    if io.confirm.("Add @#{login} to CODEOWNERS so aiur trusts your PR/issue comments?", true) do
+      case add_codeowners_login(path, login) do
+        {:updated, updated_path} -> io.puts.(["Updated: ", dim(updated_path)])
+        {:exists, _path} -> :ok
+        {:error, reason} -> io.puts.(["⚠️  Couldn't update CODEOWNERS (", inspect(reason), ")."])
+      end
+    else
+      io.puts.("Skipped. Add your account to CODEOWNERS later if you want aiur to trust your comments.")
+    end
+  end
+
+  defp add_codeowners_login(path, login) do
+    login = normalize_login(login)
+
+    with true <- is_binary(login) and login != "",
+         {:ok, content} <- File.read(path) do
+      if codeowners_content_has_login?(content, login) do
+        {:exists, path}
+      else
+        write_codeowners_login(path, content, login)
+      end
+    else
+      false -> {:error, :missing_github_login}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp write_codeowners_login(path, content, login) do
+    case File.write(path, content_with_codeowner(content, login)) do
+      :ok -> {:updated, path}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp codeowners_content_has_login?(content, login) do
+    login = normalize_login(login)
+
+    content
+    |> String.split(~r/\R/, trim: true)
+    |> Enum.flat_map(&codeowner_tokens/1)
+    |> Enum.any?(&(normalize_login(&1) == login))
+  end
+
+  defp codeowner_tokens(line) do
+    line
+    |> String.trim()
+    |> case do
+      "" -> []
+      "#" <> _comment -> []
+      line -> line |> String.split(~r/\s+/, trim: true) |> Enum.take_while(&(not String.starts_with?(&1, "#"))) |> Enum.drop(1)
+    end
+  end
+
+  defp content_with_codeowner(content, login) do
+    case wildcard_rule_index(content) do
+      nil ->
+        append_codeowner_rule(content, login)
+
+      index ->
+        content
+        |> String.split("\n", trim: false)
+        |> List.update_at(index, &append_login_to_rule(&1, login))
+        |> Enum.join("\n")
+    end
+  end
+
+  defp wildcard_rule_index(content) do
+    lines = String.split(content, "\n", trim: false)
+
+    lines
+    |> Enum.with_index()
+    |> Enum.filter(fn {line, _index} -> wildcard_rule?(line) end)
+    |> List.last()
+    |> case do
+      {_line, index} -> index
+      nil -> nil
+    end
+  end
+
+  defp wildcard_rule?(line) do
+    case codeowner_rule_tokens(line) do
+      ["*" | owners] when owners != [] -> true
+      _ -> false
+    end
+  end
+
+  defp codeowner_rule_tokens(line) do
+    line
+    |> String.trim()
+    |> case do
+      "" -> []
+      "#" <> _comment -> []
+      line -> line |> String.split(~r/\s+/, trim: true) |> Enum.take_while(&(not String.starts_with?(&1, "#")))
+    end
+  end
+
+  defp append_login_to_rule(line, login) do
+    case String.split(line, "#", parts: 2) do
+      [rule, comment] -> String.trim_trailing(rule) <> " @#{login} #" <> comment
+      [rule] -> String.trim_trailing(rule) <> " @#{login}"
+    end
+  end
+
+  defp append_codeowner_rule(content, login) do
+    separator = if content == "" or String.ends_with?(content, "\n"), do: "", else: "\n"
+    content <> separator <> "* @#{login}\n"
+  end
+
+  defp normalize_login(nil), do: nil
+
+  defp normalize_login(login) when is_binary(login) do
+    login
+    |> String.trim()
+    |> String.trim_leading("@")
+    |> String.downcase()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
   # GitHub is the only tracker that reads a secret from the environment, so the
   # wizard scaffolds `.env` only on that path. Linear collects its key inline.
   defp setup_env(io, deps, %{kind: "github"}) do
@@ -1475,6 +1706,8 @@ defmodule Aiur.Init do
       ensure_env: &ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
       install_claude_app_server: &install_claude_app_server/0,
+      repo_root: fn -> Codeowners.repo_root(File.cwd!()) end,
+      github_login: &detect_github_login/0,
       github_token: &Aiur.GitHub.Config.token/0,
       list_labels: &list_repo_labels/1,
       create_labels: &create_labels/2
@@ -1899,6 +2132,20 @@ defmodule Aiur.Init do
     end
   rescue
     error -> {:error, Exception.message(error)}
+  end
+
+  defp detect_github_login do
+    case System.cmd("gh", ["api", "user", "--jq", ".login"], stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> String.trim()
+        |> normalize_login()
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
   end
 
   defp agent_executable(kind) do
