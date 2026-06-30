@@ -1455,6 +1455,75 @@ print_global_config_control_hint() {
   fi
 }
 
+control_rpc_timeout_seconds() {
+  local seconds="${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}"
+  case "$seconds" in
+    '' | *[!0-9]* | 0) seconds=10 ;;
+  esac
+  printf '%s' "$seconds"
+}
+
+kill_control_rpc_process() {
+  local pid="$1" grouped="$2" p tree=()
+  [ -n "$pid" ] || return 0
+
+  if [ "$grouped" = "1" ]; then
+    kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    sleep 0.2
+    kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    return 0
+  fi
+
+  while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
+  for p in "${tree[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
+  sleep 0.2
+  for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
+}
+
+run_release_rpc_with_timeout() {
+  local expression="$1" timeout output_file timeout_file pid watchdog_pid status grouped=0
+  timeout="$(control_rpc_timeout_seconds)"
+  output_file="$(mktemp "${TMPDIR:-/tmp}/aiur-control-rpc-output.XXXXXX")"
+  timeout_file="$(mktemp "${TMPDIR:-/tmp}/aiur-control-rpc-timeout.XXXXXX")"
+  rm -f "$timeout_file" 2>/dev/null || true
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$release_bin" rpc "$expression" >"$output_file" 2>&1 &
+    grouped=1
+  else
+    "$release_bin" rpc "$expression" >"$output_file" 2>&1 &
+  fi
+  pid=$!
+
+  (
+    sleep "$timeout"
+    if kill -0 "$pid" 2>/dev/null; then
+      : >"$timeout_file"
+      kill_control_rpc_process "$pid" "$grouped"
+    fi
+  ) &
+  watchdog_pid=$!
+
+  if wait "$pid"; then
+    status=0
+  else
+    status=$?
+  fi
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+
+  AIUR_CONTROL_RPC_OUTPUT="$(cat "$output_file" 2>/dev/null || true)"
+  if [ -f "$timeout_file" ]; then
+    AIUR_CONTROL_RPC_TIMED_OUT=1
+    status=124
+  else
+    AIUR_CONTROL_RPC_TIMED_OUT=0
+  fi
+
+  rm -f "$output_file" "$timeout_file" 2>/dev/null || true
+  return "$status"
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
@@ -1470,9 +1539,16 @@ run_control_rpc() {
   local output status exit_code=0 saw_marker=0 line
 
   set +e
-  output="$("$release_bin" rpc "$expression" 2>&1)"
+  run_release_rpc_with_timeout "$expression"
   status=$?
+  output="$AIUR_CONTROL_RPC_OUTPUT"
   set -e
+
+  if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
+    [ -n "$output" ] && printf '%s\n' "$output" >&2
+    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; helper process was terminated" >&2
+    return 124
+  fi
 
   if [ "$status" -ne 0 ]; then
     # A non-zero exit here is the rpc transport failing — application-level

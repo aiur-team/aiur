@@ -1217,6 +1217,8 @@ defmodule Aiur.Orchestrator do
   defp mark_pr_merged_issue_done(%State{} = state, identifier) do
     case Tracker.update_issue_state(to_string(identifier), "done") do
       :ok ->
+        clear_session_handle(identifier)
+
         case find_running_by_identifier(state.running, identifier) do
           %{issue: %Issue{id: issue_id}} ->
             terminate_running_issue(state, issue_id, true)
@@ -2882,7 +2884,7 @@ defmodule Aiur.Orchestrator do
         kill_repl_session(running_entry)
 
         if cleanup_workspace do
-          cleanup_issue_workspace(identifier, worker_host)
+          cleanup_terminal_issue_artifacts(identifier, worker_host)
         end
 
         # Close any open chat-completion SSE streams BEFORE killing the
@@ -4077,7 +4079,7 @@ defmodule Aiur.Orchestrator do
       terminal_issue_state?(issue.state, terminal_states) ->
         Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
 
-        cleanup_issue_workspace(issue.identifier, metadata[:worker_host])
+        cleanup_terminal_issue_artifacts(issue.identifier, metadata[:worker_host])
         {:noreply, release_issue_claim(state, issue_id)}
 
       retry_candidate_issue?(issue, terminal_states) ->
@@ -4106,7 +4108,15 @@ defmodule Aiur.Orchestrator do
     Workspace.remove_issue_workspaces(identifier, worker_host)
   end
 
-  defp cleanup_issue_workspace(_identifier, _worker_host), do: :ok
+  defp cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil)
+
+  defp cleanup_terminal_issue_artifacts(identifier, worker_host) when is_binary(identifier) do
+    cleanup_issue_workspace(identifier, worker_host)
+    clear_session_handle(identifier)
+  end
+
+  defp clear_session_handle(identifier) when is_binary(identifier), do: SessionHandle.clear(identifier)
+  defp clear_session_handle(_identifier), do: :ok
 
   defp run_startup_todo_workspace_cleanup(%State{} = state) do
     case ensure_terminal_workspace_cleanup_preflight(state) do
@@ -4130,7 +4140,7 @@ defmodule Aiur.Orchestrator do
       {:ok, issues} ->
         issues
         |> Enum.filter(&todo_issue_for_startup_cleanup?/1)
-        |> Enum.each(&cleanup_terminal_issue_workspace/1)
+        |> Enum.each(&cleanup_issue_workspace_for_issue/1)
 
         state
 
@@ -4218,9 +4228,15 @@ defmodule Aiur.Orchestrator do
 
   defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier})
        when is_binary(identifier),
-       do: cleanup_issue_workspace(identifier)
+       do: cleanup_terminal_issue_artifacts(identifier)
 
   defp cleanup_terminal_issue_workspace(_issue), do: :ok
+
+  defp cleanup_issue_workspace_for_issue(%Issue{identifier: identifier})
+       when is_binary(identifier),
+       do: cleanup_issue_workspace(identifier)
+
+  defp cleanup_issue_workspace_for_issue(_issue), do: :ok
 
   defp notify_dashboard(state) do
     state

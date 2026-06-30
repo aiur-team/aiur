@@ -8,6 +8,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
+  alias Aiur.SessionHandle
 
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
 
@@ -197,8 +198,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
       issue_id = "issue-deactivate-1"
       issue_identifier = "DA-1"
       workspace = Path.join(test_root, issue_identifier)
+      previous_log_file = Application.get_env(:aiur, :log_file)
 
       try do
+        Application.put_env(:aiur, :log_file, Path.join([test_root, "log", "agent.md"]))
+
         write_workflow_file!(Workflow.workflow_file_path(),
           workspace_root: test_root,
           tracker_active_states: ["todo", "in-progress", "rework", "merging"],
@@ -207,6 +211,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         File.mkdir_p!(test_root)
         File.mkdir_p!(workspace)
+        :ok = SessionHandle.save(issue_identifier, %{backend: "codex", thread_id: "thread-keep"})
 
         agent_pid =
           spawn(fn ->
@@ -256,7 +261,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         # Workspace not cleaned up (deactivation is non-terminal).
         assert File.exists?(workspace)
+        assert {:ok, %{thread_id: "thread-keep"}} = SessionHandle.load(issue_identifier, "codex")
       after
+        restore_application_env(:log_file, previous_log_file)
         File.rm_rf(test_root)
       end
     end
@@ -778,8 +785,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
       issue_identifier = "DA-3"
       # Linear default config namespaces workspaces under <root>/<project_slug>/.
       workspace = Path.join([test_root, "project", issue_identifier])
+      previous_log_file = Application.get_env(:aiur, :log_file)
 
       try do
+        Application.put_env(:aiur, :log_file, Path.join([test_root, "log", "agent.md"]))
+
         write_workflow_file!(Workflow.workflow_file_path(),
           workspace_root: test_root,
           tracker_active_states: ["todo", "in-progress", "rework", "merging"],
@@ -788,6 +798,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         File.mkdir_p!(test_root)
         File.mkdir_p!(workspace)
+        :ok = SessionHandle.save(issue_identifier, %{backend: "codex", thread_id: "thread-clear"})
 
         agent_pid =
           spawn(fn ->
@@ -828,7 +839,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
         refute MapSet.member?(updated_state.claimed, issue_id)
         refute Process.alive?(agent_pid)
         refute File.exists?(workspace)
+        assert :none == SessionHandle.load(issue_identifier, "codex")
       after
+        restore_application_env(:log_file, previous_log_file)
         File.rm_rf(test_root)
       end
     end
