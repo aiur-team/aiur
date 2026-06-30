@@ -4050,7 +4050,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
-  describe "system default-branch push stale-agent safety" do
+  describe "system default-branch push notifies without terminating" do
     test "topic parser extracts the branch from a system branch push" do
       assert {:ok, "main"} =
                Orchestrator.parse_system_branch_push_topic_for_test("system.main.branch.push")
@@ -4059,7 +4059,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                Orchestrator.parse_system_branch_push_topic_for_test("ticket.99.branch.push")
     end
 
-    test "default branch push stops working agents and releases claims" do
+    test "default branch push leaves active and paused agents running and preserves claims" do
       issue_a = %Issue{id: "issue-main-a", identifier: "560", state: "in-progress"}
       issue_b = %Issue{id: "issue-main-b", identifier: "561", state: "in-progress"}
       issue_paused = %Issue{id: "issue-paused", identifier: "562", state: "in-progress"}
@@ -4067,8 +4067,6 @@ defmodule Aiur.OrchestratorDeactivateTest do
       pid_a = spawn(fn -> Process.sleep(:infinity) end)
       pid_b = spawn(fn -> Process.sleep(:infinity) end)
       pid_paused = spawn(fn -> Process.sleep(:infinity) end)
-      ref_a = Process.monitor(pid_a)
-      ref_b = Process.monitor(pid_b)
       started_at = DateTime.utc_now()
 
       state = %Orchestrator.State{
@@ -4107,23 +4105,32 @@ defmodule Aiur.OrchestratorDeactivateTest do
           sha: "abc123"
         })
 
-      refute Map.has_key?(next.running, issue_a.id)
-      refute Map.has_key?(next.running, issue_b.id)
+      # No agent is terminated — the kill-on-merge fleet thrash is gone. Each
+      # agent is notified via its own system.<base>.branch.push subscription and
+      # keeps its in-flight turn.
+      assert Map.has_key?(next.running, issue_a.id)
+      assert Map.has_key?(next.running, issue_b.id)
       assert Map.has_key?(next.running, issue_paused.id)
-      refute MapSet.member?(next.claimed, issue_a.id)
-      refute MapSet.member?(next.claimed, issue_b.id)
-      assert MapSet.member?(next.claimed, issue_paused.id)
-      refute Map.has_key?(next.retry_attempts, issue_a.id)
-      refute Map.has_key?(next.retry_attempts, issue_b.id)
 
-      assert_receive {:DOWN, ^ref_a, :process, ^pid_a, :killed}, 500
-      assert_receive {:DOWN, ^ref_b, :process, ^pid_b, :killed}, 500
+      # Claims and retry bookkeeping survive — nothing is released or
+      # re-dispatched.
+      assert MapSet.member?(next.claimed, issue_a.id)
+      assert MapSet.member?(next.claimed, issue_b.id)
+      assert MapSet.member?(next.claimed, issue_paused.id)
+      assert Map.has_key?(next.retry_attempts, issue_a.id)
+      assert Map.has_key?(next.retry_attempts, issue_b.id)
+
+      # The agent tasks are still alive (no brutal kill).
+      assert Process.alive?(pid_a)
+      assert Process.alive?(pid_b)
       assert Process.alive?(pid_paused)
 
+      Process.exit(pid_a, :kill)
+      Process.exit(pid_b, :kill)
       Process.exit(pid_paused, :kill)
     end
 
-    test "non-default system branch push leaves active agents alone" do
+    test "non-default system branch push leaves active agents running" do
       issue = %Issue{id: "issue-feature", identifier: "563", state: "in-progress"}
       pid = spawn(fn -> Process.sleep(:infinity) end)
       started_at = DateTime.utc_now()
@@ -4152,12 +4159,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
       Process.exit(pid, :kill)
     end
 
-    test "configured non-main base branch stops agents while main does not" do
+    test "configured non-main base branch is recognized and still non-destructive" do
       write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "trunk")
 
       issue = %Issue{id: "issue-trunk", identifier: "564", state: "in-progress"}
       pid = spawn(fn -> Process.sleep(:infinity) end)
-      ref = Process.monitor(pid)
       started_at = DateTime.utc_now()
 
       try do
@@ -4176,21 +4182,15 @@ defmodule Aiur.OrchestratorDeactivateTest do
           retry_attempts: %{issue.id => %{attempt: 1}}
         }
 
-        after_main =
-          Orchestrator.apply_system_branch_push_for_test(state, "main", %{sha: "main123"})
-
-        assert Map.has_key?(after_main.running, issue.id)
-        assert MapSet.member?(after_main.claimed, issue.id)
-        assert Process.alive?(pid)
-
+        # The configured base branch (trunk) is the branch this reaction keys
+        # on, but the notify-only behavior never terminates the agent.
         after_trunk =
-          Orchestrator.apply_system_branch_push_for_test(after_main, "trunk", %{sha: "trunk123"})
+          Orchestrator.apply_system_branch_push_for_test(state, "trunk", %{sha: "trunk123"})
 
-        refute Map.has_key?(after_trunk.running, issue.id)
-        refute MapSet.member?(after_trunk.claimed, issue.id)
-        refute Map.has_key?(after_trunk.retry_attempts, issue.id)
-
-        assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 500
+        assert Map.has_key?(after_trunk.running, issue.id)
+        assert MapSet.member?(after_trunk.claimed, issue.id)
+        assert Map.has_key?(after_trunk.retry_attempts, issue.id)
+        assert Process.alive?(pid)
       after
         if Process.alive?(pid), do: Process.exit(pid, :kill)
       end

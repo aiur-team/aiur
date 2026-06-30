@@ -1830,6 +1830,85 @@ defmodule Aiur.OrchestratorStatusTest do
             }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-PAUSED")
   end
 
+  test "system default-branch push wakes a sleeping (standby) agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :SleepingMainPushOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-main-sleep" => running_entry("issue-main-sleep", "MT-MAIN-SLEEP", :sleeping, worker_pid)
+          }
+      }
+    end)
+
+    # Same path a real push takes: each agent's SubscriptionStore enqueues the
+    # `system.<base>.branch.push` it is universally subscribed to.
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-MAIN-SLEEP",
+               %{topic: "system.main.branch.push", sha: "abc123", message: "main advanced"}
+             })
+
+    # Standby agent is woken so it can pull main and resume in its held slot.
+    assert_receive {:agent_queue_updated, "MT-MAIN-SLEEP", item_id, true}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: true, priority: :now}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-SLEEP")
+  end
+
+  test "system default-branch push does not wake a manually paused agent task" do
+    orchestrator_name = Module.concat(__MODULE__, :PausedMainPushOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-main-paused" => running_entry("issue-main-paused", "MT-MAIN-PAUSED", :paused, worker_pid)
+          }
+      }
+    end)
+
+    assert :ok =
+             GenServer.call(orchestrator_name, {
+               :enqueue_event_digest,
+               "MT-MAIN-PAUSED",
+               %{topic: "system.main.branch.push", sha: "abc123", message: "main advanced"}
+             })
+
+    # A manual pause is never woken by a main update; the notice waits in queue
+    # until the operator resumes.
+    assert_receive {:agent_queue_updated, "MT-MAIN-PAUSED", item_id, false}
+
+    assert {:ok,
+            %{
+              id: ^item_id,
+              category: :coordination_event,
+              delivery: %{interrupt_requested: false, priority: :later}
+            }} = Orchestrator.claim_next_queue_item_for_test(orchestrator_name, "MT-MAIN-PAUSED")
+  end
+
   test "event digest wakes a running agent with no active turn" do
     orchestrator_name = Module.concat(__MODULE__, :IdleEventDigestOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)

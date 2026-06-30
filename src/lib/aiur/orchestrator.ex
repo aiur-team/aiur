@@ -491,7 +491,7 @@ defmodule Aiur.Orchestrator do
         {:noreply, maybe_resume_blockees_on_push(state, blocker_identifier, topic)}
 
       {:system_branch_push, branch} ->
-        {:noreply, maybe_stop_active_agents_on_default_branch_push(state, branch, event)}
+        {:noreply, maybe_notify_agents_on_default_branch_push(state, branch, event)}
 
       :nomatch ->
         {:noreply, state}
@@ -803,26 +803,44 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, branch, event)
+  # The default branch advanced (a PR merged to the base branch). We do NOT
+  # touch active agents: terminating every agent on each merge thrashed the
+  # whole fleet and discarded each in-flight turn. Notification needs no work
+  # here — every agent universally subscribes to `system.<base>.branch.push`
+  # (`UniversalSubscriptions.topics/1`), so the same push that reaches the
+  # orchestrator is independently delivered into each agent's event digest by
+  # its own `SubscriptionStore`, through the exact `enqueue_event_digest_item/4`
+  # -> `event_digest_delivery_opts/2` -> `queue_wake_required?/1` path the
+  # comment fan-out uses. That path already encodes the desired per-state
+  # behavior:
+  #
+  #   * `:working` mid-turn  -> queued, NON-interrupting; seen at the next turn
+  #     boundary, the current turn continues uninterrupted.
+  #   * `:sleeping` (standby) -> woken so it can pull main and resume. A sleeping
+  #     entry already holds its slot, so the wake consumes no new capacity and
+  #     dispatches no new agent.
+  #   * `:paused` (manual operator/agent pause) -> queued but NOT woken; a manual
+  #     pause is never woken by a main update.
+  #
+  # So there is nothing for the orchestrator to do but record the advance for
+  # operators. Re-emitting a notice here would double-deliver, since the
+  # orchestrator and every agent's SubscriptionStore both receive this push. The
+  # agent-facing `using-aiur` skill tells the agent it may see this signal and to
+  # pull/rebase at its own discretion.
+  defp maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event)
        when is_binary(branch) do
     if branch == default_branch_name() do
       sha = Map.get(event, :sha) || Map.get(event, "sha")
 
-      state.running
-      |> Enum.reject(fn {_issue_id, running_entry} ->
-        paused_running_entry?(running_entry) or deactivated_running_entry?(running_entry)
-      end)
-      |> Enum.reduce(state, fn {issue_id, running_entry}, state_acc ->
-        Logger.warning("Default branch advanced; stopping active stale agent: branch=#{branch} sha=#{sha || "-"} issue_id=#{issue_id} issue_identifier=#{Map.get(running_entry, :identifier)}")
-
-        terminate_running_issue(state_acc, issue_id, false)
-      end)
-    else
-      state
+      Logger.info(
+        "Default branch advanced; not terminating agents — each handles the push via its system.#{branch}.branch.push subscription (active turns continue uninterrupted, standby wakes): sha=#{sha || "-"}"
+      )
     end
+
+    state
   end
 
-  defp maybe_stop_active_agents_on_default_branch_push(%State{} = state, _branch, _event),
+  defp maybe_notify_agents_on_default_branch_push(%State{} = state, _branch, _event),
     do: state
 
   defp default_branch_name do
@@ -2517,7 +2535,7 @@ defmodule Aiur.Orchestrator do
   @spec apply_system_branch_push_for_test(State.t(), String.t(), map()) :: State.t()
   def apply_system_branch_push_for_test(%State{} = state, branch, event \\ %{})
       when is_binary(branch) and is_map(event) do
-    maybe_stop_active_agents_on_default_branch_push(state, branch, event)
+    maybe_notify_agents_on_default_branch_push(state, branch, event)
   end
 
   @doc false
