@@ -50,27 +50,35 @@ defmodule Aiur.AgentEnvironment do
   Returns an empty list when `workspace` is not a binary so callers can splat
   the result into Port.open env opts unconditionally.
   """
-  @spec workspace_env(any()) :: [{charlist(), charlist()}]
+  @spec workspace_env(any()) :: [{charlist(), charlist() | false}]
   def workspace_env(workspace) when is_binary(workspace) do
     hex = Path.join(workspace, ".aiur-hex")
     mix = Path.join(workspace, ".aiur-mix")
 
-    [
-      {~c"HEX_HOME", String.to_charlist(hex)},
-      {~c"MIX_HOME", String.to_charlist(mix)},
-      # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
-      # lives (most repos — including aiur — keep it at the root, not under
-      # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
-      # a file that does not exist and left the real config untrusted (#440).
-      {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
-      # Marker so any nested invocation of `scripts/aiurdev` from inside
-      # an agent's workspace can detect it is running under an agent
-      # and refuse destructive commands (`--test`, `--test3`, `stop`).
-      # Without this, agents that try "manual CLI verification" by
-      # running `./scripts/aiurdev --test` reset the operator's sandbox
-      # tickets and kill the parent BEAM mid-run.
-      {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
-    ]
+    unset_parent_logs =
+      Enum.map(@parent_log_env_names, fn name ->
+        {String.to_charlist(name), false}
+      end)
+
+    workspace_env =
+      [
+        {~c"HEX_HOME", String.to_charlist(hex)},
+        {~c"MIX_HOME", String.to_charlist(mix)},
+        # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
+        # lives (most repos — including aiur — keep it at the root, not under
+        # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
+        # a file that does not exist and left the real config untrusted (#440).
+        {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
+        # Marker so any nested invocation of `scripts/aiurdev` from inside
+        # an agent's workspace can detect it is running under an agent
+        # and refuse destructive commands (`--test`, `--test3`, `stop`).
+        # Without this, agents that try "manual CLI verification" by
+        # running `./scripts/aiurdev --test` reset the operator's sandbox
+        # tickets and kill the parent BEAM mid-run.
+        {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
+      ]
+
+    unset_parent_logs ++ workspace_env
   end
 
   def workspace_env(_), do: []

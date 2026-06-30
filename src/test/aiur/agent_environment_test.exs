@@ -120,6 +120,20 @@ defmodule Aiur.AgentEnvironmentTest do
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
     end
 
+    test "unsets inherited parent log env while preserving agent workspace env" do
+      env = AgentEnvironment.workspace_env("/work/aiur/697")
+
+      assert {~c"AIUR_LOGS_ROOT", false} = List.keyfind(env, ~c"AIUR_LOGS_ROOT", 0)
+
+      assert {~c"AIUR_AGENT_IR_LOGS_PARENT", false} =
+               List.keyfind(env, ~c"AIUR_AGENT_IR_LOGS_PARENT", 0)
+
+      assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/697"} =
+               List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
+
+      refute List.keyfind(env, ~c"AIUR_DEBUG", 0)
+    end
+
     test "returns an empty list for a non-binary path so callers can splat safely" do
       assert AgentEnvironment.workspace_env(nil) == []
     end
