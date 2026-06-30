@@ -169,10 +169,10 @@ defmodule Aiur.Claude.CodingAgent do
         )
     }
 
-    send_message(port, frame)
-    {:ok, request_id}
-  rescue
-    ArgumentError -> {:error, :port_closed}
+    case send_message(port, frame) do
+      :ok -> {:ok, request_id}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def send_operator_message(_session, _payload), do: {:error, :invalid_session}
@@ -726,18 +726,17 @@ defmodule Aiur.Claude.CodingAgent do
        when is_port(port) and is_binary(thread_id) and is_binary(turn_id) do
     request_id = :erlang.unique_integer([:positive])
 
-    send_message(port, %{
-      "method" => "turn/interrupt",
-      "id" => request_id,
-      "params" => %{
-        "threadId" => thread_id,
-        "turnId" => turn_id
-      }
-    })
-
-    {:ok, request_id}
-  rescue
-    ArgumentError -> {:error, :port_closed}
+    case send_message(port, %{
+           "method" => "turn/interrupt",
+           "id" => request_id,
+           "params" => %{
+             "threadId" => thread_id,
+             "turnId" => turn_id
+           }
+         }) do
+      :ok -> {:ok, request_id}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp interrupt_turn(_session, _turn_id), do: {:error, :invalid_session}
@@ -981,5 +980,13 @@ defmodule Aiur.Claude.CodingAgent do
   defp send_message(port, message) do
     line = message |> Map.put("jsonrpc", "2.0") |> Jason.encode!()
     Port.command(port, line <> "\n")
+    :ok
+  rescue
+    # The port (the agent backend's stdin/stdout) has already closed — the
+    # backend exited or the peer tore the transport down. Swallow the write so
+    # a transport teardown never crashes the turn with an unhandled
+    # ArgumentError; the `{:exit_status, ...}` message already queued for this
+    # port drives the clean `{:error, {:port_exit, N}}` result.
+    ArgumentError -> {:error, :port_closed}
   end
 end
