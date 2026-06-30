@@ -1,7 +1,7 @@
 [tools]
 erlang = "28"
 elixir = "1.19.5-otp-28"
-opencode = "1.15.6"            # pinned: aiur's opencode pane integration is validated against 1.15.6 (1.17.x broke custom-provider model resolution)
+opencode = "1.17.10"           # pinned: aiur's opencode pane integration is validated against 1.17.10 (custom-provider model resolution + chat panes verified end-to-end). Keep on a specific version, never `latest` — a bump requires re-running the row-shape + pane verification (see src/docs/notes/opencode-row-shapes-1.17.10.md).
 ripgrep = "latest"
 
 [tasks.setup]
