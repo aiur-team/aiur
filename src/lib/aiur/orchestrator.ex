@@ -1721,6 +1721,13 @@ defmodule Aiur.Orchestrator do
   # running-map KEY (`issue.id`). Clean the `pr-<pr#>` leaf explicitly so no
   # orphan workspace is left behind, mirroring the legacy terminal cleanup.
   defp cleanup_pr_anchored_workspace(issue_id, running_entry) when is_binary(issue_id) do
+    # A closed PR is terminal for a PR-anchored unit, but this path bypasses
+    # `cleanup_terminal_issue_artifacts`, so the resume handle is never cleared
+    # for it. The handle is keyed by the PR-number `identifier` (what
+    # `start_agent_session` persisted under), not the `pr-<pr#>` running key;
+    # without this, a reopened PR would `--resume` the finished thread now that
+    # `claude-repl` is resumable (#613).
+    clear_session_handle(Map.get(running_entry, :identifier))
     Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
   end
 

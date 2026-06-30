@@ -314,10 +314,12 @@ defmodule Aiur.OrchestratorStatusTest do
     previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
     previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
     previous_github_token = System.get_env("GITHUB_TOKEN")
+    previous_log_file = Application.get_env(:aiur, :log_file)
     workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-todo-cleanup-#{System.unique_integer([:positive])}")
 
     try do
       System.put_env("GITHUB_TOKEN", "gh-test-token")
+      Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
 
       todo_workspace = Path.join([workspace_root, "owner", "repo", "586"])
       in_progress_workspace = Path.join([workspace_root, "owner", "repo", "587"])
@@ -344,6 +346,13 @@ defmodule Aiur.OrchestratorStatusTest do
         %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"}
       ])
 
+      # `todo` is NOT a terminal state, so this startup cleanup must remove the
+      # stale workspace WITHOUT clearing the resume handle — a re-dispatched todo
+      # issue should still be able to rejoin its prior thread now that
+      # `claude-repl` is resumable (#613). The terminal-cleanup path is what
+      # clears the handle (see the terminal-cleanup test above).
+      :ok = SessionHandle.save("586", %{backend: "claude-repl", thread_id: "thread-keep"})
+
       assert %Orchestrator.State{} =
                Orchestrator.run_startup_todo_workspace_cleanup_for_test(%Orchestrator.State{})
 
@@ -352,10 +361,13 @@ defmodule Aiur.OrchestratorStatusTest do
       refute File.exists?(todo_workspace)
       assert File.exists?(in_progress_workspace)
       assert File.read!(Path.join(in_progress_workspace, "dirty.txt")) == "keep"
+      # Non-terminal cleanup leaves the resume handle intact.
+      assert {:ok, %{thread_id: "thread-keep"}} = SessionHandle.load("586", "claude-repl")
     after
       restore_application_env(:github_client_module, previous_github_client)
       restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
       restore_application_env(:startup_cleanup_issues, previous_issues)
+      restore_application_env(:log_file, previous_log_file)
       restore_env("GITHUB_TOKEN", previous_github_token)
       File.rm_rf(workspace_root)
     end

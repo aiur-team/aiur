@@ -98,6 +98,8 @@ defmodule Aiur.Claude.ReplAgent do
           remote_control: boolean(),
           rc_name: String.t() | nil,
           session_url: String.t() | nil,
+          resumed: boolean(),
+          thread_id: String.t() | nil,
           identifier: String.t() | nil,
           tmux: GenServer.server()
         }
@@ -123,9 +125,14 @@ defmodule Aiur.Claude.ReplAgent do
     # composes with the operator's own settings). Best-effort: a missing
     # identifier or unbound dashboard degrades to no hooks rather than failing.
     settings_path = maybe_hook_settings(rc?, Keyword.get(opts, :identifier))
-    command = build_command(expanded, model, effort, rc?, rc_name, settings_path)
 
-    Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?)
+    # Resume the prior conversation across an aiur restart when the runner
+    # handed us a persisted session id whose transcript still exists (#613).
+    # nil means a clean start (no handle, or its transcript is gone).
+    resume_id = resume_session_id(opts, expanded)
+    command = build_command(expanded, model, effort, rc?, rc_name, settings_path, resume_id)
+
+    Aiur.Perf.event(:repl_agent_spawn, workspace: expanded, remote_control: rc?, resumed: is_binary(resume_id))
 
     ctx = %{
       tmux: tmux,
@@ -136,6 +143,7 @@ defmodule Aiur.Claude.ReplAgent do
       identifier: Keyword.get(opts, :identifier),
       hooks?: is_binary(settings_path),
       started_at: started_at,
+      resume_id: resume_id,
       opts: opts
     }
 
@@ -209,6 +217,8 @@ defmodule Aiur.Claude.ReplAgent do
   end
 
   defp repl_session(ctx, pane_id, os_pid, session_url) do
+    resume_id = Map.get(ctx, :resume_id)
+
     %{
       backend: "claude-repl",
       pane_id: pane_id,
@@ -221,6 +231,12 @@ defmodule Aiur.Claude.ReplAgent do
       remote_control: ctx.rc?,
       rc_name: ctx.rc_name,
       session_url: session_url,
+      # A resumed spawn carries the prior session id (== transcript filename) so
+      # the runner persists the right handle and serves the lightweight
+      # continuation prompt; a clean start leaves both unset (the id is then
+      # learned per-turn from the transcript). See `resume_session_id/2`.
+      resumed: is_binary(resume_id),
+      thread_id: resume_id,
       # Set only when lifecycle hooks were injected (see maybe_hook_settings/2);
       # its presence is what routes run_turn to hook-driven detection.
       identifier: if(Map.get(ctx, :hooks?, false), do: ctx.identifier, else: nil),
@@ -596,7 +612,12 @@ defmodule Aiur.Claude.ReplAgent do
   defp finish_hook_turn({:ok, %{message: message, session_id: session_id}}, on_message) do
     sid = session_id || "repl-#{System.unique_integer([:positive])}"
     emit(on_message, :turn_completed, %{session_id: sid})
-    {:ok, %{result: :completed, session_id: sid, message: message}}
+    # `thread_id` is the real claude session id (== transcript filename), which
+    # the runner persists as the resume handle. Use the raw hook-reported id, not
+    # the synthetic `repl-…` display fallback, so a turn whose hook never carried
+    # a session id leaves no handle (it would point at no transcript) and the
+    # next restart cold-starts. The transcript-driven path sets it the same way.
+    {:ok, %{result: :completed, session_id: sid, thread_id: session_id, message: message}}
   end
 
   defp finish_hook_turn({:paused, payload}, on_message) do
@@ -1056,10 +1077,11 @@ defmodule Aiur.Claude.ReplAgent do
 
   # `exec` replaces the wrapping shell so the pane's top process IS `claude`,
   # which makes `pane_pid` the process graceful_kill must terminate.
-  defp build_command(workspace, model, effort, rc?, rc_name, settings_path) do
+  defp build_command(workspace, model, effort, rc?, rc_name, settings_path, resume_id) do
     flags =
       ["claude"]
       |> append_if(rc?, ["--remote-control", shell_escape(rc_name)])
+      |> append_if(is_binary(resume_id), ["--resume", shell_escape(resume_id || "")])
       |> Kernel.++(["--permission-mode", shell_escape(Config.permission_mode())])
       |> append_if(is_binary(model), ["--model", shell_escape(model || "")])
       |> append_if(is_binary(effort), ["--effort", shell_escape(effort || "")])
@@ -1067,6 +1089,27 @@ defmodule Aiur.Claude.ReplAgent do
       |> Enum.join(" ")
 
     "cd #{shell_escape(workspace)} && exec #{flags}"
+  end
+
+  # The claude session id to `--resume` on this spawn, or nil for a clean start.
+  #
+  # Resume only when the runner handed us a persisted handle id (resolved from
+  # the per-issue `.session.json`, gated on a resumable backend + local worker)
+  # AND that session's transcript jsonl still exists on disk. A missing handle
+  # (first dispatch, or cleared on terminal state) or a vanished transcript
+  # (workspace recloned without the host-local jsonl) degrades to a clean start
+  # — the same graceful fallback the codex resume path takes (#378/#613).
+  @doc false
+  @spec resume_session_id(keyword(), Path.t()) :: String.t() | nil
+  def resume_session_id(opts, workspace) do
+    case Keyword.get(opts, :resume_thread_id) do
+      session_id when is_binary(session_id) and session_id != "" ->
+        path = RemoteControl.session_transcript_path(workspace, session_id, projects_dir: Keyword.get(opts, :projects_dir))
+        if File.exists?(path), do: session_id, else: nil
+
+      _ ->
+        nil
+    end
   end
 
   # Write the lifecycle-hook settings file for an RC session. Returns the path, or

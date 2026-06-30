@@ -245,6 +245,8 @@ defmodule Aiur.AgentRunnerTest do
   describe "resume_thread_id/3 (when to rejoin a prior thread)" do
     test "returns the persisted thread id for a resumable, local backend" do
       assert AgentRunner.resume_thread_id("codex", nil, {:ok, %{thread_id: "thr_1"}}) == "thr_1"
+      # claude-repl is resumable too: the id is the prior claude session id.
+      assert AgentRunner.resume_thread_id("claude-repl", nil, {:ok, %{thread_id: "sess_1"}}) == "sess_1"
     end
 
     test "is nil when there is no persisted handle (clean start)" do
@@ -252,7 +254,7 @@ defmodule Aiur.AgentRunnerTest do
     end
 
     test "is nil for a non-resumable backend even with a handle" do
-      # claude / claude-repl cannot resume across restarts today.
+      # Headless claude can't resume (its app-server thread map is in-memory only).
       assert AgentRunner.resume_thread_id("claude", nil, {:ok, %{thread_id: "thr_1"}}) == nil
     end
 
@@ -278,6 +280,13 @@ defmodule Aiur.AgentRunnerTest do
                AgentRunner.session_handle_to_save(session, nil)
     end
 
+    test "persists a resumable local claude-repl session" do
+      session = %{backend: "claude-repl", thread_id: "sess_9"}
+
+      assert {:ok, %{backend: "claude-repl", thread_id: "sess_9"}} =
+               AgentRunner.session_handle_to_save(session, nil)
+    end
+
     test "skips a non-resumable backend (claude headless fallback)" do
       assert :skip = AgentRunner.session_handle_to_save(%{backend: "claude", thread_id: "x"}, nil)
     end
@@ -288,6 +297,40 @@ defmodule Aiur.AgentRunnerTest do
 
     test "skips a session with no thread id" do
       assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex"}, nil)
+    end
+  end
+
+  describe "turn_handle_attrs/2 (persist after a turn only when the live id differs from the start id)" do
+    test "persists the turn's id for a REPL session that had no id at start" do
+      # The fresh REPL learns its claude session id from the transcript on the
+      # first turn, so the handle is persisted post-turn carrying the start
+      # session's backend.
+      app_session = %{backend: "claude-repl"}
+      turn_session = %{thread_id: "sess_5", session_id: "sess_5-7"}
+
+      assert {:ok, %{backend: "claude-repl", thread_id: "sess_5"}} =
+               AgentRunner.turn_handle_attrs(app_session, turn_session)
+    end
+
+    test "persists the live id when a resumed REPL's session id drifts from the start id" do
+      # Defends against the CLI ever handing `--resume` a new session id: the
+      # handle must follow the live conversation, not the id we resumed from.
+      assert {:ok, %{backend: "claude-repl", thread_id: "new"}} =
+               AgentRunner.turn_handle_attrs(%{backend: "claude-repl", thread_id: "old"}, %{thread_id: "new"})
+    end
+
+    test "skips when the turn echoes the start session's id (codex/headless/stable REPL)" do
+      # These fixed their id at start and the turn returns the same one, so the
+      # start-time persistence is already current — re-persisting is redundant.
+      assert :skip =
+               AgentRunner.turn_handle_attrs(%{backend: "codex", thread_id: "thr_1"}, %{thread_id: "thr_1"})
+
+      assert :skip =
+               AgentRunner.turn_handle_attrs(%{backend: "claude-repl", thread_id: "sess_1"}, %{thread_id: "sess_1"})
+    end
+
+    test "skips when the turn produced no thread id" do
+      assert :skip = AgentRunner.turn_handle_attrs(%{backend: "claude-repl"}, %{})
     end
   end
 

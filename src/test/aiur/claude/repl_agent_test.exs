@@ -70,6 +70,146 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert session.session_url == nil
   end
 
+  describe "resume_session_id/2" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "repl-resume-id-#{System.unique_integer([:positive])}")
+      on_exit(fn -> File.rm_rf(dir) end)
+      %{projects_dir: dir, workspace: "/ws/aiur/613"}
+    end
+
+    test "returns the session id when its transcript exists on disk", %{projects_dir: dir, workspace: ws} do
+      sid = "sess-abc"
+      slug_dir = Path.join(dir, RemoteControl.workspace_slug(ws))
+      File.mkdir_p!(slug_dir)
+      File.write!(Path.join(slug_dir, sid <> ".jsonl"), "{}\n")
+
+      assert ReplAgent.resume_session_id([resume_thread_id: sid, projects_dir: dir], ws) == sid
+    end
+
+    test "returns nil when the transcript is gone (graceful clean start)", %{projects_dir: dir, workspace: ws} do
+      # A handle pointing at a vanished transcript (workspace recloned without the
+      # host-local jsonl) must degrade to a clean start, not strand the issue.
+      assert ReplAgent.resume_session_id([resume_thread_id: "gone", projects_dir: dir], ws) == nil
+    end
+
+    test "returns nil with no/blank resume id (first dispatch, or cleared handle)", %{projects_dir: dir, workspace: ws} do
+      assert ReplAgent.resume_session_id([projects_dir: dir], ws) == nil
+      assert ReplAgent.resume_session_id([resume_thread_id: nil, projects_dir: dir], ws) == nil
+      assert ReplAgent.resume_session_id([resume_thread_id: "", projects_dir: dir], ws) == nil
+    end
+  end
+
+  test "start_session passes --resume and marks the session resumed when the transcript exists", %{tmux: tmux} do
+    ws = "/ws/aiur/613"
+    sid = "sess-#{System.unique_integer([:positive])}"
+    projects_dir = Path.join(System.tmp_dir!(), "repl-resume-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(projects_dir) end)
+    slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
+    File.mkdir_p!(slug_dir)
+    File.write!(Path.join(slug_dir, sid <> ".jsonl"), "{}\n")
+
+    task =
+      Task.async(fn ->
+        ReplAgent.start_session(ws,
+          tmux: tmux,
+          rc_name: "aiur-repl-test",
+          window_name: "aiur-repl-test",
+          projects_dir: projects_dir,
+          resume_thread_id: sid
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert String.contains?(cmd, "--resume '#{sid}'")
+    respond(tmux, "%55\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %55"}, 1_000
+    respond(tmux, "❯\n")
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %55 \#{pane_pid}"}, 1_000
+    respond(tmux, "4242\n")
+
+    assert {:ok, session} = Task.await(task, 2_000)
+    assert session.resumed == true
+    assert session.thread_id == sid
+  end
+
+  test "start_session omits --resume and stays a clean start when the transcript is gone", %{tmux: tmux} do
+    ws = "/ws/aiur/613"
+
+    task =
+      Task.async(fn ->
+        ReplAgent.start_session(ws,
+          tmux: tmux,
+          rc_name: "aiur-repl-test",
+          window_name: "aiur-repl-test",
+          projects_dir: "/nonexistent-projects-dir",
+          resume_thread_id: "vanished-session"
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    refute String.contains?(cmd, "--resume")
+    respond(tmux, "%56\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %56"}, 1_000
+    respond(tmux, "❯\n")
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %56 \#{pane_pid}"}, 1_000
+    respond(tmux, "4242\n")
+
+    assert {:ok, session} = Task.await(task, 2_000)
+    assert session.resumed == false
+    assert session.thread_id == nil
+  end
+
+  test "start_session passes both --remote-control and --resume on a resumed RC session (the model:remote path)", %{tmux: tmux} do
+    # `model:remote` forces RC on, so the canonical claude-repl resume path
+    # spawns the interactive `claude` carrying BOTH flags. Pin the command form
+    # so a regression is caught; the combination's live acceptance is verified
+    # against the real CLI (see PR notes), and a spawn failure degrades to
+    # headless via `AgentRunner.start_agent_session/3` rather than stranding.
+    ws = "/ws/aiur/613"
+    sid = "sess-#{System.unique_integer([:positive])}"
+    projects_dir = Path.join(System.tmp_dir!(), "repl-rc-resume-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(projects_dir) end)
+    slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
+    File.mkdir_p!(slug_dir)
+    File.write!(Path.join(slug_dir, sid <> ".jsonl"), "{}\n")
+
+    task =
+      Task.async(fn ->
+        ReplAgent.start_session(ws,
+          tmux: tmux,
+          remote_control: true,
+          rc_name: "aiur-rc-resume",
+          window_name: "aiur-rc-resume",
+          projects_dir: projects_dir,
+          resume_thread_id: sid
+        )
+      end)
+
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert String.contains?(cmd, "--remote-control 'aiur-rc-resume'")
+    assert String.contains?(cmd, "--resume '#{sid}'")
+    respond(tmux, "%71\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
+    respond(tmux, "❯\n")
+
+    assert_receive {:tmux_mock_out, "display-message -p -t %71 \#{pane_pid}"}, 1_000
+    respond(tmux, "10\n")
+
+    # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
+    respond(tmux, "  /remote-control is active · https://claude.ai/code/session_01RcResume\n❯\n")
+
+    assert {:ok, session} = Task.await(task, 2_000)
+    assert session.remote_control == true
+    assert session.resumed == true
+    assert session.thread_id == sid
+  end
+
   test "start_session passes --remote-control when opted in", %{tmux: tmux} do
     ws = System.tmp_dir!()
 
