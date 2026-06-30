@@ -3946,6 +3946,16 @@ defmodule Aiur.Orchestrator do
       # the issue lingers in `claimed` and `dispatch_candidate?/4` refuses it for
       # the daemon's lifetime. Mirrors the retry-poll exhaustion path, which
       # already releases the claim.
+      #
+      # The `move_exhausted_issue_to_error_state/1` above is best-effort: if that
+      # tracker write fails the issue keeps its active-state label, so releasing
+      # the claim leaves it eligible for an immediate re-dispatch with a fresh
+      # retry budget. That re-dispatch thrash is the class the per-issue
+      # `check_thrash_budget/3` breaker exists to bound (it trips with a
+      # needs_attention `thrash_circuit_open` alert), and a recovered tracker
+      # write parks the ticket in `error` on the next give-up — keeping the
+      # ticket recoverable without a restart rather than stranding it in
+      # `claimed`, which is the behaviour #699 is fixing.
       released = release_issue_claim(state, issue_id)
       %{released | retry_attempts: Map.delete(released.retry_attempts, issue_id)}
     else
