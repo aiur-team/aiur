@@ -17,6 +17,40 @@ defmodule Aiur.OrchestratorStatusTest do
 
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
 
+    def graphql(query, %{"issueId" => _issue_id, "stateName" => "rework"})
+        when is_binary(query) do
+      {:ok,
+       %{
+         "data" => %{
+           "issue" => %{
+             "team" => %{"states" => %{"nodes" => [%{"id" => "state-rework"}]}}
+           }
+         }
+       }}
+    end
+
+    def graphql(query, %{issueId: _issue_id, stateName: "rework"})
+        when is_binary(query) do
+      {:ok,
+       %{
+         "data" => %{
+           "issue" => %{
+             "team" => %{"states" => %{"nodes" => [%{"id" => "state-rework"}]}}
+           }
+         }
+       }}
+    end
+
+    def graphql(query, %{"issueId" => _issue_id, "stateId" => "state-rework"})
+        when is_binary(query) do
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+    end
+
+    def graphql(query, %{issueId: _issue_id, stateId: "state-rework"})
+        when is_binary(query) do
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+    end
+
     defp notify(message) do
       case Application.get_env(:aiur, :startup_cleanup_test_pid) do
         pid when is_pid(pid) -> send(pid, message)
