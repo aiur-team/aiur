@@ -110,10 +110,16 @@ merge to main.
   Scope (exact), Out of scope, Acceptance criteria, Verification (Agent gate
   = `make ci` from `src/`, plus the website gate for `website/` tickets;
   At-merge = the named `Check:` probes + any TUI checks). PR base = `v2`.
-- **Issue creation** (successor-agent job, per `00-overview.md`): create in
-  dependency order; every issue gets the `refactor` label; rewrite
-  `Depends-on: T-NNN` to real issue numbers from your own creation log;
-  verify the T-id→number mapping before applying `agent:todo`.
+- **Ticket numbering & phase visibility:** `T-NNN` files are numbered in
+  phase-then-dependency order (T-001 = first phase-1 ticket), and each ticket
+  states its **Phase** prominently. The backlog reads top-to-bottom in
+  execution order.
+- **Issue creation** (successor-agent job, per `00-overview.md`): create
+  **oldest-first in phase then dependency order** so the lowest issue numbers
+  are worked first (creation order = execution priority); every issue gets
+  the `refactor` label and a `phase:N` label; rewrite `Depends-on: T-NNN` to
+  real issue numbers from your own creation log; verify the T-id→number
+  mapping before applying `agent:todo`.
 - **Delayed-open:** a dependent's issue is created only after its blocker
   merges to `v2`. Single-file decomposition chains run as serialized
   sub-waves (open wave N+1 only after wave N merges).
@@ -176,11 +182,11 @@ main), the human pauses it, or a catastrophic failure blocks all progress.
 
 ## 12. Human touchpoints
 
-The human is asynchronous and appears only at defined points (exact set is
-operator-selected — see the progress log for the current setting):
+The human is asynchronous and appears only at defined points (set 2026-07-06):
 
-- Review of the ticket backlog before execution (depth per operator choice).
-- **Final `v2` acceptance** before the merge to main (always).
+- **Full review of the ticket backlog** before any execution — the loop
+  generates and presents all tickets, then stops for review.
+- **Final `v2` acceptance** before the merge to main.
 - On catastrophic failure.
 
 Everything else is autonomous.
@@ -191,7 +197,9 @@ Everything else is autonomous.
 
 - **2026-07-06** — Prep complete: `refactor` label created; `v2` branch cut
   (carries the full plan); this runbook written. Six planning docs +
-  research artifacts committed on `refactor-planning-prompt` (PR #732).
-  Zero stray `agent:todo` issues. **Not yet started:** ce-doc-review of the
-  planning docs, ticket generation, execution pre-flight (§3). Operator
-  review-gate setting: _pending_. Next unit: per the restart goal.
+  research artifacts committed on `refactor-planning-prompt` (PR #732). Zero
+  stray `agent:todo` issues. Operator decisions locked: **full backlog
+  review** before execution; **canary** (1–2 tickets) before ramp;
+  **ce-doc-review runs first**. **Next unit:** ce-doc-review the six planning
+  docs → apply fixes → generate the phase-labeled backlog in order → run the
+  consistency script → present the full backlog for review, then stop.
