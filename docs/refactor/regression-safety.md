@@ -172,3 +172,9 @@ plus any manual TUI checks the ticket lists) after merging.
   named existing test, an at-merge `Check:` probe, or an explicit rationale
   for no coverage. Risky tickets carry `Characterization-tests:` fields; the
   consistency script verifies every reference resolves to a real test file.
+
+**Verification cadence (scoped).** Coverage is applied incrementally, never
+exhaustively per-PR. Each PR/at-merge checks only the Inventory-IDs it
+touches; each phase, at exit, checks the union of features it touched (which
+may run while the next phase executes); the full 1,062-feature sweep runs
+once, at final `v2` acceptance. See `RUNBOOK.md` §7.

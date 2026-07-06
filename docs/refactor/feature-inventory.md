@@ -91,10 +91,15 @@ issue for the fix):
 1. **Ticket authoring (U10):** every ticket's `Inventory-IDs:` field lists the
    entries its files implement or touch; risky tickets also carry
    `Characterization-tests:`.
-2. **PR review:** the reviewer (the aiur-driving Opus agent at merge time)
-   confirms the listed entries' behavior survives — named tests still pass
-   unmodified, `Check:` probes pass where present.
-3. **Regression-safety mapping (pass 2):** after ticket generation,
+2. **PR review:** the loop-running agent at merge time confirms the listed
+   entries' behavior survives — named tests still pass unmodified, `Check:`
+   probes pass where present.
+3. **Scoped verification, not exhaustive:** a PR checks only the
+   Inventory-IDs it touches; a phase, at exit, checks the union of features
+   it touched (and may do so while the next phase runs). The full
+   1,062-entry sweep runs **once**, at final `v2` acceptance. See
+   `RUNBOOK.md` §7.
+4. **Regression-safety mapping (pass 2):** after ticket generation,
    `regression-safety.md` maps every FI entry to its coverage: a
    characterization test, a named existing test, a `Check:` probe, or an
    explicit no-coverage rationale.

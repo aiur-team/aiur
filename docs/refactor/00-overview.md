@@ -12,8 +12,11 @@ via the aiur-loop, orchestrated by an Opus agent, merging into a long-lived
 
 ## Success criteria
 
-1. Every feature in `feature-inventory.md` (1,062 entries) survives —
-   verified per-PR via `Inventory-IDs:` + characterization tests.
+1. Every feature in `feature-inventory.md` (1,062 entries) survives.
+   Verification is **scoped, not exhaustive**: each PR/phase checks only the
+   Inventory-IDs it touches (their characterization tests + at-merge `Check:`
+   probes); the full 1,062-feature sweep runs **once**, at final `v2`
+   acceptance. See `RUNBOOK.md` §7.
 2. `v2` is green after every single ticket (full `make ci` gate).
 3. The giants are decomposed per the name map (~190 focused modules); the
    coverage `ignore_modules` list only shrinks; duplication clusters
@@ -32,6 +35,7 @@ via the aiur-loop, orchestrated by an Opus agent, merging into a long-lived
 | `target-architecture.md` | end state, seams, name-map contract |
 | `regression-safety.md` | testing strategy, tripwire, flake rules, halt rules |
 | `phasing-and-parallelization.md` | phase model, dependency rules, duty split |
+| `RUNBOOK.md` | **operating manual for the agent running the loop** — start here to execute |
 | `research-history-hotspots.md`, `research-arch/`, `research-docs-framework.md`, `research-v2-mechanics.md` | evidence artifacts |
 | `tickets/` | the backlog (generated after the checkpoint) |
 
@@ -86,7 +90,13 @@ The agent running `/aiur-loop` for each phase:
    delayed-open — a dependent's issue is created only after its blocker
    merges). Rewrite `Depends-on: T-NNN` to real issue numbers from your own
    creation log as you go.
-4. Before applying `agent:todo` to any issue, verify the full T-id→#N map
+4. **Every issue gets the `refactor` label** plus `agent:todo`,
+   `complexity:N` (1–3), and `model:claude` where the ticket calls for it.
+   Only `refactor` issues ever carry `agent:todo` — the tracker has no
+   extra-label filter, so this exclusivity is what scopes the loop (verify:
+   `gh issue list --label agent:todo --state open` shows only `refactor`
+   issues; today it is empty).
+5. Before applying `agent:todo` to any issue, verify the full T-id→#N map
    lined up as expected (single actor, serial creation — numbering cannot
    drift; verify anyway).
 5. Maintain the T-id→#N table in this file (pass 2).
