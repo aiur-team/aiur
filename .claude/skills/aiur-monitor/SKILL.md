@@ -30,11 +30,52 @@ on your first tick of a session. The output is one row per active agent
 agent activity for >10m), complexity, and tracker state are all computed
 server-side — you do not classify the log tail yourself anymore.
 
-### 2. Post it
+### 2. Enrich with log detail
+
+The raw `DOING` cell is intentionally compact and often shows low-level stream
+events (`item started`, token/rate-limit updates, command output dots). Before
+posting a status tick, add one operator-readable sentence per active ticket that
+explains what the agent is actually doing or blocked on.
+
+Use the current aiur log root first, then workspace logs if the central log does
+not have enough context:
+
+```bash
+LOG_ROOT="$(ls -td ~/.aiur/logs/* | head -1)"
+rg "info: \[(agent|alert)\] \(#<id>\)" "$LOG_ROOT/log/aiur.log" | tail -20
+```
+
+If needed, read the corresponding workspace `logs/agent.md` tail as a fallback.
+Prefer, in this order:
+
+- the latest completed agent prose about current work or validation state
+- phase/progress/blocker alerts
+- meaningful command results (test summaries, PR creation, commit/push status)
+
+Ignore raw streaming deltas, token/rate-limit updates, repeated debug events,
+and uninformative command-output dots. If `aiurdev watch --changes` prints
+`(no changes)`, still include refreshed detail sentences from the logs; a steady
+board with stale prose is not a useful operator update.
+
+Format the enrichment as a `Details:` list below the board:
+
+```text
+Details:
+- #123: Focused tests are green and the agent is rerunning the full gate after
+  clearing dashboard auth from the test VM.
+- #124: The scoped implementation is done, but the agent is blocked because the
+  full gate now depends on an out-of-scope fixture cleanup.
+```
+
+Keep each detail to one sentence. It should be specific enough that the operator
+can tell whether the agent is implementing, validating, blocked, committing,
+pushing, or waiting for review without opening the logs themselves.
+
+### 3. Post it
 
 Post the `aiurdev watch` output to the operator as-is (a fenced block is fine).
-The board already encodes status; do not re-derive it. Two things to surface on
-top of the raw output:
+The board encodes status; the `Details:` list explains the latest log-derived
+activity. Two things to surface on top of the raw output:
 
 - **`⚠️ Needs you`** — when the `ACTIONABLE` section is non-empty, add ONE line
   below the board, `⚠️ Needs you: #<id> (<why>)`, naming what the operator must
@@ -124,7 +165,8 @@ For any **NEW** `needs_attention:true` alert, also relay it via **PushNotificati
 
 - Source of truth is aiur's own running state: `aiurdev watch` calls the orchestrator's status
   snapshot + the structured alert feed (the same data the dashboard renders) in one server-side
-  call, so there is no `gh`/`jq` or per-agent log classification to maintain here. The real-time
-  alert watcher still reads each workspace's `logs/agent.ndjson` directly so it keeps working
-  between ticks and across both workspace roots.
+  call, so there is no `gh`/`jq` status reconstruction to maintain here. The one-sentence
+  `Details:` entries are intentionally log-derived summaries, not a replacement for the aiur
+  board. The real-time alert watcher still reads each workspace's `logs/agent.ndjson` directly so
+  it keeps working between ticks and across both workspace roots.
 - Agent id == ticket id == workspace directory name.
