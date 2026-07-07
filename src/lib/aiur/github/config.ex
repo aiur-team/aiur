@@ -38,7 +38,13 @@ defmodule Aiur.GitHub.Config do
   """
   @spec resolve_token(keyword()) :: String.t() | nil
   def resolve_token(opts \\ []) do
-    validate = Keyword.get(opts, :validate_fun, &valid_github_token?/1)
+    request_fun = Keyword.get(opts, :request_fun, &Req.get/2)
+
+    validate =
+      Keyword.get(opts, :validate_fun, fn token ->
+        valid_github_token?(token, request_fun)
+      end)
+
     keyring = Keyword.get(opts, :keyring_fun, &keyring_token/0)
     env = normalize_secret(System.get_env("GITHUB_TOKEN"))
 
@@ -178,9 +184,12 @@ defmodule Aiur.GitHub.Config do
     _ -> nil
   end
 
-  # Cheap validity probe: GET /rate_limit returns 200 for a usable token.
-  defp valid_github_token?(token) when is_binary(token) do
-    case Req.get("https://api.github.com/rate_limit",
+  # Cheap validity probe: GET /rate_limit returns 200 for a syntactically usable
+  # token, but an exhausted core quota still wedges the fleet (#617). Treat a
+  # 200 response with remaining=0 as unusable so boot can fall back from a stale
+  # `.env` token to `gh` keyring auth when available.
+  defp valid_github_token?(token, request_fun) when is_binary(token) and is_function(request_fun, 2) do
+    case request_fun.("https://api.github.com/rate_limit",
            headers: [
              {"Authorization", "Bearer #{token}"},
              {"Accept", "application/vnd.github+json"},
@@ -188,14 +197,75 @@ defmodule Aiur.GitHub.Config do
            ],
            connect_options: [timeout: 10_000]
          ) do
-      {:ok, %{status: status}} when status in 200..299 -> true
-      _ -> false
+      {:ok, %{status: status} = response} when status in 200..299 ->
+        rate_limit_usable?(response)
+
+      _ ->
+        false
     end
   rescue
     _ -> false
   end
 
-  defp valid_github_token?(_), do: false
+  defp valid_github_token?(_, _), do: false
+
+  defp rate_limit_usable?(response) do
+    case rate_limit_remaining(response) do
+      0 -> false
+      _remaining -> true
+    end
+  end
+
+  defp rate_limit_remaining(%{headers: headers} = response) do
+    header_remaining(headers) || body_remaining(response)
+  end
+
+  defp rate_limit_remaining(%{} = response), do: body_remaining(response)
+
+  defp header_remaining(headers) when is_list(headers) do
+    headers
+    |> Enum.find_value(fn
+      {key, value} ->
+        if String.downcase(to_string(key)) == "x-ratelimit-remaining" do
+          parse_integer(value)
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp header_remaining(headers) when is_map(headers) do
+    headers
+    |> Enum.find_value(fn {key, value} ->
+      if String.downcase(to_string(key)) == "x-ratelimit-remaining" do
+        parse_integer(value)
+      end
+    end)
+  end
+
+  defp header_remaining(_headers), do: nil
+
+  defp body_remaining(%{body: %{"resources" => %{"core" => %{"remaining" => remaining}}}}),
+    do: parse_integer(remaining)
+
+  defp body_remaining(%{body: %{"rate" => %{"remaining" => remaining}}}),
+    do: parse_integer(remaining)
+
+  defp body_remaining(_response), do: nil
+
+  defp parse_integer(value) when is_integer(value), do: value
+
+  defp parse_integer([value | _]), do: parse_integer(value)
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, _rest} -> integer
+      :error -> nil
+    end
+  end
+
+  defp parse_integer(_value), do: nil
 
   defp normalize_secret(value) when is_binary(value) do
     case String.trim(value) do

@@ -4,7 +4,10 @@ defmodule Aiur.Workspace do
   """
 
   require Logger
-  alias Aiur.{Config, PathSafety, RepoBase, SSH}
+  alias Aiur.{Alerts, Config, PathSafety, RepoBase, SSH}
+  alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
   @warm_cache_paths ["src/deps", "src/_build", "deps", "_build"]
@@ -23,7 +26,8 @@ defmodule Aiur.Workspace do
            :ok <- validate_workspace_path(workspace, worker_host),
            {:ok, workspace, created?} <-
              ensure_workspace(workspace, worker_host, issue_context.pr_head_ref),
-           :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
+           :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host),
+           :ok <- maybe_run_github_workspace_preflight(workspace, issue_context, worker_host) do
         maybe_install_agent_skills(workspace, worker_host)
         {:ok, workspace}
       end
@@ -119,6 +123,77 @@ defmodule Aiur.Workspace do
     File.rm_rf!(workspace)
     File.mkdir_p!(workspace)
     {:ok, workspace, true}
+  end
+
+  defp maybe_run_github_workspace_preflight(workspace, issue_context, worker_host) do
+    if github_workspace_preflight_enabled?() do
+      case run_workspace_github_preflight(workspace, worker_host) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+          {:error, {:workspace_github_connectivity_failed, workspace, reason}}
+
+        other ->
+          reason = {:unexpected_workspace_github_preflight_result, other}
+          emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+          {:error, {:workspace_github_connectivity_failed, workspace, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp github_workspace_preflight_enabled? do
+    Application.get_env(:aiur, :workspace_github_preflight_enabled, true) == true and
+      Config.tracker_kind() == "github"
+  rescue
+    _ -> false
+  end
+
+  defp run_workspace_github_preflight(workspace, worker_host) do
+    fun =
+      Application.get_env(:aiur, :workspace_github_preflight_fun, fn _workspace, _worker_host ->
+        GitHubTracker.auth_preflight()
+      end)
+
+    cond do
+      is_function(fun, 2) -> fun.(workspace, worker_host)
+      is_function(fun, 1) -> fun.(workspace)
+      is_function(fun, 0) -> fun.()
+      true -> {:error, {:invalid_workspace_github_preflight_fun, inspect(fun)}}
+    end
+  end
+
+  defp emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason) do
+    message = github_workspace_preflight_message(workspace, issue_context, reason)
+
+    Alerts.emit_custom("system.github.connectivity_lost", message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning",
+      workspace: workspace,
+      worker_host: worker_host
+    )
+  end
+
+  defp github_workspace_preflight_message(workspace, issue_context, reason) do
+    repo = GitHubConfig.repo() || "(unknown repo)"
+    formatted = GitHubClient.format_auth_preflight_error(reason)
+
+    "GitHub workspace preflight failed #{issue_log_context(issue_context)} workspace=#{workspace} " <>
+      "repo=#{repo}. Probe: #{github_preflight_probe(repo)}. Reason: #{formatted}"
+  end
+
+  defp github_preflight_probe("(unknown repo)") do
+    "GET https://api.github.com/rate_limit"
+  end
+
+  defp github_preflight_probe(repo) do
+    "GET https://api.github.com/rate_limit; " <>
+      "GET https://api.github.com/repos/#{repo}; " <>
+      "GET https://api.github.com/repos/#{repo}/issues?state=open&per_page=1"
   end
 
   # When pre-warm is enabled and the shared base is ready, materialize the
@@ -602,7 +677,9 @@ defmodule Aiur.Workspace do
   def ensure_git_metadata_writable(workspace, nil) when is_binary(workspace) do
     case local_git_metadata_probe_paths(workspace) do
       {:ok, paths} ->
-        probe_lock_files(paths)
+        with :ok <- probe_lock_files(paths) do
+          probe_git_index_write(workspace)
+        end
 
       :not_git ->
         :ok
@@ -643,7 +720,18 @@ defmodule Aiur.Workspace do
         "probe_lock \"$git_dir_real/index.lock\"",
         "probe_lock \"$git_dir_real/FETCH_HEAD.lock\"",
         "probe_lock \"$git_dir_real/ORIG_HEAD.lock\"",
-        "probe_lock \"$git_dir_real/refs/remotes/origin/aiur/${issue_id}.lock\""
+        "probe_lock \"$git_dir_real/refs/remotes/origin/aiur/${issue_id}.lock\"",
+        "probe_file=\".aiur-git-index-write-probe.$$\"",
+        "cleanup_probe() {",
+        "  git -C \"$workspace\" reset -q -- \"$probe_file\" >/dev/null 2>&1 || true",
+        "  rm -f \"$workspace/$probe_file\"",
+        "}",
+        "trap cleanup_probe EXIT",
+        "printf 'aiur git index write probe\\n' > \"$workspace/$probe_file\"",
+        "git -C \"$workspace\" add -f -N -- \"$probe_file\"",
+        "git -C \"$workspace\" reset -q -- \"$probe_file\"",
+        "rm -f \"$workspace/$probe_file\"",
+        "trap - EXIT"
       ]
       |> Enum.join("\n")
 
@@ -764,6 +852,30 @@ defmodule Aiur.Workspace do
     else
       {:error, reason} ->
         {:error, {:workspace_git_metadata_unwritable, path, reason}}
+    end
+  end
+
+  defp probe_git_index_write(workspace) do
+    probe_name = ".aiur-git-index-write-probe-#{System.unique_integer([:positive])}"
+    probe_path = Path.join(workspace, probe_name)
+
+    case File.write(probe_path, "aiur git index write probe\n") do
+      :ok ->
+        try do
+          with {_output, 0} <- System.cmd("git", ["-C", workspace, "add", "-f", "-N", "--", probe_name], stderr_to_stdout: true),
+               {_output, 0} <- System.cmd("git", ["-C", workspace, "reset", "-q", "--", probe_name], stderr_to_stdout: true) do
+            :ok
+          else
+            {output, status} ->
+              {:error, {:workspace_git_metadata_unwritable, probe_path, {:git_index_probe_failed, status, String.trim(output)}}}
+          end
+        after
+          System.cmd("git", ["-C", workspace, "reset", "-q", "--", probe_name], stderr_to_stdout: true)
+          File.rm(probe_path)
+        end
+
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, probe_path, reason}}
     end
   end
 

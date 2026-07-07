@@ -804,10 +804,6 @@ defmodule Aiur.CoreTest do
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      stop_test_orchestrator(pid)
-    end)
-
     initial_state = :sys.get_state(pid)
 
     busy_worker_pid =
@@ -816,6 +812,11 @@ defmodule Aiur.CoreTest do
           :done -> :ok
         end
       end)
+
+    on_exit(fn ->
+      send(busy_worker_pid, :done)
+      stop_test_orchestrator(pid)
+    end)
 
     other_running_entry = %{
       pid: busy_worker_pid,
@@ -2916,7 +2917,7 @@ defmodule Aiur.CoreTest do
         "type" => "workspaceWrite",
         "writableRoots" => [canonical_workspace],
         "readOnlyAccess" => %{"type" => "fullAccess"},
-        "networkAccess" => false,
+        "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
         "excludeSlashTmp" => false
       }
