@@ -38,7 +38,10 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       "type" => "workspaceWrite",
       "writableRoots" => [workspace],
       "readOnlyAccess" => %{"type" => "fullAccess"},
-      "networkAccess" => false,
+      # Elixir 1.19 Mix opens a loopback TCP listener for Mix.Sync.PubSub during
+      # standard project startup. Denying network access breaks normal gates
+      # like `mix test` before project code runs.
+      "networkAccess" => true,
       "excludeTmpdirEnvVar" => false,
       "excludeSlashTmp" => false
     }

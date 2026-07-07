@@ -1389,7 +1389,7 @@ defmodule Aiur.AppServerTest do
         "type" => "workspaceWrite",
         "writableRoots" => [remote_workspace],
         "readOnlyAccess" => %{"type" => "fullAccess"},
-        "networkAccess" => false,
+        "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
         "excludeSlashTmp" => false
       }
