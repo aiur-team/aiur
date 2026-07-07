@@ -818,6 +818,7 @@ defmodule Aiur.CoreTest do
            "give-up must release the claim so a label-driven re-dispatch (#699) can pick the ticket up without a daemon restart"
 
     assert log =~ "after 3 failed attempt(s)"
+    assert log =~ "issue_id=#{issue_id}"
     assert log =~ "reason=retry_exhausted"
     assert log =~ "caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state"
     assert log =~ "ticket.MT-EX.agent.retry_exhausted"

@@ -4020,7 +4020,7 @@ defmodule Aiur.Orchestrator do
         severity: "warning"
       )
 
-      move_exhausted_issue_to_error_state(identifier)
+      move_exhausted_issue_to_error_state(issue_id, identifier)
 
       # Release the claim so a later label-driven re-dispatch (operator moves the
       # ticket from `error` back to an active state) is picked up without a full
@@ -4030,7 +4030,7 @@ defmodule Aiur.Orchestrator do
       # the daemon's lifetime. Mirrors the retry-poll exhaustion path, which
       # already releases the claim.
       #
-      # The `move_exhausted_issue_to_error_state/1` above is best-effort: if that
+      # The `move_exhausted_issue_to_error_state/2` above is best-effort: if that
       # tracker write fails the issue keeps its active-state label, so releasing
       # the claim leaves it eligible for an immediate re-dispatch with a fresh
       # retry budget. That re-dispatch thrash is the class the per-issue
@@ -4089,8 +4089,8 @@ defmodule Aiur.Orchestrator do
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
-  defp move_exhausted_issue_to_error_state(identifier) when is_binary(identifier) do
-    Logger.warning("Moving exhausted issue to error state: issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
+  defp move_exhausted_issue_to_error_state(issue_id, identifier) when is_binary(identifier) do
+    Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
     case Tracker.update_issue_state(identifier, "error") do
       :ok ->
@@ -4102,7 +4102,7 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp move_exhausted_issue_to_error_state(_identifier), do: :ok
+  defp move_exhausted_issue_to_error_state(_issue_id, _identifier), do: :ok
 
   defp log_scheduled_retry(
          issue_id,
