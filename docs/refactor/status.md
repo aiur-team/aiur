@@ -1,20 +1,24 @@
 # Refactor Status
 
-Last updated: 2026-07-07 11:17 PDT
+Last updated: 2026-07-07 11:23 PDT
 
 ## Current mode
 
 The production-readiness refactor is paused while Phase 0 fleet blockers are
-fixed. `scripts/aiurdev pause --all` was run, and `aiurdev agents` reported the
-active refactor agents paused. No `agent:todo` labels are currently open.
+fixed. `scripts/aiurdev pause --all` was run, and Phase 1 active labels were
+removed after this file captured the restart state.
+
+The only current `agent:todo` issues should be the Phase 0 blockers listed
+below. They are labeled `refactor phase:0` and target `main`. New agents
+should treat these as fix-issues-first work, not normal refactor execution.
 
 Phase 0 is not normal v2 refactor work. These are aiur reliability fixes that
 unsnag the fleet itself, so their PRs should target `main`. After Phase 0 lands
 on `main`, update `v2` from `main`, rebuild aiur, and then resume Phase 1.
 
-Do not remove the existing `agent:*` state labels just to shelf the work. The
-old state is intentionally retained until #756 adds an `agent:paused` override
-label that can suppress work without losing the previous state.
+The previous Phase 1 `agent:*` state is preserved in this document until #756
+adds an `agent:paused` override label that can suppress work without losing the
+previous state in GitHub labels.
 
 ## Resume notes
 
@@ -44,17 +48,17 @@ manual restart record.
 | #751 | #738 | Open, unstable | Website CI workflow. Agent paused after npm/GitHub DNS failures; PR test check is not green. |
 | #755 | #739 | Draft, checks pending | Regression suite guard. Agent paused after local TCP denial/GitHub update failures. |
 
-## Active refactor tickets
+## Shelved Phase 1 tickets
 
-| Issue | Preserved labels | Runtime state | Restart note |
+| Issue | Shelved label state | Runtime state before shelving | Restart note |
 | --- | --- | --- | --- |
-| #735 T-001 | `agent:in-progress`, `refactor`, `phase:1`, `complexity:2`, `model:codex` | Paused | PR #749 exists but is draft. Resolve #754/#617 class blockers before expecting autonomous commit/push. |
-| #736 T-002 | `agent:in-progress`, `refactor`, `phase:1`, `complexity:2`, `model:codex` | Paused | Scoped work applied locally; blocked by dashboard auth, Mix PubSub eperm, and out-of-scope `:log_file` contamination. |
-| #737 T-003 | `agent:human-review`, `refactor`, `phase:1`, `complexity:2`, `model:codex` | Deactivated | PR #750 is ready for operator review/merge checks; do not resume the agent unless rework is requested. |
-| #738 T-004 | `agent:in-progress`, `refactor`, `phase:1`, `complexity:1`, `model:codex` | Paused | PR #751 exists but is unstable due network-gate failure. |
-| #739 T-005 | `agent:in-progress`, `refactor`, `phase:1`, `complexity:2`, `model:codex` | Paused | PR #755 exists as draft; validation blocked by Mix loopback eperm. |
-| #740 T-006 | `agent:in-progress`, `refactor`, `phase:1`, `complexity:2`, `model:codex` | Paused | Agent reported local change/verification complete, but GitHub auth/DNS blocked publication. |
-| #748 T-006A | `agent:in-progress`, `refactor`, `phase:1`, `complexity:2`, `model:codex` | Paused | Agent completed validation locally; push/PR publication blocked by GitHub DNS. |
+| #735 T-001 | Was `agent:in-progress`; now no active `agent:*` label | Paused | PR #749 exists but is draft. Resolve #754/#617 class blockers before expecting autonomous commit/push. |
+| #736 T-002 | Was `agent:in-progress`; now no active `agent:*` label | Paused | Scoped work applied locally; blocked by dashboard auth, Mix PubSub eperm, and out-of-scope `:log_file` contamination. |
+| #737 T-003 | Was `agent:human-review`; now no active `agent:*` label | Deactivated | PR #750 is ready for operator review/merge checks; do not resume the agent unless rework is requested. |
+| #738 T-004 | Was `agent:in-progress`; now no active `agent:*` label | Paused | PR #751 exists but is unstable due network-gate failure. |
+| #739 T-005 | Was `agent:in-progress`; now no active `agent:*` label | Paused | PR #755 exists as draft; validation blocked by Mix loopback eperm. |
+| #740 T-006 | Was `agent:in-progress`; now no active `agent:*` label | Paused | Agent reported local change/verification complete, but GitHub auth/DNS blocked publication. |
+| #748 T-006A | Was `agent:in-progress`; now no active `agent:*` label | Paused | Agent completed validation locally; push/PR publication blocked by GitHub DNS. |
 
 ## Undispatched Phase 1 tickets
 
@@ -72,7 +76,8 @@ These are open and labeled for Phase 1, but intentionally have no active
 ## Phase 0 fleet blockers
 
 These issues are labeled `refactor phase:0` and should be fixed before normal
-Phase 1 refactor work resumes. Phase 0 PRs target `main`.
+Phase 1 refactor work resumes. They are unsnag-the-fleet bug fixes, and their
+PRs target `main`.
 
 | Issue | Purpose |
 | --- | --- |
@@ -81,6 +86,8 @@ Phase 1 refactor work resumes. Phase 0 PRs target `main`.
 | #753 | Mix task startup fails when loopback PubSub gets `:eperm`. |
 | #754 | Agent workspaces still block git index writes. |
 | #756 | Add `agent:paused` override label behavior so future shelving preserves old state automatically. |
+
+Current Phase 0 queue: #617, #752, #753, #754, #756 all have `agent:todo`.
 
 ## Non-refactor note
 

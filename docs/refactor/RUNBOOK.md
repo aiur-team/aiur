@@ -30,8 +30,10 @@ companion docs. This runbook is how to *operate*; those are what to *build*.
   any PR touching `src/test/aiur/regression/` without an operator-applied
   override label. If a characterization test fails, the change is wrong — the
   executor stops and reports, never edits the test.
-- **All refactor work targets `v2`, never `main`.** Main is untouched until
-  the finished `v2` is validated by the human.
+- **All normal refactor work targets `v2`, never `main`.** Main is untouched
+  until the finished `v2` is validated by the human. The only current
+  exception is **Phase 0**: fleet-unblocking bug fixes (#617, #752, #753,
+  #754, #756) target `main` first because aiur itself is blocked.
 - **Every refactor issue carries the `refactor` label** plus `phase:N` and
   `complexity:N` (1–3). Do not pre-apply `model:*` routing overrides;
   complexity labels drive backend selection. **Only the currently active
@@ -121,7 +123,8 @@ workpad update ~15 min → pause for operator routing/capacity adjustment).
   Inventory-IDs, Characterization-tests (risky tickets), Problem/context,
   Scope (exact), Out of scope, Acceptance criteria, Verification (Agent gate
   = `make ci` from `src/`, plus the website gate for `website/` tickets;
-  At-merge = the named `Check:` probes + any TUI checks). PR base = `v2`.
+  At-merge = the named `Check:` probes + any TUI checks). PR base = `v2`
+  for normal refactor work, or `main` for Phase 0 fleet blockers.
 - **Ticket numbering & phase visibility:** `T-NNN` files are numbered in
   phase-then-dependency order (T-001 = first phase-1 ticket), and each ticket
   states its **Phase** prominently. The backlog reads top-to-bottom in
@@ -187,7 +190,9 @@ merges still work. Full detail: `phasing-and-parallelization.md`.
 - **Unforeseen bugs:** open new `refactor` issues yourself and slot them into
   a phase (same conventions, complexity 1–3 preferred).
 - **Backstop:** if aiur itself becomes unusable, implement any fix necessary
-  to restore the fleet directly, then record it (issue + PR into `v2`).
+  to restore the fleet directly, then record it. Phase 0 backstop fixes go
+  to `main`; after they land, pull `main` back into `v2` before resuming
+  normal refactor work.
 - **Catastrophic:** if the fleet is unrecoverable and you cannot make
   progress, stop and report to the human — do not thrash.
 
