@@ -1,14 +1,14 @@
 # Refactor Status
 
-Last updated: 2026-07-07 14:33 PDT
+Last updated: 2026-07-07 15:07 PDT
 
 ## Current mode
 
 The production-readiness refactor is in Phase 0 blocker mode. The
 2026-07-07 13:07 PDT Phase 1 run stopped itself after active tickets were
 mass-moved to `agent:error` without retry-exhaustion logs. The 14:22 PDT
-Phase 0 run reproduced the same unexpected state swap on #764 and #765 and is
-now stopped while the operator performs backstop fixes directly.
+Phase 0 run reproduced the same unexpected state swap on #764 and #765. Direct
+backstop fixes are now ready for human review in PR #766 and PR #767.
 
 Do not dispatch more Phase 1 refactor work until the new Phase 0 blockers are
 handled and pulled back into `v2`.
@@ -17,9 +17,9 @@ Phase 0 is not normal `v2` refactor work. These are aiur reliability fixes that
 unsnag the fleet itself, so their PRs target `main` first. After they land,
 pull `main` back into `v2`, rebuild aiur, and only then resume normal Phase 1.
 
-New Phase 0 tickets #764 and #765 are the only `agent:todo` tickets in the
-stopped 14:22 PDT run. The local dogfood `.aiur/config` and `.aiur/hooks` are
-switched to `main` so these blocker fixes target production first.
+New Phase 0 tickets #764 and #765 are in `agent:human-review`. The local dogfood
+`.aiur/config` and `.aiur/hooks` remain switched to `main` so these blocker
+fixes target production first.
 
 ## Resume notes
 
@@ -36,13 +36,14 @@ Phase 1 restart checklist:
 Before resuming Phase 1 again:
 
 1. Fix or explicitly explain #764 (unexpected `agent:error` state swaps).
-   Reproduced in the 14:22 PDT Phase 0 run; backstop fix is required.
+   Ready for review in PR #767.
 2. Fix or explicitly explain #765 (stuck SSH branch-poll subprocesses).
-   Reproduced in the 14:22 PDT Phase 0 run; backstop fix is required.
-3. Ensure any Phase 0 work targets `main`, not `v2`. Current dogfood config is
+   Ready for review in PR #766.
+3. Merge PR #766 and PR #767 into `main` after review/checks.
+4. Ensure any Phase 0 work targets `main`, not `v2`. Current dogfood config is
    already switched to `main`.
-4. Pull `main` into `v2`.
-5. Run `scripts/aiurdev build`, then launch with
+5. Pull `main` into `v2`.
+6. Run `scripts/aiurdev build`, then launch with
    `scripts/aiurdev --bg --debug`.
 
 Shelving should use `agent:paused` instead of relying on this manual restart
@@ -71,6 +72,8 @@ by completed work:
 
 | PR | Issue | State | Notes |
 | --- | --- | --- | --- |
+| #766 | #765 | Ready, checks pending | Bounds branch-poll subprocesses with hard wall-clock timeout and process-tree cleanup. Background self-review P1 fixed in `07f36e0`. |
+| #767 | #764 | Ready, checks pending | Preserves live agents on unexplained `agent:error` labels while keeping retry exhaustion behavior. Background self-review P2 fixed in `653ff44`. |
 | #749 | #735 | Draft, checks green | RepoBase base-branch work; agent reported local implementation complete but git index/auth blocked handoff. |
 | #751 | #738 | Open, checks green | Background review found two actionable issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. Awaiting rework after #764/#765. |
 | #755 | #739 | Open, checks green | Background review found broader enforcement concerns. The agent found they conflict with #739's exact scope; owner decision or follow-up scope needed before merge. |
@@ -109,8 +112,8 @@ fixes, and their PRs target `main`.
 | #753 | Mix task startup fails when loopback PubSub gets `:eperm`. Landed on `main` via PR #761 (`fa8d799`). |
 | #754 | Agent workspaces still block git index writes. Landed on `main` via PR #762 (`507dabb`). |
 | #756 | Add `agent:paused` override label behavior so future shelving preserves old state automatically. Landed on `main` via PR #760 (`70c0e37`). |
-| #764 | Explain and fix unexpected `agent:error` state swaps without retry-exhaustion logs. Reproduced in the 14:22 PDT run; backstop fix in progress. |
-| #765 | Bound branch-poll remote calls so stuck SSH `git ls-remote` processes cannot linger. Reproduced in the 14:22 PDT run; backstop fix in progress. |
+| #764 | Explain and fix unexpected `agent:error` state swaps without retry-exhaustion logs. Ready for review in PR #767 (`653ff44`). |
+| #765 | Bound branch-poll remote calls so stuck SSH `git ls-remote` processes cannot linger. Ready for review in PR #766 (`07f36e0`). |
 
 ## Latest Phase 0 run
 
@@ -124,7 +127,8 @@ Before launch, the operator ran `scripts/aiurdev build`, switched
 `tracker.base_branch` and workspace hooks to `main`, and applied `agent:todo`
 only to #764 and #765. Both tickets moved to `agent:error` without local
 retry-exhaustion evidence by 14:26 PDT, so the daemon was stopped and direct
-backstop fixes took over.
+backstop fixes took over. Both fixes are now in `agent:human-review` with ready
+PRs targeting `main`.
 
 ## Previous Phase 0 run
 
