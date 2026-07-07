@@ -91,22 +91,27 @@ defmodule Aiur.Git do
       ])
 
     os_pid = port_os_pid(port)
-    collect_cmd_output(port, [], timeout_ms, kill_tree_fun, os_pid)
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    collect_cmd_output(port, [], deadline_ms, timeout_ms, kill_tree_fun, os_pid)
   end
 
-  defp collect_cmd_output(port, chunks, timeout_ms, kill_tree_fun, os_pid) do
+  defp collect_cmd_output(port, chunks, deadline_ms, timeout_ms, kill_tree_fun, os_pid) do
     receive do
       {^port, {:data, data}} ->
-        collect_cmd_output(port, [data | chunks], timeout_ms, kill_tree_fun, os_pid)
+        collect_cmd_output(port, [data | chunks], deadline_ms, timeout_ms, kill_tree_fun, os_pid)
 
       {^port, {:exit_status, status}} ->
         {chunks |> Enum.reverse() |> IO.iodata_to_binary(), status}
     after
-      timeout_ms ->
+      remaining_timeout_ms(deadline_ms) ->
         kill_tree_fun.(os_pid)
         close_port(port)
         {:timeout, timeout_ms, chunks |> Enum.reverse() |> IO.iodata_to_binary()}
     end
+  end
+
+  defp remaining_timeout_ms(deadline_ms) do
+    max(deadline_ms - System.monotonic_time(:millisecond), 0)
   end
 
   defp port_os_pid(port) do
