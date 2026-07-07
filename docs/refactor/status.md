@@ -1,21 +1,19 @@
 # Refactor Status
 
-Last updated: 2026-07-07 13:00 PDT
+Last updated: 2026-07-07 13:06 PDT
 
 ## Current mode
 
-The production-readiness refactor is paused after Phase 0 fleet blockers landed
-on `main`. The Phase 0 aiur daemon has been stopped after it began reclaiming
-unrelated #63 work from stale runtime state. Phase 1 active labels were removed
-after this file captured the restart state.
+The production-readiness refactor is restarting after Phase 0 fleet blockers
+landed on `main` and were pulled into `v2`. The Phase 0 aiur daemon was stopped
+after it began reclaiming unrelated #63 work from stale runtime state.
 
-There should currently be no `agent:todo` or `agent:in-progress` issues. The
-Phase 0 blocker issues are closed. New work should treat the next step as
-operator-controlled integration and restart, not normal refactor execution.
+The first Phase 1 resume batch now has active labels. #63 is still out of scope.
 
 Phase 0 is not normal v2 refactor work. These are aiur reliability fixes that
-unsnag the fleet itself, so their PRs targeted `main`. Next, update `v2` from
-`main`, rebuild aiur, and then resume Phase 1.
+unsnag the fleet itself, so their PRs targeted `main`. `v2` now includes those
+fixes at merge commit `520ad10`, and the operator checkout was rebuilt with the
+same Phase 0 fixes cherry-picked.
 
 The previous Phase 1 `agent:*` state is preserved in this document. #756 has
 landed, so future shelving should use `agent:paused` instead of removing the
@@ -23,10 +21,10 @@ underlying lifecycle label manually.
 
 ## Resume notes
 
-Before resuming Phase 1 refactor work:
+Phase 1 restart checklist:
 
-1. Pull the Phase 0 fixes from `main` into `v2`.
-2. Run `scripts/aiurdev build` from the operator repo.
+1. Pull the Phase 0 fixes from `main` into `v2`. Done: `520ad10`.
+2. Run `scripts/aiurdev build` from the operator repo. Done.
 3. Restart or resume aiur with `scripts/aiurdev --bg --debug`.
 4. Resume only the intended refactor issues; #63 is not part of this refactor
    batch and was paused only because the whole run was paused.
@@ -39,6 +37,22 @@ need to unblock.
 
 Shelving should use `agent:paused` instead of relying on this manual restart
 record.
+
+## Current Phase 1 Resume Batch
+
+These eight issues were reactivated for the first post-Phase-0 run:
+
+- #735 T-001: `agent:todo`
+- #736 T-002: `agent:todo`
+- #738 T-004: `agent:rework`
+- #739 T-005: `agent:rework`
+- #740 T-006: `agent:todo`
+- #748 T-006A: `agent:todo`
+- #741 T-007: `agent:todo`
+- #742 T-008: `agent:todo`
+
+#737 T-003 remains out of the active batch because PR #750 is already ready for
+operator review/merge checks.
 
 ## Open PRs
 
