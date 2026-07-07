@@ -179,10 +179,11 @@ merges still work. Full detail: `phasing-and-parallelization.md`.
 ## 10. Running aiur
 
 **Review the `aiur-loop` and `aiur-run` skills before your first run.**
-**Run `aiur build` before every background+debug launch, and again after
-merging a phase's PRs** — aiur runs on the very code being refactored, so the
-release must be rebuilt to include the latest `v2` changes (and to verify
-them). Then launch in background + debug via the `aiur-run` skill;
+**Run `aiur build` before every background+debug launch or restart (including
+after pause/resume), and after merging a phase's PRs** — aiur runs on the very
+code being refactored, so the release must be rebuilt to include the latest
+`v2` changes (and to verify them). Never (re)start the fleet without building
+first. Then launch in background + debug via the `aiur-run` skill;
 `aiur-monitor` / `aiurdev watch` for status; `aiur set max-agents N`,
 `aiur pause`, `aiur resume`, `aiur stop` to control it. Config is
 `.aiur/config`. Keep runs observable and stop idle real-agent runs promptly
@@ -223,3 +224,7 @@ Everything else is autonomous.
   **ce-doc-review runs first**. **Next unit:** ce-doc-review the six planning
   docs → apply fixes → generate the phase-labeled backlog in order → run the
   consistency script → present the full backlog for review, then stop.
+- **2026-07-07** — Loop model confirmed: I own PR review (`ce-code-review` →
+  comment as a code-owner → the comment listener triggers `agent:rework` →
+  merge); the human's touchpoints are the full backlog review, final `v2`
+  acceptance, and catastrophic failure. `aiur build` before every (re)start.
