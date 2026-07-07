@@ -2162,8 +2162,7 @@ defmodule Aiur.GitHub.Client do
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
-    |> Enum.reject(&terminal_state_label?(&1, prefix))
-    |> Enum.reject(&preserved_prefixed_label?(&1, prefix))
+    |> Enum.reject(&(terminal_state_label?(&1, prefix) or preserved_prefixed_label?(&1, prefix)))
     |> Enum.reduce_while(:ok, fn label, :ok ->
       case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
         :ok -> {:cont, :ok}
@@ -2356,18 +2355,21 @@ defmodule Aiur.GitHub.Client do
 
   defp extract_state(_gh_issue, label_names, prefix) do
     prefix_colon = normalize_label_name("#{prefix}:")
+    Enum.find_value(label_names, &state_label_suffix(&1, prefix_colon))
+  end
 
-    Enum.find_value(label_names, fn name ->
-      normalized = normalize_label_name(name)
+  defp state_label_suffix(name, prefix_colon) do
+    normalized = normalize_label_name(name)
 
-      if String.starts_with?(normalized, prefix_colon) do
-        suffix = String.replace_prefix(normalized, prefix_colon, "")
+    if String.starts_with?(normalized, prefix_colon) do
+      normalized
+      |> String.replace_prefix(prefix_colon, "")
+      |> state_suffix_unless_preserved()
+    end
+  end
 
-        unless preserved_prefixed_label_suffix?(suffix) do
-          suffix
-        end
-      end
-    end)
+  defp state_suffix_unless_preserved(suffix) do
+    unless preserved_prefixed_label_suffix?(suffix), do: suffix
   end
 
   defp paused_label?(label_names, prefix) when is_list(label_names) do
@@ -2377,8 +2379,6 @@ defmodule Aiur.GitHub.Client do
       normalize_label_name(name) == paused_label
     end)
   end
-
-  defp paused_label?(_label_names, _prefix), do: false
 
   defp preserved_prefixed_label?(label, prefix) when is_binary(label) and is_binary(prefix) do
     prefix_colon = normalize_label_name("#{prefix}:")
@@ -2395,8 +2395,6 @@ defmodule Aiur.GitHub.Client do
   defp preserved_prefixed_label_suffix?(suffix) when is_binary(suffix) do
     suffix in @preserved_prefixed_label_suffixes
   end
-
-  defp preserved_prefixed_label_suffix?(_suffix), do: false
 
   defp normalize_label_name(label) when is_binary(label) do
     label

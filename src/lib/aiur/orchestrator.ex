@@ -3701,7 +3701,6 @@ defmodule Aiur.Orchestrator do
   defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
 
   defp issue_not_paused?(%Issue{} = issue), do: not Issue.paused?(issue)
-  defp issue_not_paused?(_issue), do: true
 
   defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
        when is_boolean(assigned_to_worker),
@@ -4465,7 +4464,6 @@ defmodule Aiur.Orchestrator do
   # the status rows so `aiur watch` can render the cx column without a tracker
   # round-trip — the issue is already in memory.
   defp issue_complexity(%Issue{} = issue), do: CodingAgent.complexity_level(issue)
-  defp issue_complexity(_issue), do: nil
 
   defp agent_statuses(%State{} = state) do
     now = DateTime.utc_now()
@@ -4493,11 +4491,11 @@ defmodule Aiur.Orchestrator do
       identifier: identifier,
       state: if(work_state == :paused, do: :paused, else: :running),
       work_state: work_state,
-      tracker_state: Map.get(issue || %{}, :state),
+      tracker_state: Map.get(issue, :state),
       tracker_paused: Issue.paused?(issue),
       tag: issue_tag(issue),
-      title: Map.get(issue || %{}, :title),
-      url: Map.get(issue || %{}, :url),
+      title: Map.get(issue, :title),
+      url: Map.get(issue, :url),
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: Map.get(entry, :session_id),
