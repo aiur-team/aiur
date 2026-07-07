@@ -311,7 +311,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
           printf '.git\\n'
           exit 0
           ;;
-        *"add -N -- .aiur-git-index-write-probe-"*)
+        *"add -f -N -- .aiur-git-index-write-probe-"*)
           printf 'fatal: Unable to create index.lock: Operation not permitted\\n' >&2
           exit 128
           ;;
@@ -341,6 +341,38 @@ defmodule Aiur.WorkspaceAndConfigTest do
       refute File.exists?(probe_path)
     after
       restore_env("PATH", previous_path)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "before_run git index probe ignores workspace ignore rules" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-git-ignored-probe-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "IDX-IGNORED")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, ".gitignore"), ".aiur-*\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", ".gitignore"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "ignore aiur probes"])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root
+      )
+
+      assert :ok = Workspace.run_before_run_hook(workspace, "IDX-IGNORED")
+      assert {status, 0} = System.cmd("git", ["-C", workspace, "status", "--porcelain"])
+      assert status == ""
+    after
       File.rm_rf(test_root)
     end
   end

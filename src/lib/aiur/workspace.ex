@@ -653,7 +653,7 @@ defmodule Aiur.Workspace do
         "}",
         "trap cleanup_probe EXIT",
         "printf 'aiur git index write probe\\n' > \"$workspace/$probe_file\"",
-        "git -C \"$workspace\" add -N -- \"$probe_file\"",
+        "git -C \"$workspace\" add -f -N -- \"$probe_file\"",
         "git -C \"$workspace\" reset -q -- \"$probe_file\"",
         "rm -f \"$workspace/$probe_file\"",
         "trap - EXIT"
@@ -787,7 +787,7 @@ defmodule Aiur.Workspace do
     case File.write(probe_path, "aiur git index write probe\n") do
       :ok ->
         try do
-          with {_output, 0} <- System.cmd("git", ["-C", workspace, "add", "-N", "--", probe_name], stderr_to_stdout: true),
+          with {_output, 0} <- System.cmd("git", ["-C", workspace, "add", "-f", "-N", "--", probe_name], stderr_to_stdout: true),
                {_output, 0} <- System.cmd("git", ["-C", workspace, "reset", "-q", "--", probe_name], stderr_to_stdout: true) do
             :ok
           else
