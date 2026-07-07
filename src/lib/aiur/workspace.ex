@@ -602,7 +602,9 @@ defmodule Aiur.Workspace do
   def ensure_git_metadata_writable(workspace, nil) when is_binary(workspace) do
     case local_git_metadata_probe_paths(workspace) do
       {:ok, paths} ->
-        probe_lock_files(paths)
+        with :ok <- probe_lock_files(paths) do
+          probe_git_index_write(workspace)
+        end
 
       :not_git ->
         :ok
@@ -643,7 +645,18 @@ defmodule Aiur.Workspace do
         "probe_lock \"$git_dir_real/index.lock\"",
         "probe_lock \"$git_dir_real/FETCH_HEAD.lock\"",
         "probe_lock \"$git_dir_real/ORIG_HEAD.lock\"",
-        "probe_lock \"$git_dir_real/refs/remotes/origin/aiur/${issue_id}.lock\""
+        "probe_lock \"$git_dir_real/refs/remotes/origin/aiur/${issue_id}.lock\"",
+        "probe_file=\".aiur-git-index-write-probe.$$\"",
+        "cleanup_probe() {",
+        "  git -C \"$workspace\" reset -q -- \"$probe_file\" >/dev/null 2>&1 || true",
+        "  rm -f \"$workspace/$probe_file\"",
+        "}",
+        "trap cleanup_probe EXIT",
+        "printf 'aiur git index write probe\\n' > \"$workspace/$probe_file\"",
+        "git -C \"$workspace\" add -N -- \"$probe_file\"",
+        "git -C \"$workspace\" reset -q -- \"$probe_file\"",
+        "rm -f \"$workspace/$probe_file\"",
+        "trap - EXIT"
       ]
       |> Enum.join("\n")
 
@@ -764,6 +777,30 @@ defmodule Aiur.Workspace do
     else
       {:error, reason} ->
         {:error, {:workspace_git_metadata_unwritable, path, reason}}
+    end
+  end
+
+  defp probe_git_index_write(workspace) do
+    probe_name = ".aiur-git-index-write-probe-#{System.unique_integer([:positive])}"
+    probe_path = Path.join(workspace, probe_name)
+
+    case File.write(probe_path, "aiur git index write probe\n") do
+      :ok ->
+        try do
+          with {_output, 0} <- System.cmd("git", ["-C", workspace, "add", "-N", "--", probe_name], stderr_to_stdout: true),
+               {_output, 0} <- System.cmd("git", ["-C", workspace, "reset", "-q", "--", probe_name], stderr_to_stdout: true) do
+            :ok
+          else
+            {output, status} ->
+              {:error, {:workspace_git_metadata_unwritable, probe_path, {:git_index_probe_failed, status, String.trim(output)}}}
+          end
+        after
+          System.cmd("git", ["-C", workspace, "reset", "-q", "--", probe_name], stderr_to_stdout: true)
+          File.rm(probe_path)
+        end
+
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, probe_path, reason}}
     end
   end
 

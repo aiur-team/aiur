@@ -123,9 +123,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert {:ok, workspace} = Workspace.create_for_issue("GIT-1")
       assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
+      assert {:ok, canonical_git_dir} = Aiur.PathSafety.canonicalize(Path.join(workspace, ".git"))
       assert {:ok, runtime_settings} = Config.codex_runtime_settings(workspace)
       assert cache_root in runtime_settings.turn_sandbox_policy["writableRoots"]
       assert canonical_workspace in runtime_settings.turn_sandbox_policy["writableRoots"]
+      assert canonical_git_dir in runtime_settings.turn_sandbox_policy["writableRoots"]
 
       File.write!(codex_binary, """
       #!/bin/sh
@@ -272,6 +274,73 @@ defmodule Aiur.WorkspaceAndConfigTest do
                  "refs/heads/aiur/LOCK-1"
                ])
     after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "before_run verifies git add can create the index lock before agent turns" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-before-run-git-add-probe-#{System.unique_integer([:positive])}"
+      )
+
+    previous_path = System.get_env("PATH")
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "IDX-1")
+      fake_bin = Path.join(test_root, "bin")
+      fake_git = Path.join(fake_bin, "git")
+      trace_file = Path.join(test_root, "git.trace")
+
+      File.mkdir_p!(Path.join([workspace, ".git", "refs", "remotes", "origin", "aiur"]))
+      File.mkdir_p!(fake_bin)
+      File.write!(Path.join([workspace, ".git", "index"]), "")
+
+      File.write!(fake_git, """
+      #!/bin/sh
+      printf '%s\\n' "$*" >> "#{trace_file}"
+
+      case "$*" in
+        *"rev-parse --is-inside-work-tree"*)
+          printf 'true\\n'
+          exit 0
+          ;;
+        *"rev-parse --git-dir"*)
+          printf '.git\\n'
+          exit 0
+          ;;
+        *"add -N -- .aiur-git-index-write-probe-"*)
+          printf 'fatal: Unable to create index.lock: Operation not permitted\\n' >&2
+          exit 128
+          ;;
+        *"reset -q -- .aiur-git-index-write-probe-"*)
+          exit 0
+          ;;
+        *)
+          exit 0
+          ;;
+      esac
+      """)
+
+      File.chmod!(fake_git, 0o755)
+      System.put_env("PATH", fake_bin <> ":" <> (previous_path || ""))
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root
+      )
+
+      assert {:error, {:workspace_git_metadata_unwritable, probe_path, {:git_index_probe_failed, 128, output}}} =
+               Workspace.run_before_run_hook(workspace, "IDX-1")
+
+      assert Path.dirname(probe_path) == workspace
+      assert Path.basename(probe_path) =~ ".aiur-git-index-write-probe-"
+      assert output =~ "index.lock"
+      refute File.exists?(probe_path)
+    after
+      restore_env("PATH", previous_path)
       File.rm_rf(test_root)
     end
   end
@@ -2341,7 +2410,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert remote_policy == %{
              "type" => "workspaceWrite",
-             "writableRoots" => ["~/.aiur-workspaces"],
+             "writableRoots" => ["~/.aiur-workspaces", "~/.aiur-workspaces/.git"],
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => false,
              "excludeTmpdirEnvVar" => false,
@@ -2474,7 +2543,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert remote_workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => ["relative/path", remote_workspace]
+               "writableRoots" => ["relative/path", remote_workspace, Path.join(remote_workspace, ".git")]
              }
 
       read_only_settings = %{
