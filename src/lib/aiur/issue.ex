@@ -14,6 +14,7 @@ defmodule Aiur.Issue do
     :url,
     :assignee_id,
     :pr_head_ref,
+    paused: false,
     blocked_by: [],
     labels: [],
     assigned_to_worker: true,
@@ -35,6 +36,7 @@ defmodule Aiur.Issue do
           # human PR's existing head branch the agent works directly. nil for
           # every legacy tracker-issue unit.
           pr_head_ref: String.t() | nil,
+          paused: boolean(),
           labels: [String.t()],
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,
@@ -45,4 +47,8 @@ defmodule Aiur.Issue do
   def label_names(%__MODULE__{labels: labels}) do
     labels
   end
+
+  @spec paused?(t()) :: boolean()
+  def paused?(%__MODULE__{paused: paused}), do: paused == true
+  def paused?(_issue), do: false
 end
