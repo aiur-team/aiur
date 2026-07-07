@@ -131,6 +131,10 @@ defmodule Aiur.GitHub.Connectivity do
     classify_ls_remote_output(message)
   end
 
+  def classify_ls_remote({:git_ls_remote_timeout, _timeout_ms, _output}), do: :timeout
+
+  def classify_ls_remote({:git_ls_remote_timeout, _timeout_ms}), do: :timeout
+
   def classify_ls_remote(_reason), do: :transport
 
   defp classify_ls_remote_output(output) do
