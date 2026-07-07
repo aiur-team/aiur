@@ -25,6 +25,7 @@ agent:
     approval_policy: never            # never prompt for approval (headless autonomy); see codex variants to gate
     # thread_sandbox: workspace-write
     # danger-full-access defaults turns to dangerFullAccess unless turn_sandbox_policy is set
+    # default workspace-write turns allow network access so local build tools can open loopback sockets
     # read_timeout_ms: 5000
     # thrash_max_per_window: 6
     # thrash_window_seconds: 60

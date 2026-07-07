@@ -1389,7 +1389,7 @@ defmodule Aiur.AppServerTest do
         "type" => "workspaceWrite",
         "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git")],
         "readOnlyAccess" => %{"type" => "fullAccess"},
-        "networkAccess" => false,
+        "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
         "excludeSlashTmp" => false
       }
