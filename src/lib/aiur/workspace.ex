@@ -127,7 +127,7 @@ defmodule Aiur.Workspace do
 
   defp maybe_run_github_workspace_preflight(workspace, issue_context, worker_host) do
     if github_workspace_preflight_enabled?() do
-      case run_workspace_github_preflight(workspace) do
+      case run_workspace_github_preflight(workspace, worker_host) do
         :ok ->
           :ok
 
@@ -152,13 +152,14 @@ defmodule Aiur.Workspace do
     _ -> false
   end
 
-  defp run_workspace_github_preflight(workspace) do
+  defp run_workspace_github_preflight(workspace, worker_host) do
     fun =
-      Application.get_env(:aiur, :workspace_github_preflight_fun, fn _workspace ->
+      Application.get_env(:aiur, :workspace_github_preflight_fun, fn _workspace, _worker_host ->
         GitHubTracker.auth_preflight()
       end)
 
     cond do
+      is_function(fun, 2) -> fun.(workspace, worker_host)
       is_function(fun, 1) -> fun.(workspace)
       is_function(fun, 0) -> fun.()
       true -> {:error, {:invalid_workspace_github_preflight_fun, inspect(fun)}}

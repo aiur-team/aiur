@@ -122,16 +122,18 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   defp post_dependency_error(reason) do
     cond do
-      github_status?(reason, 403) -> {:error, :permission_denied}
-      github_status?(reason, 422) -> {:error, :cycle_detected}
+      github_rate_limited?(reason) -> {:error, :rate_limited}
+      github_http_status?(reason, 403) -> {:error, :permission_denied}
+      github_http_status?(reason, 422) -> {:error, :cycle_detected}
       true -> {:error, reason}
     end
   end
 
   defp unblock_error(reason) do
     cond do
-      github_status?(reason, 404) -> {:ok, :not_present}
-      github_status?(reason, 403) -> {:error, :permission_denied}
+      github_rate_limited?(reason) -> {:error, :rate_limited}
+      github_http_status?(reason, 404) -> {:ok, :not_present}
+      github_http_status?(reason, 403) -> {:error, :permission_denied}
       true -> {:error, reason}
     end
   end
@@ -183,7 +185,7 @@ defmodule Aiur.GitHub.IssueDependencies do
   end
 
   defp bfs_error(reason, rest, visited_state, state, opts) do
-    if github_status?(reason, 404) do
+    if github_http_status?(reason, 404) do
       # Issue was deleted from GitHub — no outgoing edges to follow.
       # Treat as a leaf, not an inconclusive cycle check.
       bfs(rest, %{visited_state | api_calls: state.api_calls + 1}, opts)
@@ -196,4 +198,10 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   defp github_status?({:github, _class, %{status: status}}, status), do: true
   defp github_status?(_reason, _status), do: false
+
+  defp github_http_status?({:github, :http, %{status: status}}, status), do: true
+  defp github_http_status?(_reason, _status), do: false
+
+  defp github_rate_limited?({:github, :rate_limited, _details}), do: true
+  defp github_rate_limited?(_reason), do: false
 end

@@ -129,6 +129,26 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
 
       assert {:error, :permission_denied} = IssueDependencies.declare(7, 80, request_fun: request_fun)
     end
+
+    test "rate-limited POST 403 stays rate_limited" do
+      request_fun = fn req ->
+        cond do
+          req.method == :post ->
+            {:ok, rate_limited_403_response()}
+
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          String.contains?(req.url, "/issues/80/dependencies/blocking") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+        end
+      end
+
+      assert {:error, :rate_limited} = IssueDependencies.declare(7, 80, request_fun: request_fun)
+    end
   end
 
   describe "unblock/3" do
@@ -159,5 +179,27 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
 
       assert {:ok, :not_present} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
     end
+
+    test "rate-limited DELETE 403 stays rate_limited" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          req.method == :delete ->
+            {:ok, rate_limited_403_response()}
+        end
+      end
+
+      assert {:error, :rate_limited} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
+    end
+  end
+
+  defp rate_limited_403_response do
+    %{
+      status: 403,
+      headers: [{"x-ratelimit-remaining", "0"}],
+      body: %{"message" => "API rate limit exceeded"}
+    }
   end
 end

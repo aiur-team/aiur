@@ -961,6 +961,77 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "github workspace preflight receives remote worker host" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-remote-github-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
+    previous_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
+    previous_path = System.get_env("PATH")
+    previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
+    parent = self()
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("SYMP_TEST_SSH_TRACE", previous_trace)
+    end)
+
+    try do
+      trace_file = Path.join(test_root, "ssh.trace")
+      fake_ssh = Path.join(test_root, "ssh")
+      workspace_root = "~/.aiur-remote-workspaces"
+      workspace_path = "/remote/home/.aiur-remote-workspaces/owner/repo/MT-GH-REMOTE"
+
+      File.mkdir_p!(test_root)
+      System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
+      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+      File.write!(fake_ssh, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/aiur-fake-ssh.trace}"
+      printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+
+      case "$*" in
+        *"__AIUR_WORKSPACE__"*)
+          printf '%s\\t%s\\t%s\\n' '__AIUR_WORKSPACE__' '1' '#{workspace_path}'
+          ;;
+      esac
+
+      exit 0
+      """)
+
+      File.chmod!(fake_ssh, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        workspace_root: workspace_root,
+        worker_ssh_hosts: ["worker-01:2200"]
+      )
+
+      Application.put_env(:aiur, :workspace_github_preflight_enabled, true)
+
+      Application.put_env(:aiur, :workspace_github_preflight_fun, fn workspace, worker_host ->
+        send(parent, {:workspace_preflight, workspace, worker_host})
+        :ok
+      end)
+
+      assert {:ok, ^workspace_path} = Workspace.create_for_issue("MT-GH-REMOTE", "worker-01:2200")
+      assert_receive {:workspace_preflight, ^workspace_path, "worker-01:2200"}
+
+      trace = File.read!(trace_file)
+      assert trace =~ "-p 2200 worker-01 bash -lc"
+      assert trace =~ "~/.aiur-remote-workspaces/owner/repo/MT-GH-REMOTE"
+    after
+      restore_app_env(:workspace_github_preflight_enabled, previous_enabled)
+      restore_app_env(:workspace_github_preflight_fun, previous_fun)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace surfaces after_create hook timeouts" do
     workspace_root =
       Path.join(
