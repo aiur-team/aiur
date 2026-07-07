@@ -1,23 +1,25 @@
 # Refactor Status
 
-Last updated: 2026-07-07 13:21 PDT
+Last updated: 2026-07-07 14:17 PDT
 
 ## Current mode
 
-The production-readiness refactor is restarting after Phase 0 fleet blockers
-landed on `main` and were pulled into `v2`. The Phase 0 aiur daemon was stopped
-after it began reclaiming unrelated #63 work from stale runtime state.
+The production-readiness refactor is paused again in Phase 0 blocker mode.
+The 2026-07-07 13:07 PDT Phase 1 run stopped itself after active tickets were
+mass-moved to `agent:error` without retry-exhaustion logs. There are no active
+agents in the live daemon.
 
-The first Phase 1 resume batch now has active labels. #63 is still out of scope.
+Do not dispatch more Phase 1 refactor work until the new Phase 0 blockers are
+handled and pulled back into `v2`.
 
-Phase 0 is not normal v2 refactor work. These are aiur reliability fixes that
-unsnag the fleet itself, so their PRs targeted `main`. `v2` now includes those
-fixes at merge commit `520ad10`, and the operator checkout was rebuilt with the
-same Phase 0 fixes cherry-picked.
+Phase 0 is not normal `v2` refactor work. These are aiur reliability fixes that
+unsnag the fleet itself, so their PRs target `main` first. After they land,
+pull `main` back into `v2`, rebuild aiur, and only then resume normal Phase 1.
 
-The previous Phase 1 `agent:*` state is preserved in this document. #756 has
-landed, so future shelving should use `agent:paused` instead of removing the
-underlying lifecycle label manually.
+New Phase 0 tickets #764 and #765 were created without `agent:todo` because the
+current `.aiur/config`/`.aiur/hooks` target `v2`; dispatch them only after the
+fleet target for these blocker fixes is explicitly `main`, or backstop-fix them
+directly from the operator checkout.
 
 ## Resume notes
 
@@ -25,49 +27,51 @@ Phase 1 restart checklist:
 
 1. Pull the Phase 0 fixes from `main` into `v2`. Done: `520ad10`.
 2. Run `scripts/aiurdev build` from the operator repo. Done.
-3. Restart or resume aiur with `scripts/aiurdev --bg --debug`.
+3. Restart or resume aiur with `scripts/aiurdev --bg --debug`. Done for the
+   13:07 PDT run, but that run is now error-stopped.
 4. Resume only the intended refactor issues; #63 is not part of this refactor
    batch and was paused only because the whole run was paused.
 5. Continue PR review from the open PR list below.
 
-Phase 0 is complete. If a future fleet-unblocking phase is needed, make sure the
-active workflow targets `main` instead of `v2`; otherwise blocker fixes will open
-PRs against the refactor integration branch instead of the production branch they
-need to unblock.
+Before resuming Phase 1 again:
+
+1. Fix or explicitly explain #764 (unexpected `agent:error` state swaps).
+2. Fix or explicitly explain #765 (stuck SSH branch-poll subprocesses).
+3. Ensure any Phase 0 work targets `main`, not `v2`.
+4. Pull `main` into `v2`.
+5. Run `scripts/aiurdev build`, then launch with
+   `scripts/aiurdev --bg --debug`.
 
 Shelving should use `agent:paused` instead of relying on this manual restart
 record.
 
 ## Current Phase 1 Resume Batch
 
-These eight issues were reactivated for the first post-Phase-0 run:
+The first post-Phase-0 run reactivated #735, #736, #738, #739, #740, #741,
+#742, #743, #744, and #748. They are now stopped by `agent:error` labels, not
+by completed work:
 
-- #735 T-001: `agent:todo`
-- #740 T-006: `agent:todo`
-- #748 T-006A: `agent:todo`
-- #741 T-007: `agent:todo`
-- #742 T-008: `agent:todo`
-- #743 T-009: `agent:todo`
-- #744 T-010: `agent:todo`
-- #738 T-004: `agent:rework`
-- #736 T-002: `agent:rework`
+- #735 `agent:error`; draft PR #749 exists and local workspace has rebased work.
+- #736 `agent:error` plus stale `agent:in-progress`; PR #757 needs rework.
+- #738 `agent:error`; PR #751 needs rework.
+- #739 `agent:error`; PR #755 needs owner decision or scoped follow-up.
+- #740 `agent:error`; local characterization work was validating.
+- #741 `agent:error`; local characterization work was validating.
+- #742 `agent:error`; local characterization work was validating.
+- #743 `agent:error`; local characterization work was validating.
+- #744 `agent:error`; agent completed a local test-only diff, no PR.
+- #748 `agent:error`; local warm-pool-capacity work was validating.
 
-#736 T-002 deactivated back to human review during restart because PR #757 is
-open, green, and mergeable, then returned to `agent:rework` after background
-review found an order-dependent `:log_file` restoration risk. #737 T-003 is
-closed after PR #750 landed. #738 T-004 returned to `agent:rework` after
-background review found two workflow coverage issues in PR #751. #739 T-005
-returned to human review with PR #755 open, green, and mergeable; background
-review is running before merge.
+#737 T-003 is closed after PR #750 landed.
 
 ## Open PRs
 
 | PR | Issue | State | Notes |
 | --- | --- | --- | --- |
 | #749 | #735 | Draft, checks green | RepoBase base-branch work; agent reported local implementation complete but git index/auth blocked handoff. |
-| #751 | #738 | Open, checks green | Website CI workflow. Background review found two actionable issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. Issue is back in `agent:rework`. |
-| #755 | #739 | Open, checks green | Regression suite guard. Agent completed rework; background review is running before merge. |
-| #757 | #736 | Open, checks green | Global log file test isolation. Background review found an order-dependent `:log_file` restoration risk; issue is back in `agent:rework`. |
+| #751 | #738 | Open, checks green | Background review found two actionable issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. Awaiting rework after #764/#765. |
+| #755 | #739 | Open, checks green | Background review found broader enforcement concerns. The agent found they conflict with #739's exact scope; owner decision or follow-up scope needed before merge. |
+| #757 | #736 | Open, checks green | Background review found an order-dependent `:log_file` restoration risk. Awaiting rework after #764/#765. |
 
 ## Shelved Phase 1 tickets
 
@@ -92,9 +96,8 @@ These are open and labeled for Phase 1, but intentionally have no active
 
 ## Phase 0 fleet blockers
 
-These issues are labeled `refactor phase:0` and were fixed to unblock normal
-Phase 1 refactor work. They are unsnag-the-fleet bug fixes, and their PRs
-targeted `main`.
+These issues are labeled `refactor phase:0`. They are unsnag-the-fleet bug
+fixes, and their PRs target `main`.
 
 | Issue | Purpose |
 | --- | --- |
@@ -103,8 +106,10 @@ targeted `main`.
 | #753 | Mix task startup fails when loopback PubSub gets `:eperm`. Landed on `main` via PR #761 (`fa8d799`). |
 | #754 | Agent workspaces still block git index writes. Landed on `main` via PR #762 (`507dabb`). |
 | #756 | Add `agent:paused` override label behavior so future shelving preserves old state automatically. Landed on `main` via PR #760 (`70c0e37`). |
+| #764 | Explain and fix unexpected `agent:error` state swaps without retry-exhaustion logs. Open; no `agent:todo` yet. |
+| #765 | Bound branch-poll remote calls so stuck SSH `git ls-remote` processes cannot linger. Open; no `agent:todo` yet. |
 
-## Current Phase 0 run
+## Previous Phase 0 run
 
 Launched 2026-07-07 11:27 PDT with:
 

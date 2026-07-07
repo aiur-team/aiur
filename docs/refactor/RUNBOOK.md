@@ -268,3 +268,8 @@ Everything else is autonomous.
   New **Phase 0** blocker issues (#617, #752, #753, #754, #756) are labeled
   `refactor phase:0` and should target `main`; after they land, pull `main`
   back into `v2`, rebuild aiur, and resume Phase 1.
+- **2026-07-07** — Phase 1 restarted after #617/#752/#753/#754/#756 landed,
+  then stopped again when active tickets were moved to `agent:error` without
+  retry-exhaustion logs. New Phase 0 blockers #764 and #765 were created
+  without `agent:todo`; dispatch them only after the blocker workflow target is
+  explicitly `main`.
