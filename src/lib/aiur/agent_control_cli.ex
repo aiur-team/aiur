@@ -364,8 +364,17 @@ defmodule Aiur.AgentControlCLI do
 
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do
-      state when state in [:paused, :deactivated] ->
-        "(#{state})"
+      :paused ->
+        paused_activity(agent)
+
+      "paused" ->
+        paused_activity(agent)
+
+      :deactivated ->
+        "(deactivated)"
+
+      "deactivated" ->
+        "(deactivated)"
 
       _ ->
         activity_values(agent)
@@ -421,6 +430,10 @@ defmodule Aiur.AgentControlCLI do
 
   defp activity_string(value), do: value |> inspect(limit: 5, printable_limit: 120) |> String.trim()
 
+  defp paused_activity(%{pause_reason: :label_override}), do: "(paused: label override)"
+  defp paused_activity(%{pause_reason: "label_override"}), do: "(paused: label override)"
+  defp paused_activity(_agent), do: "(paused)"
+
   defp truncate(text, max) do
     collapsed = text |> String.replace(~r/\s+/, " ") |> String.trim()
 
@@ -444,7 +457,7 @@ defmodule Aiur.AgentControlCLI do
   # ── aiur watch board ──────────────────────────────────────────────────────
 
   defp watch_row(status) do
-    state = to_string(status[:tracker_state] || status[:state] || "")
+    state = watch_state(status)
     age = activity_age_seconds(status)
     run_state = Map.get(status, :state)
     stuck? = run_state == :running and is_integer(age) and age >= @watch_stuck_after_seconds
@@ -464,6 +477,12 @@ defmodule Aiur.AgentControlCLI do
     }
   end
 
+  defp watch_state(%{tracker_paused: true}), do: "paused"
+  defp watch_state(%{tracker_paused: "true"}), do: "paused"
+  defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
+
+  defp watch_activity(%{tracker_paused: true}), do: "(paused: label override)"
+  defp watch_activity(%{tracker_paused: "true"}), do: "(paused: label override)"
   defp watch_activity(%{state: :idle}), do: "(idle)"
   defp watch_activity(status), do: agent_activity(status)
 
