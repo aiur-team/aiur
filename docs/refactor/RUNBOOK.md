@@ -248,3 +248,9 @@ Everything else is autonomous.
   must not be opened or worked until written. Because local capacity is 8
   agents, Phase 1 is split into sub-runs; only the active sub-run gets
   `agent:todo`.
+- **2026-07-07** — Phase 1 execution paused because fleet blockers are
+  preventing agents from validating, committing, pushing, and shelving work
+  reliably. Current state and restart notes live in `docs/refactor/status.md`.
+  New **Phase 0** blocker issues (#617, #752, #753, #754, #756) are labeled
+  `refactor phase:0` and should target `main`; after they land, pull `main`
+  back into `v2`, rebuild aiur, and resume Phase 1.
