@@ -1,6 +1,6 @@
 # Refactor Status
 
-Last updated: 2026-07-07 11:29 PDT
+Last updated: 2026-07-07 11:59 PDT
 
 ## Current mode
 
@@ -45,7 +45,7 @@ manual restart record.
 | --- | --- | --- | --- |
 | #749 | #735 | Draft, checks green | RepoBase base-branch work; agent reported local implementation complete but git index/auth blocked handoff. |
 | #750 | #737 | Open, checks green | SlotPolicy timeout hardening. Review started; merge-base diff is only the two timeout hunks. At-merge seed 0 opencode test passed in the #737 workspace; seed 1 still needs to run before merge. |
-| #751 | #738 | Open, unstable | Website CI workflow. Agent paused after npm/GitHub DNS failures; PR test check is not green. |
+| #751 | #738 | Open, checks green | Website CI workflow. Background review found two actionable P2 issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. |
 | #755 | #739 | Draft, checks pending | Regression suite guard. Agent paused after local TCP denial/GitHub update failures. |
 
 ## Shelved Phase 1 tickets
@@ -82,7 +82,7 @@ PRs target `main`.
 | Issue | Purpose |
 | --- | --- |
 | #617 | Agent workspace GitHub DNS/API/auth failures; updated with 2026-07-07 evidence. |
-| #752 | Dashboard auth env leaks into agent test gates. |
+| #752 | Dashboard auth env leaks into agent test gates. Landed on `main` via PR #758 (`c06ecbb`). |
 | #753 | Mix task startup fails when loopback PubSub gets `:eperm`. |
 | #754 | Agent workspaces still block git index writes. |
 | #756 | Add `agent:paused` override label behavior so future shelving preserves old state automatically. |
@@ -100,7 +100,8 @@ The empty `GITHUB_TOKEN` export is an operator workaround for #617: the token in
 concurrency was set to five with `scripts/aiurdev set max-agents 5`, matching
 the five Phase 0 blockers.
 
-The active Phase 0 tickets are #617, #752, #753, #754, and #756. #63 had an
+The active Phase 0 tickets are #617, #753, #754, and #756. #752 landed on
+`main` via PR #758. #63 had an
 unrelated `agent:rework` label that leaked into the run; that active label was
 removed so #63 stays out of Phase 0.
 
