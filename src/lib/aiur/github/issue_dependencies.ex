@@ -50,7 +50,7 @@ defmodule Aiur.GitHub.IssueDependencies do
     * `{:error, :cycle_detected}` — BFS pre-check found a cycle
     * `{:error, :rate_limited}` — BFS budget exhausted
     * `{:error, :permission_denied}` — token lacks Issues:write (403)
-    * `{:error, {:github_api_status, n}}` — other HTTP failures
+    * `{:error, {:github, :http, %{status: n}}}` — other HTTP failures
   """
   @spec declare(integer() | String.t(), integer() | String.t(), keyword()) ::
           {:ok, map() | :already_present} | {:error, term()}
@@ -84,9 +84,7 @@ defmodule Aiur.GitHub.IssueDependencies do
          blocker_id when is_integer(blocker_id) <- Map.get(blocker_issue, "id") do
       case Client.remove_dependency(current_number, blocker_id, client_opts) do
         {:ok, result} -> {:ok, result}
-        {:error, {:github_api_status, 404}} -> {:ok, :not_present}
-        {:error, {:github_api_status, 403}} -> {:error, :permission_denied}
-        {:error, reason} -> {:error, reason}
+        {:error, reason} -> unblock_error(reason)
       end
     end
   end
@@ -94,9 +92,12 @@ defmodule Aiur.GitHub.IssueDependencies do
   defp fetch_blocker(blocker_number, client_opts) do
     case Client.fetch_issue_raw(blocker_number, client_opts) do
       {:ok, issue} -> {:ok, issue}
-      {:error, {:github_api_status, 404}} -> {:error, :blocker_not_found}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> fetch_blocker_error(reason)
     end
+  end
+
+  defp fetch_blocker_error(reason) do
+    if github_status?(reason, 404), do: {:error, :blocker_not_found}, else: {:error, reason}
   end
 
   defp check_not_already_present(current_number, blocker_id, client_opts) do
@@ -115,9 +116,23 @@ defmodule Aiur.GitHub.IssueDependencies do
   defp post_dependency(current_number, blocker_id, client_opts) do
     case Client.add_dependency(current_number, blocker_id, client_opts) do
       {:ok, body} -> {:ok, body}
-      {:error, {:github_api_status, 403}} -> {:error, :permission_denied}
-      {:error, {:github_api_status, 422}} -> {:error, :cycle_detected}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> post_dependency_error(reason)
+    end
+  end
+
+  defp post_dependency_error(reason) do
+    cond do
+      github_status?(reason, 403) -> {:error, :permission_denied}
+      github_status?(reason, 422) -> {:error, :cycle_detected}
+      true -> {:error, reason}
+    end
+  end
+
+  defp unblock_error(reason) do
+    cond do
+      github_status?(reason, 404) -> {:ok, :not_present}
+      github_status?(reason, 403) -> {:error, :permission_denied}
+      true -> {:error, reason}
     end
   end
 
@@ -162,17 +177,23 @@ defmodule Aiur.GitHub.IssueDependencies do
 
         bfs(rest ++ next_nodes, %{visited_state | api_calls: state.api_calls + 1}, opts)
 
-      {:error, {:github_api_status, 404}} ->
-        # Issue was deleted from GitHub — no outgoing edges to follow.
-        # Treat as a leaf, not an inconclusive cycle check.
-        bfs(rest, %{visited_state | api_calls: state.api_calls + 1}, opts)
-
-      {:error, _reason} ->
-        # Transient API failure mid-BFS — we can't prove no cycle. Bail
-        # out with :cycle_check_inconclusive rather than POST optimistically
-        # and trip GitHub's own 422 (or worse, succeed and leave a real
-        # cycle hidden in the graph).
-        {:error, :cycle_check_inconclusive}
+      {:error, reason} ->
+        bfs_error(reason, rest, visited_state, state, opts)
     end
   end
+
+  defp bfs_error(reason, rest, visited_state, state, opts) do
+    if github_status?(reason, 404) do
+      # Issue was deleted from GitHub — no outgoing edges to follow.
+      # Treat as a leaf, not an inconclusive cycle check.
+      bfs(rest, %{visited_state | api_calls: state.api_calls + 1}, opts)
+    else
+      # Transient API failure mid-BFS — we can't prove no cycle. Bail out with
+      # :cycle_check_inconclusive rather than POST optimistically.
+      {:error, :cycle_check_inconclusive}
+    end
+  end
+
+  defp github_status?({:github, _class, %{status: status}}, status), do: true
+  defp github_status?(_reason, _status), do: false
 end

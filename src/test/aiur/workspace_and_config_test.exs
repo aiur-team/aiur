@@ -3,6 +3,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   alias Aiur.CodingAgent
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Codex, StringOrMap}
+  alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Linear.Client
   alias Ecto.Changeset
@@ -905,6 +906,57 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
                Workspace.create_for_issue("MT-FAIL")
     after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "github workspace preflight blocks launch with a path-specific operator alert" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-github-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
+    previous_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
+    parent = self()
+
+    try do
+      :ok = Exchange.subscribe("system.github.connectivity_lost")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        workspace_root: workspace_root
+      )
+
+      Application.put_env(:aiur, :workspace_github_preflight_enabled, true)
+
+      Application.put_env(:aiur, :workspace_github_preflight_fun, fn workspace ->
+        send(parent, {:workspace_preflight, workspace})
+        {:error, {:github, :dns, %{reason: :nxdomain}}}
+      end)
+
+      assert {:error, {:workspace_github_connectivity_failed, workspace, {:github, :dns, %{reason: :nxdomain}}}} =
+               Workspace.create_for_issue("MT-GH-PREFLIGHT")
+
+      assert_receive {:workspace_preflight, ^workspace}
+
+      assert_receive {:event, %{topic: "system.github.connectivity_lost"} = event}, 500
+      assert event["message"] =~ "GitHub workspace preflight failed"
+      assert event["message"] =~ "workspace=#{workspace}"
+      assert event["message"] =~ "GET https://api.github.com/rate_limit"
+
+      assert event["message"] =~
+               "GET https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"
+    after
+      restore_app_env(:workspace_github_preflight_enabled, previous_enabled)
+      restore_app_env(:workspace_github_preflight_fun, previous_fun)
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+
       File.rm_rf(workspace_root)
     end
   end
@@ -2838,4 +2890,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   defp append_unique(values, value) do
     if value in values, do: values, else: values ++ [value]
   end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 end
