@@ -16,10 +16,9 @@ Phase 0 is not normal `v2` refactor work. These are aiur reliability fixes that
 unsnag the fleet itself, so their PRs target `main` first. After they land,
 pull `main` back into `v2`, rebuild aiur, and only then resume normal Phase 1.
 
-New Phase 0 tickets #764 and #765 were created without `agent:todo` because the
-current `.aiur/config`/`.aiur/hooks` target `v2`; dispatch them only after the
-fleet target for these blocker fixes is explicitly `main`, or backstop-fix them
-directly from the operator checkout.
+New Phase 0 tickets #764 and #765 were created without `agent:todo`; the local
+dogfood `.aiur/config` and `.aiur/hooks` have now been switched to `main` so
+only these blocker fixes can be dispatched next.
 
 ## Resume notes
 
@@ -37,7 +36,8 @@ Before resuming Phase 1 again:
 
 1. Fix or explicitly explain #764 (unexpected `agent:error` state swaps).
 2. Fix or explicitly explain #765 (stuck SSH branch-poll subprocesses).
-3. Ensure any Phase 0 work targets `main`, not `v2`.
+3. Ensure any Phase 0 work targets `main`, not `v2`. Current dogfood config is
+   already switched to `main`.
 4. Pull `main` into `v2`.
 5. Run `scripts/aiurdev build`, then launch with
    `scripts/aiurdev --bg --debug`.
