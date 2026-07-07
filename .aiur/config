@@ -3,7 +3,7 @@
 # === Issue tracker ===
 tracker:
   kind: github                 # github | linear | memory
-  base_branch: main
+  base_branch: v2
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, cancelled, canceled]
   github:
