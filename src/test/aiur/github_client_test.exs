@@ -186,7 +186,7 @@ defmodule Aiur.GitHub.ClientTest do
         {:ok, %{status: 401}}
       end
 
-      assert {:error, {:github_api_status, 401}} =
+      assert {:error, {:github, :auth, %{status: 401}}} =
                Client.fetch_candidate_issues(request_fun: request_fun)
     end
 
@@ -270,6 +270,25 @@ defmodule Aiur.GitHub.ClientTest do
       assert diagnostic.rate_limit_remaining == 0
       assert diagnostic.message =~ "rate limit is exhausted"
       assert diagnostic.message =~ "GITHUB_TOKEN"
+    end
+
+    test "classifies DNS request failures during preflight" do
+      request_fun = fn %{url: url} ->
+        assert url =~ "/rate_limit"
+        {:error, %Req.TransportError{reason: :nxdomain}}
+      end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               Client.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :unavailable} end
+               )
+
+      assert diagnostic.reason == :dns
+      assert diagnostic.classification == :dns
+      assert diagnostic.detail == %{reason: :nxdomain}
+      assert diagnostic.message =~ "DNS resolution failed"
+      assert diagnostic.message =~ "api.github.com"
     end
 
     test "distinguishes endpoint-specific forbidden responses" do
@@ -456,7 +475,7 @@ defmodule Aiur.GitHub.ClientTest do
     test "returns error on failure" do
       request_fun = fn _ -> {:ok, %{status: 403}} end
 
-      assert {:error, {:github_api_status, 403}} =
+      assert {:error, {:github, :http, %{status: 403}}} =
                Client.create_comment("42", "Hello!", request_fun: request_fun)
     end
   end
@@ -474,7 +493,7 @@ defmodule Aiur.GitHub.ClientTest do
     test "surfaces a non-200 status as an error" do
       request_fun = fn _ -> {:ok, %{status: 404}} end
 
-      assert {:error, {:github_api_status, 404}} =
+      assert {:error, {:github, :http, %{status: 404}}} =
                Client.fetch_pull_request_head_ref(21, request_fun: request_fun)
     end
 
@@ -1708,7 +1727,7 @@ defmodule Aiur.GitHub.ClientTest do
         end
       end
 
-      assert {:error, {:github_api_status, 500}} =
+      assert {:error, {:github, :http, %{status: 500}}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}
