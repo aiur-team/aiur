@@ -2,7 +2,7 @@
 
 **Phase:** 2
 **Depends-on:** None
-**Labels:** `agent:todo` `refactor` `phase:2` `complexity:3` `model:claude`
+**Labels:** `agent:todo` `refactor` `phase:2` `complexity:3`
 
 ## Problem / context
 

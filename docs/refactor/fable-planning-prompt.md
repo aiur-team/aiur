@@ -160,8 +160,8 @@ verbatim as a GitHub issue labeled `agent:todo`). Every ticket MUST contain:
 
 - **Title** — imperative, specific.
 - **Phase** and **Depends-on** (ticket ids) — the parallelization contract.
-- **Suggested labels** — `agent:todo` + `complexity:N` (keep low) + optional
-  `model:<backend>`.
+- **Suggested labels** — `agent:todo` + `complexity:N` (keep low); do not
+  pre-apply `model:*` routing overrides.
 - **Problem / context** — why, with file references.
 - **Scope (exact)** — the exact files to change and the exact approach, precise enough
   that a mechanical agent needs to make no design decisions.

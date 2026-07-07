@@ -32,12 +32,13 @@ companion docs. This runbook is how to *operate*; those are what to *build*.
   executor stops and reports, never edits the test.
 - **All refactor work targets `v2`, never `main`.** Main is untouched until
   the finished `v2` is validated by the human.
-- **Every refactor ticket carries the `refactor` label** plus `agent:todo`,
-  `complexity:N` (1–3), and `model:claude` on concurrency/persistence/timing
-  work. **Only `refactor` issues ever receive `agent:todo`** (that is the
-  only thing keeping the loop from grabbing unrelated work — the tracker has
-  no extra-label filter). Today there are zero stray `agent:todo` issues;
-  keep it that way.
+- **Every refactor issue carries the `refactor` label** plus `phase:N` and
+  `complexity:N` (1–3). Do not pre-apply `model:*` routing overrides;
+  complexity labels drive backend selection. **Only the currently active
+  sub-run receives `agent:todo`, and only `refactor` issues ever receive
+  `agent:todo`** (that is the only thing keeping the loop from grabbing
+  unrelated work — the tracker has no extra-label filter). Today there are
+  zero stray `agent:todo` issues; keep it that way.
 - **Commits (yours and every executor's): 3–7 word imperative messages.
   Never mention the tools, models, or "generated with" in commit messages or
   PR descriptions.** (Also repo convention — `.claude/skills/using-aiur/dev-loop.md`.)
@@ -111,12 +112,12 @@ You own PR review and merge; the human does not gate the per-phase loop.
    report status; re-emit the restart goal (§11).
 
 Throughout, attend to red `v2` (halt-and-repair, §9) and stalled agents (no
-workpad update ~15 min on a codex backend → add `model:claude` to reroute).
+workpad update ~15 min → pause for operator routing/capacity adjustment).
 
 ## 6. Ticket and issue conventions
 
 - **Ticket docs:** `docs/refactor/tickets/T-*.md`. Fields: Phase, Depends-on,
-  Labels (`agent:todo refactor complexity:N [model:claude]`), Files,
+  Labels (`agent:todo refactor complexity:N`), Files,
   Inventory-IDs, Characterization-tests (risky tickets), Problem/context,
   Scope (exact), Out of scope, Acceptance criteria, Verification (Agent gate
   = `make ci` from `src/`, plus the website gate for `website/` tickets;
@@ -125,6 +126,12 @@ workpad update ~15 min on a codex backend → add `model:claude` to reroute).
   phase-then-dependency order (T-001 = first phase-1 ticket), and each ticket
   states its **Phase** prominently. The backlog reads top-to-bottom in
   execution order.
+- **Write-before-open phase gate:** only create GitHub issues for the phase
+  you are about to run, and only from ticket docs that already exist. Later
+  phase ticket docs may still be incomplete (currently the planned backlog
+  index mentions `T-031`–`T-039` and `T-045`, but those files have not yet
+  been written). Do not create, label, dispatch, or work those planned tickets
+  until their issue-ready `docs/refactor/tickets/T-*.md` files exist.
 - **Issue creation** (successor-agent job, per `00-overview.md`): create
   **oldest-first in phase then dependency order** so the lowest issue numbers
   are worked first (creation order = execution priority); every issue gets
@@ -134,6 +141,14 @@ workpad update ~15 min on a codex backend → add `model:claude` to reroute).
 - **Delayed-open:** a dependent's issue is created only after its blocker
   merges to `v2`. Single-file decomposition chains run as serialized
   sub-waves (open wave N+1 only after wave N merges).
+- **Sub-run dispatch cap:** a phase may be split into smaller sub-runs when
+  the operator's current capacity is lower than the phase width. It is OK for
+  later sub-run issues to exist without `agent:todo`; add that label only when
+  you are ready for aiur to claim that sub-run. With the current local
+  operator setting of `agent.max_concurrent_agents: 8`, Phase 1 should run as
+  Sub-run A (small safety/platform fixes plus the opencode warm-pool cap fix)
+  and Sub-run B (the heavier characterization tickets), rather than opening
+  all Phase 1 work at once.
 - **Stay-in-scope:** ticket boilerplate tells the executor to avoid editing
   files outside `Files:`. You handle any drift, conflicts, and rework at
   merge.
@@ -228,3 +243,8 @@ Everything else is autonomous.
   comment as a code-owner → the comment listener triggers `agent:rework` →
   merge); the human's touchpoints are the full backlog review, final `v2`
   acceptance, and catastrophic failure. `aiur build` before every (re)start.
+- **2026-07-07** — Phase 1 issue creation started from written docs only.
+  Later planned tickets whose docs do not exist (`T-031`–`T-039`, `T-045`)
+  must not be opened or worked until written. Because local capacity is 8
+  agents, Phase 1 is split into sub-runs; only the active sub-run gets
+  `agent:todo`.

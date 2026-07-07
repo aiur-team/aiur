@@ -91,9 +91,10 @@ The agent running `/aiur-loop` for each phase:
    its blocker merges). Lowest issue numbers are worked first, so creation
    order = execution priority. Rewrite `Depends-on: T-NNN` to real issue
    numbers from your own creation log as you go.
-4. **Every issue gets the `refactor` label** plus a `phase:N` label,
-   `agent:todo`, `complexity:N` (1–3), and `model:claude` where the ticket
-   calls for it. Ticket docs (`T-NNN`) are numbered in the same order and
+4. **Every issue gets the `refactor` label** plus a `phase:N` label and
+   `complexity:N` (1–3). Only the active sub-run gets `agent:todo`, and
+   `model:*` routing overrides are not pre-applied; complexity labels select
+   the backend. Ticket docs (`T-NNN`) are numbered in the same order and
    state their Phase prominently so the backlog reads in execution order.
    Only `refactor` issues ever carry `agent:todo` — the tracker has no
    extra-label filter, so this exclusivity is what scopes the loop (verify:

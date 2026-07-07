@@ -2,7 +2,7 @@
 
 **Phase:** 4
 **Depends-on:** T-048
-**Labels:** `agent:todo` `refactor` `phase:4` `complexity:3` `model:claude`
+**Labels:** `agent:todo` `refactor` `phase:4` `complexity:3`
 
 ## Problem / context
 

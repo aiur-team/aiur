@@ -102,8 +102,9 @@ agents), A4 (aiur-loop pipeline)
 
 ### Ticket contract (from `.claude/skills/using-aiur/` + `.claude/skills/aiur-loop/`)
 
-- Labels: `agent:todo` + `complexity:N` + optional `model:<backend>`. This
-  repo's `.aiur/config` routes complexity 1–3 → codex, 4–5 → claude. Backends:
+- Labels: `agent:todo` + `complexity:N`; do not pre-apply `model:*` routing
+  overrides for refactor execution. This repo's `.aiur/config` routes
+  complexity 1–3 → codex, 4–5 → claude. Backends:
   `codex`, `claude` (headless, not resumable), `claude-repl` (resumable).
 - Branch is pre-created `aiur/<N>`; issue body is the contract ("follow the
   issue instructions exactly"); no ISSUE_TEMPLATE exists.
@@ -173,9 +174,9 @@ agents), A4 (aiur-loop pipeline)
   instead of synchronous GenServer call chains, no M×N fan-out; pin
   resource-fan-out invariants with census-style assertions.
 - Executor realities: lesser agents satisfy the letter of acceptance criteria
-  (make them grep-able + named passing tests); codex quota exhaustion silently
-  stalls tickets (remedy: `model:claude` reroute); post-#720 main pushes
-  notify rather than kill running agents.
+  (make them grep-able + named passing tests); quota exhaustion silently
+  stalls tickets (remedy: pause for operator routing/capacity changes);
+  post-#720 main pushes notify rather than kill running agents.
 - Regression-pinning tests that pruning must whitelist:
   `src/test/aiur/test_reset_test.exs` (label race),
   `src/test/aiur/agent_runner_test.exs` marker fan-out, the
@@ -262,9 +263,9 @@ existing gate (`make ci`, `mix specs.check`).
     each names the extracted modules exactly as pinned in
     `target-architecture.md`'s module/path name map — renames require the
     operator to amend downstream ticket docs before opening them.
-11. **Complexity stays 1–3; concurrency-touching tickets pre-apply
-    `model:claude`** (matches `complexity-routing.md` guidance and the codex
-    quota-stall reality).
+11. **Complexity labels dictate routing.** Refactor tickets stay 1–3 by
+    default and do not pre-apply `model:*` overrides; adjust complexity or
+    pause for operator routing if a ticket stalls.
 12. **Two-pass docs with an approval SHA.** `00-overview.md`,
     `phasing-and-parallelization.md` tables, and regression-safety's
     inventory→coverage mapping finalize after ticket generation; the human
@@ -630,8 +631,8 @@ make ~10-agent parallel execution safe, packaged for an Opus agent driving
   as the backstop with direct-fix authority if aiur becomes unusable
   (decision 18). The human appears exactly twice after the checkpoint:
   ticket-doc review before conversion, and final `v2` acceptance before main.
-- Quota-stall watch signal and `model:claude` reroute; concrete per-ticket
-  tables declared two-pass.
+- Quota-stall watch signal with operator routing/capacity response; concrete
+  per-ticket tables declared two-pass.
 
 **Test scenarios:**
 - Test expectation: none — documentation artifact.
@@ -740,7 +741,7 @@ placeholder for pass 2.
 
 **Verification:**
 - Every ticket passes the U11 script; mandated tickets present; complexity
-  labels 1–3 with `model:claude` where decision 11 applies.
+  labels 1–3 without `model:*` routing overrides.
 
 - [ ] U11. **Consistency validation + final PR**
 
@@ -806,7 +807,7 @@ PR (R1).
 | Executors game acceptance criteria or edit the tripwire | Grep-able criteria + named tests + CI override-label guard on the characterization path |
 | Executor drifts outside declared `Files:` scope | Stay-in-scope ticket boilerplate; the aiur-driving Opus agent owns PR readiness, conflicts, and merges (decision 17) |
 | aiur's loop mechanics assume the default branch | Decision 16 design-verification in U5: confirm workspace branching, push detection, and CI triggers against `v2`; pre-ticket any gap |
-| Codex quota stalls mid-phase | Complexity 1–3 + pre-applied `model:claude` on concurrency tickets + stall watch signal in phasing doc |
+| Codex quota stalls mid-phase | Complexity-driven routing + stall watch signal in phasing doc; pause for operator routing/capacity changes rather than pre-applying `model:*` labels |
 
 ---
 

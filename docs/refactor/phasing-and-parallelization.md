@@ -76,11 +76,11 @@ while any current-phase ticket is unresolved.**
 
 ## Executor-fleet operations
 
-- Complexity labels stay 1–3 (codex-class); tickets touching concurrency,
-  persistence, or timing-sensitive paths pre-apply `model:claude`.
+- Complexity labels stay 1–3 by default and drive backend selection; do not
+  pre-apply `model:*` routing overrides.
 - **Quota-stall watch:** a ticket with no workpad update for ~15 minutes on a
-  codex backend is presumed quota-stalled — reroute by adding `model:claude`;
-  don't wait, don't lower concurrency.
+  backend is presumed stalled — pause for operator routing/capacity
+  adjustment; don't silently lower concurrency.
 - Config ramp: raise `max_concurrent_agents` toward the phase's width and
   watch the #465 load gate (`vmstat` idle %, not loadavg).
 - Halt-and-repair and the dialyzer outside-scope rule:
