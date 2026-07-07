@@ -17,6 +17,7 @@ defmodule Aiur.Codex.CodingAgent do
   @turn_start_id 3
   @port_line_bytes 1_048_576
   @max_stream_log_bytes 1_000
+  @cold_start_response_timeout_ms 30_000
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
 
   @type session :: %{
@@ -341,7 +342,7 @@ defmodule Aiur.Codex.CodingAgent do
 
     send_message(port, payload)
 
-    with {:ok, _} <- await_response(port, @initialize_id) do
+    with {:ok, _} <- await_startup_response(port, @initialize_id) do
       send_message(port, %{"method" => "initialized", "params" => %{}})
       :ok
     end
@@ -432,7 +433,7 @@ defmodule Aiur.Codex.CodingAgent do
   # resume path, to a clean start — rather than crashing the dispatch.
   defp send_thread_init(port, frame) do
     send_message(port, frame)
-    parse_thread_response(await_response(port, @thread_start_id))
+    parse_thread_response(await_startup_response(port, @thread_start_id))
   rescue
     ArgumentError -> {:error, :port_closed}
   end
@@ -492,7 +493,7 @@ defmodule Aiur.Codex.CodingAgent do
       }
     })
 
-    case await_response(port, @turn_start_id) do
+    case await_startup_response(port, @turn_start_id) do
       {:ok, %{"turn" => %{"id" => turn_id}}} -> {:ok, turn_id}
       other -> other
     end
@@ -775,6 +776,11 @@ defmodule Aiur.Codex.CodingAgent do
   # through the orchestrator's max_retry_attempts cap and backoff.
   defp handle_notification_outcome(session, state, method, payload) do
     cond do
+      codex_quota_exhausted?(method, payload) ->
+        Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
+
+        {:paused, usage_limit_pause(payload, method)}
+
       codex_error_method?(method) and unretryable_codex_error?(payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
         {:error, {:turn_unretryable, codex_error_reason(payload, method)}}
@@ -1442,8 +1448,12 @@ defmodule Aiur.Codex.CodingAgent do
     String.starts_with?(normalized_label, "approve") or String.starts_with?(normalized_label, "allow")
   end
 
-  defp await_response(port, request_id) do
-    with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "")
+  defp await_startup_response(port, request_id) do
+    with_timeout_response(port, request_id, startup_response_timeout_ms(), "")
+  end
+
+  defp startup_response_timeout_ms(read_timeout_ms \\ Config.agent_read_timeout_ms()) do
+    max(read_timeout_ms, @cold_start_response_timeout_ms)
   end
 
   defp with_timeout_response(port, request_id, timeout_ms, pending_line) do
@@ -1843,6 +1853,16 @@ defmodule Aiur.Codex.CodingAgent do
   def send_thread_init_for_test(port, frame), do: send_thread_init(port, frame)
 
   @doc false
+  @spec await_startup_response_for_test(port(), integer(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def await_startup_response_for_test(port, request_id, read_timeout_ms) do
+    with_timeout_response(port, request_id, startup_response_timeout_ms(read_timeout_ms), "")
+  end
+
+  @doc false
+  @spec startup_response_timeout_ms_for_test(pos_integer()) :: pos_integer()
+  def startup_response_timeout_ms_for_test(read_timeout_ms), do: startup_response_timeout_ms(read_timeout_ms)
+
+  @doc false
   @spec parse_thread_response_for_test({:ok, map()} | {:error, term()}) :: {:ok, String.t()} | {:error, term()}
   def parse_thread_response_for_test(response), do: parse_thread_response(response)
 
@@ -1854,6 +1874,29 @@ defmodule Aiur.Codex.CodingAgent do
   @spec codex_error_reason_for_test(map(), String.t()) :: String.t()
   def codex_error_reason_for_test(payload, method) when is_map(payload) and is_binary(method) do
     codex_error_reason(payload, method)
+  end
+
+  @doc false
+  @spec usage_limit_exceeded_for_test(map()) :: boolean()
+  def usage_limit_exceeded_for_test(payload) when is_map(payload), do: usage_limit_exceeded?(payload)
+
+  @doc false
+  @spec usage_limit_reset_hint_for_test(map()) :: String.t() | nil
+  def usage_limit_reset_hint_for_test(payload) when is_map(payload), do: usage_limit_reset_hint(payload)
+
+  # Routing-only helper: the quota-pause and unretryable-error cond clauses both
+  # return without dereferencing `session`/`state`, so dummy maps are safe HERE.
+  # Do not reuse this for other branches — they read from session/state.
+  @doc false
+  @spec notification_outcome_for_test(String.t(), map()) :: tuple()
+  def notification_outcome_for_test(method, payload) when is_binary(method) and is_map(payload) do
+    handle_notification_outcome(%{}, %{}, method, payload)
+  end
+
+  @doc false
+  @spec codex_quota_exhausted_for_test(String.t(), map()) :: boolean()
+  def codex_quota_exhausted_for_test(method, payload) when is_binary(method) and is_map(payload) do
+    codex_quota_exhausted?(method, payload)
   end
 
   # The flag can ride on the notification root or inside `params`, and
@@ -1869,16 +1912,86 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp will_retry_false?(_payload), do: false
 
-  # Best-effort human-readable reason for the failure tuple/log. Control
-  # flow keys only on `willRetry`; the detail field name varies, so fall
-  # back to the method when no recognizable detail is present.
-  defp codex_error_reason(payload, method) do
-    params = Map.get(payload, "params") || %{}
-
-    detail =
-      Map.get(params, "message") || Map.get(params, "type") ||
-        Map.get(params, "code") || Map.get(payload, "message")
-
-    if is_binary(detail), do: "#{method}: #{detail}", else: method
+  # Quota exhaustion is the subset of *unretryable* error-method turn failures
+  # (codex sets willRetry:false when the account quota is gone) whose detail
+  # names a usage limit. Gating on `unretryable_codex_error?` as well keeps a
+  # merely transient error that happens to mention "usage limit" from stranding
+  # the agent in a pause — a pause has no auto-resume timer, so such errors must
+  # fall through to the normal retry path instead. Folding the checks into one
+  # predicate keeps `handle_notification_outcome/4` within its
+  # cyclomatic-complexity budget.
+  defp codex_quota_exhausted?(method, payload) do
+    codex_error_method?(method) and unretryable_codex_error?(payload) and
+      usage_limit_exceeded?(payload)
   end
+
+  # A `usageLimitExceeded` turn error means the codex/ChatGPT account quota is
+  # exhausted (it resets at a stated time) — NOT a transient rate limit, so
+  # immediate retries cannot help and only burn the agent's retry budget into
+  # `agent:error`. Detect it robustly (codex stashes the marker under different
+  # keys across versions) and route the turn to a pause + operator alert. The
+  # inspected-payload scan mirrors the agent runner's `more_tokens_reason?` and
+  # survives field-name drift. Kept total (no `is_map` guard) so a malformed
+  # non-map payload degrades to `false` rather than crashing the receive loop.
+  defp usage_limit_exceeded?(payload) do
+    payload
+    |> inspect()
+    |> String.downcase()
+    |> String.contains?(["usagelimitexceeded", "usage limit"])
+  end
+
+  # Pause payload for a quota-exhaustion turn error. `kind` lets the agent
+  # runner emit the operator alert; `reset_hint` carries the human-readable
+  # "try again at …" time when codex provides one.
+  defp usage_limit_pause(payload, method) do
+    %{
+      kind: :usage_limit_exhausted,
+      reason: codex_error_reason(payload, method),
+      reset_hint: usage_limit_reset_hint(payload)
+    }
+  end
+
+  # Best-effort: pull the "try again at 11:43 PM" reset time out of whatever
+  # human message codex attached. Returns nil when no such phrase is present.
+  # Kept total (no `is_map` guard) to match `usage_limit_exceeded?/1`.
+  defp usage_limit_reset_hint(payload) do
+    case Regex.run(~r/try again at ([^."\n]+)/i, inspect(payload)) do
+      [_, when_str] -> String.trim(when_str)
+      _ -> nil
+    end
+  end
+
+  # Best-effort human-readable reason for the failure tuple/log/alert. Control
+  # flow keys only on `willRetry`; the detail field name varies across codex
+  # versions, so check the known positions (root + params + nested error) and
+  # fall back to the method when no recognizable detail is present — never the
+  # bare opaque `"error"` when a detail is actually available.
+  defp codex_error_reason(payload, method) do
+    case codex_error_detail(payload) do
+      detail when is_binary(detail) and detail != "" -> "#{method}: #{detail}"
+      _ -> method
+    end
+  end
+
+  defp codex_error_detail(payload) do
+    params = Map.get(payload, "params") || %{}
+    params_error = ensure_map(Map.get(params, "error"))
+    root_error = ensure_map(Map.get(payload, "error"))
+    nested = Map.merge(params_error, root_error)
+
+    [
+      Map.get(params, "message"),
+      Map.get(params, "codexErrorInfo"),
+      Map.get(nested, "message"),
+      Map.get(params, "type"),
+      Map.get(params, "code"),
+      Map.get(nested, "type"),
+      Map.get(nested, "code"),
+      Map.get(payload, "message")
+    ]
+    |> Enum.find(fn value -> is_binary(value) and value != "" end)
+  end
+
+  defp ensure_map(value) when is_map(value), do: value
+  defp ensure_map(_value), do: %{}
 end

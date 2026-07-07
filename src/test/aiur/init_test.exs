@@ -7,6 +7,32 @@ defmodule Aiur.InitTest do
 
   @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
 
+  # Every topic the shipped alert examples must keep populated. Kept in sync with
+  # the real event names so the scaffolded map fires sounds with zero editing.
+  @alert_topics [
+    "ticket.*.issue.label.added.agent.todo",
+    "ticket.*.issue.label.added.agent.in-progress",
+    "ticket.*.issue.label.added.agent.human-review",
+    "ticket.*.issue.label.added.agent.rework",
+    "ticket.*.pr.merged",
+    "ticket.*.issue.state.changed",
+    "system.dispatch.todo_capacity_exceeded",
+    "ticket.*.agent.error.tokens_exhausted",
+    "ticket.*.agent.retry_exhausted",
+    "ticket.*.agent.paused",
+    "ticket.*.agent.unpaused",
+    "ticket.*.chat.opened",
+    "ticket.*.chat.closed",
+    "ticket.*.agent.phase.brainstorm.start",
+    "ticket.*.agent.phase.brainstorm.end",
+    "ticket.*.agent.phase.plan.start",
+    "ticket.*.agent.phase.plan.end",
+    "ticket.*.agent.phase.work.start",
+    "ticket.*.agent.phase.work.end",
+    "ticket.*.agent.phase.review.start",
+    "ticket.*.agent.phase.review.end"
+  ]
+
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
     target = Path.join([dir, ".aiur", "config"])
@@ -128,6 +154,8 @@ defmodule Aiur.InitTest do
         end,
         check_agent_auth: fn _kind -> :ok end,
         install_claude_app_server: fn -> :ok end,
+        repo_root: fn -> dir end,
+        github_login: fn -> "octocat" end,
         github_token: fn -> nil end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
@@ -165,6 +193,18 @@ defmodule Aiur.InitTest do
   defp written_config(path) do
     assert {:ok, loaded} = Workflow.load(path)
     loaded.config
+  end
+
+  defp assert_filled_alert_template(template, sound_path_regex) do
+    assert {:ok, %{"alerts" => alerts}} = YamlElixir.read_from_string(template)
+    assert alerts |> Map.keys() |> Enum.sort() == Enum.sort(@alert_topics)
+
+    for topic <- @alert_topics do
+      assert %{"message" => message, "sound" => sounds} = Map.fetch!(alerts, topic)
+      assert is_binary(message) and message != ""
+      assert is_list(sounds) and sounds != []
+      assert Enum.all?(sounds, &Regex.match?(sound_path_regex, &1))
+    end
   end
 
   defp puts_log(acc \\ []) do
@@ -236,6 +276,8 @@ defmodule Aiur.InitTest do
     end
   end
 
+  defp codeowners_path(dir), do: Path.join([dir, ".github", "CODEOWNERS"])
+
   # Prompts the wizard asked the operator to confirm (one per stage that has
   # labels to create).
   defp confirm_prompts(acc \\ []) do
@@ -260,6 +302,86 @@ defmodule Aiur.InitTest do
     }
 
     Map.merge(base, overrides, fn _k, v1, v2 -> Map.merge(v1, v2) end)
+  end
+
+  describe "CODEOWNERS trust setup" do
+    test "no-file + create writes CODEOWNERS and adds the operator", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      codeowners = File.read!(codeowners_path(dir))
+      assert codeowners =~ "aiur uses CODEOWNERS"
+      assert codeowners =~ "* @octocat"
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "aiur uses CODEOWNERS to determine which GitHub accounts it will trust"
+    end
+
+    test "no-file + decline leaves the repo unchanged", %{dir: dir, target: target} do
+      answers =
+        github_answers(%{
+          confirm: %{"Create .github/CODEOWNERS for aiur's GitHub trust checks?" => false}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      refute File.exists?(codeowners_path(dir))
+      assert Enum.any?(puts_log(), &(&1 =~ "Skipped CODEOWNERS"))
+    end
+
+    test "existing-file + add-self appends the operator without clobbering owners", %{dir: dir, target: target} do
+      File.mkdir_p!(Path.join(dir, ".github"))
+      File.write!(codeowners_path(dir), "* @platform-team # default owners\n")
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) == "* @platform-team @octocat # default owners\n"
+      refute Enum.any?(confirm_prompts(), &(&1 =~ "Create .github/CODEOWNERS"))
+    end
+
+    test "existing-file + already-present is a no-op with no CODEOWNERS prompt spam", %{dir: dir, target: target} do
+      File.write!(
+        target,
+        """
+        tracker:
+          kind: github
+          github:
+            repo: octo/repo
+        agent:
+          kind: claude
+        prewarm:
+          enabled: false
+        """
+      )
+
+      File.mkdir_p!(Path.join(dir, ".github"))
+      File.write!(codeowners_path(dir), "* @OctoCat\n")
+
+      assert :ok = Init.run(%{force: false}, io(self()), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) == "* @OctoCat\n"
+      refute "GitHub account to add to CODEOWNERS" in input_labels()
+      refute Enum.any?(confirm_prompts(), &(&1 =~ "CODEOWNERS"))
+    end
+
+    test "resume on an existing config backfills missing CODEOWNERS", %{dir: dir, target: target} do
+      File.write!(
+        target,
+        """
+        tracker:
+          kind: github
+          github:
+            repo: octo/repo
+        agent:
+          kind: claude
+        prewarm:
+          enabled: false
+        """
+      )
+
+      assert :ok = Init.run(%{force: false}, io(self()), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) =~ "* @octocat"
+    end
   end
 
   describe "pre-warm opt-in" do
@@ -482,6 +604,44 @@ defmodule Aiur.InitTest do
       # map file is scaffolded next to the config (no extension).
       assert File.read!(target) =~ ~r/^\s*alerts_file: alerts\s*(#.*)?$/m
       assert File.regular?(Path.join(Path.dirname(target), "alerts"))
+    end
+
+    test "alert examples are concise and fully populated with platform sounds" do
+      macos = Init.alerts_template({:unix, :darwin})
+      linux = Init.alerts_template({:unix, :linux})
+
+      # Source-grouped section headers stay; the big explanatory block is gone.
+      for template <- [macos, linux] do
+        assert template =~ "Ticket-powered alerts"
+        assert template =~ "Agent-powered alerts"
+        assert template =~ "AI-powered alerts"
+        refute template =~ "Sound filenames"
+        refute template =~ "Topic / glob matching"
+
+        # Phase milestones publish as `ticket.<id>.agent.phase.<phase>.<edge>`
+        # (agent_runner prefixes the bare `phase.work.start` name). The glob must
+        # carry the `.phase.` segment or the sound never fires.
+        assert template =~ "ticket.*.agent.phase.work.start"
+        refute template =~ ~r/"ticket\.\*\.agent\.work\.start"/
+      end
+
+      assert_filled_alert_template(macos, ~r{\A/System/Library/Sounds/.+\.aiff\z})
+      assert_filled_alert_template(linux, ~r{\A/usr/share/sounds/freedesktop/stereo/.+\.oga\z})
+    end
+
+    test "alert template selection follows the host OS family" do
+      macos = Init.alerts_template({:unix, :darwin})
+      linux = Init.alerts_template({:unix, :linux})
+
+      assert macos =~ "/System/Library/Sounds/Glass.aiff"
+      refute macos =~ "/usr/share/sounds/freedesktop"
+
+      assert linux =~ "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
+      refute linux =~ "/System/Library/Sounds"
+
+      # Non-macOS Unix and unknown hosts fall back to the Linux example.
+      assert Init.alerts_template({:unix, :freebsd}) == linux
+      assert Init.alerts_template(:unknown) == linux
     end
   end
 

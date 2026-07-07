@@ -741,6 +741,9 @@ defmodule Aiur.CoreTest do
     refute Map.has_key?(state.retry_attempts, issue_id),
            "expected the orchestrator to give up after exceeding max_retry_attempts"
 
+    refute MapSet.member?(state.claimed, issue_id),
+           "give-up must release the claim so a label-driven re-dispatch (#699) can pick the ticket up without a daemon restart"
+
     assert log =~ "after 3 failed attempt(s)"
     assert log =~ "ticket.MT-EX.agent.retry_exhausted"
 

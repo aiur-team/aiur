@@ -16,7 +16,7 @@ same aiur background-run playbook.
 
 - `scripts/aiurdev` is the dev shim: it rebuilds the local `mix release` when stale, then
   `exec`s the shared engine (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`). Subcommands
-  (`--bg`, `stop`, `pause`, `status`, `message`) are passed straight through to the engine.
+  (`--bg`, `stop`, `pause`, `status`, `watch`, `message`) are passed straight through to the engine.
 - `aiur --bg` runs the BEAM headless in a **detached tmux session**. Identity is
   per-instance-keyed (#431): node/tmux/socket are keyed by the repo root, so a second aiur
   from a different root coexists instead of reaping this one.
@@ -84,20 +84,20 @@ operator their preferred status-table update cadence** — use **AskUserQuestion
 whole session**; that single answer drives the auto-cadence and you never re-ask it.
 
 Immediately after a verified launch (step 4 confirms prewarm), you **MUST** hand off to
-`aiur-monitor` and start its **auto-cadence at the operator's chosen interval**: emit a fresh
-formatted status table every `<chosen>` minutes (the `/loop <chosen>m` interval; "approximately"
-is not license to stretch it past the chosen interval), automatically, until the run reaches a
-terminal state or the operator says stop. This is not optional and the operator should **NEVER**
-have to ask for the next update — see `aiur-monitor`'s "Monitoring cadence" for the required rule,
-the table format, and the alert relay. (5 min is the recommended default; the operator picks the
-value once via the ask above.)
+`aiur-monitor` and start its **auto-cadence at the operator's chosen interval**: post a fresh
+board (run `aiurdev watch`) every `<chosen>` minutes (the `/loop <chosen>m` interval;
+"approximately" is not license to stretch it past the chosen interval), automatically, until the
+run reaches a terminal state or the operator says stop. This is not optional and the operator
+should **NEVER** have to ask for the next update — see `aiur-monitor`'s "Monitoring cadence" for
+the required rule, the board format, and the alert relay. (5 min is the recommended default; the
+operator picks the value once via the ask above.)
 
 - **Agents** — start the cadence now by arming the loop at the chosen interval:
   `/loop <chosen>m /aiur-monitor` (e.g. `/loop 5m /aiur-monitor` for the default). There is no
   self-ticking fallback — if you do not arm `/loop`, no further updates will fire, which is the
-  failure this step exists to prevent. Don't skip a tick when nothing changed — post the table
-  anyway, noting steady-state.
-- **Alerts** — arm `aiur-monitor`'s real-time alert relay now: start `watch-alerts.sh` once via the **Monitor tool** (`persistent: true`) and post every new alert in chat (`#<ticket> · <name> · <reason>`), so the operator gets the "why" the instant the chime plays. The 5-min `tail-alerts.sh` tick stays as the floor + PushNotification. See `aiur-monitor`'s "Alert relay".
+  failure this step exists to prevent. Don't skip a tick when nothing changed — post the board
+  anyway, noting steady-state (`aiurdev watch --changes` prints `(no changes)` — relay that).
+- **Alerts** — arm `aiur-monitor`'s real-time alert relay now: start `watch-alerts.sh` once via the **Monitor tool** (`persistent: true`) and post every new alert in chat (`#<ticket> · <name> · <reason>`), so the operator gets the "why" the instant the chime plays. `aiurdev watch`'s `ACTIONABLE` section is the periodic floor (+ PushNotification for new needs-attention alerts). See `aiur-monitor`'s "Real-time alert relay".
 - **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
   concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
   `max_concurrent_agents` and relaunch.

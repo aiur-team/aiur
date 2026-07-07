@@ -56,6 +56,24 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "issue-worker skills (installed into every workspace) stay within the canonical taxonomy" do
+    # #689: Aiur.AgentSkills seeds these into each agent workspace. Cross-check
+    # its list against the canonical sets here so the two cannot drift — adding
+    # or renaming a skill forces a conscious decision about issue-worker exposure.
+    issue_worker = Aiur.AgentSkills.issue_worker_skills()
+
+    assert issue_worker -- @codex_exposed_aiur_skills == [],
+           "issue-worker skills must be a subset of @codex_exposed_aiur_skills"
+
+    for skill <- issue_worker do
+      refute skill in @claude_operator_only_skills,
+             "operator-only skill #{skill} must not be installed into issue workers"
+
+      assert File.dir?(Path.join([@repo_root, ".claude", "skills", skill])),
+             "issue-worker skill #{skill} has no canonical .claude/skills/#{skill} dir"
+    end
+  end
+
   test "Aiur Claude skills have explicit Codex exposure decisions" do
     claude_skills =
       @repo_root
@@ -142,7 +160,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert String.contains?(run_skill, "iarc run")
     assert String.contains?(status_skill, "iarc status")
     assert String.contains?(status_skill, "aiur status")
-    assert String.contains?(status_skill, "tail-agents.sh")
+    assert String.contains?(status_skill, "aiurdev watch")
 
     for skill <- [run_skill, status_skill] do
       assert String.contains?(skill, "iarc")

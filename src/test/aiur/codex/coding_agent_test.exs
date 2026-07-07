@@ -112,6 +112,26 @@ defmodule Aiur.Codex.CodingAgentTest do
     end
   end
 
+  describe "startup response timeout" do
+    test "uses a cold-start floor without shortening explicit longer read timeouts" do
+      assert CodingAgent.startup_response_timeout_ms_for_test(5_000) == 30_000
+      assert CodingAgent.startup_response_timeout_ms_for_test(60_000) == 60_000
+    end
+
+    test "waits past the steady read timeout for startup responses" do
+      command = "sleep 0.1; printf '%s\\n' '{\"id\":42,\"result\":{\"ok\":true}}'"
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+          [:binary, :exit_status, :stderr_to_stdout, args: [~c"-lc", String.to_charlist(command)], line: 64_000]
+        )
+
+      assert {:ok, %{"ok" => true}} = CodingAgent.await_startup_response_for_test(port, 42, 50)
+      assert_receive {^port, {:exit_status, 0}}, 1_000
+    end
+  end
+
   describe "send_thread_init/2 graceful degradation" do
     test "a closed app-server port yields {:error, :port_closed} instead of raising" do
       # A dead app-server makes Port.command raise ArgumentError; the resume path
