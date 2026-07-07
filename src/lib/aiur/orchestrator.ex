@@ -1997,6 +1997,7 @@ defmodule Aiur.Orchestrator do
       {:ok, issues} when is_list(issues) ->
         targets =
           issues
+          |> Enum.reject(&Issue.paused?/1)
           |> Enum.map(&human_review_comment_target_for_issue/1)
           |> Enum.reject(&is_nil/1)
           |> dedupe_human_review_targets()
@@ -2674,6 +2675,9 @@ defmodule Aiur.Orchestrator do
 
         terminate_running_issue(state, issue.id, false)
 
+      Issue.paused?(issue) ->
+        pause_issue_for_label_override(state, issue)
+
       active_issue_state?(issue.state, active_states) ->
         maybe_reactivate_or_refresh(state, issue)
 
@@ -2830,8 +2834,10 @@ defmodule Aiur.Orchestrator do
 
   # Label flipped back to an active state. If the running entry is
   # currently `:deactivated`, route through `reactivate_issue/2` so a
-  # fresh agent task is spawned. Otherwise just refresh the stored
-  # issue (existing behaviour for `:working` / `:paused` entries).
+  # fresh agent task is spawned. If it was paused by `agent:paused`, resume
+  # the parked session once that override disappears. Otherwise just refresh
+  # the stored issue (existing behaviour for `:working` / manual `:paused`
+  # entries).
   defp maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
     case Map.get(state.running, issue.id) do
       %{control: %{status: :deactivated}} = running_entry ->
@@ -2845,9 +2851,57 @@ defmodule Aiur.Orchestrator do
           {{:error, _reason}, next_state} -> next_state
         end
 
+      %{control: %{status: :paused}, paused_reason: :label_override} = running_entry ->
+        new_entry = Map.put(running_entry, :issue, issue)
+        state = %{state | running: Map.put(state.running, issue.id, new_entry)}
+
+        case resume_paused_issue(state, new_entry, false) do
+          {{:ok, :resumed}, next_state} ->
+            next_state
+
+          {{:error, reason}, next_state} ->
+            Logger.info("Label override resume deferred: #{issue_context(issue)} reason=#{inspect(reason)}")
+            next_state
+        end
+
       _ ->
         refresh_running_issue_state(state, issue)
     end
+  end
+
+  defp pause_issue_for_label_override(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      nil ->
+        release_issue_claim(state, issue.id)
+
+      %{control: %{status: :deactivated}} = running_entry ->
+        refresh_running_entry_issue(state, issue, running_entry)
+
+      %{control: %{status: :paused}} = running_entry ->
+        refresh_running_entry_issue(state, issue, running_entry)
+
+      running_entry when is_map(running_entry) ->
+        identifier = Map.get(running_entry, :identifier, issue.identifier || issue.id)
+
+        Logger.info("Issue pause override detected: #{issue_context(issue)}; pausing active agent")
+
+        _ = send_pause_control_message(state, identifier)
+
+        running_entry =
+          running_entry
+          |> Map.put(:issue, issue)
+          |> Map.put(:paused_reason, :label_override)
+
+        transition_control_status(state, running_entry, :paused, "label_override")
+
+      _ ->
+        state
+    end
+  end
+
+  defp refresh_running_entry_issue(%State{} = state, %Issue{} = issue, running_entry)
+       when is_map(running_entry) do
+    %{state | running: Map.put(state.running, issue.id, Map.put(running_entry, :issue, issue))}
   end
 
   defp reconcile_missing_running_issue_ids(%State{} = state, requested_issue_ids, issues)
@@ -3639,11 +3693,15 @@ defmodule Aiur.Orchestrator do
        )
        when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
     issue_routable_to_worker?(issue) and
+      issue_not_paused?(issue) and
       active_issue_state?(state_name, active_states) and
       !terminal_issue_state?(state_name, terminal_states)
   end
 
   defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
+
+  defp issue_not_paused?(%Issue{} = issue), do: not Issue.paused?(issue)
+  defp issue_not_paused?(_issue), do: true
 
   defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
        when is_boolean(assigned_to_worker),
@@ -4330,7 +4388,8 @@ defmodule Aiur.Orchestrator do
             AgentEvents.agent_summary(identifier, :queued, 0, %{
               tag: tag,
               title: title,
-              work_state: :idle
+              work_state: idle_issue_work_state(issue),
+              pause_reason: idle_issue_pause_reason(issue)
             })
 
           entry ->
@@ -4435,6 +4494,7 @@ defmodule Aiur.Orchestrator do
       state: if(work_state == :paused, do: :paused, else: :running),
       work_state: work_state,
       tracker_state: Map.get(issue || %{}, :state),
+      tracker_paused: Issue.paused?(issue),
       tag: issue_tag(issue),
       title: Map.get(issue || %{}, :title),
       url: Map.get(issue || %{}, :url),
@@ -4470,6 +4530,7 @@ defmodule Aiur.Orchestrator do
       identifier: identifier,
       state: :idle,
       tracker_state: Map.get(issue, :state),
+      tracker_paused: Issue.paused?(issue),
       tag: issue_tag(issue),
       title: Map.get(issue, :title),
       url: Map.get(issue, :url),
@@ -4490,6 +4551,18 @@ defmodule Aiur.Orchestrator do
   end
 
   defp idle_queue_depth(_state, _identifier), do: 0
+
+  defp idle_issue_work_state(%Issue{} = issue) do
+    if Issue.paused?(issue), do: :paused, else: :idle
+  end
+
+  defp idle_issue_work_state(_issue), do: :idle
+
+  defp idle_issue_pause_reason(%Issue{} = issue) do
+    if Issue.paused?(issue), do: :label_override, else: nil
+  end
+
+  defp idle_issue_pause_reason(_issue), do: nil
 
   defp handle_active_retry(state, issue, attempt, metadata) do
     if retry_candidate_issue?(issue, terminal_state_set()) and
@@ -5315,6 +5388,8 @@ defmodule Aiur.Orchestrator do
           last_codex_message: metadata.last_codex_message,
           last_codex_event: metadata.last_codex_event,
           work_state: get_in(metadata, [:control, :status]) || :working,
+          pause_reason: Map.get(metadata, :paused_reason),
+          tracker_paused: Issue.paused?(metadata.issue),
           queue_depth: capabilities.queue_depth,
           pending_operator_messages: pending_operator_messages_for_issue(state, metadata.identifier),
           control: capabilities,
@@ -6303,6 +6378,9 @@ defmodule Aiur.Orchestrator do
   # that keeps getting auto-resumed on blocker pushes stays bounded instead
   # of running forever.
   #
+  # Label-override pauses have no special duration semantics; resuming just
+  # clears their attribution marker after the normal pause-clock thaw.
+  #
   # A no-op for manually/blocker-paused entries (no marker).
   defp reset_duration_clock_if_capped(running, issue_id, %DateTime{} = now, operator?)
        when is_map(running) do
@@ -6314,6 +6392,9 @@ defmodule Aiur.Orchestrator do
           |> Map.delete(:paused_reason)
 
         Map.put(running, issue_id, updated)
+
+      %{paused_reason: :label_override} = entry ->
+        Map.put(running, issue_id, Map.delete(entry, :paused_reason))
 
       _ ->
         running
@@ -6922,6 +7003,7 @@ defmodule Aiur.Orchestrator do
     |> Enum.filter(fn
       %Issue{} = issue ->
         normalize_issue_state(issue.state) == "todo" and
+          not Issue.paused?(issue) and
           issue_routable_to_worker?(issue) and
           !todo_issue_blocked_by_non_terminal?(issue, terminal_state_set())
 

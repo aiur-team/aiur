@@ -338,6 +338,38 @@ defmodule Aiur.GitHub.ClientTest do
       assert hd(issues).id == "1"
       assert hd(issues).state == "todo"
     end
+
+    test "marks paused override without treating it as the issue state" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "sym:todo" or url =~ "sym%3Atodo"
+
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{
+               "number" => 2,
+               "title" => "Paused task",
+               "body" => nil,
+               "html_url" => "https://github.com/owner/repo/issues/2",
+               "labels" => [
+                 %{"name" => "sym:paused"},
+                 %{"name" => "sym:todo"},
+                 %{"name" => "priority:1"}
+               ],
+               "assignee" => nil,
+               "created_at" => "2025-01-01T00:00:00Z",
+               "updated_at" => "2025-01-01T00:00:00Z"
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, [issue]} = Client.fetch_issues_by_states(["todo"], request_fun: request_fun)
+      assert issue.state == "todo"
+      assert issue.paused == true
+      assert "sym:paused" in issue.labels
+    end
   end
 
   describe "fetch_issue_states_by_ids/2" do
@@ -1300,6 +1332,62 @@ defmodule Aiur.GitHub.ClientTest do
       end
 
       assert :ok = Client.update_issue_state("42", "Done", request_fun: request_fun)
+    end
+
+    test "state swaps preserve paused and watch marker labels" do
+      test_pid = self()
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [
+                   %{"name" => "sym:paused"},
+                   %{"name" => "sym:todo"},
+                   %{"name" => "sym:watch"}
+                 ]
+               }
+             }}
+
+          {:delete, 1} ->
+            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
+            {:ok, %{status: 200}}
+
+          {:get, 2} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:paused"}, %{"name" => "sym:watch"}]
+               }
+             }}
+
+          {:post, 3} ->
+            assert req.body == %{"labels" => ["sym:rework"]}
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :delete, url: deleted_url}}
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
+      refute deleted_url =~ "sym:paused"
+      refute deleted_url =~ "sym:watch"
+      refute_receive {:github_request, %{method: :delete}}, 100
     end
 
     test "human-review readiness requires unresolved authenticated-viewer replies to be resolved" do

@@ -799,6 +799,7 @@ An issue is dispatch-eligible only if all are true:
 
 - It has `id`, `identifier`, `title`, and `state`.
 - Its state is in `active_states` and not in `terminal_states`.
+- It is not carrying a tracker pause override such as GitHub's `agent:paused`.
 - It is not already in `running`.
 - It is not already in `claimed`.
 - Global concurrency slots are available.
@@ -872,6 +873,8 @@ Part B: Tracker state refresh
 - Fetch current issue states for all running issue IDs.
 - For each running issue:
   - If tracker state is terminal: terminate worker and clean workspace.
+  - If tracker reports a pause override: cooperatively pause the worker and keep
+    the issue snapshot.
   - If tracker state is still active: update the in-memory issue snapshot.
   - If tracker state is neither active nor terminal: terminate worker without workspace cleanup.
 - If state refresh fails, keep workers running and try again on the next tick.
@@ -879,6 +882,8 @@ Part B: Tracker state refresh
 Implementations that map tracker states to labels SHOULD remove active automation labels from
 already-closed issues instead of adding a new active label during late reconciliation or event
 handling. A terminal label MAY still be added when the target state is terminal.
+Marker labels such as `agent:paused` MUST NOT be configured as active states and SHOULD be
+preserved when replacing lifecycle labels.
 
 ### 8.6 Startup Terminal Workspace Cleanup
 
