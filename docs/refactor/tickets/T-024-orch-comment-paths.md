@@ -544,8 +544,10 @@ All greps run from the repo root; all must hold:
   (once in `pr_anchored.ex`);
   `grep -c "@watch_comment_targets_per_poll\|@human_review_comment_targets_per_poll" src/lib/aiur/orchestrator.ex` = 0
   (each once in `comment_polling.ex`).
-- No comment-rework retry timer remains in the facade:
-  `grep -c "Process.send_after(self(), {:retry_comment_rework" src/lib/aiur/orchestrator.ex` = 0
+- The comment-rework retry-timer SEND site moved (the `handle_info`
+  `{:retry_comment_rework, ...}` clause itself stays in the facade and
+  delegates, so match the unique send payload, not the clause):
+  `grep -c "{:retry_comment_rework, issue_number, source, event, next_attempt}" src/lib/aiur/orchestrator.ex` = 0
   and the same grep = 1 in `src/lib/aiur/orchestrator/comment_wake.ex`.
 - No `pending_auto_resume` drain logic remains in the facade beyond the
   1-line wrapper: `grep -c "maybe_drain_pending_auto_resume\|stamp_pending_auto_resume\|clear_pending_auto_resume" src/lib/aiur/orchestrator.ex` = 0.

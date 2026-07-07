@@ -451,13 +451,14 @@ All greps run from the repo root; all must hold:
   `grep -cE "^  defp perform_pane_interrupt\(" src/lib/aiur/orchestrator.ex` = 0;
   `grep -cE "^  defp (promote_to_remote|do_promote_to_remote|demote_from_remote|teardown_for_redispatch|add_issue_label|remove_issue_label|rc_log_context)\(" src/lib/aiur/orchestrator.ex` = 0;
   `grep -cE "^  defp (extract_token_delta|compute_token_delta|apply_token_delta|extract_token_usage|extract_rate_limits|absolute_token_usage_from_payload|turn_completed_usage_from_payload|rate_limits_from_payload|rate_limit_payloads|rate_limits_map\?|explicit_map_at_paths|map_at_path|integer_token_map\?|get_token_usage|payload_get|map_integer_value|integer_like|summarize_codex_update|codex_app_server_pid_for_update|session_id_for_update|turn_count_for_update)\(" src/lib/aiur/orchestrator.ex` = 0.
-- Each of the four wrapped-and-still-public names resolves to exactly one facade
-  wrapper AND one real def in its module:
-  `grep -c "def reactivate_issue" src/lib/aiur/orchestrator/pause_resume.ex` = 1,
-  `grep -c "def pane_interrupt_action" src/lib/aiur/orchestrator/interrupts.ex` = 1 (the `/2` def; the `_no_pane` variant is a separate name).
-- No token/rate-limit parsing remains in the facade:
-  `grep -c "highwater\|absolute_token_usage_from_payload" src/lib/aiur/orchestrator.ex` counts only wrapper/comment references, and
-  `grep -c "def integrate_codex_update" src/lib/aiur/orchestrator/token_accounting.ex` = 1.
+- Each extracted public entry point has its real def in the new module:
+  `grep -cE "def reactivate_issue\(" src/lib/aiur/orchestrator/pause_resume.ex` = 1,
+  `grep -cE "def pane_interrupt_action\(" src/lib/aiur/orchestrator/interrupts.ex` = 1,
+  `grep -cE "def pane_interrupt_action_no_pane\(" src/lib/aiur/orchestrator/interrupts.ex` = 1,
+  `grep -cE "def integrate_codex_update\(" src/lib/aiur/orchestrator/token_accounting.ex` = 1.
+- No token/rate-limit PARSING remains in the facade (only the four
+  `TokenAccounting` wrappers may reference these names, and only by calling
+  them): `grep -cE "^  defp (absolute_token_usage_from_payload|turn_completed_usage_from_payload|compute_token_delta)\(" src/lib/aiur/orchestrator.ex` = 0.
 - The public client API is intact (unchanged in the facade):
   `grep -cE "def (pause_agent|resume_agent|interrupt_agent|pane_interrupt|set_remote_control|note_agent_activity)\(" src/lib/aiur/orchestrator.ex` >= 6.
 - New modules are NOT coverage-exempt:
