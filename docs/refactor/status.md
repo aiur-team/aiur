@@ -44,15 +44,15 @@ These eight issues were reactivated for the first post-Phase-0 run:
 
 - #735 T-001: `agent:todo`
 - #736 T-002: `agent:todo`
-- #738 T-004: `agent:rework`
 - #739 T-005: `agent:rework`
 - #740 T-006: `agent:todo`
 - #748 T-006A: `agent:todo`
 - #741 T-007: `agent:todo`
 - #742 T-008: `agent:todo`
+- #743 T-009: `agent:todo`
 
-#737 T-003 remains out of the active batch because PR #750 is already ready for
-operator review/merge checks.
+#737 T-003 and #738 T-004 remain out of the active batch because PR #750 and PR
+#751 are already ready for operator review/merge checks.
 
 ## Open PRs
 
