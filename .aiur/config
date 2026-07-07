@@ -1,65 +1,94 @@
+# aiur configuration — annotated reference. `aiur init` fills {{PLACEHOLDERS}}; uncommented = essentials, commented = advanced defaults, omitted = built-in default.
+
+# === Issue tracker ===
 tracker:
-  kind: github
-  active_states:
-    - todo
-    - in-progress
-    - rework
-    - merging
-  terminal_states:
-    - done
-    - cancelled
-    - canceled
+  kind: github                 # github | linear | memory
+  base_branch: v2
+  active_states: [todo, in-progress, rework, merging]
+  terminal_states: [done, cancelled, canceled]
   github:
     repo: its-everdred/aiur
-    label_prefix: agent
-polling:
-  interval_seconds: 5
-max_vertical_panes: 3
-pre_warmed_sessions: 3
-# Cap (MB) on total ~/.aiur/logs size; oldest sessions swept every 5 min once exceeded. See Aiur.Logs.Retention.
-max_log_history_mb: 1000
-server:
-  host: 100.81.109.51
-  port: 4000
-workspace:
-  root: ~/code/aiur-workspaces
-hooks_file: hooks
+  # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts} | linear {api_key, project_slug, assignee}
+
+# === Coding agents ===
 agent:
-  kind: codex
-  max_concurrent_agents: 5
-  # CPU load gate (#465): hold new dispatch while 1-min load > value * schedulers
-  # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
-  max_load_average: 1.5
-  max_turns: 12
-  # complexity:N label routes to a backend (model:<backend> label overrides); unlisted/unlabeled fall back to kind; 4–5 use claude for stronger reasoning.
+  kind: claude                   # default backend: codex | claude
+  max_concurrent_agents: 8  # global cap on simultaneously-running agents
+  max_turns: none               # per-issue turn cap (cost guard); `none` = unlimited
+  max_agent_duration_minutes: 60  # safety net: hard-kill a stuck agent after N min (0 = never)
+  # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
+  # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.5:high
   routing:
-    4: claude
-    5: claude
+    1: "codex::high"
+    2: "codex:gpt-5.5:high"
+    3: "codex:gpt-5.5:high"
+    4: "claude:opus"
+    5: "claude:opus"
   claude:
     command: aiur-claude
-    # model omitted → claude CLI's own default; set e.g. `model: claude-sonnet-4-6` to pin (sent as `claude --model <value>`).
+    permission_mode: bypassPermissions # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
+    # model: claude-sonnet-4-6           # omit to use the claude CLI's own default
   codex:
-    command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=high app-server
-    approval_policy: never
-    thread_sandbox: workspace-write
-    turn_sandbox_policy:
-      type: workspaceWrite
-      writableRoots:
-        - /home/applekid/code/aiur-workspaces
-        - /home/orangekid/code/aiur-workspaces
-        - /tmp
-      networkAccess: true
-opencode:
-  command: opencode
-  bridge_host: 127.0.0.1
-  serve_args: []
-  model_prefix: aiur
-prompt_file: prompt.md
-# Warm base pre-warm (dogfood): build one shared base of latest main once, then
-# materialize each agent workspace from it (copy-on-write) instead of cold-cloning.
-# The build command lives in a sibling `.aiur/prewarm` script (path relative to
-# this config), keeping the multi-line shell out of the main config.
+    command: codex app-server
+    approval_policy: never            # never prompt for approval (headless autonomy); see codex variants to gate
+    # thread_sandbox: workspace-write
+    # danger-full-access defaults turns to dangerFullAccess unless turn_sandbox_policy is set
+    # read_timeout_ms: 5000
+    # thrash_max_per_window: 6
+    # thrash_window_seconds: 60
+  # --- advanced agent tuning (defaults shown) ---
+  # max_retry_attempts: 3
+  # max_retry_backoff_ms: 300000
+  # turn_timeout_ms: 3600000             # backstop per turn (any backend)
+  # stall_timeout_ms: 300000             # watchdog for a silent agent
+  # max_load_average: 1.5                # per-scheduler load gate; set null to disable
+  # remote_control: false                # always attach Claude remote control to RC-capable agents
+
+# === Workspace & per-repo agent prompt ===
+workspace:
+  root: ~/.aiur/workspaces/its-everdred/aiur               # where agents clone and work
+  # bootstrap_image: ghcr.io/its-everdred/aiur:latest  # optional: seed missing build caches from this image after checkout refresh
+  # bootstrap_image_pull: true            # pull the image before seeding; false uses the local image if present
+prompt_file: prompt.md             # per-repo agent prompt appended to each turn
+
+# === Workspace bootstrap hooks ===
+# Workspace shell hooks (NOT git hooks) in a separate `.aiur/hooks` file, path relative to this config; inline a `hooks:` block here instead if you prefer.
+hooks_file: hooks
+
+# === Polling / concurrency ===
+polling:
+  interval_seconds: 30          # how often aiur re-checks the tracker for issues to pick up
+max_vertical_panes: 3                    # max agent chat panes shown at once
+pre_warmed_sessions: 1      # opencode sessions pre-booted for fast open
+
+# === Warm base pre-warm (opt-in; `aiur init` sets this up) ===
+# aiur builds ONE warm, pre-compiled checkout of latest main and spins each agent
+# workspace off it (copy-on-write) instead of every agent cloning + building from scratch.
 prewarm:
-  enabled: true
+  enabled: true           # turn on to pre-warm a shared base before agents dispatch
   base_build_file: prewarm
-  poll_seconds: 0
+  poll_seconds: 0                        # background base refresh interval (s); 0 = refresh eagerly/lazily only
+
+# === Alert sound effects (opt-in; play a sound when an agent is stuck or needs input) ===
+alerts:
+  enabled: true                  # master switch for alert sound playback (macOS + Linux)
+  use_os_default_sounds: false  # true = built-in OS system sounds; false = topic→sound map below
+  # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
+  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts.yaml` next to the config
+
+# === Repo-wide PR comment watching (opt-in; OFF by default) ===
+# Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
+# Requires github.bot_account (reply identity) and CODEOWNERS / github.trusted_accounts (who may direct the agent).
+# pr_watch:
+#   enabled: false           # true = act on comments on watched/commanded PRs repo-wide
+#   watch_label: watch        # label a PR `<label_prefix>:watch` (e.g. agent:watch) to monitor all its code-owner/trusted comments
+#   command_prefix: /aiur     # a trusted comment starting with this (or mentioning github.bot_account) handles that one comment, no label needed
+
+# --- advanced (top-level; defaults shown, uncomment to override) ---
+# debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
+# max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
+# opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
+# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16 }
+# server: { host: 127.0.0.1, port: 4000 }
+# worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
+# events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
