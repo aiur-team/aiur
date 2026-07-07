@@ -1,6 +1,6 @@
 # Refactor Status
 
-Last updated: 2026-07-07 13:16 PDT
+Last updated: 2026-07-07 13:18 PDT
 
 ## Current mode
 
@@ -51,11 +51,13 @@ These eight issues were reactivated for the first post-Phase-0 run:
 - #743 T-009: `agent:todo`
 - #744 T-010: `agent:todo`
 - #738 T-004: `agent:rework`
+- #736 T-002: `agent:rework`
 
 #736 T-002 deactivated back to human review during restart because PR #757 is
-already open, green, and mergeable. #737 T-003 is closed after PR #750 landed.
-#738 T-004 returned to `agent:rework` after background review found two workflow
-coverage issues in PR #751.
+open, green, and mergeable, then returned to `agent:rework` after background
+review found an order-dependent `:log_file` restoration risk. #737 T-003 is
+closed after PR #750 landed. #738 T-004 returned to `agent:rework` after
+background review found two workflow coverage issues in PR #751.
 
 ## Open PRs
 
@@ -64,7 +66,7 @@ coverage issues in PR #751.
 | #749 | #735 | Draft, checks green | RepoBase base-branch work; agent reported local implementation complete but git index/auth blocked handoff. |
 | #751 | #738 | Open, checks green | Website CI workflow. Background review found two actionable issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. Issue is back in `agent:rework`. |
 | #755 | #739 | Draft, test failing | Regression suite guard. Agent paused after local TCP denial/GitHub update failures; CI test is red. |
-| #757 | #736 | Open, checks green | Global log file test isolation. Agent confirmed PR is open, green, and mergeable; awaiting review/merge. |
+| #757 | #736 | Open, checks green | Global log file test isolation. Background review found an order-dependent `:log_file` restoration risk; issue is back in `agent:rework`. |
 
 ## Shelved Phase 1 tickets
 
