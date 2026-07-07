@@ -10,8 +10,9 @@
 single-module Codex app-server adapter (`Aiur.Codex.CodingAgent`,
 `@behaviour Aiur.CodingAgent`). Tickets T-037 and T-038 already extracted the
 process/handshake/wire layer (`AppServerPort`, `Rpc`, `Frames`, `Handshake`)
-and the loop/state/delivery layer (`TurnLoop`, `TurnState`, `Interrupts`,
-`OperatorDelivery`). What still lives inline in the facade is the pure policy
+and the loop/interrupt/delivery layer (`TurnLoop`, `Interrupts`,
+`OperatorDelivery`; the turn-state algebra is shared in `Aiur.AppServer.TurnState`
+from T-014, so no `Aiur.Codex.TurnState` is created). What still lives inline in the facade is the pure policy
 and normalization code: server-initiated **approvals** and tool-call
 servicing, `requestUserInput` **auto-answer** policy, codex **notification /
 error classification**, **event normalization** into canonical usage/rate-limit
