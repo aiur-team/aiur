@@ -1,6 +1,6 @@
 # Refactor Status
 
-Last updated: 2026-07-07 13:06 PDT
+Last updated: 2026-07-07 13:16 PDT
 
 ## Current mode
 
@@ -50,21 +50,21 @@ These eight issues were reactivated for the first post-Phase-0 run:
 - #742 T-008: `agent:todo`
 - #743 T-009: `agent:todo`
 - #744 T-010: `agent:todo`
+- #738 T-004: `agent:rework`
 
 #736 T-002 deactivated back to human review during restart because PR #757 is
-already open, green, and mergeable. #737 T-003 and #738 T-004 remain out of the
-active batch because PR #750 and PR #751 are already ready for operator
-review/merge checks.
+already open, green, and mergeable. #737 T-003 is closed after PR #750 landed.
+#738 T-004 returned to `agent:rework` after background review found two workflow
+coverage issues in PR #751.
 
 ## Open PRs
 
 | PR | Issue | State | Notes |
 | --- | --- | --- | --- |
 | #749 | #735 | Draft, checks green | RepoBase base-branch work; agent reported local implementation complete but git index/auth blocked handoff. |
-| #750 | #737 | Open, checks green | SlotPolicy timeout hardening. Review started; merge-base diff is only the two timeout hunks. At-merge seed 0 opencode test passed in the #737 workspace; seed 1 still needs to run before merge. |
-| #751 | #738 | Open, checks green | Website CI workflow. Background review found two actionable P2 issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. |
+| #751 | #738 | Open, checks green | Website CI workflow. Background review found two actionable issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. Issue is back in `agent:rework`. |
 | #755 | #739 | Draft, test failing | Regression suite guard. Agent paused after local TCP denial/GitHub update failures; CI test is red. |
-| #757 | #736 | Draft, checks green | Global log file test isolation. Agent published after Phase 0 fixes started landing; still draft. |
+| #757 | #736 | Open, checks green | Global log file test isolation. Agent confirmed PR is open, green, and mergeable; awaiting review/merge. |
 
 ## Shelved Phase 1 tickets
 
@@ -83,10 +83,6 @@ review/merge checks.
 These are open and labeled for Phase 1, but intentionally have no active
 `agent:*` state label:
 
-- #741 T-007: Characterization: orchestrator lifecycle & dispatch gates
-- #742 T-008: Characterization: GitHub ingestion & wake/rework
-- #743 T-009: Characterization: engine identity, reap & control RPC
-- #744 T-010: Characterization: workspace lifecycle & git metadata
 - #745 T-011: Characterization: opencode slots, attach & FD budget
 - #746 T-012: Characterization: renderer/app render-state & snapshots
 - #747 T-013: Characterization: agent_runner drain/resume & digest
