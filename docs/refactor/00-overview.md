@@ -116,8 +116,72 @@ features). **Approved-at SHA: _recorded here at approval_.** After approval,
 ticket generation begins; the final PR is reviewed as: docs = delta since the
 approval SHA; `tickets/` = new content, reviewed in full.
 
-## Ticket index (pass 2 — filled during generation)
+## Ticket index
 
-_Placeholder: T-id · title · phase/sub-wave · depends-on · files — generated
-in dependency order, updated per committed batch so the index diff is the
-resume marker._
+59 tickets in `tickets/`, numbered in execution order (oldest-first). Within
+a chain (→) tickets are serialized sub-waves under delayed-open; unchained
+same-phase tickets run in parallel (disjoint files).
+
+| ID | Title | Phase | Depends-on |
+|----|-------|:-----:|------------|
+| T-001 | RepoBase base-branch support + CI push += v2 | 1 | — |
+| T-002 | Global :log_file test isolation + purge src/log | 1 | — |
+| T-003 | Fix SlotPolicyTest flake (#506) deterministic sync | 1 | — |
+| T-004 | Website CI job (own workflow file) | 1 | — |
+| T-005 | Tripwire CI guard (own workflow file, override label) | 1 | — |
+| T-006 | Compile-time path-embedding guard test | 1 | — |
+| T-007 | Characterization: orchestrator lifecycle & dispatch gates | 1 | — |
+| T-008 | Characterization: GitHub ingestion & wake/rework | 1 | — |
+| T-009 | Characterization: engine identity, reap & control RPC | 1 | — |
+| T-010 | Characterization: workspace lifecycle & git metadata | 1 | — |
+| T-011 | Characterization: opencode slots, attach & FD budget | 1 | — |
+| T-012 | Characterization: renderer/app render-state & snapshots | 1 | — |
+| T-013 | Characterization: agent_runner drain/resume & digest | 1 | — |
+| T-014 | Extract Aiur.AppServer shared adapter core | 2 | — |
+| T-015 | Formalize Aiur.CodingAgent.Backend behaviour | 2 | T-014 |
+| T-016 | Migrate agent_runner residual backend branches | 2 | T-015 |
+| T-017 | Shared poller skeleton (tick/backoff/sanitize-publish) | 2 | — |
+| T-018 | Single shell_escape helper | 2 | — |
+| T-019 | Single identifier/path sanitization module | 2 | — |
+| T-020 | Shared atomic-write + JSONL-decode helpers | 2 | — |
+| T-021 | Unify $VAR resolution + codex validator dedup | 2 | — |
+| T-022 | orchestrator ▸ State, EventTopics, DispatchPolicy, Slots | 3 | — |
+| T-023 | orchestrator ▸ Dispatcher, RetryEngine, Reconciler | 3 | T-022 |
+| T-024 | orchestrator ▸ CommentWake, PrAnchored, PushRouting, CommentPolling, CommandScan | 3 | T-023 |
+| T-025 | orchestrator ▸ IssueSync, AutoSubscriptions, TrackerHealth, OperatorMessages, DigestCoalescer | 3 | T-024 |
+| T-026 | orchestrator ▸ PauseResume, Interrupts, RemoteControlMode, TokenAccounting | 3 | T-025 |
+| T-027 | orchestrator ▸ StatusReport, WorkspaceCleanup, HumanReview, AgentTeardown, RuntimeWatchdog; slim | 3 | T-026 |
+| T-028 | github client ▸ Transport, Errors, AuthPreflight, StatePolicy, BotIdentity | 3 | — |
+| T-029 | github client ▸ Issues, Comments, PullRequests, RepoEvents, Dependencies, Teams | 3 | T-028 |
+| T-030 | github client ▸ ReviewThreads(+Reply/Resolution), HumanReviewGate, IssueState; slim | 3 | T-029 |
+| T-031 | init ▸ Runtime, Format, Questions, Resume, Templates | 3 | — |
+| T-032 | init ▸ Scaffold, Migration, Prewarm, Alerts | 3 | T-031 |
+| T-033 | init ▸ Codeowners, Labels, GitHub, AgentCli, Dotenv; slim | 3 | T-032 |
+| T-034 | agent_runner ▸ SessionLifecycle, SessionResume, TurnLoop, TurnPrompt | 3 | — |
+| T-035 | agent_runner ▸ QueueDrain, CheckpointDelivery, EventsDigest, BootstrapDigest, CommentContext | 3 | T-034 |
+| T-036 | agent_runner ▸ MessageHandler, TurnStreams, ToolExecutor, TurnAlerts; slim | 3 | T-035 |
+| T-037 | codex ▸ AppServerPort, Rpc, Frames, Handshake | 3 | — |
+| T-038 | codex ▸ TurnLoop, TurnState, Interrupts, OperatorDelivery | 3 | T-037 |
+| T-039 | codex ▸ Approvals, UserInputAnswers, NotificationPolicy, EventNormalizer, TurnEvents; slim | 3 | T-038 |
+| T-040 | renderer ▸ Style, Text, Links, EventPhrases, EventLine, EventsBlock | 4 | — |
+| T-041 | renderer ▸ Model, Markers, Layout, Cells, Table, Chrome, Help; slim | 4 | T-040 |
+| T-042 | app ▸ State, Summaries, Selection, Roster, EventIntake, RenderState | 4 | — |
+| T-043 | app ▸ PerfIntake, WarmthIntake, RcPaneBorders, Activation, Controls; slim | 4 | T-042 |
+| T-044 | pane_manager ▸ State, OpenQueue, Anchor, ScreenGrab, Layout | 4 | — |
+| T-045 | pane_manager ▸ GenericOpen, Close, Reconcile, SlotAttach, ConvoPaint, Placeholder, OpencodeOpen; slim | 4 | T-044 |
+| T-046 | opencode slot ▸ State, Events, AttachPane, ServeLifecycle, Sessions; slim | 4 | — |
+| T-047 | chat_completions ▸ wire shapes into Aiur.Opencode.Protocol | 4 | — |
+| T-048 | workspace ▸ Layout, Context, Remote, Checkout, GitMetadata | 4 | — |
+| T-049 | workspace ▸ Materialize, Provisioner, Hooks, BootstrapImage, Refresh, Remove; slim | 4 | T-048 |
+| T-050 | repl_agent ▸ Launcher, Command, RcAttach, Reaper, PromptSubmit, tailers; slim | 4 | — |
+| T-051 | dynamic_tool ▸ split registration & dispatch | 4 | — |
+| T-052 | config/schema ▸ per-section schema modules | 4 | — |
+| T-053 | tmux ▸ split command layer | 4 | — |
+| T-054 | Adopt CONTRIBUTING.md engineering norms | 5 | — |
+| T-055 | Install VitePress docs package → website/dist/docs | 5 | — |
+| T-056 | Docs: quick-start + configuration reference | 5 | T-055 |
+| T-057 | Docs: concept pages (what aiur is / how to use) | 5 | T-055 |
+| T-058 | Docs: skills page (driver vs workspace-agent) | 5 | T-055 |
+| T-059 | Website: surface newly-catalogued features | 5 | — |
+
+**T-id → issue-number map (filled at conversion):** _pending_.
