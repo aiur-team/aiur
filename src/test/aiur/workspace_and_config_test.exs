@@ -1729,7 +1729,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "type" => "workspaceWrite",
              "writableRoots" => [canonical_default_workspace_root],
              "readOnlyAccess" => %{"type" => "fullAccess"},
-             "networkAccess" => false,
+             "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
@@ -2381,7 +2381,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "type" => "workspaceWrite",
              "writableRoots" => [Path.expand(Path.join(System.tmp_dir!(), "aiur_workspaces"))],
              "readOnlyAccess" => %{"type" => "fullAccess"},
-             "networkAccess" => false,
+             "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
@@ -2396,7 +2396,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "type" => "workspaceWrite",
              "writableRoots" => [Path.expand("/tmp/workspace")],
              "readOnlyAccess" => %{"type" => "fullAccess"},
-             "networkAccess" => false,
+             "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
@@ -2432,7 +2432,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "type" => "workspaceWrite",
              "writableRoots" => [Path.expand("~/.aiur-workspaces")],
              "readOnlyAccess" => %{"type" => "fullAccess"},
-             "networkAccess" => false,
+             "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
@@ -2444,7 +2444,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              "type" => "workspaceWrite",
              "writableRoots" => ["~/.aiur-workspaces", "~/.aiur-workspaces/.git"],
              "readOnlyAccess" => %{"type" => "fullAccess"},
-             "networkAccess" => false,
+             "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
