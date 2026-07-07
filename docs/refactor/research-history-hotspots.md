@@ -30,7 +30,7 @@ Sources classified into JSON batches and synthesized here:
 | 12 | **Process reaping & shutdown** — `src/lib/aiur/shutdown.ex`, `process_reaper.ex`, `claude/remote_control.ex` | ~7 | Orphaned process trees survive stop/crash (#380→#453→#468→#553); reap scoping repeatedly wrong (too narrow, then too broad) |
 | 13 | **tmux pane management** — `src/lib/aiur/pane_manager.ex`, `tmux.ex` | ~6 | Slot-cycling fixed 3× before root cause (rogue `after-split-window` hook, #34→#51→#61→#77); stale layout state; portability (BSD `sleep`) |
 | 14 | **Skills / operator monitoring tooling** — `.claude/skills/` | ~6 | Every layout change broke a skill script (#397, #434, #489/#518, #514); monitor-cadence prompt rules needed 3 passes (#596→#598→#600) |
-| 15 | **Alerts** — `src/lib/aiur/alerts.ex`, `.aiur/alerts.yaml` | ~5 | Runtime-vs-compile-time path assumptions (#43 `Mix.env`, #702 stale bundled path → 15 CI failures); test runs ringing the operator's machine (#583) |
+| 15 | **Alerts** — `src/lib/aiur/alerts.ex`, `.aiur/alerts` | ~5 | Runtime-vs-compile-time path assumptions (#43 `Mix.env`, #702 stale bundled path → 15 CI failures); test runs ringing the operator's machine (#583) |
 
 ## Notable fix-of-a-fix chains
 

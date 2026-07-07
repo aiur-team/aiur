@@ -3353,7 +3353,7 @@ defmodule Aiur.Orchestrator do
 
     if previous_state != current_state and current_state != nil do
       # Ticket B: label-flip alerts route through the new topic shape so
-      # `alerts.yaml` can glob-match per state without one entry per state.
+      # the alerts file can glob-match per state without one entry per state.
       Alerts.emit_system(
         "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
         issue: issue,

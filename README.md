@@ -36,8 +36,8 @@ the work at a higher level._
   configured host/port for private operational access.
 - **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing
   behavior consistent across runs without making those workflows part of Aiur's core model.
-- **Optional alert sounds:** users can edit the checked-in `.aiur/alerts.yaml` file, where each alert
-  defines its `name`, `message`, and optional `sound` clips in one place.
+- **Optional alert sounds:** users can edit the checked-in `.aiur/alerts` file, where each alert
+  maps an event-topic pattern to a `message` and optional `sound` clips.
 
 See [src/README.md](src/README.md#configuration) for the supported `.aiurconfig` options and
 adapter examples.

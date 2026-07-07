@@ -374,7 +374,7 @@ defmodule Aiur.AlertsTest do
     end
   end
 
-  describe "alerts.yaml loading" do
+  describe "alerts file loading" do
     @tag :tmp_dir
     test "yields {} when the yaml file is unreadable or malformed", %{tmp_dir: tmp_dir} do
       # Point Alerts at a non-existent path; load_yaml falls back to %{}.
@@ -892,7 +892,7 @@ defmodule Aiur.AlertsTest do
     } do
       # Exercises two new seams at once: (1) alerts_path precedence — with no
       # :alerts_file_path app-env override set, the config `alerts_file` is used
-      # instead of the bundled alerts.yaml; (2) resolve_sound_path joins a bare
+      # instead of the bundled alerts file; (2) resolve_sound_path joins a bare
       # filename from the mapping onto `sound_dir`.
       sound_dir = Path.join(root, "clips")
       File.mkdir_p!(sound_dir)
@@ -948,7 +948,7 @@ defmodule Aiur.AlertsTest do
 
     test "a missing config alerts_file falls back to the bundled mapping", %{workspace_root: root} do
       # A typo'd / non-existent custom alerts_file must not silently kill all
-      # alert sounds — alerts_path falls back to the bundled alerts.yaml, so a
+      # alert sounds — alerts_path falls back to the bundled alerts file, so a
       # real bundled topic still resolves its sound.
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: root,

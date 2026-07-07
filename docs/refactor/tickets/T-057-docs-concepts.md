@@ -135,7 +135,7 @@ others.
       be bound to a configured host/port for private access, and opens each
       run's `logs/agent.md` in a live-updating modal while the run is active.
       Source: `README.md:30-36`.
-   3. **Alerts** — alerts are defined in the checked-in `.aiur/alerts.yaml`
+   3. **Alerts** — alerts are defined in the checked-in `.aiur/alerts`
       file, each with a `name`, `message`, and optional `sound`; agents raise
       milestone alerts via `emit_alert`. Source: `README.md:38-40`,
       `.claude/skills/using-aiur/SKILL.md:3` (milestone alerts / `emit_alert`).

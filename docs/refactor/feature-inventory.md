@@ -75,7 +75,7 @@ issue for the fix):
   section notes).
 - The custom-event quota config knob is accepted but unenforced.
 - `issue.state.changed` has an alert definition but no emitter.
-- The repo's own `.aiur/alerts.yaml` still uses pre-`phase.` alert keys.
+- The repo's own `.aiur/alerts` now uses current `phase.` alert keys.
 - `events.codeowners_refresh_seconds` exists in the schema but is not wired to
   the CodeOwners GenServer (FI-GH-036).
 - `Aiur.Claude.EventHumanizer` appears latent/dead — no caller besides the

@@ -75,7 +75,7 @@ ground truth; confirm it against the code and correct it in your inventory.
     `publisher.ex`, `subscription_store.ex`); agent APIs `emit_event`,
     `aiur_subscribe`, `aiur_declare_blocker`
   - Repo pre-warm: `src/lib/aiur/prewarm/`, `.aiur/prewarm`
-  - Sound-effect / alert lifecycle: `.aiur/alerts.yaml`, `src/lib/aiur/alerts.ex`,
+  - Sound-effect / alert lifecycle: `.aiur/alerts`, `src/lib/aiur/alerts.ex`,
     `alert_feed.ex`, `emit_alert`
   - PR monitoring + code-owner-comment-triggered spin-up:
     `src/lib/aiur/events/pr_command_scanner.ex`, `github_comments_poller.ex`,
