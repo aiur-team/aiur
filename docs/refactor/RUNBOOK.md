@@ -65,7 +65,9 @@ companion docs. This runbook is how to *operate*; those are what to *build*.
    width (~10) and watch the #465 load gate (`vmstat` idle %, not loadavg).
 6. **Canary:** run 1–2 low-risk refactor tickets end-to-end
    (workspace → PR → `v2` merge → CI green) to prove the pipeline before
-   opening a full-width phase.
+   opening a full-width phase. The canary also verifies the
+   comment→`agent:rework` path: post a review comment as a code-owner and
+   confirm the agent reworks and repushes.
 
 ## 4. Detect current state (where am I?)
 
@@ -87,20 +89,29 @@ checklist green → verify the phase's features (§7) and open the next phase;
 all phases done and full sweep green → hand off `v2` to the human for the
 merge to main.
 
-## 5. The loop — one iteration
+## 5. The loop — one phase pass
 
-1. **Re-orient** (§4).
-2. **Attend to anything needing attention first:** red `v2`
-   (halt-and-repair, §9), `human-review` PRs (review → merge or `rework`),
-   stalled agents (no workpad update ~15 min on a codex backend → add
-   `model:claude` to reroute).
-3. **Advance one step:** open the next issue batch (dependency order,
-   delayed-open), or merge ready PRs one at a time, or run phase-exit, or
-   open the next phase.
-4. **Verify** (scoped — see §7).
-5. **Record:** append a dated entry to the progress log (§12).
-6. **Report:** concise status — what advanced, what is next, anything the
-   human must see — and re-emit the restart goal (§11) if continuing.
+You own PR review and merge; the human does not gate the per-phase loop.
+
+1. **Build & run:** `aiur build`, then launch aiur in background + debug (see
+   §10). Agents pick up this phase's `refactor` `agent:todo` issues.
+2. **Review PRs as they open:** for each PR against `v2`, run `ce-code-review`.
+   Leave review comments **as a code-owner account** so the IRE comment
+   listener flips the ticket to `agent:rework` and the agent pushes fixes
+   (proven working — review→rework→merge). Iterate until the PR meets the bar:
+   green `make ci`, characterization tests unmodified, scope respected, no
+   feature removed, touched Inventory-IDs still behave.
+3. **Merge when ready:** merge each approved PR into `v2` one at a time
+   (update-branch + fresh CI before each).
+4. **Close the phase (or most of it):** once the phase's PRs are merged,
+   `aiur build` again from the updated `v2`, then restart aiur for the next
+   phase. The fresh run both begins phase N+1 and live-verifies that phase
+   N's merges caused no regressions (scoped per-phase verification, §7).
+5. **Record & report:** append a dated entry to the progress log (§12);
+   report status; re-emit the restart goal (§11).
+
+Throughout, attend to red `v2` (halt-and-repair, §9) and stalled agents (no
+workpad update ~15 min on a codex backend → add `model:claude` to reroute).
 
 ## 6. Ticket and issue conventions
 
@@ -167,10 +178,19 @@ merges still work. Full detail: `phasing-and-parallelization.md`.
 
 ## 10. Running aiur
 
-Use the `aiur-run` skill to launch and babysit the fleet; `aiur-monitor` /
-`aiurdev watch` for status; `aiur set max-agents N`, `aiur pause`,
-`aiur resume`, `aiur stop` to control it. Config is `.aiur/config`. Keep runs
-observable and stop idle real-agent runs promptly to control cost.
+**Review the `aiur-loop` and `aiur-run` skills before your first run.**
+**Run `aiur build` before every background+debug launch, and again after
+merging a phase's PRs** — aiur runs on the very code being refactored, so the
+release must be rebuilt to include the latest `v2` changes (and to verify
+them). Then launch in background + debug via the `aiur-run` skill;
+`aiur-monitor` / `aiurdev watch` for status; `aiur set max-agents N`,
+`aiur pause`, `aiur resume`, `aiur stop` to control it. Config is
+`.aiur/config`. Keep runs observable and stop idle real-agent runs promptly
+to control cost.
+
+Review comments must come from a **code-owner account** (`.github/CODEOWNERS`
+is the authority signal; an agent's comments on its own PR are never
+authoritative) or the comment listener will not trigger `agent:rework`.
 
 ## 11. The restart goal
 
