@@ -3,6 +3,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   alias Aiur.CodingAgent
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Codex, StringOrMap}
+  alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Linear.Client
   alias Ecto.Changeset
@@ -906,6 +907,128 @@ defmodule Aiur.WorkspaceAndConfigTest do
                Workspace.create_for_issue("MT-FAIL")
     after
       File.rm_rf(workspace_root)
+    end
+  end
+
+  test "github workspace preflight blocks launch with a path-specific operator alert" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-github-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
+    previous_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
+    parent = self()
+
+    try do
+      :ok = Exchange.subscribe("system.github.connectivity_lost")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        workspace_root: workspace_root
+      )
+
+      Application.put_env(:aiur, :workspace_github_preflight_enabled, true)
+
+      Application.put_env(:aiur, :workspace_github_preflight_fun, fn workspace ->
+        send(parent, {:workspace_preflight, workspace})
+        {:error, {:github, :dns, %{reason: :nxdomain}}}
+      end)
+
+      assert {:error, {:workspace_github_connectivity_failed, workspace, {:github, :dns, %{reason: :nxdomain}}}} =
+               Workspace.create_for_issue("MT-GH-PREFLIGHT")
+
+      assert_receive {:workspace_preflight, ^workspace}
+
+      assert_receive {:event, %{topic: "system.github.connectivity_lost"} = event}, 500
+      assert event["message"] =~ "GitHub workspace preflight failed"
+      assert event["message"] =~ "workspace=#{workspace}"
+      assert event["message"] =~ "GET https://api.github.com/rate_limit"
+
+      assert event["message"] =~
+               "GET https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"
+    after
+      restore_app_env(:workspace_github_preflight_enabled, previous_enabled)
+      restore_app_env(:workspace_github_preflight_fun, previous_fun)
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "github workspace preflight receives remote worker host" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-remote-github-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
+    previous_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
+    previous_path = System.get_env("PATH")
+    previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
+    parent = self()
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("SYMP_TEST_SSH_TRACE", previous_trace)
+    end)
+
+    try do
+      trace_file = Path.join(test_root, "ssh.trace")
+      fake_ssh = Path.join(test_root, "ssh")
+      workspace_root = "~/.aiur-remote-workspaces"
+      workspace_path = "/remote/home/.aiur-remote-workspaces/owner/repo/MT-GH-REMOTE"
+
+      File.mkdir_p!(test_root)
+      System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
+      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+      File.write!(fake_ssh, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/aiur-fake-ssh.trace}"
+      printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+
+      case "$*" in
+        *"__AIUR_WORKSPACE__"*)
+          printf '%s\\t%s\\t%s\\n' '__AIUR_WORKSPACE__' '1' '#{workspace_path}'
+          ;;
+      esac
+
+      exit 0
+      """)
+
+      File.chmod!(fake_ssh, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        workspace_root: workspace_root,
+        worker_ssh_hosts: ["worker-01:2200"]
+      )
+
+      Application.put_env(:aiur, :workspace_github_preflight_enabled, true)
+
+      Application.put_env(:aiur, :workspace_github_preflight_fun, fn workspace, worker_host ->
+        send(parent, {:workspace_preflight, workspace, worker_host})
+        :ok
+      end)
+
+      assert {:ok, ^workspace_path} = Workspace.create_for_issue("MT-GH-REMOTE", "worker-01:2200")
+      assert_receive {:workspace_preflight, ^workspace_path, "worker-01:2200"}
+
+      trace = File.read!(trace_file)
+      assert trace =~ "-p 2200 worker-01 bash -lc"
+      assert trace =~ "~/.aiur-remote-workspaces/owner/repo/MT-GH-REMOTE"
+    after
+      restore_app_env(:workspace_github_preflight_enabled, previous_enabled)
+      restore_app_env(:workspace_github_preflight_fun, previous_fun)
+      File.rm_rf(test_root)
     end
   end
 
@@ -2838,4 +2961,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   defp append_unique(values, value) do
     if value in values, do: values, else: values ++ [value]
   end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 end
