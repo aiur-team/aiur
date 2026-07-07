@@ -2,6 +2,8 @@ contaminating_env_vars = [
   "TMUX",
   "TMUX_PANE",
   "ERL_AFLAGS",
+  "AIUR_DASHBOARD_USERNAME",
+  "AIUR_DASHBOARD_PASSWORD",
   "AIUR_NODE",
   "AIUR_ERLANG_COOKIE",
   "AIUR_TMUX_CONF",
