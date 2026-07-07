@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.Client do
 
   @base_url "https://api.github.com"
   @graphql_url "#{@base_url}/graphql"
+  @preserved_prefixed_label_suffixes ~w(paused watch)
 
   @reply_review_thread_mutation """
   mutation AiurReplyReviewThread($threadId: ID!, $body: String!) {
@@ -2161,7 +2162,7 @@ defmodule Aiur.GitHub.Client do
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
-    |> Enum.reject(&terminal_state_label?(&1, prefix))
+    |> Enum.reject(&(terminal_state_label?(&1, prefix) or preserved_prefixed_label?(&1, prefix)))
     |> Enum.reduce_while(:ok, fn label, :ok ->
       case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
         :ok -> {:cont, :ok}
@@ -2249,6 +2250,7 @@ defmodule Aiur.GitHub.Client do
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
+    |> Enum.reject(&preserved_prefixed_label?(&1, prefix))
     |> Enum.reduce_while(:ok, fn label, :ok ->
       case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
         :ok -> {:cont, :ok}
@@ -2341,6 +2343,7 @@ defmodule Aiur.GitHub.Client do
       branch_name: nil,
       url: gh_issue["html_url"],
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
+      paused: paused_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
       created_at: parse_datetime(gh_issue["created_at"]),
@@ -2351,14 +2354,55 @@ defmodule Aiur.GitHub.Client do
   defp extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"
 
   defp extract_state(_gh_issue, label_names, prefix) do
-    prefix_colon = "#{prefix}:"
+    prefix_colon = normalize_label_name("#{prefix}:")
+    Enum.find_value(label_names, &state_label_suffix(&1, prefix_colon))
+  end
 
-    Enum.find_value(label_names, fn name ->
-      if String.starts_with?(name, prefix_colon) do
-        String.replace_prefix(name, prefix_colon, "")
-      end
+  defp state_label_suffix(name, prefix_colon) do
+    normalized = normalize_label_name(name)
+
+    if String.starts_with?(normalized, prefix_colon) do
+      normalized
+      |> String.replace_prefix(prefix_colon, "")
+      |> state_suffix_unless_preserved()
+    end
+  end
+
+  defp state_suffix_unless_preserved(suffix) do
+    unless preserved_prefixed_label_suffix?(suffix), do: suffix
+  end
+
+  defp paused_label?(label_names, prefix) when is_list(label_names) do
+    paused_label = normalize_label_name("#{prefix}:paused")
+
+    Enum.any?(label_names, fn name ->
+      normalize_label_name(name) == paused_label
     end)
   end
+
+  defp preserved_prefixed_label?(label, prefix) when is_binary(label) and is_binary(prefix) do
+    prefix_colon = normalize_label_name("#{prefix}:")
+    normalized = normalize_label_name(label)
+
+    String.starts_with?(normalized, prefix_colon) and
+      normalized
+      |> String.replace_prefix(prefix_colon, "")
+      |> preserved_prefixed_label_suffix?()
+  end
+
+  defp preserved_prefixed_label?(_label, _prefix), do: false
+
+  defp preserved_prefixed_label_suffix?(suffix) when is_binary(suffix) do
+    suffix in @preserved_prefixed_label_suffixes
+  end
+
+  defp normalize_label_name(label) when is_binary(label) do
+    label
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_label_name(_label), do: ""
 
   defp extract_priority(label_names) do
     Enum.find_value(label_names, &parse_priority_label/1)

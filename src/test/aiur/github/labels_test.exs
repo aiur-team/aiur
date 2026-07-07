@@ -17,11 +17,13 @@ defmodule Aiur.GitHub.LabelsTest do
       assert "complexity:5" in labels
     end
 
-    test "includes the opt-in watch marker, kept out of the dispatch states" do
+    test "includes marker labels, kept out of the dispatch states" do
       labels = Labels.label_set("agent", ["codex"])
 
       assert "agent:watch" in labels
+      assert "agent:paused" in labels
       refute "agent:watch" in Labels.state_labels("agent")
+      refute "agent:paused" in Labels.state_labels("agent")
     end
 
     test "only the chosen backends seed model labels" do
@@ -82,6 +84,7 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.describe("model:claude-haiku") =~ "route this issue to claude-haiku"
       assert Labels.describe("complexity:3") == "story-point complexity 3"
       assert Labels.describe("agent:watch") == "aiur watches this PR for comments"
+      assert Labels.describe("agent:paused") == "suppress aiur work while preserving state"
     end
   end
 

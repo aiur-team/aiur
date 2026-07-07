@@ -451,6 +451,30 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "shows label override as the pause reason", %{orchestrator: pid} do
+      paused =
+        "issue-46"
+        |> running_entry("repo#46", :paused)
+        |> update_in([:issue], &%{&1 | paused: true})
+        |> Map.merge(%{
+          paused_reason: :label_override,
+          codex_app_server_pid: nil,
+          last_codex_timestamp: nil,
+          last_codex_event: nil,
+          last_codex_message: nil
+        })
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-46" => paused}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "#46"
+      assert output =~ "(paused: label override)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
     test "falls back to last_codex_message, then to a placeholder, and collapses long activity", %{orchestrator: pid} do
       base = fn id, ident -> id |> running_entry(ident, :working) |> Map.merge(%{codex_app_server_pid: nil, last_codex_timestamp: nil}) end
 
@@ -726,6 +750,32 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~ "(no active agents)"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "full board shows paused label override for idle active-state tickets", %{
+      orchestrator: pid,
+      watch_root: root
+    } do
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | last_polled_issues: %{
+              "issue-46" => %Issue{
+                id: "issue-46",
+                identifier: "repo#46",
+                state: "todo",
+                title: "Paused todo",
+                paused: true,
+                labels: ["agent:todo", "agent:paused", "complexity:2"]
+              }
+            }
+        }
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ ~r/#46\s+paused\s+2\s/
+      assert output =~ "(paused: label override)"
     end
 
     test "changes mode prints a row once, then only when its state shifts", %{orchestrator: pid, watch_root: root} do

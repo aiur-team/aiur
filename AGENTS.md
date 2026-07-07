@@ -92,6 +92,12 @@ Configuring `active_states:` with display names (`"In Progress"`) makes
 Aiur treat the issue as non-active and stop the worker. Always use the
 slug form in workflow YAML.
 
+`agent:paused` is not a tracker active state. It is a suppressing override
+label that can coexist with `agent:todo`, `agent:in-progress`,
+`agent:rework`, or `agent:merging` so the original state is preserved while
+Aiur pauses or skips the ticket. Remove only `agent:paused` to let the
+preserved state take effect again.
+
 ## Workflow bootstrap and `.git-writable`
 
 Workflow `after_create` and `before_run` hooks bootstrap the issue
