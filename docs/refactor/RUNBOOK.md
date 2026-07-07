@@ -88,9 +88,10 @@ Single source of truth is GitHub + `v2`, not memory:
 Decision table: unreviewed backlog and the operator gate is set → stop and
 present for review; PRs in `human-review` → review and merge or route to
 `rework`; phase incomplete → drive it; phase complete and phase-exit
-checklist green → verify the phase's features (§7) and open the next phase;
-all phases done and full sweep green → hand off `v2` to the human for the
-merge to main.
+checklist green → verify the phase's features (§7), review the just-merged
+phase against the next phase's ticket docs, refresh any stale ticket details,
+then open the next phase; all phases done and full sweep green → hand off
+`v2` to the human for the merge to main.
 
 ## 5. The loop — one phase pass
 
@@ -110,7 +111,15 @@ You own PR review and merge; the human does not gate the per-phase loop.
    `aiur build` again from the updated `v2`, then restart aiur for the next
    phase. The fresh run both begins phase N+1 and live-verifies that phase
    N's merges caused no regressions (scoped per-phase verification, §7).
-5. **Record & report:** append a dated entry to the progress log (§12);
+5. **Refresh next-phase tickets:** before opening or dispatching the next
+   phase, the operator agent reviews the full diff made by the phase that just
+   landed and re-reads the next phase's `docs/refactor/tickets/T-*.md` files.
+   Update those ticket docs when the code they cite has moved or changed
+   shape — for example, stale line ranges, renamed functions, new helper
+   boundaries, revised acceptance checks, or dependencies affected by the
+   previous phase. The goal is that a fresh executor sees ticket details that
+   match the current `v2`, not the pre-phase code.
+6. **Record & report:** append a dated entry to the progress log (§12);
    report status; re-emit the restart goal (§11).
 
 Throughout, attend to red `v2` (halt-and-repair, §9) and stalled agents (no
