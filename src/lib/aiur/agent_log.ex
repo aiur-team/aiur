@@ -16,6 +16,7 @@ defmodule Aiur.AgentLog do
   @alert_events ~w(alert alert_emitted)
 
   @log_relative_path "logs/agent.md"
+  @structured_log_relative_path "logs/agent.ndjson"
   @body_summary_limit 1_600
   @message_window 80
 
@@ -25,6 +26,31 @@ defmodule Aiur.AgentLog do
   end
 
   def workspace_log_path(_workspace_path), do: nil
+
+  @spec workspace_structured_log_path(String.t() | nil) :: String.t() | nil
+  def workspace_structured_log_path(workspace_path) when is_binary(workspace_path) do
+    Path.join(workspace_path, @structured_log_relative_path)
+  end
+
+  def workspace_structured_log_path(_workspace_path), do: nil
+
+  @spec read_workspace(String.t() | nil) :: %{path: String.t() | nil, messages: [log_message()]}
+  def read_workspace(workspace_path) when is_binary(workspace_path) do
+    structured_path = workspace_structured_log_path(workspace_path)
+
+    case read_structured_messages(structured_path) do
+      {:ok, messages} ->
+        %{path: structured_path, messages: messages}
+
+      :missing ->
+        markdown_path = workspace_log_path(workspace_path)
+        %{path: markdown_path, messages: markdown_path |> read() |> parse()}
+    end
+  end
+
+  def read_workspace(_workspace_path) do
+    %{path: nil, messages: parse(read(nil))}
+  end
 
   @spec read(String.t() | nil) :: String.t()
   def read(path) when is_binary(path) do
@@ -41,10 +67,82 @@ defmodule Aiur.AgentLog do
   @spec parse(String.t()) :: [log_message()]
   def parse(content) when is_binary(content) do
     messages =
-      ~r/^## ([^\n]+)\s+([^\n]+)\n\n```text\n(.*?)\n```/ms
-      |> Regex.scan(content)
-      |> Enum.map(fn [_match, timestamp, event, body] -> parse_log_entry(timestamp, event, body) end)
-      |> Enum.reject(&is_nil/1)
+      case parse_structured_entries_if_present(content) do
+        [] -> parse_markdown_entries(content)
+        structured -> structured
+      end
+
+    display_messages(messages)
+  end
+
+  defp parse_structured_entries_if_present(content) do
+    if markdown_content?(content) do
+      []
+    else
+      parse_structured_entries(content)
+    end
+  end
+
+  defp markdown_content?(content) do
+    content
+    |> String.trim_leading()
+    |> String.starts_with?("## ")
+  end
+
+  defp read_structured_messages(path) when is_binary(path) do
+    case File.read(path) do
+      {:ok, content} -> {:ok, content |> parse_structured_entries() |> display_messages()}
+      {:error, :enoent} -> :missing
+      {:error, reason} -> {:ok, [log_message("system", "Log", "n/a", "Unable to read agent log: #{inspect(reason)}")]}
+    end
+  end
+
+  defp read_structured_messages(_path), do: :missing
+
+  defp parse_structured_entries(content) do
+    content
+    |> String.split("\n", trim: true)
+    |> Enum.map(&parse_structured_line/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp parse_structured_line(line) do
+    case Jason.decode(line) do
+      {:ok, %{} = record} ->
+        timestamp = record |> Map.get("timestamp") |> format_log_timestamp()
+        event = Map.get(record, "event") || "event"
+        {payload, raw_body} = display_payload(record, line)
+
+        parse_json_log_entry(timestamp, event, payload, raw_body)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp display_payload(%{"event" => event} = record, raw_body) when event in @alert_events do
+    {record, raw_body}
+  end
+
+  defp display_payload(%{"raw" => raw} = record, _raw_body) when is_binary(raw) do
+    case Jason.decode(raw) do
+      {:ok, %{} = payload} -> {payload, raw}
+      _ -> {record, Jason.encode!(record)}
+    end
+  end
+
+  defp display_payload(record, raw_body), do: {record, raw_body}
+
+  defp parse_markdown_entries(content) do
+    ~r/^## ([^\n]+)\s+([^\n]+)\n\n```text\n(.*?)\n```/ms
+    |> Regex.scan(content)
+    |> Enum.map(fn [_match, timestamp, event, body] -> parse_log_entry(timestamp, event, body) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp display_messages(messages) do
+    messages =
+      messages
       |> compact_log_messages()
       |> suppress_redundant_issue_prompts()
       |> Enum.take(-@message_window)
@@ -234,6 +332,9 @@ defmodule Aiur.AgentLog do
   end
 
   defp content_text(content), do: inspect(content, pretty: true)
+
+  defp format_log_timestamp(timestamp) when is_binary(timestamp), do: timestamp
+  defp format_log_timestamp(_timestamp), do: "n/a"
 
   defp summarize_prompt(text) do
     issue_summary =

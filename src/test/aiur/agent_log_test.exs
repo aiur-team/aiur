@@ -17,6 +17,73 @@ defmodule Aiur.AgentLogTest do
     end
   end
 
+  describe "workspace_structured_log_path/1" do
+    test "joins workspace path with logs/agent.ndjson" do
+      assert AgentLog.workspace_structured_log_path("/tmp/ws") == "/tmp/ws/logs/agent.ndjson"
+    end
+
+    test "returns nil for invalid input" do
+      assert AgentLog.workspace_structured_log_path(nil) == nil
+      assert AgentLog.workspace_structured_log_path(123) == nil
+    end
+  end
+
+  describe "read_workspace/1" do
+    test "prefers structured ndjson events over markdown projection" do
+      workspace = tmp_workspace()
+      File.mkdir_p!(Path.join(workspace, "logs"))
+
+      File.write!(
+        Path.join(workspace, "logs/agent.md"),
+        entry("notification", %{
+          "method" => "item/agentMessage/delta",
+          "params" => %{"delta" => "from markdown"}
+        })
+      )
+
+      File.write!(
+        Path.join(workspace, "logs/agent.ndjson"),
+        ndjson(%{
+          "event" => "notification",
+          "timestamp" => "2026-05-10T22:46:39Z",
+          "raw" =>
+            Jason.encode!(%{
+              "method" => "item/agentMessage/delta",
+              "params" => %{"delta" => "from ndjson"}
+            })
+        })
+      )
+
+      assert %{path: path, messages: [%{role: "assistant", body: "from ndjson"}]} =
+               AgentLog.read_workspace(workspace)
+
+      assert path == Path.join(workspace, "logs/agent.ndjson")
+    end
+
+    test "falls back to markdown when structured log is missing" do
+      workspace = tmp_workspace()
+      File.mkdir_p!(Path.join(workspace, "logs"))
+
+      File.write!(
+        Path.join(workspace, "logs/agent.md"),
+        entry("notification", %{
+          "method" => "item/agentMessage/delta",
+          "params" => %{"delta" => "from markdown"}
+        })
+      )
+
+      assert %{path: path, messages: [%{role: "assistant", body: "from markdown"}]} =
+               AgentLog.read_workspace(workspace)
+
+      assert path == Path.join(workspace, "logs/agent.md")
+    end
+
+    test "returns existing placeholder when no workspace path is available" do
+      assert %{path: nil, messages: [%{role: "system", body: body}]} = AgentLog.read_workspace(nil)
+      assert body =~ "No displayable chat events yet"
+    end
+  end
+
   describe "read/1" do
     test "returns placeholder when path is nil" do
       assert AgentLog.read(nil) == "No local workspace path is available for this session."
@@ -68,6 +135,71 @@ defmodule Aiur.AgentLogTest do
 
     test "returns placeholder when content has only non-matching text" do
       assert [%{role: "system", title: "Log"}] = AgentLog.parse("just some prose without entries")
+    end
+
+    test "parses structured ndjson notification raw payloads" do
+      content =
+        ndjson(%{
+          "event" => "notification",
+          "timestamp" => "2026-05-10T22:46:39Z",
+          "raw" =>
+            Jason.encode!(%{
+              "method" => "item/started",
+              "params" => %{
+                "item" => %{"type" => "userMessage", "content" => [%{"text" => "Hello from ndjson"}]}
+              }
+            })
+        })
+
+      assert [%{role: "user", title: "Executor", body: "Hello from ndjson"}] = AgentLog.parse(content)
+    end
+
+    test "parses structured ndjson alerts from top-level fields" do
+      content =
+        ndjson(%{
+          "event" => "alert",
+          "timestamp" => "2026-05-10T22:46:39Z",
+          "name" => "ticket.63.agent.phase.work.start",
+          "message" => "working"
+        })
+
+      assert [
+               %{
+                 role: "alert",
+                 title: "ticket.63.agent.phase.work.start",
+                 body: "working",
+                 alert_name: "ticket.63.agent.phase.work.start"
+               }
+             ] = AgentLog.parse(content)
+    end
+
+    test "skips malformed structured ndjson lines and keeps valid messages" do
+      content =
+        [
+          ndjson(%{
+            "event" => "notification",
+            "raw" =>
+              Jason.encode!(%{
+                "method" => "item/agentMessage/delta",
+                "params" => %{"delta" => "first"}
+              })
+          }),
+          "not json\n",
+          ndjson(%{
+            "event" => "notification",
+            "raw" =>
+              Jason.encode!(%{
+                "method" => "item/agentMessage/delta",
+                "params" => %{"delta" => "second"}
+              })
+          })
+        ]
+        |> IO.iodata_to_binary()
+
+      assert [
+               %{role: "assistant", body: "first"},
+               %{role: "assistant", body: "second"}
+             ] = AgentLog.parse(content)
     end
 
     test "parses an item/started userMessage as user role" do
@@ -608,5 +740,14 @@ defmodule Aiur.AgentLogTest do
 
 
     """
+  end
+
+  defp ndjson(payload), do: Jason.encode!(payload) <> "\n"
+
+  defp tmp_workspace do
+    path = Path.join(System.tmp_dir!(), "aiur-agent-log-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(path)
+    on_exit(fn -> File.rm_rf!(path) end)
+    path
   end
 end
