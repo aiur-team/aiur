@@ -1,6 +1,6 @@
 # Refactor Status
 
-Last updated: 2026-07-07 11:23 PDT
+Last updated: 2026-07-07 11:29 PDT
 
 ## Current mode
 
@@ -87,7 +87,22 @@ PRs target `main`.
 | #754 | Agent workspaces still block git index writes. |
 | #756 | Add `agent:paused` override label behavior so future shelving preserves old state automatically. |
 
-Current Phase 0 queue: #617, #752, #753, #754, #756 all have `agent:todo`.
+## Current Phase 0 run
+
+Launched 2026-07-07 11:27 PDT with:
+
+```bash
+GITHUB_TOKEN= scripts/aiurdev --bg --debug
+```
+
+The empty `GITHUB_TOKEN` export is an operator workaround for #617: the token in
+`.env` was rate-limited, while `gh` keyring auth still worked. Runtime
+concurrency was set to five with `scripts/aiurdev set max-agents 5`, matching
+the five Phase 0 blockers.
+
+The active Phase 0 tickets are #617, #752, #753, #754, and #756. #63 had an
+unrelated `agent:rework` label that leaked into the run; that active label was
+removed so #63 stays out of Phase 0.
 
 ## Non-refactor note
 
