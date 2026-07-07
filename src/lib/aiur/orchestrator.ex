@@ -2684,6 +2684,9 @@ defmodule Aiur.Orchestrator do
       human_review_state?(issue.state) ->
         maybe_deactivate_human_review_issue(state, issue)
 
+      error_issue_state?(issue.state) ->
+        preserve_running_issue_on_external_error(state, issue)
+
       true ->
         Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
 
@@ -2703,6 +2706,29 @@ defmodule Aiur.Orchestrator do
   end
 
   defp human_review_state?(_), do: false
+
+  defp error_issue_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == "error"
+  end
+
+  defp error_issue_state?(_), do: false
+
+  defp preserve_running_issue_on_external_error(%State{} = state, %Issue{} = issue) do
+    previous_state =
+      case Map.get(state.running, issue.id) do
+        %{issue: %Issue{state: state_name}} -> normalize_issue_state(state_name)
+        %{issue: %{state: state_name}} -> normalize_issue_state(state_name)
+        _ -> ""
+      end
+
+    if previous_state == "error" do
+      Logger.debug("Issue remains in error state while agent is still active: #{issue_context(issue)}")
+    else
+      Logger.warning("Issue reported error state while agent is still active; preserving runner pending local completion: #{issue_context(issue)} state=#{issue.state}")
+    end
+
+    refresh_running_issue_state(state, issue)
+  end
 
   defp maybe_deactivate_human_review_issue(%State{} = state, %Issue{} = issue) do
     case verify_human_review_ready(issue) do
@@ -4064,6 +4090,8 @@ defmodule Aiur.Orchestrator do
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
   defp move_exhausted_issue_to_error_state(identifier) when is_binary(identifier) do
+    Logger.warning("Moving exhausted issue to error state: issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
+
     case Tracker.update_issue_state(identifier, "error") do
       :ok ->
         :ok
