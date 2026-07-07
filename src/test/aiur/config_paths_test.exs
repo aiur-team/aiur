@@ -4,11 +4,22 @@ defmodule Aiur.Config.PathsTest do
   alias Aiur.Config.Paths
 
   describe "log_root_dir/0" do
+    setup do
+      original = Application.get_env(:aiur, :log_file)
+
+      on_exit(fn ->
+        case original do
+          nil -> Application.delete_env(:aiur, :log_file)
+          value -> Application.put_env(:aiur, :log_file, value)
+        end
+      end)
+
+      :ok
+    end
+
     test "uses Application env when :log_file is set" do
       Application.put_env(:aiur, :log_file, "/tmp/aiur_paths_test/aiur.log")
       assert Paths.log_root_dir() == "/tmp/aiur_paths_test"
-    after
-      Application.delete_env(:aiur, :log_file)
     end
 
     test "falls back to <cwd>/log when env unset" do
