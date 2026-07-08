@@ -1,31 +1,32 @@
 # Refactor Status
 
-Last updated: 2026-07-07 23:01 PDT
+Last updated: 2026-07-08 00:35 PDT
 
 ## Current mode
 
-The production-readiness refactor is back in Phase 0 blocker mode because the
-latest Phase 1 resume showed Codex app-server unavailability/usage-limit
-failures. Phase 0 fixes #764 and #765 have landed on `main`, were pulled into
-`v2`, and `v2` was pushed at `ad0d17f` after a full `make ci` pass from
-`src/`. While the fleet stayed stopped, reviewed Phase 1 PRs #751 and #757
-landed on `v2`; `v2` is now at `3ea2f17` and passed full `make ci` from
-`src/` after the merge.
+Phase 1 is running again as a Sub-run A canary. Phase 0 blocker #768 (the Codex
+`{:error, :unavailable}` crash) is fixed: PR #769 landed on `main` at
+`bba7de26`, `main` was pulled into `v2` (`aa9d4cfe`), and full `make ci` from
+`src/` passed (2392 tests). The root cause was a `MatchError` on the `:ok =`
+orchestrator bookkeeping RPCs under Codex-exhaustion overload — not a `run_turn`
+result — so the fix is an AgentRunner-only best-effort change to
+`consume/restore/fail_delivered_queue_items`, which also unblocks the
+pre-existing usage-limit pause.
 
-The 2026-07-07 21:27 PDT Phase 1 resume launched successfully from `v2`, but
-#735 and #748 repeatedly hit `{:error, :unavailable}` / stalled Codex turns
-while app-server logs reported `credits.hasCredits=false`. The daemon was
-stopped and new Phase 0 blocker #768 was created.
+#749 (T-001: RepoBase honors `tracker.base_branch`, CI push `+= v2`) was then
+reviewed clean, update-branched, and merged to `v2` at `52d6c45a`, closing
+#735. `v2` is now at `52d6c45a`.
 
-Do not dispatch more Phase 1 refactor work until #768 is handled or the Codex
-usage-limit condition is otherwise cleared.
-
-Phase 0 is not normal `v2` refactor work. These are aiur reliability fixes that
-unsnag the fleet itself, so their PRs target `main` first. After they land,
-pull `main` back into `v2`, rebuild aiur, and only then resume normal Phase 1.
+The fleet was rebuilt from `v2` and relaunched with
+`scripts/aiurdev --bg --debug`. Only #739 (rework of the #755 review) and #748
+were unpaused; both are working on Codex with no `:unavailable`/crash churn.
+Codex recovered (the 5-hour limit reset overnight), so tickets keep
+`model:codex`; reroute to `model:claude` only reactively if an agent stalls on
+a Codex limit. #740–#744 stay `agent:paused` for Sub-run B until the canary
+proves out.
 
 The dogfood `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and
-`.aiur/prewarm` are now retargeted to `v2` on the `v2` branch.
+`.aiur/prewarm` are retargeted to `v2` on the `v2` branch.
 
 ## Resume notes
 

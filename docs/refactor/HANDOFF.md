@@ -12,63 +12,34 @@ companion docs. This handoff is how to *operate*; those are what to *build*.
 
 ---
 
-## Current handoff — 2026-07-07 PDT
+## Current handoff — 2026-07-08 PDT
 
-**Mode:** Phase 0 blocker recovery. Normal Phase 1 refactor execution is
-paused until #768 is fixed or the external Codex usage-limit condition is
-explicitly cleared. Aiur is stopped; do not restart the fleet just to probe the
-state while this blocker is active.
+**Mode:** Phase 1 running — Sub-run A canary. #768 is fixed and merged
+(`main` → `v2`), and the fleet is live in background+debug with two agents
+working on Codex. Watch for their PRs, review, and merge; then ramp Sub-run B.
 
-**Immediate next unit:** finish #768, "Codex `{:error, :unavailable}` /
-usage-limit failures should pause agents instead of crashing or retry-looping."
-This is a Phase 0 fleet fix, so the PR targets `main` first. After it lands,
-pull `main` back into `v2`, run a full `make ci` from `src/`, rebuild with
-`scripts/aiurdev build`, then resume Phase 1 with
-`scripts/aiurdev --bg --debug`.
+**Immediate next unit:** monitor the running fleet (`scripts/aiurdev watch`).
+#739 is reworking the #755 review; #748 is producing its T-006A change. As each
+PR opens/updates against `v2`, run `ce-code-review`, comment as a code-owner to
+drive `agent:rework`, and merge one at a time (update-branch + fresh CI). Once
+the canary proves out, unpause Sub-run B (#740–#744) to ramp toward the width-5
+cap.
 
-**#768 local work already started:** branch
-`fix/768-codex-unavailable-pause` from `origin/main` exists in the local
-worktree `/private/tmp/aiur-768-main` if that worktree is still present. The
-patch was not pushed when this handoff was written. It changes
-`AgentRunner`, `Orchestrator`, and `AgentControlCLI` so
-`{:error, :unavailable}` is normalized into a paused agent state, with watch
-output like `paused: Codex unavailable`. Focused tests and
-`mix compile --warnings-as-errors` had passed; before committing, rerun the
-format/diff checks and decide whether to run full `make ci`.
+**Codex vs Claude:** tickets carry `model:codex` and Codex is working again
+(the 5-hour limit reset overnight). Reroute a ticket to `model:claude` **only
+reactively** — if an agent actually stalls on a Codex usage limit. #768 now
+makes that condition a clean pause (not a crash/retry loop), so a reactive
+reroute is safe and unhurried.
 
-Commands already verified for that #768 patch:
+**Landed since the blocker:** #769 fixed #768 on `main` (`bba7de26`); #749
+(T-001) landed on `v2` (`52d6c45a`), closing #735 and adding `v2` to CI push
+branches. `v2` is at `52d6c45a`, full `make ci` green. See the progress log and
+`status.md` for the issue/PR table.
 
-```bash
-cd /private/tmp/aiur-768-main/src
-mise exec -- mix test test/aiur/agent_runner_test.exs --seed 0
-mise exec -- mix test test/aiur/agent_control_cli_test.exs --seed 0
-mise exec -- mix test test/aiur/orchestrator_status_test.exs --seed 0
-mise exec -- mix compile --warnings-as-errors
-```
-
-**Evidence:** the stopped Phase 1 run logged app-server usage exhaustion
-(`credits.hasCredits=false`) and `AgentRunner` `{:error, :unavailable}`
-failures under `~/.aiur/logs/20260707T222706Z-96561`. Local account checks
-showed `codex login status` as logged in through ChatGPT, while
-`codex doctor --json` did not expose a quota meter; the operator reported the
-dashboard showed 5-hour usage limit at 0% remaining.
-
-**Open PRs while paused:**
-
-- #749 / #735: draft PR for RepoBase base-branch work. Leave paused until
-  #768 is handled.
-- #755 / #739: open PR with request-changes review. The agent is paused and
-  should address the review after #768 is handled.
-
-**Model labels:** the default planning rule is that complexity labels select
-the backend, but the operator later applied `model:codex` to Phase 1 tickets
-after Claude agents appeared rate-limited. Do not strip those current labels
-while the run is paused unless the operator explicitly changes that direction.
-
-**Shelved Phase 1 state:** see `docs/refactor/status.md` for the authoritative
-issue table. In short, #736/#738 are done, #735/#739/#740-#744/#748 are
-paused, and #745-#747 remain undispatched. Do not remove `agent:paused` from
-those issues until the blocker is handled and the intended sub-run is ready.
+**Shelved / active Phase 1 state:** see `docs/refactor/status.md` for the
+authoritative table. In short: #735/#736/#738 done; #739 (rework) and #748
+active on Codex; #740–#744 held `agent:paused` (Sub-run B); #745–#747
+undispatched. Do not unpause #740–#744 until the canary proves out.
 
 **Ticket docs:** later ticket docs have not all been written. Create and work
 only the phase tickets whose `docs/refactor/tickets/T-*.md` files exist and
@@ -371,3 +342,18 @@ Everything else is autonomous.
   the current Phase 0 blocker state so a fresh operator can resume from #768
   without replaying the whole session. Keep `docs/refactor/status.md` as the
   detailed issue/PR table and this file as the operating entry point.
+- **2026-07-08** — #768 fixed and merged to `main` (PR #769, squashed at
+  `bba7de26`) — the crash was a `MatchError` on the `:ok =` orchestrator
+  bookkeeping RPCs (`consume/restore/fail_delivered_queue_items`) under
+  Codex-exhaustion overload, not a `run_turn` result; adversarial review cut an
+  unreachable `{:error, :unavailable}`-pause branch, leaving an
+  AgentRunner-only best-effort fix that also unblocks the pre-existing
+  usage-limit pause. `main` pulled into `v2` (`aa9d4cfe`), full `make ci` green
+  (2392 tests). Then #749 (T-001 RepoBase base-branch + CI push `+= v2`) was
+  reviewed clean, update-branched, and merged to `v2` (`52d6c45a`); #735 closed
+  `agent:done`. Rebuilt from `v2` and relaunched `scripts/aiurdev --bg --debug`
+  as a Sub-run A canary: only #739 (rework of the #755 review) and #748
+  unpaused, kept `model:codex` (the 5-hour limit reset overnight). Both agents
+  dispatched and are working on Codex with no `:unavailable`/crash/retry churn.
+  #740–#744 remain `agent:paused` for Sub-run B. Reroute Codex→`model:claude`
+  only reactively, if agents actually stall on Codex limits.
