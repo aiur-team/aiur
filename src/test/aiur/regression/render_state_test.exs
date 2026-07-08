@@ -63,28 +63,33 @@ defmodule Aiur.Regression.RenderStateTest do
 
   # --- source-parse helpers for the key-threading census ---
 
-  defp atoms_in(text) do
-    ~r/:([a-z][a-z0-9_]*\??)/
-    |> Regex.scan(text)
-    |> Enum.map(fn [_, k] -> String.to_atom(k) end)
-    |> MapSet.new()
-  end
+  defp scan_atoms(matches), do: matches |> Enum.map(fn [_, k] -> String.to_atom(k) end) |> MapSet.new()
 
+  defp atoms_in(text), do: ~r/:([a-z][a-z0-9_]*\??)/ |> Regex.scan(text) |> scan_atoms()
+
+  # Guard the markers so an App.render/1 refactor fails cleanly, not via MatchError.
   defp app_threaded_keys do
     src = File.read!(@app_source)
+    assert src =~ "render_state =", "app.ex `render_state =` marker gone; App.render/1 refactored?"
     [_, rest] = String.split(src, "render_state =", parts: 2)
+    assert rest =~ "Renderer.render(render_state)", "`Renderer.render(render_state)` marker gone; call changed?"
     [pipeline, _] = String.split(rest, "Renderer.render(render_state)", parts: 2)
     atoms_in(pipeline)
   end
 
+  # All four state-read shapes (Map.get(state, :k) / state.k / state |> Map.get(:k) / state[:k])
+  # so a #414-class regression introduced via any form is caught, not silently missed.
   defp renderer_consumed_keys do
     src = File.read!(@renderer_source)
-    get_keys = Regex.scan(~r/Map\.get\(state,\s*:([a-z][a-z0-9_]*\??)/, src)
-    dot_keys = Regex.scan(~r/\bstate\.([a-z][a-z0-9_]*\??)/, src)
 
-    (get_keys ++ dot_keys)
-    |> Enum.map(fn [_, k] -> String.to_atom(k) end)
-    |> MapSet.new()
+    [
+      ~r/Map\.get\(state,\s*:([a-z][a-z0-9_]*\??)/,
+      ~r/\bstate\.([a-z][a-z0-9_]*\??)/,
+      ~r/state\s*\|>\s*Map\.get\(\s*:([a-z][a-z0-9_]*\??)/,
+      ~r/state\[\s*:([a-z][a-z0-9_]*\??)/
+    ]
+    |> Enum.flat_map(&Regex.scan(&1, src))
+    |> scan_atoms()
   end
 
   describe "render_state key threading (#414/#473/#730)" do
