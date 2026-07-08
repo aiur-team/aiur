@@ -707,7 +707,6 @@ defmodule Aiur.CoreTest do
 
     before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :normal})
-    Process.sleep(50)
     state = :sys.get_state(pid)
 
     refute Map.has_key?(state.running, issue_id)
@@ -747,7 +746,6 @@ defmodule Aiur.CoreTest do
 
     before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
-    Process.sleep(50)
     state = :sys.get_state(pid)
 
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
@@ -855,7 +853,6 @@ defmodule Aiur.CoreTest do
 
     before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
-    Process.sleep(50)
     state = :sys.get_state(pid)
 
     assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
@@ -920,7 +917,6 @@ defmodule Aiur.CoreTest do
 
     before_retry_ms = System.monotonic_time(:millisecond)
     send(pid, {:retry_issue, issue_id, retry_token})
-    Process.sleep(50)
     state = :sys.get_state(pid)
     observed_at_ms = System.monotonic_time(:millisecond)
 
