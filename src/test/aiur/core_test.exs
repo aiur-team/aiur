@@ -1174,6 +1174,37 @@ defmodule Aiur.CoreTest do
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 
+  # Restore the shared WorkflowStore singleton after a test terminates it, so a
+  # later sibling test never calls into a torn-down store (the #780 flake:
+  # WorkspaceAndConfigTest crashing on `GenServer.call(WorkflowStore, :current)`
+  # after a prior test left it down). Mirrors the tolerant restart pattern from
+  # the extensions_test / tracked_set fixes.
+  defp ensure_workflow_store_running do
+    ensure_aiur_supervisor_running()
+
+    if Process.whereis(Aiur.WorkflowStore) do
+      :ok
+    else
+      case Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore) do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+      end
+    end
+  end
+
+  defp ensure_aiur_supervisor_running do
+    case Process.whereis(Aiur.Supervisor) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case Application.ensure_all_started(:aiur) do
+          {:ok, _apps} -> :ok
+          {:error, {:already_started, _app}} -> :ok
+        end
+    end
+  end
+
   test "fetch issues by states with empty state set is a no-op" do
     assert {:ok, []} = Client.fetch_issues_by_states([])
   end
@@ -1388,9 +1419,7 @@ defmodule Aiur.CoreTest do
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
 
-      if is_pid(workflow_store_pid) and is_nil(Process.whereis(Aiur.WorkflowStore)) do
-        Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
-      end
+      if is_pid(workflow_store_pid), do: ensure_workflow_store_running()
     end)
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.WorkflowStore)
