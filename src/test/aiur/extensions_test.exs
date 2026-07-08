@@ -116,6 +116,10 @@ defmodule Aiur.ExtensionsTest do
 
   test "workflow store reloads changes, keeps last good workflow, and falls back when stopped" do
     ensure_workflow_store_running()
+    # This test terminates the shared WorkflowStore singleton mid-body; restore
+    # it in on_exit so a mid-test failure can't leak a down store to the next
+    # sequential module (the #780 WorkspaceAndConfigTest flake).
+    on_exit(fn -> ensure_workflow_store_running() end)
     assert {:ok, %{prompt: "You are an agent for this repository."}} = Workflow.current()
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Second prompt")
@@ -172,6 +176,9 @@ defmodule Aiur.ExtensionsTest do
 
   test "workflow store start_link and poll callback cover missing-file error paths" do
     ensure_workflow_store_running()
+    # Terminates the shared WorkflowStore mid-body; restore it in on_exit so a
+    # mid-test failure can't leak a down store to a later sequential module.
+    on_exit(fn -> ensure_workflow_store_running() end)
     existing_path = Workflow.workflow_file_path()
     manual_path = Path.join(Path.dirname(existing_path), "manual.aiurconfig")
     missing_path = Path.join(Path.dirname(existing_path), "manual-missing.aiurconfig")
@@ -1055,30 +1062,4 @@ defmodule Aiur.ExtensionsTest do
   end
 
   defp assert_eventually(_fun, 0), do: flunk("condition not met in time")
-
-  defp ensure_workflow_store_running do
-    ensure_aiur_supervisor_running()
-
-    if Process.whereis(WorkflowStore) do
-      :ok
-    else
-      case Supervisor.restart_child(Aiur.Supervisor, WorkflowStore) do
-        {:ok, _pid} -> :ok
-        {:error, {:already_started, _pid}} -> :ok
-      end
-    end
-  end
-
-  defp ensure_aiur_supervisor_running do
-    case Process.whereis(Aiur.Supervisor) do
-      pid when is_pid(pid) ->
-        :ok
-
-      nil ->
-        case Application.ensure_all_started(:aiur) do
-          {:ok, _apps} -> :ok
-          {:error, {:already_started, _app}} -> :ok
-        end
-    end
-  end
 end
