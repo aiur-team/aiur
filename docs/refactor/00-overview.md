@@ -16,7 +16,7 @@ via the aiur-loop, orchestrated by an Opus agent, merging into a long-lived
    Verification is **scoped, not exhaustive**: each PR/phase checks only the
    Inventory-IDs it touches (their characterization tests + at-merge `Check:`
    probes); the full 1,062-feature sweep runs **once**, at final `v2`
-   acceptance. See `RUNBOOK.md` §7.
+   acceptance. See `HANDOFF.md` §7.
 2. `v2` is green after every single ticket (full `make ci` gate).
 3. The giants are decomposed per the name map (~190 focused modules); the
    coverage `ignore_modules` list only shrinks; duplication clusters
@@ -35,7 +35,7 @@ via the aiur-loop, orchestrated by an Opus agent, merging into a long-lived
 | `target-architecture.md` | end state, seams, name-map contract |
 | `regression-safety.md` | testing strategy, tripwire, flake rules, halt rules |
 | `phasing-and-parallelization.md` | phase model, dependency rules, duty split |
-| `RUNBOOK.md` | **operating manual for the agent running the loop** — start here to execute |
+| `HANDOFF.md` | **operating manual for the agent running the loop** — start here to execute |
 | `research-history-hotspots.md`, `research-arch/`, `research-docs-framework.md`, `research-v2-mechanics.md` | evidence artifacts |
 | `tickets/` | the backlog (generated after the checkpoint) |
 

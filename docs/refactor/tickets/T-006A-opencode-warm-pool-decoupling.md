@@ -25,7 +25,7 @@ Read first:
 2. `src/lib/aiur/opencode/slot_supervisor.ex`
 3. `src/lib/aiur/pane_manager.ex`
 4. `.claude/skills/aiur-run/SKILL.md`
-5. `docs/refactor/RUNBOOK.md`
+5. `docs/refactor/HANDOFF.md`
 
 Then:
 

@@ -1,4 +1,4 @@
-# RUNBOOK — Running the Refactor Loop
+# HANDOFF — Running the Refactor Loop
 
 **Start here if you are the agent running the aiur loop for the
 production-readiness refactor.** This is a long, ongoing, mostly-asynchronous
@@ -8,13 +8,78 @@ of prior iterations — **this document, the GitHub issues/PRs labeled
 where things stand, do the next unit of work, report.
 
 The plan behind all of this is in `docs/refactor/00-overview.md` and the five
-companion docs. This runbook is how to *operate*; those are what to *build*.
+companion docs. This handoff is how to *operate*; those are what to *build*.
+
+---
+
+## Current handoff — 2026-07-07 PDT
+
+**Mode:** Phase 0 blocker recovery. Normal Phase 1 refactor execution is
+paused until #768 is fixed or the external Codex usage-limit condition is
+explicitly cleared. Aiur is stopped; do not restart the fleet just to probe the
+state while this blocker is active.
+
+**Immediate next unit:** finish #768, "Codex `{:error, :unavailable}` /
+usage-limit failures should pause agents instead of crashing or retry-looping."
+This is a Phase 0 fleet fix, so the PR targets `main` first. After it lands,
+pull `main` back into `v2`, run a full `make ci` from `src/`, rebuild with
+`scripts/aiurdev build`, then resume Phase 1 with
+`scripts/aiurdev --bg --debug`.
+
+**#768 local work already started:** branch
+`fix/768-codex-unavailable-pause` from `origin/main` exists in the local
+worktree `/private/tmp/aiur-768-main` if that worktree is still present. The
+patch was not pushed when this handoff was written. It changes
+`AgentRunner`, `Orchestrator`, and `AgentControlCLI` so
+`{:error, :unavailable}` is normalized into a paused agent state, with watch
+output like `paused: Codex unavailable`. Focused tests and
+`mix compile --warnings-as-errors` had passed; before committing, rerun the
+format/diff checks and decide whether to run full `make ci`.
+
+Commands already verified for that #768 patch:
+
+```bash
+cd /private/tmp/aiur-768-main/src
+mise exec -- mix test test/aiur/agent_runner_test.exs --seed 0
+mise exec -- mix test test/aiur/agent_control_cli_test.exs --seed 0
+mise exec -- mix test test/aiur/orchestrator_status_test.exs --seed 0
+mise exec -- mix compile --warnings-as-errors
+```
+
+**Evidence:** the stopped Phase 1 run logged app-server usage exhaustion
+(`credits.hasCredits=false`) and `AgentRunner` `{:error, :unavailable}`
+failures under `~/.aiur/logs/20260707T222706Z-96561`. Local account checks
+showed `codex login status` as logged in through ChatGPT, while
+`codex doctor --json` did not expose a quota meter; the operator reported the
+dashboard showed 5-hour usage limit at 0% remaining.
+
+**Open PRs while paused:**
+
+- #749 / #735: draft PR for RepoBase base-branch work. Leave paused until
+  #768 is handled.
+- #755 / #739: open PR with request-changes review. The agent is paused and
+  should address the review after #768 is handled.
+
+**Model labels:** the default planning rule is that complexity labels select
+the backend, but the operator later applied `model:codex` to Phase 1 tickets
+after Claude agents appeared rate-limited. Do not strip those current labels
+while the run is paused unless the operator explicitly changes that direction.
+
+**Shelved Phase 1 state:** see `docs/refactor/status.md` for the authoritative
+issue table. In short, #736/#738 are done, #735/#739/#740-#744/#748 are
+paused, and #745-#747 remain undispatched. Do not remove `agent:paused` from
+those issues until the blocker is handled and the intended sub-run is ready.
+
+**Ticket docs:** later ticket docs have not all been written. Create and work
+only the phase tickets whose `docs/refactor/tickets/T-*.md` files exist and
+are issue-ready. Do not dispatch planned later tickets simply because they are
+mentioned in an index.
 
 ---
 
 ## 1. Orient in five minutes
 
-1. Read this runbook top to bottom.
+1. Read this handoff top to bottom.
 2. Read `00-overview.md` (goals, deviations, conversion protocol); skim
    `phasing-and-parallelization.md` (phases, duties) and
    `regression-safety.md` (the safety net).
@@ -33,14 +98,17 @@ companion docs. This runbook is how to *operate*; those are what to *build*.
 - **All normal refactor work targets `v2`, never `main`.** Main is untouched
   until the finished `v2` is validated by the human. The only current
   exception is **Phase 0**: fleet-unblocking bug fixes (#617, #752, #753,
-  #754, #756) target `main` first because aiur itself is blocked.
+  #754, #756, #764, #765, #768) target `main` first because aiur itself is
+  blocked.
 - **Every refactor issue carries the `refactor` label** plus `phase:N` and
-  `complexity:N` (1–3). Do not pre-apply `model:*` routing overrides;
-  complexity labels drive backend selection. **Only the currently active
-  sub-run receives `agent:todo`, and only `refactor` issues ever receive
-  `agent:todo`** (that is the only thing keeping the loop from grabbing
-  unrelated work — the tracker has no extra-label filter). Today there are
-  zero stray `agent:todo` issues; keep it that way.
+  `complexity:N` (1–3). By default, do not pre-apply `model:*` routing
+  overrides; complexity labels drive backend selection. The current Phase 1
+  labels are an operator-directed exception because Claude agents appeared
+  rate-limited. **Only the currently active sub-run receives `agent:todo`, and
+  only `refactor` issues ever receive `agent:todo`** (that is the only thing
+  keeping the loop from grabbing unrelated work — the tracker has no
+  extra-label filter). Today there are zero stray `agent:todo` issues; keep it
+  that way.
 - **Commits (yours and every executor's): 3–7 word imperative messages.
   Never mention the tools, models, or "generated with" in commit messages or
   PR descriptions.** (Also repo convention — `.claude/skills/using-aiur/dev-loop.md`.)
@@ -97,8 +165,9 @@ then open the next phase; all phases done and full sweep green → hand off
 
 You own PR review and merge; the human does not gate the per-phase loop.
 
-1. **Build & run:** `aiur build`, then launch aiur in background + debug (see
-   §10). Agents pick up this phase's `refactor` `agent:todo` issues.
+1. **Build & run:** `scripts/aiurdev build`, then launch aiur in background +
+   debug (see §10). Agents pick up this phase's `refactor` `agent:todo`
+   issues.
 2. **Review PRs as they open:** for each PR against `v2`, run `ce-code-review`.
    Leave review comments **as a code-owner account** so the IRE comment
    listener flips the ticket to `agent:rework` and the agent pushes fixes
@@ -108,9 +177,9 @@ You own PR review and merge; the human does not gate the per-phase loop.
 3. **Merge when ready:** merge each approved PR into `v2` one at a time
    (update-branch + fresh CI before each).
 4. **Close the phase (or most of it):** once the phase's PRs are merged,
-   `aiur build` again from the updated `v2`, then restart aiur for the next
-   phase. The fresh run both begins phase N+1 and live-verifies that phase
-   N's merges caused no regressions (scoped per-phase verification, §7).
+   `scripts/aiurdev build` again from the updated `v2`, then restart aiur for
+   the next phase. The fresh run both begins phase N+1 and live-verifies that
+   phase N's merges caused no regressions (scoped per-phase verification, §7).
 5. **Refresh next-phase tickets:** before opening or dispatching the next
    phase, the operator agent reviews the full diff made by the phase that just
    landed and re-reads the next phase's `docs/refactor/tickets/T-*.md` files.
@@ -208,15 +277,25 @@ merges still work. Full detail: `phasing-and-parallelization.md`.
 ## 10. Running aiur
 
 **Review the `aiur-loop` and `aiur-run` skills before your first run.**
-**Run `aiur build` before every background+debug launch or restart (including
-after pause/resume), and after merging a phase's PRs** — aiur runs on the very
-code being refactored, so the release must be rebuilt to include the latest
-`v2` changes (and to verify them). Never (re)start the fleet without building
-first. Then launch in background + debug via the `aiur-run` skill;
-`aiur-monitor` / `aiurdev watch` for status; `aiur set max-agents N`,
-`aiur pause`, `aiur resume`, `aiur stop` to control it. Config is
-`.aiur/config`. Keep runs observable and stop idle real-agent runs promptly
-to control cost.
+**Run `scripts/aiurdev build` before every background+debug launch or restart
+(including after pause/resume), and after merging a phase's PRs** — aiur runs
+on the very code being refactored, so the release must be rebuilt to include
+the latest `v2` changes (and to verify them). Never (re)start the fleet
+without building first.
+
+Launch the background loop with:
+
+```bash
+scripts/aiurdev --bg --debug
+```
+
+Do not use `aiurdev run --bg --debug` for the background loop. That command
+routes through the foreground run case in the shared engine and is tracked as
+a bug ticket. Use `aiur-monitor` / `scripts/aiurdev watch` for status;
+`scripts/aiurdev set max-agents N`, `scripts/aiurdev pause`,
+`scripts/aiurdev resume`, and `scripts/aiurdev stop` to control it. Config is
+`.aiur/config`. Keep runs observable and stop idle real-agent runs promptly to
+control cost.
 
 Review comments must come from a **code-owner account** (`.github/CODEOWNERS`
 is the authority signal; an agent's comments on its own PR are never
@@ -225,7 +304,7 @@ authoritative) or the comment listener will not trigger `agent:rework`.
 ## 11. The restart goal
 
 Each iteration is seeded by a short restart goal the human passes back. When
-you receive it: read this runbook, detect state (§4), do the next unit (§5),
+you receive it: read this handoff, detect state (§4), do the next unit (§5),
 then report and re-emit the goal so the human can continue the loop. The loop
 ends only when the refactor is complete (full sweep green, `v2` ready for
 main), the human pauses it, or a catastrophic failure blocks all progress.
@@ -246,7 +325,7 @@ Everything else is autonomous.
 ## Progress log (append-only — update every iteration)
 
 - **2026-07-06** — Prep complete: `refactor` label created; `v2` branch cut
-  (carries the full plan); this runbook written. Six planning docs +
+  (carries the full plan); this operating handoff written. Six planning docs +
   research artifacts committed on `refactor-planning-prompt` (PR #732). Zero
   stray `agent:todo` issues. Operator decisions locked: **full backlog
   review** before execution; **canary** (1–2 tickets) before ramp;
@@ -256,7 +335,8 @@ Everything else is autonomous.
 - **2026-07-07** — Loop model confirmed: I own PR review (`ce-code-review` →
   comment as a code-owner → the comment listener triggers `agent:rework` →
   merge); the human's touchpoints are the full backlog review, final `v2`
-  acceptance, and catastrophic failure. `aiur build` before every (re)start.
+  acceptance, and catastrophic failure. `scripts/aiurdev build` before every
+  (re)start.
 - **2026-07-07** — Phase 1 issue creation started from written docs only.
   Later planned tickets whose docs do not exist (`T-031`–`T-039`, `T-045`)
   must not be opened or worked until written. Because local capacity is 8
@@ -287,3 +367,7 @@ Everything else is autonomous.
   each merge; #757 also passed the two-seed at-merge isolation probe with
   `ISOLATED`. Remaining blockers: #768 before dispatching more Phase 1 work,
   #755/#739 paused rework, #749 draft, #735/#740-#744/#748 paused.
+- **2026-07-07** — `RUNBOOK.md` was renamed to `HANDOFF.md` and expanded with
+  the current Phase 0 blocker state so a fresh operator can resume from #768
+  without replaying the whole session. Keep `docs/refactor/status.md` as the
+  detailed issue/PR table and this file as the operating entry point.

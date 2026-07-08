@@ -98,7 +98,7 @@ issue for the fix):
    Inventory-IDs it touches; a phase, at exit, checks the union of features
    it touched (and may do so while the next phase runs). The full
    1,062-entry sweep runs **once**, at final `v2` acceptance. See
-   `RUNBOOK.md` §7.
+   `HANDOFF.md` §7.
 4. **Regression-safety mapping (pass 2):** after ticket generation,
    `regression-safety.md` maps every FI entry to its coverage: a
    characterization test, a named existing test, a `Check:` probe, or an
