@@ -225,6 +225,29 @@ defmodule Aiur.AgentRunnerTest do
     end
   end
 
+  # #768: the delivered-queue bookkeeping RPCs return `{:error, :unavailable}`
+  # when the orchestrator is briefly overloaded (an exhausted Codex account
+  # floods rateLimit events). AgentRunner hard-matched them with `:ok =`, so
+  # that transient overload raised a MatchError, crashed the agent Task, and
+  # booked a retry that stalled the ticket. Bookkeeping is best-effort: it must
+  # log and continue, never crash.
+  describe "best_effort_queue_bookkeeping/3" do
+    setup do
+      %{issue: %Aiur.Issue{id: "768", identifier: "aiur#768"}}
+    end
+
+    test "a successful bookkeeping call is a no-op", %{issue: issue} do
+      assert AgentRunner.best_effort_queue_bookkeeping(:ok, :consume, issue) == :ok
+    end
+
+    test "an unavailable orchestrator does not raise a MatchError", %{issue: issue} do
+      assert AgentRunner.best_effort_queue_bookkeeping({:error, :unavailable}, :consume, issue) ==
+               :ok
+
+      assert AgentRunner.best_effort_queue_bookkeeping({:error, :timeout}, :fail, issue) == :ok
+    end
+  end
+
   describe "should_display_tail?/3" do
     test "only the hook-driven RC claude-repl session feeds the display tailer" do
       assert AgentRunner.should_display_tail?("claude-repl", true, "101")
