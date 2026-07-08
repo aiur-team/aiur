@@ -33,11 +33,16 @@ regression guard) is filed `refactor phase:1 bug` with two concrete fix
 options, intentionally without `agent:todo`. The live guard is adequate for the
 non-adversarial executor threat model; dispatch #771 when ready to harden.
 
-**Codex vs Claude:** tickets carry `model:codex` and Codex is working again
-(the 5-hour limit reset overnight). Reroute a ticket to `model:claude` **only
-reactively** — if an agent actually stalls on a Codex usage limit. #768 now
-makes that condition a clean pause (not a crash/retry loop), so a reactive
-reroute is safe and unhurried.
+**Codex vs Claude (backend policy):** **default every ticket to `model:codex`.**
+Switch a ticket to `model:claude` **only reactively** — when its agent actually
+hits a Codex rate/usage limit (`usageLimitExceeded`) and stalls. #768 makes that
+a clean pause (not a crash/retry loop), so the reroute is unhurried: relabel the
+stalled ticket(s) `model:codex`→`model:claude`, then `scripts/aiurdev stop` +
+`build` + `--bg --debug` so they re-dispatch on Claude (switching backend needs
+a fresh dispatch; a paused agent resumes on its original backend). Codex-first
+keeps Claude capacity in reserve; do not pre-apply `model:claude` speculatively.
+Codex limits reset roughly hourly, so a rerouted ticket can move back to
+`model:codex` later if desired.
 
 **Landed since the blocker:** #769 fixed #768 on `main` (`bba7de26`); #749
 (T-001) landed on `v2` (`52d6c45a`), closing #735 and adding `v2` to CI push
@@ -80,10 +85,14 @@ mentioned in an index.
   #754, #756, #764, #765, #768) target `main` first because aiur itself is
   blocked.
 - **Every refactor issue carries the `refactor` label** plus `phase:N` and
-  `complexity:N` (1–3). By default, do not pre-apply `model:*` routing
-  overrides; complexity labels drive backend selection. The current Phase 1
-  labels are an operator-directed exception because Claude agents appeared
-  rate-limited. **Only the currently active sub-run receives `agent:todo`, and
+  `complexity:N` (1–3). **Backend policy for this refactor: default every
+  ticket to `model:codex`. Switch a ticket to `model:claude` only reactively —
+  when its agent actually hits a Codex rate/usage limit (`usageLimitExceeded`)
+  and stalls.** #768 makes that a clean pause (not a crash/retry loop), so the
+  reroute is unhurried: relabel the stalled ticket(s) `model:codex`→`model:claude`
+  and restart so they re-dispatch on Claude. Do not pre-apply `model:claude`
+  speculatively; codex-first keeps Claude capacity in reserve. **Only the
+  currently active sub-run receives `agent:todo`, and
   only `refactor` issues ever receive `agent:todo`** (that is the only thing
   keeping the loop from grabbing unrelated work — the tracker has no
   extra-label filter). Today there are zero stray `agent:todo` issues; keep it
