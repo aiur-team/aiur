@@ -1111,7 +1111,12 @@ defmodule Aiur.AgentRunner do
     case result do
       {:ok, turn_session} ->
         maybe_persist_turn_handle(app_session, turn_session, issue.identifier, worker_host)
-        :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
+
+        best_effort_queue_bookkeeping(
+          Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
+          :consume,
+          issue
+        )
 
         with :ok <-
                drain_operator_messages(
@@ -1129,16 +1134,45 @@ defmodule Aiur.AgentRunner do
 
         maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload)
 
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+        best_effort_queue_bookkeeping(
+          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
+          :restore,
+          issue
+        )
+
         write_pause_log(workspace, worker_host)
         send_control_state(codex_update_recipient, issue, :paused)
         wait_for_resume(turn_context, app_session, message_handler)
 
       {:error, reason} ->
         maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
-        :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
+
+        best_effort_queue_bookkeeping(
+          Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
+          :fail,
+          issue
+        )
+
         {:error, reason}
     end
+  end
+
+  # Delivered-queue bookkeeping RPCs return `{:error, :unavailable}` (or
+  # `:timeout`) when the orchestrator is momentarily overloaded — e.g. when an
+  # exhausted Codex account floods `account/rateLimits/updated` events. That is
+  # best-effort housekeeping: a hard `:ok =` match there turned a transient
+  # overload into a `MatchError` that crashed the agent Task and booked a retry,
+  # stalling the ticket (#768). Worse, the crash fired in the `{:ok, _}` branch
+  # before a later turn could reach the usage-limit `{:paused, _}` pause — so
+  # logging and continuing here also lets that existing pause path run.
+  @doc false
+  @spec best_effort_queue_bookkeeping(:ok | {:error, term()}, atom(), Issue.t()) :: :ok
+  def best_effort_queue_bookkeeping(:ok, _op, _issue), do: :ok
+
+  def best_effort_queue_bookkeeping({:error, reason}, op, issue) do
+    Logger.warning("Orchestrator #{op}_delivered_queue_items unavailable for #{issue_context(issue)}: #{inspect(reason)}; continuing without crashing the agent")
+
+    :ok
   end
 
   defp turn_done_reason({:ok, _session}), do: :done
