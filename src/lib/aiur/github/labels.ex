@@ -25,12 +25,12 @@ defmodule Aiur.GitHub.Labels do
   # two in sync.
   @state_suffixes ~w(todo in-progress human-review rework merging done error cancelled canceled)
 
-  # The opt-in PR-watch marker. NOT a lifecycle state — the orchestrator never
-  # sets or reads it as a dispatch state; it only flags a PR for repo-wide
-  # comment monitoring. Kept out of `@state_suffixes` so it never enters the
-  # dispatch state machine, but created by `label_set/2` so `aiur init` seeds it
-  # and the operator can apply it.
+  # Marker labels. NOT lifecycle states — the orchestrator never treats these as
+  # dispatch states. Kept out of `@state_suffixes` so they never enter the state
+  # machine, but created by `label_set/2` so `aiur init` seeds them and the
+  # operator can apply them.
   @watch_suffix "watch"
+  @paused_suffix "paused"
 
   @type request :: %{
           method: :post,
@@ -45,7 +45,7 @@ defmodule Aiur.GitHub.Labels do
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
     state_labels(prefix) ++
-      watch_labels(prefix) ++ model_labels(backends) ++ alias_labels(backends) ++ complexity_labels()
+      marker_labels(prefix) ++ model_labels(backends) ++ alias_labels(backends) ++ complexity_labels()
   end
 
   @spec state_labels(String.t()) :: [String.t()]
@@ -54,6 +54,13 @@ defmodule Aiur.GitHub.Labels do
   @doc "The opt-in PR-watch marker label, given the prefix (e.g. `agent:watch`)."
   @spec watch_labels(String.t()) :: [String.t()]
   def watch_labels(prefix), do: ["#{prefix}:#{@watch_suffix}"]
+
+  @doc "The per-issue pause override marker label, given the prefix (e.g. `agent:paused`)."
+  @spec paused_labels(String.t()) :: [String.t()]
+  def paused_labels(prefix), do: ["#{prefix}:#{@paused_suffix}"]
+
+  @spec marker_labels(String.t()) :: [String.t()]
+  def marker_labels(prefix), do: watch_labels(prefix) ++ paused_labels(prefix)
 
   @spec model_labels([String.t()]) :: [String.t()]
   def model_labels(backends), do: CodingAgent.override_labels(backends)
@@ -87,6 +94,7 @@ defmodule Aiur.GitHub.Labels do
   end
 
   defp state_description("watch"), do: "aiur watches this PR for comments"
+  defp state_description("paused"), do: "suppress aiur work while preserving state"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
   defp state_description("human-review"), do: "awaiting human review"
