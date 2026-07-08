@@ -78,9 +78,9 @@ defmodule Aiur.AgentLogTest do
       assert path == Path.join(workspace, "logs/agent.md")
     end
 
-    test "returns existing placeholder when no workspace path is available" do
+    test "returns no-workspace placeholder when no workspace path is available" do
       assert %{path: nil, messages: [%{role: "system", body: body}]} = AgentLog.read_workspace(nil)
-      assert body =~ "No displayable chat events yet"
+      assert body == "No local workspace path is available for this session."
     end
   end
 

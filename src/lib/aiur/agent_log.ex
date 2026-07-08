@@ -1,9 +1,11 @@
 defmodule Aiur.AgentLog do
   @moduledoc """
-  Reads and parses the per-agent markdown log written by `Aiur.AgentRunner`
-  at `<workspace_path>/logs/agent.md`. Produces a chat-style list of messages with
-  user/assistant/system/tool roles, shared by the web dashboard's per-agent log
-  modal and the CLI dashboard's log pane.
+  Reads and parses per-agent workspace logs into a chat-style list of
+  user/assistant/system/tool messages.
+
+  The web dashboard prefers the structured `logs/agent.ndjson` event stream and
+  falls back to the legacy `logs/agent.md` projection when structured events are
+  not available. The CLI dashboard log pane still reads the markdown projection.
   """
 
   @type log_message :: %{
@@ -49,7 +51,7 @@ defmodule Aiur.AgentLog do
   end
 
   def read_workspace(_workspace_path) do
-    %{path: nil, messages: parse(read(nil))}
+    %{path: nil, messages: [log_message("system", "Log", "n/a", read(nil))]}
   end
 
   @spec read(String.t() | nil) :: String.t()
