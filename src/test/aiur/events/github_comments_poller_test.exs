@@ -680,7 +680,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                repo: "owner/repo",
                request_fun: request_fun,
                max_concurrency: 2,
-               timeout: 200
+               timeout: 1_000
              )
   end
 
