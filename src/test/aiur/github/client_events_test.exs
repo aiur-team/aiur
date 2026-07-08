@@ -80,7 +80,7 @@ defmodule Aiur.GitHub.ClientEventsTest do
 
     test "non-200/304 status returns error" do
       stub = fn _req -> {:ok, %{status: 500, headers: [], body: ""}} end
-      assert {:error, {:github_api_status, 500}} = Client.fetch_repo_events(request_fun: stub)
+      assert {:error, {:github, :http, %{status: 500}}} = Client.fetch_repo_events(request_fun: stub)
     end
 
     test "429 status returns rate-limit taxonomy with Retry-After" do
@@ -120,7 +120,7 @@ defmodule Aiur.GitHub.ClientEventsTest do
 
     test "404 returns error tuple" do
       stub = fn _req -> {:ok, %{status: 404, headers: [], body: ""}} end
-      assert {:error, {:github_api_status, 404}} = Client.fetch_blocked_by(7, request_fun: stub)
+      assert {:error, {:github, :http, %{status: 404}}} = Client.fetch_blocked_by(7, request_fun: stub)
     end
   end
 
@@ -144,7 +144,7 @@ defmodule Aiur.GitHub.ClientEventsTest do
     test "422 returns error (cycle detected by GitHub)" do
       stub = fn _req -> {:ok, %{status: 422, headers: [], body: %{}}} end
 
-      assert {:error, {:github_api_status, 422}} =
+      assert {:error, {:github, :http, %{status: 422}}} =
                Client.add_dependency(42, 99, request_fun: stub)
     end
   end
@@ -188,7 +188,7 @@ defmodule Aiur.GitHub.ClientEventsTest do
     test "surfaces a GitHub API error" do
       stub = fn _req -> {:ok, %{status: 500, headers: [], body: %{}}} end
 
-      assert {:error, {:github_api_status, 500}} =
+      assert {:error, {:github, :http, %{status: 500}}} =
                Client.fetch_open_pull_requests_by_label("agent:watch", request_fun: stub)
     end
 

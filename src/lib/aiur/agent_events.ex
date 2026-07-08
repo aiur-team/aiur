@@ -63,6 +63,8 @@ defmodule Aiur.AgentEvents do
           optional(:runtime_seconds) => non_neg_integer(),
           optional(:turn_count) => non_neg_integer(),
           optional(:work_state) => atom() | String.t(),
+          optional(:pause_reason) => atom() | String.t(),
+          optional(:tracker_paused) => boolean(),
           optional(:backend) => String.t(),
           optional(:model) => String.t()
         }
@@ -146,7 +148,8 @@ defmodule Aiur.AgentEvents do
   @doc """
   Build an `agent_summary` map and merge in the optional `extras`
   fields (`:tag`, `:title`, `:runtime_seconds`, `:turn_count`,
-  `:work_state`, `:backend`, `:model`). Extras with `nil` values are
+  `:work_state`, `:pause_reason`, `:tracker_paused`, `:backend`, `:model`).
+  Extras with `nil` values are
   filtered so callers can unconditionally pass `Map.get(entry, :title)`
   (or an unpinned `CodingAgent.model_for/1`) without polluting the
   summary.
@@ -168,7 +171,7 @@ defmodule Aiur.AgentEvents do
 
   Mapping:
     * `:working`     — `🟢` actively working
-    * `:paused`      — `⏸️` paused by the operator
+    * `:paused`      — `⏸️` paused
     * `:error`       — `🔴` agent reported an error
     * `:done`        — `🏁` agent has fully finished (turn-completion broadcast reason)
     * `:deactivated` — `🏁` agent has stopped working for this iteration; ticket lives at 100% awaiting reactivation (PR comment, chat input, pause/resume, or label flip back to an active state)

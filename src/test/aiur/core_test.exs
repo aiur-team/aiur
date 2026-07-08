@@ -379,6 +379,79 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "unexplained error issue state preserves a running agent" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-error-reconcile-#{System.unique_integer([:positive])}"
+      )
+
+    issue_id = "issue-error"
+    issue_identifier = "MT-ERR"
+    workspace = Path.join(test_root, issue_identifier)
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: test_root,
+        tracker_active_states: ["Todo", "In Progress", "In Review"],
+        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
+      )
+
+      File.mkdir_p!(test_root)
+      File.mkdir_p!(workspace)
+
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: issue_identifier,
+            issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
+            started_at: DateTime.utc_now()
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{}
+      }
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        state: "error",
+        title: "Unexpected error label",
+        description: "",
+        labels: []
+      }
+
+      log =
+        capture_log(fn ->
+          send(self(), {:updated_state, Orchestrator.reconcile_issue_states_for_test([issue], state)})
+        end)
+
+      assert_receive {:updated_state, updated_state}
+
+      assert Map.has_key?(updated_state.running, issue_id)
+      assert MapSet.member?(updated_state.claimed, issue_id)
+      assert Process.alive?(agent_pid)
+      assert File.exists?(workspace)
+      assert Map.fetch!(updated_state.running, issue_id).issue.state == "error"
+
+      assert log =~ "Issue reported error state while agent is still active"
+      assert log =~ "issue_id=#{issue_id}"
+      assert log =~ "issue_identifier=#{issue_identifier}"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "terminal issue state stops running agent and cleans workspace" do
     test_root =
       Path.join(
@@ -745,6 +818,9 @@ defmodule Aiur.CoreTest do
            "give-up must release the claim so a label-driven re-dispatch (#699) can pick the ticket up without a daemon restart"
 
     assert log =~ "after 3 failed attempt(s)"
+    assert log =~ "issue_id=#{issue_id}"
+    assert log =~ "reason=retry_exhausted"
+    assert log =~ "caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state"
     assert log =~ "ticket.MT-EX.agent.retry_exhausted"
 
     assert_receive {:memory_tracker_state_update, "MT-EX", "error"}
@@ -804,10 +880,6 @@ defmodule Aiur.CoreTest do
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      stop_test_orchestrator(pid)
-    end)
-
     initial_state = :sys.get_state(pid)
 
     busy_worker_pid =
@@ -816,6 +888,11 @@ defmodule Aiur.CoreTest do
           :done -> :ok
         end
       end)
+
+    on_exit(fn ->
+      send(busy_worker_pid, :done)
+      stop_test_orchestrator(pid)
+    end)
 
     other_running_entry = %{
       pid: busy_worker_pid,
@@ -2916,7 +2993,7 @@ defmodule Aiur.CoreTest do
         "type" => "workspaceWrite",
         "writableRoots" => [canonical_workspace],
         "readOnlyAccess" => %{"type" => "fullAccess"},
-        "networkAccess" => false,
+        "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
         "excludeSlashTmp" => false
       }

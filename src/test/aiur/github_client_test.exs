@@ -186,7 +186,7 @@ defmodule Aiur.GitHub.ClientTest do
         {:ok, %{status: 401}}
       end
 
-      assert {:error, {:github_api_status, 401}} =
+      assert {:error, {:github, :auth, %{status: 401}}} =
                Client.fetch_candidate_issues(request_fun: request_fun)
     end
 
@@ -272,6 +272,25 @@ defmodule Aiur.GitHub.ClientTest do
       assert diagnostic.message =~ "GITHUB_TOKEN"
     end
 
+    test "classifies DNS request failures during preflight" do
+      request_fun = fn %{url: url} ->
+        assert url =~ "/rate_limit"
+        {:error, %Req.TransportError{reason: :nxdomain}}
+      end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               Client.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :unavailable} end
+               )
+
+      assert diagnostic.reason == :dns
+      assert diagnostic.classification == :dns
+      assert diagnostic.detail == %{reason: :nxdomain}
+      assert diagnostic.message =~ "DNS resolution failed"
+      assert diagnostic.message =~ "api.github.com"
+    end
+
     test "distinguishes endpoint-specific forbidden responses" do
       request_fun = fn %{url: url} ->
         cond do
@@ -337,6 +356,38 @@ defmodule Aiur.GitHub.ClientTest do
       assert length(issues) == 1
       assert hd(issues).id == "1"
       assert hd(issues).state == "todo"
+    end
+
+    test "marks paused override without treating it as the issue state" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "sym:todo" or url =~ "sym%3Atodo"
+
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{
+               "number" => 2,
+               "title" => "Paused task",
+               "body" => nil,
+               "html_url" => "https://github.com/owner/repo/issues/2",
+               "labels" => [
+                 %{"name" => "sym:paused"},
+                 %{"name" => "sym:todo"},
+                 %{"name" => "priority:1"}
+               ],
+               "assignee" => nil,
+               "created_at" => "2025-01-01T00:00:00Z",
+               "updated_at" => "2025-01-01T00:00:00Z"
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, [issue]} = Client.fetch_issues_by_states(["todo"], request_fun: request_fun)
+      assert issue.state == "todo"
+      assert issue.paused == true
+      assert "sym:paused" in issue.labels
     end
   end
 
@@ -424,7 +475,7 @@ defmodule Aiur.GitHub.ClientTest do
     test "returns error on failure" do
       request_fun = fn _ -> {:ok, %{status: 403}} end
 
-      assert {:error, {:github_api_status, 403}} =
+      assert {:error, {:github, :http, %{status: 403}}} =
                Client.create_comment("42", "Hello!", request_fun: request_fun)
     end
   end
@@ -442,7 +493,7 @@ defmodule Aiur.GitHub.ClientTest do
     test "surfaces a non-200 status as an error" do
       request_fun = fn _ -> {:ok, %{status: 404}} end
 
-      assert {:error, {:github_api_status, 404}} =
+      assert {:error, {:github, :http, %{status: 404}}} =
                Client.fetch_pull_request_head_ref(21, request_fun: request_fun)
     end
 
@@ -1302,6 +1353,62 @@ defmodule Aiur.GitHub.ClientTest do
       assert :ok = Client.update_issue_state("42", "Done", request_fun: request_fun)
     end
 
+    test "state swaps preserve paused and watch marker labels" do
+      test_pid = self()
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        send(test_pid, {:github_request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [
+                   %{"name" => "sym:paused"},
+                   %{"name" => "sym:todo"},
+                   %{"name" => "sym:watch"}
+                 ]
+               }
+             }}
+
+          {:delete, 1} ->
+            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
+            {:ok, %{status: 200}}
+
+          {:get, 2} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:paused"}, %{"name" => "sym:watch"}]
+               }
+             }}
+
+          {:post, 3} ->
+            assert req.body == %{"labels" => ["sym:rework"]}
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :delete, url: deleted_url}}
+      assert_receive {:github_request, %{method: :get}}
+      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
+      refute deleted_url =~ "sym:paused"
+      refute deleted_url =~ "sym:watch"
+      refute_receive {:github_request, %{method: :delete}}, 100
+    end
+
     test "human-review readiness requires unresolved authenticated-viewer replies to be resolved" do
       repo_root = codeowners_repo!("* @its-everdred\n")
       test_pid = self()
@@ -1620,7 +1727,7 @@ defmodule Aiur.GitHub.ClientTest do
         end
       end
 
-      assert {:error, {:github_api_status, 500}} =
+      assert {:error, {:github, :http, %{status: 500}}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}

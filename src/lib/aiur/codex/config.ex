@@ -113,7 +113,7 @@ defmodule Aiur.Codex.Config do
       "type" => "workspaceWrite",
       "writableRoots" => [writable_root],
       "readOnlyAccess" => %{"type" => "fullAccess"},
-      "networkAccess" => false,
+      "networkAccess" => true,
       "excludeTmpdirEnvVar" => false,
       "excludeSlashTmp" => false
     }

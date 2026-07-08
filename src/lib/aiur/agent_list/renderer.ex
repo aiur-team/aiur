@@ -290,7 +290,7 @@ defmodule Aiur.AgentList.Renderer do
          "🔨  implementing",
          "🔍  reviewing",
          "🟢  working — pane open now (no active phase)",
-         "⏸️  agent paused by operator",
+         "⏸️  agent paused",
          "🔴  agent in error state",
          "🏁  awaiting human review — space or chat to reactivate",
          "⚫  agent waiting (queued, idle, or label only)"
