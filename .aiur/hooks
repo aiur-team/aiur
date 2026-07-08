@@ -3,8 +3,8 @@ timeout_ms: 600000
 after_create: |
   git clone https://github.com/its-everdred/aiur.git .
   issue_id="$(basename "$PWD")"
-  git fetch origin kevin/e2e-pubsub-test >/dev/null 2>&1 || true
-  base_ref="$(git rev-parse --verify origin/kevin/e2e-pubsub-test 2>/dev/null || echo origin/main)"
+  git fetch origin v2
+  base_ref="origin/v2"
   git checkout -b "aiur/${issue_id}" "$base_ref"
   mkdir -p ./.aiur-hex ./.aiur-mix
   if [ -f mise.toml ]; then
@@ -36,22 +36,23 @@ before_run: |
     find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
     git clone https://github.com/its-everdred/aiur.git .
     issue_id="$(basename "$PWD")"
-    git checkout -b "aiur/${issue_id}" origin/main
+    git fetch origin v2
+    git checkout -b "aiur/${issue_id}" origin/v2
   else
-    git fetch origin main
+    git fetch origin v2
     if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||
        ! git diff --cached --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs'; then
       # Tracked changes are present. Signal the refusal with exit 65.
       # The Elixir side keys on that status code: a fresh todo dispatch
       # recreates the stale leftover clean; a live/resumed agent's uncommitted
-      # WIP is left untouched and the origin/main refresh is skipped
+      # WIP is left untouched and the origin/v2 refresh is skipped
       # non-fatally so the agent keeps working (#653). The text below is
       # operator-facing only. Do NOT treat this as a hard failure.
-      echo "Refusing to refresh workspace from origin/main because tracked source changes are present." >&2
-      echo "Leaving uncommitted work in place; skipping the origin/main refresh for this run." >&2
+      echo "Refusing to refresh workspace from origin/v2 because tracked source changes are present." >&2
+      echo "Leaving uncommitted work in place; skipping the origin/v2 refresh for this run." >&2
       exit 65
     fi
-    git merge --no-edit origin/main
+    git merge --no-edit origin/v2
   fi
   mkdir -p ./.aiur-hex ./.aiur-mix
   if [ -f mise.toml ]; then

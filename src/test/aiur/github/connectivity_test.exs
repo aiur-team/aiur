@@ -93,6 +93,12 @@ defmodule Aiur.GitHub.ConnectivityTest do
     end
   end
 
+  describe "classify_ls_remote/1" do
+    test "classifies bounded git timeouts explicitly" do
+      assert Connectivity.classify_ls_remote({:git_ls_remote_timeout, 200, ""}) == :timeout
+    end
+  end
+
   describe "backoff_ms/3" do
     test "rate_limited honors retry_after when present" do
       assert Connectivity.backoff_ms(:rate_limited, 1, %{retry_after: 30}) == 30_000

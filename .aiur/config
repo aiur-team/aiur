@@ -1,5 +1,6 @@
 tracker:
   kind: github
+  base_branch: v2
   active_states:
     - todo
     - in-progress
@@ -55,7 +56,7 @@ opencode:
   serve_args: []
   model_prefix: aiur
 prompt_file: prompt.md
-# Warm base pre-warm (dogfood): build one shared base of latest main once, then
+# Warm base pre-warm (dogfood): build one shared base of the target branch once, then
 # materialize each agent workspace from it (copy-on-write) instead of cold-cloning.
 # The build command lives in a sibling `.aiur/prewarm` script (path relative to
 # this config), keeping the multi-line shell out of the main config.
