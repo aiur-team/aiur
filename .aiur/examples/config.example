@@ -33,7 +33,7 @@ agent:
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
-  # stall_timeout_ms: 300000             # watchdog for a silent agent
+  # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
   # max_load_average: 1.5                # per-scheduler load gate; set null to disable
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
