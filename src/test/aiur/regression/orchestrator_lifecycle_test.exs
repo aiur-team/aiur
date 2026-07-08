@@ -8,6 +8,28 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
   alias Aiur.Events.SubscriptionStore
 
+  defmodule HermeticReworkGitHubClient do
+    def update_issue_state(issue_id, state_name) do
+      if is_pid(recipient()), do: send(recipient(), {:hermetic_rework_update, issue_id, state_name})
+
+      Agent.get_and_update(agent(), fn
+        [result | rest] -> {result, rest}
+        [] -> {:ok, []}
+      end)
+    end
+
+    def fetch_issue_states_by_ids(issue_ids) do
+      wanted = MapSet.new(issue_ids)
+      {:ok, Enum.filter(issues(), &(&1.id in wanted or &1.identifier in wanted))}
+    end
+
+    def fetch_candidate_issues, do: {:ok, issues()}
+
+    defp agent, do: Application.fetch_env!(:aiur, :hermetic_rework_agent)
+    defp issues, do: Application.get_env(:aiur, :hermetic_rework_issues, [])
+    defp recipient, do: Application.get_env(:aiur, :hermetic_rework_recipient)
+  end
+
   defp running_entry(issue_id, identifier, status) do
     %{
       pid: self(),
@@ -73,6 +95,9 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
     Application.put_env(:aiur, :memory_tracker_recipient, self())
     Application.put_env(:aiur, :memory_tracker_issues, issues)
   end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 
   defp isolated_subscription_store(identifier) do
     tmp_dir = Path.join(System.tmp_dir!(), "aiur_reg_orc_life_#{System.unique_integer([:positive])}")
@@ -159,26 +184,48 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
     test "transient tracker failure retries the wake without consuming the event" do
       identifier = "7415"
       isolated_subscription_store(identifier)
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_recipient = Application.get_env(:aiur, :hermetic_rework_recipient)
+      previous_agent = Application.get_env(:aiur, :hermetic_rework_agent)
+      previous_issues = Application.get_env(:aiur, :hermetic_rework_issues)
       previous_delay = Application.get_env(:aiur, :comment_rework_retry_delay_ms)
+      {:ok, agent} = Agent.start_link(fn -> [{:error, {:github_api_status, 502}}, :ok] end)
+
       Application.put_env(:aiur, :comment_rework_retry_delay_ms, 0)
 
       on_exit(fn ->
-        if previous_delay,
-          do: Application.put_env(:aiur, :comment_rework_retry_delay_ms, previous_delay),
-          else: Application.delete_env(:aiur, :comment_rework_retry_delay_ms)
+        restore_app_env(:github_client_module, previous_github_client)
+        restore_app_env(:hermetic_rework_recipient, previous_recipient)
+        restore_app_env(:hermetic_rework_agent, previous_agent)
+        restore_app_env(:hermetic_rework_issues, previous_issues)
+        restore_app_env(:comment_rework_retry_delay_ms, previous_delay)
+        if Process.alive?(agent), do: Agent.stop(agent)
       end)
 
-      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "bad/repo")
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_active_states: ["todo", "in-progress", "human-review", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      Application.put_env(:aiur, :github_client_module, HermeticReworkGitHubClient)
+      Application.put_env(:aiur, :hermetic_rework_recipient, self())
+      Application.put_env(:aiur, :hermetic_rework_agent, agent)
+
+      Application.put_env(:aiur, :hermetic_rework_issues, [
+        %Issue{id: identifier, identifier: identifier, state: "rework", title: "Rework"}
+      ])
+
       event = comment_event(identifier, "issue.commented")
       assert {:noreply, next} = Orchestrator.handle_info({:event, event}, base_state())
+      assert_receive {:hermetic_rework_update, ^identifier, "rework"}, 2000
       assert_receive {:retry_comment_rework, ^identifier, "issue comment", ^event, 2}, 2000
-
-      memory_tracker!([review_issue(identifier)])
 
       assert {:noreply, retried} =
                Orchestrator.handle_info({:retry_comment_rework, identifier, "issue comment", event, 2}, next)
 
-      assert_receive {:memory_tracker_state_update, ^identifier, "rework"}, 2000
+      assert_receive {:hermetic_rework_update, ^identifier, "rework"}, 2000
       assert MapSet.member?(retried.claimed, identifier)
     end
 
