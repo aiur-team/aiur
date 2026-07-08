@@ -1,7 +1,7 @@
 defmodule Aiur.Opencode.SlotPolicyTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
-  alias Aiur.Opencode.{Slot, SlotPolicy}
+  alias Aiur.Opencode.{Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
 
   # SlotPolicy interacts with SlotSupervisor and the real PubSub. The
   # unit-test goal here is to verify the lazy-expansion + bump logic
@@ -11,6 +11,29 @@ defmodule Aiur.Opencode.SlotPolicyTest do
   # We bypass SlotSupervisor.start_slot by setting target_count=0 to
   # prove the skip path; for real chain advance behavior, integration
   # coverage happens in U11 e2e + manual CLI verification.
+
+  defmodule FakeSlot do
+    use GenServer
+
+    alias Aiur.Opencode.SlotRegistry
+
+    def start_link(slot_index), do: GenServer.start_link(__MODULE__, slot_index)
+
+    @impl true
+    def init(slot_index) do
+      :ok = SlotRegistry.register_self(slot_index)
+      {:ok, %{slot_index: slot_index, status: :active}}
+    end
+
+    @impl true
+    def handle_call(:snapshot, _from, state) do
+      {:reply, %{status: state.status}, state}
+    end
+  end
+
+  defmodule FakeSlotStarter do
+    def start_slot(slot_index), do: FakeSlot.start_link(slot_index)
+  end
 
   setup do
     unique = System.unique_integer([:positive, :monotonic])
@@ -104,9 +127,49 @@ defmodule Aiur.Opencode.SlotPolicyTest do
 
       assert SlotPolicy.max_slots(dead) == 0
     end
+
+    test "config pre_warmed_sessions sizes only target_count while max slots comes from grid and max agents",
+         %{policy_name: name, pubsub: pubsub} do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_vertical_panes: 3,
+        max_concurrent_agents: 8,
+        pre_warmed_sessions: 1
+      )
+
+      pid = start_policy!(name, pubsub, slot_starter: FakeSlotStarter)
+
+      assert SlotPolicy.target_count(pid) == 1
+      assert SlotPolicy.max_slots(pid) == 8
+      assert SlotPolicy.highest_started(pid) == 1
+      assert registered_slots() == [1]
+    end
   end
 
   describe "grow_slot/1 ceiling" do
+    test "a consumed warm pool grows cold slots on demand up to max_slots", %{pubsub: pubsub} do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_vertical_panes: 3,
+        max_concurrent_agents: 8,
+        pre_warmed_sessions: 1
+      )
+
+      pid = start_policy!(SlotPolicy, pubsub, slot_starter: FakeSlotStarter)
+
+      assert SlotPolicy.target_count(pid) == 1
+      assert SlotPolicy.max_slots(pid) == 8
+      assert SlotPolicy.highest_started(pid) == 1
+
+      for expected_slot <- 2..8 do
+        assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
+        assert SlotPolicy.highest_started(pid) == expected_slot
+      end
+
+      assert registered_slots() == Enum.to_list(1..8)
+
+      assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
+      assert SlotPolicy.highest_started(pid) == 8
+    end
+
     test "refuses to grow past max_slots", %{policy_name: name, pubsub: pubsub} do
       # target_count == max_slots == 0: the pool is already at its cap,
       # so no on-demand slot may start.
@@ -138,5 +201,11 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 2_000
     refute Process.alive?(pid)
     pid
+  end
+
+  defp registered_slots do
+    SlotRegistry.all()
+    |> Enum.map(fn {index, _pid} -> index end)
+    |> Enum.sort()
   end
 end
