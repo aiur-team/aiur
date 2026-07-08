@@ -17,13 +17,17 @@ pre-existing usage-limit pause.
 reviewed clean, update-branched, and merged to `v2` at `52d6c45a`, closing
 #735. `v2` is now at `52d6c45a`.
 
-The fleet was rebuilt from `v2` and relaunched with
-`scripts/aiurdev --bg --debug`. Only #739 (rework of the #755 review) and #748
-were unpaused; both are working on Codex with no `:unavailable`/crash churn.
-Codex recovered (the 5-hour limit reset overnight), so tickets keep
-`model:codex`; reroute to `model:claude` only reactively if an agent stalls on
-a Codex limit. #740–#744 stay `agent:paused` for Sub-run B until the canary
-proves out.
+Sub-run A is now complete: #749 (T-001), #770 (T-006A), and #755 (T-005) all
+landed on `v2` (now `966c78f2`), and #735/#748/#739 are closed `agent:done`.
+The regression tripwire guard is live. #755 shipped with a known, tracked
+residual (backdated-commit approval bypass) filed as hardening ticket #771; the
+guard is adequate for the non-adversarial executor threat model. Codex worked
+cleanly all run (the 5-hour limit reset overnight), so tickets keep
+`model:codex`; reroute to `model:claude` only reactively.
+
+Next: rebuild from `v2` (`scripts/aiurdev stop` → `build`, to pick up merged
+`repo_base.ex`/`slot_policy.ex`) and ramp Sub-run B (#740–#744) by removing
+`agent:paused`, then relaunch. The width-5 cap fits all five Sub-run B tickets.
 
 The dogfood `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and
 `.aiur/prewarm` are retargeted to `v2` on the `v2` branch.

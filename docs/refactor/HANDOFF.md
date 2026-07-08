@@ -14,16 +14,24 @@ companion docs. This handoff is how to *operate*; those are what to *build*.
 
 ## Current handoff — 2026-07-08 PDT
 
-**Mode:** Phase 1 running — Sub-run A canary. #768 is fixed and merged
-(`main` → `v2`), and the fleet is live in background+debug with two agents
-working on Codex. Watch for their PRs, review, and merge; then ramp Sub-run B.
+**Mode:** Phase 1 running — Sub-run A **complete**, ready to ramp Sub-run B.
+#768 is fixed/merged and the full Sub-run A canary landed on `v2` (#749 T-001,
+#770 T-006A, #755 T-005). `v2` is at `966c78f2`. The fleet is idle (all
+Sub-run A agents finished). The regression tripwire guard is live on `v2`.
 
-**Immediate next unit:** monitor the running fleet (`scripts/aiurdev watch`).
-#739 is reworking the #755 review; #748 is producing its T-006A change. As each
-PR opens/updates against `v2`, run `ce-code-review`, comment as a code-owner to
-drive `agent:rework`, and merge one at a time (update-branch + fresh CI). Once
-the canary proves out, unpause Sub-run B (#740–#744) to ramp toward the width-5
-cap.
+**Immediate next unit:** ramp Sub-run B. Because merged Sub-run A code
+(#749 `repo_base.ex`, #770 `slot_policy.ex`) is not in the running release,
+rebuild first: `scripts/aiurdev stop` → `scripts/aiurdev build` from `v2` →
+remove `agent:paused` from #740–#744 (keep `model:codex`) → relaunch
+`scripts/aiurdev --bg --debug`. The relaunch also live-verifies Sub-run A's
+merges. Then review/merge Sub-run B PRs as before: comment as a code-owner
+(an `issue_comment` via `gh pr comment` — a formal `gh pr review` does NOT
+trigger `agent:rework`), one merge at a time.
+
+**Hardening carried forward:** #771 (backdated-commit approval bypass in the
+regression guard) is filed `refactor phase:1 bug` with two concrete fix
+options, intentionally without `agent:todo`. The live guard is adequate for the
+non-adversarial executor threat model; dispatch #771 when ready to harden.
 
 **Codex vs Claude:** tickets carry `model:codex` and Codex is working again
 (the 5-hour limit reset overnight). Reroute a ticket to `model:claude` **only
@@ -357,3 +365,14 @@ Everything else is autonomous.
   dispatched and are working on Codex with no `:unavailable`/crash/retry churn.
   #740–#744 remain `agent:paused` for Sub-run B. Reroute Codex→`model:claude`
   only reactively, if agents actually stall on Codex limits.
+- **2026-07-08** — Sub-run A completed. #770 (T-006A warm-pool decoupling,
+  correctness-reviewed clean) merged to `v2` (`cbdca518`), #748 closed. #755
+  (T-005 tripwire guard) went three review rounds: base-control + required
+  check → rename-out + post-approval-push fixes → a residual backdated-commit
+  timeline-ordering bypass. The agent didn't converge on the push-time fix, so
+  it merged with the functional guard (`966c78f2`, admin bypass of the
+  bootstrapping `guard` required check) and the residual was filed as hardening
+  ticket #771; #739 closed. Learning saved: the review→rework trigger is a
+  `gh pr comment` (`issue_comment`), not a formal `gh pr review`. Codex worked
+  cleanly all run (limit reset); zero `:unavailable`/crash events. Next:
+  rebuild from `v2` and ramp Sub-run B (#740–#744).
