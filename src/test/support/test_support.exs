@@ -30,7 +30,8 @@ defmodule Aiur.TestSupport do
           write_workflow_file!: 1,
           write_workflow_file!: 2,
           restore_env: 2,
-          stop_default_http_server: 0
+          stop_default_http_server: 0,
+          ensure_workflow_store_running: 0
         ]
 
       setup do
@@ -72,6 +73,14 @@ defmodule Aiur.TestSupport do
         # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
+
+        # A prior test may have terminated the shared WorkflowStore singleton
+        # (e.g. extensions_test / core_test tear it down) and, on a mid-test
+        # failure, left it down. Bring it back up before this test reads config
+        # through it, so a sibling never calls into a torn-down store — the #780
+        # `WorkspaceAndConfigTest` flake: `GenServer.call(WorkflowStore, :current)`
+        # exiting `:shutdown`. Then reload it onto this test's config path.
+        Aiur.TestSupport.ensure_workflow_store_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
         stop_default_http_server()
 
@@ -213,6 +222,55 @@ defmodule Aiur.TestSupport do
 
       _ ->
         :ok
+    end
+  end
+
+  @doc """
+  Ensures the shared `Aiur.WorkflowStore` singleton is running, restarting the
+  supervised child when a prior test terminated it and left it down. Tolerates
+  restart races (already-started / already-present / restarting / not-found) by
+  re-checking the registered name. Best-effort: returns `:ok` when the store is
+  up, `:error` only if it could not be brought back.
+  """
+  def ensure_workflow_store_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.WorkflowStore) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_workflow_store()
+    end
+  end
+
+  defp restart_workflow_store do
+    case Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore) do
+      {:ok, pid} when is_pid(pid) ->
+        :ok
+
+      {:error, {:already_started, pid}} when is_pid(pid) ->
+        :ok
+
+      # A restart can race a sibling (already-present / running / restarting) or
+      # genuinely fail — `WorkflowStore.init/1` reads the workflow file and stops
+      # with `{:missing_workflow_file, ...}` when a test transiently pointed the
+      # config path at a missing file. A single catch-all keeps both cases from
+      # raising a CaseClauseError (`restart_orchestrator/0` can `flunk` on the
+      # race because `ExUnit.Assertions` isn't imported into this plain module);
+      # fall back to the registered name: `:ok` if up, `:error` if still down.
+      {:error, _reason} ->
+        if Process.whereis(Aiur.WorkflowStore), do: :ok, else: :error
+    end
+  end
+
+  defp ensure_aiur_supervisor_running do
+    case Process.whereis(Aiur.Supervisor) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case Application.ensure_all_started(:aiur) do
+          {:ok, _apps} -> :ok
+          {:error, {:already_started, _app}} -> :ok
+        end
     end
   end
 

@@ -36,11 +36,15 @@ defmodule Aiur.Opencode.SlotPolicyTest do
   end
 
   setup do
+    stop_registered_slots()
+
     unique = System.unique_integer([:positive, :monotonic])
     policy_name = Module.concat(__MODULE__, "Policy#{unique}")
     pubsub = Module.concat(__MODULE__, "PubSub#{unique}")
 
     start_supervised!({Phoenix.PubSub, name: pubsub}, id: {Phoenix.PubSub, pubsub})
+
+    on_exit(&stop_registered_slots/0)
 
     {:ok, policy_name: policy_name, pubsub: pubsub}
   end
@@ -207,5 +211,20 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     SlotRegistry.all()
     |> Enum.map(fn {index, _pid} -> index end)
     |> Enum.sort()
+  end
+
+  defp stop_registered_slots do
+    for {_index, pid} <- SlotRegistry.all(), Process.alive?(pid) do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        1_000 -> flunk("slot process did not stop: #{inspect(pid)}")
+      end
+    end
+
+    :ok
   end
 end

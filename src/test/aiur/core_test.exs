@@ -36,7 +36,19 @@ defmodule Aiur.CoreTest do
     case {stop_result, Process.alive?(pid)} do
       {:ok, _} -> :ok
       {{:exit, _reason}, false} -> :ok
-      {{:exit, reason}, true} -> exit(reason)
+      {{:exit, _reason}, true} -> kill_live_test_orchestrator(pid)
+    end
+  end
+
+  defp kill_live_test_orchestrator(pid) do
+    ref = Process.monitor(pid)
+    Process.unlink(pid)
+    Process.exit(pid, :kill)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    after
+      1_000 -> flunk("test orchestrator did not stop")
     end
   end
 
@@ -1376,9 +1388,7 @@ defmodule Aiur.CoreTest do
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
 
-      if is_pid(workflow_store_pid) and is_nil(Process.whereis(Aiur.WorkflowStore)) do
-        Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
-      end
+      if is_pid(workflow_store_pid), do: ensure_workflow_store_running()
     end)
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.WorkflowStore)
