@@ -778,7 +778,7 @@ defmodule Aiur.TestReset do
   @spec reset_labels_command_args(integer() | String.t()) :: [[String.t()]]
   def reset_labels_command_args(id) do
     agent_labels =
-      "agent:todo,agent:in-progress,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled"
+      "agent:todo,agent:in-progress,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled,agent:paused"
 
     [
       ["issue", "edit", to_string(id), "--remove-label", agent_labels],

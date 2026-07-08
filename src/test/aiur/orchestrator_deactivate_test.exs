@@ -960,6 +960,167 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
   end
 
+  describe "agent:paused label override" do
+    test "paused active issue is not a dispatch candidate" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      state = %Orchestrator.State{
+        running: %{},
+        claimed: MapSet.new(),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{}
+      }
+
+      issue = %Issue{
+        id: "issue-paused-candidate",
+        identifier: "PAUSE-1",
+        state: "todo",
+        title: "Paused candidate",
+        paused: true,
+        labels: ["agent:todo", "agent:paused"]
+      }
+
+      refute Orchestrator.dispatch_candidate_for_test(issue, state)
+      refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+    end
+
+    test "running issue pauses when the override appears" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      issue_id = "issue-paused-running"
+      identifier = "PAUSE-2"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: self(),
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress"},
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      paused_issue = %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "in-progress",
+        title: "Paused running",
+        paused: true,
+        labels: ["agent:in-progress", "agent:paused"]
+      }
+
+      next = Orchestrator.reconcile_issue_states_for_test([paused_issue], state)
+
+      assert_receive {:pause_agent, _request_id}
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+      assert get_in(next.running, [issue_id, :paused_reason]) == :label_override
+      assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == true
+    end
+
+    test "removing the override resumes only label-paused agents" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        max_concurrent_agents: 2
+      )
+
+      issue_id = "issue-paused-resume"
+      identifier = "PAUSE-3"
+      paused_at = DateTime.add(DateTime.utc_now(), -10, :second)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: self(),
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress", paused: true},
+            started_at: DateTime.add(DateTime.utc_now(), -30, :second),
+            paused_at: paused_at,
+            paused_reason: :label_override,
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 2
+      }
+
+      unpaused_issue = %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "in-progress",
+        title: "Unpaused running",
+        paused: false,
+        labels: ["agent:in-progress"]
+      }
+
+      next = Orchestrator.reconcile_issue_states_for_test([unpaused_issue], state)
+
+      assert_receive {:resume_agent, _request_id}
+      assert get_in(next.running, [issue_id, :control, :status]) == :working
+      refute Map.has_key?(next.running[issue_id], :paused_reason)
+      assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == false
+    end
+
+    test "removing the override does not resume a manually paused agent" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      issue_id = "issue-manual-paused"
+      identifier = "PAUSE-4"
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: self(),
+            ref: nil,
+            identifier: identifier,
+            issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress", paused: true},
+            started_at: DateTime.add(DateTime.utc_now(), -30, :second),
+            paused_at: DateTime.add(DateTime.utc_now(), -10, :second),
+            control: %{status: :paused}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 2
+      }
+
+      unpaused_issue = %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "in-progress",
+        title: "Still manually paused",
+        paused: false,
+        labels: ["agent:in-progress"]
+      }
+
+      next = Orchestrator.reconcile_issue_states_for_test([unpaused_issue], state)
+
+      refute_receive {:resume_agent, _request_id}, 100
+      assert get_in(next.running, [issue_id, :control, :status]) == :paused
+      assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == false
+    end
+  end
+
   describe "slot counting on the public status snapshot" do
     test "deactivated entries do not consume a slot in the (N/M) counter" do
       test_root =

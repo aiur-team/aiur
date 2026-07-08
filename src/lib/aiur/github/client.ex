@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.Client do
 
   @base_url "https://api.github.com"
   @graphql_url "#{@base_url}/graphql"
+  @preserved_prefixed_label_suffixes ~w(paused watch)
 
   @reply_review_thread_mutation """
   mutation AiurReplyReviewThread($threadId: ID!, $body: String!) {
@@ -230,13 +231,7 @@ defmodule Aiur.GitHub.Client do
 
   defp classify_status(status, _response), do: {:github, :http, %{status: status}}
 
-  defp github_status_error(%{status: status} = response) do
-    if rate_limited_response?(response, :unknown) do
-      classify_error(response)
-    else
-      {:github_api_status, status}
-    end
-  end
+  defp github_status_error(%{status: _status} = response), do: classify_error(response)
 
   defp response_message(%{body: %{"message" => message}}) when is_binary(message), do: message
   defp response_message(_response), do: nil
@@ -299,9 +294,9 @@ defmodule Aiur.GitHub.Client do
         {:ok, %{status: status}} when status in [200, 201] ->
           :ok
 
-        {:ok, %{status: status}} ->
+        {:ok, %{status: status} = response} ->
           Logger.error("GitHub create_comment failed status=#{status}")
-          {:error, {:github_api_status, status}}
+          {:error, github_status_error(response)}
 
         {:error, reason} ->
           {:error, classify_error({:error, reason})}
@@ -424,7 +419,7 @@ defmodule Aiur.GitHub.Client do
 
       case request_fun.(%{method: :get, url: url, token: token}) do
         {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
-        {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} -> {:error, github_status_error(response)}
         {:error, reason} -> {:error, classify_error({:error, reason})}
       end
     end
@@ -705,8 +700,8 @@ defmodule Aiur.GitHub.Client do
         {:ok, %{status: 200}} ->
           {:error, :head_ref_missing}
 
-        {:ok, %{status: status}} ->
-          {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} ->
+          {:error, github_status_error(response)}
 
         {:error, reason} ->
           {:error, classify_error({:error, reason})}
@@ -879,7 +874,7 @@ defmodule Aiur.GitHub.Client do
 
       case request_fun.(%{method: :post, url: url, token: token, body: %{"labels" => [label]}}) do
         {:ok, %{status: status}} when status in 200..299 -> :ok
-        {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} -> {:error, github_status_error(response)}
         {:error, reason} -> {:error, classify_error({:error, reason})}
       end
     end
@@ -898,7 +893,7 @@ defmodule Aiur.GitHub.Client do
       case request_fun.(%{method: :delete, url: url, token: token}) do
         # 404 = label already absent; treat as success so the toggle is idempotent.
         {:ok, %{status: status}} when status in 200..299 or status == 404 -> :ok
-        {:ok, %{status: status}} -> {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} -> {:error, github_status_error(response)}
         {:error, reason} -> {:error, classify_error({:error, reason})}
       end
     end
@@ -949,9 +944,13 @@ defmodule Aiur.GitHub.Client do
          )}
 
       {:error, reason} ->
+        {:github, classification, detail} = classify_error({:error, reason})
+
         {:error,
          %{
-           reason: :request_failed,
+           reason: classification,
+           classification: classification,
+           detail: detail,
            endpoint: endpoint,
            repo: "#{owner}/#{repo}",
            token_source: "GITHUB_TOKEN",
@@ -1037,6 +1036,18 @@ defmodule Aiur.GitHub.Client do
 
   defp human_auth_reason(%{reason: :repo_not_accessible, status: status}),
     do: "GitHub returned HTTP #{status}, so the token cannot access the configured repository or github.repo is wrong"
+
+  defp human_auth_reason(%{classification: :dns}),
+    do: "DNS resolution failed while connecting to api.github.com"
+
+  defp human_auth_reason(%{classification: :timeout}),
+    do: "the request timed out or the connection was closed before GitHub returned a status"
+
+  defp human_auth_reason(%{classification: :tls}),
+    do: "TLS negotiation failed before GitHub returned a status"
+
+  defp human_auth_reason(%{classification: :transport, request_error: error}),
+    do: "the request failed before GitHub returned a status (#{error})"
 
   defp human_auth_reason(%{reason: :request_failed, request_error: error}),
     do: "the request failed before GitHub returned a status (#{error})"
@@ -1167,9 +1178,9 @@ defmodule Aiur.GitHub.Client do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &normalize_issue(&1, owner, repo, prefix))}
 
-      {:ok, %{status: status}} ->
+      {:ok, %{status: status} = response} ->
         Logger.error("GitHub API request failed status=#{status}")
-        {:error, {:github_api_status, status}}
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         Logger.error("GitHub API request failed: #{inspect(reason)}")
@@ -1198,8 +1209,8 @@ defmodule Aiur.GitHub.Client do
       {:ok, %{status: 404}} ->
         {:cont, {:ok, acc}}
 
-      {:ok, %{status: status}} ->
-        {:halt, {:error, {:github_api_status, status}}}
+      {:ok, %{status: _status} = response} ->
+        {:halt, {:error, github_status_error(response)}}
 
       {:error, reason} ->
         {:halt, {:error, classify_error({:error, reason})}}
@@ -2065,8 +2076,8 @@ defmodule Aiur.GitHub.Client do
       {:ok, %{status: 200, body: issue_body}} ->
         apply_issue_state_update(update_context, issue_body, state_name, new_label)
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         {:error, classify_error({:error, reason})}
@@ -2161,7 +2172,7 @@ defmodule Aiur.GitHub.Client do
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
-    |> Enum.reject(&terminal_state_label?(&1, prefix))
+    |> Enum.reject(&(terminal_state_label?(&1, prefix) or preserved_prefixed_label?(&1, prefix)))
     |> Enum.reduce_while(:ok, fn label, :ok ->
       case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
         :ok -> {:cont, :ok}
@@ -2236,8 +2247,8 @@ defmodule Aiur.GitHub.Client do
           )
         end
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         {:error, classify_error({:error, reason})}
@@ -2249,6 +2260,7 @@ defmodule Aiur.GitHub.Client do
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
+    |> Enum.reject(&preserved_prefixed_label?(&1, prefix))
     |> Enum.reduce_while(:ok, fn label, :ok ->
       case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
         :ok -> {:cont, :ok}
@@ -2264,8 +2276,8 @@ defmodule Aiur.GitHub.Client do
       {:ok, %{status: status}} when status in [200, 204, 404] ->
         :ok
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         {:error, classify_error({:error, reason})}
@@ -2279,8 +2291,8 @@ defmodule Aiur.GitHub.Client do
       {:ok, %{status: status}} when status in [200, 201] ->
         :ok
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status}}
+      {:ok, %{status: _status} = response} ->
+        {:error, github_status_error(response)}
 
       {:error, reason} ->
         {:error, classify_error({:error, reason})}
@@ -2298,8 +2310,8 @@ defmodule Aiur.GitHub.Client do
         {:ok, %{status: status}} when status in [200, 201] ->
           :ok
 
-        {:ok, %{status: status}} ->
-          {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} ->
+          {:error, github_status_error(response)}
 
         {:error, reason} ->
           {:error, classify_error({:error, reason})}
@@ -2341,6 +2353,7 @@ defmodule Aiur.GitHub.Client do
       branch_name: nil,
       url: gh_issue["html_url"],
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
+      paused: paused_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
       created_at: parse_datetime(gh_issue["created_at"]),
@@ -2351,14 +2364,55 @@ defmodule Aiur.GitHub.Client do
   defp extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"
 
   defp extract_state(_gh_issue, label_names, prefix) do
-    prefix_colon = "#{prefix}:"
+    prefix_colon = normalize_label_name("#{prefix}:")
+    Enum.find_value(label_names, &state_label_suffix(&1, prefix_colon))
+  end
 
-    Enum.find_value(label_names, fn name ->
-      if String.starts_with?(name, prefix_colon) do
-        String.replace_prefix(name, prefix_colon, "")
-      end
+  defp state_label_suffix(name, prefix_colon) do
+    normalized = normalize_label_name(name)
+
+    if String.starts_with?(normalized, prefix_colon) do
+      normalized
+      |> String.replace_prefix(prefix_colon, "")
+      |> state_suffix_unless_preserved()
+    end
+  end
+
+  defp state_suffix_unless_preserved(suffix) do
+    unless preserved_prefixed_label_suffix?(suffix), do: suffix
+  end
+
+  defp paused_label?(label_names, prefix) when is_list(label_names) do
+    paused_label = normalize_label_name("#{prefix}:paused")
+
+    Enum.any?(label_names, fn name ->
+      normalize_label_name(name) == paused_label
     end)
   end
+
+  defp preserved_prefixed_label?(label, prefix) when is_binary(label) and is_binary(prefix) do
+    prefix_colon = normalize_label_name("#{prefix}:")
+    normalized = normalize_label_name(label)
+
+    String.starts_with?(normalized, prefix_colon) and
+      normalized
+      |> String.replace_prefix(prefix_colon, "")
+      |> preserved_prefixed_label_suffix?()
+  end
+
+  defp preserved_prefixed_label?(_label, _prefix), do: false
+
+  defp preserved_prefixed_label_suffix?(suffix) when is_binary(suffix) do
+    suffix in @preserved_prefixed_label_suffixes
+  end
+
+  defp normalize_label_name(label) when is_binary(label) do
+    label
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_label_name(_label), do: ""
 
   defp extract_priority(label_names) do
     Enum.find_value(label_names, &parse_priority_label/1)
@@ -2519,8 +2573,8 @@ defmodule Aiur.GitHub.Client do
         {:ok, %{status: 200, body: body}} when is_list(body) ->
           {:ok, body}
 
-        {:ok, %{status: status}} ->
-          {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} ->
+          {:error, github_status_error(response)}
 
         {:error, reason} ->
           {:error, classify_error({:error, reason})}
@@ -2549,8 +2603,8 @@ defmodule Aiur.GitHub.Client do
         {:ok, %{status: status, body: body}} when status in [200, 201] and is_map(body) ->
           {:ok, body}
 
-        {:ok, %{status: status}} ->
-          {:error, {:github_api_status, status}}
+        {:ok, %{status: _status} = response} ->
+          {:error, github_status_error(response)}
 
         {:error, reason} ->
           {:error, classify_error({:error, reason})}

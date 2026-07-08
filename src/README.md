@@ -100,12 +100,15 @@ walks:
 5. **GitHub token** — used to create labels and act as the bot account. With no
    `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
    failing.
-6. **Labels** — creates the lifecycle (`agent:*`), complexity, model, and
-   remote-control labels the orchestrator routes on. Each stage creates only the
-   labels that are missing; when a group already exists it reports
+6. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
+   complexity, model, and remote-control labels the orchestrator routes on.
+   Each stage creates only the labels that are missing; when a group already exists it reports
    `<group> tags: created.` and skips the prompt.
 
 When it finishes, add `agent:todo` to the issues you want worked and run `aiur`.
+Add `agent:paused` alongside an existing `agent:*` state when you want Aiur to
+skip or park that issue without losing the preserved state; remove only
+`agent:paused` to resume normal behavior.
 
 ## Config
 
@@ -178,6 +181,11 @@ aiurdev status
 Pause is cooperative: the running agent receives the same pause request used by the
 dashboard and agent-list pane, then stops at its next safe turn boundary. Pausing an
 already-paused agent is a no-op and exits successfully.
+
+For tracker-level shelving, apply `agent:paused` in GitHub instead of changing
+the issue state. Aiur will not claim a paused `agent:todo` ticket, will
+cooperatively pause a running ticket when the label appears, and `aiurdev watch`
+shows the override as `paused`.
 
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.

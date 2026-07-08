@@ -51,6 +51,41 @@ defmodule Aiur.GitHub.ConfigTest do
     assert resolved == "keyring-token"
   end
 
+  test "rate-exhausted env token + valid keyring -> returns the keyring token" do
+    System.put_env("GITHUB_TOKEN", "rate-exhausted-env-token")
+
+    request_fun = fn _url, opts ->
+      token = authorization_token(opts)
+
+      case token do
+        "rate-exhausted-env-token" ->
+          {:ok,
+           %{
+             status: 200,
+             headers: %{"x-ratelimit-remaining" => ["0"]},
+             body: %{"resources" => %{"core" => %{"remaining" => 0}}}
+           }}
+
+        "keyring-token" ->
+          {:ok,
+           %{
+             status: 200,
+             headers: %{"x-ratelimit-remaining" => ["42"]},
+             body: %{"resources" => %{"core" => %{"remaining" => 42}}}
+           }}
+      end
+    end
+
+    resolved =
+      Config.resolve_token(
+        request_fun: request_fun,
+        keyring_fun: fn -> "keyring-token" end
+      )
+
+    assert resolved == "keyring-token"
+    assert Config.token() == "keyring-token"
+  end
+
   test "invalid env + invalid keyring -> returns the env token as last resort" do
     System.put_env("GITHUB_TOKEN", "stale-env-token")
 
@@ -91,5 +126,14 @@ defmodule Aiur.GitHub.ConfigTest do
     System.put_env("GITHUB_TOKEN", "raw-env-token")
 
     assert Config.token() == "raw-env-token"
+  end
+
+  defp authorization_token(opts) do
+    opts
+    |> Keyword.fetch!(:headers)
+    |> Enum.find_value(fn
+      {"Authorization", "Bearer " <> token} -> token
+      _ -> nil
+    end)
   end
 end

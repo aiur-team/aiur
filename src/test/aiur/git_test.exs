@@ -3,6 +3,8 @@ defmodule Aiur.GitTest do
 
   alias Aiur.Git
 
+  @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
+
   describe "ls_remote/3" do
     test "parses ls-remote output into a ref => sha map" do
       stub_output =
@@ -53,6 +55,80 @@ defmodule Aiur.GitTest do
 
       assert refs == %{"refs/heads/ok" => "abc123"}
     end
+
+    test "timeout is wall-clock bounded even when git emits output" do
+      tmp =
+        Path.join(System.tmp_dir!(), "aiur-git-heartbeat-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      fake_git = Path.join(tmp, "git")
+
+      File.write!(fake_git, """
+      #!/bin/sh
+      while true
+      do
+        echo heartbeat
+        sleep 0.1
+      done
+      """)
+
+      File.chmod!(fake_git, 0o755)
+
+      on_exit(fn ->
+        if pkill = System.find_executable("pkill") do
+          System.cmd(pkill, ["-f", fake_git], stderr_to_stdout: true)
+        end
+
+        File.rm_rf!(tmp)
+      end)
+
+      task =
+        Task.async(fn ->
+          Git.ls_remote("origin", ["refs/heads/main"], git_path: fake_git, timeout_ms: 1_000)
+        end)
+
+      result = Task.yield(task, 2_500) || Task.shutdown(task, :brutal_kill)
+
+      assert {:ok, {:error, {:git_ls_remote_timeout, 1_000, output}}} = result
+      assert output =~ "heartbeat"
+    end
+
+    @tag skip: @pgrep_skip_reason
+    test "times out and kills the git process tree" do
+      tmp =
+        Path.join(System.tmp_dir!(), "aiur-git-timeout-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      fake_git = Path.join(tmp, "git")
+      child_pid_file = Path.join(tmp, "child.pid")
+
+      File.write!(fake_git, """
+      #!/bin/sh
+      sleep 60 &
+      echo "$!" > "$2"
+      wait
+      """)
+
+      File.chmod!(fake_git, 0o755)
+
+      on_exit(fn ->
+        case File.read(child_pid_file) do
+          {:ok, pid} -> System.cmd("kill", ["-KILL", String.trim(pid)], stderr_to_stdout: true)
+          _ -> :ok
+        end
+
+        File.rm_rf!(tmp)
+      end)
+
+      assert {:error, {:git_ls_remote_timeout, 1_000, ""}} =
+               Git.ls_remote(child_pid_file, ["refs/heads/main"],
+                 git_path: fake_git,
+                 timeout_ms: 1_000
+               )
+
+      child_pid = child_pid_file |> File.read!() |> String.trim() |> String.to_integer()
+      assert wait_dead(child_pid, 50)
+    end
   end
 
   describe "parse_origin_url/1 (repo auto-detect)" do
@@ -67,5 +143,20 @@ defmodule Aiur.GitTest do
       assert Git.parse_origin_url("not-a-remote") == nil
       assert Git.parse_origin_url("") == nil
     end
+  end
+
+  defp wait_dead(_pid, 0), do: false
+
+  defp wait_dead(pid, attempts) do
+    if os_pid_alive?(pid) do
+      Process.sleep(25)
+      wait_dead(pid, attempts - 1)
+    else
+      true
+    end
+  end
+
+  defp os_pid_alive?(pid) do
+    match?({_, 0}, System.cmd("kill", ["-0", to_string(pid)], stderr_to_stdout: true))
   end
 end

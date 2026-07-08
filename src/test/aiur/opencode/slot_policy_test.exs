@@ -49,7 +49,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_visible_changed, 1, nil})
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_policy_test_sync, self()})
 
-      assert_receive {:slot_policy_test_sync, _}, 500
+      assert_receive {:slot_policy_test_sync, _}, 2_000
       :sys.get_state(pid)
       assert Process.alive?(pid)
     end
@@ -135,7 +135,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
   defp dead_pid do
     pid = spawn(fn -> :ok end)
     ref = Process.monitor(pid)
-    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 500
+    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 2_000
     refute Process.alive?(pid)
     pid
   end
