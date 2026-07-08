@@ -232,6 +232,7 @@ defmodule Aiur.TestSupport do
           tracker_bot_account: nil,
           tracker_trusted_accounts: [],
           max_vertical_panes: 3,
+          pre_warmed_sessions: 3,
           agent_kind: "codex",
           agent_routing: %{},
           poll_interval_seconds: 30,
@@ -278,6 +279,7 @@ defmodule Aiur.TestSupport do
     agent_kind = Keyword.get(config, :agent_kind)
     agent_routing = Keyword.get(config, :agent_routing)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
+    pre_warmed_sessions = Keyword.get(config, :pre_warmed_sessions)
     poll_interval_seconds = Keyword.get(config, :poll_interval_seconds)
     workspace_root = Keyword.get(config, :workspace_root)
     workspace_bootstrap_image = Keyword.get(config, :workspace_bootstrap_image)
@@ -358,6 +360,7 @@ defmodule Aiur.TestSupport do
     sections =
       [
         "max_vertical_panes: #{yaml_value(max_vertical_panes)}",
+        "pre_warmed_sessions: #{yaml_value(pre_warmed_sessions)}",
         tracker_section,
         "polling:",
         "  interval_seconds: #{yaml_value(poll_interval_seconds)}",
