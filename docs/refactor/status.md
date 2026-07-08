@@ -1,8 +1,22 @@
 # Refactor Status
 
-Last updated: 2026-07-08 00:35 PDT
+Last updated: 2026-07-08 (late PM) PDT
 
 ## Current mode
+
+**PHASE 1 COMPLETE — `v2` at `c1f92257`.** The full safety net has landed: all
+Phase-0 fleet unblockers (→`main`), all Phase-1 prereqs (T-001…T-005 + T-006A),
+all 8 characterization suites (T-006…T-013), the affected-tests-only pre-PR gate
+(#776), and full concurrent-suite deflaking (#777 + #785). The fleet is
+**stopped** (no active work). Only optional follow-ups remain open: #771 (guard
+hardening — optional) and #781 (alert-watch flake, needs-triage). **Next is a
+human touchpoint: plan/write and execute Phase 2+ — the actual structural
+production-readiness refactor, not yet ticketed.** Do not relaunch the fleet
+until Phase 2 tickets exist. See `HANDOFF.md` for the full progress log.
+
+---
+
+_History below (Phase-1 execution):_
 
 Phase 1 is running again as a Sub-run A canary. Phase 0 blocker #768 (the Codex
 `{:error, :unavailable}` crash) is fixed: PR #769 landed on `main` at

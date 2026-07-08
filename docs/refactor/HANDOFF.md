@@ -14,19 +14,24 @@ companion docs. This handoff is how to *operate*; those are what to *build*.
 
 ## Current handoff — 2026-07-08 PDT
 
-**Mode:** Phase 1 running — Sub-run A **complete**, ready to ramp Sub-run B.
-#768 is fixed/merged and the full Sub-run A canary landed on `v2` (#749 T-001,
-#770 T-006A, #755 T-005). `v2` is at `966c78f2`. The fleet is idle (all
-Sub-run A agents finished). The regression tripwire guard is live on `v2`.
+**Mode:** **PHASE 1 COMPLETE.** The entire safety net has landed on `v2`
+(`c1f92257`): all Phase-0 fleet unblockers (→`main`), all Phase-1 prereqs
+(T-001…T-005 + T-006A: RepoBase+`v2` CI, log isolation, SlotPolicy flake,
+website CI, tripwire guard, warm-pool), all 8 characterization suites
+(T-006…T-013), the affected-tests-only pre-PR gate (#776), and the full
+concurrent-suite deflaking (#777 + #785 — tracked_set/slot_policy/WorkflowStore
+now green under `make coverage`). The fleet is **stopped** (no active work).
 
-**Immediate next unit:** ramp Sub-run B. Because merged Sub-run A code
-(#749 `repo_base.ex`, #770 `slot_policy.ex`) is not in the running release,
-rebuild first: `scripts/aiurdev stop` → `scripts/aiurdev build` from `v2` →
-remove `agent:paused` from #740–#744 (keep `model:codex`) → relaunch
-`scripts/aiurdev --bg --debug`. The relaunch also live-verifies Sub-run A's
-merges. Then review/merge Sub-run B PRs as before: comment as a code-owner
-(an `issue_comment` via `gh pr comment` — a formal `gh pr review` does NOT
-trigger `agent:rework`), one merge at a time.
+**Immediate next unit: hand off to the human for Phase 2+.** Per §12, Phase-1
+completion is a human touchpoint. **Phase 2+ — the actual structural
+production-readiness refactor — is not yet ticketed.** The next operator action
+is to plan/write the Phase 2 backlog (the real refactor that the safety net now
+protects), present it for review, then resume the loop for Phase 2. Do NOT
+relaunch the fleet until Phase 2 tickets exist and are `agent:todo`.
+
+**Remaining open items (all optional/hygiene, none blocking):** #771 (guard
+backdated-commit hardening — optional; the gate is removed post-refactor) and
+#781 (alert-watch mid-stream append flake, `needs-triage`).
 
 **Hardening carried forward:** #771 (backdated-commit approval bypass in the
 regression guard) is filed `refactor phase:1 bug` with two concrete fix
@@ -407,3 +412,24 @@ Everything else is autonomous.
   `gh pr comment` (`issue_comment`), not a formal `gh pr review`. Codex worked
   cleanly all run (limit reset); zero `:unavailable`/crash events. Next:
   rebuild from `v2` and ramp Sub-run B (#740–#744).
+- **2026-07-08 (late PM) — PHASE 1 COMPLETE (`v2` at `c1f92257`).** Ramped the
+  full Phase-1 characterization batch. Landed T-006/07/08/09/10/11/12/13
+  (#772/#773/#786/#778/#783/#782/#784 + #740's #772) — all 8 characterization
+  suites — each reviewed by a background stability agent (async-isolation +
+  source-pinning checks), guard-labeled, admin-merged (the `guard` required
+  check never actually triggers on `v2` PRs; the CI `test` check stayed
+  flaky-red until deflaked, so each PR's own tests were verified via review).
+  Two operational events: (1) trying all 8 agents at once saturated the box
+  (load 32) and crashed the daemon BEAM (#409 class) — recovered, and the
+  affected-tests-only gate (#776) + deflakes (#777) kept the resumed batch at
+  ~load 1; (2) Codex hit `usageLimitExceeded`, so the remaining tickets were
+  rerouted `model:codex`→`model:claude` and finished there. Final deflake #785
+  (tracked_set + slot_policy + the WorkflowStore/`WorkspaceAndConfigTest`
+  cross-file sequential leak) needed `agent.stall_timeout_ms` raised 5m→60m
+  (committed to `v2`; a full `mix test --cover` is silent ~6m and tripped the
+  stall watchdog) before the agent could validate — then `make coverage` went
+  green. The 5m→60m stall-timeout DEFAULT was also shipped to `main` (#787) via
+  a background agent (small improvements now go to `main` directly, decoupled
+  from the refactor). Fleet stopped. **Next: plan/write Phase 2+ (the actual
+  structural refactor) — a human touchpoint; do not relaunch until Phase 2
+  tickets exist.**
