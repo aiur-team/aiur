@@ -273,3 +273,10 @@ Everything else is autonomous.
   retry-exhaustion logs. New Phase 0 blockers #764 and #765 were created
   without `agent:todo`; dispatch them only after the blocker workflow target is
   explicitly `main`.
+- **2026-07-07** — Phase 0 blockers #764 and #765 landed on `main`, were
+  pulled into `v2`, and `v2` passed `make ci` at `ad0d17f`. Dogfood config and
+  hooks were retargeted to `v2`, then Phase 1 relaunched for #735/#748 only.
+  The run was stopped after Codex app-server reported `credits.hasCredits=false`
+  and agents hit `{:error, :unavailable}` / stall retry churn. New Phase 0
+  blocker #768 tracks pausing unavailable Codex turns instead of crashing or
+  retry-looping. Current issue/PR state lives in `docs/refactor/status.md`.

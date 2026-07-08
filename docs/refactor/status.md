@@ -1,68 +1,59 @@
 # Refactor Status
 
-Last updated: 2026-07-07 15:12 PDT
+Last updated: 2026-07-07 21:57 PDT
 
 ## Current mode
 
-The production-readiness refactor is in Phase 0 blocker mode. The
-2026-07-07 13:07 PDT Phase 1 run stopped itself after active tickets were
-mass-moved to `agent:error` without retry-exhaustion logs. The 14:22 PDT
-Phase 0 run reproduced the same unexpected state swap on #764 and #765. Direct
-backstop fixes landed on `main` via PR #766 and PR #767.
+The production-readiness refactor is back in Phase 0 blocker mode because the
+latest Phase 1 resume showed Codex app-server unavailability/usage-limit
+failures. Phase 0 fixes #764 and #765 have landed on `main`, were pulled into
+`v2`, and `v2` was pushed at `ad0d17f` after a full `make ci` pass from
+`src/`.
 
-Do not dispatch more Phase 1 refactor work until the new Phase 0 blockers are
-handled and pulled back into `v2`.
+The 2026-07-07 21:27 PDT Phase 1 resume launched successfully from `v2`, but
+#735 and #748 repeatedly hit `{:error, :unavailable}` / stalled Codex turns
+while app-server logs reported `credits.hasCredits=false`. The daemon was
+stopped and new Phase 0 blocker #768 was created.
+
+Do not dispatch more Phase 1 refactor work until #768 is handled or the Codex
+usage-limit condition is otherwise cleared.
 
 Phase 0 is not normal `v2` refactor work. These are aiur reliability fixes that
 unsnag the fleet itself, so their PRs target `main` first. After they land,
 pull `main` back into `v2`, rebuild aiur, and only then resume normal Phase 1.
 
-New Phase 0 tickets #764 and #765 are closed with `agent:done`. The local
-dogfood `.aiur/config` and `.aiur/hooks` remain switched to `main`; switch them
-back to `v2` after pulling these fixes into `v2`.
+The dogfood `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and
+`.aiur/prewarm` are now retargeted to `v2` on the `v2` branch.
 
 ## Resume notes
 
 Phase 1 restart checklist:
 
-1. Pull the Phase 0 fixes from `main` into `v2`. Done: `520ad10`.
-2. Run `scripts/aiurdev build` from the operator repo. Done.
-3. Restart or resume aiur with `scripts/aiurdev --bg --debug`. Done for the
-   13:07 PDT run, but that run is now error-stopped.
-4. Resume only the intended refactor issues; #63 is not part of this refactor
-   batch and was paused only because the whole run was paused.
-5. Continue PR review from the open PR list below.
-
-Before resuming Phase 1 again:
-
-1. Fix or explicitly explain #764 (unexpected `agent:error` state swaps).
-   Landed on `main` via PR #767 (`c359333`).
-2. Fix or explicitly explain #765 (stuck SSH branch-poll subprocesses).
-   Landed on `main` via PR #766 (`3189103`).
-3. Pull `main` into `v2`.
-4. Switch dogfood `.aiur/config` and `.aiur/hooks` back to `v2`.
-5. Run `scripts/aiurdev build`, then launch with
-   `scripts/aiurdev --bg --debug`.
+1. Fix or explicitly clear #768 (Codex `{:error, :unavailable}` should pause,
+   not crash/retry-loop).
+2. If code lands on `main`, pull `main` back into `v2`.
+3. Run `scripts/aiurdev build` from the `v2` checkout.
+4. Relaunch with `scripts/aiurdev --bg --debug`.
+5. Resume only the intended refactor issues; #63 is not part of this refactor
+   batch.
 
 Shelving should use `agent:paused` instead of relying on this manual restart
 record.
 
 ## Current Phase 1 Resume Batch
 
-The first post-Phase-0 run reactivated #735, #736, #738, #739, #740, #741,
-#742, #743, #744, and #748. They are now stopped by `agent:error` labels, not
-by completed work:
+Current label state after stopping the 21:27 PDT run:
 
-- #735 `agent:error`; draft PR #749 exists and local workspace has rebased work.
-- #736 `agent:error` plus stale `agent:in-progress`; PR #757 needs rework.
-- #738 `agent:error`; PR #751 needs rework.
-- #739 `agent:error`; PR #755 needs owner decision or scoped follow-up.
-- #740 `agent:error`; local characterization work was validating.
-- #741 `agent:error`; local characterization work was validating.
-- #742 `agent:error`; local characterization work was validating.
-- #743 `agent:error`; local characterization work was validating.
-- #744 `agent:error`; agent completed a local test-only diff, no PR.
-- #748 `agent:error`; local warm-pool-capacity work was validating.
+- #735 `agent:todo` + `agent:paused`; draft PR #749 exists.
+- #736 `agent:human-review`; PR #757 passed background review.
+- #738 `agent:human-review`; PR #751 passed background review.
+- #739 `agent:rework` + `agent:paused`; PR #755 has request-changes review.
+- #740 `agent:in-progress` + `agent:paused`; held for later sub-run.
+- #741 `agent:in-progress` + `agent:paused`; held for later sub-run.
+- #742 `agent:in-progress` + `agent:paused`; held for later sub-run.
+- #743 `agent:in-progress` + `agent:paused`; held for later sub-run.
+- #744 `agent:in-progress` + `agent:paused`; held for later sub-run.
+- #748 `agent:in-progress` + `agent:paused`; interrupted by #768.
 
 #737 T-003 is closed after PR #750 landed.
 
@@ -71,21 +62,22 @@ by completed work:
 | PR | Issue | State | Notes |
 | --- | --- | --- | --- |
 | #749 | #735 | Draft, checks green | RepoBase base-branch work; agent reported local implementation complete but git index/auth blocked handoff. |
-| #751 | #738 | Open, checks green | Background review found two actionable issues: PR-only trigger misses direct-to-main deploy path, and CI uses npm while Netlify deploy uses Bun. Awaiting rework after #764/#765. |
-| #755 | #739 | Open, checks green | Background review found broader enforcement concerns. The agent found they conflict with #739's exact scope; owner decision or follow-up scope needed before merge. |
-| #757 | #736 | Open, checks green | Background review found an order-dependent `:log_file` restoration risk. Awaiting rework after #764/#765. |
+| #751 | #738 | Open, checks green | Background review found no actionable findings. Ready to update against latest `v2`, rerun checks, then merge. |
+| #755 | #739 | Open, checks green | Request-changes review posted: guard must be base-controlled and required on `v2`. Issue is `agent:rework` + `agent:paused`. |
+| #757 | #736 | Open, checks green | Background review found no actionable findings. Ready to update against latest `v2`, rerun checks, then merge. |
 
 ## Shelved Phase 1 tickets
 
 | Issue | Shelved label state | Runtime state before shelving | Restart note |
 | --- | --- | --- | --- |
-| #735 T-001 | Was `agent:in-progress`; now no active `agent:*` label | Paused | PR #749 exists but is draft. After #754/#617 landed, revalidate autonomous commit/push before resuming. |
-| #736 T-002 | Was `agent:in-progress`; now no active `agent:*` label | Paused | Dashboard auth and Mix PubSub blockers landed; review out-of-scope `:log_file` contamination before resuming. |
-| #737 T-003 | Was `agent:human-review`; now no active `agent:*` label | Deactivated | PR #750 is ready for operator review/merge checks; do not resume the agent unless rework is requested. |
-| #738 T-004 | Was `agent:in-progress`; now no active `agent:*` label | Paused | PR #751 exists; review the website CI feedback before resuming the agent. |
-| #739 T-005 | Was `agent:in-progress`; now no active `agent:*` label | Paused | PR #755 exists as draft with red CI; rerun validation after #753/#617 are integrated. |
-| #740 T-006 | Was `agent:in-progress`; now no active `agent:*` label | Paused | Agent reported local completion; re-dispatch only after `v2` includes Phase 0 fixes. |
-| #748 T-006A | Was `agent:in-progress`; now no active `agent:*` label | Paused | Agent completed validation locally; re-dispatch only after `v2` includes Phase 0 fixes. |
+| #735 T-001 | `agent:todo` + `agent:paused` | Interrupted by #768 | Remove `agent:paused` only after Codex unavailable is cleared; PR #749 is still draft. |
+| #739 T-005 | `agent:rework` + `agent:paused` | Review routed | Remove `agent:paused` after #768; agent should address the #755 request-changes review. |
+| #740 T-006 | `agent:in-progress` + `agent:paused` | Held for later sub-run | Remove `agent:paused` only when ready to run the heavier characterization sub-run. |
+| #741 T-007 | `agent:in-progress` + `agent:paused` | Held for later sub-run | Remove `agent:paused` only when ready to run the heavier characterization sub-run. |
+| #742 T-008 | `agent:in-progress` + `agent:paused` | Held for later sub-run | Remove `agent:paused` only when ready to run the heavier characterization sub-run. |
+| #743 T-009 | `agent:in-progress` + `agent:paused` | Held for later sub-run | Remove `agent:paused` only when ready to run the heavier characterization sub-run. |
+| #744 T-010 | `agent:in-progress` + `agent:paused` | Held for later sub-run | Remove `agent:paused` only when ready to run the heavier characterization sub-run. |
+| #748 T-006A | `agent:in-progress` + `agent:paused` | Interrupted by #768 | Remove `agent:paused` only after Codex unavailable is cleared. |
 
 ## Undispatched Phase 1 tickets
 
@@ -110,6 +102,26 @@ fixes, and their PRs target `main`.
 | #756 | Add `agent:paused` override label behavior so future shelving preserves old state automatically. Landed on `main` via PR #760 (`70c0e37`). |
 | #764 | Explain and fix unexpected `agent:error` state swaps without retry-exhaustion logs. Landed on `main` via PR #767 (`c359333`). |
 | #765 | Bound branch-poll remote calls so stuck SSH `git ls-remote` processes cannot linger. Landed on `main` via PR #766 (`3189103`). |
+| #768 | Codex `{:error, :unavailable}` / usage-limit failures should pause agents instead of crashing or retry-looping. Open; no PR yet. |
+
+## Latest Phase 1 run
+
+Launched 2026-07-07 21:27 PDT from `v2` at `ad0d17f` with:
+
+```bash
+scripts/aiurdev build
+scripts/aiurdev --bg --debug
+```
+
+Only #735 and #748 were unpaused enough to dispatch. #740-#744 were held with
+`agent:paused`; #736 and #738 were restored to `agent:human-review`; #739 was
+sent to `agent:rework` with `agent:paused` after the #755 request-changes
+review.
+
+The run was stopped after Codex app-server reported
+`credits.hasCredits=false`, `AgentRunner` hit `{:error, :unavailable}`, and
+both #735/#748 entered stall/retry churn. Phase 0 blocker #768 now tracks the
+required fix or external-clear condition.
 
 ## Latest Phase 0 run
 
