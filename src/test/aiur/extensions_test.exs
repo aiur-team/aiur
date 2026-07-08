@@ -137,7 +137,7 @@ defmodule Aiur.ExtensionsTest do
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
     assert {:ok, %{prompt: "Third prompt"}} = WorkflowStore.current()
     assert :ok = WorkflowStore.force_reload()
-    assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
+    assert :ok = ensure_workflow_store_running()
   end
 
   test "workflow store reloads when only the prompt_file body changes" do
@@ -212,7 +212,8 @@ defmodule Aiur.ExtensionsTest do
 
     Workflow.set_workflow_file_path(existing_path)
 
-    assert {:ok, restarted_pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
+    assert :ok = ensure_workflow_store_running()
+    restarted_pid = Process.whereis(WorkflowStore)
     assert Process.alive?(restarted_pid)
 
     WorkflowStore.force_reload()
@@ -1056,6 +1057,8 @@ defmodule Aiur.ExtensionsTest do
   defp assert_eventually(_fun, 0), do: flunk("condition not met in time")
 
   defp ensure_workflow_store_running do
+    ensure_aiur_supervisor_running()
+
     if Process.whereis(WorkflowStore) do
       :ok
     else
@@ -1063,6 +1066,19 @@ defmodule Aiur.ExtensionsTest do
         {:ok, _pid} -> :ok
         {:error, {:already_started, _pid}} -> :ok
       end
+    end
+  end
+
+  defp ensure_aiur_supervisor_running do
+    case Process.whereis(Aiur.Supervisor) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case Application.ensure_all_started(:aiur) do
+          {:ok, _apps} -> :ok
+          {:error, {:already_started, _app}} -> :ok
+        end
     end
   end
 end
