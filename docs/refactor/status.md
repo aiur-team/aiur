@@ -1,6 +1,6 @@
 # Refactor Status
 
-Last updated: 2026-07-07 21:57 PDT
+Last updated: 2026-07-07 23:01 PDT
 
 ## Current mode
 
@@ -8,7 +8,9 @@ The production-readiness refactor is back in Phase 0 blocker mode because the
 latest Phase 1 resume showed Codex app-server unavailability/usage-limit
 failures. Phase 0 fixes #764 and #765 have landed on `main`, were pulled into
 `v2`, and `v2` was pushed at `ad0d17f` after a full `make ci` pass from
-`src/`.
+`src/`. While the fleet stayed stopped, reviewed Phase 1 PRs #751 and #757
+landed on `v2`; `v2` is now at `3ea2f17` and passed full `make ci` from
+`src/` after the merge.
 
 The 2026-07-07 21:27 PDT Phase 1 resume launched successfully from `v2`, but
 #735 and #748 repeatedly hit `{:error, :unavailable}` / stalled Codex turns
@@ -45,8 +47,8 @@ record.
 Current label state after stopping the 21:27 PDT run:
 
 - #735 `agent:todo` + `agent:paused`; draft PR #749 exists.
-- #736 `agent:human-review`; PR #757 passed background review.
-- #738 `agent:human-review`; PR #751 passed background review.
+- #736 is closed with `agent:done`; PR #757 landed on `v2` at `3ea2f17`.
+- #738 is closed with `agent:done`; PR #751 landed on `v2` at `88cc2de`.
 - #739 `agent:rework` + `agent:paused`; PR #755 has request-changes review.
 - #740 `agent:in-progress` + `agent:paused`; held for later sub-run.
 - #741 `agent:in-progress` + `agent:paused`; held for later sub-run.
@@ -62,9 +64,7 @@ Current label state after stopping the 21:27 PDT run:
 | PR | Issue | State | Notes |
 | --- | --- | --- | --- |
 | #749 | #735 | Draft, checks green | RepoBase base-branch work; agent reported local implementation complete but git index/auth blocked handoff. |
-| #751 | #738 | Open, checks green | Background review found no actionable findings. Ready to update against latest `v2`, rerun checks, then merge. |
 | #755 | #739 | Open, checks green | Request-changes review posted: guard must be base-controlled and required on `v2`. Issue is `agent:rework` + `agent:paused`. |
-| #757 | #736 | Open, checks green | Background review found no actionable findings. Ready to update against latest `v2`, rerun checks, then merge. |
 
 ## Shelved Phase 1 tickets
 
@@ -122,6 +122,14 @@ The run was stopped after Codex app-server reported
 `credits.hasCredits=false`, `AgentRunner` hit `{:error, :unavailable}`, and
 both #735/#748 entered stall/retry churn. Phase 0 blocker #768 now tracks the
 required fix or external-clear condition.
+
+Post-stop merge work:
+
+- PR #751 (#738) landed on `v2` at `88cc2de`; `make ci` from `src/` passed.
+- PR #757 (#736) required one rework fix for order-dependent `:log_file`
+  mutation in `IssueLogEventHistoryTest`, then landed on `v2` at `3ea2f17`.
+  Fresh GitHub CI passed, the two-seed at-merge isolation probe printed
+  `ISOLATED`, and post-merge `make ci` from `src/` passed.
 
 ## Latest Phase 0 run
 

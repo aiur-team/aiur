@@ -280,3 +280,10 @@ Everything else is autonomous.
   and agents hit `{:error, :unavailable}` / stall retry churn. New Phase 0
   blocker #768 tracks pausing unavailable Codex turns instead of crashing or
   retry-looping. Current issue/PR state lives in `docs/refactor/status.md`.
+- **2026-07-07** — While aiur stayed stopped for #768, reviewed Phase 1 PRs
+  were landed one at a time: #751 closed #738 at `88cc2de`, and #757 closed
+  #736 at `3ea2f17` after a rework fix restored `:log_file` in
+  `IssueLogEventHistoryTest`. `v2` passed full `make ci` from `src/` after
+  each merge; #757 also passed the two-seed at-merge isolation probe with
+  `ISOLATED`. Remaining blockers: #768 before dispatching more Phase 1 work,
+  #755/#739 paused rework, #749 draft, #735/#740-#744/#748 paused.
