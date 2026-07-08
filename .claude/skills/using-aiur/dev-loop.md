@@ -34,11 +34,15 @@ and avoids the index-write failure path entirely.
 
 1. Implement
 2. Add / update / run tests
-3. Run the pre-PR verification gate before opening or finalizing the PR:
-   `mix compile --warnings-as-errors`, `mix format --check-formatted`,
-   `mix test`, `mix credo --strict`, and `mix dialyzer`
-4. Fix every verification failure before continuing. Do not substitute a
-   smaller local gate such as "tests + format" for the PR-ready check.
+3. Run the scoped local pre-PR verification gate before opening or finalizing
+   the PR: `mix compile --warnings-as-errors`, `mix format --check-formatted`,
+   affected tests only (the test files for modules you touched plus directly
+   related tests), and `mix credo --strict` scoped to changed files when
+   possible.
+4. Fix every verification failure from the scoped local gate before continuing.
+   Do not gate PR-opening on a clean full-suite `mix test` run or loop on
+   unrelated suite flakes; CI runs the full `make ci` on every PR and is the
+   authoritative full-suite gate.
 5. Commit using short, 3–7 word messages, keeping your machine's git identity as
    the author. **When that author is `its-applekid` (email
    `its.applekid@gmail.com`)**, add GitHub's co-author trailer crediting the
@@ -54,8 +58,8 @@ and avoids the index-write failure path entirely.
 8. **Self-review the draft PR with `ce-code-review`** against the diff you just
    pushed.
 9. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
-10. Re-run the pre-PR verification gate after review fixes if any code, tests,
-    prompt, skill, or config files changed.
+10. Re-run the scoped local pre-PR verification gate after review fixes if any
+    code, tests, prompt, skill, or config files changed.
 11. If you still believe the work is complete and correct, **mark the PR ready
     for review** and add the `agent:human-review` label.
 
@@ -76,9 +80,11 @@ functionality end-to-end. If the CLI fails to run, debug and fix the issues — 
 not skip verification or give up. Only open the draft PR once the requested
 functionality is confirmed working in the CLI.
 
-Manual CLI verification is in addition to the pre-PR verification gate above,
-not a replacement for it. A PR is not ready for human review until compile,
-format, tests, credo strict, and dialyzer have all passed locally.
+Manual CLI verification is in addition to the scoped local pre-PR verification
+gate above, not a replacement for it. A PR is not ready for human review until
+compile, format, affected tests, and scoped credo strict have passed locally.
+The full suite is CI's job through `make ci`; do not loop locally on full-suite
+flakes before opening or finalizing the PR.
 
 ## Closing keyword in the PR description
 
