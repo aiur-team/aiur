@@ -365,6 +365,28 @@ Everything else is autonomous.
   dispatched and are working on Codex with no `:unavailable`/crash/retry churn.
   #740–#744 remain `agent:paused` for Sub-run B. Reroute Codex→`model:claude`
   only reactively, if agents actually stall on Codex limits.
+- **2026-07-08 (PM)** — Phase 1 characterization batch, eventful. Ran full
+  Phase 1 (#740–#747) at once; 8 concurrent full-suite pre-PR gates saturated
+  the box (load 32, 0% idle) and the daemon BEAM crashed (load-induced, #409
+  class). Recovered: merged in-flight #772 (T-006), restarted small. Root cause
+  fixed by two new tickets: **#776** (agents run affected-tests-only; CI owns
+  the full `make ci` — prompt.md + dev-loop skill) and **#777** (stabilized 5
+  concurrent-flaky specs). With those live, resumed the batch at ~load 1 (no
+  saturation). Landed T-006/T-007/T-009/T-010/T-011 (#772/#773/#778/#779/#782).
+  Remaining flakes → **#780** (tracked_set + slot_policy); it filed **#781**
+  (alert-watch flake, needs-triage). Then **Codex hit its usage limit again**
+  (`usageLimitExceeded`, resets hourly) and the #768 fix paused the agents
+  cleanly (no crash) — so per operator rule, **rerouted the remaining tickets
+  (#742/#745/#746/#747/#780) codex→claude** (`model:claude`) and restarted;
+  fleet flowing on claude. Guard finding: the regression-guard `pull_request_target`
+  workflow never actually triggers on `v2` PRs — the "passing" guard checks were
+  agent-posted bootstrap statuses; the gate is non-functional, so all
+  characterization PRs are admin-merged (operator review + `regression-suite-change`
+  label are the real enforcement). #742 (T-008) has a recurring bug: it reaches
+  human-review without pushing a branch/PR (work lost); re-dispatched. Caveat
+  for Phase 2: some characterization tests (e.g. #782) source-pin lib text via
+  `File.read!`+regex for hard-to-unit-test seams — they misfire on
+  behavior-preserving refactors; re-derive rather than assume a regression.
 - **2026-07-08** — Sub-run A completed. #770 (T-006A warm-pool decoupling,
   correctness-reviewed clean) merged to `v2` (`cbdca518`), #748 closed. #755
   (T-005 tripwire guard) went three review rounds: base-control + required
