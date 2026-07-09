@@ -70,8 +70,16 @@ defmodule Aiur.CodingAgent do
         # via `thread/resume` against its on-disk rollout, so a respawned
         # session continues rather than cold-starting (issue #378).
         resumable: true,
-        models: ["gpt-5.5", "gpt-5.4", "gpt-5.5-mini", "gpt-5.4-mini"],
-        efforts: ["low", "medium", "high"]
+        models: [
+          "gpt-5.6-sol",
+          "gpt-5.6-terra",
+          "gpt-5.6-luna",
+          "gpt-5.5",
+          "gpt-5.4",
+          "gpt-5.5-mini",
+          "gpt-5.4-mini"
+        ],
+        efforts: ["none", "low", "medium", "high", "xhigh", "max"]
       },
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
