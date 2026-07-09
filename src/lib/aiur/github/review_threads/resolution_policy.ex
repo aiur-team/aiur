@@ -43,7 +43,6 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
     end
   end
 
-  @doc false
   @spec verify_review_thread_resolution_latest_reply(
           map(),
           String.t(),
@@ -122,7 +121,6 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
     end
   end
 
-  @doc false
   @spec resolution_reason(atom(), atom()) :: atom()
   def resolution_reason(:before_resolve, reason), do: reason
   def resolution_reason(:after_resolve, :latest_comment_missing), do: :post_resolve_latest_comment_missing
@@ -133,7 +131,6 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
   def resolution_reason(:after_resolve, :latest_comment_body_mismatch),
     do: :post_resolve_latest_comment_body_mismatch
 
-  @doc false
   @spec resolution_precondition_failed(String.t(), atom(), map()) :: term()
   def resolution_precondition_failed(thread_id, reason, detail) do
     {:review_thread_resolution_precondition_failed,
@@ -167,19 +164,16 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
     end
   end
 
-  @doc false
   @spec normalize_thread_for_comment_context(map()) :: map()
   def normalize_thread_for_comment_context(thread) do
     %{"path" => Map.get(thread, "path")}
   end
 
-  @doc false
   @spec agent_classification_opts(String.t(), keyword()) :: keyword()
   def agent_classification_opts(bot_account, opts) do
     Keyword.update(opts, :agent_logins, [bot_account], &[bot_account | List.wrap(&1)])
   end
 
-  @doc false
   @spec agent_login?(term(), keyword()) :: boolean()
   def agent_login?(login, opts) when is_binary(login) do
     opts

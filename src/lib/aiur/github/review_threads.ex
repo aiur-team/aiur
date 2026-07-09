@@ -90,7 +90,6 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  @doc false
   @spec normalize_pr_number(term()) :: {:ok, pos_integer()} | {:error, {:invalid_pr_number, term()}}
   def normalize_pr_number(number) when is_integer(number) and number > 0, do: {:ok, number}
 
@@ -103,27 +102,16 @@ defmodule Aiur.GitHub.ReviewThreads do
 
   def normalize_pr_number(number), do: {:error, {:invalid_pr_number, number}}
 
-  @doc false
-  @spec fetch_unaddressed_review_thread_pages(
-          function(),
-          String.t(),
-          String.t(),
-          String.t(),
-          pos_integer(),
-          String.t() | nil,
-          keyword(),
-          [map()]
-        ) :: {:ok, [map()]} | {:error, term()}
-  def fetch_unaddressed_review_thread_pages(
-        request_fun,
-        token,
-        owner,
-        repo,
-        number,
-        cursor,
-        opts,
-        acc
-      ) do
+  defp fetch_unaddressed_review_thread_pages(
+         request_fun,
+         token,
+         owner,
+         repo,
+         number,
+         cursor,
+         opts,
+         acc
+       ) do
     variables =
       %{"owner" => owner, "repo" => repo, "number" => number}
       |> Transport.maybe_put_query("cursor", cursor)
@@ -150,27 +138,16 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  @doc false
-  @spec continue_unaddressed_review_thread_pages(
-          function(),
-          String.t(),
-          String.t(),
-          String.t(),
-          pos_integer(),
-          map(),
-          keyword(),
-          [map()]
-        ) :: {:ok, [map()]} | {:error, term()}
-  def continue_unaddressed_review_thread_pages(
-        request_fun,
-        token,
-        owner,
-        repo,
-        number,
-        page_info,
-        opts,
-        acc
-      ) do
+  defp continue_unaddressed_review_thread_pages(
+         request_fun,
+         token,
+         owner,
+         repo,
+         number,
+         page_info,
+         opts,
+         acc
+       ) do
     if Map.get(page_info, "hasNextPage") == true do
       fetch_unaddressed_review_thread_pages(
         request_fun,
@@ -187,9 +164,7 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  @doc false
-  @spec review_threads_page(map()) :: {:ok, {[map()], map()}} | {:error, :review_threads_missing}
-  def review_threads_page(body) when is_map(body) do
+  defp review_threads_page(body) when is_map(body) do
     threads = get_in(body, ["data", "repository", "pullRequest", "reviewThreads", "nodes"])
     page_info = get_in(body, ["data", "repository", "pullRequest", "reviewThreads", "pageInfo"])
 
@@ -200,16 +175,12 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  @doc false
-  @spec unaddressed_thread_comments([map()], keyword()) :: [map()]
-  def unaddressed_thread_comments(threads, opts) when is_list(threads) do
+  defp unaddressed_thread_comments(threads, opts) when is_list(threads) do
     threads
     |> Enum.flat_map(&unaddressed_thread_comment(&1, opts))
   end
 
-  @doc false
-  @spec unaddressed_thread_comment(map(), keyword()) :: [map()]
-  def unaddressed_thread_comment(%{"isResolved" => false} = thread, opts) do
+  defp unaddressed_thread_comment(%{"isResolved" => false} = thread, opts) do
     thread
     |> thread_comments()
     |> List.last()
@@ -228,9 +199,7 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  def unaddressed_thread_comment(_thread, _opts), do: []
-
-  @doc false
+  defp unaddressed_thread_comment(_thread, _opts), do: []
   @spec thread_comments(map()) :: [map()]
   def thread_comments(thread) when is_map(thread) do
     case get_in(thread, ["comments", "nodes"]) do
@@ -239,20 +208,16 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  @doc false
-  @spec classify_thread_comment(map() | nil, map(), keyword()) :: map() | nil
-  def classify_thread_comment(nil, _thread, _opts), do: nil
+  defp classify_thread_comment(nil, _thread, _opts), do: nil
 
-  def classify_thread_comment(comment, thread, opts) when is_map(comment) and is_map(thread) do
+  defp classify_thread_comment(comment, thread, opts) when is_map(comment) and is_map(thread) do
     normalized = normalize_thread_comment(comment, thread)
     classification_opts = BotIdentity.codeowners_classification_opts(opts)
     context = thread_ownership_context(normalized, classification_opts)
     Codeowners.classify_comment(normalized, context, classification_opts)
   end
 
-  @doc false
-  @spec normalize_thread_comment(map(), map()) :: map()
-  def normalize_thread_comment(comment, thread) do
+  defp normalize_thread_comment(comment, thread) do
     path = Map.get(thread, "path")
 
     %{
@@ -268,7 +233,6 @@ defmodule Aiur.GitHub.ReviewThreads do
     }
   end
 
-  @doc false
   @spec thread_ownership_context(map(), keyword()) :: term()
   def thread_ownership_context(%{"path" => path}, opts) when is_binary(path) and path != "" do
     Codeowners.ownership_for_path(path, opts)
@@ -276,29 +240,23 @@ defmodule Aiur.GitHub.ReviewThreads do
 
   def thread_ownership_context(_comment, opts), do: Codeowners.repo_ownership(opts)
 
-  @doc false
-  @spec unresolved_agent_review_thread_reply?(map(), keyword()) :: boolean()
-  def unresolved_agent_review_thread_reply?(comment, opts) when is_map(comment) do
+  defp unresolved_agent_review_thread_reply?(comment, opts) when is_map(comment) do
     comment
     |> get_in(["user", "login"])
     |> BotIdentity.agent_login?(opts)
   end
 
-  @doc false
-  @spec mark_review_thread_resolution_required(map()) :: map()
-  def mark_review_thread_resolution_required(comment) do
+  defp mark_review_thread_resolution_required(comment) do
     comment
     |> Map.put(:authoritative, true)
     |> Map.put("review_thread_resolution_required", true)
   end
 
-  @doc false
   @spec fetch_review_thread(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_review_thread(request_fun, token, thread_id) do
     Transport.github_graphql(request_fun, token, @review_thread_query, %{"id" => thread_id})
   end
 
-  @doc false
   @spec review_thread_from_body(map()) :: map()
   def review_thread_from_body(body) when is_map(body) do
     case get_in(body, ["data", "node"]) do
@@ -307,7 +265,6 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  @doc false
   @spec normalize_verified_thread_comment(map()) :: map()
   def normalize_verified_thread_comment(comment) when is_map(comment) do
     %{

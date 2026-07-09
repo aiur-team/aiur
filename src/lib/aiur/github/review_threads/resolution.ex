@@ -45,7 +45,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec do_resolve_review_thread(function(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def do_resolve_review_thread(request_fun, token, thread_id, terminal_reply_body, opts) do
@@ -77,7 +76,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec verify_review_thread_after_resolution(map(), function(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def verify_review_thread_after_resolution(result, request_fun, token, thread_id, terminal_reply_body, opts) do
@@ -99,7 +97,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec resolve_review_thread_mutation(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def resolve_review_thread_mutation(request_fun, token, thread_id) do
     case Transport.github_graphql(request_fun, token, @resolve_review_thread_mutation, %{"threadId" => thread_id}) do
@@ -111,7 +108,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec unresolve_review_thread_mutation(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def unresolve_review_thread_mutation(request_fun, token, thread_id) do
     case Transport.github_graphql(request_fun, token, @unresolve_review_thread_mutation, %{"threadId" => thread_id}) do
@@ -123,7 +119,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec unresolve_review_thread_after_post_resolution_failure(function(), String.t(), String.t(), term()) ::
           {:error, term()}
   def unresolve_review_thread_after_post_resolution_failure(request_fun, token, thread_id, reason) do
@@ -144,7 +139,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec verify_resolved_review_thread(map(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def verify_resolved_review_thread(body, thread_id, verification) when is_map(body) do
     thread = get_in(body, ["data", "resolveReviewThread", "thread"]) || %{}
@@ -167,7 +161,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec verify_unresolved_review_thread(map(), String.t()) :: {:ok, map()} | {:error, term()}
   def verify_unresolved_review_thread(body, thread_id) when is_map(body) do
     thread = get_in(body, ["data", "unresolveReviewThread", "thread"]) || %{}
@@ -188,7 +181,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec classify_review_thread_resolution_errors(String.t(), [map()]) :: term()
   def classify_review_thread_resolution_errors(thread_id, errors) when is_list(errors) do
     if Enum.any?(errors, &review_thread_resolution_permission_error?/1) do
@@ -204,7 +196,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec review_thread_resolution_permission_error?(term()) :: boolean()
   def review_thread_resolution_permission_error?(error) when is_map(error) do
     typed_permission_error?(Map.get(error, "type")) or
@@ -213,22 +204,16 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
   end
 
   def review_thread_resolution_permission_error?(_error), do: false
-
-  @doc false
   @spec typed_permission_error?(term()) :: boolean()
   def typed_permission_error?(value) when is_binary(value),
     do: value in ["FORBIDDEN", "INSUFFICIENT_SCOPES"]
 
   def typed_permission_error?(_value), do: false
-
-  @doc false
   @spec known_pat_permission_message?(term()) :: boolean()
   def known_pat_permission_message?(message) when is_binary(message),
     do: String.downcase(message) == "resource not accessible by personal access token"
 
   def known_pat_permission_message?(_message), do: false
-
-  @doc false
   @spec add_unresolve_verification(term(), map()) :: term()
   def add_unresolve_verification({type, detail}, verification) when is_map(detail) do
     {type, Map.put(detail, :unresolved_after_post_resolve_mismatch, verification)}
@@ -238,7 +223,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     {reason, %{unresolved_after_post_resolve_mismatch: verification}}
   end
 
-  @doc false
   @spec add_unresolve_failure(term(), term()) :: term()
   def add_unresolve_failure({type, detail}, unresolve_reason) when is_map(detail) do
     {type, Map.put(detail, :unresolve_error, unresolve_reason)}
@@ -248,7 +232,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     {reason, %{unresolve_error: unresolve_reason}}
   end
 
-  @doc false
   @spec normalize_review_thread_terminal_reply_body(term()) ::
           {:ok, String.t()} | {:error, :missing_review_thread_terminal_reply_body}
   def normalize_review_thread_terminal_reply_body(body) when is_binary(body) do
@@ -261,7 +244,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
   def normalize_review_thread_terminal_reply_body(_body),
     do: {:error, :missing_review_thread_terminal_reply_body}
 
-  @doc false
   @spec verify_review_thread_resolution_ready(function(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def verify_review_thread_resolution_ready(request_fun, token, thread_id, terminal_reply_body, opts) do
@@ -284,7 +266,6 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     end
   end
 
-  @doc false
   @spec verify_review_thread_resolution_still_latest(function(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def verify_review_thread_resolution_still_latest(request_fun, token, thread_id, terminal_reply_body, opts) do
