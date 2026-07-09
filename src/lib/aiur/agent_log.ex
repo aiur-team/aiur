@@ -8,6 +8,8 @@ defmodule Aiur.AgentLog do
   not available. The CLI dashboard log pane still reads the markdown projection.
   """
 
+  alias Aiur.Jsonl
+
   @type log_message :: %{
           role: String.t(),
           title: String.t(),
@@ -160,7 +162,7 @@ defmodule Aiur.AgentLog do
     trimmed_body = String.trim(body)
 
     with "{" <> _ <- trimmed_body,
-         {:ok, payload} <- Jason.decode(trimmed_body) do
+         {:ok, payload} <- Jsonl.decode_line(trimmed_body) do
       parse_json_log_entry(timestamp, event, payload, trimmed_body)
     else
       _ -> nil
