@@ -85,6 +85,73 @@ defmodule Aiur.PaneManager.PlaceholderTest do
     end
   end
 
+  describe "open_with_placeholder/3" do
+    test "spawns placeholder pane, stores in state, and replies to caller", %{
+      tmux: tmux,
+      state: state
+    } do
+      reply_ref = make_ref()
+      from = {self(), reply_ref}
+      task = Task.async(fn -> Placeholder.open_with_placeholder(state, "issue-3", from) end)
+
+      assert_receive {:tmux_mock_out, "split-window -t %1 -h -l 50% " <> command}, 500
+      assert command =~ "issue-3"
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%30\n%end 1 1 0\n"})
+
+      assert_receive {:tmux_mock_out, "select-pane -t %30"}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+      assert_receive {:tmux_mock_out, "select-pane -t %30 -T issue-3"}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+      assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n80x24\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "select-layout -t test:0 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+      assert_receive {^reply_ref, {:ok, "%30"}}, 500
+      assert {:noreply, new_state} = Task.await(task, 1000)
+      assert Map.get(new_state.placeholder_panes, "issue-3") == %{pane_id: "%30", slot: 1}
+    end
+
+    test "strips single quotes from identifier in split command", %{tmux: tmux, state: state} do
+      reply_ref = make_ref()
+      from = {self(), reply_ref}
+      task = Task.async(fn -> Placeholder.open_with_placeholder(state, "issue-it's-3", from) end)
+
+      assert_receive {:tmux_mock_out, "split-window -t %1 -h -l 50% " <> command}, 500
+      assert command =~ "issue-its-3"
+      refute command =~ "issue-it's-3"
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%31\n%end 1 1 0\n"})
+
+      respond_ok(tmux)
+      respond_ok(tmux)
+      respond_ok(tmux)
+      respond_ok(tmux)
+
+      assert_receive {^reply_ref, {:ok, "%31"}}, 500
+      Task.await(task, 1000)
+    end
+
+    test "uses vertical split when state orientation is :vertical", %{tmux: tmux, state: state} do
+      reply_ref = make_ref()
+      from = {self(), reply_ref}
+      state = %{state | orientation: :vertical}
+      task = Task.async(fn -> Placeholder.open_with_placeholder(state, "issue-4", from) end)
+
+      assert_receive {:tmux_mock_out, "split-window -t %1 -v -l 50% " <> _command}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%32\n%end 1 1 0\n"})
+
+      respond_ok(tmux)
+      respond_ok(tmux)
+      respond_ok(tmux)
+      respond_ok(tmux)
+
+      assert_receive {^reply_ref, {:ok, "%32"}}, 500
+      Task.await(task, 1000)
+    end
+  end
+
   describe "handle_failed/4" do
     test "kills the placeholder pane and drops it from state", %{tmux: tmux, state: state} do
       state = State.record_placeholder(state, "issue-2", "%88", 2)

@@ -79,6 +79,29 @@ defmodule Aiur.PaneManager.CloseTest do
       assert result == {:error, :not_slot_pane}
       assert new_state == state
     end
+
+    test "moves a slot-owned pane to hidden and replies :ok", %{tmux: tmux, state: state} do
+      parent = self()
+      registered = make_ref()
+      slot_index = System.unique_integer([:positive])
+
+      {:ok, _slot_pid} =
+        start_supervised({Aiur.PaneManager.CloseTest.FakeSlot, {slot_index, "%33", parent, registered}})
+
+      assert_receive {^registered, :ready}, 500
+      state = State.record_slot_pane(state, slot_index, "%33", "issue-33")
+      task = Task.async(fn -> Close.hide_slot_pane(state, "issue-33", "%33") end)
+
+      assert_receive {:tmux_mock_out, "move-pane -d -s %33 -t aiur-hidden -h"}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n80x24\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "select-layout -t test:0 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+      assert {:reply, :ok, new_state} = Task.await(task)
+      refute Map.has_key?(new_state.identifier_to_pane, "issue-33")
+    end
   end
 
   test "closes a slot-owned pane by moving it hidden and deselecting the slot", %{tmux: tmux, state: state} do
@@ -109,10 +132,12 @@ end
 defmodule Aiur.PaneManager.CloseTest.FakeSlot do
   use GenServer
 
+  alias Aiur.Opencode.SlotRegistry
+
   def start_link({index, pane_id, parent, ready_ref}), do: GenServer.start_link(__MODULE__, {index, pane_id, parent, ready_ref})
 
   def init({index, pane_id, parent, ready_ref}) do
-    :ok = Aiur.Opencode.SlotRegistry.register_self(index)
+    :ok = SlotRegistry.register_self(index)
     send(parent, {ready_ref, :ready})
     {:ok, {pane_id, parent, ready_ref}}
   end

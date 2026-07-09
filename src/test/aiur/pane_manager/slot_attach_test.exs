@@ -141,6 +141,30 @@ defmodule Aiur.PaneManager.SlotAttachTest do
       assert :ok = SlotAttach.bump_next_slot()
     end
   end
+
+  describe "attach_to_focused_pane/3" do
+    test "returns {:error, :no_focused_pane} when last_attached_pane_id is nil", %{state: state} do
+      state = %{state | last_attached_pane_id: nil}
+      from = {self(), make_ref()}
+
+      assert {:reply, {:error, :no_focused_pane}, new_state} =
+               SlotAttach.attach_to_focused_pane(state, "issue-1", from)
+
+      assert new_state.last_attached_pane_id == nil
+    end
+
+    test "returns {:error, :no_focused_pane} when pane is not tracked in pane_to_slot", %{
+      state: state
+    } do
+      state = %{state | last_attached_pane_id: "%99"}
+      from = {self(), make_ref()}
+
+      assert {:reply, {:error, :no_focused_pane}, new_state} =
+               SlotAttach.attach_to_focused_pane(state, "issue-1", from)
+
+      assert new_state.last_attached_pane_id == nil
+    end
+  end
 end
 
 defmodule Aiur.PaneManager.SlotAttachTest.FakeSlot do
