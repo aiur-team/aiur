@@ -1,5 +1,12 @@
+defmodule Aiur.Opencode.ChatCompletions.SseTest.ClosedAdapter do
+  # Stub adapter whose chunk/2 simulates a disconnected client.
+  def chunk(state, _data), do: {:error, {:closed, state}}
+end
+
 defmodule Aiur.Opencode.ChatCompletions.SseTest do
   use ExUnit.Case, async: true
+
+  import Plug.Test
 
   alias Aiur.Opencode.ChatCompletions.Sse
 
@@ -31,6 +38,22 @@ defmodule Aiur.Opencode.ChatCompletions.SseTest do
     test "failed and done reasons also finish with stop" do
       assert Sse.finish_reason_for({:failed, :boom}) == "stop"
       assert Sse.finish_reason_for(:done) == "stop"
+    end
+  end
+
+  describe "chunk/4" do
+    test "returns conn unchanged when the underlying adapter reports closed" do
+      # Simulates an opencode client that disconnected mid-stream. The
+      # caller's receive loop must continue draining the mailbox so it can
+      # finalize on :aiur_turn_done; crashing the handler here would kill
+      # the whole codex turn rendering.
+      alias Aiur.Opencode.ChatCompletions.SseTest.ClosedAdapter
+      sent_conn = conn(:post, "/") |> Plug.Conn.send_chunked(200)
+      closed_conn = %{sent_conn | adapter: {ClosedAdapter, :state}}
+
+      result = Sse.chunk(closed_conn, "chatcmpl-test", "hello", nil)
+
+      assert result == closed_conn
     end
   end
 end
