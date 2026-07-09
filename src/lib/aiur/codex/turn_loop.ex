@@ -6,7 +6,7 @@ defmodule Aiur.Codex.TurnLoop do
   require Logger
 
   alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, TurnState}
-  alias Aiur.Codex.CodingAgent
+  alias Aiur.Codex.{Approvals, NotificationPolicy, TurnEvents}
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
   def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
@@ -49,7 +49,7 @@ defmodule Aiur.Codex.TurnLoop do
   def handle_malformed(state, payload_string, port) do
     Rpc.log_non_json_stream_line(payload_string, "turn stream", "Codex")
 
-    if protocol_message_candidate?(payload_string) do
+    if NotificationPolicy.protocol_message_candidate?(payload_string) do
       Messages.emit_message(
         state.on_message,
         :malformed,
@@ -57,18 +57,11 @@ defmodule Aiur.Codex.TurnLoop do
           payload: payload_string,
           raw: payload_string
         },
-        CodingAgent.metadata_from_message(port, %{raw: payload_string})
+        TurnEvents.metadata_from_message(port, %{raw: payload_string})
       )
     end
 
     {:continue, state}
-  end
-
-  defp protocol_message_candidate?(payload_string) do
-    payload_string
-    |> to_string()
-    |> String.trim_leading()
-    |> String.starts_with?(["{", "["])
   end
 
   defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
@@ -80,15 +73,15 @@ defmodule Aiur.Codex.TurnLoop do
         raw: payload_string,
         details: payload_details
       },
-      CodingAgent.metadata_from_message(port, payload)
+      TurnEvents.metadata_from_message(port, payload)
     )
   end
 
   defp handle_turn_method(%{port: port} = session, state, payload, payload_string, method) do
     on_message = state.on_message
-    metadata = CodingAgent.metadata_from_message(port, payload)
+    metadata = TurnEvents.metadata_from_message(port, payload)
 
-    case CodingAgent.maybe_handle_approval_request(
+    case Approvals.maybe_handle_approval_request(
            port,
            method,
            payload,
@@ -109,7 +102,7 @@ defmodule Aiur.Codex.TurnLoop do
         {:error, {:turn_input_required, payload}}
 
       :approved ->
-        checkpoint = CodingAgent.checkpoint_for_method(method)
+        checkpoint = NotificationPolicy.checkpoint_for_method(method)
         {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
 
       :approval_required ->
@@ -128,7 +121,7 @@ defmodule Aiur.Codex.TurnLoop do
   end
 
   defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do
-    if CodingAgent.needs_input?(method, payload) do
+    if NotificationPolicy.needs_input?(method, payload) do
       Messages.emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
       {:error, {:turn_input_required, payload}}
     else
@@ -151,17 +144,17 @@ defmodule Aiur.Codex.TurnLoop do
   # through the orchestrator's max_retry_attempts cap and backoff.
   defp handle_notification_outcome(session, state, method, payload) do
     cond do
-      CodingAgent.codex_quota_exhausted?(method, payload) ->
+      NotificationPolicy.codex_quota_exhausted?(method, payload) ->
         Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
 
-        {:paused, CodingAgent.usage_limit_pause(payload, method)}
+        {:paused, NotificationPolicy.usage_limit_pause(payload, method)}
 
-      CodingAgent.codex_error_method?(method) and CodingAgent.unretryable_codex_error?(payload) ->
+      NotificationPolicy.codex_error_method?(method) and NotificationPolicy.unretryable_codex_error?(payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")
-        {:error, {:turn_unretryable, CodingAgent.codex_error_reason(payload, method)}}
+        {:error, {:turn_unretryable, NotificationPolicy.codex_error_reason(payload, method)}}
 
-      CodingAgent.turn_started_method?(method) ->
-        checkpoint = CodingAgent.checkpoint_for_method(method)
+      NotificationPolicy.turn_started_method?(method) ->
+        checkpoint = NotificationPolicy.checkpoint_for_method(method)
 
         next_state =
           session
@@ -169,18 +162,18 @@ defmodule Aiur.Codex.TurnLoop do
 
         {:continue, next_state}
 
-      state.turn_started? and CodingAgent.thread_idle_status?(method, payload) ->
+      state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
         TurnState.continue_after_turn_completion(state)
 
-      CodingAgent.codex_error_method?(method) ->
+      NotificationPolicy.codex_error_method?(method) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
-        checkpoint = CodingAgent.checkpoint_for_method(method)
+        checkpoint = NotificationPolicy.checkpoint_for_method(method)
         {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
 
       true ->
         Logger.debug("Codex notification: #{inspect(method)}")
-        checkpoint = CodingAgent.checkpoint_for_method(method)
+        checkpoint = NotificationPolicy.checkpoint_for_method(method)
         {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
     end
   end

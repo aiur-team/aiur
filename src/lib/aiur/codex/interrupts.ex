@@ -3,9 +3,11 @@ defmodule Aiur.Codex.Interrupts do
   Codex-specific interrupt error tolerance.
   """
 
+  alias Aiur.Codex.NotificationPolicy
+
   @spec handle_interrupt_error(map(), term()) :: {:continue, map()} | {:error, term()}
   def handle_interrupt_error(state, error) do
-    if no_active_turn_error?(error) do
+    if NotificationPolicy.no_active_turn_error?(error) do
       # Codex says "no active turn to interrupt" (-32600). The turn
       # ended on its own between us deciding to interrupt and codex
       # processing the request. There's nothing left to interrupt —
@@ -22,12 +24,4 @@ defmodule Aiur.Codex.Interrupts do
       {:error, {:turn_interrupt_failed, error}}
     end
   end
-
-  defp no_active_turn_error?(%{"code" => -32_600}), do: true
-
-  defp no_active_turn_error?(%{"message" => message}) when is_binary(message) do
-    String.contains?(message, "no active turn")
-  end
-
-  defp no_active_turn_error?(_), do: false
 end
