@@ -177,6 +177,7 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ "mix compile --warnings-as-errors"
       assert source =~ "mix format --check-formatted"
       assert source =~ "affected tests only"
+      assert source =~ "mix test --max-cases 4"
       assert source =~ "mix credo --strict"
       assert source =~ "changed files"
       assert source =~ "full `make ci`"

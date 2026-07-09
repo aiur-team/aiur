@@ -37,8 +37,8 @@ and avoids the index-write failure path entirely.
 3. Run the scoped local pre-PR verification gate before opening or finalizing
    the PR: `mix compile --warnings-as-errors`, `mix format --check-formatted`,
    affected tests only (the test files for modules you touched plus directly
-   related tests), and `mix credo --strict` scoped to changed files when
-   possible.
+   related tests), each run with `mix test --max-cases 4`, and `mix credo
+   --strict` scoped to changed files when possible.
 4. Fix every verification failure from the scoped local gate before continuing.
    Do not gate PR-opening on a clean full-suite `mix test` run or loop on
    unrelated suite flakes; CI runs the full `make ci` on every PR and is the
@@ -82,7 +82,8 @@ functionality is confirmed working in the CLI.
 
 Manual CLI verification is in addition to the scoped local pre-PR verification
 gate above, not a replacement for it. A PR is not ready for human review until
-compile, format, affected tests, and scoped credo strict have passed locally.
+compile, format, affected tests with the four-case cap, and scoped credo strict
+have passed locally.
 The full suite is CI's job through `make ci`; do not loop locally on full-suite
 flakes before opening or finalizing the PR.
 
