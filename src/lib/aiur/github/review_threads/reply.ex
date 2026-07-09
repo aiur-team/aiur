@@ -43,7 +43,13 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   end
 
   @spec do_reply_to_review_thread(
-          function(), String.t(), String.t(), String.t(), pos_integer(), keyword(), pos_integer()
+          function(),
+          String.t(),
+          String.t(),
+          String.t(),
+          pos_integer(),
+          keyword(),
+          pos_integer()
         ) ::
           {:ok, map()} | {:error, term()}
   def do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt) do
@@ -154,7 +160,8 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     }
   end
 
-  @spec add_review_thread_reply(function(), String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  @spec add_review_thread_reply(function(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
   def add_review_thread_reply(request_fun, token, thread_id, body) do
     Transport.github_graphql(request_fun, token, @reply_review_thread_mutation, %{
       "threadId" => thread_id,
@@ -183,7 +190,14 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     end
   end
 
-  @spec verify_latest_review_thread_comment(map(), String.t(), String.t(), function(), String.t(), keyword()) ::
+  @spec verify_latest_review_thread_comment(
+          map(),
+          String.t(),
+          String.t(),
+          function(),
+          String.t(),
+          keyword()
+        ) ::
           {:ok, map()} | {:error, term()}
   def verify_latest_review_thread_comment(thread_body, thread_id, body, request_fun, token, opts) do
     latest =
@@ -255,7 +269,8 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     sleep_fun.(delay_ms)
   end
 
-  @spec normalize_review_thread_id(term()) :: {:ok, String.t()} | {:error, :missing_review_thread_id}
+  @spec normalize_review_thread_id(term()) ::
+          {:ok, String.t()} | {:error, :missing_review_thread_id}
   def normalize_review_thread_id(id) when is_binary(id) do
     case String.trim(id) do
       "" -> {:error, :missing_review_thread_id}

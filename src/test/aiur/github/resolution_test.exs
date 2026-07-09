@@ -129,9 +129,10 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
         end
       end
 
-      assert {:error,
-               {:review_thread_resolution_precondition_failed,
-                %{reason: :post_resolve_latest_comment_author_mismatch}}} =
+      error_key = :review_thread_resolution_precondition_failed
+      error_detail = %{reason: :post_resolve_latest_comment_author_mismatch}
+
+      assert {:error, {^error_key, ^error_detail}} =
                Resolution.resolve_review_thread("PRRT_raced",
                  request_fun: request_fun,
                  bot_account: "aiur-bot",
