@@ -95,7 +95,7 @@ defmodule Aiur.AgentEnvironment do
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
-    "export HEX_HOME=#{shell_escape(hex)} MIX_HOME=#{shell_escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{shell_escape(workspace)}"
+    "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)}"
   end
 
   def workspace_env_export_prefix(_), do: ""
@@ -116,8 +116,4 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def base_env(_), do: []
-
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\\''") <> "'"
-  end
 end

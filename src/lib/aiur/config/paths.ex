@@ -63,6 +63,20 @@ defmodule Aiur.Config.Paths do
     String.replace(name, ~r/[^A-Za-z0-9._-]/, "_")
   end
 
+  @doc """
+  Like `sanitize/1`, but substitutes `default` when `value` is `nil`.
+
+  Canonical home of the former per-site `safe_identifier/1` copies
+  (workspace dirs, opencode model ids/session rows, hook-settings temp
+  files, test-reset workspace paths). These names are join keys across
+  subsystems: they must all derive from this one function, byte-identically,
+  or cross-subsystem lookups break.
+  """
+  @spec sanitize(String.t() | nil, String.t()) :: String.t()
+  def sanitize(value, default) when is_binary(default) do
+    sanitize(value || default)
+  end
+
   defp safe_project_identity do
     Tracker.project_identity()
   rescue
