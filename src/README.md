@@ -236,6 +236,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   invocation when a turn completes but the issue is still active. Default: `20`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
+- `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
+  per scheduler): capacity grows by `agent.load_ramp_step` below the target and
+  halves after high samples, no more often than `agent.load_cooldown_seconds`.
+  Set the target to `null` to use only the static cap and hard gate.
+- `agent.max_load_average` remains the separate per-scheduler hard ceiling for
+  new dispatch (default `1.5`); it holds work above the ceiling even when the
+  adaptive envelope is enabled.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
 - Optional alert sounds play when an agent gets stuck or needs input. Enable via the
   `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master

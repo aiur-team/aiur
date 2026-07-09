@@ -51,6 +51,11 @@ defmodule Aiur.OrchestratorLoadGateTest do
       assert Orchestrator.read_load(1.5) == 7.5
     end
 
+    test "reads the live load for an enabled envelope even when the hard gate is disabled" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "7.5 1 1 1/1 1"} end)
+      assert Orchestrator.read_load(nil, 1.0) == 7.5
+    end
+
     test "does NOT read the load source when the threshold is nil (explicitly disabled)" do
       Application.put_env(:aiur, :loadavg_source_override, fn ->
         flunk("avg1 must not be read when the load gate is disabled")
@@ -65,6 +70,37 @@ defmodule Aiur.OrchestratorLoadGateTest do
       end)
 
       assert Orchestrator.read_load(0.0) == :unavailable
+    end
+  end
+
+  describe "load_envelope/9" do
+    test "increases effective capacity below the per-scheduler target" do
+      assert {3, nil} = Orchestrator.load_envelope(1, nil, 6.0, 1.0, 12, 10, 2, 60_000, 1_000)
+      assert {5, nil} = Orchestrator.load_envelope(3, nil, 12.0, 1.0, 12, 10, 2, 60_000, 2_000)
+    end
+
+    test "never increases beyond the static/session concurrency cap" do
+      assert {10, nil} = Orchestrator.load_envelope(9, nil, 1.0, 1.0, 12, 10, 3, 60_000, 1_000)
+    end
+
+    test "decreases multiplicatively above target and honors the cooldown" do
+      assert {3, 1_000} = Orchestrator.load_envelope(5, nil, 13.0, 1.0, 12, 10, 1, 60_000, 1_000)
+
+      assert {3, 1_000} =
+               Orchestrator.load_envelope(3, 1_000, 13.0, 1.0, 12, 10, 1, 60_000, 2_000)
+
+      assert {2, 61_000} =
+               Orchestrator.load_envelope(3, 1_000, 13.0, 1.0, 12, 10, 1, 60_000, 61_000)
+
+      assert {1, 121_000} =
+               Orchestrator.load_envelope(2, 61_000, 13.0, 1.0, 12, 10, 1, 60_000, 121_000)
+    end
+
+    test "preserves capacity when load is unavailable and disables cleanly with a nil target" do
+      assert {3, 1_000} =
+               Orchestrator.load_envelope(3, 1_000, :unavailable, 1.0, 12, 10, 1, 60_000, 2_000)
+
+      assert {10, nil} = Orchestrator.load_envelope(3, 1_000, 99.0, nil, 12, 10, 1, 60_000, 2_000)
     end
   end
 

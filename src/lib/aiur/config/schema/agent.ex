@@ -101,6 +101,12 @@ defmodule Aiur.Config.Schema.Agent do
     # Enabled by default so high-concurrency runs have protection without
     # extra operator knowledge; explicit YAML null disables it.
     field(:max_load_average, :float, default: 1.5)
+    # Per-scheduler 1-min load target for the adaptive concurrency envelope.
+    # It ramps capacity while below target and backs off before the separate
+    # max_load_average hard gate is reached.
+    field(:target_load_average, :float, default: 1.0)
+    field(:load_ramp_step, :integer, default: 1)
+    field(:load_cooldown_seconds, :integer, default: 60)
     # nil = derive from schedulers_online/4; 0 disables the runtime synthetic
     # load-generator guard; positive integers cap known generators per agent.
     field(:synthetic_load_process_cap, :integer)
@@ -132,6 +138,9 @@ defmodule Aiur.Config.Schema.Agent do
         :stall_timeout_ms,
         :max_agent_duration_minutes,
         :max_load_average,
+        :target_load_average,
+        :load_ramp_step,
+        :load_cooldown_seconds,
         :synthetic_load_process_cap,
         :mix_scheduler_cap
       ],
@@ -145,6 +154,9 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
     |> validate_number(:max_load_average, greater_than: 0)
+    |> validate_number(:target_load_average, greater_than: 0)
+    |> validate_number(:load_ramp_step, greater_than: 0)
+    |> validate_number(:load_cooldown_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:synthetic_load_process_cap, greater_than_or_equal_to: 0)
     |> validate_number(:mix_scheduler_cap, greater_than: 0)
     |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)

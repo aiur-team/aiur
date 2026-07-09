@@ -35,6 +35,9 @@ agent:
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
   # max_load_average: 1.5                # per-scheduler load gate; set null to disable
+  # target_load_average: 1.0             # per-scheduler adaptive target; set null to disable envelope
+  # load_ramp_step: 1                    # slots added per below-target poll
+  # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
