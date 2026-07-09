@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   require Logger
 
-  alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnPrompt}
+  alias Aiur.AgentRunner.{CheckpointDelivery, QueueDrain, SessionLifecycle, SessionResume, TurnPrompt}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Config
@@ -60,7 +60,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         SessionLifecycle.session_backend(app_session)
       )
 
-    safe_checkpoint_handler = Aiur.AgentRunner.safe_checkpoint_handler(issue, orchestrator)
+    safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
 
     Aiur.AgentRunner.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = Aiur.AgentRunner.open_aiur_turn_streams(issue)
@@ -74,7 +74,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         issue,
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: Aiur.AgentRunner.operator_immediate_handler(issue, orchestrator),
+        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
         tool_executor: Aiur.AgentRunner.tool_executor(issue, workspace, worker_host)
       )
 
@@ -91,7 +91,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         )
 
         with :ok <-
-               Aiur.AgentRunner.drain_operator_messages(
+               QueueDrain.drain_operator_messages(
                  app_session,
                  issue,
                  message_handler,
@@ -182,7 +182,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     } = turn_context
 
     with :ok <-
-           Aiur.AgentRunner.wait_for_operator_message(
+           QueueDrain.wait_for_operator_message(
              app_session,
              issue,
              message_handler,
