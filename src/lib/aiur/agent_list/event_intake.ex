@@ -124,7 +124,6 @@ defmodule Aiur.AgentList.EventIntake do
 
   defp accept_progress?(:checkin, _percent, _samples), do: true
   defp accept_progress?(:phase, percent, samples), do: percent >= head_percent(samples)
-  defp accept_progress?(_source, _percent, _samples), do: false
 
   defp head_percent([{percent, _ts} | _]) when is_integer(percent), do: percent
   defp head_percent(_), do: 0

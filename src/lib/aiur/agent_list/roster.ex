@@ -61,10 +61,7 @@ defmodule Aiur.AgentList.Roster do
 
   defp refresh_open_attentions(active_set) do
     Enum.reduce(MapSet.to_list(active_set), %{}, fn id, acc ->
-      case attention_count_for(id) do
-        n when is_integer(n) -> Map.put(acc, id, n)
-        _ -> acc
-      end
+      Map.put(acc, id, attention_count_for(id))
     end)
   end
 
