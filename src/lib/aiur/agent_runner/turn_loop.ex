@@ -102,6 +102,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
         end
 
       {:paused, pause_payload} ->
+        Aiur.PauseContainment.confirm(Map.get(app_session, :containment))
+
         Logger.info("Paused agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
         Aiur.AgentRunner.maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload)

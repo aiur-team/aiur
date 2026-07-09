@@ -197,6 +197,27 @@ defmodule Aiur.Claude.RemoteControlTest do
     defp os_alive?(pid), do: match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
   end
 
+  describe "graceful_kill_process_group/1" do
+    test "reaps a child after its session leader exits" do
+      # Redirect the backgrounded child's stdio so the session leader can exit
+      # and `System.cmd` returns; an inherited stdout pipe would block the call
+      # until the child itself exits.
+      {out, 0} = System.cmd("setsid", ["sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!"], stderr_to_stdout: true)
+      child_pid = out |> String.trim() |> String.to_integer()
+
+      on_exit(fn ->
+        System.cmd("kill", ["-KILL", Integer.to_string(child_pid)], stderr_to_stdout: true)
+      end)
+
+      {pgid_out, 0} = System.cmd("ps", ["-o", "pgid=", "-p", Integer.to_string(child_pid)], stderr_to_stdout: true)
+      process_group_id = pgid_out |> String.trim() |> String.to_integer()
+
+      assert RemoteControl.process_group_alive?(process_group_id)
+      assert {:ok, :reaped} = RemoteControl.graceful_kill_process_group(process_group_id)
+      refute RemoteControl.process_group_alive?(process_group_id)
+    end
+  end
+
   describe "reap_orphaned_servers/0" do
     test "sweeps debug files of dead owners but keeps live owners' files" do
       dir = Path.join(System.tmp_dir!(), "aiur-rc")

@@ -186,6 +186,81 @@ defmodule Aiur.Codex.ApprovalsTest do
     end
   end
 
+  describe "pause containment" do
+    test "declines a command approval after pause is latched" do
+      port = open_cat_port()
+
+      try do
+        payload = %{"id" => "p1", "method" => "item/commandExecution/requestApproval"}
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/commandExecution/requestApproval",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _msg -> :ok end,
+                   @metadata,
+                   fn _tool, _args -> flunk("pause must block execution") end,
+                   true,
+                   true
+                 )
+
+        assert read_one_frame(port)["result"]["decision"] == "declined"
+      after
+        Port.close(port)
+      end
+    end
+
+    test "does not invoke a dynamic tool after pause is latched" do
+      port = open_cat_port()
+
+      try do
+        payload = %{"id" => "p2", "method" => "item/tool/call", "params" => %{"tool" => "dangerous", "arguments" => %{}}}
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/tool/call",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _msg -> :ok end,
+                   @metadata,
+                   fn _tool, _args -> flunk("pause must block the dynamic tool executor") end,
+                   false,
+                   true
+                 )
+
+        assert read_one_frame(port)["result"]["success"] == false
+      after
+        Port.close(port)
+      end
+    end
+
+    test "passes an id-less notification through even while pause is latched" do
+      port = open_cat_port()
+
+      try do
+        payload = %{"method" => "item/agentMessage/delta", "params" => %{"delta" => "hi"}}
+
+        assert :unhandled =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/agentMessage/delta",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _msg -> :ok end,
+                   @metadata,
+                   fn _tool, _args -> flunk("a notification must not invoke the executor") end,
+                   false,
+                   true
+                 )
+      after
+        Port.close(port)
+      end
+    end
+  end
+
   describe "maybe_handle_approval_request/8 — item/tool/requestUserInput" do
     test "auto-answers with approval option when auto_approve is true and options available" do
       port = open_cat_port()

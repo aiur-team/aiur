@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, Config, Orchestrator}
+  alias Aiur.{AgentChat, AlertFeed, Config, Orchestrator, PauseContainment}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -178,6 +178,20 @@ defmodule Aiur.AgentControlCLI do
     action
     |> select_targets(targets, statuses)
     |> control_selected(action, targets)
+  end
+
+  # A targeted pause can still arm its locally-recorded containment group even
+  # when the orchestrator is too congested to answer status. Preserve the
+  # control-RPC result (and therefore the CLI's timeout/error contract); this
+  # only gives the targeted AgentChat path a chance to arm its independent
+  # fallback. `--all` remains status-driven because it has no safe target set.
+  defp control_status(:pause, targets, error) when is_list(targets) and error in [:timeout, :unavailable] do
+    Enum.each(targets, fn target ->
+      _ = PauseContainment.arm_target(to_string(target))
+    end)
+
+    print_orchestrator_status_error(error)
+    1
   end
 
   defp control_status(_action, _targets, error) when error in [:timeout, :unavailable] do

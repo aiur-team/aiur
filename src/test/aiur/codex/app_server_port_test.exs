@@ -3,6 +3,7 @@ defmodule Aiur.Codex.AppServerPortTest do
 
   alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.Config, as: CodexConfig
+  alias Aiur.AppServer.Adapter
 
   describe "validate_workspace_cwd/2 local" do
     test "accepts a genuine sub-path and rejects the workspace root" do
@@ -84,6 +85,24 @@ defmodule Aiur.Codex.AppServerPortTest do
       refute Map.has_key?(metadata, :worker_host)
 
       Port.close(port)
+    end
+
+    test "records a local process group only when the port root is its leader" do
+      if System.find_executable("setsid") do
+        assert {:ok, port} = Adapter.start_port(File.cwd!(), "printf 'ready\\n'; sleep 600")
+
+        try do
+          assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
+
+          metadata = AppServerPort.port_metadata(port)
+
+          assert metadata.agent_process_group_id == metadata.codex_app_server_pid
+        after
+          AppServerPort.stop_port(port)
+        end
+      else
+        assert true
+      end
     end
   end
 
