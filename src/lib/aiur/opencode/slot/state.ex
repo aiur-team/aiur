@@ -1,10 +1,7 @@
 defmodule Aiur.Opencode.Slot.State do
   @moduledoc """
   Pure state transitions for a slot. No side effects, no logging, no PubSub, no timers.
-
-  The shell (slot.ex) cancels timers BEFORE calling any transition that returns
-  `poll_ref: nil` — otherwise stacked `Process.send_after` timers defeat the
-  poll-death debounce (giant-slot.md §4 risk 2).
+  Shell must cancel poll_ref before any transition that sets it nil (giant-slot.md §4 risk 2).
   """
 
   @poll_death_threshold 3
@@ -55,9 +52,8 @@ defmodule Aiur.Opencode.Slot.State do
 
   @doc "Initial state for a newly-started slot."
   @spec new(integer(), String.t()) :: t()
-  def new(slot_index, workspace_path) do
-    %__MODULE__{slot_index: slot_index, status: :booting, workspace_path: workspace_path}
-  end
+  def new(slot_index, workspace_path),
+    do: %__MODULE__{slot_index: slot_index, status: :booting, workspace_path: workspace_path}
 
   @doc "Lightweight introspection snapshot."
   @spec snapshot(t()) :: map()
@@ -78,16 +74,10 @@ defmodule Aiur.Opencode.Slot.State do
 
   @doc "Whether `identifier` is in the serve's models map."
   @spec identifier_known?(t(), String.t()) :: boolean()
-  def identifier_known?(%{known_identifiers: known}, identifier) do
-    MapSet.member?(known, identifier)
-  end
+  def identifier_known?(%{known_identifiers: known}, identifier),
+    do: MapSet.member?(known, identifier)
 
-  @doc """
-  Decide what agent_ids to seed for the next serve boot.
-
-  Returns `{:known, ids}` when identifiers are already accumulated,
-  or `:poll_orchestrator` when the orchestrator must be queried.
-  """
+  @doc "Seed identifiers for next serve boot; returns `{:known, ids}` or `:poll_orchestrator`."
   @spec rebuild_seed_identifiers(t()) :: {:known, [String.t()]} | :poll_orchestrator
   def rebuild_seed_identifiers(state) do
     # On rebuild, keep the already-accumulated `state.known_identifiers`
@@ -104,15 +94,7 @@ defmodule Aiur.Opencode.Slot.State do
     end
   end
 
-  @doc """
-  Build the display_opt for materialize_slot.
-
-  On rebuild, set the slot's top-level `model` field (which drives
-  opencode-attach's status bar) to the identifier that triggered
-  the rebuild — so the user sees `Build · issue-10` instead of the
-  slot sentinel. On initial boot (pending_select is nil), let
-  materialize_slot fall back to the sentinel.
-  """
+  @doc "Build the display_opt for materialize_slot (sets top-level model to pending identifier on rebuild)."
   @spec display_opt(t()) :: keyword()
   def display_opt(state) do
     case state.pending_select do
@@ -123,22 +105,12 @@ defmodule Aiur.Opencode.Slot.State do
 
   @doc "Transition to :attach_spawning after serve boot."
   @spec serve_ready(t(), pid(), String.t(), String.t(), [String.t()]) :: t()
-  def serve_ready(state, server_pid, base_url, token, agent_ids) do
-    %{
-      state
-      | status: :attach_spawning,
-        server_pid: server_pid,
-        base_url: base_url,
-        token: token,
-        known_identifiers: MapSet.new(agent_ids)
-    }
-  end
+  def serve_ready(state, server_pid, base_url, token, agent_ids),
+    do: %{state | status: :attach_spawning, server_pid: server_pid, base_url: base_url, token: token, known_identifiers: MapSet.new(agent_ids)}
 
   @doc "Transition to :ready after attach pane is ready (pane_id may be nil on pending_select fast path)."
   @spec attach_pane_ready(t(), String.t() | nil) :: t()
-  def attach_pane_ready(state, pane_id) do
-    %{state | status: :ready, pane_id: pane_id}
-  end
+  def attach_pane_ready(state, pane_id), do: %{state | status: :ready, pane_id: pane_id}
 
   @doc "Transition to :active after select + respawn succeeds."
   @spec select_applied(t(), String.t(), String.t(), String.t()) :: t()
@@ -157,13 +129,8 @@ defmodule Aiur.Opencode.Slot.State do
 
   @doc "Queue an identifier for pending attach after serve rebuild."
   @spec queue_pending_attach(t(), String.t()) :: t()
-  def queue_pending_attach(state, identifier) do
-    %{
-      state
-      | known_identifiers: MapSet.put(state.known_identifiers, identifier),
-        pending_attaches: MapSet.put(state.pending_attaches, identifier)
-    }
-  end
+  def queue_pending_attach(state, identifier),
+    do: %{state | known_identifiers: MapSet.put(state.known_identifiers, identifier), pending_attaches: MapSet.put(state.pending_attaches, identifier)}
 
   @doc "Clear visible fields. Caller MUST cancel poll_ref before calling this."
   @spec clear_visible(t()) :: t()
@@ -179,14 +146,7 @@ defmodule Aiur.Opencode.Slot.State do
     }
   end
 
-  @doc """
-  Detach an identifier from the slot.
-
-  Returns `:not_attached` when identifier is not in attached_identifiers.
-  Returns `{clears_visible? :: boolean(), new_state}` otherwise.
-  When `clears_visible?` is true, the caller MUST cancel poll_ref and
-  call Events.visible_changed before applying new_state.
-  """
+  @doc "Detach identifier; returns `:not_attached` or `{clears_visible?, new_state}`. Caller cancels poll and broadcasts if clears_visible?."
   @spec detach(t(), String.t()) :: :not_attached | {boolean(), t()}
   def detach(state, identifier) do
     if MapSet.member?(state.attached_identifiers, identifier) do
@@ -229,21 +189,9 @@ defmodule Aiur.Opencode.Slot.State do
     }
   end
 
-  @doc """
-  Record a poll probe result. Owns the debounce (giant-slot.md §4 risk 2).
-
-  Returns:
-  - `{:alive, new_state}` — pane responded; death count reset to 0
-  - `{:retry, bumped, raw, new_state}` — miss below threshold; count bumped
-  - `{:dead, bumped, raw, state}` — threshold reached; caller applies pane_died/1 after forensics
-  """
-  @spec record_poll(t(), :alive | {:missing, term()}) ::
-          {:alive, t()}
-          | {:retry, non_neg_integer(), term(), t()}
-          | {:dead, non_neg_integer(), term(), t()}
-  def record_poll(state, :alive) do
-    {:alive, %{state | poll_death_count: 0}}
-  end
+  @doc "Record poll probe; owns the debounce (giant-slot.md §4 risk 2). Returns `{:alive,s}`, `{:retry,n,raw,s}`, or `{:dead,n,raw,s}`."
+  @spec record_poll(t(), :alive | {:missing, term()}) :: {:alive, t()} | {:retry, non_neg_integer(), term(), t()} | {:dead, non_neg_integer(), term(), t()}
+  def record_poll(state, :alive), do: {:alive, %{state | poll_death_count: 0}}
 
   def record_poll(state, {:missing, raw}) do
     bumped = state.poll_death_count + 1
@@ -271,11 +219,7 @@ defmodule Aiur.Opencode.Slot.State do
     }
   end
 
-  @doc """
-  Reset state for a serve rebuild. Caller MUST cancel poll_ref before calling this.
-
-  Bumps generation, keeps pending and known_identifiers from arguments.
-  """
+  @doc "Reset state for a serve rebuild. Caller MUST cancel poll_ref before calling this."
   @spec rebuild_reset(t(), term(), MapSet.t()) :: t()
   def rebuild_reset(state, pending, next_known) do
     %{
