@@ -18,7 +18,7 @@ defmodule Aiur.Claude.ReplAgent do
   `claude` process is orphaned.
   """
 
-  @behaviour Aiur.CodingAgent
+  @behaviour Aiur.CodingAgent.Backend
 
   require Logger
 
@@ -105,6 +105,7 @@ defmodule Aiur.Claude.ReplAgent do
         }
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def start_session(workspace, opts \\ []) when is_binary(workspace) do
     tmux = Keyword.get(opts, :tmux, Tmux)
     expanded = Path.expand(workspace)
@@ -330,6 +331,7 @@ defmodule Aiur.Claude.ReplAgent do
   end
 
   @spec stop_session(session()) :: :ok
+  @impl Aiur.CodingAgent.Backend
   def stop_session(%{tmux: tmux, pane_id: pane_id} = session) do
     os_pid = Map.get(session, :os_pid)
 
@@ -444,6 +446,7 @@ defmodule Aiur.Claude.ReplAgent do
   end
 
   @spec normalize_event(map()) :: map()
+  @impl Aiur.CodingAgent.Backend
   def normalize_event(event) when is_map(event) do
     # Usage / rate-limit normalization is identical to the headless backend.
     Aiur.Claude.CodingAgent.normalize_event(event)
@@ -472,6 +475,7 @@ defmodule Aiur.Claude.ReplAgent do
   """
   @spec run_turn(session(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:paused, map()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def run_turn(session, prompt, issue, opts \\ [])
 
   def run_turn(_session, prompt, _issue, _opts) when not is_binary(prompt),
@@ -1026,6 +1030,7 @@ defmodule Aiur.Claude.ReplAgent do
   """
   @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
           {:ok, integer()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def send_operator_message(%{tmux: tmux, pane_id: pane_id}, %{kind: :text, body: body})
       when is_binary(body) do
     case sanitize_pane_input(body) do
@@ -1055,6 +1060,7 @@ defmodule Aiur.Claude.ReplAgent do
   # orchestrator's pane-interrupt path build a minimal `%{tmux:, pane_id:}`
   # rather than threading a full session().
   @spec interrupt(map()) :: :ok | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def interrupt(%{tmux: tmux, pane_id: pane_id}) when is_binary(pane_id) do
     Tmux.send_interrupt(tmux, pane_id)
   end
@@ -1080,15 +1086,15 @@ defmodule Aiur.Claude.ReplAgent do
   defp build_command(workspace, model, effort, rc?, rc_name, settings_path, resume_id) do
     flags =
       ["claude"]
-      |> append_if(rc?, ["--remote-control", shell_escape(rc_name)])
-      |> append_if(is_binary(resume_id), ["--resume", shell_escape(resume_id || "")])
-      |> Kernel.++(["--permission-mode", shell_escape(Config.permission_mode())])
-      |> append_if(is_binary(model), ["--model", shell_escape(model || "")])
-      |> append_if(is_binary(effort), ["--effort", shell_escape(effort || "")])
-      |> append_if(is_binary(settings_path), ["--settings", shell_escape(settings_path || "")])
+      |> append_if(rc?, ["--remote-control", Aiur.Shell.escape(rc_name)])
+      |> append_if(is_binary(resume_id), ["--resume", Aiur.Shell.escape(resume_id || "")])
+      |> Kernel.++(["--permission-mode", Aiur.Shell.escape(Config.permission_mode())])
+      |> append_if(is_binary(model), ["--model", Aiur.Shell.escape(model || "")])
+      |> append_if(is_binary(effort), ["--effort", Aiur.Shell.escape(effort || "")])
+      |> append_if(is_binary(settings_path), ["--settings", Aiur.Shell.escape(settings_path || "")])
       |> Enum.join(" ")
 
-    "cd #{shell_escape(workspace)} && exec #{flags}"
+    "cd #{Aiur.Shell.escape(workspace)} && exec #{flags}"
   end
 
   # The claude session id to `--resume` on this spawn, or nil for a clean start.
@@ -1167,9 +1173,5 @@ defmodule Aiur.Claude.ReplAgent do
       Process.sleep(@ready_poll_ms)
       do_await_ready(tmux, pane_id, deadline)
     end
-  end
-
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\\''") <> "'"
   end
 end

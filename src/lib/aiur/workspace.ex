@@ -5,6 +5,7 @@ defmodule Aiur.Workspace do
 
   require Logger
   alias Aiur.{Alerts, Config, PathSafety, RepoBase, SSH}
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -594,15 +595,15 @@ defmodule Aiur.Workspace do
     [
       "set -eu",
       remote_shell_assign("workspace", workspace),
-      pull? && "docker pull #{shell_escape(image)}",
-      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{shell_escape(image)} -lc #{shell_escape(bootstrap_image_copy_script())}"
+      pull? && "docker pull #{Aiur.Shell.escape(image)}",
+      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{Aiur.Shell.escape(image)} -lc #{Aiur.Shell.escape(bootstrap_image_copy_script())}"
     ]
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
   end
 
   defp bootstrap_image_copy_script do
-    paths = Enum.map_join(@warm_cache_paths, " ", &shell_escape/1)
+    paths = Enum.map_join(@warm_cache_paths, " ", &Aiur.Shell.escape/1)
 
     """
     set -eu
@@ -985,7 +986,7 @@ defmodule Aiur.Workspace do
   end
 
   defp safe_identifier(identifier) do
-    String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")
+    Paths.sanitize(identifier, "issue")
   end
 
   defp maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
@@ -1128,7 +1129,7 @@ defmodule Aiur.Workspace do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case run_remote_command(worker_host, "cd #{shell_escape(workspace)} && #{command}", timeout_ms) do
+    case run_remote_command(worker_host, "cd #{Aiur.Shell.escape(workspace)} && #{command}", timeout_ms) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
@@ -1233,7 +1234,7 @@ defmodule Aiur.Workspace do
   defp remote_shell_assign(variable_name, raw_path)
        when is_binary(variable_name) and is_binary(raw_path) do
     [
-      "#{variable_name}=#{shell_escape(raw_path)}",
+      "#{variable_name}=#{Aiur.Shell.escape(raw_path)}",
       "case \"$#{variable_name}\" in",
       "  '~') #{variable_name}=\"$HOME\" ;;",
       "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#~/}\" ;;",
@@ -1280,10 +1281,6 @@ defmodule Aiur.Workspace do
         Task.shutdown(task, :brutal_kill)
         {:error, {:workspace_hook_timeout, "remote_command", timeout_ms}}
     end
-  end
-
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
   defp worker_host_for_log(nil), do: "local"
