@@ -7,9 +7,8 @@ defmodule Aiur.PaneManager.Close do
 
   require Logger
 
-  alias Aiur.{Boot, Tmux}
+  alias Aiur.{AgentPubSub, Boot, Tmux}
   alias Aiur.Opencode.{HiddenWindow, Slot, SlotRegistry}
-  alias Aiur.AgentPubSub
   alias Aiur.PaneManager.{Layout, Reconcile, State}
 
   @spec hide_slot_pane(State.t(), State.agent_id(), State.pane_id()) ::

@@ -52,7 +52,8 @@ defmodule Aiur.PaneManager do
 
   alias Aiur.{AgentEvents, Boot, Tmux}
   alias Aiur.Opencode.{AttachPool, Slot, SlotSupervisor}
-  alias Aiur.PaneManager.{Anchor, Close, Layout, OpenQueue, OpencodeOpen, Placeholder, Reconcile, ScreenGrab, SlotAttach, State}
+  alias Aiur.PaneManager.{Anchor, Close, Layout, OpencodeOpen, OpenQueue, Placeholder, Reconcile}
+  alias Aiur.PaneManager.{ScreenGrab, SlotAttach, State}
 
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
@@ -238,7 +239,8 @@ defmodule Aiur.PaneManager do
             {:reply, {:ok, existing_pane}, state}
 
           {:error, _reason} ->
-            OpencodeOpen.do_open(State.forget_pane_by_identifier(state, existing_pane), identifier, command_to_run, opts, from)
+            state = State.forget_pane_by_identifier(state, existing_pane)
+            OpencodeOpen.do_open(state, identifier, command_to_run, opts, from)
         end
 
       :error ->
