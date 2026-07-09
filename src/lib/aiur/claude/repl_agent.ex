@@ -47,10 +47,12 @@ defmodule Aiur.Claude.ReplAgent do
         }
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def start_session(workspace, opts \\ []) when is_binary(workspace),
     do: Launcher.start_session(workspace, opts)
 
   @spec stop_session(session()) :: :ok
+  @impl Aiur.CodingAgent.Backend
   defdelegate stop_session(session), to: Reaper
 
   @doc """
@@ -92,6 +94,7 @@ defmodule Aiur.Claude.ReplAgent do
   """
   @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
           {:ok, integer()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   defdelegate send_operator_message(session, payload), to: OperatorInject
 
   @doc """
@@ -104,6 +107,7 @@ defmodule Aiur.Claude.ReplAgent do
   drained immediately.
   """
   @spec interrupt(map()) :: :ok | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   defdelegate interrupt(session), to: OperatorInject
 
   @doc false
