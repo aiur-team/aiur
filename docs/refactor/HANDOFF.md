@@ -14,20 +14,37 @@ companion docs. This handoff is how to *operate*; those are what to *build*.
 
 ## Current handoff — 2026-07-08 PDT
 
-**Mode:** **PHASE 1 COMPLETE.** The entire safety net has landed on `v2`
-(`c1f92257`): all Phase-0 fleet unblockers (→`main`), all Phase-1 prereqs
-(T-001…T-005 + T-006A: RepoBase+`v2` CI, log isolation, SlotPolicy flake,
-website CI, tripwire guard, warm-pool), all 8 characterization suites
-(T-006…T-013), the affected-tests-only pre-PR gate (#776), and the full
-concurrent-suite deflaking (#777 + #785 — tracked_set/slot_policy/WorkflowStore
-now green under `make coverage`). The fleet is **stopped** (no active work).
+**Mode:** **PHASE 1 COMPLETE; PHASE 2 PREPPED, READY TO LAUNCH.** The full
+safety net landed on `v2` (`c1f92257`): all Phase-0 unblockers (→`main`), all
+Phase-1 prereqs (T-001…T-005 + T-006A), all 8 characterization suites
+(T-006…T-013), the affected-tests-only pre-PR gate (#776), and full
+concurrent-suite deflaking (#777 + #785). Phase 2 is now the **first
+behavior-changing phase** — the real structural refactor begins, protected by
+the characterization suite.
 
-**Immediate next unit: hand off to the human for Phase 2+.** Per §12, Phase-1
-completion is a human touchpoint. **Phase 2+ — the actual structural
-production-readiness refactor — is not yet ticketed.** The next operator action
-is to plan/write the Phase 2 backlog (the real refactor that the safety net now
-protects), present it for review, then resume the loop for Phase 2. Do NOT
-relaunch the fleet until Phase 2 tickets exist and are `agent:todo`.
+**Phase 2 backlog created (2026-07-08):** the dependency-free wave is live as
+`agent:todo`: **#788** (T-014 AppServer core, c3), **#789** (T-017 poller
+skeleton, c3), **#790** (T-018 shell_escape dedup, c2), **#791** (T-019
+sanitization dedup, c2), **#792** (T-020 atomic-write/JSONL dedup, c2),
+**#793** (T-021 config-resolution dedup, c2). Ticket bodies carry the full spec
+(the `docs/refactor/tickets/T-*.md` docs are NOT on `v2`, so the issue body is
+the executor's only source). **Delayed-open chain:** T-015 (backend behaviour,
+depends T-014) and T-016 (agent_runner seam migration, depends T-015) are NOT
+yet created — open T-015 only after #788 merges to `v2`, T-016 after T-015
+merges (single-file decomposition sub-waves, §6). The release is rebuilt from
+`v2` `c1f92257`; the fleet is **stopped**, ready to launch.
+
+**Immediate next unit: launch Phase 2.** `scripts/aiurdev --bg --debug` (already
+built). Cap is 5 (6-ticket wave → 5 run, 1 queues; ramp toward width if CPU
+idle% is healthy — but the box crashed under the old full-suite gate at 8, so
+ramp carefully). Review/merge each PR one at a time as before: background
+stability review, `regression-suite-change` label if it touches
+`src/test/aiur/regression/`, code-owner `gh pr comment` to drive rework, and
+watch the characterization suite stays green (that IS Phase 2's verification —
+see §7). After #788 (T-014) merges, open T-015; after T-015 merges, open T-016.
+At Phase-2 exit, run the phase-exit checklist and open Phase 3 (T-022…T-039,
+docs already written; create issues then). Default `model:codex`; reroute to
+`model:claude` only on a Codex usage limit.
 
 **Remaining open items (all optional/hygiene, none blocking):** #771 (guard
 backdated-commit hardening — optional; the gate is removed post-refactor) and
@@ -433,3 +450,18 @@ Everything else is autonomous.
   from the refactor). Fleet stopped. **Next: plan/write Phase 2+ (the actual
   structural refactor) — a human touchpoint; do not relaunch until Phase 2
   tickets exist.**
+- **2026-07-08 — Phase 2 prepped.** Confirmed all ticket DOCS already exist
+  through T-059 (Phase 1 = T-001–T-013, Phase 2 = T-014–T-021, Phase 3 =
+  T-022–T-039, Phase 4 = T-040–T-053, Phase 5 = T-054–T-059) — only the Phase-1
+  *issues* had been created. Created the Phase-2 dependency-free wave as
+  `agent:todo`: #788 (T-014), #789 (T-017), #790 (T-018), #791 (T-019), #792
+  (T-020), #793 (T-021), each with the full ticket doc as its body. Left the
+  T-014→T-015→T-016 chain delayed-open. Pulled `v2` (`c1f92257`) and rebuilt.
+  Fleet ready to launch. Verification note (§7): Phase 1 didn't change behavior
+  (it added the safety net), so there was nothing to "re-verify" at its exit —
+  the phase-exit checklist (all merged, CI green, characterization green +
+  unmodified, no stragglers) is satisfied and the characterization suite IS now
+  the verification mechanism. From Phase 2 on, verification is scoped:
+  characterization stays green per-PR, per-phase feature verification at each
+  phase-exit (can overlap the next phase's run), full 1,062-feature sweep only
+  once at final `v2` acceptance.
