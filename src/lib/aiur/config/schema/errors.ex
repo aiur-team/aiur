@@ -26,7 +26,7 @@ defmodule Aiur.Config.Schema.Errors do
     end)
   end
 
-  def flatten_errors(errors, prefix) when is_list(errors) do
+  def flatten_errors(errors, prefix) when is_list(errors) and is_binary(prefix) do
     Enum.map(errors, &(prefix <> " " <> &1))
   end
 

@@ -280,6 +280,24 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  # FI-CFG-048: max_turns none / unlimited / "" all resolve to nil (uncapped)
+  describe "max_turns uncapped aliases" do
+    test "max_turns 'none' resolves to nil (uncapped)" do
+      {:ok, settings} = Schema.parse(%{"agent" => %{"max_turns" => "none"}})
+      assert settings.agent.max_turns == nil
+    end
+
+    test "max_turns 'unlimited' resolves to nil (uncapped)" do
+      {:ok, settings} = Schema.parse(%{"agent" => %{"max_turns" => "unlimited"}})
+      assert settings.agent.max_turns == nil
+    end
+
+    test "max_turns empty string resolves to nil (uncapped)" do
+      {:ok, settings} = Schema.parse(%{"agent" => %{"max_turns" => ""}})
+      assert settings.agent.max_turns == nil
+    end
+  end
+
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
 end
