@@ -23,16 +23,17 @@ defmodule Aiur.Regression.TimeToPaintTest do
   use ExUnit.Case, async: true
 
   @pane_manager_source Path.expand("../../../lib/aiur/pane_manager.ex", __DIR__)
+  @placeholder_source Path.expand("../../../lib/aiur/pane_manager/placeholder.ex", __DIR__)
   @log_path Path.expand("../../../log/aiur.log", __DIR__)
   @placeholder_visible_threshold_ms 500
 
   describe "source-level wiring" do
-    test "open_opencode_pane spawns a placeholder pane before driving the slot" do
-      source = File.read!(@pane_manager_source)
+    test "open_with_placeholder spawns a placeholder pane before driving the slot" do
+      source = File.read!(@placeholder_source)
 
       assert source =~ ~r/spawn_placeholder_pane\(state, identifier\)/,
              """
-             open_opencode_pane MUST call spawn_placeholder_pane before
+             open_with_placeholder MUST call spawn_placeholder_pane before
              the async drive_real_attach. Without the placeholder, the
              user stares at an unchanged screen for the duration of the
              slot.select call (potentially seconds).
@@ -40,19 +41,20 @@ defmodule Aiur.Regression.TimeToPaintTest do
 
       assert source =~ ~r/Task\.start\(fn -> drive_real_attach/,
              """
-             open_opencode_pane MUST dispatch drive_real_attach in a
+             open_with_placeholder MUST dispatch drive_real_attach in a
              Task so the GenServer call returns immediately. A blocking
              slot.select inside the handler defeats the placeholder.
              """
     end
 
     test "PaneManager handles :placeholder_swap with swap-pane" do
-      source = File.read!(@pane_manager_source)
+      pm_source = File.read!(@pane_manager_source)
+      placeholder_source = File.read!(@placeholder_source)
 
-      assert source =~ ~r/def handle_info\(\{:placeholder_swap,/,
+      assert pm_source =~ ~r/def handle_info\(\{:placeholder_swap,/,
              "PaneManager MUST have a handle_info({:placeholder_swap, ...}) clause"
 
-      assert source =~ ~r/swap-pane -s #\{real_pane_id\} -t #\{placeholder_pane_id\}/,
+      assert placeholder_source =~ ~r/swap-pane -s #\{real_pane_id\} -t #\{placeholder_pane_id\}/,
              """
              The swap MUST use tmux swap-pane to atomically replace
              the placeholder with the real attach. kill+spawn would
