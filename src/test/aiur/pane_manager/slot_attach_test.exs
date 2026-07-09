@@ -90,6 +90,34 @@ defmodule Aiur.PaneManager.SlotAttachTest do
     end
   end
 
+  describe "attach_identifier_to_slot/5" do
+    test "selects, moves, records, and replies for a ready slot", %{tmux: tmux, state: state} do
+      {:ok, slot_pid} = start_supervised({Aiur.PaneManager.SlotAttachTest.FakeSlot, {:ok, "%30"}})
+      task = Task.async(fn -> SlotAttach.attach_identifier_to_slot(state, "issue-30", 1, slot_pid, nil) end)
+
+      assert_receive {:tmux_mock_out, "move-pane -s %30 -t test:0 -h"}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "select-pane -t %30 -T issue-30"}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n80x24\n%end 1 1 0\n"})
+      assert_receive {:tmux_mock_out, "select-layout -t test:0 " <> _}, 500
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+      assert {:reply, {:ok, "%30"}, new_state} = Task.await(task)
+      assert new_state.identifier_to_pane == %{"issue-30" => "%30"}
+    end
+
+    test "returns a slot select error without touching tmux", %{state: state} do
+      {:ok, slot_pid} = start_supervised({Aiur.PaneManager.SlotAttachTest.FakeSlot, {:error, :not_ready}})
+
+      assert {:reply, {:error, :not_ready}, ^state} =
+               SlotAttach.attach_identifier_to_slot(state, "issue-31", 1, slot_pid, nil)
+
+      refute_receive {:tmux_mock_out, _}, 100
+    end
+  end
+
   describe "set_pane_title/3" do
     test "calls select-pane -T on the pane via tmux", %{tmux: tmux, state: state} do
       task =
@@ -113,4 +141,12 @@ defmodule Aiur.PaneManager.SlotAttachTest do
       assert :ok = SlotAttach.bump_next_slot()
     end
   end
+end
+
+defmodule Aiur.PaneManager.SlotAttachTest.FakeSlot do
+  use GenServer
+
+  def start_link(reply), do: GenServer.start_link(__MODULE__, reply)
+  def init(reply), do: {:ok, reply}
+  def handle_call({:select, _identifier}, _from, reply), do: {:reply, reply, reply}
 end
