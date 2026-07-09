@@ -1,0 +1,148 @@
+defmodule Aiur.Orchestrator.DispatchPolicyTest do
+  use Aiur.TestSupport
+
+  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.State
+
+  describe "load_gate/3" do
+    test "matches the load gate truth table" do
+      assert DispatchPolicy.load_gate(20.0, 1.5, 12) == :hold
+      assert DispatchPolicy.load_gate(10.0, 1.5, 12) == :dispatch
+      assert DispatchPolicy.load_gate(18.0, 1.5, 12) == :dispatch
+      assert DispatchPolicy.load_gate(99.0, nil, 12) == :dispatch
+      assert DispatchPolicy.load_gate(99.0, 0.0, 12) == :dispatch
+      assert DispatchPolicy.load_gate(99.0, -1.0, 12) == :dispatch
+      assert DispatchPolicy.load_gate(:unavailable, 1.5, 12) == :dispatch
+    end
+  end
+
+  describe "prewarm_gate/2" do
+    test "matches the prewarm gate truth table" do
+      assert DispatchPolicy.prewarm_gate(false, :building) == :dispatch
+      assert DispatchPolicy.prewarm_gate(false, :idle) == :dispatch
+      assert DispatchPolicy.prewarm_gate(false, {:error, :boom}) == :dispatch
+      assert DispatchPolicy.prewarm_gate(true, :ready) == :dispatch
+      assert DispatchPolicy.prewarm_gate(true, {:error, :base_build_failed}) == :dispatch
+      assert DispatchPolicy.prewarm_gate(true, :building) == :hold
+    end
+  end
+
+  describe "read_load/1" do
+    test "returns unavailable when the threshold is disabled" do
+      assert DispatchPolicy.read_load(nil) == :unavailable
+      assert DispatchPolicy.read_load(0) == :unavailable
+      assert DispatchPolicy.read_load(-1) == :unavailable
+    end
+  end
+
+  describe "sort_issues_for_dispatch/1" do
+    test "orders by priority rank, missing priority, created_at, then identifier" do
+      early = ~U[2026-01-01 00:00:00Z]
+      late = ~U[2026-01-02 00:00:00Z]
+
+      issues = [
+        issue("late-p1", priority: 1, created_at: late, identifier: "C"),
+        issue("rank5-b", priority: 9, created_at: early, identifier: "B"),
+        issue("p2", priority: 2, created_at: early, identifier: "A"),
+        issue("missing-date", priority: 1, created_at: nil, identifier: "D"),
+        issue("early-p1", priority: 1, created_at: early, identifier: "A"),
+        issue("rank5-a", priority: nil, created_at: early, identifier: "A")
+      ]
+
+      assert Enum.map(DispatchPolicy.sort_issues_for_dispatch(issues), & &1.id) == [
+               "early-p1",
+               "late-p1",
+               "missing-date",
+               "p2",
+               "rank5-a",
+               "rank5-b"
+             ]
+    end
+  end
+
+  describe "candidate_issue?/3" do
+    test "requires binary id, identifier, title, and state" do
+      active_states = MapSet.new(["todo"])
+      terminal_states = MapSet.new(["done"])
+
+      assert DispatchPolicy.candidate_issue?(
+               issue("valid", identifier: "repo#1", title: "work", state: "todo"),
+               active_states,
+               terminal_states
+             )
+
+      refute DispatchPolicy.candidate_issue?(
+               issue(nil, identifier: "repo#1", title: "work", state: "todo"),
+               active_states,
+               terminal_states
+             )
+
+      refute DispatchPolicy.candidate_issue?(
+               issue("nil-state", identifier: "repo#1", title: "work", state: nil),
+               active_states,
+               terminal_states
+             )
+    end
+  end
+
+  describe "blocker and state helpers" do
+    test "unknown blocker states block todo issues" do
+      blocked = issue("blocked", state: "todo", blocked_by: [%{state: nil}])
+
+      assert DispatchPolicy.todo_issue_blocked_by_non_terminal?(
+               blocked,
+               MapSet.new(["done", "cancelled"])
+             )
+    end
+
+    test "normalizes issue state and slugs mixed case and whitespace" do
+      assert DispatchPolicy.normalize_issue_state("  In Progress ") == "in progress"
+      assert DispatchPolicy.normalize_issue_state(nil) == ""
+      assert DispatchPolicy.state_slug("  In_Progress ") == "in-progress"
+      assert DispatchPolicy.state_slug(nil) == nil
+    end
+
+    test "issue routing defaults true" do
+      assert DispatchPolicy.issue_routable_to_worker?(%Issue{})
+      refute DispatchPolicy.issue_routable_to_worker?(%Issue{assigned_to_worker: false})
+    end
+  end
+
+  describe "state slot policy" do
+    test "uses per-state caps with active running entries only" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        max_concurrent_agents_by_state: %{"todo" => 1}
+      )
+
+      state = %State{
+        max_concurrent_agents: 5,
+        running: %{
+          "active" => %{issue: issue("active", state: "todo"), control: %{status: :working}},
+          "paused" => %{issue: issue("paused", state: "todo"), control: %{status: :paused}}
+        }
+      }
+
+      refute DispatchPolicy.state_slots_available?(issue("next", state: "todo"), state)
+      assert DispatchPolicy.state_slots_available?(issue("other", state: "rework"), state)
+    end
+  end
+
+  defp issue(id, attrs) do
+    struct!(
+      Issue,
+      Keyword.merge(
+        [
+          id: id,
+          identifier: id && "repo##{id}",
+          title: "title #{id}",
+          state: "todo",
+          priority: nil,
+          created_at: nil,
+          blocked_by: []
+        ],
+        attrs
+      )
+    )
+  end
+end
