@@ -121,6 +121,9 @@ defmodule Aiur.CodingAgentTest do
 
     test "specific layer pins the exact version string" do
       assert CodingAgent.model_for(issue(["model:claude-opus-4-8"])) == "opus-4-8"
+      assert CodingAgent.model_for(issue(["model:codex-gpt-5.6-sol"])) == "gpt-5.6-sol"
+      assert CodingAgent.model_for(issue(["model:codex-gpt-5.6-terra"])) == "gpt-5.6-terra"
+      assert CodingAgent.model_for(issue(["model:codex-gpt-5.6-luna"])) == "gpt-5.6-luna"
       assert CodingAgent.model_for(issue(["model:codex-gpt-5.5"])) == "gpt-5.5"
       assert CodingAgent.model_for(issue(["model:codex-gpt-5.4-mini"])) == "gpt-5.4-mini"
     end
@@ -166,7 +169,7 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "effort vocabulary comes from the registry" do
-      assert CodingAgent.efforts("codex") == ["low", "medium", "high"]
+      assert CodingAgent.efforts("codex") == ["none", "low", "medium", "high", "xhigh", "max"]
       assert CodingAgent.efforts("claude") == []
       assert CodingAgent.efforts("claude-repl") == ["low", "medium", "high", "xhigh", "max"]
       assert CodingAgent.efforts("opencode") == []
@@ -217,6 +220,9 @@ defmodule Aiur.CodingAgentTest do
       assert "model:claude-opus" in labels
       assert "model:claude-opus-4-8" in labels
       assert "model:codex" in labels
+      assert "model:codex-gpt-5.6-sol" in labels
+      assert "model:codex-gpt-5.6-terra" in labels
+      assert "model:codex-gpt-5.6-luna" in labels
     end
 
     test "override_labels seeds bare haiku and cheaper codex variants" do
