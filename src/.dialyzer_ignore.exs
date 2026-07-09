@@ -6,7 +6,6 @@
   # `pattern_match_cov` / `pattern_match`: legacy clauses dialyzer can prove
   # unreachable from the inferred call sites.
   {"lib/aiur/agent_list/app.ex"},
-  {"lib/aiur/agent_runner.ex", :pattern_match_cov},
   {"lib/aiur/http_server.ex", :pattern_match_cov},
   {"lib/aiur/opencode/slot.ex", :pattern_match_cov},
 

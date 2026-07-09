@@ -230,16 +230,12 @@ defmodule Aiur.AgentRunner.CommentContext do
     Map.get(comment, "body") || Map.get(comment, :body) || ""
   end
 
-  defp comment_body(_comment), do: ""
-
   defp comment_event_id(comment) when is_map(comment) do
     case Map.get(comment, "id") || Map.get(comment, :id) do
       id when is_integer(id) -> id
       _ -> IdGenerator.next_id()
     end
   end
-
-  defp comment_event_id(_comment), do: IdGenerator.next_id()
 
   defp pr_number(pr) when is_map(pr) do
     case Map.get(pr, "number") || Map.get(pr, :number) do
