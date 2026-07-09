@@ -2,6 +2,7 @@ defmodule Aiur.Config.PathsTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Config.Paths
+  alias Aiur.Opencode.Config
 
   describe "log_root_dir/0" do
     setup do
@@ -89,11 +90,11 @@ defmodule Aiur.Config.PathsTest do
 
     test "opencode safe_identifier stays a byte-identical delegate" do
       for {input, _expected} <- @sanitize_fixtures do
-        assert Aiur.Opencode.Config.safe_identifier(input) ==
+        assert Config.safe_identifier(input) ==
                  Paths.sanitize(input, "issue")
       end
 
-      assert Aiur.Opencode.Config.safe_identifier(nil) == "issue"
+      assert Config.safe_identifier(nil) == "issue"
     end
   end
 
