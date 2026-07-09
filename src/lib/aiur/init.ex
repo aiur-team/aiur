@@ -14,11 +14,14 @@ defmodule Aiur.Init do
   """
 
   alias Aiur.Codeowners
-  alias Aiur.CodingAgent
   alias Aiur.GitHub.Labels
+  alias Aiur.Init.Format
   alias Aiur.Init.Prompt
+  alias Aiur.Init.Questions
+  alias Aiur.Init.Resume
+  alias Aiur.Init.Runtime
+  alias Aiur.Init.Templates
   alias Aiur.Prewarm.Detect
-  alias Aiur.RepoBase
 
   # New layout: aiur files live in a `.aiur/` folder (`.aiur/config`, `.aiur/hooks`,
   # `.aiur/prompt.md`, `.aiur/examples/`). `@config_file_name` is the repo-relative
@@ -42,36 +45,11 @@ defmodule Aiur.Init do
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
-  # Scaffolded prompt_file template. PromptBuilder renders this as the whole
-  # turn template (Liquid), so it must reference the issue or the agent gets
-  # no task. The `{{REPO}}` placeholder is init-filled (not Liquid); turn-time
-  # `{{ issue.* }}` Liquid is preserved for PromptBuilder.
-  @prompt_example_path Path.expand("../../../.aiur/examples/prompt.md.example", __DIR__)
-  @external_resource @prompt_example_path
-  @prompt_example_template File.read!(@prompt_example_path)
-  @repo_placeholder "{{REPO}}"
-
-  @env_example_content """
-  # aiur reads secrets from this file. Keep it out of version control.
-  # GitHub personal access token (repo scope). Create one at:
-  #   #{@token_url}
-  GITHUB_TOKEN=
-  """
-
   # The workflow-state label namespace is fixed (operators don't customize it):
   # aiur picks up issues tagged `agent:todo` and walks them through `agent:*`.
   @label_prefix "agent"
-  @tracker_kinds ["github", "linear"]
-  @permission_modes ["bypassPermissions", "default (coming soon)", "acceptEdits (coming soon)"]
   # Low complexity routes to the first kind, high to the last.
   @routing_order ["claude", "codex"]
-
-  # Embed the annotated example at compile time so the wizard works from a
-  # release without a runtime file dependency. aiur dogfoods the `.aiur/` layout,
-  # so the canonical templates live under `.aiur/examples/` in this repo.
-  @example_path Path.expand("../../../.aiur/examples/config.example", __DIR__)
-  @external_resource @example_path
-  @example_template File.read!(@example_path)
 
   # The scaffolded config references hooks via `hooks_file: hooks`, so init also
   # writes a `.aiur/hooks` (from `.aiur/examples/hooks.example`) next to the config
@@ -79,9 +57,6 @@ defmodule Aiur.Init do
   # compile time so the wizard works from a release with no runtime file dependency.
   @aiurhooks_file_name "hooks"
   @prewarm_file_name "prewarm"
-  @aiurhooks_example_path Path.expand("../../../.aiur/examples/hooks.example", __DIR__)
-  @external_resource @aiurhooks_example_path
-  @aiurhooks_example_template File.read!(@aiurhooks_example_path)
 
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
   # so init also writes an extensionless `.aiur/alerts` next to the config —
@@ -90,12 +65,6 @@ defmodule Aiur.Init do
   # per platform and init scaffolds the host's. Embedded at compile time so the
   # wizard works from a release with no runtime file dependency.
   @alerts_file_name "alerts"
-  @alerts_macos_example_path Path.expand("../../../.aiur/examples/alerts.macos.example", __DIR__)
-  @alerts_linux_example_path Path.expand("../../../.aiur/examples/alerts.linux.example", __DIR__)
-  @external_resource @alerts_macos_example_path
-  @external_resource @alerts_linux_example_path
-  @alerts_macos_example_template File.read!(@alerts_macos_example_path)
-  @alerts_linux_example_template File.read!(@alerts_linux_example_path)
 
   @type io :: %{
           puts: (IO.chardata() -> :ok),
@@ -137,16 +106,8 @@ defmodule Aiur.Init do
   @spec run(%{force: boolean()}) :: :ok | {:error, String.t()}
   def run(opts) do
     load_dotenv()
-    ensure_http_client()
+    Runtime.ensure_http_client()
     run(opts, runtime_io(), runtime_deps())
-  end
-
-  # `aiur init` boots interactively without the OTP app started, so the Req /
-  # Finch HTTP client the GitHub label calls rely on isn't running yet. Start
-  # it up front so a token-present run reaches tag creation instead of crashing.
-  defp ensure_http_client do
-    Application.ensure_all_started(:req)
-    :ok
   end
 
   @spec run(%{force: boolean()}, io(), deps()) :: :ok | {:error, String.t()}
@@ -155,7 +116,7 @@ defmodule Aiur.Init do
 
     case existing_config_target(opts, deps) do
       nil ->
-        location = prompt_location(io)
+        location = Questions.prompt_location(io)
         fresh_setup(io, deps, location, deps.config_target.(location))
 
       # Resume re-provisions labels/auth AND backfills config sections added by
@@ -210,13 +171,13 @@ defmodule Aiur.Init do
     case deps.load_config.(target) do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
-        print_saved_summary(io, config)
+        Resume.print_saved_summary(io, config)
         effective_target = maybe_migrate_layout(io, deps, kind, location, target)
-        tracker = tracker_from_config(deps, config)
+        tracker = Resume.tracker_from_config(deps, config)
         backfill_missing_sections(io, deps, location, tracker, config, effective_target)
         maybe_resume_prewarm(io, deps, tracker, config)
         setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, agents_from_config(config))
+        provision(io, deps, tracker, Resume.agents_from_config(config))
 
       {:error, reason} ->
         {:error,
@@ -243,7 +204,7 @@ defmodule Aiur.Init do
 
       case deps.migrate_layout.(%{legacy_config: legacy_target, new_config: new_target, ignore: ignore?}) do
         {:ok, _summary} ->
-          io.puts.(["Migrated to: ", dim(new_target)])
+          io.puts.(["Migrated to: ", Format.dim(new_target)])
           new_target
 
         {:error, reason} ->
@@ -259,34 +220,25 @@ defmodule Aiur.Init do
   defp layout_label(:global), do: "~/.aiur/"
   defp layout_label(:repo_local), do: ".aiur/"
 
-  # Default workspace root, scoped by the repo captured in the tracker prompt so
-  # agents land in ~/.aiur/workspaces/<owner>/<repo>/<issue> (the runtime append
-  # is idempotent, so baking owner/name into the root never doubles it). The
-  # global config has no fixed repo, so it keeps the bare root.
-  defp workspace_default(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "",
-    do: "~/.aiur/workspaces/" <> repo
-
-  defp workspace_default(_tracker), do: "~/.aiur/workspaces"
-
   defp fresh_setup(io, deps, location, target) do
-    tracker = prompt_tracker(io, deps, location)
-    agents = prompt_agents(io)
-    routing = prompt_routing(io, agents)
-    permission_mode = prompt_permission_mode(io)
-    workspace_root = io.input.("Where should agents work?", workspace_default(tracker), nil)
-    max_agents = prompt_int(io, "Max concurrent agents", 10, 1)
-    max_turns = prompt_max_turns(io)
-    max_duration = prompt_max_duration(io)
+    tracker = Questions.prompt_tracker(io, deps, location)
+    agents = Questions.prompt_agents(io)
+    routing = Questions.prompt_routing(io, agents)
+    permission_mode = Questions.prompt_permission_mode(io)
+    workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
+    max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
+    max_turns = Questions.prompt_max_turns(io)
+    max_duration = Questions.prompt_max_duration(io)
 
-    pre_warmed = prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-    polling = prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
+    pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
+    polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
     prewarm = prompt_prewarm(io, deps, location)
     alerts = prompt_alerts(io, deps, target)
 
     fills =
-      build_fills(%{
+      Templates.build_fills(%{
         tracker: tracker,
         agents: agents,
         routing: routing,
@@ -302,11 +254,11 @@ defmodule Aiur.Init do
         alerts: alerts
       })
 
-    config_yaml = fill_template(deps.read_example.(), fills)
+    config_yaml = Templates.fill_template(deps.read_example.(), fills)
 
     case deps.write_config.(target, config_yaml) do
       {:ok, path} ->
-        io.puts.(["Created: ", dim(path)])
+        io.puts.(["Created: ", Format.dim(path)])
         ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         ensure_aiurhooks(io, deps, path)
         ensure_alerts(io, deps, path, alerts)
@@ -356,90 +308,6 @@ defmodule Aiur.Init do
   end
 
   defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
-
-  # --- Resume (existing config) ---
-
-  defp print_saved_summary(io, config) do
-    io.puts.("✅ Saved selections:")
-
-    Enum.each(saved_summary_lines(config), fn line ->
-      io.puts.(IO.ANSI.format([:faint, "  " <> line]))
-    end)
-  end
-
-  defp saved_summary_lines(config) do
-    agent = config["agent"] || %{}
-    tracker = config["tracker"] || %{}
-    github = tracker["github"] || %{}
-    workspace = config["workspace"] || %{}
-    polling = config["polling"] || %{}
-    permission_mode = get_in(agent, ["claude", "permission_mode"])
-
-    [
-      "tracker: #{tracker["kind"]}",
-      github["repo"] && "repo: #{github["repo"]}",
-      "agent: #{agent["kind"]}",
-      "routing: #{format_routing(agent["routing"])}",
-      permission_mode && "permission_mode: #{permission_mode}",
-      "max_concurrent_agents: #{agent["max_concurrent_agents"]}",
-      "max_turns: #{agent["max_turns"]}",
-      "max_agent_duration_minutes: #{agent["max_agent_duration_minutes"]}",
-      "workspace_root: #{workspace["root"]}",
-      "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
-      "polling_interval_seconds: #{polling["interval_seconds"]}",
-      alerts_summary_line(config),
-      config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp alerts_summary_line(config) do
-    case config["alerts"] do
-      %{"enabled" => enabled} -> "alerts: #{enabled}"
-      _ -> nil
-    end
-  end
-
-  defp format_routing(routing) when is_map(routing) do
-    routing
-    |> Enum.sort_by(fn {level, _} -> to_string(level) end)
-    |> Enum.map_join(", ", fn {level, value} -> "#{level}:#{value}" end)
-  end
-
-  defp format_routing(_routing), do: ""
-
-  defp tracker_from_config(deps, config) do
-    tracker = config["tracker"] || %{}
-
-    case tracker["kind"] do
-      "github" ->
-        repo = get_in(config, ["tracker", "github", "repo"]) || deps.detect_repo.()
-        %{kind: "github", repo: repo}
-
-      "linear" ->
-        %{
-          kind: "linear",
-          api_key: get_in(config, ["tracker", "linear", "api_key"]),
-          project_slug: get_in(config, ["tracker", "linear", "project_slug"])
-        }
-
-      kind ->
-        %{kind: kind}
-    end
-  end
-
-  # Backends to provision labels for: the default agent kind plus any backend
-  # named in the routing table (e.g. `claude:sonnet` -> `claude`).
-  defp agents_from_config(config) do
-    agent = config["agent"] || %{}
-    routing_backends = (agent["routing"] || %{}) |> Map.values() |> Enum.map(&routing_backend/1)
-
-    [agent["kind"] | routing_backends]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> agent_kinds()
-  end
-
-  defp routing_backend(value), do: value |> to_string() |> String.split(":") |> hd()
 
   # --- Resume backfill of init-promptable sections (#411) ---
 
@@ -495,7 +363,7 @@ defmodule Aiur.Init do
   defp append_section(io, deps, target, section, answer) do
     case deps.append_config.(target, section.to_yaml.(answer)) do
       {:ok, path} ->
-        io.puts.(["Added ", section.label, " to ", dim(path)])
+        io.puts.(["Added ", section.label, " to ", Format.dim(path)])
         :ok
 
       {:error, reason} ->
@@ -541,169 +409,6 @@ defmodule Aiur.Init do
 
   defp prewarm_from_config(_config), do: %{enabled: false, base_build: nil}
 
-  # --- Prompts ---
-
-  defp prompt_location(io) do
-    options = ["repo (./.aiur/)", "global (~/.aiur/)"]
-
-    case value_of(io.select.("Where will you store aiur settings for this project?", options, hd(options))) do
-      "global" -> :global
-      _ -> :repo_local
-    end
-  end
-
-  defp prompt_tracker(io, deps, location) do
-    case io.select.("Issue tracker", @tracker_kinds, "github") do
-      "github" ->
-        # The global config is general, so it omits the repo (auto-detected
-        # from the git remote of whatever repo aiur runs in).
-        repo = if location == :global, do: nil, else: io.input.("GitHub repo (owner/name)", deps.detect_repo.(), nil)
-        %{kind: "github", repo: repo}
-
-      "linear" ->
-        %{
-          kind: "linear",
-          api_key: io.input.("Linear API key", nil, nil),
-          project_slug: io.input.("Linear project slug", nil, nil)
-        }
-    end
-  end
-
-  # Multi-select agents (at least one). The remote-control option is introduced
-  # later (at tag creation), not here.
-  defp prompt_agents(io) do
-    choices = agent_kind_choices()
-
-    selected =
-      case io.multiselect.("Which agents to support", choices, ["claude"]) do
-        [] -> [List.first(choices)]
-        kinds -> kinds
-      end
-
-    agent_kinds(selected)
-  end
-
-  # Optional per-complexity-tag routing. With the gate accepted, each story-point
-  # tag (1-5) picks backend, model, then backend-native effort. Declining routes
-  # every tag to the primary agent's default backend/model/effort. Remote mode is
-  # not chosen here — it is applied per ticket via the model:remote tag
-  # (explained when tags are listed).
-  defp prompt_routing(io, agents) do
-    primary = primary_kind(agents)
-
-    io.puts.("Aiur supports story point complexity tags to optimize agent effort per ticket.")
-
-    if io.confirm.("Would you like to select models and effort for 5 complexity tags?", false) do
-      io.puts.("Select backend, model, and effort for issues with the following story points (1-5):")
-      Map.new(1..5, fn level -> {level, prompt_routing_level(io, agents, level, primary)} end)
-    else
-      Map.new(1..5, fn level -> {level, primary} end)
-    end
-  end
-
-  defp prompt_routing_level(io, agents, level, primary) do
-    backend = io.select.("complexity:#{level} backend", agents, primary) |> value_of()
-    model = prompt_routing_model(io, backend, level)
-    effort = prompt_routing_effort(io, backend, level)
-
-    routing_value(backend, model, effort)
-  end
-
-  defp prompt_routing_model(io, backend, level) do
-    models = CodingAgent.backends() |> Map.get(backend, %{}) |> Map.get(:models, [])
-
-    case io.select.("complexity:#{level} #{backend} model", ["default model" | models], "default model") |> value_of() do
-      "default model" -> nil
-      model -> model
-    end
-  end
-
-  defp prompt_routing_effort(io, backend, level) do
-    case CodingAgent.efforts(backend) do
-      [] ->
-        nil
-
-      efforts ->
-        case io.select.("complexity:#{level} #{backend} effort", ["default effort" | efforts], "default effort") |> value_of() do
-          "default effort" -> nil
-          effort -> effort
-        end
-    end
-  end
-
-  defp routing_value(backend, nil, nil), do: backend
-  defp routing_value(backend, model, nil), do: "#{backend}:#{model}"
-  defp routing_value(backend, nil, effort), do: "#{backend}::#{effort}"
-  defp routing_value(backend, model, effort), do: "#{backend}:#{model}:#{effort}"
-
-  # Only bypassPermissions works for autonomous agents; the interactive modes
-  # would hang waiting for approvals, so they are offered but redirected.
-  defp prompt_permission_mode(io) do
-    case io.select.("Claude permission mode", @permission_modes, "bypassPermissions") do
-      "bypassPermissions" ->
-        "bypassPermissions"
-
-      other ->
-        io.puts.("⚠️ #{other} needs an approval UI (coming soon) — using bypassPermissions.")
-        "bypassPermissions"
-    end
-  end
-
-  defp prompt_int(io, label, default, min, hint \\ nil) do
-    case Integer.parse(to_string(io.input.(label, Integer.to_string(default), hint))) do
-      {n, ""} when n >= min ->
-        n
-
-      _ ->
-        io.puts.("Enter a whole number ≥ #{min}.")
-        prompt_int(io, label, default, min, hint)
-    end
-  end
-
-  # Max turns per issue defaults to `none` (uncapped); a number caps it.
-  defp prompt_max_turns(io) do
-    case normalize_int_or_none(io.input.("Max turns per issue", "none", "none = unlimited")) do
-      :none ->
-        "none"
-
-      n when is_integer(n) ->
-        n
-
-      :invalid ->
-        io.puts.("Enter a whole number ≥ 1, or `none`.")
-        prompt_max_turns(io)
-    end
-  end
-
-  # Safety net that hard-kills a stuck agent after N minutes. `none` opts out
-  # (written as 0, which the watchdog treats as disabled).
-  defp prompt_max_duration(io) do
-    case normalize_int_or_none(io.input.("Max agent duration in minutes", "60", "Fallback for stuck agents: none = never auto-kill")) do
-      :none ->
-        0
-
-      n when is_integer(n) ->
-        n
-
-      :invalid ->
-        io.puts.("Enter a whole number ≥ 1, or `none`.")
-        prompt_max_duration(io)
-    end
-  end
-
-  defp normalize_int_or_none(value) do
-    trimmed = value |> to_string() |> String.trim()
-
-    if String.downcase(trimmed) in ["none", "unlimited", ""] do
-      :none
-    else
-      case Integer.parse(trimmed) do
-        {n, ""} when n >= 1 -> n
-        _ -> :invalid
-      end
-    end
-  end
-
   # --- Pre-warm opt-in (detect toolchain, confirm, write config) ---
 
   # Skip pre-warm for a global config: the warm base lives at a per-repo path,
@@ -725,9 +430,9 @@ defmodule Aiur.Init do
           "\nDetected ",
           to_string(lang),
           " (build root ",
-          dim(root),
+          Format.dim(root),
           "). Base build:\n  ",
-          dim(command),
+          Format.dim(command),
           "\n"
         ])
 
@@ -750,7 +455,7 @@ defmodule Aiur.Init do
   defp print_prewarm_fallback(io) do
     io.puts.([
       "\nCouldn't auto-detect this repo's build — pre-warm left off. To enable it, paste this to your coding agent:\n\n",
-      dim(prewarm_fallback_prompt())
+      Format.dim(prewarm_fallback_prompt())
     ])
   end
 
@@ -766,9 +471,9 @@ defmodule Aiur.Init do
 
     io.puts.([
       "\nFound multiple build roots — pre-warm builds one base, so it needs a single command:\n",
-      dim(roots),
+      Format.dim(roots),
       "\n\nLeaving pre-warm off. To enable it, pick one (or describe the combined build) and paste this to your coding agent:\n\n",
-      dim(prewarm_fallback_prompt())
+      Format.dim(prewarm_fallback_prompt())
     ])
   end
 
@@ -856,7 +561,7 @@ defmodule Aiur.Init do
 
     io.puts.([
       "\nOr paste this to your coding agent to fix it for you:\n\n",
-      dim(prewarm_failure_prompt(repo, cmd, reason))
+      Format.dim(prewarm_failure_prompt(repo, cmd, reason))
     ])
 
     io.puts.("\nThe warm base also retries automatically on the next `aiur` run.")
@@ -894,11 +599,11 @@ defmodule Aiur.Init do
   defp prewarm_failure_guidance(:auth, repo) do
     [
       "\nThis looks like a GitHub authentication failure cloning ",
-      dim(repo),
+      Format.dim(repo),
       ".\nTo fix it yourself:\n",
       "  • Make sure GITHUB_TOKEN is set in .env and still valid:\n",
       "      ",
-      dim(~s(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user)),
+      Format.dim(~s(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user)),
       "\n",
       "  • The token's account must have read access to this repo.\n",
       "  • Classic tokens need the `repo` scope; fine-grained tokens need Contents: Read.\n",
@@ -909,7 +614,7 @@ defmodule Aiur.Init do
   defp prewarm_failure_guidance(:clone, repo) do
     [
       "\nThe warm-base clone of ",
-      dim(repo),
+      Format.dim(repo),
       " failed.\nTo fix it yourself:\n",
       "  • Confirm the repo exists and is reachable from this machine.\n",
       "  • Check your network/proxy, and that GITHUB_TOKEN (if the repo is private) has access.\n",
@@ -987,7 +692,7 @@ defmodule Aiur.Init do
     if io.confirm.("Add sound effects for alerts (e.g. an agent is stuck or needs your input)?", false) do
       io.puts.([
         "aiur scaffolds an editable ",
-        dim(".aiur/alerts"),
+        Format.dim(".aiur/alerts"),
         " map so you can set a custom sound per event."
       ])
 
@@ -1016,67 +721,6 @@ defmodule Aiur.Init do
     end
   end
 
-  # --- Template fill ---
-
-  defp build_fills(d) do
-    %{
-      "{{TRACKER_KIND}}" => d.tracker.kind,
-      "{{TRACKER_PROVIDER}}" => tracker_provider_block(d.tracker),
-      "{{AGENT_KIND}}" => primary_kind(d.agents),
-      "{{MAX_AGENTS}}" => Integer.to_string(d.max_agents),
-      "{{MAX_TURNS}}" => to_string(d.max_turns),
-      "{{MAX_AGENT_DURATION}}" => Integer.to_string(d.max_duration),
-      "{{ROUTING}}" => routing_inline(d.routing),
-      "{{PERMISSION_MODE}}" => d.permission_mode,
-      "{{WORKSPACE_ROOT}}" => d.workspace_root,
-      "{{PROMPT_FILE}}" => d.prompt_file,
-      "{{POLLING}}" => Integer.to_string(d.polling),
-      "{{PRE_WARMED}}" => Integer.to_string(d.pre_warmed),
-      "{{PREWARM_ENABLED}}" => to_string(d.prewarm.enabled),
-      "{{PREWARM_BASE_BUILD_FILE}}" => prewarm_base_build_file_line(d.prewarm),
-      "{{ALERTS_ENABLED}}" => to_string(d.alerts.enabled),
-      "{{ALERTS_OS_SOUNDS}}" => to_string(d.alerts.use_os_default_sounds)
-    }
-  end
-
-  defp prewarm_base_build_file_line(%{enabled: true, base_build: cmd}) when is_binary(cmd) and cmd != "",
-    do: "  base_build_file: #{@prewarm_file_name}\n"
-
-  defp prewarm_base_build_file_line(_), do: ""
-
-  defp fill_template(template, fills) do
-    Enum.reduce(fills, template, fn {token, value}, acc ->
-      String.replace(acc, token, to_string(value))
-    end)
-  end
-
-  defp tracker_provider_block(%{kind: "github", repo: repo}) do
-    # label_prefix is fixed (`agent`) and matches the schema default, so the
-    # written config omits it.
-    [
-      "  github:",
-      repo && "    repo: #{repo}"
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
-  end
-
-  defp tracker_provider_block(%{kind: "linear", api_key: api_key, project_slug: slug}) do
-    [
-      "  linear:",
-      api_key && "    api_key: #{api_key}",
-      slug && "    project_slug: #{slug}"
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
-  end
-
-  defp tracker_provider_block(_tracker), do: ""
-
-  defp routing_inline(routing) do
-    "{" <> Enum.map_join(1..5, ", ", fn level -> "#{level}: #{Map.fetch!(routing, level)}" end) <> "}"
-  end
-
   # --- Closing steps ---
 
   # Create the per-repo prompt file the config points at so the very next
@@ -1085,7 +729,7 @@ defmodule Aiur.Init do
 
   defp ensure_prompt_file(io, deps, target, prompt_file, repo) do
     case deps.ensure_prompt_file.(target, prompt_file, repo) do
-      {:created, path} -> io.puts.(["Created: ", dim(path)])
+      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
       {:exists, _path} -> :ok
     end
   end
@@ -1095,7 +739,7 @@ defmodule Aiur.Init do
   # an existing one — the dev may have tuned it for their toolchain.
   defp ensure_aiurhooks(io, deps, target) do
     case deps.ensure_aiurhooks.(target) do
-      {:created, path} -> io.puts.(["Created: ", dim(path)])
+      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
       {:exists, _path} -> :ok
     end
   end
@@ -1105,7 +749,7 @@ defmodule Aiur.Init do
   # Never clobber an existing one — the operator may have tuned the topic→sound map.
   defp ensure_alerts(io, deps, target, alerts) do
     case deps.ensure_alerts.(target, alerts.source_path) do
-      {:created, path} -> io.puts.(["Created: ", dim(path)])
+      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
       {:exists, _path} -> :ok
     end
   end
@@ -1116,7 +760,7 @@ defmodule Aiur.Init do
   defp ensure_prewarm_file(io, deps, target, %{enabled: true, base_build: cmd})
        when is_binary(cmd) and cmd != "" do
     case deps.ensure_prewarm_file.(target, cmd) do
-      {:created, path} -> io.puts.(["Created: ", dim(path)])
+      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
       {:exists, _path} -> :ok
     end
   end
@@ -1131,7 +775,7 @@ defmodule Aiur.Init do
   defp maybe_offer_gitignore(io, deps, _repo_local) do
     if io.confirm.("Add #{@gitignore_entry} to .gitignore?", false) do
       case deps.add_gitignore_entry.(@gitignore_entry) do
-        {:added, path} -> io.puts.(["Updated: ", dim(path)])
+        {:added, path} -> io.puts.(["Updated: ", Format.dim(path)])
         {:exists, _path} -> :ok
       end
     else
@@ -1162,7 +806,7 @@ defmodule Aiur.Init do
     if io.confirm.("Create #{@codeowners_file_name} for aiur's GitHub trust checks?", true) do
       case create_codeowners_file(repo_root) do
         {:ok, path} ->
-          io.puts.(["Created: ", dim(path)])
+          io.puts.(["Created: ", Format.dim(path)])
           path
 
         {:error, reason} ->
@@ -1248,7 +892,7 @@ defmodule Aiur.Init do
   defp offer_operator_codeowner(io, path, login) do
     if io.confirm.("Add @#{login} to CODEOWNERS so aiur trusts your PR/issue comments?", true) do
       case add_codeowners_login(path, login) do
-        {:updated, updated_path} -> io.puts.(["Updated: ", dim(updated_path)])
+        {:updated, updated_path} -> io.puts.(["Updated: ", Format.dim(updated_path)])
         {:exists, _path} -> :ok
         {:error, reason} -> io.puts.(["⚠️  Couldn't update CODEOWNERS (", inspect(reason), ")."])
       end
@@ -1370,11 +1014,11 @@ defmodule Aiur.Init do
   # GitHub is the only tracker that reads a secret from the environment, so the
   # wizard scaffolds `.env` only on that path. Linear collects its key inline.
   defp setup_env(io, deps, %{kind: "github"}) do
-    {status, path} = deps.ensure_env.(@env_example_content)
+    {status, path} = deps.ensure_env.(Templates.env_example_content())
 
     case status do
-      :created -> io.puts.(["Created: ", dim(path)])
-      :exists -> io.puts.(["Found: ", dim(path)])
+      :created -> io.puts.(["Created: ", Format.dim(path)])
+      :exists -> io.puts.(["Found: ", Format.dim(path)])
     end
   end
 
@@ -1385,7 +1029,7 @@ defmodule Aiur.Init do
   # (each create-or-skip). Existing repo labels are fetched once; a stage whose
   # labels all already exist is reported as created instead of prompting again.
   defp setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
-    kinds = agent_kinds(agents)
+    kinds = Questions.agent_kinds(agents)
     existing = fetch_existing_labels(deps, tracker)
 
     with :ok <- create_lifecycle_labels(io, deps, tracker, existing),
@@ -1418,7 +1062,7 @@ defmodule Aiur.Init do
       missing ->
         io.puts.("\nAiur uses ticket labels to route agents. Next we'll use your GITHUB_TOKEN to create the following labels in the repo:")
         print_label_list(io, labels)
-        print_hint(io, "These lifecycle ticket labels are required.")
+        Format.print_hint(io, "These lifecycle ticket labels are required.")
         io.input.("Press Enter to create them", "", nil)
         create_labels_request(io, deps, tracker, labels, missing)
     end
@@ -1436,7 +1080,7 @@ defmodule Aiur.Init do
       missing ->
         io.puts.("\nNext you can create story point complexity labels:")
         print_label_list(io, labels)
-        print_hint(io, "Optional: Used to optimize effort. You can add point-specific prompts in #{@config_file_name} to have the agent use different skills and models based on complexity.")
+        Format.print_hint(io, "Optional: Used to optimize effort. You can add point-specific prompts in #{@config_file_name} to have the agent use different skills and models based on complexity.")
         create_or_skip(io, deps, tracker, labels, missing, "Create the complexity labels?", true)
     end
   end
@@ -1454,7 +1098,7 @@ defmodule Aiur.Init do
       missing ->
         io.puts.("\nNext you can create model labels to route specific issues to different models:")
         print_label_list(io, labels)
-        print_hint(io, "Optional: These will override complexity label model choices.")
+        Format.print_hint(io, "Optional: These will override complexity label model choices.")
         create_or_skip(io, deps, tracker, labels, missing, "Create the model labels?", true)
     end
   end
@@ -1474,7 +1118,7 @@ defmodule Aiur.Init do
           missing ->
             io.puts.("\nFinally, if you'd like the agent to open a ticket in remote-control mode, add this label:")
             print_label_list(io, labels)
-            print_hint(io, "Optional: Supports claude remote-control")
+            Format.print_hint(io, "Optional: Supports claude remote-control")
             create_or_skip(io, deps, tracker, labels, missing, "Create the model:remote label?", false)
         end
     end
@@ -1513,8 +1157,6 @@ defmodule Aiur.Init do
       io.puts.(["  ", String.pad_trailing(label, width), " — ", Labels.describe(label)])
     end)
   end
-
-  defp print_hint(io, text), do: io.puts.(dim("  " <> text))
 
   # When the token can't create labels (e.g. missing scope), hand the operator
   # a copy-paste command to create them, then ask them to re-run to confirm.
@@ -1630,22 +1272,6 @@ defmodule Aiur.Init do
     end
   end
 
-  # --- Agent-kind helpers ---
-
-  # Only CLI-backed agents are user-selectable. `claude-repl` is an internal
-  # remote transport (not its own CLI), so it never appears in the wizard.
-  defp agent_kind_choices do
-    Enum.filter(@routing_order, &(&1 in known_agent_kinds()))
-  end
-
-  defp primary_kind(agents), do: hd(agent_kinds(agents))
-
-  defp agent_kinds(kinds) when is_list(kinds) do
-    kinds
-    |> Enum.uniq()
-    |> Enum.sort_by(&Enum.find_index(@routing_order, fn k -> k == &1 end))
-  end
-
   # --- Runtime io / deps ---
 
   @spec runtime_io() :: io()
@@ -1659,7 +1285,7 @@ defmodule Aiur.Init do
         end
       end,
       select: fn label, options, default ->
-        Prompt.select(label, options, default, render: &dim_help/1)
+        Prompt.select(label, options, default, render: &Format.dim_help/1)
       end,
       multiselect: fn label, options, defaults -> Prompt.multiselect(label, options, defaults) end,
       confirm: fn label, default ->
@@ -1668,32 +1294,18 @@ defmodule Aiur.Init do
     }
   end
 
-  # Greys an inline help suffix — the ` (...)` tail of an option — so the hint
-  # (default model, file path, "coming soon") reads as secondary without
-  # competing with the choice. `value_of/1` recovers the bare option value.
-  defp dim_help(option) do
-    case String.split(option, " (", parts: 2) do
-      [head, rest] -> [head, IO.ANSI.format([:faint, " (" <> rest])]
-      [head] -> head
-    end
-  end
-
-  defp value_of(option), do: option |> to_string() |> String.split(" (", parts: 2) |> hd() |> String.trim()
-
-  defp dim(text), do: IO.ANSI.format([:faint, to_string(text)])
-
   @spec runtime_deps() :: deps()
   defp runtime_deps do
     %{
       config_target: &config_target/1,
       legacy_config_target: &legacy_config_target/1,
       existing_config_path: &existing_config_path/1,
-      load_config: &load_config/1,
+      load_config: &Runtime.load_config/1,
       migrate_layout: &migrate_layout/1,
-      read_example: fn -> @example_template end,
+      read_example: fn -> Templates.config_example() end,
       detect_repo: &detect_repo/0,
-      detect_toolchain: &detect_toolchain/0,
-      prewarm_build: &run_first_prewarm/2,
+      detect_toolchain: &Runtime.detect_toolchain/0,
+      prewarm_build: &Runtime.run_first_prewarm/2,
       global_alerts_path: &global_alerts_path/0,
       existing_alerts_path: &existing_alerts_path/1,
       write_config: &write_config/2,
@@ -1730,13 +1342,6 @@ defmodule Aiur.Init do
     if File.regular?(path), do: path
   end
 
-  defp load_config(target) do
-    case Aiur.Workflow.load(target) do
-      {:ok, loaded} -> {:ok, loaded.config}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   defp write_config(target, yaml) do
     File.mkdir_p!(Path.dirname(target))
 
@@ -1756,19 +1361,13 @@ defmodule Aiur.Init do
     end
   end
 
-  defp detect_toolchain, do: Detect.detect(File.cwd!())
-
-  defp run_first_prewarm(url, command) do
-    RepoBase.refresh(RepoBase.base_path(url), url, command)
-  end
-
   defp write_prompt_file(target, prompt_file, repo) do
     path = Path.expand(prompt_file, Path.dirname(target))
 
     if File.regular?(path) do
       {:exists, path}
     else
-      File.write!(path, prompt_file_scaffold(repo))
+      File.write!(path, Templates.prompt_file_scaffold(repo))
       {:created, path}
     end
   end
@@ -1779,7 +1378,7 @@ defmodule Aiur.Init do
     if File.regular?(path) do
       {:exists, path}
     else
-      File.write!(path, @aiurhooks_example_template)
+      File.write!(path, Templates.aiurhooks_template())
       {:created, path}
     end
   end
@@ -1804,7 +1403,7 @@ defmodule Aiur.Init do
   end
 
   defp write_new_alerts_file(path, _source_path) do
-    File.write!(path, alerts_template(:os.type()))
+    File.write!(path, Templates.alerts_template(:os.type()))
     {:created, path}
   end
 
@@ -1989,36 +1588,23 @@ defmodule Aiur.Init do
 
   @doc "Raw .aiurhooks template that `aiur init` scaffolds."
   @spec aiurhooks_template() :: String.t()
-  def aiurhooks_template, do: @aiurhooks_example_template
+  defdelegate aiurhooks_template(), to: Templates
 
   @doc "Raw alert sound map template that `aiur init` scaffolds as `.aiur/alerts`."
   @spec alerts_template() :: String.t()
-  def alerts_template, do: alerts_template(:os.type())
+  defdelegate alerts_template(), to: Templates
 
   @doc false
   @spec alerts_template({atom(), atom()} | term()) :: String.t()
-  def alerts_template({:unix, :darwin}), do: @alerts_macos_example_template
-  def alerts_template({:unix, _}), do: @alerts_linux_example_template
-  def alerts_template(_os_type), do: @alerts_linux_example_template
+  defdelegate alerts_template(os_type), to: Templates
 
   @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
   @spec prompt_file_template() :: String.t()
-  def prompt_file_template, do: @prompt_example_template
+  defdelegate prompt_file_template(), to: Templates
 
   @doc "Prompt_file scaffold with the repo placeholder filled for `repo` (or a neutral fallback)."
   @spec prompt_file_scaffold(String.t() | nil) :: String.t()
-  def prompt_file_scaffold(repo) do
-    String.replace(@prompt_example_template, @repo_placeholder, repo_display(repo))
-  end
-
-  defp repo_display(repo) when is_binary(repo) do
-    case String.trim(repo) do
-      "" -> "current"
-      trimmed -> trimmed
-    end
-  end
-
-  defp repo_display(_repo), do: "current"
+  defdelegate prompt_file_scaffold(repo), to: Templates
 
   defp create_labels(%{kind: "github", repo: repo}, labels) do
     with {:ok, {owner, name}} <- parse_owner_repo(repo),
@@ -2249,5 +1835,5 @@ defmodule Aiur.Init do
 
   @doc false
   @spec known_agent_kinds() :: [String.t()]
-  def known_agent_kinds, do: CodingAgent.known_backends()
+  defdelegate known_agent_kinds(), to: Questions
 end
