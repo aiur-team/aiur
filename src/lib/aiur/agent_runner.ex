@@ -26,6 +26,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.Events.{DebugLog, IdGenerator, Publisher, Sanitizer, SubscriptionStore, Topic, UniversalSubscriptions}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
+  alias Aiur.Protocol.MapAccess
 
   @type worker_host :: String.t() | nil
 
@@ -594,11 +595,7 @@ defmodule Aiur.AgentRunner do
   # Look up `key` in `map` using both atom and binary forms so we tolerate
   # either shape (`%{event: "..."}` or `%{"event" => "..."}`) — codex events
   # arrive as string-keyed JSON, while internal messages stay atom-keyed.
-  defp get(map, key) when is_map(map) and is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp get(_map, _key), do: nil
+  defp get(map, key), do: MapAccess.get(map, key)
 
   defp timestamp_for(message) do
     case Map.get(message, :timestamp) || Map.get(message, "timestamp") do
@@ -1674,7 +1671,7 @@ defmodule Aiur.AgentRunner do
   defp render_event_line(other), do: inspect(other)
 
   defp event_field(event, key) when is_atom(key) do
-    Map.get(event, key) || Map.get(event, Atom.to_string(key))
+    MapAccess.get(event, key)
   end
 
   defp event_summary(event) do

@@ -3,20 +3,19 @@ defmodule Aiur.Codex.CodingAgent do
   Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio.
   """
 
-  @version Mix.Project.config()[:version]
-
   @behaviour Aiur.CodingAgent
+  @behaviour Aiur.AppServer.Adapter
 
   require Logger
   alias Aiur.{AgentEnvironment, Config, PathSafety, SSH}
+  alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
+  alias Aiur.Protocol.MapAccess
+  alias Aiur.TokenUsage
 
-  @initialize_id 1
   @thread_start_id 2
   @turn_start_id 3
-  @port_line_bytes 1_048_576
-  @max_stream_log_bytes 1_000
   @cold_start_response_timeout_ms 30_000
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
 
@@ -48,6 +47,7 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
+  @impl Aiur.CodingAgent
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
@@ -89,97 +89,29 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
+  @impl Aiur.CodingAgent
   @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_turn(
         %{
-          port: port,
-          metadata: metadata,
-          approval_policy: approval_policy,
           auto_approve_requests: auto_approve_requests,
-          turn_sandbox_policy: turn_sandbox_policy,
           thread_id: thread_id,
           workspace: workspace
         } = session,
         prompt,
         issue,
         opts \\ []
-      ) do
-    on_message = Keyword.get(opts, :on_message, &default_on_message/1)
-    on_safe_checkpoint = Keyword.get(opts, :on_safe_checkpoint, fn _checkpoint -> :noop end)
-
-    tool_executor =
-      Keyword.get(opts, :tool_executor, fn tool, arguments ->
-        DynamicTool.execute(tool, arguments)
-      end)
-
-    case start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
-      {:ok, turn_id} ->
-        session_id = "#{thread_id}-#{turn_id}"
-        Logger.info("Codex session started for #{issue_context(issue)} session_id=#{session_id}")
-
-        emit_message(
-          on_message,
-          :session_started,
-          %{
-            session_id: session_id,
-            thread_id: thread_id,
-            turn_id: turn_id
-          },
-          metadata
-        )
-
-        case await_turn_completion(
-               session,
-               on_message,
-               tool_executor,
-               auto_approve_requests,
-               on_safe_checkpoint,
-               turn_id,
-               issue_identifier(issue)
-             ) do
-          {:ok, result} ->
-            Logger.info("Codex session completed for #{issue_context(issue)} session_id=#{session_id}")
-
-            {:ok,
-             %{
-               result: result,
-               session_id: session_id,
-               thread_id: thread_id,
-               turn_id: turn_id
-             }}
-
-          {:paused, payload} ->
-            Logger.info("Codex session paused for #{issue_context(issue)} session_id=#{session_id}")
-            {:paused, Map.put(payload, :session_id, session_id)}
-
-          {:error, reason} ->
-            Logger.warning("Codex session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
-
-            emit_message(
-              on_message,
-              :turn_ended_with_error,
-              %{
-                session_id: session_id,
-                reason: reason
-              },
-              metadata
-            )
-
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        Logger.warning("Codex turn start failed for #{issue_context(issue)}: #{inspect(reason)}")
-        emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
-        {:error, {:turn_start_failed, reason}}
-    end
+      )
+      when is_boolean(auto_approve_requests) and is_binary(thread_id) and is_binary(workspace) do
+    Adapter.run_turn(__MODULE__, session, prompt, issue, opts)
   end
 
+  @impl Aiur.CodingAgent
   @spec stop_session(session()) :: :ok
   def stop_session(%{port: port}) when is_port(port) do
     stop_port(port)
   end
 
+  @impl Aiur.CodingAgent
   @spec send_operator_message(session(), Aiur.CodingAgent.operator_payload()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(
@@ -252,31 +184,11 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp start_port(workspace, nil, model, effort) do
-    executable = System.find_executable("bash")
-
-    if is_nil(executable) do
-      {:error, :bash_not_found}
-    else
-      port =
-        Port.open(
-          {:spawn_executable, String.to_charlist(executable)},
-          [
-            :binary,
-            :exit_status,
-            :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(codex_command(model, effort)))],
-            cd: String.to_charlist(workspace),
-            env: AgentEnvironment.workspace_env(workspace),
-            line: @port_line_bytes
-          ]
-        )
-
-      {:ok, port}
-    end
+    Adapter.start_port(workspace, codex_command(model, effort))
   end
 
   defp start_port(workspace, worker_host, model, effort) when is_binary(worker_host) do
-    SSH.start_port(worker_host, remote_launch_command(workspace, model, effort), line: @port_line_bytes)
+    SSH.start_port(worker_host, remote_launch_command(workspace, model, effort), line: Adapter.port_line_bytes())
   end
 
   defp remote_launch_command(workspace, model, effort) do
@@ -325,25 +237,10 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp send_initialize(port) do
-    payload = %{
-      "method" => "initialize",
-      "id" => @initialize_id,
-      "params" => %{
-        "capabilities" => %{
-          "experimentalApi" => true
-        },
-        "clientInfo" => %{
-          "name" => "aiur-orchestrator",
-          "title" => "Aiur Orchestrator",
-          "version" => @version
-        }
-      }
-    }
+    send_message(port, Messages.initialize_frame())
 
-    send_message(port, payload)
-
-    with {:ok, _} <- await_startup_response(port, @initialize_id) do
-      send_message(port, %{"method" => "initialized", "params" => %{}})
+    with {:ok, _} <- await_startup_response(port, Messages.initialize_id()) do
+      send_message(port, Messages.initialized_frame())
       :ok
     end
   rescue
@@ -474,7 +371,20 @@ defmodule Aiur.Codex.CodingAgent do
   defp parse_thread_response({:ok, %{"thread" => thread_payload}}), do: {:error, {:invalid_thread_payload, thread_payload}}
   defp parse_thread_response(other), do: other
 
-  defp start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec start_turn(session(), String.t(), map()) :: {:ok, String.t()} | {:error, term()}
+  def start_turn(
+        %{
+          port: port,
+          thread_id: thread_id,
+          workspace: workspace,
+          approval_policy: approval_policy,
+          turn_sandbox_policy: turn_sandbox_policy
+        },
+        prompt,
+        issue
+      ) do
     send_message(port, %{
       "method" => "turn/start",
       "id" => @turn_start_id,
@@ -499,101 +409,22 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  defp await_turn_completion(
-         session,
-         on_message,
-         tool_executor,
-         auto_approve_requests,
-         on_safe_checkpoint,
-         turn_id,
-         issue_identifier
-       ) do
-    receive_loop(session, %{
-      on_message: on_message,
-      on_safe_checkpoint: on_safe_checkpoint,
-      timeout_ms: Config.agent_turn_timeout_ms(),
-      pending_line: "",
-      tool_executor: tool_executor,
-      auto_approve_requests: auto_approve_requests,
-      outstanding_turns: 1,
-      turn_started?: false,
-      pending_operator_requests: %{},
-      current_turn_id: turn_id,
-      issue_identifier: issue_identifier,
-      pause_request_id: nil,
-      pending_interrupt_request_id: nil,
-      interrupt_action: nil
-    })
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec backend_label() :: String.t()
+  def backend_label, do: "Codex"
+
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec loop_state_extras(session()) :: map()
+  def loop_state_extras(session) do
+    %{auto_approve_requests: session.auto_approve_requests, turn_started?: false}
   end
 
-  defp receive_loop(%{port: port} = session, state) do
-    receive do
-      {^port, {:data, {:eol, chunk}}} ->
-        complete_line = state.pending_line <> to_string(chunk)
-
-        case handle_incoming(session, %{state | pending_line: ""}, complete_line) do
-          {:continue, next_state} -> receive_loop(session, next_state)
-          result -> result
-        end
-
-      {^port, {:data, {:noeol, chunk}}} ->
-        receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
-
-      {^port, {:exit_status, status}} ->
-        {:error, {:port_exit, status}}
-
-      {:pause_agent, request_id} when is_integer(request_id) ->
-        case handle_pause_request(session, state, request_id) do
-          {:continue, next_state} -> receive_loop(session, next_state)
-          result -> result
-        end
-
-      {:agent_queue_updated, issue_identifier, _item_id, true}
-      when issue_identifier == state.issue_identifier ->
-        case handle_operator_queue_update(session, state) do
-          {:continue, next_state} -> receive_loop(session, next_state)
-          result -> result
-        end
-
-      {:agent_queue_updated, issue_identifier, _item_id, _deliver_now}
-      when issue_identifier == state.issue_identifier ->
-        receive_loop(session, state)
-
-      {:agent_queue_updated, issue_identifier, _item_id}
-      when issue_identifier == state.issue_identifier ->
-        receive_loop(session, state)
-
-      {:agent_queue_updated, _issue_identifier, _item_id, _deliver_now} ->
-        receive_loop(session, state)
-
-      {:agent_queue_updated, _issue_identifier, _item_id} ->
-        receive_loop(session, state)
-    after
-      state.timeout_ms ->
-        {:error, :turn_timeout}
-    end
-  end
-
-  defp handle_incoming(%{port: port} = session, state, data) do
-    on_message = state.on_message
-    payload_string = to_string(data)
-
-    case Jason.decode(payload_string) do
-      {:ok, payload} ->
-        handle_decoded_incoming(session, state, payload, payload_string, port, on_message)
-
-      {:error, _reason} ->
-        handle_malformed_incoming(state, payload_string, port, on_message)
-    end
-  end
-
-  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _}, _payload_string, _port, _on_message)
-       when request_id == state.pending_interrupt_request_id do
-    {:continue, %{state | pending_interrupt_request_id: nil}}
-  end
-
-  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)
-       when request_id == state.pending_interrupt_request_id do
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec handle_interrupt_error(map(), term()) :: {:continue, map()} | {:error, term()}
+  def handle_interrupt_error(state, error) do
     if no_active_turn_error?(error) do
       # Codex says "no active turn to interrupt" (-32600). The turn
       # ended on its own between us deciding to interrupt and codex
@@ -612,34 +443,27 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  defp handle_decoded_incoming(session, state, %{"id" => request_id, "result" => _} = payload, payload_string, _port, _on_message)
-       when is_integer(request_id) do
-    handle_pending_operator_response(session, state, payload, payload_string, request_id)
-  end
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
+  def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
+    emit_turn_event(state.on_message, :turn_completed, payload, payload_string, session.port, payload)
 
-  defp handle_decoded_incoming(session, state, %{"id" => request_id, "error" => _} = payload, payload_string, _port, _on_message)
-       when is_integer(request_id) do
-    handle_pending_operator_response(session, state, payload, payload_string, request_id)
-  end
-
-  defp handle_decoded_incoming(_session, state, %{"method" => "turn/completed"} = payload, payload_string, port, on_message) do
-    emit_turn_event(on_message, :turn_completed, payload, payload_string, port, payload)
-
-    case turn_completion_status(payload) do
-      "interrupted" -> continue_after_turn_interrupted(state, payload)
-      _ -> continue_after_turn_completion(state)
+    case TurnState.turn_completion_status(payload) do
+      "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
+      _ -> TurnState.continue_after_turn_completion(state)
     end
   end
 
-  defp handle_decoded_incoming(_session, state, %{"method" => "turn/failed", "params" => params} = payload, payload_string, port, on_message) do
-    emit_turn_event(on_message, :turn_failed, payload, payload_string, port, params)
-    fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
+  def handle_method(session, state, %{"method" => "turn/failed", "params" => params} = payload, payload_string, _method) do
+    emit_turn_event(state.on_message, :turn_failed, payload, payload_string, session.port, params)
+    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
     {:error, {:turn_failed, params}}
   end
 
-  defp handle_decoded_incoming(_session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, port, on_message) do
-    emit_turn_event(on_message, :turn_cancelled, payload, payload_string, port, params)
-    fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
+  def handle_method(session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, _method) do
+    emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
+    TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
 
     if is_integer(state.pause_request_id) do
       {:paused,
@@ -653,31 +477,20 @@ defmodule Aiur.Codex.CodingAgent do
     end
   end
 
-  defp handle_decoded_incoming(session, state, %{"method" => method} = payload, payload_string, _port, _on_message)
-       when is_binary(method) do
+  def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
+      when is_binary(method) do
     handle_turn_method(session, state, payload, payload_string, method)
   end
 
-  defp handle_decoded_incoming(_session, state, payload, payload_string, port, on_message) do
-    emit_message(
-      on_message,
-      :other_message,
-      %{
-        payload: payload,
-        raw: payload_string
-      },
-      metadata_from_message(port, payload)
-    )
-
-    {:continue, state}
-  end
-
-  defp handle_malformed_incoming(state, payload_string, port, on_message) do
-    log_non_json_stream_line(payload_string, "turn stream")
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec handle_malformed(map(), String.t(), port()) :: {:continue, map()}
+  def handle_malformed(state, payload_string, port) do
+    Rpc.log_non_json_stream_line(payload_string, "turn stream", "Codex")
 
     if protocol_message_candidate?(payload_string) do
-      emit_message(
-        on_message,
+      Messages.emit_message(
+        state.on_message,
         :malformed,
         %{
           payload: payload_string,
@@ -698,7 +511,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
-    emit_message(
+    Messages.emit_message(
       on_message,
       event,
       %{
@@ -725,7 +538,7 @@ defmodule Aiur.Codex.CodingAgent do
            state.auto_approve_requests
          ) do
       :input_required ->
-        emit_message(
+        Messages.emit_message(
           on_message,
           :turn_input_required,
           %{payload: payload, raw: payload_string},
@@ -735,10 +548,10 @@ defmodule Aiur.Codex.CodingAgent do
         {:error, {:turn_input_required, payload}}
 
       :approved ->
-        {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
+        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
 
       :approval_required ->
-        emit_message(
+        Messages.emit_message(
           on_message,
           :approval_required,
           %{payload: payload, raw: payload_string},
@@ -754,10 +567,10 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata) do
     if needs_input?(method, payload) do
-      emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
+      Messages.emit_message(on_message, :turn_input_required, %{payload: payload, raw: payload_string}, metadata)
       {:error, {:turn_input_required, payload}}
     else
-      emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
+      Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
       handle_notification_outcome(session, state, method, payload)
     end
   end
@@ -786,106 +599,30 @@ defmodule Aiur.Codex.CodingAgent do
         {:error, {:turn_unretryable, codex_error_reason(payload, method)}}
 
       turn_started_method?(method) ->
+        checkpoint = checkpoint_for_method(method)
+
         next_state =
           session
-          |> maybe_process_safe_checkpoint(%{state | turn_started?: true}, checkpoint_for_method(method))
+          |> OperatorDelivery.maybe_process_safe_checkpoint(%{state | turn_started?: true}, checkpoint)
 
         {:continue, next_state}
 
       state.turn_started? and thread_idle_status?(method, payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
-        continue_after_turn_completion(state)
+        TurnState.continue_after_turn_completion(state)
 
       codex_error_method?(method) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
-        {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
+        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
 
       true ->
         Logger.debug("Codex notification: #{inspect(method)}")
-        {:continue, maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
-    end
-  end
-
-  defp handle_pending_operator_response(session, state, payload, payload_string, request_id) do
-    on_message = state.on_message
-
-    case Map.pop(state.pending_operator_requests, request_id) do
-      {nil, _pending_operator_requests} ->
-        emit_message(
-          on_message,
-          :other_message,
-          %{
-            payload: payload,
-            raw: payload_string
-          },
-          metadata_from_message(session.port, payload)
-        )
-
-        {:continue, state}
-
-      {%{on_success: on_success, on_failure: on_failure}, pending_operator_requests} ->
-        handle_claimed_operator_response(
-          session,
-          state,
-          payload,
-          payload_string,
-          request_id,
-          on_success,
-          on_failure,
-          pending_operator_requests
-        )
+        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint_for_method(method))}
     end
   end
 
   defp checkpoint_for_method("item/tool/call"), do: %{kind: :tool_result, method: "item/tool/call"}
   defp checkpoint_for_method(method), do: %{kind: :notification, method: method}
-
-  defp maybe_process_safe_checkpoint(session, state, checkpoint) do
-    case state.on_safe_checkpoint.(checkpoint) do
-      :noop ->
-        state
-
-      {:deliver_text, text, on_success, on_failure}
-      when is_binary(text) and is_function(on_success, 1) and is_function(on_failure, 1) ->
-        case send_operator_message(session, %{kind: :text, body: text}) do
-          {:ok, request_id} ->
-            pending_operator_requests =
-              Map.put(state.pending_operator_requests, request_id, %{
-                on_success: on_success,
-                on_failure: on_failure,
-                text: text
-              })
-
-            %{state | pending_operator_requests: pending_operator_requests}
-
-          {:error, reason} ->
-            safe_invoke_failure_callback(on_failure, reason)
-            state
-        end
-    end
-  end
-
-  defp fail_pending_operator_requests(pending_operator_requests, reason) do
-    Enum.each(pending_operator_requests, fn {_request_id, pending_request} ->
-      safe_invoke_failure_callback(pending_request.on_failure, reason)
-    end)
-  end
-
-  defp continue_after_turn_completion(state) do
-    next_state = %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
-
-    cond do
-      next_state.outstanding_turns == 0 and map_size(next_state.pending_operator_requests) == 0 ->
-        {:ok, :turn_completed}
-
-      next_state.outstanding_turns == 0 ->
-        fail_pending_operator_requests(next_state.pending_operator_requests, :parent_turn_completed)
-        {:ok, :turn_completed}
-
-      true ->
-        {:continue, next_state}
-    end
-  end
 
   defp thread_idle_status?("thread/status/changed", %{"params" => %{"status" => %{"type" => "idle"}}}), do: true
   defp thread_idle_status?("thread/status/changed", %{"status" => %{"type" => "idle"}}), do: true
@@ -893,166 +630,6 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp turn_started_method?("turn/started"), do: true
   defp turn_started_method?(_method), do: false
-
-  defp continue_after_turn_interrupted(state, payload) do
-    next_state = %{
-      state
-      | outstanding_turns: max(state.outstanding_turns - 1, 0),
-        pending_interrupt_request_id: nil
-    }
-
-    cond do
-      is_integer(state.pause_request_id) ->
-        fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
-
-        {:paused,
-         %{
-           request_id: state.pause_request_id,
-           turn_id: state.current_turn_id,
-           details: payload
-         }}
-
-      state.interrupt_action == :operator_message ->
-        fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
-        {:ok, :turn_interrupted_for_operator_message}
-
-      true ->
-        fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
-        {:error, {:turn_interrupted, payload}}
-    end
-  end
-
-  defp handle_claimed_operator_response(
-         session,
-         state,
-         %{"result" => %{"turn" => %{"id" => turn_id}}} = payload,
-         payload_string,
-         request_id,
-         on_success,
-         _on_failure,
-         pending_operator_requests
-       ) do
-    safe_invoke_success_callback(on_success, %{
-      request_id: request_id,
-      turn_id: turn_id,
-      payload: payload
-    })
-
-    emit_message(
-      state.on_message,
-      :operator_turn_started,
-      %{payload: payload, raw: payload_string},
-      metadata_from_message(session.port, payload)
-    )
-
-    {:continue,
-     %{
-       state
-       | pending_operator_requests: pending_operator_requests,
-         outstanding_turns: state.outstanding_turns + 1
-     }}
-  end
-
-  defp handle_claimed_operator_response(
-         _session,
-         state,
-         %{"error" => error},
-         _payload_string,
-         _request_id,
-         _on_success,
-         on_failure,
-         pending_operator_requests
-       ) do
-    safe_invoke_failure_callback(on_failure, {:response_error, error})
-    maybe_finish_after_pending_response(%{state | pending_operator_requests: pending_operator_requests})
-  end
-
-  defp handle_claimed_operator_response(
-         _session,
-         state,
-         _payload,
-         _payload_string,
-         _request_id,
-         _on_success,
-         _on_failure,
-         pending_operator_requests
-       ) do
-    {:continue, %{state | pending_operator_requests: pending_operator_requests}}
-  end
-
-  defp maybe_finish_after_pending_response(state) do
-    if state.outstanding_turns == 0 and map_size(state.pending_operator_requests) == 0 do
-      {:ok, :turn_completed}
-    else
-      {:continue, state}
-    end
-  end
-
-  defp handle_pause_request(_session, %{pause_request_id: request_id} = state, request_id)
-       when is_integer(request_id) do
-    {:continue, state}
-  end
-
-  defp handle_pause_request(_session, %{pause_request_id: existing_request_id} = state, _request_id)
-       when is_integer(existing_request_id) do
-    {:continue, state}
-  end
-
-  defp handle_pause_request(session, state, request_id) do
-    case interrupt_turn(session, state.current_turn_id) do
-      {:ok, interrupt_request_id} ->
-        {:continue,
-         %{
-           state
-           | pause_request_id: request_id,
-             pending_interrupt_request_id: interrupt_request_id,
-             interrupt_action: :pause
-         }}
-
-      {:error, reason} ->
-        {:error, {:turn_interrupt_failed, reason}}
-    end
-  end
-
-  defp handle_operator_queue_update(_session, %{pending_interrupt_request_id: request_id} = state)
-       when is_integer(request_id) do
-    {:continue, state}
-  end
-
-  defp handle_operator_queue_update(session, state) do
-    case interrupt_turn(session, state.current_turn_id) do
-      {:ok, interrupt_request_id} ->
-        {:continue,
-         %{
-           state
-           | pending_interrupt_request_id: interrupt_request_id,
-             interrupt_action: :operator_message
-         }}
-
-      {:error, reason} ->
-        {:error, {:turn_interrupt_failed, reason}}
-    end
-  end
-
-  defp interrupt_turn(%{port: port, thread_id: thread_id}, turn_id)
-       when is_port(port) and is_binary(thread_id) and is_binary(turn_id) do
-    request_id = :erlang.unique_integer([:positive])
-
-    send_message(port, %{
-      "method" => "turn/interrupt",
-      "id" => request_id,
-      "params" => %{
-        "threadId" => thread_id,
-        "turnId" => turn_id
-      }
-    })
-
-    {:ok, request_id}
-  rescue
-    ArgumentError -> {:error, :port_closed}
-  end
-
-  defp interrupt_turn(_session, _turn_id), do: {:error, :invalid_session}
 
   # Codex's "no active turn to interrupt" response. Treated as a
   # successful interrupt by `handle_decoded_incoming/6` because the
@@ -1065,24 +642,6 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp no_active_turn_error?(_), do: false
-
-  defp turn_completion_status(%{"params" => %{"turn" => %{"status" => status}}}) when is_binary(status),
-    do: status
-
-  defp turn_completion_status(%{"turn" => %{"status" => status}}) when is_binary(status), do: status
-  defp turn_completion_status(_payload), do: "completed"
-
-  defp safe_invoke_success_callback(callback, payload) when is_function(callback, 1) do
-    callback.(payload)
-  rescue
-    _error -> :ok
-  end
-
-  defp safe_invoke_failure_callback(callback, reason) when is_function(callback, 1) do
-    callback.(reason)
-  rescue
-    _error -> :ok
-  end
 
   defp maybe_handle_approval_request(
          port,
@@ -1116,10 +675,10 @@ defmodule Aiur.Codex.CodingAgent do
          tool_executor,
          _auto_approve_requests
        ) do
-    tool_name = tool_call_name(params)
-    arguments = tool_call_arguments(params)
+    tool_name = Messages.tool_call_name(params)
+    arguments = Messages.tool_call_arguments(params)
 
-    result = normalize_tool_result(tool_executor.(tool_name, arguments))
+    result = Messages.normalize_tool_result(tool_executor.(tool_name, arguments))
 
     send_message(port, %{
       "id" => id,
@@ -1133,7 +692,7 @@ defmodule Aiur.Codex.CodingAgent do
         _ -> :tool_call_failed
       end
 
-    emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
+    Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
 
     :approved
   end
@@ -1239,15 +798,6 @@ defmodule Aiur.Codex.CodingAgent do
     :unhandled
   end
 
-  defp normalize_tool_result(%{"output" => _output} = result), do: result
-
-  defp normalize_tool_result(%{"contentItems" => [%{"text" => output} | _]} = result)
-       when is_binary(output) do
-    Map.put(result, "output", output)
-  end
-
-  defp normalize_tool_result(result), do: result
-
   defp approve_or_require(
          port,
          id,
@@ -1260,7 +810,7 @@ defmodule Aiur.Codex.CodingAgent do
        ) do
     send_message(port, %{"id" => id, "result" => %{"decision" => decision}})
 
-    emit_message(
+    Messages.emit_message(
       on_message,
       :approval_auto_approved,
       %{payload: payload, raw: payload_string, decision: decision},
@@ -1297,7 +847,7 @@ defmodule Aiur.Codex.CodingAgent do
       {:ok, answers, decision} ->
         send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
 
-        emit_message(
+        Messages.emit_message(
           on_message,
           :approval_auto_approved,
           %{payload: payload, raw: payload_string, decision: decision},
@@ -1374,7 +924,7 @@ defmodule Aiur.Codex.CodingAgent do
       {:ok, answers} ->
         send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
 
-        emit_message(
+        Messages.emit_message(
           on_message,
           :tool_input_auto_answered,
           %{payload: payload, raw: payload_string, answer: @non_interactive_tool_input_answer},
@@ -1449,76 +999,12 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   defp await_startup_response(port, request_id) do
-    with_timeout_response(port, request_id, startup_response_timeout_ms(), "")
+    Rpc.with_timeout_response(port, request_id, startup_response_timeout_ms(), "", "Codex")
   end
 
   defp startup_response_timeout_ms(read_timeout_ms \\ Config.agent_read_timeout_ms()) do
     max(read_timeout_ms, @cold_start_response_timeout_ms)
   end
-
-  defp with_timeout_response(port, request_id, timeout_ms, pending_line) do
-    receive do
-      {^port, {:data, {:eol, chunk}}} ->
-        complete_line = pending_line <> to_string(chunk)
-        handle_response(port, request_id, complete_line, timeout_ms)
-
-      {^port, {:data, {:noeol, chunk}}} ->
-        with_timeout_response(port, request_id, timeout_ms, pending_line <> to_string(chunk))
-
-      {^port, {:exit_status, status}} ->
-        {:error, {:port_exit, status}}
-    after
-      timeout_ms ->
-        {:error, :response_timeout}
-    end
-  end
-
-  defp handle_response(port, request_id, data, timeout_ms) do
-    payload = to_string(data)
-
-    case Jason.decode(payload) do
-      {:ok, %{"id" => ^request_id, "error" => error}} ->
-        {:error, {:response_error, error}}
-
-      {:ok, %{"id" => ^request_id, "result" => result}} ->
-        {:ok, result}
-
-      {:ok, %{"id" => ^request_id} = response_payload} ->
-        {:error, {:response_error, response_payload}}
-
-      {:ok, %{} = other} ->
-        Logger.debug("Ignoring message while waiting for response: #{inspect(other)}")
-        with_timeout_response(port, request_id, timeout_ms, "")
-
-      {:error, _} ->
-        log_non_json_stream_line(payload, "response stream")
-        with_timeout_response(port, request_id, timeout_ms, "")
-    end
-  end
-
-  defp log_non_json_stream_line(data, stream_label) do
-    text =
-      data
-      |> to_string()
-      |> String.trim()
-      |> String.slice(0, @max_stream_log_bytes)
-
-    if text != "" do
-      if String.match?(text, ~r/\b(error|warn|warning|failed|fatal|panic|exception)\b/i) do
-        Logger.warning("Codex #{stream_label} output: #{text}")
-      else
-        Logger.debug("Codex #{stream_label} output: #{text}")
-      end
-    end
-  end
-
-  defp issue_context(%{id: issue_id, identifier: identifier}) do
-    "issue_id=#{issue_id} issue_identifier=#{identifier}"
-  end
-
-  defp issue_identifier(%{identifier: identifier}) when is_binary(identifier), do: identifier
-  defp issue_identifier(%{"identifier" => identifier}) when is_binary(identifier), do: identifier
-  defp issue_identifier(_issue), do: nil
 
   defp stop_port(port) when is_port(port) do
     case :erlang.port_info(port) do
@@ -1554,6 +1040,7 @@ defmodule Aiur.Codex.CodingAgent do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
+  @impl Aiur.CodingAgent
   @spec normalize_event(map()) :: map()
   def normalize_event(event) when is_map(event) do
     event
@@ -1575,7 +1062,7 @@ defmodule Aiur.Codex.CodingAgent do
         Enum.find_value(payloads, &turn_completed_usage/1) ||
         Enum.find_value(payloads, &direct_token_map/1)
 
-    Map.put(event, :usage, canonicalize_usage(usage))
+    Map.put(event, :usage, TokenUsage.canonicalize(usage))
   end
 
   defp normalize_rate_limits(event) do
@@ -1602,8 +1089,8 @@ defmodule Aiur.Codex.CodingAgent do
     ]
 
     Enum.find_value(paths, fn path ->
-      value = dig(payload, path)
-      if is_map(value) and has_token_field?(value), do: value
+      value = MapAccess.dig(payload, path)
+      if is_map(value) and TokenUsage.token_field?(value), do: value
     end)
   end
 
@@ -1615,85 +1102,19 @@ defmodule Aiur.Codex.CodingAgent do
     if method in ["turn/completed", :turn_completed] do
       direct =
         Map.get(payload, "usage") || Map.get(payload, :usage) ||
-          dig(payload, ["params", "usage"]) || dig(payload, [:params, :usage])
+          MapAccess.dig(payload, ["params", "usage"]) || MapAccess.dig(payload, [:params, :usage])
 
-      if is_map(direct) and has_token_field?(direct), do: direct
+      if is_map(direct) and TokenUsage.token_field?(direct), do: direct
     end
   end
 
   defp turn_completed_usage(_), do: nil
 
   defp direct_token_map(payload) when is_map(payload) do
-    if has_token_field?(payload), do: payload
+    if TokenUsage.token_field?(payload), do: payload
   end
 
   defp direct_token_map(_), do: nil
-
-  defp canonicalize_usage(nil), do: nil
-
-  defp canonicalize_usage(raw) when is_map(raw) do
-    input =
-      token_value(
-        raw,
-        ~w(input_tokens prompt_tokens inputTokens promptTokens)a ++
-          ~w(input_tokens prompt_tokens inputTokens promptTokens)
-      )
-
-    output =
-      token_value(
-        raw,
-        ~w(output_tokens completion_tokens outputTokens completionTokens)a ++
-          ~w(output_tokens completion_tokens outputTokens completionTokens)
-      )
-
-    total = token_value(raw, ~w(total_tokens total totalTokens)a ++ ~w(total_tokens total totalTokens))
-
-    if input || output || total do
-      %{input_tokens: input || 0, output_tokens: output || 0, total_tokens: total || 0}
-    end
-  end
-
-  defp token_value(map, keys) do
-    Enum.find_value(keys, fn key ->
-      map |> Map.get(key) |> parse_token_value()
-    end)
-  end
-
-  defp parse_token_value(v) when is_integer(v) and v >= 0, do: v
-
-  defp parse_token_value(v) when is_binary(v) do
-    case Integer.parse(String.trim(v)) do
-      {n, _} when n >= 0 -> n
-      _ -> nil
-    end
-  end
-
-  defp parse_token_value(_), do: nil
-
-  defp has_token_field?(map) when is_map(map) do
-    token_keys =
-      ~w(input_tokens output_tokens total_tokens prompt_tokens completion_tokens
-                    inputTokens outputTokens totalTokens promptTokens completionTokens)a ++
-        ~w(input_tokens output_tokens total_tokens prompt_tokens completion_tokens
-                    inputTokens outputTokens totalTokens promptTokens completionTokens)
-
-    Enum.any?(token_keys, fn key ->
-      map |> Map.get(key) |> token_like_value?()
-    end)
-  end
-
-  defp has_token_field?(_), do: false
-
-  defp token_like_value?(v) when is_integer(v) and v >= 0, do: true
-
-  defp token_like_value?(v) when is_binary(v) do
-    case Integer.parse(String.trim(v)) do
-      {n, _} when n >= 0 -> true
-      _ -> false
-    end
-  end
-
-  defp token_like_value?(_), do: false
 
   defp find_rate_limits(payload) when is_map(payload) do
     direct = Map.get(payload, "rate_limits") || Map.get(payload, :rate_limits)
@@ -1732,23 +1153,10 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp rate_limits_map?(_), do: false
 
-  defp dig(map, []), do: map
-
-  defp dig(map, [key | rest]) when is_map(map) do
-    case Map.get(map, key) do
-      nil -> nil
-      value -> dig(value, rest)
-    end
-  end
-
-  defp dig(_, _), do: nil
-
-  defp emit_message(on_message, event, details, metadata) when is_function(on_message, 1) do
-    message = metadata |> Map.merge(details) |> Map.put(:event, event) |> Map.put(:timestamp, DateTime.utc_now())
-    on_message.(message)
-  end
-
-  defp metadata_from_message(port, payload) do
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec metadata_from_message(port(), term()) :: map()
+  def metadata_from_message(port, payload) do
     port |> port_metadata() |> maybe_set_usage(payload)
   end
 
@@ -1764,32 +1172,18 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp maybe_set_usage(metadata, _payload), do: metadata
 
-  defp default_on_message(_message), do: :ok
-
-  defp tool_call_name(params) when is_map(params) do
-    case Map.get(params, "tool") || Map.get(params, :tool) || Map.get(params, "name") || Map.get(params, :name) do
-      name when is_binary(name) ->
-        case String.trim(name) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      _ ->
-        nil
-    end
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec send_frame(port(), map()) :: :ok | {:error, :port_closed}
+  def send_frame(port, frame) do
+    Rpc.send_line(port, frame)
+    :ok
+  rescue
+    ArgumentError -> {:error, :port_closed}
   end
-
-  defp tool_call_name(_params), do: nil
-
-  defp tool_call_arguments(params) when is_map(params) do
-    Map.get(params, "arguments") || Map.get(params, :arguments) || %{}
-  end
-
-  defp tool_call_arguments(_params), do: %{}
 
   defp send_message(port, message) do
-    line = Jason.encode!(message) <> "\n"
-    Port.command(port, line)
+    Rpc.send_line(port, message)
   end
 
   defp needs_input?(method, payload)
@@ -1855,7 +1249,7 @@ defmodule Aiur.Codex.CodingAgent do
   @doc false
   @spec await_startup_response_for_test(port(), integer(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def await_startup_response_for_test(port, request_id, read_timeout_ms) do
-    with_timeout_response(port, request_id, startup_response_timeout_ms(read_timeout_ms), "")
+    Rpc.with_timeout_response(port, request_id, startup_response_timeout_ms(read_timeout_ms), "", "Codex")
   end
 
   @doc false
