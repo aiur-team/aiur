@@ -4,8 +4,21 @@ defmodule Aiur.GitHub.Client do
   """
 
   require Logger
-  alias Aiur.{Codeowners, Config, GitHub, Issue}
-  alias Aiur.GitHub.{AuthPreflight, BotIdentity, Errors, StatePolicy, Transport}
+  alias Aiur.{Codeowners, GitHub}
+
+  alias Aiur.GitHub.{
+    AuthPreflight,
+    BotIdentity,
+    Comments,
+    DependenciesApi,
+    Errors,
+    Issues,
+    PullRequests,
+    RepoEvents,
+    StatePolicy,
+    Teams,
+    Transport
+  }
 
   @preserved_prefixed_label_suffixes ~w(paused watch)
 
@@ -137,484 +150,96 @@ defmodule Aiur.GitHub.Client do
   def classify_error(error), do: Errors.classify_error(error)
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_candidate_issues(opts \\ []) do
-    fetch_issues_by_states(Config.active_states(), opts)
-  end
+  def fetch_candidate_issues(opts \\ []), do: Issues.fetch_candidate_issues(opts)
 
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issues_by_states(state_names, opts \\ []) when is_list(state_names) do
-    if state_names == [], do: {:ok, []}, else: do_fetch_issues_by_states(state_names, opts)
-  end
+  def fetch_issues_by_states(state_names, opts \\ []), do: Issues.fetch_issues_by_states(state_names, opts)
 
   @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
           {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issue_states_by_ids(issue_ids, opts \\ []) when is_list(issue_ids) do
-    if issue_ids == [], do: {:ok, []}, else: do_fetch_issue_states_by_ids(issue_ids, opts)
-  end
+  def fetch_issue_states_by_ids(issue_ids, opts \\ []), do: Issues.fetch_issue_states_by_ids(issue_ids, opts)
 
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
-  def create_comment(issue_number, body, opts \\ [])
-      when is_binary(issue_number) and is_binary(body) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments"
+  def create_comment(issue_number, body, opts \\ []), do: Comments.create_comment(issue_number, body, opts)
 
-      case request_fun.(%{method: :post, url: url, token: token, body: %{"body" => body}}) do
-        {:ok, %{status: status}} when status in [200, 201] ->
-          :ok
-
-        {:ok, %{status: status} = response} ->
-          Logger.error("GitHub create_comment failed status=#{status}")
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
-  @doc """
-  Fetches `/repos/{owner}/{repo}/events` (the GitHub firehose for the
-  current repo). Honors `If-None-Match` via the optional `etag:` option,
-  and the `X-Poll-Interval` response header for next-poll scheduling.
-
-  Returns:
-
-    * `{:ok, {:not_modified, etag, poll_interval}}` on 304
-    * `{:ok, {:events, list, etag, poll_interval}}` on 200
-    * `{:error, reason}` on transport or 4xx/5xx errors
-
-  `poll_interval` is in seconds, defaulting to 60 when GitHub omits the
-  header.
-
-  Options:
-
-    * `:page` — GitHub events page to fetch, defaulting to 1
-    * `:per_page` — events per page, defaulting to 30
-  """
   @spec fetch_repo_events(keyword()) ::
           {:ok,
            {:events, [map()], String.t() | nil, pos_integer()}
            | {:not_modified, String.t() | nil, pos_integer()}}
           | {:error, term()}
-  def fetch_repo_events(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      etag = Keyword.get(opts, :etag)
-      page = Keyword.get(opts, :page, 1)
-      per_page = Keyword.get(opts, :per_page, 30)
+  def fetch_repo_events(opts \\ []), do: RepoEvents.fetch_repo_events(opts)
 
-      query = URI.encode_query(%{"page" => page, "per_page" => per_page})
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/events?#{query}"
-
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             etag: etag
-           }) do
-        {:ok, %{status: 304, headers: headers}} ->
-          {:ok, {:not_modified, Transport.header(headers, "etag") || etag, Transport.poll_interval(headers)}}
-
-        {:ok, %{status: 200, headers: headers, body: body}} when is_list(body) ->
-          # Mirror the 304 path: preserve the prior etag if GitHub
-          # omits the response header (rare but observed behind some
-          # caching proxies). Dropping it would force a non-conditional
-          # GET on the next poll, re-translating the same page of events.
-          {:ok, {:events, body, Transport.header(headers, "etag") || etag, Transport.poll_interval(headers)}}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
-  @doc """
-  Fetches the issues `issue_number` is currently blocked by, using the
-  GitHub native Issue Dependencies REST API.
-  """
   @spec fetch_blocked_by(integer() | String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_blocked_by(issue_number, opts \\ []) do
-    dependency_get(issue_number, "blocked_by", opts)
-  end
+  def fetch_blocked_by(issue_number, opts \\ []), do: DependenciesApi.fetch_blocked_by(issue_number, opts)
 
-  @doc """
-  Fetches the issues `issue_number` is blocking.
-  """
   @spec fetch_blocking(integer() | String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_blocking(issue_number, opts \\ []) do
-    dependency_get(issue_number, "blocking", opts)
-  end
+  def fetch_blocking(issue_number, opts \\ []), do: DependenciesApi.fetch_blocking(issue_number, opts)
 
-  @doc """
-  Declares that `blocked_issue_number` is blocked by `blocker_issue_id`
-  (note: the API takes the blocker's *internal numeric id*, not its
-  issue number — fetch it via `fetch_issue/2` first if needed).
-
-  422 errors typically mean a cycle was detected by GitHub; the caller
-  is responsible for pre-checking via BFS through `fetch_blocked_by/2`.
-  """
   @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def add_dependency(blocked_issue_number, blocker_issue_id, opts \\ [])
-      when is_integer(blocker_issue_id) do
-    dependency_mutate(blocked_issue_number, blocker_issue_id, :post, opts)
-  end
+  def add_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),
+    do: DependenciesApi.add_dependency(blocked_issue_number, blocker_issue_id, opts)
 
   @spec remove_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ [])
-      when is_integer(blocker_issue_id) do
-    dependency_mutate(blocked_issue_number, blocker_issue_id, :delete, opts)
-  end
+  def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),
+    do: DependenciesApi.remove_dependency(blocked_issue_number, blocker_issue_id, opts)
 
-  @doc """
-  Fetches the raw GitHub issue body by number (not the Aiur-normalized
-  shape). Used by `Aiur.GitHub.IssueDependencies` to resolve a blocker's
-  numeric `id` (required by the Dependencies REST API).
-  """
   @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def fetch_issue_raw(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
+  def fetch_issue_raw(issue_number, opts \\ []), do: Issues.fetch_issue_raw(issue_number, opts)
 
-      case request_fun.(%{method: :get, url: url, token: token}) do
-        {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
-        {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
-  @doc """
-  Lists the logins of every member of `team_slug` inside `org`. Used by
-  `Aiur.GitHub.CodeOwners` to expand `@org/team` entries.
-
-  Requires the GitHub token to have `read:org` scope; 403 is returned
-  otherwise and the caller logs + falls back.
-  """
   @spec fetch_team_members(String.t(), String.t(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
-  def fetch_team_members(org, team_slug, opts \\ []) do
-    with {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/orgs/#{org}/teams/#{team_slug}/members?per_page=100"
-      fetch_member_logins(request_fun, token, url, [])
-    end
-  end
-
-  defp fetch_member_logins(_request_fun, _token, nil, acc), do: {:ok, acc}
-
-  defp fetch_member_logins(request_fun, token, url, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
-        new_logins = Enum.flat_map(body, &member_login_list/1)
-        next = Transport.parse_next_page_url(headers)
-        fetch_member_logins(request_fun, token, next, acc ++ new_logins)
-
-      {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
-
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
-    end
-  end
-
-  defp member_login_list(%{"login" => login}) when is_binary(login), do: [login]
-  defp member_login_list(_), do: []
+  def fetch_team_members(org, team_slug, opts \\ []), do: Teams.fetch_team_members(org, team_slug, opts)
 
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
-  def fetch_pull_request_changed_paths(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
-
-      case Transport.fetch_json_list(request_fun, token, url) do
-        {:ok, files} ->
-          {:ok, files |> Enum.map(&Map.get(&1, "filename")) |> Enum.reject(&is_nil/1)}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end
-  end
+  def fetch_pull_request_changed_paths(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_changed_paths(pr_number, opts)
 
   @spec fetch_pull_request_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_pull_request_review_comments(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      query = comment_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?#{query}"
+  def fetch_pull_request_review_comments(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_review_comments(pr_number, opts)
 
-      Transport.fetch_json_list(request_fun, token, url)
-    end
-  end
-
-  @doc """
-  Fetches the open pull request whose head branch is the canonical Aiur
-  branch for `issue_number` (`<owner>:aiur/<issue_number>`).
-  """
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
-  def fetch_open_pull_request_for_branch(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+  def fetch_open_pull_request_for_branch(issue_number, opts \\ []),
+    do: PullRequests.fetch_open_pull_request_for_branch(issue_number, opts)
 
-      query =
-        URI.encode_query(%{
-          "state" => "open",
-          "head" => "#{owner}:aiur/#{issue_number}",
-          "per_page" => "10"
-        })
-
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
-
-      case Transport.fetch_json_list(request_fun, token, url) do
-        {:ok, [first | _]} -> {:ok, first}
-        {:ok, []} -> {:ok, nil}
-        {:error, _reason} = error -> error
-      end
-    end
-  end
-
-  @doc """
-  Fetches the OPEN pull requests carrying `label` (e.g. `"agent:watch"`),
-  repo-wide, for opt-in PR comment watching.
-
-  Lists open PRs (`GET /pulls?state=open`) — which return full PR objects
-  including `number`, `head.ref`, and `labels` — and filters by label name
-  client-side, since the `/pulls` endpoint does not support a server-side
-  label filter. Each returned PR map carries at least the PR number and head
-  ref so the comment poller can key on the PR number and skip
-  `fetch_open_pull_request_for_branch/2` (no branch derivation for watched PRs).
-  """
   @spec fetch_open_pull_requests_by_label(String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_open_pull_requests_by_label(label, opts \\ []) when is_binary(label) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
-      fetch_labeled_open_pull_requests(request_fun, token, url, label, [])
-    end
-  end
+  def fetch_open_pull_requests_by_label(label, opts \\ []),
+    do: PullRequests.fetch_open_pull_requests_by_label(label, opts)
 
-  # Follows the GitHub `Link` `rel="next"` pagination (mirrors
-  # `fetch_member_logins/4`) so a repo with more than 100 open PRs cannot
-  # silently hide a watched PR past the first page — silent truncation here
-  # would drop a watched PR's comments, the exact failure this feature prevents.
-  defp fetch_labeled_open_pull_requests(_request_fun, _token, nil, _label, acc), do: {:ok, acc}
-
-  defp fetch_labeled_open_pull_requests(request_fun, token, url, label, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
-        matched = Enum.filter(body, &pull_request_has_label?(&1, label))
-        next = Transport.parse_next_page_url(headers)
-        fetch_labeled_open_pull_requests(request_fun, token, next, label, acc ++ matched)
-
-      {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
-
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
-    end
-  end
-
-  defp pull_request_has_label?(%{"labels" => labels}, label) when is_list(labels) do
-    Enum.any?(labels, fn
-      %{"name" => name} when is_binary(name) -> name == label
-      name when is_binary(name) -> name == label
-      _ -> false
-    end)
-  end
-
-  defp pull_request_has_label?(_pull_request, _label), do: false
-
-  @doc """
-  Fetches recent PR REVIEW (line) comments across ALL pull requests in the
-  repo, for the per-comment command scan (the one-off `/aiur`/bot-mention
-  trigger).
-
-  Lists `GET /repos/{owner}/{repo}/pulls/comments?sort=updated&direction=desc`
-  with a `since` cursor (`:since`). This is a repo-wide comment STREAM, not a
-  per-PR fetch — a `/aiur` left as a review comment does NOT reliably bump the
-  PR's `updated_at`, so scanning by PR freshness would silently miss it; the
-  comment stream surfaces it directly. Each review comment carries
-  `pull_request_url` so the caller can derive the PR number. Paginates the
-  `Link` `rel="next"` header (like `fetch_labeled_open_pull_requests/5`) so a
-  burst within one cursor window cannot silently truncate.
-  """
   @spec fetch_recent_repo_review_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_recent_repo_review_comments(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      query = repo_comment_stream_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/comments?#{query}"
-      fetch_repo_comment_stream(request_fun, token, url, [])
-    end
-  end
+  def fetch_recent_repo_review_comments(opts \\ []), do: Comments.fetch_recent_repo_review_comments(opts)
 
-  @doc """
-  Fetches recent ISSUE/PR-conversation comments across ALL issues and PRs in
-  the repo, for the per-comment command scan.
-
-  Lists `GET /repos/{owner}/{repo}/issues/comments?sort=updated&direction=desc`
-  with a `since` cursor (`:since`). The endpoint returns comments for both
-  plain issues and PR conversations; the caller filters to PR comments (the
-  `html_url` contains `/pull/`) and derives the PR number from `issue_url`.
-  Paginates the `Link` `rel="next"` header so a burst within one cursor window
-  cannot silently truncate.
-  """
   @spec fetch_recent_repo_issue_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_recent_repo_issue_comments(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      query = repo_comment_stream_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/comments?#{query}"
-      fetch_repo_comment_stream(request_fun, token, url, [])
-    end
-  end
+  def fetch_recent_repo_issue_comments(opts \\ []), do: Comments.fetch_recent_repo_issue_comments(opts)
 
-  defp repo_comment_stream_query(opts) do
-    %{"sort" => "updated", "direction" => "desc", "per_page" => "100"}
-    |> Transport.maybe_put_query("since", Keyword.get(opts, :since))
-    |> URI.encode_query()
-  end
-
-  defp fetch_repo_comment_stream(_request_fun, _token, nil, acc), do: {:ok, acc}
-
-  defp fetch_repo_comment_stream(request_fun, token, url, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
-        next = Transport.parse_next_page_url(headers)
-        fetch_repo_comment_stream(request_fun, token, next, acc ++ body)
-
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        {:ok, acc ++ body}
-
-      {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
-
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
-    end
-  end
-
-  @doc """
-  Fetches raw issue conversation comments for one issue or PR conversation.
-  """
   @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_issue_comments(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      query = comment_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
+  def fetch_issue_comments(issue_number, opts \\ []), do: Comments.fetch_issue_comments(issue_number, opts)
 
-      Transport.fetch_json_list(request_fun, token, url)
-    end
-  end
-
-  @doc """
-  Fetches a pull request's head branch ref (e.g. `"aiur/7"`) by number.
-  Used by `Aiur.Events.GithubFirehose` to resolve a PR-conversation
-  comment (which GitHub fires as an `IssueCommentEvent` keyed by the PR's
-  number) back to its originating ticket id.
-  """
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
-  def fetch_pull_request_head_ref(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+  def fetch_pull_request_head_ref(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_head_ref(pr_number, opts)
 
-      case request_fun.(%{method: :get, url: url, token: token}) do
-        {:ok, %{status: 200, body: %{"head" => %{"ref" => ref}}}} when is_binary(ref) ->
-          {:ok, ref}
-
-        {:ok, %{status: 200}} ->
-          {:error, :head_ref_missing}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
-  @doc """
-  Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
-  for PR-anchored routing of watched/commanded PR comments.
-
-  Returns `{:ok, pr_map}` for an open PR (the map carries `number`, `head.ref`,
-  `title`, `body`, `state`), `{:ok, nil}` when the number is NOT an open PR — a
-  404 (the number is a plain issue) or a closed/merged PR — and `{:error, _}`
-  otherwise. The `{:ok, nil}` result is the safe signal that the comment must
-  fall through to the legacy reactivation path (a tracker issue, not a human PR).
-  """
   @spec fetch_open_pull_request(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
-  def fetch_open_pull_request(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
-
-      case request_fun.(%{method: :get, url: url, token: token}) do
-        {:ok, %{status: 200, body: %{} = pr}} ->
-          {:ok, open_pull_request_or_nil(pr)}
-
-        {:ok, %{status: 404}} ->
-          {:ok, nil}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
-  # Treat a closed/merged PR the same as a missing one (nil) so the caller
-  # routes its comment through the unchanged legacy path rather than dispatching
-  # a PR-anchored agent onto a dead branch.
-  defp open_pull_request_or_nil(%{"state" => "open"} = pr), do: pr
-  defp open_pull_request_or_nil(%{"state" => state}) when is_binary(state), do: nil
-  defp open_pull_request_or_nil(pr) when is_map(pr), do: pr
+  def fetch_open_pull_request(pr_number, opts \\ []),
+    do: PullRequests.fetch_open_pull_request(pr_number, opts)
 
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_classified_pr_review_comments(pr_number, opts \\ []) do
-    with {:ok, paths} <- fetch_pull_request_changed_paths(pr_number, opts),
-         {:ok, comments} <- fetch_pull_request_review_comments(pr_number, opts) do
-      context = Codeowners.ownership_for_paths(paths, opts)
-      {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
-    end
-  end
+  def fetch_classified_pr_review_comments(pr_number, opts \\ []),
+    do: PullRequests.fetch_classified_pr_review_comments(pr_number, opts)
 
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
@@ -679,22 +304,8 @@ defmodule Aiur.GitHub.Client do
 
   @spec fetch_classified_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_classified_issue_comments(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
-      context = Codeowners.repo_ownership(opts)
-
-      case Transport.fetch_json_list(request_fun, token, url) do
-        {:ok, comments} ->
-          {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end
-  end
+  def fetch_classified_issue_comments(issue_number, opts \\ []),
+    do: Comments.fetch_classified_issue_comments(issue_number, opts)
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
@@ -756,103 +367,6 @@ defmodule Aiur.GitHub.Client do
   end
 
   # -- Private helpers --------------------------------------------------------
-
-  # GitHub labels query is AND (all labels must match), so we fetch each label
-  # separately and deduplicate by issue id.
-  defp fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
-    Enum.reduce_while(labels, {:ok, %{}}, fn label, {:ok, acc} ->
-      url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
-
-      reduce_label_issues(request_fun, url, token, owner, repo, prefix, acc)
-    end)
-    |> case do
-      {:ok, map} -> {:ok, Map.values(map)}
-      error -> error
-    end
-  end
-
-  defp reduce_label_issues(request_fun, url, token, owner, repo, prefix, acc) do
-    case do_list_issues(request_fun, url, token, owner, repo, prefix) do
-      {:ok, issues} ->
-        merged = Map.merge(acc, Map.new(issues, &{&1.id, &1}), fn _k, v, _new -> v end)
-        {:cont, {:ok, merged}}
-
-      {:error, _} = error ->
-        {:halt, error}
-    end
-  end
-
-  defp do_fetch_issues_by_states(state_names, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      prefix = GitHub.Config.label_prefix()
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      labels = Enum.map(state_names, &StatePolicy.state_label(prefix, &1))
-
-      fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix)
-    end
-  end
-
-  defp do_fetch_issue_states_by_ids(issue_ids, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      prefix = GitHub.Config.label_prefix()
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-
-      do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix)
-    end
-  end
-
-  defp do_list_issues(request_fun, url, token, owner, repo, prefix) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        {:ok, Enum.map(body, &normalize_issue(&1, owner, repo, prefix))}
-
-      {:ok, %{status: status} = response} ->
-        Logger.error("GitHub API request failed status=#{status}")
-        {:error, Errors.github_status_error(response)}
-
-      {:error, reason} ->
-        Logger.error("GitHub API request failed: #{inspect(reason)}")
-        {:error, Errors.classify_error({:error, reason})}
-    end
-  end
-
-  defp do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix) do
-    result =
-      Enum.reduce_while(issue_ids, {:ok, []}, fn issue_id, {:ok, acc} ->
-        url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}"
-        reduce_fetch_issue(request_fun, url, token, owner, repo, prefix, acc)
-      end)
-
-    case result do
-      {:ok, issues} -> {:ok, Enum.reverse(issues)}
-      error -> error
-    end
-  end
-
-  defp reduce_fetch_issue(request_fun, url, token, owner, repo, prefix, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        {:cont, {:ok, [normalize_issue(body, owner, repo, prefix) | acc]}}
-
-      {:ok, %{status: 404}} ->
-        {:cont, {:ok, acc}}
-
-      {:ok, %{status: _status} = response} ->
-        {:halt, {:error, Errors.github_status_error(response)}}
-
-      {:error, reason} ->
-        {:halt, {:error, Errors.classify_error({:error, reason})}}
-    end
-  end
-
-  defp comment_query(opts) do
-    %{"per_page" => Keyword.get(opts, :per_page, 100), "page" => Keyword.get(opts, :page, 1)}
-    |> Transport.maybe_put_query("since", Keyword.get(opts, :since))
-    |> URI.encode_query()
-  end
 
   defp normalize_pr_number(number) when is_integer(number) and number > 0, do: {:ok, number}
 
@@ -1849,58 +1363,6 @@ defmodule Aiur.GitHub.Client do
   defp closed_issue?(%{"state" => "closed"}), do: true
   defp closed_issue?(_issue_body), do: false
 
-  defp normalize_issue(gh_issue, _owner, _repo, prefix) when is_map(gh_issue) do
-    number = gh_issue["number"]
-    labels = gh_issue["labels"] || []
-    label_names = Enum.map(labels, &(&1["name"] || ""))
-
-    %Issue{
-      id: to_string(number),
-      identifier: to_string(number),
-      title: gh_issue["title"],
-      description: gh_issue["body"],
-      priority: extract_priority(label_names),
-      state: extract_state(gh_issue, label_names, prefix),
-      branch_name: nil,
-      url: gh_issue["html_url"],
-      assignee_id: get_in(gh_issue, ["assignee", "login"]),
-      paused: paused_label?(label_names, prefix),
-      labels: Enum.map(label_names, &String.downcase/1),
-      assigned_to_worker: true,
-      created_at: parse_datetime(gh_issue["created_at"]),
-      updated_at: parse_datetime(gh_issue["updated_at"])
-    }
-  end
-
-  defp extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"
-
-  defp extract_state(_gh_issue, label_names, prefix) do
-    prefix_colon = normalize_label_name("#{prefix}:")
-    Enum.find_value(label_names, &state_label_suffix(&1, prefix_colon))
-  end
-
-  defp state_label_suffix(name, prefix_colon) do
-    normalized = normalize_label_name(name)
-
-    if String.starts_with?(normalized, prefix_colon) do
-      normalized
-      |> String.replace_prefix(prefix_colon, "")
-      |> state_suffix_unless_preserved()
-    end
-  end
-
-  defp state_suffix_unless_preserved(suffix) do
-    unless preserved_prefixed_label_suffix?(suffix), do: suffix
-  end
-
-  defp paused_label?(label_names, prefix) when is_list(label_names) do
-    paused_label = normalize_label_name("#{prefix}:paused")
-
-    Enum.any?(label_names, fn name ->
-      normalize_label_name(name) == paused_label
-    end)
-  end
-
   defp preserved_prefixed_label?(label, prefix) when is_binary(label) and is_binary(prefix) do
     prefix_colon = normalize_label_name("#{prefix}:")
     normalized = normalize_label_name(label)
@@ -1924,97 +1386,4 @@ defmodule Aiur.GitHub.Client do
   end
 
   defp normalize_label_name(_label), do: ""
-
-  defp extract_priority(label_names) do
-    Enum.find_value(label_names, &parse_priority_label/1)
-  end
-
-  defp parse_priority_label(name) do
-    case Regex.run(~r/^priority:(\d+)$/, name) do
-      [_, n] -> parse_priority_int(n)
-      _ -> nil
-    end
-  end
-
-  defp parse_priority_int(n) do
-    case Integer.parse(n) do
-      {priority, _} -> priority
-      :error -> nil
-    end
-  end
-
-  defp parse_datetime(nil), do: nil
-
-  defp parse_datetime(raw) do
-    case DateTime.from_iso8601(raw) do
-      {:ok, dt, _offset} -> dt
-      _ -> nil
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Issue Dependencies REST API helpers
-  # ---------------------------------------------------------------------------
-  #
-  # GitHub's Issue Dependencies endpoints require the newer `2026-03-10`
-  # API version header. The other client functions can continue using
-  # `2022-11-28` since the issue/comment surfaces they hit are stable.
-
-  @dependencies_api_version "2026-03-10"
-
-  defp dependency_get(issue_number, kind, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-
-      url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}"
-
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             api_version: @dependencies_api_version
-           }) do
-        {:ok, %{status: 200, body: body}} when is_list(body) ->
-          {:ok, body}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
-  defp dependency_mutate(blocked_number, blocker_id, method, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-
-      url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{blocked_number}/dependencies/blocked_by"
-
-      req = %{
-        method: method,
-        url: url,
-        token: token,
-        api_version: @dependencies_api_version
-      }
-
-      req = if method == :post, do: Map.put(req, :body, %{"issue_id" => blocker_id}), else: req
-
-      case request_fun.(req) do
-        {:ok, %{status: status, body: body}} when status in [200, 201] and is_map(body) ->
-          {:ok, body}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
 end
