@@ -52,21 +52,12 @@ defmodule Aiur.PaneManager do
 
   alias Aiur.{AgentEvents, AgentPubSub, Boot, Tmux}
   alias Aiur.Opencode.{AttachPool, HiddenWindow, Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
-  alias Aiur.PaneManager.{Layout, OpenQueue, State}
+  alias Aiur.PaneManager.{Anchor, Layout, OpenQueue, ScreenGrab, State}
 
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
 
   @type orientation :: :horizontal | :vertical
-
-  # Periodic screen-grab interval. Captures every tracked pane's content into the
-  # log so post-mortem reviews can replay the visible state at each tick. Gated
-  # behind its OWN flag (AIUR_SCREEN_GRAB), NOT AIUR_DEBUG: each tick forks one
-  # `capture-pane` per pane, so at high ticket counts it piles FD pressure onto a
-  # --debug run — and --debug must stay safe to leave on. Turn this on only when
-  # you specifically need pane snapshots.
-  @screen_grab_interval_ms 2_000
-  @screen_grab_max_lines 8
 
   # Public API ----------------------------------------------------------------
 
@@ -182,8 +173,8 @@ defmodule Aiur.PaneManager do
 
     orientation = Keyword.get(opts, :orientation, :horizontal)
 
-    with {:ok, agent_list_pane} <- resolve_agent_list_pane(opts, tmux),
-         {:ok, window_target} <- resolve_window_target(opts, tmux, agent_list_pane) do
+    with {:ok, agent_list_pane} <- Anchor.resolve_agent_list_pane(opts, tmux),
+         {:ok, window_target} <- Anchor.resolve_window_target(opts, tmux, agent_list_pane) do
       Logger.info(
         "PaneManager init agent_list_pane=#{agent_list_pane} window=#{window_target} " <>
           "max_vertical_panes=#{max_vertical_panes} slot_count=#{slot_count} " <>
@@ -195,15 +186,15 @@ defmodule Aiur.PaneManager do
         {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
       end
 
-      publish_control_url(tmux)
+      Anchor.publish_control_url(tmux)
 
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
       :net_kernel.monitor_nodes(true, node_type: :hidden)
 
-      if screen_grab?() do
-        Process.send_after(self(), :screen_grab_tick, @screen_grab_interval_ms)
+      if ScreenGrab.screen_grab?() do
+        Process.send_after(self(), :screen_grab_tick, ScreenGrab.interval_ms())
       end
 
       {:ok,
@@ -224,31 +215,6 @@ defmodule Aiur.PaneManager do
         )
 
         {:stop, :no_agent_list_pane}
-    end
-  end
-
-  # Publish the dashboard's bound base URL as a global tmux option so the
-  # opencode Ctrl+C key binding (aiur.tmux.conf) can reach the control
-  # endpoint. Best-effort: if the server isn't bound or the option can't
-  # be set, the binding sees an empty value and degrades to a plain pane
-  # close, which is the pre-bridge behaviour.
-  defp publish_control_url(tmux) do
-    with port when is_integer(port) and port > 0 <- Aiur.HttpServer.bound_port() do
-      url = "http://#{control_url_host()}:#{port}"
-      _ = Tmux.command(tmux, "set-option -g @aiur_control_url #{url}")
-    end
-
-    :ok
-  rescue
-    error ->
-      Logger.warning("PaneManager: could not publish control url: #{inspect(error)}")
-      :ok
-  end
-
-  defp control_url_host do
-    case Aiur.Config.server_host() do
-      host when host in ["0.0.0.0", "::", "", nil] -> "127.0.0.1"
-      host when is_binary(host) -> host
     end
   end
 
@@ -338,7 +304,7 @@ defmodule Aiur.PaneManager do
 
     Logger.info("[user-action] toggle_orientation #{state.orientation} -> #{new_orientation}")
     new_state = %{state | orientation: new_orientation}
-    _ = apply_layout(new_state)
+    _ = Layout.apply(new_state)
     {:reply, {:ok, new_orientation}, new_state}
   end
 
@@ -383,7 +349,7 @@ defmodule Aiur.PaneManager do
         new_state
       end
 
-    if is_binary(pane_id), do: apply_layout(new_state)
+    if is_binary(pane_id), do: Layout.apply(new_state)
     {:noreply, new_state}
   end
 
@@ -471,7 +437,7 @@ defmodule Aiur.PaneManager do
           |> Map.put(:last_attached_pane_id, real_pane_id)
           |> State.drop_placeholder(identifier)
 
-        _ = apply_layout(new_state)
+        _ = Layout.apply(new_state)
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
 
         Aiur.Perf.event(:pane_open_complete,
@@ -524,7 +490,7 @@ defmodule Aiur.PaneManager do
 
     _ = Tmux.command(state.tmux, "kill-pane -t #{placeholder_pane_id}")
     new_state = State.drop_placeholder(state, identifier)
-    _ = apply_layout(new_state)
+    _ = Layout.apply(new_state)
     {:noreply, new_state}
   end
 
@@ -537,10 +503,10 @@ defmodule Aiur.PaneManager do
   end
 
   def handle_info(:screen_grab_tick, state) do
-    log_screen_grab(state)
+    ScreenGrab.log_screen_grab(state)
 
-    if screen_grab?() do
-      Process.send_after(self(), :screen_grab_tick, @screen_grab_interval_ms)
+    if ScreenGrab.screen_grab?() do
+      Process.send_after(self(), :screen_grab_tick, ScreenGrab.interval_ms())
     end
 
     {:noreply, state}
@@ -548,82 +514,8 @@ defmodule Aiur.PaneManager do
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp log_screen_grab(state) do
-    panes = collect_tracked_panes(state)
-
-    Logger.info("aiur_screen_grab phase=tick pane_count=#{map_size(panes)} elapsed_ms=#{Boot.elapsed_ms()}")
-
-    Enum.each(panes, fn {pane_id, label} ->
-      log_pane_grab(pane_id, label, Tmux.command(state.tmux, "capture-pane -p -t #{pane_id}"))
-    end)
-  end
-
-  defp log_pane_grab(pane_id, label, {:ok, lines}) do
-    excerpt =
-      lines
-      |> Enum.take(@screen_grab_max_lines)
-      |> Enum.map(&String.trim_trailing/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join(" \\ ")
-
-    Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} content=#{inspect(excerpt)}")
-  end
-
-  defp log_pane_grab(pane_id, label, {:error, reason}) do
-    # Once a Claude session restart (or a forced operator restart)
-    # kills the tmux server but leaves the BEAM running, every 2s
-    # tick produces three log lines — the warning from Tmux.command
-    # plus the schedule + grab info pair. Demote to debug when the
-    # server is gone so the log isn't flooded with the same dead-
-    # server message until the next operator reboot.
-    if dead_tmux?(reason) do
-      Logger.debug("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
-    else
-      Logger.info("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
-    end
-  end
-
-  # `Aiur.Tmux.command/2` returns `{:error, trimmed_stderr}` on failure.
-  # tmux's "no server running on …" is the canonical signal that the
-  # server died after the BEAM connected.
-  defp dead_tmux?(reason) when is_binary(reason),
-    do: String.contains?(reason, "no server running")
-
-  defp dead_tmux?(_), do: false
-
-  defp collect_tracked_panes(state) do
-    base =
-      if is_binary(state.agent_list_pane) do
-        %{state.agent_list_pane => "agent_list"}
-      else
-        %{}
-      end
-
-    Enum.reduce(state.slot_panes, base, fn
-      {slot, pane_id}, acc when is_binary(pane_id) ->
-        identifier = Map.get(state.pane_to_identifier, pane_id, "?")
-        Map.put(acc, pane_id, "slot#{slot}:#{identifier}")
-
-      _, acc ->
-        acc
-    end)
-  end
-
   defp debug_mode? do
     case System.get_env("AIUR_DEBUG") do
-      value when is_binary(value) ->
-        String.downcase(String.trim(value)) in ["1", "true", "yes"]
-
-      _ ->
-        false
-    end
-  end
-
-  # Whether the per-pane screen-grab capture loop runs. Deliberately separate
-  # from AIUR_DEBUG so a --debug run gets full structured logs WITHOUT the
-  # per-pane `capture-pane` fork loop that scales with ticket count.
-  defp screen_grab? do
-    case System.get_env("AIUR_SCREEN_GRAB") do
       value when is_binary(value) ->
         String.downcase(String.trim(value)) in ["1", "true", "yes"]
 
@@ -663,35 +555,6 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  # Anchor / window discovery ------------------------------------------------
-
-  defp resolve_agent_list_pane(opts, tmux) do
-    cond do
-      pane = Keyword.get(opts, :agent_list_pane) ->
-        {:ok, pane}
-
-      pane = env_pane() ->
-        {:ok, pane}
-
-      true ->
-        Tmux.resolve_self_pane(tmux)
-    end
-  end
-
-  defp env_pane do
-    case System.get_env("TMUX_PANE") do
-      pane when is_binary(pane) and pane != "" -> pane
-      _ -> nil
-    end
-  end
-
-  defp resolve_window_target(opts, tmux, agent_list_pane) do
-    case Keyword.get(opts, :window_target) do
-      target when is_binary(target) and target != "" -> {:ok, target}
-      _ -> Tmux.window_for(tmux, agent_list_pane)
-    end
-  end
-
   # Slot allocation ----------------------------------------------------------
 
   defp do_open(state, identifier, command_to_run, opts, from) do
@@ -714,7 +577,7 @@ defmodule Aiur.PaneManager do
         case Tmux.move_pane_hidden(state.tmux, pane_id, hidden_window) do
           :ok ->
             new_state = State.forget_pane_by_identifier(state, pane_id)
-            _ = apply_layout(new_state)
+            _ = Layout.apply(new_state)
             AgentPubSub.broadcast_status_change(identifier, :pane_closed)
             refocus_agent_list_if_focused(new_state, pane_id)
 
@@ -747,7 +610,7 @@ defmodule Aiur.PaneManager do
           :ok ->
             :ok = Slot.deselect(slot_pid)
             new_state = State.forget_pane_by_identifier(state, pane_id)
-            _ = apply_layout(new_state)
+            _ = Layout.apply(new_state)
 
             # Broadcast so the agent list drops 🟢 back to ⚪/🔘.
             # All three close paths (tmux-driven dies via
@@ -773,7 +636,7 @@ defmodule Aiur.PaneManager do
         # Generic (non-opencode) pane — kill behavior.
         _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
         new_state = State.forget_pane_by_identifier(state, pane_id)
-        _ = apply_layout(new_state)
+        _ = Layout.apply(new_state)
         {:reply, :ok, new_state}
     end
   end
@@ -799,7 +662,7 @@ defmodule Aiur.PaneManager do
     case open_in_slot(state, slot, identifier, wrapped) do
       {:ok, pane_id, new_state} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-        _ = apply_layout(new_state)
+        _ = Layout.apply(new_state)
         {:reply, {:ok, pane_id}, State.advance_cycle(new_state)}
 
       {:error, reason} ->
@@ -894,7 +757,7 @@ defmodule Aiur.PaneManager do
           |> record_slot_pane(slot_index, pane_id, identifier)
           |> Map.put(:last_attached_pane_id, pane_id)
 
-        _ = apply_layout(new_state)
+        _ = Layout.apply(new_state)
         AgentPubSub.broadcast_status_change(identifier, :pane_opened)
 
         Aiur.Perf.event(:pane_open_visible_warm,
@@ -982,7 +845,7 @@ defmodule Aiur.PaneManager do
           state
           |> record_placeholder(identifier, placeholder_pane_id, visual_slot)
 
-        _ = apply_layout(new_state)
+        _ = Layout.apply(new_state)
 
         # Reply to the caller (AgentList Task) after the placeholder
         # has been assigned to the balanced visual grid.
@@ -1242,7 +1105,7 @@ defmodule Aiur.PaneManager do
               |> record_slot_pane(slot_index, pane_id, identifier)
               |> Map.put(:last_attached_pane_id, pane_id)
 
-            _ = apply_layout(new_state)
+            _ = Layout.apply(new_state)
             AgentPubSub.broadcast_status_change(identifier, :pane_opened)
 
             open_ms = System.monotonic_time(:millisecond) - started_at
@@ -1414,42 +1277,6 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  # Layout application -------------------------------------------------------
-
-  defp apply_layout(state) do
-    with {:ok, {w, h}} <- Tmux.window_size(state.tmux, state.agent_list_pane),
-         layout_string =
-           Layout.build(
-             w,
-             h,
-             state.max_vertical_panes,
-             state.agent_list_pane,
-             State.visible_panes_packed(state),
-             state.orientation
-           ),
-         _ = log_layout_apply(state, w, h, layout_string),
-         :ok <- Tmux.select_layout(state.tmux, state.window_target, layout_string) do
-      :ok
-    else
-      {:error, reason} = err ->
-        Logger.warning("PaneManager: layout apply failed: #{inspect(reason)}")
-        err
-    end
-  end
-
-  defp log_layout_apply(state, w, h, layout_string) do
-    if debug_mode?() do
-      slot_panes_summary =
-        state.slot_panes
-        |> Enum.sort_by(fn {slot, _} -> slot end)
-        |> Enum.map_join(",", fn {slot, pane} -> "#{slot}=>#{pane || "_"}" end)
-
-      Logger.info("aiur_tmux_layout window=#{w}x#{h} slot_panes=#{slot_panes_summary} agent_list=#{state.agent_list_pane} layout=#{inspect(layout_string)}")
-    end
-
-    :ok
-  end
-
   # State bookkeeping --------------------------------------------------------
 
   defp record_slot_pane(state, slot, pane_id, identifier) do
@@ -1473,7 +1300,7 @@ defmodule Aiur.PaneManager do
       {:ok, identifier} ->
         AgentPubSub.broadcast_status_change(identifier, :pane_closed)
         new_state = State.forget_pane_by_identifier(state, pane_id)
-        _ = apply_layout(new_state)
+        _ = Layout.apply(new_state)
         refocus_agent_list_if_focused(new_state, pane_id)
 
       :error ->
@@ -1485,7 +1312,7 @@ defmodule Aiur.PaneManager do
           |> State.forget_pane_by_identifier(pane_id)
           |> State.drop_placeholder_by_pane(pane_id)
 
-        _ = apply_layout(new_state)
+        _ = Layout.apply(new_state)
         refocus_agent_list_if_focused(new_state, pane_id)
     end
   end
