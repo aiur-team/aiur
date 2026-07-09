@@ -27,6 +27,30 @@ defmodule Aiur.Init.RuntimeTest do
     assert match_result_type(result)
   end
 
+  test "runtime_deps builds the full dependency map of function references" do
+    deps = Runtime.runtime_deps()
+
+    assert is_map(deps)
+    assert Enum.all?(Map.values(deps), &is_function/1)
+    assert Map.has_key?(deps, :config_target)
+    assert Map.has_key?(deps, :load_config)
+    assert Map.has_key?(deps, :create_labels)
+  end
+
+  test "runtime_io builds the interactive IO map and puts writes output" do
+    io = Runtime.runtime_io()
+
+    for key <- [:puts, :input, :select, :multiselect, :confirm] do
+      assert is_function(Map.fetch!(io, key))
+    end
+
+    assert io.puts.("aiur init runtime coverage line") == :ok
+  end
+
+  test "ensure_http_client starts the HTTP client and returns :ok" do
+    assert Runtime.ensure_http_client() == :ok
+  end
+
   defp match_result_type(:none), do: true
 
   defp match_result_type({:ok, %{language: language, build_root: root, command: command}}),
