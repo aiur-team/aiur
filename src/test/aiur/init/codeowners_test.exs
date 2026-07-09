@@ -10,7 +10,7 @@ defmodule Aiur.Init.CodeownersTest do
     {:ok, dir: dir}
   end
 
-  defp io(parent, answers \\ %{}) do
+  defp io(parent, answers) do
     %{
       puts: fn message ->
         send(parent, {:puts, IO.chardata_to_string(message)})

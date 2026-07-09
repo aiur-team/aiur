@@ -4,7 +4,7 @@ defmodule Aiur.Init.LabelsTest do
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Labels, as: InitLabels
 
-  defp io(parent, answers \\ %{}) do
+  defp io(parent, answers) do
     %{
       puts: fn message ->
         send(parent, {:puts, IO.chardata_to_string(message)})
