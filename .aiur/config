@@ -32,6 +32,10 @@ agent:
   # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
   max_load_average: 1.5
   max_turns: 12
+  # A silent turn (e.g. a long `mix test --cover` run with no intermediate agent
+  # output) is killed after this. Raised from the 5-min default so flake-fix /
+  # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
+  stall_timeout_ms: 3600000
   # complexity:N label routes to a backend (model:<backend> label overrides); unlisted/unlabeled fall back to kind; 4–5 use claude for stronger reasoning.
   routing:
     4: claude
