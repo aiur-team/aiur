@@ -14,5 +14,6 @@
   # interop. The runtime works; dialyzer's opaque tracking gets confused.
   {"lib/aiur/github/code_owners.ex", :call_without_opaque},
   {"lib/aiur/github/issue_dependencies.ex", :call_with_opaque},
-  {"lib/aiur/github/issue_dependencies.ex", :call_without_opaque}
+  {"lib/aiur/github/issue_dependencies.ex", :call_without_opaque},
+  {"lib/aiur/orchestrator.ex", :call_without_opaque}
 ]

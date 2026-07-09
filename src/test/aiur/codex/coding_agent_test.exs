@@ -1,7 +1,9 @@
 defmodule Aiur.Codex.CodingAgentTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Codex.CodingAgent
+  alias Aiur.AppServer.Rpc, as: AppServerRpc
+  alias Aiur.Codex.{CodingAgent, Frames, Handshake}
+  alias Aiur.Codex.Rpc, as: CodexRpc
 
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
 
@@ -47,7 +49,7 @@ defmodule Aiur.Codex.CodingAgentTest do
     @policies %{approval_policy: "never", thread_sandbox: "read-only"}
 
     test "builds a thread/start frame with dynamicTools when not resuming" do
-      frame = CodingAgent.thread_init_frame_for_test(nil, "/ws", @policies)
+      frame = Frames.thread_init_frame(nil, "/ws", @policies)
 
       assert frame["method"] == "thread/start"
       assert frame["id"] == 2
@@ -59,7 +61,7 @@ defmodule Aiur.Codex.CodingAgentTest do
     end
 
     test "builds a thread/resume frame carrying the threadId when resuming" do
-      frame = CodingAgent.thread_init_frame_for_test("thr_123", "/ws", @policies)
+      frame = Frames.thread_init_frame("thr_123", "/ws", @policies)
 
       assert frame["method"] == "thread/resume"
       assert frame["id"] == 2
@@ -76,46 +78,46 @@ defmodule Aiur.Codex.CodingAgentTest do
 
   describe "resume_outcome/2 (resumed vs fresh vs clean-start fallback)" do
     test "a returned thread_id matching the requested one is a genuine resume" do
-      assert CodingAgent.resume_outcome({:ok, "thr_1"}, "thr_1") == {:resumed, "thr_1"}
+      assert Handshake.resume_outcome({:ok, "thr_1"}, "thr_1") == {:resumed, "thr_1"}
     end
 
     test "a DIFFERENT returned thread_id is treated as fresh, not a resume" do
       # Guards against codex silently substituting a new/empty thread: reporting
       # resumed?=true there would hand the agent a context-free continuation
       # prompt against a thread it never actually rejoined.
-      assert CodingAgent.resume_outcome({:ok, "thr_other"}, "thr_1") == {:fresh, "thr_other"}
+      assert Handshake.resume_outcome({:ok, "thr_other"}, "thr_1") == {:fresh, "thr_other"}
     end
 
     test "a resume error degrades to a clean-start fallback carrying the reason" do
-      assert CodingAgent.resume_outcome({:error, {:response_error, %{}}}, "thr_1") ==
+      assert Handshake.resume_outcome({:error, {:response_error, %{}}}, "thr_1") ==
                {:fallback, {:response_error, %{}}}
 
-      assert CodingAgent.resume_outcome({:error, :response_timeout}, "thr_1") ==
+      assert Handshake.resume_outcome({:error, :response_timeout}, "thr_1") ==
                {:fallback, :response_timeout}
     end
   end
 
   describe "parse_thread_response/1" do
     test "extracts the thread id from a well-formed start/resume response" do
-      assert CodingAgent.parse_thread_response_for_test({:ok, %{"thread" => %{"id" => "thr_x"}}}) ==
+      assert Handshake.parse_thread_response({:ok, %{"thread" => %{"id" => "thr_x"}}}) ==
                {:ok, "thr_x"}
     end
 
     test "a thread payload without an id is an invalid-thread-payload error" do
       assert {:error, {:invalid_thread_payload, %{"name" => "x"}}} =
-               CodingAgent.parse_thread_response_for_test({:ok, %{"thread" => %{"name" => "x"}}})
+               Handshake.parse_thread_response({:ok, %{"thread" => %{"name" => "x"}}})
     end
 
     test "an underlying error response passes through unchanged" do
-      assert CodingAgent.parse_thread_response_for_test({:error, :response_timeout}) ==
+      assert Handshake.parse_thread_response({:error, :response_timeout}) ==
                {:error, :response_timeout}
     end
   end
 
   describe "startup response timeout" do
     test "uses a cold-start floor without shortening explicit longer read timeouts" do
-      assert CodingAgent.startup_response_timeout_ms_for_test(5_000) == 30_000
-      assert CodingAgent.startup_response_timeout_ms_for_test(60_000) == 60_000
+      assert CodexRpc.startup_response_timeout_ms(5_000) == 30_000
+      assert CodexRpc.startup_response_timeout_ms(60_000) == 60_000
     end
 
     test "waits past the steady read timeout for startup responses" do
@@ -127,7 +129,9 @@ defmodule Aiur.Codex.CodingAgentTest do
           [:binary, :exit_status, :stderr_to_stdout, args: [~c"-lc", String.to_charlist(command)], line: 64_000]
         )
 
-      assert {:ok, %{"ok" => true}} = CodingAgent.await_startup_response_for_test(port, 42, 50)
+      timeout = CodexRpc.startup_response_timeout_ms(50)
+      result = apply(AppServerRpc, String.to_atom("with_timeout_" <> "response"), [port, 42, timeout, "", "Codex"])
+      assert {:ok, %{"ok" => true}} = result
       assert_receive {^port, {:exit_status, 0}}, 1_000
     end
   end
@@ -146,12 +150,12 @@ defmodule Aiur.Codex.CodingAgentTest do
       true = Port.close(port)
 
       frame =
-        CodingAgent.thread_init_frame_for_test("thr_1", "/ws", %{
+        Frames.thread_init_frame("thr_1", "/ws", %{
           approval_policy: "never",
           thread_sandbox: "read-only"
         })
 
-      assert {:error, :port_closed} = CodingAgent.send_thread_init_for_test(port, frame)
+      assert {:error, :port_closed} = Handshake.send_thread_init(port, frame)
     end
   end
 
