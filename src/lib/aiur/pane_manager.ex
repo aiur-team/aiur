@@ -51,8 +51,8 @@ defmodule Aiur.PaneManager do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, Boot, Tmux}
-  alias Aiur.Opencode.{AttachPool, HiddenWindow, Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
-  alias Aiur.PaneManager.{Anchor, Layout, OpenQueue, ScreenGrab, State}
+  alias Aiur.Opencode.{AttachPool, Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
+  alias Aiur.PaneManager.{Anchor, Close, GenericOpen, Layout, OpenQueue, Reconcile, ScreenGrab, State}
 
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
@@ -222,7 +222,7 @@ defmodule Aiur.PaneManager do
   def handle_call({:open, identifier, command_to_run, opts}, from, state) do
     Aiur.Perf.event(:pane_open_request, identifier: identifier)
     state = State.remember_title(state, identifier, opts)
-    state = reconcile_visible_panes(state)
+    state = Reconcile.reconcile_visible_panes(state)
 
     case Map.fetch(state.identifier_to_pane, identifier) do
       {:ok, existing_pane} ->
@@ -272,7 +272,7 @@ defmodule Aiur.PaneManager do
       {:ok, pane_id} ->
         Logger.info("[user-action] close_conversation identifier=#{identifier} pane_id=#{pane_id}")
 
-        close_opencode_or_generic(state, identifier, pane_id)
+        Close.close_opencode_or_generic(state, identifier, pane_id)
 
       :error ->
         {:reply, {:error, :not_open}, state}
@@ -284,7 +284,7 @@ defmodule Aiur.PaneManager do
       {:ok, identifier} ->
         Logger.info("[user-action] hide_pane identifier=#{identifier} pane_id=#{pane_id}")
 
-        hide_slot_pane(state, identifier, pane_id)
+        Close.hide_slot_pane(state, identifier, pane_id)
 
       :error ->
         {:reply, {:error, :not_slot_pane}, state}
@@ -321,7 +321,7 @@ defmodule Aiur.PaneManager do
       slot: slot
     )
 
-    {:noreply, handle_pane_closed(state, pane_id)}
+    {:noreply, Reconcile.handle_pane_closed(state, pane_id)}
   end
 
   def handle_info({:slot_ready, _slot_index}, state) do
@@ -372,7 +372,7 @@ defmodule Aiur.PaneManager do
       {:ok, pane_id} ->
         Logger.info("aiur_pane_manager phase=close_inactive identifier=#{identifier} pane_id=#{pane_id}")
 
-        {:reply, _, new_state} = close_opencode_or_generic(state, identifier, pane_id)
+        {:reply, _, new_state} = Close.close_opencode_or_generic(state, identifier, pane_id)
         {:noreply, new_state}
 
       :error ->
@@ -560,115 +560,7 @@ defmodule Aiur.PaneManager do
   defp do_open(state, identifier, command_to_run, opts, from) do
     case command_to_run do
       "__aiur_opencode__ " <> _ -> open_opencode_pane(state, identifier, opts, from)
-      _ -> open_generic_pane(state, identifier, command_to_run, from)
-    end
-  end
-
-  # Hide-without-deselect: the pane (opencode-attach process intact) moves
-  # to the hidden warm window and the slot KEEPS its identifier binding, so
-  # reopen hits `Slot.set_visible/2`'s fast path and swaps this same pane
-  # back instantly. Only slot panes hide; anything else reports
-  # :not_slot_pane so the caller can fall back to a kill.
-  defp hide_slot_pane(state, identifier, pane_id) do
-    case slot_for_pane(state, pane_id) do
-      {:ok, slot_index, _slot_pid} ->
-        hidden_window = HiddenWindow.window_name()
-
-        case Tmux.move_pane_hidden(state.tmux, pane_id, hidden_window) do
-          :ok ->
-            new_state = State.forget_pane_by_identifier(state, pane_id)
-            _ = Layout.apply(new_state)
-            AgentPubSub.broadcast_status_change(identifier, :pane_closed)
-            refocus_agent_list_if_focused(new_state, pane_id)
-
-            Logger.info("aiur_pane_manager phase=hide_pane elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}")
-
-            Aiur.Perf.event(:pane_hide, identifier: identifier, slot: slot_index, pane_id: pane_id)
-
-            {:reply, :ok, new_state}
-
-          {:error, reason} ->
-            Logger.warning("aiur_pane_manager phase=hide_pane_failed identifier=#{identifier} pane_id=#{pane_id} reason=#{inspect(reason)}")
-
-            {:reply, {:error, reason}, state}
-        end
-
-      :not_found ->
-        {:reply, {:error, :not_slot_pane}, state}
-    end
-  end
-
-  defp close_opencode_or_generic(state, identifier, pane_id) do
-    # If this pane is currently owned by a slot worker, hide it (move to
-    # the hidden warm window) and deselect the slot so the slot can
-    # accept the next agent. Otherwise it's a generic pane — kill it.
-    case slot_for_pane(state, pane_id) do
-      {:ok, slot_index, slot_pid} ->
-        hidden_window = HiddenWindow.window_name()
-
-        case Tmux.move_pane_hidden(state.tmux, pane_id, hidden_window) do
-          :ok ->
-            :ok = Slot.deselect(slot_pid)
-            new_state = State.forget_pane_by_identifier(state, pane_id)
-            _ = Layout.apply(new_state)
-
-            # Broadcast so the agent list drops 🟢 back to ⚪/🔘.
-            # All three close paths (tmux-driven dies via
-            # `handle_pane_closed/2`, reconcile drops via
-            # `release_stale_visible_pane/2`, user-initiated hide here)
-            # broadcast the same signal so the renderer stays in sync.
-            AgentPubSub.broadcast_status_change(identifier, :pane_closed)
-
-            Logger.info("aiur_pane_manager phase=close_hide elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}")
-
-            {:reply, :ok, new_state}
-
-          {:error, reason} ->
-            Logger.warning("aiur_pane_manager phase=close_hide_failed identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id} reason=#{inspect(reason)}")
-
-            # Fallback: tell the slot to deselect so it isn't wedged, and
-            # leave the pane in place — user can retry close.
-            _ = Slot.deselect(slot_pid)
-            {:reply, :ok, state}
-        end
-
-      :not_found ->
-        # Generic (non-opencode) pane — kill behavior.
-        _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
-        new_state = State.forget_pane_by_identifier(state, pane_id)
-        _ = Layout.apply(new_state)
-        {:reply, :ok, new_state}
-    end
-  end
-
-  # Resolve which slot worker (if any) owns the given pane_id. Looks up
-  # every alive slot in SlotRegistry and asks for its snapshot.
-  defp slot_for_pane(_state, pane_id) do
-    SlotRegistry.all()
-    |> Enum.find_value(:not_found, fn {slot_index, slot_pid} ->
-      case Slot.snapshot(slot_pid) do
-        %{pane_id: ^pane_id} -> {:ok, slot_index, slot_pid}
-        _ -> nil
-      end
-    end)
-  end
-
-  # Non-opencode commands (rare today; mostly the bare `echo ...` test paths)
-  # still go through the classic "split + wrap with unique BEAM node" flow.
-  defp open_generic_pane(state, identifier, command_to_run, _from) do
-    wrapped = wrap_with_unique_node(command_to_run, identifier)
-    slot = state.cycle_index + 1
-
-    case open_in_slot(state, slot, identifier, wrapped) do
-      {:ok, pane_id, new_state} ->
-        AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-        _ = Layout.apply(new_state)
-        {:reply, {:ok, pane_id}, State.advance_cycle(new_state)}
-
-      {:error, reason} ->
-        Logger.warning("PaneManager.open identifier=#{identifier} slot=#{slot} failed: #{inspect(reason)}")
-
-        {:reply, {:error, reason}, state}
+      _ -> GenericOpen.open_generic_pane(state, identifier, command_to_run, from)
     end
   end
 
@@ -1231,52 +1123,6 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  defp open_in_slot(state, slot, identifier, wrapped) do
-    Logger.info(
-      "PaneManager opening identifier=#{identifier} into slot=#{slot} " <>
-        "agent_list_pane=#{state.agent_list_pane}"
-    )
-
-    case Map.get(state.slot_panes, slot) do
-      nil ->
-        create_pane_for_slot(state, slot, identifier, wrapped)
-
-      existing_pane ->
-        replace_in_slot(state, slot, existing_pane, identifier, wrapped)
-    end
-  end
-
-  defp replace_in_slot(state, slot, existing_pane, identifier, wrapped) do
-    case Tmux.respawn_pane(state.tmux, existing_pane, wrapped) do
-      :ok ->
-        new_state =
-          state
-          |> State.forget_identifier_for_pane(existing_pane)
-          |> record_slot_pane(slot, existing_pane, identifier)
-
-        {:ok, existing_pane, new_state}
-
-      {:error, _} ->
-        # Cached pane id is stale (tmux killed it under us). Forget it
-        # and create a fresh pane in this slot.
-        create_pane_for_slot(State.forget_dead_slot(state, slot), slot, identifier, wrapped)
-    end
-  end
-
-  defp create_pane_for_slot(state, slot, identifier, wrapped) do
-    # Split anchor is always the agent-list pane. Position is irrelevant
-    # — the layout string applied after the open will reposition every
-    # pane in the window. Direction and percent are arbitrary defaults.
-    case Tmux.split_pane(state.tmux, state.agent_list_pane, :horizontal, 50, wrapped) do
-      {:ok, pane_id} ->
-        new_state = record_slot_pane(state, slot, pane_id, identifier)
-        {:ok, pane_id, new_state}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
   # State bookkeeping --------------------------------------------------------
 
   defp record_slot_pane(state, slot, pane_id, identifier) do
@@ -1295,126 +1141,6 @@ defmodule Aiur.PaneManager do
     :ok
   end
 
-  defp handle_pane_closed(state, pane_id) do
-    case Map.fetch(state.pane_to_identifier, pane_id) do
-      {:ok, identifier} ->
-        AgentPubSub.broadcast_status_change(identifier, :pane_closed)
-        new_state = State.forget_pane_by_identifier(state, pane_id)
-        _ = Layout.apply(new_state)
-        refocus_agent_list_if_focused(new_state, pane_id)
-
-      :error ->
-        # Unknown pane (could be the agent-list pane itself, a loading
-        # placeholder, or a transient probe). Still clear any stale slot
-        # or placeholder mapping.
-        new_state =
-          state
-          |> State.forget_pane_by_identifier(pane_id)
-          |> State.drop_placeholder_by_pane(pane_id)
-
-        _ = Layout.apply(new_state)
-        refocus_agent_list_if_focused(new_state, pane_id)
-    end
-  end
-
-  # When the pane the user was focused in dies, tmux auto-selects an
-  # adjacent agent pane — so keystrokes keep landing in opencode and the
-  # agent list looks frozen (j/k/arrows do nothing). Pull focus back to
-  # the agent-list anchor pane so the list stays drivable. Only fires for
-  # the focused pane: a background pane dying must not yank the user out
-  # of the pane they are actually using.
-  defp refocus_agent_list_if_focused(state, closed_pane_id) do
-    if closed_pane_id == state.last_attached_pane_id do
-      _ = Tmux.command(state.tmux, "select-pane -t #{state.agent_list_pane}")
-      %{state | last_attached_pane_id: nil}
-    else
-      state
-    end
-  end
-
-  defp reconcile_visible_panes(%State{} = state) do
-    if map_size(state.pane_to_identifier) == 0 and map_size(state.placeholder_panes) == 0 do
-      state
-    else
-      case Tmux.list_panes(state.tmux, state.window_target) do
-        {:ok, pane_ids} ->
-          live_panes = MapSet.new(pane_ids)
-
-          state
-          |> drop_stale_tracked_panes(live_panes)
-          |> drop_stale_placeholders(live_panes)
-
-        {:error, reason} ->
-          Logger.warning("aiur_pane_manager phase=reconcile_failed window=#{state.window_target} reason=#{inspect(reason)}")
-          state
-      end
-    end
-  end
-
-  defp drop_stale_tracked_panes(state, live_panes) do
-    state.pane_to_identifier
-    |> Map.keys()
-    |> Enum.reject(&MapSet.member?(live_panes, &1))
-    |> Enum.reduce(state, fn pane_id, acc -> release_stale_visible_pane(acc, pane_id) end)
-  end
-
-  defp release_stale_visible_pane(state, pane_id) do
-    identifier = Map.get(state.pane_to_identifier, pane_id)
-    slot = Map.get(state.pane_to_slot, pane_id)
-
-    if is_integer(slot) do
-      case SlotRegistry.lookup(slot) do
-        {:ok, slot_pid} -> Slot.deselect(slot_pid)
-        :not_found -> :ok
-      end
-    end
-
-    if is_binary(identifier), do: AgentPubSub.broadcast_status_change(identifier, :pane_closed)
-
-    Logger.info("aiur_pane_manager phase=reconcile_drop_stale_pane identifier=#{identifier} slot=#{slot} pane_id=#{pane_id}")
-
-    state
-    |> State.forget_pane_by_identifier(pane_id)
-    |> refocus_agent_list_if_focused(pane_id)
-  end
-
-  defp drop_stale_placeholders(state, live_panes) do
-    state.placeholder_panes
-    |> Enum.reject(fn {_identifier, %{pane_id: pane_id}} -> MapSet.member?(live_panes, pane_id) end)
-    |> Enum.reduce(state, fn {identifier, %{pane_id: pane_id, slot: slot}}, acc ->
-      Logger.info("aiur_pane_manager phase=reconcile_drop_stale_placeholder identifier=#{identifier} slot=#{slot} pane_id=#{pane_id}")
-      State.drop_placeholder(acc, identifier)
-    end)
-  end
-
-  # Distribution wrapping ----------------------------------------------------
-
-  defp wrap_with_unique_node(command, identifier) do
-    safe_id = String.replace(identifier, ~r/[^A-Za-z0-9_-]/, "-")
-    suffix = Integer.to_string(System.unique_integer([:positive]), 36)
-    node_long = "pane-#{safe_id}-#{suffix}@127.0.0.1"
-
-    # The pane BEAM uses a LONG node name (`name@127.0.0.1`) to match the
-    # parent aiur BEAM. Long names with an explicit IP sidestep
-    # `/etc/hosts` weirdness (Debian-style boxes map the hostname to
-    # 127.0.1.1 while we listen on 127.0.0.1, and the IP mismatch shows up
-    # as a silent `Node.connect -> false`).
-    #
-    # tmux passes the resulting string to `/bin/sh -c`, so the value of
-    # ERL_AFLAGS is parsed once by /bin/sh and then again by the BEAM's
-    # argv splitter. Double quotes around the value let us embed
-    # `{127,0,0,1}` without /bin/sh's single-quote rules tripping on it.
-    cookie_flag =
-      case read_erlang_cookie() do
-        cookie when is_binary(cookie) and cookie != "" -> " -setcookie #{cookie}"
-        _ -> ""
-      end
-
-    dist_flags = " -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
-
-    "env ERL_AFLAGS=\"-name #{node_long}#{cookie_flag}#{dist_flags}\" #{command}"
-  end
-
   # Lazy slot expansion: after the user opens another chat pane,
   # ask SlotPolicy to start the next slot. Idempotent and rate-limited
   # by SlotPolicy itself, so calling it on every successful open is
@@ -1425,22 +1151,5 @@ defmodule Aiur.PaneManager do
     _ -> :ok
   catch
     _, _ -> :ok
-  end
-
-  defp read_erlang_cookie do
-    case System.get_env("AIUR_ERLANG_COOKIE") do
-      env when is_binary(env) and env != "" ->
-        String.trim(env)
-
-      _ ->
-        path = Path.join(System.user_home!(), ".erlang.cookie")
-
-        case File.read(path) do
-          {:ok, contents} -> String.trim(contents)
-          {:error, _} -> nil
-        end
-    end
-  rescue
-    _ -> nil
   end
 end
