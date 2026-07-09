@@ -1,0 +1,85 @@
+defmodule Aiur.AgentList.SummariesTest do
+  use ExUnit.Case, async: true
+
+  alias Aiur.AgentList.Summaries
+
+  test "visible_summaries rejects inactive agent tags" do
+    summaries = [
+      %{identifier: "1", status: :running, tag: "agent:done"},
+      %{identifier: "2", status: :running, tag: "agent:canceled"},
+      %{identifier: "3", status: :running, tag: "agent:cancelled"},
+      %{identifier: "4", status: :running, work_state: :working}
+    ]
+
+    assert [%{identifier: "4"}] = Summaries.visible_summaries(summaries)
+  end
+
+  test "visible_summaries sorts by work bucket and natural identifier order" do
+    summaries = [
+      %{identifier: "queued", status: :queued},
+      %{identifier: "other", status: :running, work_state: :other},
+      %{identifier: "10", status: :running, work_state: :working},
+      %{identifier: "5", status: :running, work_state: :working},
+      %{identifier: "abc", status: :running, work_state: :working},
+      %{identifier: "paused", status: :running, work_state: :paused},
+      %{identifier: "sleep", status: :running, work_state: :sleeping},
+      %{identifier: "error", status: :running, work_state: :error},
+      %{identifier: "done", status: :running, work_state: :deactivated}
+    ]
+
+    assert Enum.map(Summaries.visible_summaries(summaries), & &1.identifier) == [
+             "5",
+             "10",
+             "abc",
+             "paused",
+             "sleep",
+             "done",
+             "error",
+             "other",
+             "queued"
+           ]
+  end
+
+  test "summary predicates accept atom and string work states" do
+    assert Summaries.paused?(%{work_state: :paused})
+    assert Summaries.paused?(%{work_state: "paused"})
+    refute Summaries.paused?(%{work_state: :working})
+
+    assert Summaries.deactivated?(%{work_state: :deactivated})
+    assert Summaries.deactivated?(%{work_state: "deactivated"})
+    refute Summaries.deactivated?(%{work_state: :working})
+  end
+
+  test "remote_control_on? is true only for launching and on" do
+    assert Summaries.remote_control_on?(%{remote_control: %{status: :launching}})
+    assert Summaries.remote_control_on?(%{remote_control: %{status: :on}})
+    refute Summaries.remote_control_on?(%{remote_control: %{status: :off}})
+    refute Summaries.remote_control_on?(%{})
+  end
+
+  test "active_agent_count counts running non-paused summaries" do
+    summaries = [
+      %{status: :running, work_state: :working},
+      %{status: :running, work_state: :paused},
+      %{status: :queued, work_state: :working}
+    ]
+
+    assert Summaries.active_agent_count(summaries) == 1
+  end
+
+  test "id_sets preserves visible slot and retain semantics" do
+    summaries = [
+      %{identifier: "work", status: :running, work_state: :working},
+      %{identifier: "paused", status: :running, work_state: :paused},
+      %{identifier: "done", status: :running, work_state: :deactivated},
+      %{identifier: nil, status: :running, work_state: :working},
+      %{identifier: "queued", status: :queued, work_state: :working}
+    ]
+
+    assert Summaries.id_sets(summaries) == %{
+             visible_ids: ["work", "paused", "done"],
+             slot_ids: ["work"],
+             retain_ids: ["paused"]
+           }
+  end
+end

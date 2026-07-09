@@ -28,6 +28,9 @@ defmodule Aiur.Claude.RemoteControl do
 
   require Logger
 
+  alias Aiur.Fs
+  alias Aiur.Jsonl
+
   @session_url_regex ~r{https://claude\.ai/code/session_[A-Za-z0-9]+}
   # On teardown, wait for the RC process to exit after SIGTERM before
   # escalating to SIGKILL.
@@ -79,7 +82,7 @@ defmodule Aiur.Claude.RemoteControl do
       else
         updated_project = Map.put(project, "hasTrustDialogAccepted", true)
         updated = Map.put(config, "projects", Map.put(projects, workspace, updated_project))
-        write_atomic(path, Jason.encode!(updated))
+        Fs.atomic_write(path, Jason.encode!(updated))
       end
     end
   end
@@ -97,19 +100,6 @@ defmodule Aiur.Claude.RemoteControl do
       {:ok, map} when is_map(map) -> {:ok, map}
       {:ok, _other} -> {:error, :unexpected_config_shape}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp write_atomic(path, contents) do
-    tmp = path <> ".aiur-tmp-#{System.unique_integer([:positive])}"
-
-    with :ok <- File.write(tmp, contents),
-         :ok <- File.rename(tmp, path) do
-      :ok
-    else
-      {:error, reason} ->
-        File.rm(tmp)
-        {:error, reason}
     end
   end
 
@@ -218,9 +208,9 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   defp decode_transcript_record(line) do
-    case Jason.decode(line) do
-      {:ok, record} when is_map(record) -> [record]
-      _ -> []
+    case Jsonl.decode_line(line) do
+      {:ok, record} -> [record]
+      :skip -> []
     end
   end
 

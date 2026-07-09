@@ -15,29 +15,81 @@ defmodule Aiur.OrchestratorTrackedSetTest do
   end
 
   test "tracked set table survives orchestrator restart" do
+    {:ok, orchestrator_pid} = ensure_orchestrator_running()
     tracked_set_owner = Process.whereis(TrackedSet)
-    orchestrator_pid = Process.whereis(Orchestrator)
 
-    on_exit(fn ->
-      if is_nil(Process.whereis(Orchestrator)) do
-        case Supervisor.restart_child(Aiur.Supervisor, Orchestrator) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-        end
-      end
-    end)
+    on_exit(&ensure_orchestrator_running/0)
 
     assert :ok = TrackedSet.reset(["681"])
     assert Orchestrator.issue_tracked?("681")
     refute Orchestrator.issue_tracked?("682")
 
-    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Orchestrator)
+    assert :ok = terminate_orchestrator()
 
     assert :ets.info(TrackedSet, :owner) == tracked_set_owner
     assert Orchestrator.issue_tracked?("681")
     refute Process.alive?(orchestrator_pid)
 
-    assert {:ok, restarted_pid} = Supervisor.restart_child(Aiur.Supervisor, Orchestrator)
+    assert {:ok, restarted_pid} = restart_orchestrator()
     assert is_pid(restarted_pid)
+  end
+
+  defp terminate_orchestrator do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Orchestrator) do
+      pid when is_pid(pid) ->
+        case Supervisor.terminate_child(Aiur.Supervisor, Orchestrator) do
+          :ok -> :ok
+          {:error, :not_found} -> stop_unlinked_orchestrator(pid)
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp stop_unlinked_orchestrator(pid) do
+    GenServer.stop(pid, :normal, 1_000)
+  end
+
+  defp ensure_orchestrator_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Orchestrator) do
+      pid when is_pid(pid) -> {:ok, pid}
+      nil -> restart_orchestrator()
+    end
+  end
+
+  defp restart_orchestrator do
+    ensure_aiur_supervisor_running()
+
+    case Supervisor.restart_child(Aiur.Supervisor, Orchestrator) do
+      {:ok, pid} when is_pid(pid) ->
+        {:ok, pid}
+
+      {:error, {:already_started, pid}} when is_pid(pid) ->
+        {:ok, pid}
+
+      {:error, reason} when reason in [:already_present, :running] ->
+        case Process.whereis(Orchestrator) do
+          pid when is_pid(pid) -> {:ok, pid}
+          nil -> flunk("orchestrator restart raced and left no process: #{inspect(reason)}")
+        end
+    end
+  end
+
+  defp ensure_aiur_supervisor_running do
+    case Process.whereis(Aiur.Supervisor) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case Application.ensure_all_started(:aiur) do
+          {:ok, _apps} -> :ok
+          {:error, {:already_started, _app}} -> :ok
+        end
+    end
   end
 end
