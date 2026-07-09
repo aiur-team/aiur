@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.BootstrapImage do
   @moduledoc "Bootstrap-image seeding: copy warm cache paths from a Docker image into an agent workspace via a shell script run locally or over SSH."
 
   require Logger
-  alias Aiur.{Config}
+  alias Aiur.Config
   alias Aiur.Workspace.{Context, Hooks, Remote}
 
   @warm_cache_paths ["src/deps", "src/_build", "deps", "_build"]
