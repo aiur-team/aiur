@@ -80,6 +80,13 @@ defmodule Aiur.PeriodicWorkerTest do
       capture_log(fn ->
         send(pid, :tick)
         assert_receive :tick_ran, 2000
+
+        # A second tick drains the mailbox past the first tick's catch handler
+        # (the worker processes messages serially), so its log line is emitted
+        # before capture_log stops — the single-tick form raced the async log
+        # on a loaded CI box.
+        send(pid, :tick)
+        assert_receive :tick_ran, 2000
       end)
 
     assert log =~ "TestWorker tick caught throw: :boom"
