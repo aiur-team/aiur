@@ -10,8 +10,8 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   require Logger
 
   alias Aiur.AgentChat
-  alias Aiur.Opencode.OperatorText
   alias Aiur.Opencode.ChatCompletions.{Caller, Sse, TurnRequest}
+  alias Aiur.Opencode.OperatorText
 
   @spec dispatch_user_text(map(), Plug.Conn.t(), String.t(), String.t()) :: Plug.Conn.t()
   def dispatch_user_text(body, conn, identifier, raw_text) do

@@ -3,8 +3,8 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
   import Plug.Test
 
-  alias Aiur.Opencode.ChatCompletions
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.Opencode.ChatCompletions
 
   # ── Wave 0: conn-path characterization ────────────────────────────────────
 

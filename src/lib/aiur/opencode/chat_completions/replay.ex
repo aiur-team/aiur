@@ -9,8 +9,8 @@ defmodule Aiur.Opencode.ChatCompletions.Replay do
 
   require Logger
 
-  alias Aiur.Opencode.{Db, SessionWriterRegistry}
   alias Aiur.Opencode.ChatCompletions.{Caller, Sse}
+  alias Aiur.Opencode.{Db, SessionWriterRegistry}
 
   # Synthetic-marker round-trip: `SessionWriter` writes assistant rows
   # directly into opencode's SQLite, then POSTs a synthetic user message
