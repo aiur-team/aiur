@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.Client do
   """
 
   require Logger
-  alias Aiur.{Codeowners, GitHub}
+  alias Aiur.{Codeowners, GitHub, Issue}
 
   alias Aiur.GitHub.{
     AuthPreflight,

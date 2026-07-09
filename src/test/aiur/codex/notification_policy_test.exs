@@ -99,7 +99,7 @@ defmodule Aiur.Codex.NotificationPolicyTest do
 
   describe "protocol_message_candidate?/1" do
     test "JSON objects are candidates" do
-      assert NotificationPolicy.protocol_message_candidate?("{\"method\": \"foo\"}")
+      assert NotificationPolicy.protocol_message_candidate?(~s({"method": "foo"}))
     end
 
     test "JSON arrays are candidates" do
