@@ -6,16 +6,6 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   alias Aiur.AgentList.Renderer.{EventPhrases, Links}
 
   @spec format_event_line(map(), String.t() | nil, String.t() | nil) :: String.t() | nil
-  @spec event_glyph(atom()) :: String.t()
-  @spec event_source_ticket_id(term()) :: String.t() | nil
-  @spec ticker_self_echo?(atom(), term(), map()) :: boolean()
-  @spec comment_topic?(String.t()) :: boolean()
-  @spec event_subject_id(atom(), map(), String.t() | nil, String.t() | nil) :: String.t()
-  @spec topic_suffix(term()) :: String.t()
-  @spec describe_event(atom(), String.t(), String.t() | nil, String.t(), term()) :: {String.t(), String.t()}
-  @spec cross_receive_verb(String.t()) :: String.t()
-  @spec cross_receive_summary(String.t(), term()) :: String.t()
-
   def format_event_line(%{kind: kind, topic: topic} = entry, rendering_identifier, repo) do
     if ticker_self_echo?(kind, topic, entry) do
       nil
@@ -41,11 +31,13 @@ defmodule Aiur.AgentList.Renderer.EventLine do
 
   def format_event_line(_entry, _rendering_identifier, _repo), do: nil
 
+  @spec event_glyph(atom()) :: String.t()
   def event_glyph(:publish), do: "💬"
   def event_glyph(:receive), do: "📬"
   def event_glyph(:read), do: "📄"
   def event_glyph(_), do: "·"
 
+  @spec event_source_ticket_id(term()) :: String.t() | nil
   def event_source_ticket_id(topic) when is_binary(topic) do
     case Regex.run(~r/^ticket\.([^.]+)\./, topic) do
       [_, id] -> id
@@ -55,6 +47,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
 
   def event_source_ticket_id(_), do: nil
 
+  @spec ticker_self_echo?(atom(), term(), map()) :: boolean()
   def ticker_self_echo?(:receive, topic, %{identifier: id})
       when is_binary(topic) and is_binary(id) do
     source = event_source_ticket_id(topic)
@@ -65,10 +58,12 @@ defmodule Aiur.AgentList.Renderer.EventLine do
 
   def ticker_self_echo?(_kind, _topic, _entry), do: false
 
+  @spec comment_topic?(String.t()) :: boolean()
   def comment_topic?("issue.commented"), do: true
   def comment_topic?("pr.review_comment"), do: true
   def comment_topic?(_), do: false
 
+  @spec event_subject_id(atom(), map(), String.t() | nil, String.t() | nil) :: String.t()
   def event_subject_id(:publish, _entry, source_id, _rendering_identifier)
       when is_binary(source_id),
       do: source_id
@@ -91,6 +86,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
 
   def event_subject_id(_kind, _entry, _source_id, _rendering_identifier), do: "?"
 
+  @spec topic_suffix(term()) :: String.t()
   def topic_suffix("ticket." <> rest) do
     case String.split(rest, ".", parts: 2) do
       [_id, suffix] -> suffix
@@ -101,6 +97,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   def topic_suffix(topic) when is_binary(topic), do: topic
   def topic_suffix(_), do: ""
 
+  @spec describe_event(atom(), String.t(), String.t() | nil, String.t(), term()) :: {String.t(), String.t()}
   def describe_event(:receive, subject_id, source_id, "issue.commented", body)
       when subject_id == source_id do
     {"new Issue comment:", EventPhrases.comment_body_summary(body)}
@@ -144,6 +141,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
 
   def describe_event(_kind, _subject_id, _source_id, _suffix, _body), do: {"", ""}
 
+  @spec cross_receive_verb(String.t()) :: String.t()
   def cross_receive_verb("branch.push"), do: "pushed"
   def cross_receive_verb("pr.opened"), do: "opened a PR"
   def cross_receive_verb("pr.merged"), do: "merged a PR"
@@ -156,6 +154,7 @@ defmodule Aiur.AgentList.Renderer.EventLine do
   def cross_receive_verb("agent." <> name), do: name
   def cross_receive_verb(other), do: other
 
+  @spec cross_receive_summary(String.t(), term()) :: String.t()
   def cross_receive_summary("branch.push", body) do
     case EventPhrases.branch_push_phrase(body) do
       {_verb, ""} -> ""
