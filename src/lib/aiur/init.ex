@@ -16,10 +16,12 @@ defmodule Aiur.Init do
   alias Aiur.Codeowners
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Format
+  alias Aiur.Init.Migration
   alias Aiur.Init.Prompt
   alias Aiur.Init.Questions
   alias Aiur.Init.Resume
   alias Aiur.Init.Runtime
+  alias Aiur.Init.Scaffold
   alias Aiur.Init.Templates
   alias Aiur.Prewarm.Detect
 
@@ -29,18 +31,9 @@ defmodule Aiur.Init do
   # `.aiurconfig` is still honored on read (see `Aiur.Workflow`) and is what the
   # migration path (resume) moves into the folder.
   @config_file_name ".aiur/config"
-  @legacy_config_file_name ".aiurconfig"
   @prompt_basename "prompt.md"
-  @examples_dir "examples"
   @gitignore_entry ".aiur/"
-  # Legacy root example file -> new `.aiur/examples/` name, for the migration.
-  @legacy_examples [
-    {".aiurconfig.example", "config.example"},
-    {".aiurhooks.example", "hooks.example"},
-    {"AIUR.md.example", "prompt.md.example"}
-  ]
   @env_file_name ".env"
-  @env_example_file_name ".env.example"
   @codeowners_file_name ".github/CODEOWNERS"
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
@@ -55,7 +48,6 @@ defmodule Aiur.Init do
   # writes a `.aiur/hooks` (from `.aiur/examples/hooks.example`) next to the config
   # — otherwise the first run would fail resolving a missing hooks file. Embedded at
   # compile time so the wizard works from a release with no runtime file dependency.
-  @aiurhooks_file_name "hooks"
   @prewarm_file_name "prewarm"
 
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
@@ -259,12 +251,12 @@ defmodule Aiur.Init do
     case deps.write_config.(target, config_yaml) do
       {:ok, path} ->
         io.puts.(["Created: ", Format.dim(path)])
-        ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
-        ensure_aiurhooks(io, deps, path)
+        Scaffold.ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
+        Scaffold.ensure_aiurhooks(io, deps, path)
         ensure_alerts(io, deps, path, alerts)
         ensure_prewarm_file(io, deps, path, prewarm)
-        setup_env(io, deps, tracker)
-        maybe_offer_gitignore(io, deps, location)
+        Scaffold.setup_env(io, deps, tracker)
+        Scaffold.maybe_offer_gitignore(io, deps, location)
         setup_codeowners(io, deps, tracker)
         maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
@@ -723,27 +715,6 @@ defmodule Aiur.Init do
 
   # --- Closing steps ---
 
-  # Create the per-repo prompt file the config points at so the very next
-  # config load (auth checks, then boot) doesn't fail on a missing file.
-  defp ensure_prompt_file(_io, _deps, _target, prompt_file, _repo) when prompt_file in [nil, ""], do: :ok
-
-  defp ensure_prompt_file(io, deps, target, prompt_file, repo) do
-    case deps.ensure_prompt_file.(target, prompt_file, repo) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
-  # The scaffolded config references the hooks file via `hooks_file: hooks`, so
-  # make sure `.aiur/hooks` exists (created from .aiurhooks.example). Never clobber
-  # an existing one — the dev may have tuned it for their toolchain.
-  defp ensure_aiurhooks(io, deps, target) do
-    case deps.ensure_aiurhooks.(target) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
   # The scaffolded config references the alert sound map via `alerts_file: alerts`,
   # so make sure `.aiur/alerts` exists (created from the host's alerts example).
   # Never clobber an existing one — the operator may have tuned the topic→sound map.
@@ -766,22 +737,6 @@ defmodule Aiur.Init do
   end
 
   defp ensure_prewarm_file(_io, _deps, _target, _prewarm), do: :ok
-
-  # Repo-local only: offer to gitignore the whole `.aiur/` folder. Declining leaves
-  # it tracked (team-shared config, as `.aiurconfig` was). Global setup has nothing
-  # in the repo to ignore, so the prompt is skipped.
-  defp maybe_offer_gitignore(_io, _deps, :global), do: :ok
-
-  defp maybe_offer_gitignore(io, deps, _repo_local) do
-    if io.confirm.("Add #{@gitignore_entry} to .gitignore?", false) do
-      case deps.add_gitignore_entry.(@gitignore_entry) do
-        {:added, path} -> io.puts.(["Updated: ", Format.dim(path)])
-        {:exists, _path} -> :ok
-      end
-    else
-      :ok
-    end
-  end
 
   defp tracker_repo(%{repo: repo}), do: repo
   defp tracker_repo(_tracker), do: nil
@@ -1010,19 +965,6 @@ defmodule Aiur.Init do
       normalized -> normalized
     end
   end
-
-  # GitHub is the only tracker that reads a secret from the environment, so the
-  # wizard scaffolds `.env` only on that path. Linear collects its key inline.
-  defp setup_env(io, deps, %{kind: "github"}) do
-    {status, path} = deps.ensure_env.(Templates.env_example_content())
-
-    case status do
-      :created -> io.puts.(["Created: ", Format.dim(path)])
-      :exists -> io.puts.(["Found: ", Format.dim(path)])
-    end
-  end
-
-  defp setup_env(_io, _deps, _tracker), do: :ok
 
   # Label creation runs as gated stages: required lifecycle labels first (the
   # operator presses Enter), then optional complexity, model, and remote labels
@@ -1297,25 +1239,25 @@ defmodule Aiur.Init do
   @spec runtime_deps() :: deps()
   defp runtime_deps do
     %{
-      config_target: &config_target/1,
-      legacy_config_target: &legacy_config_target/1,
-      existing_config_path: &existing_config_path/1,
+      config_target: &Scaffold.config_target/1,
+      legacy_config_target: &Scaffold.legacy_config_target/1,
+      existing_config_path: &Scaffold.existing_config_path/1,
       load_config: &Runtime.load_config/1,
-      migrate_layout: &migrate_layout/1,
+      migrate_layout: &Migration.migrate_layout/1,
       read_example: fn -> Templates.config_example() end,
       detect_repo: &detect_repo/0,
       detect_toolchain: &Runtime.detect_toolchain/0,
       prewarm_build: &Runtime.run_first_prewarm/2,
-      global_alerts_path: &global_alerts_path/0,
-      existing_alerts_path: &existing_alerts_path/1,
-      write_config: &write_config/2,
-      append_config: &append_config_section/2,
-      ensure_prompt_file: &write_prompt_file/3,
-      ensure_aiurhooks: &write_aiurhooks/1,
+      global_alerts_path: &Scaffold.global_alerts_path/0,
+      existing_alerts_path: &Scaffold.existing_alerts_path/1,
+      write_config: &Scaffold.write_config/2,
+      append_config: &Scaffold.append_config_section/2,
+      ensure_prompt_file: &Scaffold.write_prompt_file/3,
+      ensure_aiurhooks: &Scaffold.write_aiurhooks/1,
       ensure_alerts: &write_alerts_file/2,
-      ensure_prewarm_file: &write_prewarm_file/2,
-      add_gitignore_entry: &add_gitignore_entry/1,
-      ensure_env: &ensure_env/1,
+      ensure_prewarm_file: &Scaffold.write_prewarm_file/2,
+      add_gitignore_entry: &Scaffold.add_gitignore_entry/1,
+      ensure_env: &Scaffold.ensure_env/1,
       check_agent_auth: &check_agent_auth/1,
       install_claude_app_server: &install_claude_app_server/0,
       repo_root: fn -> Codeowners.repo_root(File.cwd!()) end,
@@ -1324,63 +1266,6 @@ defmodule Aiur.Init do
       list_labels: &list_repo_labels/1,
       create_labels: &create_labels/2
     }
-  end
-
-  defp config_target(:global), do: Path.expand("~/" <> @config_file_name)
-  defp config_target(_location), do: Path.join(File.cwd!(), @config_file_name)
-
-  defp legacy_config_target(:global), do: Path.expand("~/" <> @legacy_config_file_name)
-  defp legacy_config_target(_location), do: Path.join(File.cwd!(), @legacy_config_file_name)
-
-  defp global_alerts_path, do: Path.expand("~/.aiur/" <> @alerts_file_name)
-
-  defp existing_config_path(target) do
-    if File.regular?(target), do: target
-  end
-
-  defp existing_alerts_path(path) do
-    if File.regular?(path), do: path
-  end
-
-  defp write_config(target, yaml) do
-    File.mkdir_p!(Path.dirname(target))
-
-    case File.write(target, yaml) do
-      :ok -> {:ok, target}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Append a config section to an existing file, separated by a blank line, so a
-  # resume backfill adds the block without disturbing the user's other settings.
-  defp append_config_section(target, block) do
-    with {:ok, existing} <- File.read(target),
-         body = String.trim_trailing(existing, "\n") <> "\n\n" <> IO.iodata_to_binary(block),
-         :ok <- File.write(target, body) do
-      {:ok, target}
-    end
-  end
-
-  defp write_prompt_file(target, prompt_file, repo) do
-    path = Path.expand(prompt_file, Path.dirname(target))
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      File.write!(path, Templates.prompt_file_scaffold(repo))
-      {:created, path}
-    end
-  end
-
-  defp write_aiurhooks(target) do
-    path = Path.join(Path.dirname(target), @aiurhooks_file_name)
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      File.write!(path, Templates.aiurhooks_template())
-      {:created, path}
-    end
   end
 
   defp write_alerts_file(target, source_path) do
@@ -1394,7 +1279,7 @@ defmodule Aiur.Init do
   end
 
   defp write_new_alerts_file(path, source_path) when is_binary(source_path) do
-    if same_path?(path, source_path) do
+    if Scaffold.same_path?(path, source_path) do
       {:exists, path}
     else
       File.cp!(source_path, path)
@@ -1405,43 +1290,6 @@ defmodule Aiur.Init do
   defp write_new_alerts_file(path, _source_path) do
     File.write!(path, Templates.alerts_template(:os.type()))
     {:created, path}
-  end
-
-  defp same_path?(left, right), do: Path.expand(left) == Path.expand(right)
-
-  defp write_prewarm_file(target, command) do
-    path = Path.join(Path.dirname(target), @prewarm_file_name)
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      File.write!(path, command <> "\n")
-      {:created, path}
-    end
-  end
-
-  # Append an entry to the repo's `.gitignore` (creating it if absent), unless the
-  # entry is already present. Idempotent; returns `:exists` when nothing changed.
-  defp add_gitignore_entry(entry), do: add_gitignore_entry(File.cwd!(), entry)
-
-  defp add_gitignore_entry(dir, entry) do
-    path = Path.join(dir, ".gitignore")
-
-    existing =
-      case File.read(path) do
-        {:ok, content} -> content
-        {:error, _} -> ""
-      end
-
-    present? = existing |> String.split("\n") |> Enum.map(&String.trim/1) |> Enum.member?(entry)
-
-    if present? do
-      {:exists, path}
-    else
-      separator = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
-      File.write!(path, existing <> separator <> entry <> "\n")
-      {:added, path}
-    end
   end
 
   @doc """
@@ -1459,132 +1307,7 @@ defmodule Aiur.Init do
           :new_config => Path.t(),
           optional(:ignore) => boolean()
         }) :: {:ok, %{moved: [Path.t()]}} | {:error, term()}
-  def migrate_layout(%{legacy_config: legacy_config, new_config: new_config} = opts) do
-    ignore? = Map.get(opts, :ignore, false)
-    base_dir = Path.dirname(legacy_config)
-    new_dir = Path.dirname(new_config)
-    git? = git_work_tree?(base_dir)
-
-    raw = File.read!(legacy_config)
-    config = parse_yaml(raw)
-
-    File.mkdir_p!(new_dir)
-
-    # Resolve the referenced pointer files. `pointer_src/2` only returns a source
-    # that exists AND lives inside the repo — a `hooks_file:`/`prompt_file:` value
-    # pointing outside the repo (absolute or `../` traversal, or `~/shared`) is
-    # left in place, never copied or deleted.
-    pointers = [
-      {"hooks_file", pointer_src(base_dir, config["hooks_file"]), Path.join(new_dir, @aiurhooks_file_name)},
-      {"prompt_file", pointer_src(base_dir, config["prompt_file"]), Path.join(new_dir, @prompt_basename)}
-    ]
-
-    pointer_moves = for {_key, src, dest} <- pointers, not is_nil(src), do: {src, dest}
-
-    example_moves =
-      for {legacy_name, new_name} <- @legacy_examples,
-          src = Path.join(base_dir, legacy_name),
-          File.regular?(src),
-          do: {src, Path.join([new_dir, @examples_dir, new_name])}
-
-    # 1. Copy content-preserving files into `.aiur/` (legacy left intact so far).
-    copied =
-      Enum.map(pointer_moves ++ example_moves, fn {src, dest} ->
-        File.mkdir_p!(Path.dirname(dest))
-        File.cp!(src, dest)
-        {src, dest}
-      end)
-
-    # 2. Write the rewritten config — the new layout is now complete and loadable.
-    #    Only rewrite a pointer key whose file was actually migrated into `.aiur/`;
-    #    a key whose source stayed put keeps its original value (still resolves).
-    migrated_keys = for {key, src, _dest} <- pointers, not is_nil(src), do: key
-    File.write!(new_config, rewrite_pointers(raw, migrated_keys))
-
-    # 3. Remove the legacy originals (config last is implicit: it's only removed
-    #    once `new_config` exists above).
-    [legacy_config | Enum.map(copied, fn {src, _dest} -> src end)]
-    |> Enum.each(&remove_path(&1, base_dir, git?))
-
-    new_paths = [new_config | Enum.map(copied, fn {_src, dest} -> dest end)]
-
-    # 4. Track the new files, or leave them untracked and gitignored.
-    if ignore? do
-      add_gitignore_entry(base_dir, @gitignore_entry)
-    else
-      if git?, do: git(base_dir, ["add", "--" | new_paths])
-    end
-
-    {:ok, %{moved: new_paths}}
-  rescue
-    error -> {:error, Exception.message(error)}
-  end
-
-  defp pointer_src(_base, value) when value in [nil, ""], do: nil
-
-  defp pointer_src(base, value) do
-    src = Path.expand(value, base)
-    if File.regular?(src) and inside?(base, src), do: src
-  end
-
-  # True when `path` is `base` itself or nested under it — guards the migration
-  # against copying/deleting a pointer target that resolves outside the repo
-  # (absolute, `~/...`, or `../` traversal).
-  defp inside?(base, path) do
-    base = Path.expand(base)
-    path = Path.expand(path)
-    path == base or String.starts_with?(path, base <> "/")
-  end
-
-  defp rewrite_pointers(raw, keys) do
-    new_value = %{"hooks_file" => @aiurhooks_file_name, "prompt_file" => @prompt_basename}
-    Enum.reduce(keys, raw, fn key, acc -> replace_pointer_value(acc, key, new_value[key]) end)
-  end
-
-  # Rewrite the value of a top-level `key:` line, matching a double-quoted,
-  # single-quoted, or bare token so a quoted value containing spaces is replaced
-  # whole. Indented/nested keys and trailing inline comments are left untouched.
-  defp replace_pointer_value(raw, key, new_value) do
-    Regex.replace(~r/^(#{key}:[ \t]*)(?:"[^"]*"|'[^']*'|\S+)/m, raw, "\\1#{new_value}")
-  end
-
-  defp parse_yaml(raw) do
-    case YamlElixir.read_from_string(raw) do
-      {:ok, map} when is_map(map) -> map
-      _ -> %{}
-    end
-  end
-
-  defp git_work_tree?(dir) do
-    case System.cmd("git", ["rev-parse", "--is-inside-work-tree"], cd: dir, stderr_to_stdout: true) do
-      {out, 0} -> String.trim(out) == "true"
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
-  # Remove a legacy file: `git rm` when tracked (keeps git's rename detection
-  # against the freshly-added `.aiur/` copy), plain delete otherwise.
-  defp remove_path(path, base_dir, true) do
-    rel = Path.relative_to(path, base_dir)
-
-    case git(base_dir, ["rm", "-q", "-f", "--", rel]) do
-      :ok -> :ok
-      :error -> File.rm(path)
-    end
-  end
-
-  defp remove_path(path, _base_dir, false), do: File.rm(path)
-
-  defp git(dir, args) do
-    case System.cmd("git", args, cd: dir, stderr_to_stdout: true) do
-      {_out, 0} -> :ok
-      _ -> :error
-    end
-  rescue
-    _ -> :error
-  end
+  defdelegate migrate_layout(opts), to: Migration
 
   @doc "Raw .aiurhooks template that `aiur init` scaffolds."
   @spec aiurhooks_template() :: String.t()
@@ -1765,19 +1488,6 @@ defmodule Aiur.Init do
     |> case do
       [owner, name] when owner != "" and name != "" -> "#{owner}/#{name}"
       _ -> nil
-    end
-  end
-
-  defp ensure_env(example_content) do
-    cwd = File.cwd!()
-    File.write!(Path.join(cwd, @env_example_file_name), example_content)
-    env_path = Path.join(cwd, @env_file_name)
-
-    if File.regular?(env_path) do
-      {:exists, env_path}
-    else
-      File.write!(env_path, example_content)
-      {:created, env_path}
     end
   end
 

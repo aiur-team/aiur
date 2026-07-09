@@ -1,0 +1,213 @@
+defmodule Aiur.Init.Scaffold do
+  @moduledoc """
+  Filesystem scaffolding for the `.aiur/` layout used by `aiur init`.
+
+  This module owns path selection, never-clobber config and sibling-file writers,
+  `.gitignore` updates, `.env` scaffolding, and the small announce wrappers used
+  by the wizard flow.
+  """
+
+  alias Aiur.Init.{Format, Templates}
+
+  @config_file_name ".aiur/config"
+  @legacy_config_file_name ".aiurconfig"
+  @alerts_file_name "alerts"
+  @aiurhooks_file_name "hooks"
+  @prewarm_file_name "prewarm"
+  @env_file_name ".env"
+  @env_example_file_name ".env.example"
+  @gitignore_entry ".aiur/"
+
+  @doc false
+  @spec config_target(atom()) :: Path.t()
+  def config_target(:global), do: Path.expand("~/" <> @config_file_name)
+  def config_target(_location), do: Path.join(File.cwd!(), @config_file_name)
+
+  @doc false
+  @spec legacy_config_target(atom()) :: Path.t()
+  def legacy_config_target(:global), do: Path.expand("~/" <> @legacy_config_file_name)
+  def legacy_config_target(_location), do: Path.join(File.cwd!(), @legacy_config_file_name)
+
+  @doc false
+  @spec global_alerts_path() :: Path.t()
+  def global_alerts_path, do: Path.expand("~/.aiur/" <> @alerts_file_name)
+
+  @doc false
+  @spec existing_config_path(Path.t()) :: String.t() | nil
+  def existing_config_path(target) do
+    if File.regular?(target), do: target
+  end
+
+  @doc false
+  @spec existing_alerts_path(Path.t()) :: String.t() | nil
+  def existing_alerts_path(path) do
+    if File.regular?(path), do: path
+  end
+
+  @doc false
+  @spec write_config(Path.t(), String.t()) :: {:ok, Path.t()} | {:error, term()}
+  def write_config(target, yaml) do
+    File.mkdir_p!(Path.dirname(target))
+
+    case File.write(target, yaml) do
+      :ok -> {:ok, target}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Append a config section to an existing file, separated by a blank line, so a
+  # resume backfill adds the block without disturbing the user's other settings.
+  @doc false
+  @spec append_config_section(Path.t(), iodata()) :: {:ok, Path.t()} | {:error, term()}
+  def append_config_section(target, block) do
+    with {:ok, existing} <- File.read(target),
+         body = String.trim_trailing(existing, "\n") <> "\n\n" <> IO.iodata_to_binary(block),
+         :ok <- File.write(target, body) do
+      {:ok, target}
+    end
+  end
+
+  @doc false
+  @spec write_prompt_file(Path.t(), String.t(), String.t() | nil) :: {:created | :exists, Path.t()}
+  def write_prompt_file(target, prompt_file, repo) do
+    path = Path.expand(prompt_file, Path.dirname(target))
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      File.write!(path, Templates.prompt_file_scaffold(repo))
+      {:created, path}
+    end
+  end
+
+  @doc false
+  @spec write_aiurhooks(Path.t()) :: {:created | :exists, Path.t()}
+  def write_aiurhooks(target) do
+    path = Path.join(Path.dirname(target), @aiurhooks_file_name)
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      File.write!(path, Templates.aiurhooks_template())
+      {:created, path}
+    end
+  end
+
+  @doc false
+  @spec write_prewarm_file(Path.t(), String.t()) :: {:created | :exists, Path.t()}
+  def write_prewarm_file(target, command) do
+    path = Path.join(Path.dirname(target), @prewarm_file_name)
+
+    if File.regular?(path) do
+      {:exists, path}
+    else
+      File.write!(path, command <> "\n")
+      {:created, path}
+    end
+  end
+
+  # Append an entry to the repo's `.gitignore` (creating it if absent), unless the
+  # entry is already present. Idempotent; returns `:exists` when nothing changed.
+  @doc false
+  @spec add_gitignore_entry(String.t()) :: {:added | :exists, Path.t()}
+  def add_gitignore_entry(entry), do: add_gitignore_entry(File.cwd!(), entry)
+
+  @doc false
+  @spec add_gitignore_entry(Path.t(), String.t()) :: {:added | :exists, Path.t()}
+  def add_gitignore_entry(dir, entry) do
+    path = Path.join(dir, ".gitignore")
+
+    existing =
+      case File.read(path) do
+        {:ok, content} -> content
+        {:error, _} -> ""
+      end
+
+    present? = existing |> String.split("\n") |> Enum.map(&String.trim/1) |> Enum.member?(entry)
+
+    if present? do
+      {:exists, path}
+    else
+      separator = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
+      File.write!(path, existing <> separator <> entry <> "\n")
+      {:added, path}
+    end
+  end
+
+  @doc false
+  @spec ensure_env(String.t()) :: {:created | :exists, Path.t()}
+  def ensure_env(example_content) do
+    cwd = File.cwd!()
+    File.write!(Path.join(cwd, @env_example_file_name), example_content)
+    env_path = Path.join(cwd, @env_file_name)
+
+    if File.regular?(env_path) do
+      {:exists, env_path}
+    else
+      File.write!(env_path, example_content)
+      {:created, env_path}
+    end
+  end
+
+  @doc false
+  @spec same_path?(Path.t(), Path.t()) :: boolean()
+  def same_path?(left, right), do: Path.expand(left) == Path.expand(right)
+
+  # Create the per-repo prompt file the config points at so the very next
+  # config load (auth checks, then boot) doesn't fail on a missing file.
+  @doc false
+  @spec ensure_prompt_file(Aiur.Init.io(), Aiur.Init.deps(), Path.t(), String.t() | nil, String.t() | nil) :: :ok
+  def ensure_prompt_file(_io, _deps, _target, prompt_file, _repo) when prompt_file in [nil, ""], do: :ok
+
+  def ensure_prompt_file(io, deps, target, prompt_file, repo) do
+    case deps.ensure_prompt_file.(target, prompt_file, repo) do
+      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
+      {:exists, _path} -> :ok
+    end
+  end
+
+  # The scaffolded config references the hooks file via `hooks_file: hooks`, so
+  # make sure `.aiur/hooks` exists (created from .aiurhooks.example). Never clobber
+  # an existing one — the dev may have tuned it for their toolchain.
+  @doc false
+  @spec ensure_aiurhooks(Aiur.Init.io(), Aiur.Init.deps(), Path.t()) :: :ok
+  def ensure_aiurhooks(io, deps, target) do
+    case deps.ensure_aiurhooks.(target) do
+      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
+      {:exists, _path} -> :ok
+    end
+  end
+
+  # Repo-local only: offer to gitignore the whole `.aiur/` folder. Declining leaves
+  # it tracked (team-shared config, as `.aiurconfig` was). Global setup has nothing
+  # in the repo to ignore, so the prompt is skipped.
+  @doc false
+  @spec maybe_offer_gitignore(Aiur.Init.io(), Aiur.Init.deps(), atom()) :: :ok
+  def maybe_offer_gitignore(_io, _deps, :global), do: :ok
+
+  def maybe_offer_gitignore(io, deps, _repo_local) do
+    if io.confirm.("Add #{@gitignore_entry} to .gitignore?", false) do
+      case deps.add_gitignore_entry.(@gitignore_entry) do
+        {:added, path} -> io.puts.(["Updated: ", Format.dim(path)])
+        {:exists, _path} -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  # GitHub is the only tracker that reads a secret from the environment, so the
+  # wizard scaffolds `.env` only on that path. Linear collects its key inline.
+  @doc false
+  @spec setup_env(Aiur.Init.io(), Aiur.Init.deps(), map()) :: :ok
+  def setup_env(io, deps, %{kind: "github"}) do
+    {status, path} = deps.ensure_env.(Templates.env_example_content())
+
+    case status do
+      :created -> io.puts.(["Created: ", Format.dim(path)])
+      :exists -> io.puts.(["Found: ", Format.dim(path)])
+    end
+  end
+
+  def setup_env(_io, _deps, _tracker), do: :ok
+end
