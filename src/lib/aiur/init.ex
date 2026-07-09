@@ -15,8 +15,10 @@ defmodule Aiur.Init do
 
   alias Aiur.Codeowners
   alias Aiur.GitHub.Labels
+  alias Aiur.Init.Alerts
   alias Aiur.Init.Format
   alias Aiur.Init.Migration
+  alias Aiur.Init.Prewarm
   alias Aiur.Init.Prompt
   alias Aiur.Init.Questions
   alias Aiur.Init.Resume
@@ -43,20 +45,6 @@ defmodule Aiur.Init do
   @label_prefix "agent"
   # Low complexity routes to the first kind, high to the last.
   @routing_order ["claude", "codex"]
-
-  # The scaffolded config references hooks via `hooks_file: hooks`, so init also
-  # writes a `.aiur/hooks` (from `.aiur/examples/hooks.example`) next to the config
-  # — otherwise the first run would fail resolving a missing hooks file. Embedded at
-  # compile time so the wizard works from a release with no runtime file dependency.
-  @prewarm_file_name "prewarm"
-
-  # The scaffolded config references the alert sound map via `alerts_file: alerts`,
-  # so init also writes an extensionless `.aiur/alerts` next to the config —
-  # matching the `.aiur/` convention where config-like files have no extension.
-  # macOS and Linux ship different system sounds, so there is one filled example
-  # per platform and init scaffolds the host's. Embedded at compile time so the
-  # wizard works from a release with no runtime file dependency.
-  @alerts_file_name "alerts"
 
   @type io :: %{
           puts: (IO.chardata() -> :ok),
@@ -167,7 +155,7 @@ defmodule Aiur.Init do
         effective_target = maybe_migrate_layout(io, deps, kind, location, target)
         tracker = Resume.tracker_from_config(deps, config)
         backfill_missing_sections(io, deps, location, tracker, config, effective_target)
-        maybe_resume_prewarm(io, deps, tracker, config)
+        Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
         setup_codeowners(io, deps, tracker)
         provision(io, deps, tracker, Resume.agents_from_config(config))
 
@@ -226,8 +214,8 @@ defmodule Aiur.Init do
     polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     # prompt_file is repo-specific, so the general global config omits it.
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
-    prewarm = prompt_prewarm(io, deps, location)
-    alerts = prompt_alerts(io, deps, target)
+    prewarm = Prewarm.prompt_prewarm(io, deps, location)
+    alerts = Alerts.prompt_alerts(io, deps, target)
 
     fills =
       Templates.build_fills(%{
@@ -253,12 +241,12 @@ defmodule Aiur.Init do
         io.puts.(["Created: ", Format.dim(path)])
         Scaffold.ensure_prompt_file(io, deps, path, prompt_file, tracker_repo(tracker))
         Scaffold.ensure_aiurhooks(io, deps, path)
-        ensure_alerts(io, deps, path, alerts)
-        ensure_prewarm_file(io, deps, path, prewarm)
+        Alerts.ensure_alerts(io, deps, path, alerts)
+        Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
         Scaffold.setup_env(io, deps, tracker)
         Scaffold.maybe_offer_gitignore(io, deps, location)
         setup_codeowners(io, deps, tracker)
-        maybe_first_prewarm(io, deps, tracker, prewarm)
+        Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
 
       {:error, reason} ->
@@ -322,10 +310,10 @@ defmodule Aiur.Init do
       %{
         key: "prewarm",
         label: "warm-base pre-warm",
-        prompt: &prompt_prewarm/3,
+        prompt: &Prewarm.prompt_prewarm/3,
         opted_in?: fn answer -> answer.enabled end,
-        to_yaml: &prewarm_section_yaml/1,
-        first_run: &first_prewarm_backfill/5
+        to_yaml: &Prewarm.prewarm_section_yaml/1,
+        first_run: &Prewarm.first_prewarm_backfill/5
       }
     ]
   end
@@ -364,379 +352,7 @@ defmodule Aiur.Init do
     end
   end
 
-  # The `prewarm:` block, matching the committed config example. Only rendered on
-  # opt-in (`enabled: true`); the command lives in the sibling `.aiur/prewarm`
-  # script (written by `first_prewarm_backfill/5`), so the block points at it via
-  # `base_build_file` rather than inlining the command (mirrors fresh setup).
-  defp prewarm_section_yaml(_prewarm) do
-    [
-      "# === Warm base pre-warm (added by `aiur init`) ===\n",
-      "prewarm:\n",
-      "  enabled: true\n",
-      "  base_build_file: #{@prewarm_file_name}\n",
-      "  poll_seconds: 0\n"
-    ]
-  end
-
-  # Backfill side effect for the prewarm section: write the sibling `.aiur/prewarm`
-  # script the appended `base_build_file` points at, then run the one-time first
-  # build — mirroring fresh setup's `ensure_prewarm_file` + `maybe_first_prewarm`.
-  defp first_prewarm_backfill(io, deps, target, tracker, answer) do
-    ensure_prewarm_file(io, deps, target, answer)
-    maybe_first_prewarm(io, deps, tracker, answer)
-  end
-
-  defp maybe_resume_prewarm(io, deps, tracker, config) do
-    case prewarm_from_config(config) do
-      %{enabled: true, base_build: cmd} = prewarm when is_binary(cmd) and cmd != "" ->
-        maybe_first_prewarm(io, deps, tracker, prewarm)
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp prewarm_from_config(%{"prewarm" => %{"enabled" => true, "base_build" => cmd}}),
-    do: %{enabled: true, base_build: cmd}
-
-  defp prewarm_from_config(_config), do: %{enabled: false, base_build: nil}
-
-  # --- Pre-warm opt-in (detect toolchain, confirm, write config) ---
-
-  # Skip pre-warm for a global config: the warm base lives at a per-repo path,
-  # so it is configured when init runs inside the repo, not globally.
-  defp prompt_prewarm(_io, _deps, :global), do: %{enabled: false, base_build: nil}
-
-  defp prompt_prewarm(io, deps, _location) do
-    if io.confirm.("Keep a pre-warmed copy of latest main so agents skip cloning + building?", true) do
-      resolve_prewarm(io, deps)
-    else
-      %{enabled: false, base_build: nil}
-    end
-  end
-
-  defp resolve_prewarm(io, deps) do
-    case deps.detect_toolchain.() do
-      {:ok, %{language: lang, build_root: root, command: command}} ->
-        io.puts.([
-          "\nDetected ",
-          to_string(lang),
-          " (build root ",
-          Format.dim(root),
-          "). Base build:\n  ",
-          Format.dim(command),
-          "\n"
-        ])
-
-        case io.select.("Use this base build command?", ["use", "edit", "skip"], "use") do
-          "use" -> %{enabled: true, base_build: command}
-          "edit" -> %{enabled: true, base_build: io.input.("Base build command", command, nil)}
-          _ -> %{enabled: false, base_build: nil}
-        end
-
-      {:ambiguous, candidates} ->
-        print_prewarm_ambiguous(io, candidates)
-        %{enabled: false, base_build: nil}
-
-      :none ->
-        print_prewarm_fallback(io)
-        %{enabled: false, base_build: nil}
-    end
-  end
-
-  defp print_prewarm_fallback(io) do
-    io.puts.([
-      "\nCouldn't auto-detect this repo's build — pre-warm left off. To enable it, paste this to your coding agent:\n\n",
-      Format.dim(prewarm_fallback_prompt())
-    ])
-  end
-
-  # Detection found several competing build roots (e.g. a polyglot monorepo).
-  # Pre-warm builds a single base, so rather than silently picking one — or
-  # misreporting "couldn't detect" — disclose what was found and hand the operator
-  # the same agent prompt to pick one (or describe a combined build).
-  defp print_prewarm_ambiguous(io, candidates) do
-    roots =
-      Enum.map_join(candidates, "\n", fn %{language: lang, build_root: root} ->
-        "  • #{lang} (#{root})"
-      end)
-
-    io.puts.([
-      "\nFound multiple build roots — pre-warm builds one base, so it needs a single command:\n",
-      Format.dim(roots),
-      "\n\nLeaving pre-warm off. To enable it, pick one (or describe the combined build) and paste this to your coding agent:\n\n",
-      Format.dim(prewarm_fallback_prompt())
-    ])
-  end
-
-  defp prewarm_fallback_prompt do
-    """
-    You are working in a repository managed by aiur, an agent-orchestration
-    runtime. aiur runs coding agents in isolated workspaces. To avoid every
-    agent cold-cloning, installing dependencies, and compiling at the same time,
-    aiur can keep one shared, pre-installed checkout of this repo's main branch
-    called the warm base. Agent workspaces are materialized from that base with
-    copy-on-write, so they inherit dependency caches and build artifacts.
-
-    Your task: detect this repo's real install + build command, write it into
-    .aiur/config as prewarm.base_build, and verify it locally. Do not just
-    describe the command.
-
-    base_build conventions:
-    - It runs in a checkout of this repo's main branch, and aiur reruns it when
-      main changes. Make it idempotent and incremental.
-    - Route every tool call through `mise exec --` so Linux and macOS use the
-      repo-pinned toolchain.
-    - cd into the directory that holds the build manifest before running the
-      install/build command.
-    - Use frozen/locked installs: `npm ci`, `pnpm install --frozen-lockfile`,
-      `yarn install --immutable`, `uv sync --frozen`, etc.
-    - Do not mutate tracked source. Do not use brew, apt, sudo, or machine-local
-      absolute paths.
-
-    Concrete examples:
-    - Node/pnpm workspaces:
-      `mise exec -- corepack enable && mise exec -- pnpm install --frozen-lockfile && mise exec -- pnpm -r --if-present build`
-    - Node/npm workspaces:
-      `mise exec -- npm ci && mise exec -- npm run build --workspaces --if-present`
-    - Elixir app in src/:
-      `cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile`
-
-    Write this exact block shape in .aiur/config, replacing the command:
-
-      prewarm:
-        enabled: true
-        base_build: "<one-time install + compile command>"
-        poll_seconds: 0
-
-    Then run the base_build command once in a clean checkout and confirm it exits
-    0 and produces the expected artifacts (for example node_modules, dist, _build,
-    target). Run it a second time unchanged and confirm it is fast or a near
-    no-op. Fix the command until both runs succeed, then report the final command
-    and the artifacts it prepares.
-    """
-  end
-
-  # On opt-in, build the warm base once during init (one-time clone + compile) so
-  # the first `aiur` run dispatches immediately. Mockable via deps for tests.
-  defp maybe_first_prewarm(io, deps, tracker, %{enabled: true, base_build: cmd})
-       when is_binary(cmd) and cmd != "" do
-    case tracker_repo(tracker) do
-      repo when is_binary(repo) and repo != "" ->
-        io.puts.("\nBuilding the warm base now — one-time clone + compile; later runs reuse it.")
-
-        case deps.prewarm_build.("https://github.com/#{repo}.git", cmd) do
-          {:ok, _path} ->
-            io.puts.("✅ Warm base ready.")
-
-          {:error, reason} ->
-            report_prewarm_failure(io, repo, cmd, reason)
-        end
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp maybe_first_prewarm(_io, _deps, _tracker, _prewarm), do: :ok
-
-  # A warm-base build that fails at runtime (private-repo clone auth, network, or
-  # a broken base_build command) used to print a single "retries next run" line
-  # with no path forward. Classify the failure, give the operator concrete
-  # self-resolution steps for that class, and hand them a ready-to-paste prompt —
-  # embedding the actual captured failure output — so a coding agent can fix it.
-  defp report_prewarm_failure(io, repo, cmd, reason) do
-    class = classify_prewarm_failure(reason)
-
-    io.puts.(["\n⚠️  Warm base build failed (", inspect(reason), ")."])
-    io.puts.(prewarm_failure_guidance(class, repo))
-
-    io.puts.([
-      "\nOr paste this to your coding agent to fix it for you:\n\n",
-      Format.dim(prewarm_failure_prompt(repo, cmd, reason))
-    ])
-
-    io.puts.("\nThe warm base also retries automatically on the next `aiur` run.")
-  end
-
-  # Clone/fetch/reset failures carry the git stderr; an auth signature in it means
-  # the token is missing/invalid/unauthorized. A base_build failure is a toolchain
-  # problem. Anything else degrades to generic guidance.
-  defp classify_prewarm_failure({tag, _status, out})
-       when tag in [:repo_base_clone_failed, :repo_base_fetch_failed, :repo_base_reset_failed] and
-              is_binary(out) do
-    if auth_error?(out), do: :auth, else: :clone
-  end
-
-  defp classify_prewarm_failure({:base_build_failed, _status, _out}), do: :build
-  defp classify_prewarm_failure(_reason), do: :other
-
-  defp auth_error?(out) do
-    out = String.downcase(out)
-
-    Enum.any?(
-      [
-        "authentication failed",
-        "could not read username",
-        "invalid username or token",
-        "password authentication",
-        "terminal prompts disabled",
-        "permission denied",
-        "403 forbidden"
-      ],
-      &String.contains?(out, &1)
-    )
-  end
-
-  defp prewarm_failure_guidance(:auth, repo) do
-    [
-      "\nThis looks like a GitHub authentication failure cloning ",
-      Format.dim(repo),
-      ".\nTo fix it yourself:\n",
-      "  • Make sure GITHUB_TOKEN is set in .env and still valid:\n",
-      "      ",
-      Format.dim(~s(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user)),
-      "\n",
-      "  • The token's account must have read access to this repo.\n",
-      "  • Classic tokens need the `repo` scope; fine-grained tokens need Contents: Read.\n",
-      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  defp prewarm_failure_guidance(:clone, repo) do
-    [
-      "\nThe warm-base clone of ",
-      Format.dim(repo),
-      " failed.\nTo fix it yourself:\n",
-      "  • Confirm the repo exists and is reachable from this machine.\n",
-      "  • Check your network/proxy, and that GITHUB_TOKEN (if the repo is private) has access.\n",
-      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  defp prewarm_failure_guidance(:build, _repo) do
-    [
-      "\nThe repo cloned, but the base_build command failed.\nTo fix it yourself:\n",
-      "  • Run the base_build command in a clean checkout and watch where it breaks.\n",
-      "  • Fix it in .aiur/config under prewarm.base_build (keep it idempotent).\n",
-      "  • Then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  defp prewarm_failure_guidance(:other, _repo) do
-    [
-      "\nTo fix it yourself, inspect the error above, resolve the underlying cause,\n",
-      "then re-run `aiur init` (or `aiur`) to rebuild the warm base."
-    ]
-  end
-
-  # The AI handoff, mirroring `prewarm_fallback_prompt/0` but for a *runtime*
-  # failure: it embeds the repo, the configured base_build, and the captured
-  # failure output so the agent can diagnose auth vs. toolchain without guessing.
-  defp prewarm_failure_prompt(repo, cmd, reason) do
-    """
-    You are working in a repository managed by aiur, an agent-orchestration
-    runtime. To avoid every agent cold-cloning and recompiling, aiur keeps one
-    shared, pre-installed checkout of this repo's main branch — the "warm base" —
-    and materializes agent workspaces from it copy-on-write.
-
-    Building the warm base just FAILED. Diagnose and fix it, then verify locally.
-
-    Repo: #{repo}
-    Configured prewarm.base_build: #{cmd}
-
-    Captured failure output:
-    #{failure_output(reason)}
-
-    Likely causes and what to do:
-    - GitHub auth: cloning a private repo needs a valid GITHUB_TOKEN in .env whose
-      account has read access (classic token `repo` scope, or fine-grained
-      Contents: Read). If the token is missing or expired, tell the operator
-      exactly what to set — do not invent a secret.
-    - Toolchain/build: if the repo cloned but base_build failed, detect this repo's
-      real install + build command and write it into .aiur/config as
-      prewarm.base_build. Route tool calls through `mise exec --`, cd into the
-      directory holding the build manifest, use frozen/locked installs, and keep it
-      idempotent and incremental. Do not mutate tracked source; no brew/apt/sudo.
-
-    Then run the fix in a clean checkout, confirm it exits 0, run it a second time
-    unchanged to confirm it is a near no-op, and report the final command (or the
-    secret the operator must set).
-    """
-  end
-
-  defp failure_output({_tag, _status, out}) when is_binary(out),
-    do: out |> String.trim() |> String.slice(0, 1500)
-
-  defp failure_output(reason), do: inspect(reason)
-
-  # --- Alert sound opt-in ---
-
-  # A final opt-in for cross-platform alert sounds. The first question is the
-  # on/off master switch; on "yes" a second question lets the operator pick the
-  # built-in macOS/Linux OS-default set or the fully customizable topic→sound map
-  # — pointing them at the `.aiur/alerts` file init scaffolds so the customization
-  # surface is discoverable, not just the on/off setting. Either way init writes
-  # `.aiur/alerts`; the map is only consulted when OS-default sounds are off.
-  # Sounds are machine-level, so this is offered for global configs too (unlike
-  # prewarm, which is per-repo).
-  defp prompt_alerts(io, deps, target) do
-    if io.confirm.("Add sound effects for alerts (e.g. an agent is stuck or needs your input)?", false) do
-      io.puts.([
-        "aiur scaffolds an editable ",
-        Format.dim(".aiur/alerts"),
-        " map so you can set a custom sound per event."
-      ])
-
-      source_path = prompt_reuse_global_alerts(io, deps, target)
-      use_os = io.confirm.("Use the built-in OS default sounds? (No = play the custom .aiur/alerts mapping)", true)
-      %{enabled: true, use_os_default_sounds: use_os, source_path: source_path}
-    else
-      %{enabled: false, use_os_default_sounds: false, source_path: nil}
-    end
-  end
-
-  defp prompt_reuse_global_alerts(io, deps, _target) do
-    source = deps.global_alerts_path.()
-
-    case deps.existing_alerts_path.(source) do
-      nil ->
-        nil
-
-      path ->
-        if io.confirm.(
-             "Found an existing alerts file at ~/.aiur/alerts — copy it into this repo's .aiur/alerts?",
-             true
-           ) do
-          path
-        end
-    end
-  end
-
   # --- Closing steps ---
-
-  # The scaffolded config references the alert sound map via `alerts_file: alerts`,
-  # so make sure `.aiur/alerts` exists (created from the host's alerts example).
-  # Never clobber an existing one — the operator may have tuned the topic→sound map.
-  defp ensure_alerts(io, deps, target, alerts) do
-    case deps.ensure_alerts.(target, alerts.source_path) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
-  # Write the detected base build command to a sibling `.aiur/prewarm` script so
-  # the multi-line shell stays out of the config (which points at it via
-  # `prewarm.base_build_file`). Only on opt-in; never clobbers an existing script.
-  defp ensure_prewarm_file(io, deps, target, %{enabled: true, base_build: cmd})
-       when is_binary(cmd) and cmd != "" do
-    case deps.ensure_prewarm_file.(target, cmd) do
-      {:created, path} -> io.puts.(["Created: ", Format.dim(path)])
-      {:exists, _path} -> :ok
-    end
-  end
-
-  defp ensure_prewarm_file(_io, _deps, _target, _prewarm), do: :ok
 
   defp tracker_repo(%{repo: repo}), do: repo
   defp tracker_repo(_tracker), do: nil
@@ -1254,7 +870,7 @@ defmodule Aiur.Init do
       append_config: &Scaffold.append_config_section/2,
       ensure_prompt_file: &Scaffold.write_prompt_file/3,
       ensure_aiurhooks: &Scaffold.write_aiurhooks/1,
-      ensure_alerts: &write_alerts_file/2,
+      ensure_alerts: &Alerts.write_alerts_file/2,
       ensure_prewarm_file: &Scaffold.write_prewarm_file/2,
       add_gitignore_entry: &Scaffold.add_gitignore_entry/1,
       ensure_env: &Scaffold.ensure_env/1,
@@ -1266,30 +882,6 @@ defmodule Aiur.Init do
       list_labels: &list_repo_labels/1,
       create_labels: &create_labels/2
     }
-  end
-
-  defp write_alerts_file(target, source_path) do
-    path = Path.join(Path.dirname(target), @alerts_file_name)
-
-    if File.regular?(path) do
-      {:exists, path}
-    else
-      write_new_alerts_file(path, source_path)
-    end
-  end
-
-  defp write_new_alerts_file(path, source_path) when is_binary(source_path) do
-    if Scaffold.same_path?(path, source_path) do
-      {:exists, path}
-    else
-      File.cp!(source_path, path)
-      {:created, path}
-    end
-  end
-
-  defp write_new_alerts_file(path, _source_path) do
-    File.write!(path, Templates.alerts_template(:os.type()))
-    {:created, path}
   end
 
   @doc """
