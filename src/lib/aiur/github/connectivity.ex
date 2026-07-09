@@ -16,8 +16,9 @@ defmodule Aiur.GitHub.Connectivity do
       and a sustained streak raises the same operator-visible blocker.
 
   The streak state is a plain map so each poller can keep it inside its own
-  GenServer state; the functions here are pure (the alert *side effect* is the
-  caller's job — `note_failure/3` only *returns* the alerts that should fire).
+  GenServer state. `note_failure/3` is pure and only *returns* the alerts
+  that should fire; `record_failure/5` is the shared poller fold that emits
+  them and derives the normalized backoff delay.
   """
 
   # Classes that represent a sustained, operator-fixable break in connectivity
@@ -79,6 +80,66 @@ defmodule Aiur.GitHub.Connectivity do
   def note_success(streaks, source) when is_map(streaks) and is_atom(source) do
     Map.delete(streaks, source)
   end
+
+  @doc """
+  Shared poller-side fold over one classified failure (dup-infra.md
+  cluster 2). Calls `note_failure/3`, emits the
+  `system.github.connectivity_lost` operator blocker for every returned
+  alert, then derives the next delay from `backoff_ms/3` using the
+  source's current streak count, normalizing `:escalate` to
+  `max_backoff_ms/0` and any non-integer result to `base_interval_ms`.
+
+  Options:
+
+    * `:repo` — `"owner/repo"` for the alert message (optional).
+    * `:detail` — detail map forwarded to `backoff_ms/3` (default `%{}`).
+    * `:emit_fun` — `(name, message, opts) -> term` alert emitter
+      override for tests (default `Aiur.Alerts.emit_custom/3`).
+  """
+  @spec record_failure(streaks(), source(), classification(), non_neg_integer(), keyword()) ::
+          {streaks(), non_neg_integer()}
+  def record_failure(streaks, source, classification, base_interval_ms, opts \\ []) do
+    {streaks, alerts} = note_failure(streaks, source, classification)
+    emit_fun = Keyword.get(opts, :emit_fun, &Aiur.Alerts.emit_custom/3)
+
+    Enum.each(alerts, fn alert ->
+      message = alert_message(alert, repo: Keyword.get(opts, :repo))
+
+      emit_fun.("system.github.connectivity_lost", message,
+        reason: message,
+        needs_attention: true,
+        severity: "warning"
+      )
+    end)
+
+    delay_ms =
+      classification
+      |> backoff_ms(streak_count(streaks, source), Keyword.get(opts, :detail, %{}))
+      |> normalize_backoff_ms(base_interval_ms)
+
+    {streaks, delay_ms}
+  end
+
+  @doc """
+  Current consecutive-failure count for `source`, defaulting to 1 when
+  the source has no recorded streak (used as the attempt count for
+  `backoff_ms/3`).
+  """
+  @spec streak_count(streaks(), source()) :: pos_integer()
+  def streak_count(streaks, source) when is_map(streaks) and is_atom(source) do
+    case Map.get(streaks, source) do
+      {_classification, count} when is_integer(count) and count > 0 -> count
+      _ -> 1
+    end
+  end
+
+  defp normalize_backoff_ms(:escalate, _base_interval_ms), do: @max_backoff_ms
+
+  defp normalize_backoff_ms(delay_ms, _base_interval_ms)
+       when is_integer(delay_ms) and delay_ms >= 0,
+       do: delay_ms
+
+  defp normalize_backoff_ms(_delay_ms, base_interval_ms), do: base_interval_ms
 
   @doc """
   Returns how long to wait before the next attempt for a classified failure.

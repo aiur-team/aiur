@@ -2,6 +2,7 @@ defmodule Aiur.Workspace.Layout do
   @moduledoc "Pure path policy: where a workspace lives (repo-namespaced layout) and whether a path is legal under the configured root."
 
   alias Aiur.{Config, PathSafety}
+  alias Aiur.Config.Paths
 
   @type worker_host :: String.t() | nil
 
@@ -46,7 +47,7 @@ defmodule Aiur.Workspace.Layout do
 
   @spec safe_identifier(term()) :: String.t()
   def safe_identifier(identifier) do
-    String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")
+    Paths.sanitize(identifier, "issue")
   end
 
   @spec validate_workspace_path(Path.t(), worker_host()) :: :ok | {:error, term()}

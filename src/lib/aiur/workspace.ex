@@ -505,15 +505,15 @@ defmodule Aiur.Workspace do
     [
       "set -eu",
       Remote.remote_shell_assign("workspace", workspace),
-      pull? && "docker pull #{Remote.shell_escape(image)}",
-      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{Remote.shell_escape(image)} -lc #{Remote.shell_escape(bootstrap_image_copy_script())}"
+      pull? && "docker pull #{Aiur.Shell.escape(image)}",
+      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{Aiur.Shell.escape(image)} -lc #{Aiur.Shell.escape(bootstrap_image_copy_script())}"
     ]
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
   end
 
   defp bootstrap_image_copy_script do
-    paths = Enum.map_join(@warm_cache_paths, " ", &Remote.shell_escape/1)
+    paths = Enum.map_join(@warm_cache_paths, " ", &Aiur.Shell.escape/1)
 
     """
     set -eu
@@ -741,7 +741,7 @@ defmodule Aiur.Workspace do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case Remote.run_remote_command(worker_host, "cd #{Remote.shell_escape(workspace)} && #{command}", timeout_ms) do
+    case Remote.run_remote_command(worker_host, "cd #{Aiur.Shell.escape(workspace)} && #{command}", timeout_ms) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 

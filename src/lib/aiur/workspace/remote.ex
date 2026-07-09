@@ -7,7 +7,7 @@ defmodule Aiur.Workspace.Remote do
   def remote_shell_assign(variable_name, raw_path)
       when is_binary(variable_name) and is_binary(raw_path) do
     [
-      "#{variable_name}=#{shell_escape(raw_path)}",
+      "#{variable_name}=#{Aiur.Shell.escape(raw_path)}",
       "case \"$#{variable_name}\" in",
       "  '~') #{variable_name}=\"$HOME\" ;;",
       "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#~/}\" ;;",
@@ -33,10 +33,5 @@ defmodule Aiur.Workspace.Remote do
         Task.shutdown(task, :brutal_kill)
         {:error, {:workspace_hook_timeout, "remote_command", timeout_ms}}
     end
-  end
-
-  @spec shell_escape(String.t()) :: String.t()
-  def shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 end

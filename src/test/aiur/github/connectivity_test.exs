@@ -126,4 +126,76 @@ defmodule Aiur.GitHub.ConnectivityTest do
       assert Connectivity.backoff_ms(:auth, 5, %{}) == :escalate
     end
   end
+
+  describe "record_failure/5" do
+    test "returns updated streaks and exponential backoff without emitting below threshold" do
+      emit_fun = fn name, message, opts ->
+        send(self(), {:alert, name, message, opts})
+      end
+
+      assert Connectivity.record_failure(%{}, :ls_remote, :dns, 30_000, emit_fun: emit_fun) ==
+               {%{ls_remote: {:dns, 1}}, 1_000}
+
+      refute_receive {:alert, _, _, _}, 100
+    end
+
+    test "emits system.github.connectivity_lost exactly once when a dns streak crosses the threshold" do
+      emit_fun = fn name, message, opts ->
+        send(self(), {:alert, name, message, opts})
+      end
+
+      {streaks, _delay} =
+        Connectivity.record_failure(%{}, :ls_remote, :dns, 30_000,
+          emit_fun: emit_fun,
+          repo: "o/r"
+        )
+
+      {streaks, _delay} =
+        Connectivity.record_failure(streaks, :ls_remote, :dns, 30_000,
+          emit_fun: emit_fun,
+          repo: "o/r"
+        )
+
+      refute_received {:alert, _, _, _}
+
+      {streaks, _delay} =
+        Connectivity.record_failure(streaks, :ls_remote, :dns, 30_000,
+          emit_fun: emit_fun,
+          repo: "o/r"
+        )
+
+      assert_receive {:alert, "system.github.connectivity_lost", message, opts}, 2000
+      assert message =~ "DNS resolution failures"
+      assert message =~ " for o/r"
+      assert opts[:needs_attention] == true
+      assert opts[:severity] == "warning"
+      assert opts[:reason] == message
+
+      Connectivity.record_failure(streaks, :ls_remote, :dns, 30_000,
+        emit_fun: emit_fun,
+        repo: "o/r"
+      )
+
+      refute_received {:alert, _, _, _}
+    end
+
+    test ":auth normalizes :escalate to max_backoff_ms" do
+      emit_fun = fn _name, _message, _opts -> :ok end
+
+      {_streaks, delay_ms} =
+        Connectivity.record_failure(%{}, :ls_remote, :auth, 30_000, emit_fun: emit_fun)
+
+      assert delay_ms == Connectivity.max_backoff_ms()
+    end
+  end
+
+  describe "streak_count/2" do
+    test "streak_count/2 returns the recorded count" do
+      assert Connectivity.streak_count(%{ls_remote: {:dns, 4}}, :ls_remote) == 4
+    end
+
+    test "streak_count/2 defaults to 1 for unknown sources" do
+      assert Connectivity.streak_count(%{}, :ls_remote) == 1
+    end
+  end
 end

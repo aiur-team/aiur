@@ -123,6 +123,49 @@ defmodule Aiur.RepoBaseTest do
     end
   end
 
+  describe "base_branch/0" do
+    # Pins the workflow config per test (same pattern as the "server state
+    # machine" setup below) so resolution never depends on ambient config.
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "rb_bb_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      cfg = Path.join(tmp, "config")
+      prev_path = Application.get_env(:aiur, :workflow_file_path)
+
+      on_exit(fn ->
+        case prev_path do
+          nil -> Aiur.Workflow.clear_workflow_file_path()
+          p -> Aiur.Workflow.set_workflow_file_path(p)
+        end
+
+        File.rm_rf!(tmp)
+      end)
+
+      {:ok, cfg: cfg}
+    end
+
+    test "defaults to main when tracker.base_branch is unset", %{cfg: cfg} do
+      File.write!(cfg, "tracker:\n  kind: memory\n")
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
+      assert RepoBase.base_branch() == "main"
+    end
+
+    test "returns the configured tracker.base_branch", %{cfg: cfg} do
+      File.write!(cfg, "tracker:\n  kind: memory\n  base_branch: v2\n")
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
+      assert RepoBase.base_branch() == "v2"
+    end
+
+    test "falls back to main when tracker.base_branch is empty", %{cfg: cfg} do
+      File.write!(cfg, ~s(tracker:\n  kind: memory\n  base_branch: ""\n))
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
+      assert RepoBase.base_branch() == "main"
+    end
+  end
+
   describe "status/0" do
     test "returns a {phase, base_path} tuple" do
       assert {_phase, _base} = RepoBase.status()
