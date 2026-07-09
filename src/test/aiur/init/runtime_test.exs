@@ -1,5 +1,5 @@
 defmodule Aiur.Init.RuntimeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Init.Runtime
 
