@@ -1,5 +1,5 @@
 defmodule Aiur.Init.ScaffoldTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Init.Scaffold
 
