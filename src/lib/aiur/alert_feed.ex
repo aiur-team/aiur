@@ -5,6 +5,7 @@ defmodule Aiur.AlertFeed do
 
   alias Aiur.Config
   alias Aiur.Config.Paths
+  alias Aiur.Jsonl
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
@@ -91,23 +92,11 @@ defmodule Aiur.AlertFeed do
     agent = agent_from_path(path)
 
     path
-    |> File.stream!(:line)
-    |> Stream.map(&decode_line/1)
-    |> Stream.reject(&is_nil/1)
+    |> Jsonl.stream()
     |> Stream.filter(&(Map.get(&1, "event") == "alert"))
     |> Enum.map(&normalize_alert(&1, agent))
   rescue
     _ -> []
-  end
-
-  defp decode_line(line) do
-    line
-    |> String.trim()
-    |> Jason.decode()
-    |> case do
-      {:ok, %{} = decoded} -> decoded
-      _ -> nil
-    end
   end
 
   defp normalize_alert(alert, agent) do
