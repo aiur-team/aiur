@@ -51,8 +51,8 @@ defmodule Aiur.PaneManager do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, Boot, Tmux}
-  alias Aiur.Opencode.{AttachPool, Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
-  alias Aiur.PaneManager.{Anchor, Close, GenericOpen, Layout, OpenQueue, Reconcile, ScreenGrab, State}
+  alias Aiur.Opencode.{AttachPool, Slot, SlotRegistry, SlotSupervisor}
+  alias Aiur.PaneManager.{Anchor, Close, ConvoPaint, GenericOpen, Layout, OpenQueue, Reconcile, ScreenGrab, SlotAttach, State}
 
   @type agent_id :: AgentEvents.agent_identifier()
   @type pane_id :: String.t()
@@ -263,7 +263,7 @@ defmodule Aiur.PaneManager do
         {:reply, {:error, :no_focused_pane}, state}
 
       true ->
-        attach_to_focused_pane(state, identifier, from)
+        SlotAttach.attach_to_focused_pane(state, identifier, from)
     end
   end
 
@@ -433,7 +433,7 @@ defmodule Aiur.PaneManager do
 
         new_state =
           state
-          |> record_slot_pane(slot_index, real_pane_id, identifier)
+          |> SlotAttach.record_slot_pane(slot_index, real_pane_id, identifier)
           |> Map.put(:last_attached_pane_id, real_pane_id)
           |> State.drop_placeholder(identifier)
 
@@ -456,7 +456,7 @@ defmodule Aiur.PaneManager do
         tmux = state.tmux
 
         Task.start(fn ->
-          detect_convo_first_paint(pm, tmux, identifier, slot_index, real_pane_id)
+          ConvoPaint.detect_convo_first_paint(pm, tmux, identifier, slot_index, real_pane_id)
         end)
 
         {:noreply, new_state}
@@ -543,7 +543,7 @@ defmodule Aiur.PaneManager do
 
         Logger.info("aiur_pane_manager phase=open_queue_drained elapsed_ms=#{Boot.elapsed_ms()} identifier=#{identifier} queue_depth=#{:queue.len(rest)}")
 
-        case attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from) do
+        case SlotAttach.attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from) do
           {:noreply, after_state} -> after_state
           {:reply, _result, after_state} -> after_state
         end
@@ -646,7 +646,7 @@ defmodule Aiur.PaneManager do
 
         new_state =
           state
-          |> record_slot_pane(slot_index, pane_id, identifier)
+          |> SlotAttach.record_slot_pane(slot_index, pane_id, identifier)
           |> Map.put(:last_attached_pane_id, pane_id)
 
         _ = Layout.apply(new_state)
@@ -658,7 +658,7 @@ defmodule Aiur.PaneManager do
           pane_id: pane_id
         )
 
-        bump_next_slot()
+        SlotAttach.bump_next_slot()
 
         # Also fire the convo_first_paint detector — even on warm
         # path the convo content is already rendered, so it should
@@ -669,13 +669,13 @@ defmodule Aiur.PaneManager do
         tmux = state.tmux
 
         Task.start(fn ->
-          detect_convo_first_paint(pm, tmux, identifier, slot_index, pane_id)
+          ConvoPaint.detect_convo_first_paint(pm, tmux, identifier, slot_index, pane_id)
         end)
 
-        reply_or_noreply({:ok, pane_id}, from, new_state)
+        SlotAttach.reply_or_noreply({:ok, pane_id}, from, new_state)
 
       {:error, reason} ->
-        if pane_already_visible_reason?(reason) do
+        if SlotAttach.pane_already_visible_reason?(reason) do
           Aiur.Perf.span_end(move_span,
             result: :already_visible,
             pane_id: pane_id,
@@ -684,7 +684,7 @@ defmodule Aiur.PaneManager do
 
           new_state =
             state
-            |> record_slot_pane(slot_index, pane_id, identifier)
+            |> SlotAttach.record_slot_pane(slot_index, pane_id, identifier)
             |> Map.put(:last_attached_pane_id, pane_id)
 
           AgentPubSub.broadcast_status_change(identifier, :pane_opened)
@@ -696,8 +696,8 @@ defmodule Aiur.PaneManager do
             result: :already_visible
           )
 
-          bump_next_slot()
-          reply_or_noreply({:ok, pane_id}, from, new_state)
+          SlotAttach.bump_next_slot()
+          SlotAttach.reply_or_noreply({:ok, pane_id}, from, new_state)
         else
           Aiur.Perf.span_end(move_span,
             result: :failed,
@@ -774,7 +774,7 @@ defmodule Aiur.PaneManager do
               identifier: identifier
             )
 
-            attach_identifier_to_slot(state, identifier, slot_index, slot_pid, from)
+            SlotAttach.attach_identifier_to_slot(state, identifier, slot_index, slot_pid, from)
 
           {:error, :no_ready_slot} ->
             Aiur.Perf.span_end(acquire_span, result: :no_ready_slot, identifier: identifier)
@@ -814,86 +814,8 @@ defmodule Aiur.PaneManager do
 
   defp record_placeholder(state, identifier, placeholder_pane_id, slot) do
     new_state = State.record_placeholder(state, identifier, placeholder_pane_id, slot)
-    set_pane_title(new_state, placeholder_pane_id, identifier)
+    SlotAttach.set_pane_title(new_state, placeholder_pane_id, identifier)
     new_state
-  end
-
-  # Poll the opencode-attach pane for the convo render marker. opencode
-  # prints `▣  Build · issue-<id> · <timing>` once it finishes booting
-  # the Node.js runtime, opening the WebSocket to the serve, reading
-  # the SQLite session rows, and painting the TUI. That paint is what
-  # the user sees as "opencode is up" — the tmux swap we already
-  # measured fires much earlier.
-  #
-  # Polls every 100ms up to 30s; emits `convo_first_paint` with
-  # wall_ms once the marker appears or `convo_first_paint_timeout`
-  # if it never does.
-  @convo_paint_poll_interval_ms 100
-  @convo_paint_budget_ms 30_000
-
-  defp detect_convo_first_paint(pm, tmux, identifier, slot_index, pane_id) do
-    started_at = System.monotonic_time(:millisecond)
-    deadline = started_at + @convo_paint_budget_ms
-
-    do_detect_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline)
-  end
-
-  defp do_detect_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline) do
-    case Tmux.command(tmux, "capture-pane -p -t #{pane_id}") do
-      {:ok, lines} ->
-        content = Enum.join(lines, "\n")
-
-        if String.contains?(content, "Build · issue-") do
-          wall_ms = System.monotonic_time(:millisecond) - started_at
-
-          Aiur.Perf.event(:convo_first_paint,
-            identifier: identifier,
-            slot: slot_index,
-            pane_id: pane_id,
-            wall_ms: wall_ms
-          )
-
-          send(pm, {:convo_first_paint, identifier, pane_id, wall_ms})
-        else
-          wait_and_retry_convo_paint(
-            pm,
-            tmux,
-            identifier,
-            slot_index,
-            pane_id,
-            started_at,
-            deadline
-          )
-        end
-
-      _ ->
-        wait_and_retry_convo_paint(
-          pm,
-          tmux,
-          identifier,
-          slot_index,
-          pane_id,
-          started_at,
-          deadline
-        )
-    end
-  end
-
-  defp wait_and_retry_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline) do
-    if System.monotonic_time(:millisecond) >= deadline do
-      wall_ms = System.monotonic_time(:millisecond) - started_at
-
-      Aiur.Perf.event(:convo_first_paint_timeout,
-        identifier: identifier,
-        slot: slot_index,
-        pane_id: pane_id,
-        wall_ms: wall_ms
-      )
-    else
-      Process.sleep(@convo_paint_poll_interval_ms)
-
-      do_detect_convo_paint(pm, tmux, identifier, slot_index, pane_id, started_at, deadline)
-    end
   end
 
   # Async worker: acquire slot, drive Slot.select (which respawns the
@@ -969,137 +891,6 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  # Drive a ready slot through select + tmux move + state record. Single
-  # success/error reply path — returns `{:reply, ...}` or `{:noreply, ...}`
-  # the way `handle_call({:open, ...})` expects when given an explicit
-  # `from` of `nil` (the queue-drain case re-replies via `GenServer.reply`).
-  defp attach_identifier_to_slot(state, identifier, slot_index, slot_pid, from) do
-    started_at = System.monotonic_time(:millisecond)
-    select_span = Aiur.Perf.span_begin(:slot_select, slot: slot_index, identifier: identifier)
-
-    case Slot.select(slot_pid, identifier) do
-      {:ok, pane_id} ->
-        Aiur.Perf.span_end(select_span,
-          result: :ok,
-          slot: slot_index,
-          identifier: identifier,
-          pane_id: pane_id
-        )
-
-        move_span = Aiur.Perf.span_begin(:pane_move_visible, pane_id: pane_id)
-
-        case Tmux.move_pane_visible(state.tmux, pane_id, state.window_target) do
-          :ok ->
-            Aiur.Perf.span_end(move_span, result: :ok, pane_id: pane_id)
-
-            new_state =
-              state
-              |> record_slot_pane(slot_index, pane_id, identifier)
-              |> Map.put(:last_attached_pane_id, pane_id)
-
-            _ = Layout.apply(new_state)
-            AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-
-            open_ms = System.monotonic_time(:millisecond) - started_at
-
-            Logger.info("aiur_pane_manager phase=open_visible elapsed_ms=#{Boot.elapsed_ms()} open_ms=#{open_ms} identifier=#{identifier} slot=#{slot_index} pane_id=#{pane_id}")
-
-            Aiur.Perf.event(:pane_open_visible,
-              identifier: identifier,
-              slot: slot_index,
-              pane_id: pane_id,
-              wall_ms: open_ms
-            )
-
-            bump_next_slot()
-            reply_or_noreply({:ok, pane_id}, from, new_state)
-
-          {:error, reason} ->
-            handle_pane_move_error(reason, state, slot_index, slot_pid, identifier, pane_id, from)
-        end
-
-      {:error, reason} ->
-        Logger.warning("aiur_pane_manager phase=open_select_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
-
-        reply_or_noreply({:error, reason}, from, state)
-    end
-  end
-
-  defp handle_pane_move_error(reason, state, slot_index, slot_pid, identifier, pane_id, from) do
-    if pane_already_visible_reason?(reason) do
-      # tmux refused to move because the slot's attach pane is already
-      # in the visible window. Treat as success: record the new
-      # (identifier, pane_id) and leave the slot's visible_identifier
-      # intact.
-      new_state =
-        state
-        |> record_slot_pane(slot_index, pane_id, identifier)
-        |> Map.put(:last_attached_pane_id, pane_id)
-
-      AgentPubSub.broadcast_status_change(identifier, :pane_opened)
-      bump_next_slot()
-      reply_or_noreply({:ok, pane_id}, from, new_state)
-    else
-      Logger.warning("aiur_pane_manager phase=open_move_failed identifier=#{identifier} slot=#{slot_index} reason=#{inspect(reason)}")
-
-      _ = Slot.deselect(slot_pid)
-      reply_or_noreply({:error, reason}, from, state)
-    end
-  end
-
-  defp pane_already_visible_reason?(reason) do
-    text =
-      case reason do
-        {_code, msg} when is_binary(msg) -> msg
-        msg when is_binary(msg) -> msg
-        _ -> inspect(reason)
-      end
-
-    String.contains?(text, "source and target panes must be different")
-  end
-
-  # Rebind the focused pane's slot to a new agent identifier. The slot's
-  # `Slot.select/2` triggers the incremental rebuild path (U3) for any
-  # identifier not already in the slot's known set, so the user can
-  # cycle the same pane through many agents without spawning new tmux
-  # panes. The previously-shown agent's SessionWriter stays alive
-  # (identifier-keyed in `SessionWriterRegistry`); the user can attach
-  # it back any time.
-  defp attach_to_focused_pane(state, identifier, from) do
-    pane_id = state.last_attached_pane_id
-
-    case Map.fetch(state.pane_to_slot, pane_id) do
-      :error ->
-        # last_attached_pane_id points at a pane PaneManager no longer
-        # tracks (closed, died). Clear the pointer and fall through.
-        new_state = %{state | last_attached_pane_id: nil}
-        {:reply, {:error, :no_focused_pane}, new_state}
-
-      {:ok, slot_index} ->
-        case SlotRegistry.lookup(slot_index) do
-          {:ok, slot_pid} ->
-            # Drop the old identifier→pane mapping so the new identifier
-            # can claim it. Slot.set_visible always respawns
-            # opencode-attach with `--session <id>`, so
-            # respawn_attach_with_session kills the old pane itself
-            # before splitting a new one.
-            new_state = State.forget_identifier_for_pane(state, pane_id)
-            attach_identifier_to_slot(new_state, identifier, slot_index, slot_pid, from)
-
-          :not_found ->
-            new_state = %{state | last_attached_pane_id: nil}
-            {:reply, {:error, :no_focused_pane}, new_state}
-        end
-    end
-  end
-
-  defp reply_or_noreply(result, nil = _from, new_state), do: {:reply, result, new_state}
-
-  defp reply_or_noreply(result, from, new_state) do
-    GenServer.reply(from, result)
-    {:noreply, new_state}
-  end
-
   defp enqueue_open(state, identifier, from) do
     case OpenQueue.queued?(state.open_queue_timers, identifier) do
       true ->
@@ -1123,33 +914,4 @@ defmodule Aiur.PaneManager do
     end
   end
 
-  # State bookkeeping --------------------------------------------------------
-
-  defp record_slot_pane(state, slot, pane_id, identifier) do
-    new_state = State.record_slot_pane(state, slot, pane_id, identifier)
-    set_pane_title(new_state, pane_id, identifier)
-    new_state
-  end
-
-  # Best-effort: set the pane's tmux title to "<id> <issue title>" so the
-  # configured `pane-border-format` names the agent each pane holds. The
-  # format truncates to the pane width with an ellipsis, so we always set the
-  # full title and let tmux clip per pane size (and re-clip on resize). A
-  # failed title set never blocks the open/swap that triggered it.
-  defp set_pane_title(state, pane_id, identifier) do
-    _ = Tmux.set_pane_title(state.tmux, pane_id, State.pane_title_text(state, identifier))
-    :ok
-  end
-
-  # Lazy slot expansion: after the user opens another chat pane,
-  # ask SlotPolicy to start the next slot. Idempotent and rate-limited
-  # by SlotPolicy itself, so calling it on every successful open is
-  # safe.
-  defp bump_next_slot do
-    SlotPolicy.bump()
-  rescue
-    _ -> :ok
-  catch
-    _, _ -> :ok
-  end
 end
