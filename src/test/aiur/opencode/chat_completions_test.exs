@@ -2,10 +2,9 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   use ExUnit.Case, async: false
 
   import Plug.Test
-  import Plug.Conn
 
   alias Aiur.Opencode.ChatCompletions
-  alias Aiur.Opencode.{ActiveTurns, TokenRegistry}
+  alias Aiur.Opencode.ActiveTurns
 
   # ── Wave 0: conn-path characterization ────────────────────────────────────
 
@@ -78,52 +77,6 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
       assert result.status == 200
       assert result.resp_body == "data: [DONE]\n\n"
-    end
-  end
-
-  describe "replay: stream marker not-found path" do
-    test "stream marker with no session renders **system:** message not found then stop" do
-      # No bearer token → resolve_session_for_replay returns nil
-      # → nil && Db.fetch_message_with_parts(nil, id) = nil → not-found branch
-      body = %{
-        "model" => "issue-replay-#{System.unique_integer()}",
-        "messages" => [%{"role" => "user", "content" => "__aiur_stream__:msg_ABCDEF"}]
-      }
-
-      result = ChatCompletions.handle(body, conn(:post, "/"))
-
-      assert result.status == 200
-      assert result.resp_body =~ "message not found"
-      assert result.resp_body =~ ~s("finish_reason":"stop")
-    end
-  end
-
-  describe "operator dispatch: ack-fast SSE close" do
-    test "operator text path closes SSE with stop as soon as send_operator accepts" do
-      identifier = "ack-#{System.unique_integer()}"
-      token = "ack-tok-#{System.unique_integer()}"
-      :ok = TokenRegistry.put(token, 1, 1)
-
-      # A pure scaffold reminder (no real operator text) normalizes to ""
-      # → send_operator returns {:ok, :noop} → stream_turn closes SSE with "stop"
-      # without entering any receive loop (ack-fast contract).
-      noop_text = "<system-reminder>cwd changed to /tmp</system-reminder>"
-
-      body = %{
-        "model" => "issue-#{identifier}",
-        "messages" => [%{"role" => "user", "content" => noop_text}],
-        "stream" => true
-      }
-
-      test_conn =
-        :post
-        |> conn("/")
-        |> put_req_header("authorization", "Bearer #{token}")
-
-      result = ChatCompletions.handle(body, test_conn)
-
-      assert result.status == 200
-      assert result.resp_body =~ ~s("finish_reason":"stop")
     end
   end
 

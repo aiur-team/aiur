@@ -3,18 +3,23 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   require Logger
 
-  alias Aiur.{AgentChat, AgentPubSub}
+  alias Aiur.AgentPubSub
   alias Aiur.Events.DebugLog
 
-  alias Aiur.Opencode.OperatorText
-  alias Aiur.Opencode.ChatCompletions.{Caller, DeltaRenderer, Sse, StreamPolicy, TurnRequest}
+  alias Aiur.Opencode.ChatCompletions.{
+    Caller,
+    DeltaRenderer,
+    OperatorDispatch,
+    Replay,
+    Sse,
+    StreamPolicy,
+    TurnRequest
+  }
 
   alias Aiur.Opencode.{
     ActiveTurns,
     Config,
-    Db,
     EventRow,
-    SessionWriterRegistry,
     TurnMarkers
   }
 
@@ -82,7 +87,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
       match = Regex.run(@stream_marker_regex, marker) ->
         [_, message_id] = match
-        replay_message_as_stream(conn, identifier, message_id)
+        Replay.stream(conn, identifier, message_id)
 
       true ->
         Sse.json(conn, 400, %{error: "invalid stream marker"})
@@ -96,7 +101,7 @@ defmodule Aiur.Opencode.ChatCompletions do
     # stream. Re-post any such marker so the segment resumes after this
     # operator message dispatches.
     repost_shadowed_markers(body, conn, identifier)
-    dispatch_user_text(body, conn, identifier, raw_text)
+    OperatorDispatch.dispatch_user_text(body, conn, identifier, raw_text)
   end
 
   # Bridge-as-LLM path: an Aiur.AgentRunner posted `__aiur_turn__:<id>` to
@@ -339,111 +344,6 @@ defmodule Aiur.Opencode.ChatCompletions do
   defp finalize_stream(conn, completion_id, reason),
     do: Sse.chunk(conn, completion_id, nil, Sse.finish_reason_for(reason))
 
-  defp dispatch_user_text(body, conn, identifier, raw_text) do
-    with {:ok, sanitized} <- TurnRequest.validate_body(raw_text),
-         {:ok, conn} <- Caller.authorize(conn) do
-      route_turn(conn, identifier, sanitized, Map.get(body, "stream", true))
-    else
-      {:error, :unauthorized} -> Sse.json(conn, 401, Caller.auth_failed_body())
-      {:error, :body_too_large} -> Sse.json(conn, 400, %{error: "body too large"})
-      {:error, reason} -> Sse.json(conn, 400, %{error: inspect(reason)})
-    end
-  end
-
-  defp route_turn(conn, identifier, sanitized, true),
-    do: stream_turn(conn, identifier, sanitized)
-
-  defp route_turn(conn, identifier, sanitized, _),
-    do: non_stream_turn(conn, identifier, sanitized)
-
-  # The operator-message SSE no longer waits for the agent to reply. As
-  # soon as `AgentChat.send` accepts the message (either delivers via
-  # `:interrupt` or queues via `:queue_next`), we close the SSE with
-  # `finish_reason: "stop"` so opencode-attach clears the `QUEUED`
-  # indicator within ~1s. The agent's response streams back through the
-  # per-turn marker bridge (`stream_codex_turn`) when the next codex
-  # turn fires — no need to hold this SSE open on a bridge-local turn_id
-  # pin that codex transcript events would never match.
-  defp stream_turn(conn, identifier, text) do
-    turn_id = Sse.random_id()
-    completion_id = "chatcmpl-" <> Sse.random_id()
-
-    conn =
-      conn
-      |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
-      |> Plug.Conn.send_chunked(200)
-
-    case send_operator(identifier, text, turn_id) do
-      {:ok, _request_id} ->
-        Sse.chunk(conn, completion_id, nil, "stop")
-
-      {:error, reason} ->
-        emit_error_and_close(conn, completion_id, reason)
-    end
-  end
-
-  defp non_stream_turn(conn, identifier, text) do
-    turn_id = Sse.random_id()
-
-    case send_operator(identifier, text, turn_id) do
-      {:ok, _request_id} ->
-        Sse.json(conn, 200, %{
-          id: "chatcmpl-" <> Sse.random_id(),
-          object: "chat.completion",
-          choices: [%{index: 0, message: %{role: "assistant", content: ""}, finish_reason: "stop"}]
-        })
-
-      {:error, reason} ->
-        Sse.json(conn, 200, %{error: inspect(reason)})
-    end
-  end
-
-  # `:auto` lets the backend decide: the persistent-REPL backend takes the
-  # message immediately mid-turn, while codex/headless-claude hold it at the
-  # next safe checkpoint (native CLI UX). Wait time is captured by
-  # `Aiur.OperatorWaitLog`.
-  defp send_operator(identifier, text, turn_id) do
-    normalized = OperatorText.normalize(text)
-    log_operator_text(identifier, text, normalized)
-
-    case normalized do
-      "" ->
-        # Opencode wrapped a synthetic reminder with no operator content
-        # (e.g. its own cwd-change / file-open scaffolding) — nothing for
-        # the agent. Ack cleanly without forwarding.
-        {:ok, :noop}
-
-      operator_text ->
-        AgentChat.send(identifier, operator_text,
-          delivery_policy: :auto,
-          turn_id: turn_id
-        )
-    end
-  end
-
-  # Durable, greppable operator-path trace. The next live `--test3` repro
-  # greps `opencode_bridge operator_text` to pin delivery-vs-drop: the BUG
-  # signature is `wrapped=true dropped=true` — a genuine (non-blank) operator
-  # message was present but normalize forwarded nothing, so `send_operator/3`
-  # noops it and the agent never sees it (issue #332). `wrapped=false` covers
-  # both raw text and opencode's own scaffolding-only reminders (and an
-  # empty-bodied wrapper, which is not a message), so none raise a false alarm.
-  # Bytes (not content) keep the operator's words out of the logs.
-  defp log_operator_text(identifier, raw, normalized) do
-    trace = OperatorText.trace(raw, normalized)
-
-    Logger.info(
-      "opencode_bridge operator_text identifier=#{identifier} " <>
-        "in_bytes=#{trace.in_bytes} out_bytes=#{trace.out_bytes} " <>
-        "wrapped=#{trace.wrapped} dropped=#{trace.dropped}"
-    )
-  end
-
-  defp emit_error_and_close(conn, completion_id, reason) do
-    conn = Sse.chunk(conn, completion_id, "**system:** " <> inspect(reason), nil)
-    Sse.chunk(conn, completion_id, nil, "stop")
-  end
-
   defp identifier_from_model(model) when is_binary(model) do
     if placeholder_model?(model) do
       {:error, :placeholder_session}
@@ -474,74 +374,6 @@ defmodule Aiur.Opencode.ChatCompletions do
     model == "placeholder" or model == "#{prefix}/placeholder"
   end
 
-  # Synthetic-marker round-trip: `SessionWriter` writes assistant rows
-  # directly into opencode's SQLite, then POSTs a synthetic user message
-  # carrying `__aiur_stream__:<msg_id>`. opencode triggers a chat-completion
-  # call here; we read the just-written rows back and stream them as
-  # assistant deltas so the attached TUI renders them in real time.
-  defp replay_message_as_stream(conn, identifier, message_id) do
-    completion_id = "chatcmpl-" <> Sse.random_id()
-
-    conn =
-      conn
-      |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
-      |> Plug.Conn.send_chunked(200)
-
-    session_id = resolve_session_for_replay(conn, identifier)
-
-    case session_id && Db.fetch_message_with_parts(session_id, message_id) do
-      {:ok, %{parts: parts}} ->
-        conn = Enum.reduce(parts, conn, &chunk_part(&1, &2, completion_id))
-        Sse.chunk(conn, completion_id, nil, "stop")
-
-      _ ->
-        Logger.warning("opencode_bridge stream_replay message_not_found identifier=#{identifier} message_id=#{message_id}")
-
-        conn = Sse.chunk(conn, completion_id, "**system:** message not found", nil)
-        Sse.chunk(conn, completion_id, nil, "stop")
-    end
-  end
-
-  # Each slot's opencode-serve owns its own per-agent session_id (sessions
-  # aren't portable across serves, even with a shared SQLite DB). The
-  # bearer token identifies which slot's serve issued the chat-completion
-  # callback, so we look up that exact (identifier, base_url) pair.
-  #
-  # NO FALLBACK to "any writer for identifier" — with `:duplicate` keys
-  # in `SessionWriterRegistry`, `lookup/1` returns whichever writer the
-  # registry happened to order first, and that writer's session_id may
-  # be in a DIFFERENT serve's DB view from the one that wrote `message_id`.
-  # The replay query then returns no rows and the user sees
-  # `**system:** message not found` even though the message was written
-  # correctly elsewhere. Returning nil here forces the same not-found
-  # error path but with a clearer logged reason.
-  defp resolve_session_for_replay(conn, identifier) do
-    case Caller.base_url(conn) do
-      {:ok, base_url} ->
-        case SessionWriterRegistry.lookup(identifier, base_url) do
-          {:ok, %{session_id: sid}} ->
-            sid
-
-          :not_found ->
-            Logger.warning("opencode_bridge resolve_session writer_not_found identifier=#{identifier} base_url=#{base_url}")
-
-            nil
-        end
-
-      :error ->
-        Logger.warning("opencode_bridge resolve_session caller_unresolved identifier=#{identifier}")
-
-        nil
-    end
-  end
-
-  defp chunk_part(%{"type" => "text", "text" => text}, conn, completion_id)
-       when is_binary(text) and text != "" do
-    Sse.chunk(conn, completion_id, text, nil)
-  end
-
-  defp chunk_part(_, conn, _completion_id), do: conn
-
   # Operator text coalesced BEHIND the routed marker: dispatch it to the
   # agent before the segment stream opens, else it is silently dropped.
   defp dispatch_shadowed_operator_texts(body, identifier) do
@@ -554,7 +386,7 @@ defmodule Aiur.Opencode.ChatCompletions do
       case TurnRequest.validate_body(text) do
         {:ok, sanitized} when sanitized != "" ->
           Logger.info("opencode_bridge coalesced_operator_text identifier=#{identifier}")
-          _ = send_operator(identifier, sanitized, Sse.random_id())
+          _ = OperatorDispatch.send_operator(identifier, sanitized, Sse.random_id())
 
         _ ->
           :ok
