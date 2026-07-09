@@ -8,10 +8,7 @@ defmodule Aiur.Tmux.Query do
 
   @spec capture_pane(map(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def capture_pane(state, pane_id) do
-    case Exec.run_args(state, ["capture-pane", "-p", "-t", pane_id]) do
-      {:ok, lines} -> {:ok, lines}
-      {:error, _} = err -> err
-    end
+    Exec.run_args(state, ["capture-pane", "-p", "-t", pane_id])
   end
 
   @spec pane_pid(map(), String.t()) :: {:ok, integer()} | {:error, term()}
