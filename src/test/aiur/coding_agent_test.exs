@@ -482,4 +482,57 @@ defmodule Aiur.CodingAgentTest do
   rescue
     ArgumentError -> :ok
   end
+
+  describe "Aiur.CodingAgent.Backend wiring" do
+    test "every registry adapter implements the behaviour" do
+      for {backend, entry} <- CodingAgent.backends() do
+        behaviours =
+          entry.adapter.module_info(:attributes)
+          |> Keyword.get_values(:behaviour)
+          |> List.flatten()
+
+        assert Aiur.CodingAgent.Backend in behaviours,
+               "adapter #{inspect(entry.adapter)} for #{inspect(backend)} " <>
+                 "must declare @behaviour Aiur.CodingAgent.Backend"
+      end
+    end
+
+    test "remote_transport/1 returns the declared RC transport" do
+      assert CodingAgent.remote_transport("claude") == "claude-repl"
+      assert CodingAgent.remote_transport("claude-repl") == "claude-repl"
+      assert CodingAgent.remote_transport("codex") == "codex"
+      assert CodingAgent.remote_transport("nonexistent") == "nonexistent"
+    end
+
+    test "fallback_backend/1 returns the declared spawn-failure fallback" do
+      assert CodingAgent.fallback_backend("claude-repl") == "claude"
+      assert CodingAgent.fallback_backend("claude") == nil
+      assert CodingAgent.fallback_backend("codex") == nil
+      assert CodingAgent.fallback_backend("nonexistent") == nil
+    end
+  end
+
+  describe "rc_display_tail?/1" do
+    test "only claude-repl feeds the RC display tailer" do
+      assert CodingAgent.rc_display_tail?("claude-repl")
+      refute CodingAgent.rc_display_tail?("claude")
+      refute CodingAgent.rc_display_tail?("codex")
+      refute CodingAgent.rc_display_tail?("mystery")
+    end
+  end
+
+  describe "runtime_report/1" do
+    test "claude-repl reports its pane runtime" do
+      assert CodingAgent.runtime_report("claude-repl") == :repl_pane
+    end
+
+    test "headless claude reports its wrapper pid" do
+      assert CodingAgent.runtime_report("claude") == :headless_wrapper
+    end
+
+    test "codex and unknown backends report nothing" do
+      assert CodingAgent.runtime_report("codex") == nil
+      assert CodingAgent.runtime_report("mystery") == nil
+    end
+  end
 end

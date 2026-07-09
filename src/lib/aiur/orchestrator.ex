@@ -20,7 +20,6 @@ defmodule Aiur.Orchestrator do
     Issue,
     RepoBase,
     SessionHandle,
-    SystemLoad,
     Tracker,
     Workspace
   }
@@ -43,7 +42,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.TrackedSet
+  alias Aiur.Orchestrator.{DispatchPolicy, EventTopics, Slots, State, TrackedSet}
   alias AiurWeb.ObservabilityPubSub
 
   @continuation_retry_delay_ms 1_000
@@ -85,72 +84,6 @@ defmodule Aiur.Orchestrator do
     seconds_running: 0
   }
   @max_operator_message_chars 8_000
-
-  defmodule State do
-    @moduledoc """
-    Runtime state for the orchestrator polling loop.
-    """
-
-    @type t :: %__MODULE__{
-            poll_interval_ms: integer() | nil,
-            max_concurrent_agents: integer() | nil,
-            session_max_concurrent_agents: integer() | nil,
-            next_poll_due_at_ms: integer() | nil,
-            poll_check_in_progress: boolean() | nil,
-            tick_timer_ref: reference() | nil,
-            tick_token: reference() | nil,
-            initial_dispatch_cycle: boolean() | nil,
-            queue_store: term(),
-            last_polled_issues: map(),
-            todo_over_capacity_alert_active: boolean(),
-            running: map(),
-            completed: MapSet.t(),
-            claimed: MapSet.t(),
-            retry_attempts: map(),
-            codex_thrash_budget: map(),
-            agent_totals: map() | nil,
-            agent_rate_limits: map() | nil,
-            codex_totals: map() | nil,
-            codex_rate_limits: map() | nil,
-            events_etag: String.t() | nil,
-            events_last_id: String.t() | nil,
-            github_comments_since: String.t() | map() | nil,
-            github_comment_issue_updated_at: map(),
-            github_command_scan_since: String.t() | nil,
-            github_connectivity: map(),
-            github_poll_delays: map()
-          }
-
-    defstruct [
-      :poll_interval_ms,
-      :max_concurrent_agents,
-      :session_max_concurrent_agents,
-      :next_poll_due_at_ms,
-      :poll_check_in_progress,
-      :tick_timer_ref,
-      :tick_token,
-      :initial_dispatch_cycle,
-      queue_store: AgentQueueStore.new(),
-      last_polled_issues: %{},
-      todo_over_capacity_alert_active: false,
-      running: %{},
-      completed: MapSet.new(),
-      claimed: MapSet.new(),
-      retry_attempts: %{},
-      codex_thrash_budget: %{},
-      agent_totals: nil,
-      agent_rate_limits: nil,
-      codex_totals: nil,
-      codex_rate_limits: nil,
-      events_etag: nil,
-      events_last_id: nil,
-      github_comments_since: nil,
-      github_comment_issue_updated_at: %{},
-      github_command_scan_since: nil,
-      github_connectivity: %{},
-      github_poll_delays: %{}
-    ]
-  end
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -547,64 +480,12 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp parse_pr_review_comment_topic(topic) do
-    case Regex.run(~r{\Aticket\.([^.]+)\.pr\.review_comment\z}, topic) do
-      [_, number] -> {:ok, number}
-      _ -> :nomatch
-    end
-  end
-
-  defp parse_issue_commented_topic(topic) do
-    case Regex.run(~r{\Aticket\.([^.]+)\.issue\.commented\z}, topic) do
-      [_, number] -> {:ok, number}
-      _ -> :nomatch
-    end
-  end
-
-  defp parse_pr_merged_topic(topic) do
-    case Regex.run(~r{\Aticket\.([^.]+)\.pr\.merged\z}, topic) do
-      [_, number] -> {:ok, number}
-      _ -> :nomatch
-    end
-  end
-
-  defp parse_pause_request_topic(topic) do
-    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.pause\.request\z}, topic) do
-      [_, identifier] -> {:ok, identifier}
-      _ -> :nomatch
-    end
-  end
-
-  defp parse_branch_push_topic(topic) do
-    case Regex.run(~r{\Aticket\.([^.]+)\.branch\.push\z}, topic) do
-      [_, identifier] -> {:ok, identifier}
-      _ -> :nomatch
-    end
-  end
-
-  defp parse_system_branch_push_topic(topic) do
-    case Regex.run(~r{\Asystem\.([^.]+)\.branch\.push\z}, topic) do
-      [_, branch] -> {:ok, branch}
-      _ -> :nomatch
-    end
-  end
-
-  # Single-pass topic classifier: runs each parser at most once and
-  # returns a tagged tuple the caller pattern-matches on. Cheaper than
-  # a `cond` that calls every parser twice (once for the match? test,
-  # once to extract the identifier).
-  defp classify_event_topic(topic) do
-    with :nomatch <- tag_topic(:pr_review_comment, parse_pr_review_comment_topic(topic)),
-         :nomatch <- tag_topic(:issue_commented, parse_issue_commented_topic(topic)),
-         :nomatch <- tag_topic(:pr_merged, parse_pr_merged_topic(topic)),
-         :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
-         :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
-      tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
-    end
-  end
-
-  defp tag_topic(tag, {:ok, identifier}), do: {tag, identifier}
-  defp tag_topic(_tag, :nomatch), do: :nomatch
+  defp parse_pr_review_comment_topic(topic), do: EventTopics.parse_pr_review_comment_topic(topic)
+  defp parse_issue_commented_topic(topic), do: EventTopics.parse_issue_commented_topic(topic)
+  defp parse_pause_request_topic(topic), do: EventTopics.parse_pause_request_topic(topic)
+  defp parse_branch_push_topic(topic), do: EventTopics.parse_branch_push_topic(topic)
+  defp parse_system_branch_push_topic(topic), do: EventTopics.parse_system_branch_push_topic(topic)
+  defp classify_event_topic(topic), do: EventTopics.classify_event_topic(topic)
 
   defp maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
     case find_running_by_identifier(state.running, issue_number) do
@@ -2348,8 +2229,7 @@ defmodule Aiur.Orchestrator do
   # explicit-disable configs never touch /proc. Exposed for unit-testing the
   # short-circuit; the pure hold/dispatch decision is load_gate/3.
   @spec read_load(number() | nil) :: float() | :unavailable
-  def read_load(threshold) when is_number(threshold) and threshold > 0, do: SystemLoad.avg1()
-  def read_load(_threshold), do: :unavailable
+  defdelegate read_load(threshold), to: DispatchPolicy
 
   defp log_load_hold(load, threshold, schedulers) do
     Logger.info(
@@ -2376,10 +2256,7 @@ defmodule Aiur.Orchestrator do
   # Pure dispatch decision for the eager pre-warm gate, kept separate so it can be
   # unit-tested without the orchestrator GenServer.
   @spec prewarm_gate(boolean(), atom() | {:error, term()}) :: :dispatch | :hold
-  def prewarm_gate(false, _phase), do: :dispatch
-  def prewarm_gate(true, :ready), do: :dispatch
-  def prewarm_gate(true, {:error, _reason}), do: :dispatch
-  def prewarm_gate(true, _warming), do: :hold
+  defdelegate prewarm_gate(enabled?, phase), to: DispatchPolicy
 
   @doc false
   # Pure CPU load gate (#465), kept separate so it can be unit-tested without the
@@ -2387,11 +2264,7 @@ defmodule Aiur.Orchestrator do
   # strictly exceeds `threshold` per scheduler; fails open (dispatch) when the
   # gate is disabled (nil/<=0 threshold) or the load is unavailable (non-Linux).
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
-  def load_gate(_load, nil, _schedulers), do: :dispatch
-  def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
-  def load_gate(:unavailable, _threshold, _schedulers), do: :dispatch
-  def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
-  def load_gate(_load, _threshold, _schedulers), do: :dispatch
+  defdelegate load_gate(load, threshold, schedulers), to: DispatchPolicy
 
   defp reconcile_running_lifecycle(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
@@ -3625,184 +3498,19 @@ defmodule Aiur.Orchestrator do
        ),
        do: index
 
-  defp sort_issues_for_dispatch(issues) when is_list(issues) do
-    Enum.sort_by(issues, fn
-      %Issue{} = issue ->
-        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
-
-      _ ->
-        {priority_rank(nil), issue_created_at_sort_key(nil), ""}
-    end)
-  end
-
-  defp priority_rank(priority) when is_integer(priority) and priority in 1..4, do: priority
-  defp priority_rank(_priority), do: 5
-
-  defp issue_created_at_sort_key(%Issue{created_at: %DateTime{} = created_at}) do
-    DateTime.to_unix(created_at, :microsecond)
-  end
-
-  defp issue_created_at_sort_key(%Issue{}), do: 9_223_372_036_854_775_807
-  defp issue_created_at_sort_key(_issue), do: 9_223_372_036_854_775_807
-
-  defp should_dispatch_issue?(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
-    dispatch_candidate?(issue, state, active_states, terminal_states) and
-      available_slots(state) > 0
-  end
-
-  defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
-
-  # All dispatch preconditions except the global active+paused slot reservation.
-  # Polling layers `available_slots > 0` on top of this to honor paused-agent
-  # slot holds; manual start paths (e.g., space on a queued ticket) instead
-  # gate on `active < max` so the operator can claim a free slot even when a
-  # parallel paused agent is parked in the running map.
-  defp dispatch_candidate?(
-         %Issue{} = issue,
-         %State{running: running, claimed: claimed} = state,
-         active_states,
-         terminal_states
-       ) do
-    candidate_issue?(issue, active_states, terminal_states) and
-      !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
-      !MapSet.member?(claimed, issue.id) and
-      !Map.has_key?(running, issue.id) and
-      state_slots_available?(issue, state) and
-      worker_slots_available?(state)
-  end
-
-  defp state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
-    limit = effective_state_limit(issue_state, state)
-    used = running_issue_count_for_state(state.running, issue_state)
-    limit > used
-  end
-
-  defp state_slots_available?(_issue, _state), do: false
-
-  # Per-state cap honors explicit overrides in
-  # `agent.max_concurrent_agents_by_state` first, then falls back to the
-  # *session-aware* global limit. Without this, bumping the global cap at
-  # runtime (←/→ in the agent list) had no effect on dispatch eligibility
-  # because the per-state default was pinned to the workflow file value.
-  defp effective_state_limit(issue_state, %State{} = state) do
-    config = Config.settings!()
-    normalized = normalize_issue_state(issue_state)
-
-    Map.get(
-      config.agent.max_concurrent_agents_by_state,
-      normalized,
-      max_concurrent_agent_limit(state)
-    )
-  end
-
-  defp running_issue_count_for_state(running, issue_state) when is_map(running) do
-    normalized_state = normalize_issue_state(issue_state)
-
-    Enum.count(running, fn
-      {_id, %{issue: %Issue{state: state_name}} = entry} ->
-        normalize_issue_state(state_name) == normalized_state and active_running_entry?(entry)
-
-      _ ->
-        false
-    end)
-  end
-
-  defp candidate_issue?(
-         %Issue{
-           id: id,
-           identifier: identifier,
-           title: title,
-           state: state_name
-         } = issue,
-         active_states,
-         terminal_states
-       )
-       when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
-    issue_routable_to_worker?(issue) and
-      issue_not_paused?(issue) and
-      active_issue_state?(state_name, active_states) and
-      !terminal_issue_state?(state_name, terminal_states)
-  end
-
-  defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
-
-  defp issue_not_paused?(%Issue{} = issue), do: not Issue.paused?(issue)
-
-  defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
-       when is_boolean(assigned_to_worker),
-       do: assigned_to_worker
-
-  defp issue_routable_to_worker?(_issue), do: true
-
-  defp todo_issue_blocked_by_non_terminal?(
-         %Issue{state: issue_state, blocked_by: blockers},
-         terminal_states
-       )
-       when is_binary(issue_state) and is_list(blockers) do
-    normalize_issue_state(issue_state) == "todo" and
-      Enum.any?(blockers, fn
-        %{state: blocker_state} when is_binary(blocker_state) ->
-          !terminal_issue_state?(blocker_state, terminal_states)
-
-        _ ->
-          true
-      end)
-  end
-
-  defp todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
-
-  defp terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do
-    MapSet.member?(terminal_states, normalize_issue_state(state_name))
-  end
-
-  defp terminal_issue_state?(_state_name, _terminal_states), do: false
-
-  defp active_issue_state?(state_name, active_states) when is_binary(state_name) do
-    MapSet.member?(active_states, normalize_issue_state(state_name))
-  end
-
-  # Nil / non-binary state happens when the GitHub poll returns an
-  # issue with no `agent:*` label — extract_state returns nil. Treat
-  # as 'not active' so the reconcile cond falls through to the
-  # catch-all instead of crashing the orchestrator GenServer.
-  defp active_issue_state?(_state_name, _active_states), do: false
-
-  defp normalize_issue_state(state_name) when is_binary(state_name) do
-    String.downcase(String.trim(state_name))
-  end
-
-  # Same nil-safety reasoning as `active_issue_state?/2` above.
-  # Direct callers (routable_todo_issues, state_slots_available?,
-  # effective_state_limit, running_issue_count_for_state) all feed
-  # `issue.state` here without a binary guard; without this clause
-  # any unlabeled issue crashes the orchestrator.
-  defp normalize_issue_state(_state_name), do: ""
-
-  defp state_slug(state_name) when is_binary(state_name) do
-    state_name
-    |> normalize_issue_state()
-    |> String.replace(~r/[\s_]+/, "-")
-    |> case do
-      "" -> nil
-      slug -> slug
-    end
-  end
-
-  defp state_slug(_state_name), do: nil
-
-  defp terminal_state_set do
-    Config.settings!().tracker.terminal_states
-    |> Enum.map(&normalize_issue_state/1)
-    |> Enum.filter(&(&1 != ""))
-    |> MapSet.new()
-  end
-
-  defp active_state_set do
-    Config.settings!().tracker.active_states
-    |> Enum.map(&normalize_issue_state/1)
-    |> Enum.filter(&(&1 != ""))
-    |> MapSet.new()
-  end
+  defp sort_issues_for_dispatch(issues), do: DispatchPolicy.sort_issues_for_dispatch(issues)
+  defp should_dispatch_issue?(issue, state, active_states, terminal_states), do: DispatchPolicy.should_dispatch_issue?(issue, state, active_states, terminal_states)
+  defp dispatch_candidate?(issue, state, active_states, terminal_states), do: DispatchPolicy.dispatch_candidate?(issue, state, active_states, terminal_states)
+  defp state_slots_available?(issue, state), do: DispatchPolicy.state_slots_available?(issue, state)
+  defp candidate_issue?(issue, active_states, terminal_states), do: DispatchPolicy.candidate_issue?(issue, active_states, terminal_states)
+  defp issue_routable_to_worker?(issue), do: DispatchPolicy.issue_routable_to_worker?(issue)
+  defp todo_issue_blocked_by_non_terminal?(issue, terminal_states), do: DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+  defp terminal_issue_state?(state_name, terminal_states), do: DispatchPolicy.terminal_issue_state?(state_name, terminal_states)
+  defp active_issue_state?(state_name, active_states), do: DispatchPolicy.active_issue_state?(state_name, active_states)
+  defp normalize_issue_state(state_name), do: DispatchPolicy.normalize_issue_state(state_name)
+  defp state_slug(state_name), do: DispatchPolicy.state_slug(state_name)
+  defp terminal_state_set, do: DispatchPolicy.terminal_state_set()
+  defp active_state_set, do: DispatchPolicy.active_state_set()
 
   defp dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
     case revalidate_issue_for_dispatch(
@@ -4686,74 +4394,10 @@ defmodule Aiur.Orchestrator do
     metadata[:workspace_path] || Map.get(previous_retry, :workspace_path)
   end
 
-  defp maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
+  defp maybe_put_runtime_value(running_entry, key, value), do: State.maybe_put_runtime_value(running_entry, key, value)
 
-  defp maybe_put_runtime_value(running_entry, key, value) when is_map(running_entry) do
-    Map.put(running_entry, key, value)
-  end
-
-  defp select_worker_host(%State{} = state, preferred_worker_host) do
-    case Config.settings!().worker.ssh_hosts do
-      [] ->
-        nil
-
-      hosts ->
-        available_hosts = Enum.filter(hosts, &worker_host_slots_available?(state, &1))
-
-        cond do
-          available_hosts == [] ->
-            :no_worker_capacity
-
-          preferred_worker_host_available?(preferred_worker_host, available_hosts) ->
-            preferred_worker_host
-
-          true ->
-            least_loaded_worker_host(state, available_hosts)
-        end
-    end
-  end
-
-  defp preferred_worker_host_available?(preferred_worker_host, hosts)
-       when is_binary(preferred_worker_host) and is_list(hosts) do
-    preferred_worker_host != "" and preferred_worker_host in hosts
-  end
-
-  defp preferred_worker_host_available?(_preferred_worker_host, _hosts), do: false
-
-  defp least_loaded_worker_host(%State{} = state, hosts) when is_list(hosts) do
-    hosts
-    |> Enum.with_index()
-    |> Enum.min_by(fn {host, index} ->
-      {running_worker_host_count(state.running, host), index}
-    end)
-    |> elem(0)
-  end
-
-  defp running_worker_host_count(running, worker_host)
-       when is_map(running) and is_binary(worker_host) do
-    Enum.count(running, fn
-      {_issue_id, %{worker_host: ^worker_host} = entry} -> active_running_entry?(entry)
-      _ -> false
-    end)
-  end
-
-  defp worker_slots_available?(%State{} = state) do
-    select_worker_host(state, nil) != :no_worker_capacity
-  end
-
-  defp worker_slots_available?(%State{} = state, preferred_worker_host) do
-    select_worker_host(state, preferred_worker_host) != :no_worker_capacity
-  end
-
-  defp worker_host_slots_available?(%State{} = state, worker_host) when is_binary(worker_host) do
-    case Config.settings!().worker.max_concurrent_agents_per_host do
-      limit when is_integer(limit) and limit > 0 ->
-        running_worker_host_count(state.running, worker_host) < limit
-
-      _ ->
-        true
-    end
-  end
+  defp select_worker_host(state, preferred_worker_host), do: Slots.select_worker_host(state, preferred_worker_host)
+  defp worker_slots_available?(state, preferred_worker_host), do: Slots.worker_slots_available?(state, preferred_worker_host)
 
   defp find_issue_by_id(issues, issue_id) when is_binary(issue_id) do
     Enum.find(issues, fn
@@ -4765,70 +4409,17 @@ defmodule Aiur.Orchestrator do
     end)
   end
 
-  defp find_issue_id_for_ref(running, ref) do
-    running
-    |> Enum.find_value(fn {issue_id, %{ref: running_ref}} ->
-      if running_ref == ref, do: issue_id
-    end)
-  end
+  defp find_issue_id_for_ref(running, ref), do: State.find_issue_id_for_ref(running, ref)
+  defp running_entry_session_id(running_entry), do: State.running_entry_session_id(running_entry)
+  defp issue_context(issue), do: State.issue_context(issue)
+  defp active_running_count(running), do: State.active_running_count(running)
+  defp paused_running_count(running), do: State.paused_running_count(running)
+  defp active_running_entry?(entry), do: State.active_running_entry?(entry)
+  defp paused_running_entry?(entry), do: State.paused_running_entry?(entry)
+  defp sleeping_running_entry?(entry), do: State.sleeping_running_entry?(entry)
+  defp deactivated_running_entry?(entry), do: State.deactivated_running_entry?(entry)
 
-  defp running_entry_session_id(%{session_id: session_id}) when is_binary(session_id),
-    do: session_id
-
-  defp running_entry_session_id(_running_entry), do: "n/a"
-
-  defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
-    "issue_id=#{issue_id} issue_identifier=#{identifier}"
-  end
-
-  defp active_running_count(running) when is_map(running) do
-    Enum.count(running, fn
-      {_issue_id, entry} -> active_running_entry?(entry)
-    end)
-  end
-
-  defp active_running_count(_running), do: 0
-
-  defp paused_running_count(running) when is_map(running) do
-    Enum.count(running, fn
-      {_issue_id, entry} -> paused_running_entry?(entry)
-    end)
-  end
-
-  defp paused_running_count(_running), do: 0
-
-  defp active_running_entry?(entry) when is_map(entry) do
-    not (paused_running_entry?(entry) or deactivated_running_entry?(entry))
-  end
-
-  defp active_running_entry?(_entry), do: false
-
-  defp paused_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :paused
-  end
-
-  defp paused_running_entry?(_entry), do: false
-
-  defp sleeping_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :sleeping
-  end
-
-  defp sleeping_running_entry?(_entry), do: false
-
-  defp deactivated_running_entry?(entry) when is_map(entry) do
-    get_in(entry, [:control, :status]) == :deactivated
-  end
-
-  defp deactivated_running_entry?(_entry), do: false
-
-  # `--max-agents N` at launch lands in `:max_concurrent_agents_override`
-  # (set by `Aiur.CLI`). Returns a positive integer or nil (no override).
-  defp launch_max_concurrent_agents_override do
-    case Application.get_env(:aiur, :max_concurrent_agents_override) do
-      n when is_integer(n) and n > 0 -> n
-      _ -> nil
-    end
-  end
+  defp launch_max_concurrent_agents_override, do: Slots.launch_max_concurrent_agents_override()
 
   # Shared body for the adjust/set cap handlers. Lowering below the active
   # count is allowed: existing work keeps running, while available_slots/1
@@ -4839,41 +4430,9 @@ defmodule Aiur.Orchestrator do
     {:reply, {:ok, max_concurrent_agent_status(state)}, state}
   end
 
-  defp max_concurrent_agent_limit(%State{} = state) do
-    cond do
-      is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
-        state.session_max_concurrent_agents
-
-      is_integer(state.max_concurrent_agents) and state.max_concurrent_agents > 0 ->
-        state.max_concurrent_agents
-
-      true ->
-        Config.settings!().agent.max_concurrent_agents
-    end
-  end
-
-  defp max_concurrent_agent_status(%State{} = state) do
-    active = active_running_count(state.running)
-    max = max_concurrent_agent_limit(state)
-
-    %{
-      active: active,
-      paused: paused_running_count(state.running),
-      configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
-      max: max,
-      session_override?: is_integer(state.session_max_concurrent_agents),
-      draining?: active > max
-    }
-  end
-
-  # Paused agents keep their slot reserved: a deliberate pause should not
-  # free capacity for the polling loop to auto-claim the next agent:todo
-  # ticket. Resuming a paused agent reuses the held slot via
-  # `resume_paused_issue/2`, which bypasses this check.
-  defp available_slots(%State{} = state) do
-    used = active_running_count(state.running) + paused_running_count(state.running)
-    max(max_concurrent_agent_limit(state) - used, 0)
-  end
+  defp max_concurrent_agent_limit(state), do: Slots.max_concurrent_agent_limit(state)
+  defp max_concurrent_agent_status(state), do: Slots.max_concurrent_agent_status(state)
+  defp available_slots(state), do: Slots.available_slots(state)
 
   @spec request_refresh() :: map() | :unavailable
   def request_refresh do
@@ -6467,65 +6026,9 @@ defmodule Aiur.Orchestrator do
     {:noreply, maybe_mark_sleeping(state, identifier)}
   end
 
-  defp find_running_key_by_identifier(running, identifier) do
-    Enum.find_value(running, fn
-      {issue_id, %{identifier: id}} -> if to_string(id) == identifier, do: issue_id, else: nil
-      _ -> nil
-    end)
-  end
-
-  # Freeze the runtime clock while the agent is paused and shift
-  # `started_at` forward on resume so `now - started_at` excludes the
-  # paused interval. The age column in the agent list (and any other
-  # consumer of `running_seconds/2`) stops advancing while paused.
-  defp apply_pause_runtime_clock(entry, :working, :paused, now) when is_map(entry) do
-    Map.put(entry, :paused_at, now)
-  end
-
-  defp apply_pause_runtime_clock(entry, :paused, :working, now) when is_map(entry) do
-    shift_started_at_by_pause(entry, now)
-  end
-
-  defp apply_pause_runtime_clock(entry, _previous, _next, _now), do: entry
-
-  defp thaw_pause_clock(running, issue_id, previous_status, now) when is_map(running) do
-    case Map.get(running, issue_id) do
-      nil ->
-        running
-
-      entry ->
-        Map.put(running, issue_id, shift_started_at_by_pause_if(entry, previous_status, now))
-    end
-  end
-
-  defp shift_started_at_by_pause_if(entry, :paused, now),
-    do: shift_started_at_by_pause(entry, now)
-
-  defp shift_started_at_by_pause_if(entry, _previous, _now), do: entry
-
-  # A duration-capped pause is owned by `reset_duration_clock_if_capped/4`
-  # (operator resume -> fresh budget, automated resume -> preserve overrun),
-  # so the thaw must only un-freeze the pause clock (clear `paused_at`) and
-  # must NOT credit the paused interval back into `started_at`. Crediting it
-  # would advance `started_at` toward now and silently reset the overrun on
-  # an automated resume — the exact #420 leak. Other pauses keep the normal
-  # "exclude the paused interval" shift.
-  defp shift_started_at_by_pause(%{paused_reason: :max_agent_duration} = entry, %DateTime{}) do
-    Map.put(entry, :paused_at, nil)
-  end
-
-  defp shift_started_at_by_pause(%{paused_at: %DateTime{} = paused_at} = entry, %DateTime{} = now) do
-    paused_for = max(0, DateTime.diff(now, paused_at, :second))
-
-    entry
-    |> Map.update(:started_at, nil, fn
-      %DateTime{} = started_at -> DateTime.add(started_at, paused_for, :second)
-      other -> other
-    end)
-    |> Map.put(:paused_at, nil)
-  end
-
-  defp shift_started_at_by_pause(entry, _now), do: entry
+  defp find_running_key_by_identifier(running, identifier), do: State.find_running_key_by_identifier(running, identifier)
+  defp apply_pause_runtime_clock(entry, previous, next, now), do: State.apply_pause_runtime_clock(entry, previous, next, now)
+  defp thaw_pause_clock(running, issue_id, previous_status, now), do: State.thaw_pause_clock(running, issue_id, previous_status, now)
 
   defp resume_queued_issue(%State{} = state, issue_identifier) do
     issue =
@@ -6572,11 +6075,7 @@ defmodule Aiur.Orchestrator do
 
   defp put_running_control_status(%State{} = state, _issue_id, _status), do: state
 
-  defp resume_worker_slot_available?(%State{} = state, worker_host) when is_binary(worker_host) do
-    worker_host_slots_available?(state, worker_host)
-  end
-
-  defp resume_worker_slot_available?(%State{}, _worker_host), do: true
+  defp resume_worker_slot_available?(state, worker_host), do: Slots.resume_worker_slot_available?(state, worker_host)
 
   defp queue_depth_for_issue(%State{} = state, issue_identifier)
        when is_binary(issue_identifier) do
@@ -6845,30 +6344,9 @@ defmodule Aiur.Orchestrator do
     _ -> :ok
   end
 
-  defp issue_tag(%Issue{} = issue) do
-    issue
-    |> Issue.label_names()
-    |> Enum.find(fn label -> is_binary(label) and String.starts_with?(label, "agent:") end)
-  end
-
-  defp issue_tag(_issue), do: nil
-
-  defp find_running_by_identifier(running, issue_identifier) do
-    Enum.find_value(running, fn
-      {_issue_id, %{identifier: identifier} = entry} ->
-        if to_string(identifier) == issue_identifier, do: entry, else: nil
-
-      _ ->
-        nil
-    end)
-  end
-
-  defp find_running_by_repl_pane_id(running, pane_id) do
-    Enum.find_value(running, fn
-      {_issue_id, %{repl_pane_id: ^pane_id} = entry} -> entry
-      _ -> nil
-    end)
-  end
+  defp issue_tag(issue), do: State.issue_tag(issue)
+  defp find_running_by_identifier(running, issue_identifier), do: State.find_running_by_identifier(running, issue_identifier)
+  defp find_running_by_repl_pane_id(running, pane_id), do: State.find_running_by_repl_pane_id(running, pane_id)
 
   defp integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do
     token_delta = extract_token_delta(running_entry, update)
@@ -6971,9 +6449,7 @@ defmodule Aiur.Orchestrator do
     max(0, next_poll_due_at_ms - now_ms)
   end
 
-  defp pop_running_entry(state, issue_id) do
-    {Map.get(state.running, issue_id), %{state | running: Map.delete(state.running, issue_id)}}
-  end
+  defp pop_running_entry(state, issue_id), do: State.pop_running_entry(state, issue_id)
 
   defp record_session_completion_totals(state, running_entry) when is_map(running_entry) do
     runtime_seconds = running_seconds(running_entry.started_at, DateTime.utc_now())
@@ -7073,9 +6549,7 @@ defmodule Aiur.Orchestrator do
       !todo_issue_blocked_by_non_terminal?(issue, terminal_states)
   end
 
-  defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
-    available_slots(state) > 0 and state_slots_available?(issue, state)
-  end
+  defp dispatch_slots_available?(issue, state), do: Slots.dispatch_slots_available?(issue, state)
 
   defp apply_agent_token_delta(
          %{agent_totals: agent_totals} = state,
@@ -7404,27 +6878,8 @@ defmodule Aiur.Orchestrator do
     end
   end
 
-  defp running_seconds(%DateTime{} = started_at, %DateTime{} = now) do
-    max(0, DateTime.diff(now, started_at, :second))
-  end
-
-  defp running_seconds(_started_at, _now), do: 0
-
-  # Wall-clock seconds the agent has spent *actively working*. If the
-  # entry is currently paused, the clock is frozen at the moment of
-  # pause; on resume `shift_started_at_by_pause/2` shifts `started_at`
-  # forward so any future delta excludes the paused interval.
-  defp effective_runtime_seconds(entry, %DateTime{} = now) when is_map(entry) do
-    case {Map.get(entry, :started_at), Map.get(entry, :paused_at)} do
-      {%DateTime{} = started_at, %DateTime{} = paused_at} ->
-        running_seconds(started_at, paused_at)
-
-      {started_at, _} ->
-        running_seconds(started_at, now)
-    end
-  end
-
-  defp effective_runtime_seconds(_entry, _now), do: 0
+  defp running_seconds(started_at, now), do: State.running_seconds(started_at, now)
+  defp effective_runtime_seconds(entry, now), do: State.effective_runtime_seconds(entry, now)
 
   defp integer_like(value) when is_integer(value) and value >= 0, do: value
 
