@@ -167,6 +167,11 @@ are newer. They control the already-running node, so a stale-source rebuild woul
 not update that session. Run/start paths and explicit `aiurdev build` still
 rebuild when needed.
 
+If a control command times out while the daemon is still live, the host may be
+scheduler-saturated. Run `aiurdev stop` to interrupt that session and its workers,
+then start it again; this is a session-level recovery action, not a cooperative
+single-agent pause.
+
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
 

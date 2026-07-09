@@ -168,6 +168,11 @@ ensure_control_surface() {
 
   [ "${AIUR_SKIP_BUILD:-0}" = "1" ] && return 0
 
+  # A running daemon is compatible with the complete release that launched it,
+  # even when another shell is rebuilding for a future run. Control commands
+  # must not wait behind that rebuild lock just to query or stop the daemon.
+  release_ready && return 0
+
   acquire_build_lock
   if ! release_ready; then
     ensure_built_locked || status=$?

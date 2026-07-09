@@ -669,10 +669,10 @@ test("control rpc is not silent when the exit marker and output are missing", ()
   expect(result.stderr).toContain("returned no exit marker");
 });
 
-test("status and agents control rpc time out and terminate a stuck helper", () => {
+test("control rpc timeouts terminate stuck helpers and describe the degraded stop path", () => {
   const { launcher, releaseDir } = setupControlRpc();
 
-  for (const command of ["status", "agents"]) {
+  for (const command of ["status", "agents", "pause"]) {
     const cleanup = path.join(root, `rpc-cleanup-${command}`);
     const started = Date.now();
     const result = runControl(
@@ -683,19 +683,21 @@ test("status and agents control rpc time out and terminate a stuck helper", () =
         AIUR_FAKE_RPC_CLEANUP: cleanup,
         AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "1",
       },
-      [command],
+      command === "pause" ? ["pause", "--all"] : [command],
     );
     const elapsedMs = Date.now() - started;
 
     expect(result.status).toBe(124);
     expect(elapsedMs).toBeLessThan(5000);
     expect(result.stderr).toContain("control rpc to aiur-test@127.0.0.1 timed out after 1s");
+    expect(result.stderr).toContain("for example, 'aiurdev stop'");
     expect(readFileSync(cleanup, "utf8")).toContain("cleaned");
   }
 
   const capture = readFileSync(captureFile, "utf8");
   expect(capture).toContain("Aiur.AgentControlCLI.status()");
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
+  expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
 });
 
 // --- Update notifier -------------------------------------------------------
