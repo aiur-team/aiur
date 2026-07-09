@@ -28,12 +28,12 @@ defmodule Aiur.Regression.TimeToPaintTest do
   @placeholder_visible_threshold_ms 500
 
   describe "source-level wiring" do
-    test "open_with_placeholder spawns a placeholder pane before driving the slot" do
+    test "open_opencode_pane spawns a placeholder pane before driving the slot" do
       source = File.read!(@placeholder_source)
 
       assert source =~ ~r/spawn_placeholder_pane\(state, identifier\)/,
              """
-             open_with_placeholder MUST call spawn_placeholder_pane before
+             open_opencode_pane MUST call spawn_placeholder_pane before
              the async drive_real_attach. Without the placeholder, the
              user stares at an unchanged screen for the duration of the
              slot.select call (potentially seconds).
@@ -41,7 +41,7 @@ defmodule Aiur.Regression.TimeToPaintTest do
 
       assert source =~ ~r/Task\.start\(fn -> drive_real_attach/,
              """
-             open_with_placeholder MUST dispatch drive_real_attach in a
+             open_opencode_pane MUST dispatch drive_real_attach in a
              Task so the GenServer call returns immediately. A blocking
              slot.select inside the handler defeats the placeholder.
              """

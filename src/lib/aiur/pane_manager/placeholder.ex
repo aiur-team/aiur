@@ -280,6 +280,8 @@ defmodule Aiur.PaneManager.Placeholder do
     end
   end
 
+  @spec enqueue_open(State.t(), State.agent_id(), GenServer.from()) ::
+          {:noreply, State.t()} | {:reply, {:error, :already_queued}, State.t()}
   defp enqueue_open(state, identifier, from) do
     case OpenQueue.queued?(state.open_queue_timers, identifier) do
       true ->

@@ -14,6 +14,8 @@ defmodule Aiur.PaneManager.ConvoPaintTest do
         id: tmux_name
       )
 
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+
     %{tmux: tmux_name}
   end
 
@@ -37,6 +39,8 @@ defmodule Aiur.PaneManager.ConvoPaintTest do
       Task.await(task)
 
       assert_receive {:convo_first_paint, "issue-1", "%10", wall_ms} when is_integer(wall_ms)
+
+      assert_receive {:aiur_perf, %{phase: :convo_first_paint, meta: %{identifier: "issue-1", pane_id: "%10", slot: 1}}}
     end
 
     test "retries when tmux returns no marker, eventually sends paint on second attempt", %{
@@ -68,6 +72,14 @@ defmodule Aiur.PaneManager.ConvoPaintTest do
       Task.await(task, 5000)
 
       assert_receive {:convo_first_paint, "issue-2", "%20", _wall_ms}
+
+      assert_receive {:aiur_perf, %{phase: :convo_first_paint, meta: %{identifier: "issue-2", pane_id: "%20", slot: 2}}}
     end
+  end
+
+  test "pins the poll interval and timeout budget" do
+    source = File.read!(Path.expand("../../../lib/aiur/pane_manager/convo_paint.ex", __DIR__))
+    assert source =~ "@convo_paint_poll_interval_ms 100"
+    assert source =~ "@convo_paint_budget_ms 30_000"
   end
 end

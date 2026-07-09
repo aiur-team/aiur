@@ -1,8 +1,8 @@
 defmodule Aiur.PaneManager.CloseTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.{AgentPubSub, Tmux}
   alias Aiur.PaneManager.{Close, State}
-  alias Aiur.Tmux
 
   setup do
     test_pid = self()
@@ -30,6 +30,7 @@ defmodule Aiur.PaneManager.CloseTest do
       state: state
     } do
       state = State.record_slot_pane(state, 1, "%10", "issue-1")
+      :ok = AgentPubSub.subscribe_status()
 
       task =
         Task.async(fn ->
@@ -62,6 +63,7 @@ defmodule Aiur.PaneManager.CloseTest do
 
       assert result == :ok
       refute Map.has_key?(new_state.identifier_to_pane, "issue-1")
+      assert_receive {:status_changed, %{identifier: "issue-1", status: :pane_closed}}
     end
   end
 

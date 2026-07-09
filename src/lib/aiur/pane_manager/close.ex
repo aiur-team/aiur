@@ -83,6 +83,7 @@ defmodule Aiur.PaneManager.Close do
         _ = Tmux.command(state.tmux, "kill-pane -t #{pane_id}")
         new_state = State.forget_pane_by_identifier(state, pane_id)
         _ = Layout.apply(new_state)
+        AgentPubSub.broadcast_status_change(identifier, :pane_closed)
         {:reply, :ok, new_state}
     end
   end

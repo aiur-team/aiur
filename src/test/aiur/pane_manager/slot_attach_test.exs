@@ -51,15 +51,17 @@ defmodule Aiur.PaneManager.SlotAttachTest do
     test "with a from pid, sends reply and returns {:noreply, state}" do
       state = %State{slot_panes: State.empty_slot_panes(5)}
       test_pid = self()
+      reply_ref = make_ref()
 
       result =
         Task.async(fn ->
-          from = {test_pid, make_ref()}
+          from = {test_pid, reply_ref}
           SlotAttach.reply_or_noreply(:sent_result, from, state)
         end)
         |> Task.await()
 
       assert {:noreply, ^state} = result
+      assert_receive {^reply_ref, :sent_result}
     end
   end
 
@@ -82,6 +84,9 @@ defmodule Aiur.PaneManager.SlotAttachTest do
 
       new_state = Task.await(task)
       assert Map.get(new_state.identifier_to_pane, "issue-42") == "%20"
+      assert Map.get(new_state.pane_to_identifier, "%20") == "issue-42"
+      assert Map.get(new_state.pane_to_slot, "%20") == 1
+      assert Map.get(new_state.slot_panes, 1) == "%20"
     end
   end
 

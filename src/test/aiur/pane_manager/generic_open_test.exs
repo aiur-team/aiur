@@ -1,7 +1,15 @@
 defmodule Aiur.PaneManager.GenericOpenTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.PaneManager.GenericOpen
+
+  setup do
+    previous_cookie = System.get_env("AIUR_ERLANG_COOKIE")
+
+    on_exit(fn ->
+      if previous_cookie, do: System.put_env("AIUR_ERLANG_COOKIE", previous_cookie), else: System.delete_env("AIUR_ERLANG_COOKIE")
+    end)
+  end
 
   describe "wrap_with_unique_node/2" do
     test "produces env ERL_AFLAGS with name, proto_dist, and inet_dist flags" do
@@ -24,8 +32,6 @@ defmodule Aiur.PaneManager.GenericOpenTest do
     test "with AIUR_ERLANG_COOKIE env var includes -setcookie <cookie>" do
       System.put_env("AIUR_ERLANG_COOKIE", "testcookie123")
 
-      on_exit(fn -> System.delete_env("AIUR_ERLANG_COOKIE") end)
-
       result = GenericOpen.wrap_with_unique_node("cmd", "issue-1")
       assert result =~ "-setcookie testcookie123"
     end
@@ -33,8 +39,6 @@ defmodule Aiur.PaneManager.GenericOpenTest do
     @tag :capture_log
     test "without AIUR_ERLANG_COOKIE env var does not use the env cookie" do
       System.delete_env("AIUR_ERLANG_COOKIE")
-
-      on_exit(fn -> System.delete_env("AIUR_ERLANG_COOKIE") end)
 
       result = GenericOpen.wrap_with_unique_node("cmd", "issue-1")
       # No env-based cookie should appear (file cookie may still appear)
@@ -46,8 +50,6 @@ defmodule Aiur.PaneManager.GenericOpenTest do
     @tag :capture_log
     test "returns env cookie when AIUR_ERLANG_COOKIE is set" do
       System.put_env("AIUR_ERLANG_COOKIE", "mycookie")
-
-      on_exit(fn -> System.delete_env("AIUR_ERLANG_COOKIE") end)
 
       assert GenericOpen.read_erlang_cookie() == "mycookie"
     end
