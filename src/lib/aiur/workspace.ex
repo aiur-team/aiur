@@ -5,6 +5,7 @@ defmodule Aiur.Workspace do
 
   require Logger
   alias Aiur.{Alerts, Config, PathSafety, RepoBase, SSH}
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -985,7 +986,7 @@ defmodule Aiur.Workspace do
   end
 
   defp safe_identifier(identifier) do
-    String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")
+    Paths.sanitize(identifier, "issue")
   end
 
   defp maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
