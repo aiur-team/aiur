@@ -6,6 +6,9 @@ defmodule Aiur.Init.Runtime do
   alias Aiur.Prewarm.Detect
   alias Aiur.RepoBase
 
+  @spec runtime_deps() :: Aiur.Init.deps()
+  def runtime_deps, do: Aiur.Init.runtime_deps()
+
   # `aiur init` boots interactively without the OTP app started, so the Req /
   # Finch HTTP client the GitHub label calls rely on isn't running yet. Start
   # it up front so a token-present run reaches tag creation instead of crashing.
