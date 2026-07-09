@@ -6,27 +6,6 @@ defmodule Aiur.AgentList.Renderer.Text do
   alias Aiur.AgentList.Renderer.Style
 
   @spec cell(term(), non_neg_integer()) :: String.t()
-  @spec truncate(String.t(), non_neg_integer()) :: String.t()
-  @spec pad_with_ansi(iodata(), iodata(), non_neg_integer(), iodata()) :: iodata()
-  @spec padding_for(String.t(), non_neg_integer()) :: iodata()
-  @spec visual_width(String.t()) :: non_neg_integer()
-  @spec grapheme_width(String.t()) :: non_neg_integer()
-  @spec codepoint_width(integer()) :: non_neg_integer()
-  @spec truncate_visual(String.t(), integer()) :: String.t()
-  @spec take_visible(String.t(), non_neg_integer(), iodata(), non_neg_integer(), boolean()) ::
-          {iodata(), non_neg_integer(), boolean()}
-  @spec take_grapheme(String.t(), non_neg_integer(), iodata(), non_neg_integer(), boolean()) ::
-          {iodata(), non_neg_integer(), boolean()}
-  @spec split_escape(String.t()) :: {:osc_close | :osc_open | :csi, String.t(), String.t()} | :none
-  @spec split_csi(String.t()) :: {:csi, String.t(), String.t()} | :none
-  @spec osc_kind(String.t()) :: :osc_close | :osc_open
-  @spec drop_prefix(String.t(), String.t()) :: String.t()
-  @spec clip_and_pad(String.t(), non_neg_integer()) :: iodata()
-  @spec strip_csi(String.t()) :: String.t()
-  @spec strip_ansi(String.t()) :: String.t()
-  @spec eol() :: iodata()
-  @spec emoji_cell(String.t(), non_neg_integer()) :: String.t()
-
   def cell(value, width) do
     str =
       value
@@ -39,6 +18,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     String.pad_trailing(str, width)
   end
 
+  @spec truncate(String.t(), non_neg_integer()) :: String.t()
   def truncate(value, width) do
     cond do
       String.length(value) <= width -> value
@@ -47,6 +27,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     end
   end
 
+  @spec pad_with_ansi(iodata(), iodata(), non_neg_integer(), iodata()) :: iodata()
   def pad_with_ansi(ansi, text, inner_width, right_border \\ "│") do
     # clip_and_pad fills to inner_width - 1 visual cols and then appends
     # `right_border` so every row carries a closing vertical bar on the
@@ -60,6 +41,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     ]
   end
 
+  @spec padding_for(String.t(), non_neg_integer()) :: iodata()
   def padding_for(text, inner_width) do
     # Use visual_width, not String.length: emoji + CJK glyphs count as
     # one grapheme but render as TWO terminal columns. Padding by
@@ -75,6 +57,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     [pad, Style.gray(), "│", Style.reset()]
   end
 
+  @spec visual_width(String.t()) :: non_neg_integer()
   def visual_width(text) when is_binary(text) do
     text
     |> strip_ansi()
@@ -82,6 +65,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     |> Enum.reduce(0, fn g, acc -> acc + grapheme_width(g) end)
   end
 
+  @spec grapheme_width(String.t()) :: non_neg_integer()
   def grapheme_width(g) do
     case String.to_charlist(g) do
       [cp | _] -> codepoint_width(cp)
@@ -89,6 +73,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     end
   end
 
+  @spec codepoint_width(integer()) :: non_neg_integer()
   def codepoint_width(cp) when cp < 0x80, do: 1
   # Zero-width: combining marks, ZWJ, variation selectors. Keep these
   # at 0 so emoji presentation modifiers don't double-count.
@@ -125,6 +110,7 @@ defmodule Aiur.AgentList.Renderer.Text do
   @osc8_re ~r/^\e\]8;;[^\e\a]*(?:\e\\|\a)/
   @osc8_close_re ~r/^\e\]8;;(?:\e\\|\a)/
 
+  @spec truncate_visual(String.t(), integer()) :: String.t()
   def truncate_visual(_text, limit) when limit <= 0, do: ""
 
   def truncate_visual(text, limit) do
@@ -133,6 +119,8 @@ defmodule Aiur.AgentList.Renderer.Text do
     if open_link?, do: result <> "\e]8;;\e\\", else: result
   end
 
+  @spec take_visible(String.t(), non_neg_integer(), iodata(), non_neg_integer(), boolean()) ::
+          {iodata(), non_neg_integer(), boolean()}
   def take_visible("", _limit, acc, used, open?), do: {acc, used, open?}
 
   def take_visible(text, limit, acc, used, open?) do
@@ -144,6 +132,8 @@ defmodule Aiur.AgentList.Renderer.Text do
     end
   end
 
+  @spec take_grapheme(String.t(), non_neg_integer(), iodata(), non_neg_integer(), boolean()) ::
+          {iodata(), non_neg_integer(), boolean()}
   def take_grapheme(text, limit, acc, used, open?) do
     {g, rest} = String.next_grapheme(text)
     w = grapheme_width(g)
@@ -155,6 +145,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     end
   end
 
+  @spec split_escape(String.t()) :: {:osc_close | :osc_open | :csi, String.t(), String.t()} | :none
   def split_escape(text) do
     case Regex.run(@osc8_re, text, return: :binary) do
       [seq | _] -> {osc_kind(seq), seq, drop_prefix(text, seq)}
@@ -162,6 +153,7 @@ defmodule Aiur.AgentList.Renderer.Text do
     end
   end
 
+  @spec split_csi(String.t()) :: {:csi, String.t(), String.t()} | :none
   def split_csi(text) do
     case Regex.run(@csi_re, text, return: :binary) do
       [seq | _] -> {:csi, seq, drop_prefix(text, seq)}
@@ -169,15 +161,18 @@ defmodule Aiur.AgentList.Renderer.Text do
     end
   end
 
+  @spec osc_kind(String.t()) :: :osc_close | :osc_open
   def osc_kind(seq) do
     if Regex.match?(@osc8_close_re, seq), do: :osc_close, else: :osc_open
   end
 
+  @spec drop_prefix(String.t(), String.t()) :: String.t()
   def drop_prefix(text, prefix) do
     plen = byte_size(prefix)
     binary_part(text, plen, byte_size(text) - plen)
   end
 
+  @spec clip_and_pad(String.t(), non_neg_integer()) :: iodata()
   def clip_and_pad(text, inner_width) do
     if visual_width(text) <= inner_width do
       [text, String.duplicate(" ", max(inner_width - visual_width(text), 0))]
@@ -187,10 +182,12 @@ defmodule Aiur.AgentList.Renderer.Text do
     end
   end
 
+  @spec strip_csi(String.t()) :: String.t()
   def strip_csi(text) do
     Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]/, text, "")
   end
 
+  @spec strip_ansi(String.t()) :: String.t()
   def strip_ansi(text) do
     text
     # CSI (color/cursor) sequences: `\e[...m`, `\e[2J`, etc.
@@ -201,8 +198,10 @@ defmodule Aiur.AgentList.Renderer.Text do
     |> then(&Regex.replace(~r/\e\]8;;[^\e\a]*(\e\\|\a)/, &1, ""))
   end
 
+  @spec eol() :: iodata()
   def eol, do: ["\e[K", "\r\n"]
 
+  @spec emoji_cell(String.t(), non_neg_integer()) :: String.t()
   def emoji_cell("", width) do
     # Reserved-but-empty cell: pad to the full visual width.
     String.duplicate(" ", max(width, 0))

@@ -2,21 +2,6 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
   @moduledoc "Event vocabulary and payload summarization helpers for the agent-list renderer."
 
   @spec publish_event_phrase(String.t(), term()) :: {String.t(), String.t()}
-  @spec progress_phrase(String.t(), term()) :: {String.t(), String.t()}
-  @spec progress_percent_from(term()) :: number() | nil
-  @spec progress_label_from(term()) :: String.t() | nil
-  @spec pr_event_phrase(String.t(), term()) :: {String.t(), String.t()}
-  @spec branch_push_phrase(term()) :: {String.t(), String.t()}
-  @spec commits_word(integer()) :: String.t()
-  @spec commit_message(term()) :: String.t() | nil
-  @spec phrase_for_phase(String.t()) :: String.t()
-  @spec inline_summary(term()) :: String.t()
-  @spec comment_body_summary(term()) :: String.t()
-  @spec pr_title(term()) :: String.t() | nil
-  @spec extract_event_text(map(), [String.t()]) :: String.t() | nil
-  @spec clip_summary(String.t()) :: String.t()
-  @spec get_in_safe(term(), [term()]) :: term() | nil
-
   def publish_event_phrase("agent.phase." <> phase_step, body),
     do: {phrase_for_phase(phase_step) <> ":", inline_summary(body)}
 
@@ -60,6 +45,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
 
   def publish_event_phrase(other, body), do: {other, inline_summary(body)}
 
+  @spec progress_phrase(String.t(), term()) :: {String.t(), String.t()}
   def progress_phrase(verb, body) do
     case progress_percent_from(body) do
       nil ->
@@ -76,6 +62,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
     end
   end
 
+  @spec progress_percent_from(term()) :: number() | nil
   def progress_percent_from(body) when is_map(body) do
     cond do
       is_number(body[:percent]) -> body[:percent]
@@ -86,6 +73,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
 
   def progress_percent_from(_), do: nil
 
+  @spec progress_label_from(term()) :: String.t() | nil
   def progress_label_from(body) when is_map(body) do
     candidate = body[:label] || body["label"]
     if is_binary(candidate) and String.trim(candidate) != "", do: candidate
@@ -93,6 +81,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
 
   def progress_label_from(_), do: nil
 
+  @spec pr_event_phrase(String.t(), term()) :: {String.t(), String.t()}
   def pr_event_phrase(verb, body) do
     case pr_title(body) do
       nil -> {verb, ""}
@@ -100,6 +89,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
     end
   end
 
+  @spec branch_push_phrase(term()) :: {String.t(), String.t()}
   def branch_push_phrase(body) do
     commits = get_in_safe(body, [:commits]) || get_in_safe(body, ["commits"]) || []
 
@@ -119,14 +109,18 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
     end
   end
 
+  @spec commits_word(integer()) :: String.t()
   def commits_word(1), do: "commit"
   def commits_word(_), do: "commits"
 
+  @spec commit_message(term()) :: String.t() | nil
   def commit_message(%{} = commit) do
     Map.get(commit, "message") || Map.get(commit, :message)
   end
 
   def commit_message(_), do: nil
+
+  @spec phrase_for_phase(String.t()) :: String.t()
   def phrase_for_phase("brainstorm.start"), do: "started brainstorm"
   def phrase_for_phase("brainstorm.end"), do: "finished brainstorm"
   def phrase_for_phase("plan.start"), do: "started plan"
@@ -136,8 +130,10 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
   def phrase_for_phase("review.start"), do: "started review"
   def phrase_for_phase("review.end"), do: "finished review"
   def phrase_for_phase(other), do: "phase " <> other
+
   @summary_keys ~w(message title summary subject name label commit_message)
 
+  @spec inline_summary(term()) :: String.t()
   def inline_summary(body) when is_map(body) do
     case extract_event_text(body, @summary_keys) do
       nil -> ""
@@ -147,6 +143,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
 
   def inline_summary(_body), do: ""
 
+  @spec comment_body_summary(term()) :: String.t()
   def comment_body_summary(body) when is_map(body) do
     nested = get_in_safe(body, [:comment, "body"]) || get_in_safe(body, ["comment", "body"])
 
@@ -159,6 +156,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
 
   def comment_body_summary(_body), do: ""
 
+  @spec pr_title(term()) :: String.t() | nil
   def pr_title(body) when is_map(body) do
     candidate = get_in_safe(body, [:pr, "title"]) || get_in_safe(body, ["pr", "title"])
 
@@ -169,6 +167,7 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
 
   def pr_title(_body), do: nil
 
+  @spec extract_event_text(map(), [String.t()]) :: String.t() | nil
   def extract_event_text(body, keys) do
     Enum.find_value(keys, fn k ->
       val = Map.get(body, k) || Map.get(body, String.to_atom(k))
@@ -179,12 +178,14 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
     end)
   end
 
+  @spec clip_summary(String.t()) :: String.t()
   def clip_summary(text) when is_binary(text) do
     text
     |> String.replace(~r/\s+/u, " ")
     |> String.trim()
   end
 
+  @spec get_in_safe(term(), [term()]) :: term() | nil
   def get_in_safe(nil, _path), do: nil
   def get_in_safe(body, []), do: body
 

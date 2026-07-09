@@ -22,12 +22,6 @@ defmodule Aiur.AgentList.Renderer.EventsBlock do
   alias Aiur.AgentList.Renderer.{EventLine, Links, Style, Text}
 
   @spec events_block(map(), non_neg_integer(), non_neg_integer()) :: {iodata(), non_neg_integer()}
-  @spec render_events_block(map(), [map()], non_neg_integer(), non_neg_integer()) :: {iodata(), non_neg_integer()}
-  @spec selected_identifier(map()) :: String.t() | nil
-  @spec events_divider_row(non_neg_integer()) :: iodata()
-  @spec event_box_inner_row(String.t(), non_neg_integer()) :: iodata()
-  @spec empty_event_row(non_neg_integer()) :: iodata()
-
   def events_block(state, inner_width, budget) do
     events = state |> Map.get(:debug_events, []) |> Enum.reject(&is_nil/1)
 
@@ -38,6 +32,7 @@ defmodule Aiur.AgentList.Renderer.EventsBlock do
     end
   end
 
+  @spec render_events_block(map(), [map()], non_neg_integer(), non_neg_integer()) :: {iodata(), non_neg_integer()}
   def render_events_block(state, events, inner_width, budget) do
     # Divider eats 1 row; remaining budget is the event capacity.
     # The block ALWAYS uses the full budget — when there are fewer
@@ -74,6 +69,7 @@ defmodule Aiur.AgentList.Renderer.EventsBlock do
     {iodata, 1 + capacity}
   end
 
+  @spec selected_identifier(map()) :: String.t() | nil
   def selected_identifier(%{selection_index: idx, summaries: summaries})
       when is_list(summaries) do
     case Enum.at(summaries, idx) do
@@ -84,6 +80,7 @@ defmodule Aiur.AgentList.Renderer.EventsBlock do
 
   def selected_identifier(_state), do: nil
 
+  @spec events_divider_row(non_neg_integer()) :: iodata()
   def events_divider_row(inner_width) do
     # Inject an "oldest" label at the far-right of the divider so the
     # operator can read the timeline direction:
@@ -117,12 +114,14 @@ defmodule Aiur.AgentList.Renderer.EventsBlock do
     end
   end
 
+  @spec event_box_inner_row(String.t(), non_neg_integer()) :: iodata()
   def event_box_inner_row(text, inner_width) do
     body_width = max(inner_width - 4, 0)
     padded = Text.clip_and_pad(text, body_width)
     [IO.ANSI.faint(), "│ ", padded, " │", IO.ANSI.reset()]
   end
 
+  @spec empty_event_row(non_neg_integer()) :: iodata()
   def empty_event_row(inner_width) do
     fill = String.duplicate(" ", max(inner_width - 2, 0))
     [Style.gray(), "│", Style.reset(), fill, Style.gray(), "│", Style.reset()]
