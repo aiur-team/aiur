@@ -14,7 +14,7 @@ defmodule Aiur.CodingAgent do
   """
 
   alias Aiur.Config
-  alias Aiur.Config.Schema
+  alias Aiur.Config.RoutingValue
   alias Aiur.Issue
 
   @type backend :: String.t()
@@ -129,7 +129,7 @@ defmodule Aiur.CodingAgent do
   @doc """
   The valid reasoning-effort values for a backend, derived from the
   registry. Unknown backends have no efforts. Used by per-complexity
-  routing validation (`Aiur.Config.Schema.validate_agent_routing/2`) and
+  routing validation (`Aiur.Config.Schema.AgentValidation.validate_agent_routing/2`) and
   the `aiur init` wizard to offer backend-appropriate options.
   """
   @spec efforts(backend()) :: [String.t()]
@@ -202,7 +202,7 @@ defmodule Aiur.CodingAgent do
   def effort_for(%Issue{} = issue) do
     with nil <- override_backend(issue),
          value when is_binary(value) <- routing_value(issue) do
-      Schema.routing_effort(value)
+      RoutingValue.routing_effort(value)
     else
       _ -> nil
     end
@@ -280,7 +280,7 @@ defmodule Aiur.CodingAgent do
   def routing_backend(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> nil
-      value -> value |> Schema.split_routing_value() |> elem(0)
+      value -> value |> RoutingValue.split_routing_value() |> elem(0)
     end
   end
 
@@ -290,7 +290,7 @@ defmodule Aiur.CodingAgent do
   def routing_model(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> nil
-      value -> value |> Schema.split_routing_value() |> elem(1)
+      value -> value |> RoutingValue.split_routing_value() |> elem(1)
     end
   end
 
@@ -304,7 +304,7 @@ defmodule Aiur.CodingAgent do
   def routing_remote?(%Issue{} = issue) do
     case routing_value(issue) do
       nil -> false
-      value -> Schema.routing_remote_flag?(value)
+      value -> RoutingValue.routing_remote_flag?(value)
     end
   end
 
