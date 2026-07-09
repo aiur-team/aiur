@@ -72,7 +72,7 @@ defmodule Aiur.Init.Runtime do
     }
   end
 
-  @spec runtime_deps() :: Aiur.Init.deps()
+  @spec runtime_deps() :: deps()
   def runtime_deps do
     %{
       config_target: &Scaffold.config_target/1,

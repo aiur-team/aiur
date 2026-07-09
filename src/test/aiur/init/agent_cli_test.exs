@@ -17,14 +17,16 @@ defmodule Aiur.Init.AgentCliTest do
   end
 
   describe "agent_executable/1" do
-    test "claude returns a binary executable name" do
-      result = AgentCli.agent_executable("claude")
-      assert is_binary(result) or is_nil(result)
+    test "claude returns first token of configured command" do
+      cmd = Aiur.Claude.Config.command()
+      expected = if cmd, do: cmd |> String.split() |> List.first(), else: nil
+      assert AgentCli.agent_executable("claude") == expected
     end
 
-    test "codex returns a binary executable name" do
-      result = AgentCli.agent_executable("codex")
-      assert is_binary(result) or is_nil(result)
+    test "codex returns first token of configured command" do
+      cmd = Aiur.Codex.Config.command()
+      expected = if cmd, do: cmd |> String.split() |> List.first(), else: nil
+      assert AgentCli.agent_executable("codex") == expected
     end
 
     test "unknown kind returns nil" do
@@ -33,9 +35,8 @@ defmodule Aiur.Init.AgentCliTest do
   end
 
   describe "check_agent_auth/1" do
-    test "unknown kind returns error with kind in message" do
-      assert {:error, msg} = AgentCli.check_agent_auth("nope")
-      assert msg =~ "nope"
+    test "unknown kind returns exact error message" do
+      assert AgentCli.check_agent_auth("nope") == {:error, "no command configured for nope"}
     end
   end
 end
