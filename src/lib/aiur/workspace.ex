@@ -4,8 +4,7 @@ defmodule Aiur.Workspace do
   """
 
   require Logger
-  alias Aiur.Config
-  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Layout, Provisioner, Remote}
+  alias Aiur.Workspace.{Context, GitMetadata, Hooks, Layout, Provisioner, Refresh, Remove}
 
   @type worker_host :: String.t() | nil
 
@@ -42,166 +41,22 @@ defmodule Aiur.Workspace do
   defdelegate materialize_from_base(base, workspace, pr_head_ref), to: Aiur.Workspace.Materialize
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
-  def remove(workspace), do: remove(workspace, nil)
+  defdelegate remove(workspace), to: Remove
 
   @spec remove(Path.t(), worker_host()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
-  def remove(workspace, nil) do
-    case File.exists?(workspace) do
-      true ->
-        case Layout.validate_workspace_path(workspace, nil) do
-          :ok ->
-            maybe_run_before_remove_hook(workspace, nil)
-            File.rm_rf(workspace)
-
-          {:error, reason} ->
-            {:error, reason, ""}
-        end
-
-      false ->
-        File.rm_rf(workspace)
-    end
-  end
-
-  def remove(workspace, worker_host) when is_binary(worker_host) do
-    maybe_run_before_remove_hook(workspace, worker_host)
-
-    script =
-      [
-        Remote.remote_shell_assign("workspace", workspace),
-        "rm -rf \"$workspace\""
-      ]
-      |> Enum.join("\n")
-
-    case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-      {:ok, {_output, 0}} ->
-        {:ok, []}
-
-      {:ok, {output, status}} ->
-        {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
-
-      {:error, reason} ->
-        {:error, reason, ""}
-    end
-  end
+  defdelegate remove(workspace, worker_host), to: Remove
 
   @spec remove_issue_workspaces(term()) :: :ok
-  def remove_issue_workspaces(identifier), do: remove_issue_workspaces(identifier, nil)
+  defdelegate remove_issue_workspaces(identifier), to: Remove
 
   @spec remove_issue_workspaces(term(), worker_host()) :: :ok
-  def remove_issue_workspaces(identifier, worker_host)
-      when is_binary(identifier) and is_binary(worker_host) do
-    safe_id = Layout.safe_identifier(identifier)
-
-    case Layout.workspace_path_for_issue(safe_id, worker_host) do
-      {:ok, workspace} -> remove(workspace, worker_host)
-      {:error, _reason} -> :ok
-    end
-
-    :ok
-  end
-
-  def remove_issue_workspaces(identifier, nil) when is_binary(identifier) do
-    safe_id = Layout.safe_identifier(identifier)
-
-    case Config.settings!().worker.ssh_hosts do
-      [] ->
-        case Layout.workspace_path_for_issue(safe_id, nil) do
-          {:ok, workspace} -> remove(workspace, nil)
-          {:error, _reason} -> :ok
-        end
-
-      worker_hosts ->
-        Enum.each(worker_hosts, &remove_issue_workspaces(identifier, &1))
-    end
-
-    :ok
-  end
-
-  def remove_issue_workspaces(_identifier, _worker_host) do
-    :ok
-  end
+  defdelegate remove_issue_workspaces(identifier, worker_host), to: Remove
 
   @spec run_before_run_hook(Path.t(), map() | String.t() | nil, worker_host()) ::
           :ok | {:error, term()}
   def run_before_run_hook(workspace, issue_or_identifier, worker_host \\ nil)
-      when is_binary(workspace) do
-    issue_context = Context.build(issue_or_identifier)
-    hooks = Config.settings!().hooks
-
-    hook_result =
-      run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)
-
-    case hook_result do
-      :ok ->
-        finalize_before_run_workspace(workspace, issue_context, worker_host)
-
-      {:error, reason} = error ->
-        maybe_recreate_stale_workspace(
-          error,
-          reason,
-          hooks.before_run,
-          workspace,
-          issue_context,
-          worker_host
-        )
-    end
-  end
-
-  defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
-    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host) do
-      BootstrapImage.maybe_seed(workspace, issue_context, worker_host)
-    end
-  end
-
-  defp run_before_run_command(nil, _workspace, _issue_context, _worker_host), do: :ok
-
-  defp run_before_run_command(command, workspace, issue_context, worker_host) do
-    Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
-  end
-
-  defp maybe_recreate_stale_workspace(error, reason, before_run, workspace, issue_context, worker_host) do
-    cond do
-      is_nil(before_run) ->
-        error
-
-      not stale_leftover_refresh_refusal?(reason) ->
-        error
-
-      # A fresh todo dispatch that lands on a dirty *leftover* workspace
-      # (#577): the dirty content is not this agent's WIP, so recreate the
-      # workspace clean off origin/main and re-run before_run.
-      Context.todo_dispatch?(issue_context) ->
-        Logger.warning(
-          "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
-        )
-
-        with :ok <- Provisioner.recreate(workspace, worker_host),
-             :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
-          finalize_before_run_workspace(workspace, issue_context, worker_host)
-        end
-
-      # An in-flight / resumed agent (NOT a todo dispatch) whose "dirty"
-      # workspace is its legitimate uncommitted WIP (#653). A base-branch
-      # push (PR merge) or a resume-after-idle fires before_run, which
-      # refuses to refresh from origin/main while tracked changes are
-      # present (#569's guard). For a live agent that refusal must NOT be
-      # fatal: skip the origin/main refresh and let the agent keep working
-      # on its branch (it rebases/merges at PR time anyway). Returning :ok
-      # here is what prevents the `Agent run failed -> 3 retries ->
-      # retry_exhausted` chain that used to kill every other in-flight
-      # agent on each PR merge.
-      true ->
-        Logger.info(
-          "Skipping before_run origin/main refresh: agent has uncommitted WIP, continuing on its branch #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
-        )
-
-        finalize_before_run_workspace(workspace, issue_context, worker_host)
-    end
-  end
-
-  defp stale_leftover_refresh_refusal?({:workspace_hook_failed, "before_run", 65, _output}), do: true
-
-  defp stale_leftover_refresh_refusal?(_reason), do: false
+      when is_binary(workspace),
+      do: Refresh.run(workspace, issue_or_identifier, worker_host)
 
   @doc false
   @spec ensure_git_metadata_writable(Path.t(), worker_host()) :: :ok | {:error, term()}
@@ -224,68 +79,5 @@ defmodule Aiur.Workspace do
   @spec workspace_path_under(Path.t(), String.t()) :: Path.t()
   def workspace_path_under(root, identifier) when is_binary(root) and is_binary(identifier) do
     Layout.issue_workspace_path(root, Layout.safe_identifier(identifier))
-  end
-
-  defp maybe_run_before_remove_hook(workspace, nil) do
-    hooks = Config.settings!().hooks
-
-    case File.dir?(workspace) do
-      true ->
-        case hooks.before_remove do
-          nil ->
-            :ok
-
-          command ->
-            Hooks.run_hook(
-              command,
-              workspace,
-              %{issue_id: nil, issue_identifier: Path.basename(workspace)},
-              "before_remove",
-              nil
-            )
-            |> Hooks.ignore_hook_failure()
-        end
-
-      false ->
-        :ok
-    end
-  end
-
-  defp maybe_run_before_remove_hook(workspace, worker_host) when is_binary(worker_host) do
-    hooks = Config.settings!().hooks
-
-    case hooks.before_remove do
-      nil ->
-        :ok
-
-      command ->
-        script =
-          [
-            Remote.remote_shell_assign("workspace", workspace),
-            "if [ -d \"$workspace\" ]; then",
-            "  cd \"$workspace\"",
-            "  #{command}",
-            "fi"
-          ]
-          |> Enum.join("\n")
-
-        Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms)
-        |> case do
-          {:ok, {output, status}} ->
-            Hooks.handle_hook_command_result(
-              {output, status},
-              workspace,
-              %{issue_id: nil, issue_identifier: Path.basename(workspace)},
-              "before_remove"
-            )
-
-          {:error, {:workspace_hook_timeout, "before_remove", _timeout_ms} = reason} ->
-            {:error, reason}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-        |> Hooks.ignore_hook_failure()
-    end
   end
 end
