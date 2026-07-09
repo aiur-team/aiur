@@ -15,17 +15,16 @@ defmodule Aiur.AgentRunner do
     Issue,
     IssueLog,
     OperatorWaitLog,
-    PromptBuilder,
-    SessionHandle,
     Tracker,
     Workspace
   }
 
-  alias Aiur.Claude.DisplayTailer
+  alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{DebugLog, IdGenerator, Publisher, Sanitizer, SubscriptionStore, Topic, UniversalSubscriptions}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Opencode.{ActiveTurns, ApiClient, SessionWriterRegistry, TurnMarkers}
+  alias Aiur.Protocol.MapAccess
 
   @type worker_host :: String.t() | nil
 
@@ -106,7 +105,7 @@ defmodule Aiur.AgentRunner do
           :ok ->
             :ok = maybe_attach_universal_subscriptions(issue)
             :ok = maybe_enqueue_bootstrap_digest(issue)
-            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+            SessionLifecycle.run_session(workspace, issue, codex_update_recipient, opts, worker_host)
 
           {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
             {:before_run_failed, status, output, reason}
@@ -508,7 +507,16 @@ defmodule Aiur.AgentRunner do
     :exit, reason -> {:error, reason}
   end
 
-  defp codex_message_handler(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
+  @doc false
+  @spec codex_message_handler(
+          pid() | nil,
+          Issue.t(),
+          Path.t() | nil,
+          worker_host(),
+          String.t(),
+          String.t() | nil
+        ) :: fun()
+  def codex_message_handler(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
       AgentEventLog.write(workspace, worker_host, message)
@@ -594,11 +602,7 @@ defmodule Aiur.AgentRunner do
   # Look up `key` in `map` using both atom and binary forms so we tolerate
   # either shape (`%{event: "..."}` or `%{"event" => "..."}`) — codex events
   # arrive as string-keyed JSON, while internal messages stay atom-keyed.
-  defp get(map, key) when is_map(map) and is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp get(_map, _key), do: nil
+  defp get(map, key), do: MapAccess.get(map, key)
 
   defp timestamp_for(message) do
     case Map.get(message, :timestamp) || Map.get(message, "timestamp") do
@@ -631,340 +635,34 @@ defmodule Aiur.AgentRunner do
 
   defp send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
-  # The persistent-REPL pane + claude OS pid are owned by this runner task.
-  # An abort/shutdown brutally kills the task, skipping the `after
-  # stop_session` cleanup, so report them to the orchestrator's running
-  # entry — the only place an abort path can still reach them.
-  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude-repl"} = session)
-       when is_binary(issue_id) and is_pid(recipient) do
-    send(
-      recipient,
-      {:repl_session_runtime, issue_id,
-       %{
-         pane_id: Map.get(session, :pane_id),
-         os_pid: Map.get(session, :os_pid),
-         session_url: Map.get(session, :session_url)
-       }}
-    )
-
-    :ok
-  end
-
-  # The headless `claude` backend runs under a `bash -lc` wrapper that does
-  # not exec; its claude/node grandchildren reparent to init when the bash
-  # pid dies, so report the bash os_pid for the orchestrator to tree-reap on
-  # brutal-kill teardown (the runner task's `after stop_session` is skipped).
-  defp report_repl_session(recipient, %Issue{id: issue_id}, %{backend: "claude"} = session)
-       when is_binary(issue_id) and is_pid(recipient) do
-    case headless_os_pid(session) do
-      nil -> :ok
-      pid -> send(recipient, {:repl_session_runtime, issue_id, %{headless_os_pid: pid}})
-    end
-
-    :ok
-  end
-
-  defp report_repl_session(_recipient, _issue, _session), do: :ok
-
-  defp headless_os_pid(%{metadata: %{claude_app_server_pid: pid}}) when is_binary(pid) do
-    case Integer.parse(pid) do
-      {n, _} -> n
-      :error -> nil
-    end
-  end
-
-  defp headless_os_pid(_session), do: nil
-
-  defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
-    max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
-    issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
-    orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
-
-    backend = CodingAgent.backend_for(issue)
-    model = CodingAgent.model_for(issue)
-    effort = CodingAgent.effort_for(issue)
-
-    rc? =
-      (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
-         Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
-
-    session_backend = remote_session_backend(backend, rc?)
-
-    Logger.info("Resolved backend for #{issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
-
-    maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
-      Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
-    end)
-
-    # Rejoin the prior agent thread across an aiur restart instead of cold-
-    # starting a fresh conversation that re-discovers the work (issue #378).
-    # Only a resumable, local backend with a persisted handle qualifies; any
-    # miss degrades silently to a clean start.
-    resume_thread_id = load_resume_thread_id(session_backend, worker_host, issue.identifier)
-
-    session_opts =
-      [
-        backend: session_backend,
-        model: model,
-        effort: effort,
-        worker_host: worker_host,
-        remote_control: rc?,
-        identifier: issue.identifier
-      ]
-      |> maybe_put_rc_name(rc?, issue)
-      |> maybe_put_resume_thread_id(resume_thread_id)
-
-    with {:ok, session} <- start_agent_session(workspace, session_opts) do
-      # Persist the live session handle so the next aiur restart can resume it.
-      persist_session_handle(session, issue.identifier, worker_host)
-
-      log_resume_outcome(issue, session, resume_thread_id)
-
-      report_repl_session(codex_update_recipient, issue, session)
-
-      display_tailer = maybe_start_display_tailer(session, issue, rc?)
-
-      # A resumed thread already carries the original task + full prior turn
-      # history, so its first turn must continue rather than replay the
-      # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
-      opts = Keyword.put(opts, :resumed, session_resumed?(session))
-
-      try do
-        do_run_codex_turns(
-          session,
-          workspace,
-          issue,
-          codex_update_recipient,
-          opts,
-          issue_state_fetcher,
-          orchestrator,
-          worker_host,
-          1,
-          max_turns
-        )
-      after
-        stop_display_tailer(display_tailer)
-        CodingAgent.stop_session(session)
-      end
-    end
-  end
-
-  # Mirror the full claude transcript into the opencode pane for an RC
-  # claude-repl agent, so the pane and the Remote Control channel are two
-  # views of one conversation (the hook path alone paints only tool names +
-  # the final message). Only the hook-driven RC REPL session has the lazy
-  # transcript the tailer feeds on; headless/codex/RC-off sessions stream
-  # their own rich transcript and are left untouched. Started UNLINKED with
-  # `owner: self()` so a display failure never affects the run, and it
-  # self-stops if the run process dies (`after` handles the normal path).
-  defp maybe_start_display_tailer(session, issue, rc?) do
-    backend = session_backend(session)
-
-    if should_display_tail?(backend, rc?, issue.identifier) do
-      identifier = issue.identifier
-
-      # DISPLAY-ONLY: broadcast straight to the opencode pane's transcript
-      # topic. Do NOT route through codex_message_handler — that also does
-      # per-record AgentEventLog.write (disk) and send_codex_update (to the
-      # shared run recipient), so a `from: :start` backfill burst would hammer
-      # both. The pane render only needs the transcript broadcast.
-      on_message = fn
-        %{transcript_event: event} -> AgentPubSub.broadcast_transcript(identifier, event)
-        _ -> :ok
-      end
-
-      case DisplayTailer.start(
-             identifier: identifier,
-             on_message: on_message,
-             owner: self()
-           ) do
-        {:ok, pid} ->
-          pid
-
-        {:error, reason} ->
-          Logger.warning("display_tailer start_failed issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
-          nil
-      end
-    else
-      nil
-    end
-  end
-
-  # Only the hook-driven RC claude-repl session feeds the display tailer.
-  # A headless-claude fallback (backend "claude"), codex, or RC-off REPL
-  # streams its own rich transcript and must not get a second display source.
-  @doc false
-  @spec should_display_tail?(String.t() | nil, boolean(), String.t() | nil) :: boolean()
-  def should_display_tail?(backend, rc?, identifier) do
-    rc? and backend == "claude-repl" and is_binary(identifier)
-  end
-
-  defp stop_display_tailer(nil), do: :ok
-
-  defp stop_display_tailer(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid, :normal, 1_000)
-    :ok
-  catch
-    :exit, _ -> :ok
-  end
-
-  # The `--remote-control <name>` string is what the operator sees as the
-  # chat title in the Claude app / mobile, so derive it from the issue
-  # ("Aiur: Actions #99 - Title") rather than the opaque `aiur-repl-<pid>-<n>`
-  # window name. Only set when RC is active; headless and RC-off REPL sessions
-  # keep the default name.
-  defp maybe_put_rc_name(opts, true, issue), do: Keyword.put(opts, :rc_name, rc_session_name(issue))
-  defp maybe_put_rc_name(opts, false, _issue), do: opts
-
-  # Remote control physically runs on the persistent-REPL transport, so a
-  # remote-on claude issue dispatches `claude-repl` (carrying the resolved
-  # model). Other backends — and non-remote claude — run as resolved.
-  @doc false
-  @spec remote_session_backend(String.t(), boolean()) :: String.t()
-  def remote_session_backend("claude", true), do: "claude-repl"
-  def remote_session_backend(backend, _rc?), do: backend
-
-  # Load the prior thread id to resume from, or nil for a clean start. Only a
-  # resumable backend running on the LOCAL worker can resume — the durable
-  # resume artifact is host-local (codex's rollout in ~/.codex, the claude REPL's
-  # transcript jsonl in ~/.claude/projects), so a remote worker cannot reattach
-  # to it. Disk is only touched when a resume could apply.
-  defp load_resume_thread_id(backend, worker_host, identifier) do
-    if worker_host == nil and CodingAgent.resumable?(backend) do
-      resume_thread_id(backend, worker_host, SessionHandle.load(identifier, backend))
-    else
-      nil
-    end
-  end
-
-  # The thread id to resume, or nil for a clean start, given the resolved
-  # backend, the worker host, and the result of `SessionHandle.load/3`. Resume
-  # applies only to a resumable backend on the local worker with a valid
-  # handle; everything else (no handle, non-resumable backend, remote worker)
-  # cleanly starts fresh.
   @doc false
   @spec resume_thread_id(String.t(), worker_host(), {:ok, map()} | :none) :: String.t() | nil
-  def resume_thread_id(backend, nil, {:ok, %{thread_id: thread_id}}) when is_binary(thread_id) do
-    if CodingAgent.resumable?(backend), do: thread_id, else: nil
-  end
+  def resume_thread_id(backend, worker_host, handle), do: SessionResume.resume_thread_id(backend, worker_host, handle)
 
-  def resume_thread_id(_backend, _worker_host, _handle), do: nil
-
-  defp maybe_put_resume_thread_id(opts, nil), do: opts
-
-  defp maybe_put_resume_thread_id(opts, thread_id) when is_binary(thread_id),
-    do: Keyword.put(opts, :resume_thread_id, thread_id)
-
-  # Whether the adapter resumed a prior thread (vs a fresh/fallback clean
-  # start). Drives the first-turn prompt choice — a resumed thread continues
-  # rather than re-discovering the work.
   @doc false
   @spec session_resumed?(map()) :: boolean()
-  def session_resumed?(%{resumed: true}), do: true
-  def session_resumed?(_session), do: false
+  def session_resumed?(session), do: SessionResume.session_resumed?(session)
 
-  # Session-lifecycle log carrying full issue context (per docs/logging.md,
-  # which scopes issue-context start/completion logging to AgentRunner). Only
-  # logs when a resume was attempted, distinguishing a true resume from a
-  # clean-start fallback so an operator can see whether the agent rejoined its
-  # prior thread or restarted cold.
-  defp log_resume_outcome(_issue, _session, nil), do: :ok
-
-  defp log_resume_outcome(issue, session, resume_thread_id) when is_binary(resume_thread_id) do
-    if session_resumed?(session) do
-      Logger.info("Resumed prior agent session for #{issue_context(issue)} thread_id=#{Map.get(session, :thread_id)}")
-    else
-      Logger.info("Resume requested but degraded to a clean start for #{issue_context(issue)} requested_thread_id=#{resume_thread_id}")
-    end
-
-    :ok
-  end
-
-  # Persist the handle after a completed turn for a backend that only learns
-  # its session id once a turn has run (the claude REPL reads it from the
-  # transcript filename, unlike codex/headless which get a thread id at
-  # `start_session`). `turn_handle_attrs/2` gates this to that case; the
-  # resulting attrs still pass through `persist_session_handle/3`'s resumable +
-  # local + thread-id gate.
-  defp maybe_persist_turn_handle(app_session, turn_session, identifier, worker_host) do
-    case turn_handle_attrs(app_session, turn_session) do
-      {:ok, attrs} -> persist_session_handle(attrs, identifier, worker_host)
-      :skip -> :ok
-    end
-  end
-
-  # The handle attrs to persist after a turn, or `:skip`. Persist only when the
-  # turn's session id differs from the one the start session already carried:
-  # codex/headless fix their thread id at `start_session` and a turn echoes it,
-  # so they `:skip` (persisted once at start). The REPL learns its id per-turn
-  # from the transcript filename — nil at a fresh start, and it can drift if the
-  # CLI ever hands `--resume` a new id — so its live id is captured here, keeping
-  # the handle pointed at the conversation the next restart should rejoin. Pure
-  # so the gate is unit-testable without touching disk.
   @doc false
   @spec turn_handle_attrs(map(), map()) :: {:ok, map()} | :skip
-  def turn_handle_attrs(app_session, turn_session) do
-    turn_thread_id = Map.get(turn_session, :thread_id)
+  def turn_handle_attrs(a, b), do: SessionResume.turn_handle_attrs(a, b)
 
-    if is_binary(turn_thread_id) and turn_thread_id != Map.get(app_session, :thread_id) do
-      {:ok, %{backend: session_backend(app_session), thread_id: turn_thread_id}}
-    else
-      :skip
-    end
-  end
-
-  # Persist the live session handle so a future aiur restart can resume this
-  # thread. Skips anything that can't be resumed later (non-resumable backend,
-  # remote worker, no thread id) so we never leave a misleading handle.
-  defp persist_session_handle(session, identifier, worker_host) do
-    case session_handle_to_save(session, worker_host) do
-      {:ok, attrs} -> persist_handle_best_effort(identifier, attrs)
-      :skip -> :ok
-    end
-  end
-
-  # Best-effort persistence: `SessionHandle.save/3` (via `JsonStore.write!`)
-  # raises on any I/O failure (disk full, read-only/permission-denied state
-  # dir). A resume sidecar must never take down an agent run that already
-  # started successfully, so swallow the failure — the only cost is that this
-  # session won't resume on the next restart. Mirrors the rescue in
-  # `Aiur.Events.SubscriptionStore.persist/1`.
-  @doc false
-  @spec persist_handle_best_effort(String.t(), map(), keyword()) :: :ok
-  def persist_handle_best_effort(identifier, attrs, opts \\ []) do
-    SessionHandle.save(identifier, attrs, opts)
-    :ok
-  rescue
-    error ->
-      Logger.warning("Could not persist session handle for #{identifier} (resume disabled for next restart): #{inspect(error)}")
-      :ok
-  end
-
-  # The handle attrs to persist for `session`, or `:skip` when this session can
-  # never be resumed later. Resume is local-only (the codex rollout is on this
-  # host) and backend-gated (only codex today), and a session with no thread id
-  # has nothing to rejoin.
   @doc false
   @spec session_handle_to_save(map(), worker_host()) :: {:ok, map()} | :skip
-  def session_handle_to_save(%{thread_id: thread_id} = session, nil) when is_binary(thread_id) do
-    backend = session_backend(session)
+  def session_handle_to_save(s, w), do: SessionResume.session_handle_to_save(s, w)
 
-    if CodingAgent.resumable?(backend) do
-      {:ok, %{backend: backend, thread_id: thread_id}}
-    else
-      :skip
-    end
-  end
+  @doc false
+  @spec persist_handle_best_effort(String.t(), map(), keyword()) :: :ok
+  def persist_handle_best_effort(id, attrs, opts \\ []), do: SessionResume.persist_handle_best_effort(id, attrs, opts)
 
-  def session_handle_to_save(_session, _worker_host), do: :skip
+  @doc false
+  @spec should_display_tail?(String.t() | nil, boolean(), String.t() | nil) :: boolean()
+  def should_display_tail?(b, rc?, id), do: SessionLifecycle.should_display_tail?(b, rc?, id)
 
-  # Seed the workspace trust flag before an RC REPL spawns. RC refuses to
-  # start in an untrusted directory; without this the REPL sticks on the
-  # trust dialog and silently degrades to the headless backend. Only the
-  # local path is trusted — RC is local-only (a remote worker_host's
-  # workspace lives on another machine), matching `promote_to_remote`'s
-  # guard. A trust failure is logged but not fatal: the degrade path still
-  # lands a working headless agent rather than stranding the issue.
+  @doc false
+  @spec remote_session_backend(String.t(), boolean()) :: String.t()
+  def remote_session_backend(b, rc?), do: SessionLifecycle.remote_session_backend(b, rc?)
+
   @doc false
   @spec maybe_trust_remote_control_workspace(
           Path.t(),
@@ -972,190 +670,21 @@ defmodule Aiur.AgentRunner do
           worker_host(),
           (Path.t() -> :ok | {:error, term()})
         ) :: :ok
-  def maybe_trust_remote_control_workspace(workspace, rc?, worker_host, trust_fun)
+  def maybe_trust_remote_control_workspace(ws, rc?, wh, fun),
+    do: SessionLifecycle.maybe_trust_remote_control_workspace(ws, rc?, wh, fun)
 
-  def maybe_trust_remote_control_workspace(workspace, true, nil, trust_fun)
-      when is_binary(workspace) and is_function(trust_fun, 1) do
-    case trust_fun.(workspace) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("remote-control workspace trust failed; RC may degrade to headless: workspace=#{workspace} reason=#{inspect(reason)}")
-        :ok
-    end
-  end
-
-  def maybe_trust_remote_control_workspace(_workspace, _rc?, _worker_host, _trust_fun), do: :ok
-
-  # Operator-facing RC chat title: `Aiur: <Repo> #<ID> - <title>`, e.g.
-  # `Aiur: Actions #7 - CLI: ENS namespace`. The repo name is the capitalized
-  # short name of the configured tracker repo (`its-applekid/actions` ->
-  # `Actions`); when the tracker exposes no repo it is omitted, leaving
-  # `Aiur: #<ID> - <title>`. `repo` is injectable for tests.
   @doc false
   @spec rc_session_name(Issue.t(), String.t() | nil) :: String.t()
-  def rc_session_name(issue, repo \\ Tracker.project_identity()) do
-    label = issue.identifier || issue.id
-    title = issue.title || ""
-
-    "#{rc_session_prefix(repo)} ##{label} - #{title}"
-    |> String.replace(~r/[[:cntrl:]'"`]/u, " ")
-    |> String.replace(~r/\s+/u, " ")
-    |> String.trim()
-    |> String.slice(0, 60)
-  end
-
-  defp rc_session_prefix(repo) do
-    case repo_short_name(repo) do
-      nil -> "Aiur:"
-      name -> "Aiur: #{name}"
-    end
-  end
-
-  # Capitalized short name of an `owner/name` repo string; nil when absent or
-  # empty. Only the first character is upcased so existing casing (e.g.
-  # `myRepo`) survives.
-  defp repo_short_name(repo) when is_binary(repo) do
-    case repo |> String.split("/") |> List.last() |> String.trim() do
-      "" -> nil
-      <<first::utf8, rest::binary>> -> String.upcase(<<first::utf8>>) <> rest
-    end
-  end
-
-  defp repo_short_name(_repo), do: nil
+  def rc_session_name(issue, repo \\ Tracker.project_identity()), do: SessionLifecycle.rc_session_name(issue, repo)
 
   @doc false
-  # Start the resolved backend's session, tagging it with its backend so
-  # later dispatch resolves the right adapter. The persistent-REPL backend
-  # can fail to start (no tmux, REPL never ready, RC activation failed); a
-  # tmux/RC problem must never strand an issue, so fall back once to the
-  # headless `claude` backend and record why. `start_fun` is injectable for
-  # tests; production uses `CodingAgent.start_session/2`.
-  @spec start_agent_session(Path.t(), keyword(), (Path.t(), keyword() -> {:ok, map()} | {:error, term()})) ::
-          {:ok, map()} | {:error, term()}
-  def start_agent_session(workspace, opts, start_fun \\ &CodingAgent.start_session/2) do
-    backend = Keyword.fetch!(opts, :backend)
-
-    case start_fun.(workspace, opts) do
-      {:ok, session} ->
-        {:ok, Map.put(session, :backend, backend)}
-
-      {:error, reason} when backend == "claude-repl" ->
-        Aiur.Perf.event(:repl_start_fallback, backend: backend, reason: inspect(reason))
-
-        Logger.warning("claude-repl start_session failed (#{inspect(reason)}); falling back to headless claude")
-
-        fallback_opts = opts |> Keyword.put(:backend, "claude") |> Keyword.delete(:remote_control)
-
-        case start_fun.(workspace, fallback_opts) do
-          {:ok, session} -> {:ok, Map.put(session, :backend, "claude")}
-          {:error, _} = error -> error
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  defp do_run_codex_turns(
-         app_session,
-         workspace,
-         issue,
-         codex_update_recipient,
-         opts,
-         issue_state_fetcher,
-         orchestrator,
-         worker_host,
-         turn_number,
-         max_turns
-       ) do
-    turn_context = %{
-      workspace: workspace,
-      issue: issue,
-      codex_update_recipient: codex_update_recipient,
-      opts: opts,
-      issue_state_fetcher: issue_state_fetcher,
-      orchestrator: orchestrator,
-      worker_host: worker_host,
-      turn_number: turn_number,
-      max_turns: max_turns
-    }
-
-    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
-
-    message_handler =
-      codex_message_handler(codex_update_recipient, issue, workspace, worker_host, session_backend(app_session))
-
-    safe_checkpoint_handler = safe_checkpoint_handler(issue, orchestrator)
-
-    send_control_state(codex_update_recipient, issue, :working)
-    aiur_turn_id = open_aiur_turn_streams(issue)
-
-    :ok = DynamicTool.reset_turn_quotas()
-
-    result =
-      CodingAgent.run_turn(
-        app_session,
-        prompt,
-        issue,
-        on_message: message_handler,
-        on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: operator_immediate_handler(issue, orchestrator),
-        tool_executor: tool_executor(issue, workspace, worker_host)
-      )
-
-    close_aiur_turn_streams(issue, aiur_turn_id, turn_done_reason(result))
-
-    case result do
-      {:ok, turn_session} ->
-        maybe_persist_turn_handle(app_session, turn_session, issue.identifier, worker_host)
-
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
-          :consume,
-          issue
-        )
-
-        with :ok <-
-               drain_operator_messages(
-                 app_session,
-                 issue,
-                 message_handler,
-                 orchestrator,
-                 codex_update_recipient
-               ) do
-          finalize_turn_completion(turn_context, app_session, turn_session)
-        end
-
-      {:paused, pause_payload} ->
-        Logger.info("Paused agent run for #{issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
-
-        maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload)
-
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-          :restore,
-          issue
-        )
-
-        write_pause_log(workspace, worker_host)
-        send_control_state(codex_update_recipient, issue, :paused)
-        wait_for_resume(turn_context, app_session, message_handler)
-
-      {:error, reason} ->
-        maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
-
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
-          :fail,
-          issue
-        )
-
-        {:error, reason}
-    end
-  end
+  @spec start_agent_session(
+          Path.t(),
+          keyword(),
+          (Path.t(), keyword() -> {:ok, map()} | {:error, term()})
+        ) :: {:ok, map()} | {:error, term()}
+  def start_agent_session(ws, opts, start_fun \\ &CodingAgent.start_session/2),
+    do: SessionLifecycle.start_agent_session(ws, opts, start_fun)
 
   # Delivered-queue bookkeeping RPCs return `{:error, :unavailable}` (or
   # `:timeout`) when the orchestrator is momentarily overloaded — e.g. when an
@@ -1175,108 +704,13 @@ defmodule Aiur.AgentRunner do
     :ok
   end
 
-  defp turn_done_reason({:ok, _session}), do: :done
-  defp turn_done_reason({:paused, _payload}), do: :input_required
-  defp turn_done_reason({:error, reason}), do: {:failed, reason}
-  defp turn_done_reason(_), do: :done
+  @doc false
+  @spec turn_done_reason(term()) :: :done | :input_required | {:failed, term()}
+  def turn_done_reason(result), do: TurnLoop.turn_done_reason(result)
 
-  defp finalize_turn_completion(turn_context, app_session, turn_session) do
-    %{
-      workspace: workspace,
-      issue: issue,
-      issue_state_fetcher: issue_state_fetcher,
-      turn_number: turn_number,
-      max_turns: max_turns
-    } = turn_context
-
-    Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
-
-    case continue_with_issue?(issue, issue_state_fetcher) do
-      {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
-        Logger.info(
-          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns_display(max_turns)} reason=turn_completed"
-        )
-
-        Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns_display(max_turns)}")
-
-        continue_issue_turn(%{turn_context | issue: refreshed_issue, turn_number: turn_number + 1}, app_session)
-
-      {:continue, refreshed_issue} ->
-        Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
-
-        Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
-
-        :ok
-
-      {:done, refreshed_issue} ->
-        Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
-
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp wait_for_resume(turn_context, app_session, message_handler) do
-    %{
-      issue: issue,
-      orchestrator: orchestrator,
-      codex_update_recipient: codex_update_recipient
-    } = turn_context
-
-    with :ok <-
-           wait_for_operator_message(
-             app_session,
-             issue,
-             message_handler,
-             orchestrator,
-             codex_update_recipient
-           ) do
-      case continue_with_issue?(issue, turn_context.issue_state_fetcher) do
-        {:continue, refreshed_issue}
-        when is_nil(turn_context.max_turns) or turn_context.turn_number < turn_context.max_turns ->
-          Logger.info(
-            "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{max_turns_display(turn_context.max_turns)} reason=resume"
-          )
-
-          continue_issue_turn(
-            %{turn_context | issue: refreshed_issue, turn_number: turn_context.turn_number + 1},
-            app_session
-          )
-
-        {:continue, refreshed_issue} ->
-          Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume")
-
-          :ok
-
-        {:done, refreshed_issue} ->
-          Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume_inactive")
-
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
-  end
-
-  defp continue_issue_turn(turn_context, app_session) do
-    do_run_codex_turns(
-      app_session,
-      turn_context.workspace,
-      turn_context.issue,
-      turn_context.codex_update_recipient,
-      turn_context.opts,
-      turn_context.issue_state_fetcher,
-      turn_context.orchestrator,
-      turn_context.worker_host,
-      turn_context.turn_number,
-      turn_context.max_turns
-    )
-  end
-
-  defp drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+  @doc false
+  @spec drain_operator_messages(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) :: :ok | {:error, term()}
+  def drain_operator_messages(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
     receive do
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused for #{issue_context(issue)} request_id=#{request_id}")
@@ -1309,7 +743,9 @@ defmodule Aiur.AgentRunner do
   # item back in the queue, and the very next entry to this function
   # would re-claim and re-resume in a tight loop that no amount of
   # repeat pause-key presses could escape.
-  defp wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
+  @doc false
+  @spec wait_for_operator_message(map(), Issue.t(), fun(), GenServer.server(), pid() | nil) :: :ok | {:error, term()}
+  def wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient) do
     receive do
       {:agent_queue_updated, issue_identifier, _item_id} when issue_identifier == issue.identifier ->
         try_claim_after_queue_update(
@@ -1425,10 +861,10 @@ defmodule Aiur.AgentRunner do
     record_operator_delivery(item, issue)
     text = queue_item_text(item)
     turn_id = queue_item_turn_id(item)
-    workspace = session_workspace(app_session)
-    worker_host = session_worker_host(app_session)
+    workspace = SessionLifecycle.session_workspace(app_session)
+    worker_host = SessionLifecycle.session_worker_host(app_session)
 
-    backend = session_backend(app_session)
+    backend = SessionLifecycle.session_backend(app_session)
 
     message_handler =
       codex_message_handler(codex_update_recipient, issue, workspace, worker_host, backend, turn_id)
@@ -1448,10 +884,15 @@ defmodule Aiur.AgentRunner do
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
         on_operator_message: operator_immediate_handler(issue, orchestrator),
-        tool_executor: tool_executor(issue, session_workspace(app_session), session_worker_host(app_session))
+        tool_executor:
+          tool_executor(
+            issue,
+            SessionLifecycle.session_workspace(app_session),
+            SessionLifecycle.session_worker_host(app_session)
+          )
       )
 
-    close_aiur_turn_streams(issue, aiur_turn_id, turn_done_reason(result))
+    close_aiur_turn_streams(issue, aiur_turn_id, TurnLoop.turn_done_reason(result))
 
     case result do
       {:ok, _turn_session} ->
@@ -1466,13 +907,18 @@ defmodule Aiur.AgentRunner do
       {:paused, pause_payload} ->
         maybe_emit_usage_limit_alert(
           issue,
-          session_workspace(app_session),
-          session_worker_host(app_session),
+          SessionLifecycle.session_workspace(app_session),
+          SessionLifecycle.session_worker_host(app_session),
           pause_payload
         )
 
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        write_pause_log(session_workspace(app_session), session_worker_host(app_session))
+
+        write_pause_log(
+          SessionLifecycle.session_workspace(app_session),
+          SessionLifecycle.session_worker_host(app_session)
+        )
+
         send_control_state(codex_update_recipient, issue, :paused)
         wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient)
 
@@ -1674,7 +1120,7 @@ defmodule Aiur.AgentRunner do
   defp render_event_line(other), do: inspect(other)
 
   defp event_field(event, key) when is_atom(key) do
-    Map.get(event, key) || Map.get(event, Atom.to_string(key))
+    MapAccess.get(event, key)
   end
 
   defp event_summary(event) do
@@ -1718,13 +1164,15 @@ defmodule Aiur.AgentRunner do
     |> String.replace(">", "&gt;")
   end
 
-  defp send_control_state(recipient, %Issue{id: issue_id}, status)
-       when is_pid(recipient) and is_binary(issue_id) and status in [:paused, :working] do
+  @doc false
+  @spec send_control_state(pid() | nil, Issue.t(), :paused | :working | term()) :: :ok
+  def send_control_state(recipient, %Issue{id: issue_id}, status)
+      when is_pid(recipient) and is_binary(issue_id) and status in [:paused, :working] do
     send(recipient, {:worker_control_state, issue_id, status})
     :ok
   end
 
-  defp send_control_state(_recipient, _issue, _status), do: :ok
+  def send_control_state(_recipient, _issue, _status), do: :ok
 
   # Bridge-as-LLM trigger: at the start of each codex turn, fan a
   # `__aiur_turn__:<id>` marker out to every opencode-serve that has a
@@ -1735,7 +1183,9 @@ defmodule Aiur.AgentRunner do
   # (see Aiur.Opencode.ChatCompletions.stream_codex_turn/3).
   # No SessionWriter attached = no opencode pane open = no-op, agent
   # keeps running (manual override preserved).
-  defp open_aiur_turn_streams(%Issue{identifier: identifier}) when is_binary(identifier) do
+  @doc false
+  @spec open_aiur_turn_streams(Issue.t()) :: String.t() | nil
+  def open_aiur_turn_streams(%Issue{identifier: identifier}) when is_binary(identifier) do
     aiur_turn_id = "t" <> Integer.to_string(System.unique_integer([:positive, :monotonic]), 36)
     # Register BEFORE posting so the bridge always observes :active when
     # it handles the resulting chat-completion. Stale markers replayed
@@ -1749,7 +1199,7 @@ defmodule Aiur.AgentRunner do
     aiur_turn_id
   end
 
-  defp open_aiur_turn_streams(_issue), do: nil
+  def open_aiur_turn_streams(_issue), do: nil
 
   @doc """
   Fire `__aiur_turn__:<id>` marker posts to every attached opencode-serve.
@@ -1771,8 +1221,10 @@ defmodule Aiur.AgentRunner do
   # `nil` from open_aiur_turn_streams/1 means no marker fired (no
   # SessionWriter attached or issue had no identifier); no close
   # broadcast needed.
-  defp close_aiur_turn_streams(%Issue{identifier: identifier}, aiur_turn_id, reason)
-       when is_binary(identifier) and is_binary(aiur_turn_id) do
+  @doc false
+  @spec close_aiur_turn_streams(Issue.t(), String.t() | nil, term()) :: :ok
+  def close_aiur_turn_streams(%Issue{identifier: identifier}, aiur_turn_id, reason)
+      when is_binary(identifier) and is_binary(aiur_turn_id) do
     AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
     # mark_closed retains the entry for the cleanup window so a slow
     # bridge subscribe still finalizes with this reason instead of
@@ -1781,7 +1233,7 @@ defmodule Aiur.AgentRunner do
     :ok
   end
 
-  defp close_aiur_turn_streams(_issue, _aiur_turn_id, _reason), do: :ok
+  def close_aiur_turn_streams(_issue, _aiur_turn_id, _reason), do: :ok
 
   # Mid-turn delivery for the persistent-REPL backend: when an operator
   # message lands while the agent is working, the driver invokes this to
@@ -1790,7 +1242,9 @@ defmodule Aiur.AgentRunner do
   # `consume_delivered_queue_items` sweep retires it — it is never also run
   # as a separate follow-up turn. A send failure restores it to pending so
   # the normal turn-boundary drain re-attempts.
-  defp operator_immediate_handler(issue, orchestrator) do
+  @doc false
+  @spec operator_immediate_handler(Issue.t(), GenServer.server()) :: fun()
+  def operator_immediate_handler(issue, orchestrator) do
     fn ->
       case claim_next_operator_item(orchestrator, issue.identifier) do
         {:ok, item} ->
@@ -1808,7 +1262,9 @@ defmodule Aiur.AgentRunner do
     {:deliver_text, queue_item_text(item), fn _payload -> :ok end, fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
   end
 
-  defp safe_checkpoint_handler(issue, orchestrator) do
+  @doc false
+  @spec safe_checkpoint_handler(Issue.t(), GenServer.server()) :: fun()
+  def safe_checkpoint_handler(issue, orchestrator) do
     fn checkpoint ->
       case claim_blocker_critical_events_digest(orchestrator, issue.identifier) do
         {:ok, item} ->
@@ -1893,86 +1349,9 @@ defmodule Aiur.AgentRunner do
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
   end
 
-  # nil max_turns = uncapped: logs show the turn count over "∞", and the
-  # continuation prompt omits the "of M" entirely.
-  defp max_turns_display(nil), do: "∞"
-  defp max_turns_display(max_turns), do: Integer.to_string(max_turns)
-
-  defp turn_of(nil), do: ""
-  defp turn_of(max_turns), do: " of #{max_turns}"
-
-  defp build_turn_prompt(issue, opts, 1, _max_turns) do
-    if Keyword.get(opts, :resumed, false) do
-      resumed_turn_prompt()
-    else
-      PromptBuilder.build_prompt(issue, opts)
-    end
-  end
-
-  defp build_turn_prompt(_issue, _opts, turn_number, max_turns) do
-    """
-    Continuation guidance:
-
-    - The previous turn completed normally, but the issue is still in an active state.
-    - This is continuation turn ##{turn_number}#{turn_of(max_turns)} for the current agent run.
-    - Resume from the current workspace and workpad state instead of restarting from scratch.
-    - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
-    - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
-    - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
-    """
-  end
-
-  # First-turn prompt for a session resumed after an aiur restart. The codex
-  # thread was reattached, so the full original task + every prior turn is
-  # already intact in the conversation — replaying the cold-start prompt would
-  # make the agent re-discover work it has already done (the exact waste #378
-  # removes). This is semantically the same nudge as an in-process continuation
-  # turn, just across a restart boundary.
-  defp resumed_turn_prompt do
-    """
-    Continuation guidance (session resumed after an aiur restart):
-
-    - Aiur restarted and reattached this agent to its prior session, so the full original task instructions and every prior turn are already present in this thread.
-    - Do not restart from scratch and do not re-read the issue, labels, or workpad to rebuild context you already have — continue from where you left off.
-    - Reconcile against the current workspace and workpad state (a few things may have changed while aiur was down), then resume the remaining ticket work.
-    - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
-    - Do not end the turn while the issue stays active unless you are truly blocked.
-    """
-  end
-
   @doc false
   @spec build_turn_prompt_for_test(Issue.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
-  def build_turn_prompt_for_test(issue, opts, turn_number, max_turns) do
-    build_turn_prompt(issue, opts, turn_number, max_turns)
-  end
-
-  defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
-    case issue_state_fetcher.([issue_id]) do
-      {:ok, [%Issue{} = refreshed_issue | _]} ->
-        if active_issue_state?(refreshed_issue.state) do
-          {:continue, refreshed_issue}
-        else
-          {:done, refreshed_issue}
-        end
-
-      {:ok, []} ->
-        {:done, issue}
-
-      {:error, reason} ->
-        {:error, {:issue_state_refresh_failed, reason}}
-    end
-  end
-
-  defp continue_with_issue?(issue, _issue_state_fetcher), do: {:done, issue}
-
-  defp active_issue_state?(state_name) when is_binary(state_name) do
-    normalized_state = normalize_issue_state(state_name)
-
-    Config.settings!().tracker.active_states
-    |> Enum.any?(fn active_state -> normalize_issue_state(active_state) == normalized_state end)
-  end
-
-  defp active_issue_state?(_state_name), do: false
+  def build_turn_prompt_for_test(issue, opts, turn_number, max_turns), do: TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
 
   defp selected_worker_host(nil, []), do: nil
 
@@ -2001,17 +1380,15 @@ defmodule Aiur.AgentRunner do
 
   defp maybe_attach_issue_log(_), do: :ok
 
-  defp normalize_issue_state(state_name) when is_binary(state_name) do
-    state_name
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp write_pause_log(workspace, worker_host) do
+  @doc false
+  @spec write_pause_log(Path.t() | nil, worker_host()) :: :ok
+  def write_pause_log(workspace, worker_host) do
     write_pause_log(workspace, worker_host, "Agent paused by operator.")
   end
 
-  defp write_pause_log(workspace, worker_host, message) do
+  @doc false
+  @spec write_pause_log(Path.t() | nil, worker_host(), String.t()) :: :ok
+  def write_pause_log(workspace, worker_host, message) do
     AgentEventLog.write(workspace, worker_host, %{
       event: :worker_paused,
       timestamp: DateTime.utc_now(),
@@ -2027,16 +1404,9 @@ defmodule Aiur.AgentRunner do
 
   defp trim_hook_output(output), do: output
 
-  defp session_workspace(%{workspace: workspace}) when is_binary(workspace), do: workspace
-  defp session_workspace(_session), do: nil
-
-  defp session_worker_host(%{worker_host: worker_host}), do: worker_host
-  defp session_worker_host(_session), do: nil
-
-  defp session_backend(%{backend: backend}) when is_binary(backend), do: backend
-  defp session_backend(_session), do: Config.agent_kind()
-
-  defp tool_executor(issue, workspace, worker_host) do
+  @doc false
+  @spec tool_executor(Issue.t(), Path.t() | nil, worker_host()) :: fun()
+  def tool_executor(issue, workspace, worker_host) do
     fn tool, arguments ->
       DynamicTool.execute(
         tool,
@@ -2187,7 +1557,9 @@ defmodule Aiur.AgentRunner do
   # alert carrying the reset time so the run can be resumed once the quota
   # resets. Only the quota-driven pause carries `kind: :usage_limit_exhausted`;
   # ordinary operator pauses are a no-op here.
-  defp maybe_emit_usage_limit_alert(issue, workspace, worker_host, %{kind: :usage_limit_exhausted} = pause_payload) do
+  @doc false
+  @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, worker_host(), map()) :: :ok
+  def maybe_emit_usage_limit_alert(issue, workspace, worker_host, %{kind: :usage_limit_exhausted} = pause_payload) do
     reset_hint = pause_payload[:reset_hint]
     backend = pause_payload[:reason]
 
@@ -2211,9 +1583,11 @@ defmodule Aiur.AgentRunner do
     :ok
   end
 
-  defp maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload), do: :ok
+  def maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload), do: :ok
 
-  defp maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
+  @doc false
+  @spec maybe_emit_more_tokens_alert(Issue.t(), Path.t() | nil, worker_host(), term()) :: :ok
+  def maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do
       Alerts.emit_system(
         "ticket.#{issue.identifier}.agent.error.tokens_exhausted",
@@ -2243,7 +1617,9 @@ defmodule Aiur.AgentRunner do
     ])
   end
 
-  defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
+  @doc false
+  @spec issue_context(Issue.t()) :: String.t()
+  def issue_context(%Issue{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
   end
 end

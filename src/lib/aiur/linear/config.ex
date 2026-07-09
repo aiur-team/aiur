@@ -5,6 +5,8 @@ defmodule Aiur.Linear.Config do
 
   @behaviour Aiur.TrackerConfig
 
+  alias Aiur.Config.EnvRef
+
   @default_endpoint "https://api.linear.app/graphql"
 
   @spec endpoint() :: String.t()
@@ -17,9 +19,7 @@ defmodule Aiur.Linear.Config do
 
   @spec api_key() :: String.t() | nil
   def api_key do
-    section_value("api_key")
-    |> resolve_env_value(System.get_env("LINEAR_API_KEY"))
-    |> normalize_secret()
+    EnvRef.normalize_secret(section_value("api_key"))
   end
 
   @spec project_slug() :: String.t() | nil
@@ -38,9 +38,7 @@ defmodule Aiur.Linear.Config do
 
   @spec assignee() :: String.t() | nil
   def assignee do
-    section_value("assignee")
-    |> resolve_env_value(System.get_env("LINEAR_ASSIGNEE"))
-    |> normalize_secret()
+    EnvRef.normalize_secret(section_value("assignee"))
   end
 
   @impl Aiur.TrackerConfig
@@ -62,43 +60,4 @@ defmodule Aiur.Linear.Config do
     |> Map.from_struct()
     |> Map.get(String.to_existing_atom(key))
   end
-
-  defp resolve_env_value(nil, fallback), do: fallback
-
-  defp resolve_env_value(value, fallback) when is_binary(value) do
-    trimmed = String.trim(value)
-
-    case env_reference_name(trimmed) do
-      {:ok, env_name} ->
-        case System.get_env(env_name) do
-          nil -> fallback
-          "" -> nil
-          env_value -> env_value
-        end
-
-      :error ->
-        trimmed
-    end
-  end
-
-  defp resolve_env_value(_value, fallback), do: fallback
-
-  defp env_reference_name("$" <> env_name) do
-    if String.match?(env_name, ~r/^[A-Za-z_][A-Za-z0-9_]*$/) do
-      {:ok, env_name}
-    else
-      :error
-    end
-  end
-
-  defp env_reference_name(_value), do: :error
-
-  defp normalize_secret(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp normalize_secret(_value), do: nil
 end

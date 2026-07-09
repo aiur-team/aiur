@@ -175,6 +175,23 @@ defmodule Aiur.ProcessReaperTest do
     assert [] = ProcessReaper.entries(:nonexistent_reaper)
   end
 
+  # The reaper traps exits so terminate/2 runs on teardown, which means it also
+  # receives `{:EXIT, _, _}` for every dying port/process. Those exits (and any
+  # stray info message) must be swallowed: without a handle_info clause the
+  # GenServer default handler error-logs each one, and a burst of subprocess
+  # deaths would flood the log and grow the mailbox until the node dies (#794).
+  test "trapped exits and stray messages do not crash the reaper", %{reaper: reaper} do
+    pid = GenServer.whereis(reaper)
+
+    send(pid, {:EXIT, self(), :normal})
+    send(pid, {:EXIT, self(), :killed})
+    send(pid, :some_unexpected_message)
+
+    # A successful call proves the process stayed alive and drained its mailbox.
+    assert Process.alive?(pid)
+    assert [] = ProcessReaper.entries(reaper)
+  end
+
   describe "AIUR_AGENT_TMPFILE pidfile (launcher-side crash reaper feed)" do
     setup do
       path = Path.join(System.tmp_dir!(), "aiur-agents-#{System.unique_integer([:positive])}")

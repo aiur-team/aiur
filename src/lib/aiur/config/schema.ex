@@ -6,6 +6,7 @@ defmodule Aiur.Config.Schema do
   import Ecto.Changeset
 
   alias Aiur.Config.CodexSandboxPolicy
+  alias Aiur.Config.EnvRef
 
   @primary_key false
 
@@ -287,7 +288,7 @@ defmodule Aiur.Config.Schema do
       # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
       # already reads these via Config.agent_turn_timeout_ms/0).
       field(:turn_timeout_ms, :integer, default: 3_600_000)
-      field(:stall_timeout_ms, :integer, default: 300_000)
+      field(:stall_timeout_ms, :integer, default: 3_600_000)
       # Safety net: hard-kill an agent that has been actively running this
       # many minutes (paused/blocked time excluded). 0 disables.
       field(:max_agent_duration_minutes, :integer, default: 60)
@@ -835,12 +836,12 @@ defmodule Aiur.Config.Schema do
     linear = %{
       settings.tracker.linear
       | api_key:
-          resolve_secret_setting(
+          EnvRef.resolve(
             settings.tracker.linear.api_key,
             System.get_env("LINEAR_API_KEY")
           ),
         assignee:
-          resolve_secret_setting(
+          EnvRef.resolve(
             settings.tracker.linear.assignee,
             System.get_env("LINEAR_ASSIGNEE")
           )
@@ -915,15 +916,6 @@ defmodule Aiur.Config.Schema do
   defp preserve_nil_path?(["agent", "max_load_average"]), do: true
   defp preserve_nil_path?(_path), do: false
 
-  defp resolve_secret_setting(nil, fallback), do: normalize_secret_value(fallback)
-
-  defp resolve_secret_setting(value, fallback) when is_binary(value) do
-    case resolve_env_value(value, fallback) do
-      resolved when is_binary(resolved) -> normalize_secret_value(resolved)
-      resolved -> resolved
-    end
-  end
-
   defp resolve_path_value(value, default) when is_binary(value) do
     case normalize_path_token(value) do
       :missing ->
@@ -937,36 +929,12 @@ defmodule Aiur.Config.Schema do
     end
   end
 
-  defp resolve_env_value(value, fallback) when is_binary(value) do
-    case env_reference_name(value) do
-      {:ok, env_name} ->
-        case System.get_env(env_name) do
-          nil -> fallback
-          "" -> nil
-          env_value -> env_value
-        end
-
-      :error ->
-        value
-    end
-  end
-
   defp normalize_path_token(value) when is_binary(value) do
-    case env_reference_name(value) do
+    case EnvRef.reference_name(value) do
       {:ok, env_name} -> resolve_env_token(env_name)
       :error -> value
     end
   end
-
-  defp env_reference_name("$" <> env_name) do
-    if String.match?(env_name, ~r/^[A-Za-z_][A-Za-z0-9_]*$/) do
-      {:ok, env_name}
-    else
-      :error
-    end
-  end
-
-  defp env_reference_name(_value), do: :error
 
   defp resolve_env_token(env_name) do
     case System.get_env(env_name) do
@@ -974,12 +942,6 @@ defmodule Aiur.Config.Schema do
       env_value -> env_value
     end
   end
-
-  defp normalize_secret_value(value) when is_binary(value) do
-    if value == "", do: nil, else: value
-  end
-
-  defp normalize_secret_value(_value), do: nil
 
   defp format_errors(changeset) do
     changeset

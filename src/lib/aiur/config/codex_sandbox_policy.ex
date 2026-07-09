@@ -33,9 +33,10 @@ defmodule Aiur.Config.CodexSandboxPolicy do
     |> default_runtime_policy(opts)
   end
 
-  defp default_policy(workspace) when is_binary(workspace), do: default_policy([workspace])
+  @spec default_policy(Path.t()) :: map()
+  def default_policy(workspace) when is_binary(workspace), do: policy_for_roots([workspace])
 
-  defp default_policy(writable_roots) when is_list(writable_roots) do
+  defp policy_for_roots(writable_roots) when is_list(writable_roots) do
     %{
       "type" => "workspaceWrite",
       "writableRoots" => writable_roots,
@@ -51,11 +52,11 @@ defmodule Aiur.Config.CodexSandboxPolicy do
 
   defp default_runtime_policy(workspace_root, opts) when is_binary(workspace_root) do
     if Keyword.get(opts, :remote, false) do
-      {:ok, default_policy(remote_workspace_writable_roots(workspace_root))}
+      {:ok, policy_for_roots(remote_workspace_writable_roots(workspace_root))}
     else
       with expanded_workspace_root <- expand_local_workspace_root(workspace_root),
            {:ok, canonical_workspace_root} <- PathSafety.canonicalize(expanded_workspace_root) do
-        {:ok, default_policy(local_workspace_writable_roots(canonical_workspace_root))}
+        {:ok, policy_for_roots(local_workspace_writable_roots(canonical_workspace_root))}
       end
     end
   end
