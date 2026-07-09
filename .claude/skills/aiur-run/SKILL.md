@@ -36,9 +36,10 @@ same aiur background-run playbook.
    stop a stale one first: `aiurdev stop`.
 4. **Set concurrency in `.aiur/config`** (no `--max-agents` flag yet — see #449):
    - `agent.max_concurrent_agents` — the ceiling (operator default ≤ 10).
-   - `pre_warmed_sessions` — **set equal to the target** until #376 lands: it currently
-     hard-caps live agents at the warm-pool size (the cold-slot path can't spawn). 10 agents
-     ⇒ both = 10. This pre-spawns N opencode serves at boot, so it's also the main FD/CPU dial.
+   - `pre_warmed_sessions` — the warm-pool / first-open latency dial. It controls how many
+     opencode serves boot eagerly at startup, not how many agents can run. Keep it at the
+     number of instant-open chat panes you actually want; cold slots grow on demand up to the
+     larger of the pane-grid capacity and `agent.max_concurrent_agents`.
    - Never `aiurdev init --force` — it clobbers `.aiur/config`.
 5. **Backlog ready** — `gh issue list --label agent:todo --state open` should be non-empty.
 
@@ -120,7 +121,6 @@ issues found as `agent:todo` (preferred) or self-fix via the CE loop when not ag
 
 ## Known issues to watch
 
-- **#376** — `pre_warmed_sessions` hard-caps concurrent agents; raise it to the target until fixed.
 - **#409** — OS-process/FD footprint / `:emfile` at high concurrency. Keep concurrency in check.
 - **#438** — control rpc masks real errors as "no running node." Verify with `status`.
 - **#449** — `--bg` boots UI-only work (panes, dashboard, chat backfill) and lacks a

@@ -273,63 +273,7 @@ defmodule Aiur.Codex.EventHumanizer do
       map_path(payload, [:params, :name])
   end
 
-  defp format_usage_counts(usage) when is_map(usage) do
-    input =
-      parse_integer(
-        map_value(usage, [
-          "input_tokens",
-          :input_tokens,
-          "prompt_tokens",
-          :prompt_tokens,
-          "inputTokens",
-          :inputTokens,
-          "promptTokens",
-          :promptTokens
-        ])
-      )
-
-    output =
-      parse_integer(
-        map_value(usage, [
-          "output_tokens",
-          :output_tokens,
-          "completion_tokens",
-          :completion_tokens,
-          "outputTokens",
-          :outputTokens,
-          "completionTokens",
-          :completionTokens
-        ])
-      )
-
-    total =
-      parse_integer(
-        map_value(usage, [
-          "total_tokens",
-          :total_tokens,
-          "total",
-          :total,
-          "totalTokens",
-          :totalTokens
-        ])
-      )
-
-    parts =
-      []
-      |> append_usage_part("in", input)
-      |> append_usage_part("out", output)
-      |> append_usage_part("total", total)
-
-    case parts do
-      [] -> nil
-      _ -> Enum.join(parts, ", ")
-    end
-  end
-
-  defp format_usage_counts(_usage), do: nil
-
-  defp append_usage_part(parts, _label, value) when not is_integer(value), do: parts
-  defp append_usage_part(parts, label, value), do: parts ++ ["#{label} #{format_count(value)}"]
+  defp format_usage_counts(usage), do: Aiur.TokenUsage.format_counts(usage)
 
   defp format_rate_limits_summary(nil), do: "n/a"
 

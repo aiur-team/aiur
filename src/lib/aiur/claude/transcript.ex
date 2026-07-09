@@ -26,6 +26,8 @@ defmodule Aiur.Claude.Transcript do
   Dispatched via `Aiur.CodingAgent.transcript_module/0`.
   """
 
+  alias Aiur.Protocol.MapAccess
+
   alias Aiur.AgentEvents
 
   @edit_tools ~w(Edit Write MultiEdit NotebookEdit)
@@ -365,43 +367,20 @@ defmodule Aiur.Claude.Transcript do
   defp stringify(_value), do: ""
 
   defp notification_method(message) do
-    case get(message, :payload) do
-      payload when is_map(payload) -> get(payload, :method)
-      _ -> nil
-    end
+    MapAccess.notification_method(message)
   end
 
   defp notification_item(message) do
-    with payload when is_map(payload) <- get(message, :payload),
-         params when is_map(params) <- get(payload, :params) do
-      get(params, :item)
-    else
-      _ -> nil
-    end
+    MapAccess.notification_item(message)
   end
 
   defp claude_turn_id(message) do
-    with payload when is_map(payload) <- get(message, :payload),
-         params when is_map(params) <- get(payload, :params),
-         id when is_binary(id) and id != "" <- get(params, :turn_id) do
-      id
-    else
-      _ -> nil
-    end
+    MapAccess.params_turn_id(message, :turn_id)
   end
 
   defp timestamp_for(message) do
-    case Map.get(message, :timestamp) || Map.get(message, "timestamp") do
-      %DateTime{} = ts -> ts
-      _ -> DateTime.utc_now()
-    end
+    MapAccess.message_timestamp(message)
   end
 
-  # Tolerate both atom- and binary-keyed maps. Claude notifications arrive
-  # as string-keyed JSON; internal aiur messages stay atom-keyed.
-  defp get(map, key) when is_map(map) and is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp get(_map, _key), do: nil
+  defp get(map, key), do: MapAccess.get(map, key)
 end

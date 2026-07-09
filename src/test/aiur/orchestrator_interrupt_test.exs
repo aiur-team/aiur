@@ -104,16 +104,18 @@ defmodule Aiur.OrchestratorInterruptTest do
       # turn registers in ActiveTurns; a press while a turn is active must
       # return :send_interrupt so the bridge forwards Esc, and Aiur must leave
       # the agent :working (no optimistic pause flip).
-      entry = running_entry("codex-1")
-      ActiveTurns.put("codex-1", "turn-1")
-      on_exit(fn -> ActiveTurns.mark_closed("codex-1", "turn-1", :test_cleanup) end)
+      identifier = "codex-#{System.unique_integer([:positive])}"
+      turn_id = "turn-#{System.unique_integer([:positive])}"
+      entry = running_entry(identifier)
+      ActiveTurns.put(identifier, turn_id)
+      on_exit(fn -> ActiveTurns.mark_closed(identifier, turn_id, :test_cleanup) end)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: %{"codex-1" => entry}}
+        %{state | running: %{identifier => entry}}
       end)
 
-      assert {:ok, :send_interrupt} = Orchestrator.pane_interrupt("codex-1")
-      assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :working
+      assert {:ok, :send_interrupt} = Orchestrator.pane_interrupt(identifier)
+      assert get_in(:sys.get_state(pid).running, [identifier, :control, :status]) == :working
     end
 
     test "paused REPL agent closes its pane", %{orchestrator: pid} do
