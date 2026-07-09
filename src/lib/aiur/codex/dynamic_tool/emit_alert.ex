@@ -81,9 +81,6 @@ defmodule Aiur.Codex.DynamicTool.EmitAlert do
     else
       {:error, reason} ->
         Response.failure(Errors.payload(reason))
-
-      false ->
-        Response.failure(Errors.payload(:alert_emitter_unavailable))
     end
   end
 

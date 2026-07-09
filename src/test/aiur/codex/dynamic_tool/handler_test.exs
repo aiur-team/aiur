@@ -15,7 +15,7 @@ defmodule Aiur.Codex.DynamicTool.HandlerTest do
       test "tools/0 returns a non-empty list of strings" do
         tools = unquote(mod).tools()
         assert is_list(tools)
-        assert length(tools) > 0
+        assert tools != []
         assert Enum.all?(tools, &is_binary/1)
       end
 
