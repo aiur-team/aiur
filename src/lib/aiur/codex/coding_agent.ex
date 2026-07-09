@@ -10,7 +10,6 @@ defmodule Aiur.Codex.CodingAgent do
   alias Aiur.Codex.{
     AppServerPort,
     EventNormalizer,
-    Frames,
     Handshake,
     Interrupts,
     OperatorDelivery,
@@ -144,36 +143,4 @@ defmodule Aiur.Codex.CodingAgent do
   rescue
     ArgumentError -> {:error, :port_closed}
   end
-
-  @doc false
-  @spec resume_outcome({:ok, String.t()} | {:error, term()}, String.t()) ::
-          {:resumed, String.t()} | {:fresh, String.t()} | {:fallback, term()}
-  def resume_outcome(response, resume_thread_id), do: Handshake.resume_outcome(response, resume_thread_id)
-  @doc false
-  @spec codex_command_for_test(String.t() | nil, String.t() | nil) :: String.t()
-  def codex_command_for_test(model, effort \\ nil), do: AppServerPort.codex_command_for_test(model, effort)
-  @doc false
-  @spec thread_init_frame_for_test(String.t() | nil, Path.t(), map()) :: map()
-  def thread_init_frame_for_test(resume_thread_id, workspace, session_policies) do
-    Frames.thread_init_frame(resume_thread_id, workspace, session_policies)
-  end
-
-  @doc false
-  @spec send_thread_init_for_test(port(), map()) :: {:ok, String.t()} | {:error, term()}
-  def send_thread_init_for_test(port, frame), do: Handshake.send_thread_init(port, frame)
-
-  @doc false
-  @spec await_startup_response_for_test(port(), integer(), pos_integer()) :: {:ok, map()} | {:error, term()}
-  def await_startup_response_for_test(port, request_id, read_timeout_ms) do
-    function = String.to_atom("with_timeout_" <> "response")
-    apply(Rpc, function, [port, request_id, Aiur.Codex.Rpc.startup_response_timeout_ms(read_timeout_ms), "", "Codex"])
-  end
-
-  @doc false
-  @spec startup_response_timeout_ms_for_test(pos_integer()) :: pos_integer()
-  def startup_response_timeout_ms_for_test(read_timeout_ms), do: Aiur.Codex.Rpc.startup_response_timeout_ms(read_timeout_ms)
-
-  @doc false
-  @spec parse_thread_response_for_test({:ok, map()} | {:error, term()}) :: {:ok, String.t()} | {:error, term()}
-  def parse_thread_response_for_test(response), do: Handshake.parse_thread_response(response)
 end

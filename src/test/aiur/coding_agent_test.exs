@@ -2,6 +2,7 @@ defmodule Aiur.CodingAgentTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
+  alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.CodingAgent, as: CodexAgent
   alias Aiur.Codex.Config, as: CodexConfig
   alias Aiur.Codex.NotificationPolicy
@@ -328,17 +329,17 @@ defmodule Aiur.CodingAgentTest do
 
   describe "codex_command/2 model and effort splice" do
     test "nil model leaves the configured command unchanged" do
-      assert CodexAgent.codex_command_for_test(nil) == CodexConfig.command()
+      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command()
     end
 
     test "a model variant is appended as a single-quoted --config token" do
-      command = CodexAgent.codex_command_for_test("gpt-5.5")
+      command = AppServerPort.codex_command_for_test("gpt-5.5")
       assert command == CodexConfig.command() <> " --config 'model=\"gpt-5.5\"'"
       assert String.ends_with?(command, "--config 'model=\"gpt-5.5\"'")
     end
 
     test "an effort override is appended after model so it beats command defaults" do
-      command = CodexAgent.codex_command_for_test("gpt-5.5", "high")
+      command = AppServerPort.codex_command_for_test("gpt-5.5", "high")
 
       assert command ==
                CodexConfig.command() <>
@@ -346,7 +347,7 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "config values are shell escaped as single arguments" do
-      command = CodexAgent.codex_command_for_test("gpt'5.5", "high")
+      command = AppServerPort.codex_command_for_test("gpt'5.5", "high")
 
       assert command ==
                CodexConfig.command() <>
