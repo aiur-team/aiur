@@ -1,0 +1,103 @@
+defmodule Aiur.AppServer.OperatorDeliveryTest do
+  use ExUnit.Case, async: true
+
+  alias Aiur.AppServer.OperatorDelivery
+
+  defmodule StubBackend do
+    def send_operator_message(session, message) do
+      send(session.parent, {:operator_message, message})
+      session.send_operator_result
+    end
+
+    def metadata_from_message(_port, _payload), do: %{backend: :stub}
+  end
+
+  test "noop checkpoint leaves state unchanged" do
+    state = state(%{on_safe_checkpoint: fn _ -> :noop end})
+    assert OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification}) == state
+  end
+
+  test "deliver_text sends operator message and registers pending request" do
+    state =
+      state(%{
+        on_safe_checkpoint: fn _ ->
+          {:deliver_text, "hello", fn _ -> :ok end, fn _ -> :ok end}
+        end
+      })
+
+    next_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification})
+
+    assert_receive {:operator_message, %{kind: :text, body: "hello"}}
+    assert Map.has_key?(next_state.pending_operator_requests, 99)
+  end
+
+  test "send failure invokes failure callback" do
+    parent = self()
+
+    state =
+      state(%{
+        on_safe_checkpoint: fn _ ->
+          {:deliver_text, "hello", fn _ -> :ok end, fn reason -> send(parent, {:failed, reason}) end}
+        end
+      })
+
+    session = session(%{send_operator_result: {:error, :port_closed}})
+
+    assert OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification}) == state
+    assert_receive {:failed, :port_closed}
+  end
+
+  test "unclaimed response emits other_message" do
+    parent = self()
+    state = state(%{on_message: fn message -> send(parent, {:message, message}) end})
+
+    assert {:continue, ^state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, %{"id" => 123}, "{}", 123)
+
+    assert_receive {:message, %{event: :other_message, backend: :stub}}
+  end
+
+  test "claimed turn-started response invokes success and increments outstanding turns" do
+    parent = self()
+
+    pending = %{
+      99 => %{
+        on_success: fn payload -> send(parent, {:success, payload.turn_id}) end,
+        on_failure: fn _ -> :ok end
+      }
+    }
+
+    state =
+      state(%{
+        pending_operator_requests: pending,
+        on_message: fn message -> send(parent, {:message, message}) end
+      })
+
+    payload = %{"result" => %{"turn" => %{"id" => "turn-2"}}}
+
+    assert {:continue, next_state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+
+    assert next_state.outstanding_turns == 2
+    assert next_state.pending_operator_requests == %{}
+    assert_receive {:success, "turn-2"}
+    assert_receive {:message, %{event: :operator_turn_started}}
+  end
+
+  defp session(overrides \\ %{}) do
+    Map.merge(%{port: self(), parent: self(), send_operator_result: {:ok, 99}}, overrides)
+  end
+
+  defp state(overrides) do
+    Map.merge(
+      %{
+        backend: StubBackend,
+        on_message: fn _ -> :ok end,
+        on_safe_checkpoint: fn _ -> :noop end,
+        pending_operator_requests: %{},
+        outstanding_turns: 1
+      },
+      overrides
+    )
+  end
+end

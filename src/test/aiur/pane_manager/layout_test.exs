@@ -1,7 +1,8 @@
 defmodule Aiur.PaneManager.LayoutTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.PaneManager.Layout
+  alias Aiur.{PaneManager.Layout, Tmux}
+  alias Aiur.PaneManager.State
 
   describe "checksum/1" do
     test "matches tmux's layout_checksum for a captured real layout" do
@@ -179,10 +180,83 @@ defmodule Aiur.PaneManager.LayoutTest do
     end
   end
 
+  describe "apply/1" do
+    test "queries window size and applies the built layout" do
+      tmux = start_tmux()
+
+      state = %State{
+        tmux: tmux,
+        agent_list_pane: "%1",
+        window_target: "test:0",
+        max_vertical_panes: 3,
+        slot_count: 5,
+        slot_panes: %{1 => "%10", 2 => nil, 3 => "%12", 4 => nil, 5 => nil},
+        orientation: :horizontal
+      }
+
+      task = Task.async(fn -> Layout.apply(state) end)
+
+      assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 1_000
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 5 0\n80x24\n%end 1 5 0\n"})
+
+      assert_receive {:tmux_mock_out, "select-layout -t test:0 " <> layout}, 1_000
+
+      assert layout ==
+               Layout.build(
+                 80,
+                 24,
+                 3,
+                 "%1",
+                 State.visible_panes_packed(state),
+                 :horizontal
+               )
+
+      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 6 0\n%end 1 6 0\n"})
+      assert Task.await(task, 1_000) == :ok
+    end
+
+    test "returns an error when window size query fails" do
+      tmux = start_tmux()
+
+      state = %State{
+        tmux: tmux,
+        agent_list_pane: "%1",
+        window_target: "test:0",
+        max_vertical_panes: 3,
+        slot_count: 5,
+        slot_panes: State.empty_slot_panes(5),
+        orientation: :horizontal
+      }
+
+      task = Task.async(fn -> Layout.apply(state) end)
+
+      assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 1_000
+
+      send(
+        GenServer.whereis(tmux),
+        {:tmux_mock_data, "%begin 1 5 0\nwindow missing\n%error 1 5 0\n"}
+      )
+
+      assert {:error, _reason} = Task.await(task, 1_000)
+    end
+  end
+
   defp hex4(n) do
     n
     |> Integer.to_string(16)
     |> String.downcase()
     |> String.pad_leading(4, "0")
+  end
+
+  defp start_tmux do
+    test_pid = self()
+    name = Module.concat(__MODULE__, :"Tmux#{System.unique_integer([:positive])}")
+
+    start_supervised!(
+      {Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]},
+      id: name
+    )
+
+    name
   end
 end

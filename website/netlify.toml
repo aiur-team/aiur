@@ -1,6 +1,6 @@
 [build]
   base = "website"
-  command = "bun install && bun run build"
+  command = "bun install && bun run build && cd docs-app && bun install && bun run build"
   publish = "dist"
 
 [build.environment]

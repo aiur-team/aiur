@@ -18,7 +18,7 @@ defmodule Aiur.Claude.ReplAgent do
   `claude` process is orphaned.
   """
 
-  @behaviour Aiur.CodingAgent
+  @behaviour Aiur.CodingAgent.Backend
 
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.HookTurn
@@ -111,6 +111,7 @@ defmodule Aiur.Claude.ReplAgent do
   defdelegate resume_session_id(opts, workspace), to: Command
 
   @spec normalize_event(map()) :: map()
+  @impl Aiur.CodingAgent.Backend
   def normalize_event(event) when is_map(event) do
     # Usage / rate-limit normalization is identical to the headless backend.
     Aiur.Claude.CodingAgent.normalize_event(event)
@@ -139,6 +140,7 @@ defmodule Aiur.Claude.ReplAgent do
   """
   @spec run_turn(session(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:paused, map()} | {:error, term()}
+  @impl Aiur.CodingAgent.Backend
   def run_turn(session, prompt, issue, opts \\ [])
 
   def run_turn(_session, prompt, _issue, _opts) when not is_binary(prompt),

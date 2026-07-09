@@ -152,4 +152,23 @@ defmodule Aiur.Events.SanitizerTest do
       assert %{author_trusted?: false} = Sanitizer.stamp_author_trust(payload)
     end
   end
+
+  describe "github_payload/2" do
+    test "applies stamp-scrub-trust-message in order" do
+      payload = %{comment: %{"body" => "hello ghp_" <> String.duplicate("a", 36)}}
+      sanitized = Sanitizer.github_payload(payload, "octocat")
+
+      assert sanitized.source == :github
+      assert sanitized.comment["body"] =~ "[REDACTED:ghp]"
+      assert sanitized.author_trusted? == false
+      assert sanitized.message == sanitized.comment["body"]
+    end
+
+    test "stamps author_trusted? false for nil actor" do
+      sanitized = Sanitizer.github_payload(%{}, nil)
+
+      assert sanitized.source == :github
+      assert sanitized.author_trusted? == false
+    end
+  end
 end
