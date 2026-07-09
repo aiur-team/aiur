@@ -260,10 +260,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   @doc false
+  @spec format_retry_preflight_error(term()) :: String.t()
   def format_retry_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason),
     do: GitHubClient.format_auth_preflight_error(reason)
 
-  @doc false
   def format_retry_preflight_error(reason), do: inspect(reason)
 
   defp handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
