@@ -136,18 +136,18 @@ defmodule Aiur.GitHub.Client do
   @spec classify_error({:error, term()} | map()) :: {:github, classification(), map()}
   def classify_error(error), do: Errors.classify_error(error)
 
-  @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  @spec fetch_candidate_issues(keyword()) :: {:ok, [Aiur.Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
     fetch_issues_by_states(Config.active_states(), opts)
   end
 
-  @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Aiur.Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names, opts \\ []) when is_list(state_names) do
     if state_names == [], do: {:ok, []}, else: do_fetch_issues_by_states(state_names, opts)
   end
 
   @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
-          {:ok, [Issue.t()]} | {:error, term()}
+          {:ok, [Aiur.Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []) when is_list(issue_ids) do
     if issue_ids == [], do: {:ok, []}, else: do_fetch_issue_states_by_ids(issue_ids, opts)
   end
