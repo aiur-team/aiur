@@ -5,6 +5,7 @@ defmodule Aiur.Config do
   """
 
   alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
 
   @default_prompt_template """
@@ -62,7 +63,7 @@ defmodule Aiur.Config do
 
     Map.get(
       config.agent.max_concurrent_agents_by_state,
-      Schema.normalize_issue_state(state_name),
+      AgentValidation.normalize_issue_state(state_name),
       config.agent.max_concurrent_agents
     )
   end
